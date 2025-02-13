@@ -1,4 +1,10 @@
-# Formal Verification of Asterinas with Verus
+# Formal Verification of Asterinas OSTD with Verus
+
+The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which requires using `unsafe` Rust—into a small yet powerful set of high-level, safe abstractions. These abstractions enable the creation of complex, general-purpose OSes lik [Asterinas](https://github.com/asterinas/asterinas) entirely in safe Rust.
+
+By design, OSTD guarantees _soundness_: no undefined behavior is possible, regardless of how its API is used in safe Rust. The goal of the `vostd` project is to bolster confidence in this soundness through formal verification, leveraging the [Verus](https://github.com/verus-lang/verus) verification tool.
+
+This work is ongoing. Our current focus is on verifying OSTD’s _memory management subsystem_, a core component that is directly related to kernel memory safety. As we continue, we aim to extend formal verification to additional parts of OSTD to further ensure its reliability and correctness.
 
 ## Building the Proof Development
 
