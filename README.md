@@ -74,7 +74,9 @@ with ``make fvt10`` or ``make fvt11``
 
 ## The verification targets
 
-This repository contains two verification targets. ``fvt10-pt-cursor-navigation``
+Currently, this repository contains two verification targets. 
+
+Target ``fvt10-pt-cursor-navigation``
 verifies the behavior of the cursor methods ``push_level``, ``pop_level``, and ``move_forward``.
 The specification for these functions are defined in ``src/page_table/cursor/model.rs``, along with
 the ``ConcreteCursor`` type that contains an abstract instance of a page table, represented as a tree,
@@ -83,3 +85,5 @@ end of the path. The functions themselves, and their verification, are found in 
 
 Target ``fvt11-pt-guards`` extends the previous target's specification with a system of locks. Take a look at
 ``src/page_table/cursor/mod.rs`` and note that the proofs are much more complex, requiring multiple assertions and lemmas.
+
+We will release the code for more verification targets.
