@@ -6,6 +6,7 @@ VERIFICATION_TARGETS := \
 	fvt3-page-acquisition-safety \
 	fvt4-into-from-raw \
 	fvt5-lifecycle-safety \
+	fvt6-vmreader-and-vmwriter \
 	fvt10-pt-cursor-navigation \
 	fvt11-pt-cursor-guards
 

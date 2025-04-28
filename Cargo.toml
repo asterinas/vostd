@@ -1,18 +1,14 @@
 [workspace]
 members = [
-#    "basic",
     "vstd_extra",
     "aster_common",
     "fvt1-mem-region-init",
     "fvt3-page-acquisition-safety",
     "fvt4-into-from-raw",
     "fvt5-lifecycle-safety",
+    "fvt6-vmreader-and-vmwriter",
     "fvt10-pt-cursor-navigation",
     "fvt11-pt-cursor-guards",
 ]
-exclude = [
-    "xtask",
-    "tools/verus",
-    "tools/verus-analyzer",
-]
+exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
 resolver = "2"
