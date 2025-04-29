@@ -292,6 +292,8 @@ fn regions_split(
             0 <= j < regions_unusable.len() ==>
             regions_unusable[j].0.invariants(&regions_unusable[j].1@) &&
             regions_unusable[j].0.typ.is_unusable(),
+    decreases
+        regions.len()-i,
      {
         let r = &regions[i];
         match r.0.typ {
@@ -404,6 +406,8 @@ fn non_overlapping_regions_from_inner(
             forall|i: int, j: int| #![auto]
                 0 <= i < _i && 0 <= j < regions_src.len() ==>
                 regions_unusable[i].1@.is_separate(&regions_src[j].1@),
+        decreases
+            regions_unusable.len()-_i,
     {
         let mut _j = 0;
         while _j < regions_src.len()
@@ -427,6 +431,8 @@ fn non_overlapping_regions_from_inner(
                 forall|i: int, j: int| #![auto]
                     0 <= i < _i && 0 <= j < regions_dst.len() ==>
                     regions_unusable[i].1@.is_separate(&regions_dst[j].1@),
+            decreases
+                regions_src.len() - _j,
         {
             let (r_usable, s_usable) = regions_src[_j].0.gen_state();
             let mut res_vec = r_usable.truncate(s_usable, &regions_unusable[_i].0, &regions_unusable[_i].1);
@@ -456,6 +462,8 @@ fn non_overlapping_regions_from_inner(
                     forall|i: int, j: int| #![auto]
                         0 <= i < _i && 0 <= j < regions_dst.len() ==>
                         regions_unusable[i].1@.is_separate(&regions_dst[j].1@),
+                decreases
+                    res_vec.len(),
             {
                 let region = res_vec.pop().unwrap();
                 assert(region.1@.is_sub_region(&regions_src[_j as int].1@));

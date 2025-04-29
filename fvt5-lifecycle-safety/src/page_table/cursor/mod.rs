@@ -442,6 +442,7 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
                 cur_pt_addr % PAGE_SIZE_SPEC() == 0,
                 cur_pt_addr < MAX_PADDR_SPEC(),
                 s.get_page(cur_pt_addr).usage == PageUsage::PageTable,
+            decreases cursor.level,
         {
             let start_idx = pte_index(va.start, cursor.level);
             assert(start_idx < 512) by { admit() };

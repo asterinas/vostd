@@ -190,6 +190,7 @@ impl RawPageTableNode {
     }
 
     #[verifier::loop_isolation(false)]
+    #[verifier::exec_allows_no_decreases_clause]
     #[rustc_allow_incoherent_impl]
     pub fn lock(self, Tracked(s): Tracked<AbstractState>) -> (res: (
         PageTableNode,
