@@ -21,20 +21,20 @@ struct_with_invariants! {
         invariant on inner with (inst)
             forall |i: int| where (0 <= i < self.inner.len()) specifically (self.inner[i])
             is (b: bool, g: AtomicCpuSetSpec::cpu_set_inv) {
-            &&& g@.instance == inst@
-            &&& if !b { g@.key == Some(i as nat) } else { g@.key.is_None() }
+            &&& g.instance_id() == inst@.id()
+            &&& if !b { g.element() == Some(i as nat) } else { g.element().is_None() }
         }
     }
 }
 
 impl AtomicCpuSet {
     pub closed spec fn valid_token(&self, token: AtomicCpuSetSpec::cpu_set_inv) -> bool {
-        &&& token@.instance == self.inst@
+        token.instance_id() == self.inst@.id()
     }
 
     pub open spec fn token_val(&self, token: AtomicCpuSetSpec::cpu_set_inv, val: nat) -> bool {
         &&& self.valid_token(token)
-        &&& token@.key == Some(val)
+        &&& token.element() == Some(val)
     }
 
     pub fn new(cpu_set: CpuSet) -> (res: Self)
@@ -52,7 +52,7 @@ impl AtomicCpuSet {
             cpu_set_inv_tokens = cpu_set_inv_tokens0;
         }
         let tracked_inst = Tracked(inst.clone());
-        let tracked none_token = cpu_set_inv_tokens.tracked_remove(None);
+        let tracked none_token = cpu_set_inv_tokens.remove(None);
 
         let mut vec: Vec<
             AtomicBool<
@@ -67,7 +67,7 @@ impl AtomicCpuSet {
                 cpu_set.invariants(),
                 0 <= i <= CPU_NUM_SPEC(),
                 tracked_inst@ == inst,
-                none_token@.instance == inst,
+                none_token.instance_id() == inst.id(),
                 vec@.len() == i,
                 forall|j: int|
                     #![auto]
@@ -77,37 +77,28 @@ impl AtomicCpuSet {
                     },
                 forall|j: int|
                     #![trigger cpu_set.not_contains_spec(j as nat)]
-                    #![trigger cpu_set_inv_tokens.dom().contains(Some(j as nat))]
+                    #![trigger cpu_set_inv_tokens.contains(Some(j as nat))]
                     i <= j < CPU_NUM_SPEC() ==> {
-                        &&& cpu_set.not_contains_spec(j as nat)
-                            <==> cpu_set_inv_tokens.dom().contains(Some(j as nat))
-                        &&& cpu_set_inv_tokens.dom().contains(Some(j as nat)) ==> {
-                            cpu_set_inv_tokens.index(Some(j as nat))@.instance == inst
-                        }
+                        &&& cpu_set.not_contains_spec(j as nat) <==> cpu_set_inv_tokens.contains(
+                            Some(j as nat),
+                        )
+                        &&& cpu_set_inv_tokens.contains(Some(j as nat))
+                            ==> cpu_set_inv_tokens.instance_id() == inst.id()
                     },
         {
             let cpu = CpuId(i as u32);
             assert(i <= cpu@ < CPU_NUM_SPEC());
-            let b = if cpu_set.contains(cpu) {
-                true
-            } else {
-                false
-            };
+            let b = cpu_set.contains(cpu);
             let tracked token = if b {
                 let tracked res = none_token.clone();
-                assert(res =~= none_token);
-                // assert(res@.key.is_None());
-                assume(res@.key.is_None());
+                assume(res.element().is_None());
                 res
             } else {
                 assert(cpu_set.not_contains_spec(cpu@));
-                // assert(cpu_set_inv_tokens.dom().contains(Some(cpu@)));
-                assume(cpu_set_inv_tokens.dom().contains(Some(cpu@)));
-                // assert(cpu_set_inv_tokens.index(Some(cpu@))@.instance == inst);
-                assume(cpu_set_inv_tokens.index(Some(cpu@))@.instance == inst);
-                let tracked res = cpu_set_inv_tokens.tracked_remove(Some(cpu@));
-                // assert(res@.key == Some(cpu@));
-                assume(res@.key == Some(cpu@));
+                assume(cpu_set_inv_tokens.contains(Some(cpu@)));
+                assume(cpu_set_inv_tokens.instance_id() == inst.id());
+                let tracked res = cpu_set_inv_tokens.remove(Some(cpu@));
+                assume(res.element() == Some(cpu@));
                 res
             };
             let atomic = AtomicBool::new(Ghost((tracked_inst, i as int)), b, Tracked(token));
@@ -153,7 +144,7 @@ impl AtomicCpuSet {
             if !res.0 {
                 self.token_val(res.1@, cpu@)
             } else {
-                res.1@@.key.is_None()
+                res.1@.element().is_None()
             },
     {
         let ghost mut token;
@@ -172,7 +163,7 @@ impl AtomicCpuSet {
         ensures
             self.wf(),
             self.valid_token(res@),
-            self.token_val(res@, cpu@),
+            res@.element() == Some(cpu@),
     {
         let ghost mut res;
         atomic_with_ghost!(
