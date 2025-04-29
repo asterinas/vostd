@@ -62,6 +62,10 @@ impl PageTableTreeModel {
         &&& self.inner.inv()
         &&& forall|node: PageTableNodeModel| #[trigger] self.inner.on_tree(node@) ==> node@.inv()
     }
+
+    pub open spec fn root_paddr(&self) -> Paddr {
+        self.inner.root.value.paddr
+    }
 }
 
 } // verus!
