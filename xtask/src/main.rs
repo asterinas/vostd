@@ -998,6 +998,8 @@ fn exec_update(args: &UpdateArgs) -> Result<(), DynError> {
             verus_dir.display()
         );
         let repo = Repository::open(&verus_dir)?;
+        repo.find_remote("origin")?
+            .fetch(&[args.rust_version.clone()], None, None)?;
         let mut checkout_builder = CheckoutBuilder::new();
         checkout_builder.force();
         let obj = repo.revparse_single(&format!("origin/{}", args.rust_version))?;
