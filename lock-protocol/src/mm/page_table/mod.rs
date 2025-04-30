@@ -158,7 +158,7 @@ Sized {
     // /// the level 1 to 5 on AMD64 corresponds to Page Tables, Page Directory Tables,
     // /// Page Directory Pointer Tables, Page-Map Level-4 Table, and Page-Map Level-5
     // /// Table, respectively.
-    fn NR_LEVELS() -> PagingLevel;// /
+    fn NR_LEVELS() -> PagingLevel;  // /
     // The highest level that a PTE can be directly used to translate a VA.
     // /// This affects the the largest page size supported by the page table.
     // const HIGHEST_TRANSLATION_LEVEL: PagingLevel;
@@ -265,7 +265,7 @@ pub proof fn bits_of_base_page_size()
 }
 
 pub proof fn value_of_nr_subpage_per_huge()
-    ensures// nr_subpage_per_huge::<PagingConsts>() == 512,
+    ensures  // nr_subpage_per_huge::<PagingConsts>() == 512,
 // TODO
 
         nr_subpage_per_huge() == 512,

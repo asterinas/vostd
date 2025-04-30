@@ -218,7 +218,7 @@ impl<
         }
         if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
             return Err(PageTableError::UnalignedVaddr);
-        }// const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
+        }  // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
         // TODO
 
         let new_pt_is_tracked = if should_map_as_tracked::<M>(va.start) {
@@ -269,7 +269,7 @@ impl<
         if (taken.is_none()) {
             // panic!("Popping a level without a lock");
             // assert(false); // TODO
-        }// let _taken = taken.unwrap().into_raw_paddr();
+        }  // let _taken = taken.unwrap().into_raw_paddr();
         // TODO
 
         self.level = self.level + 1;
@@ -514,7 +514,7 @@ impl<
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
         while self.0.level
-            > frame.map_level() // || self.0.va % page_size::<C>(self.0.level) != 0
+            > frame.map_level()   // || self.0.va % page_size::<C>(self.0.level) != 0
         // TODO?
         // || self.0.va + page_size::<C>(self.0.level) > end // TODO?
 
