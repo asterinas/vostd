@@ -56,6 +56,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fvt13-vmspace-unmap-safety"
+version = "0.1.0"
+dependencies = [
+ "aster_common",
+ "vstd",
+ "vstd_extra",
+]
+
+[[package]]
 name = "fvt3-page-acquisition-safety"
 version = "0.1.0"
 dependencies = [

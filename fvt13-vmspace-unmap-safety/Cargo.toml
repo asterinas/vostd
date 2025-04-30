@@ -1,0 +1,11 @@
+[package]
+name = "fvt13-vmspace-unmap-safety"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vstd = { path = "../tools/verus/source/vstd" }
+vstd_extra = { path = "../vstd_extra" }
+aster_common = { path = "../aster_common" }

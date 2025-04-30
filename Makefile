@@ -8,7 +8,8 @@ VERIFICATION_TARGETS := \
 	fvt5-lifecycle-safety \
 	fvt6-vmreader-and-vmwriter \
 	fvt10-pt-cursor-navigation \
-	fvt11-pt-cursor-guards
+	fvt11-pt-cursor-guards \
+	fvt13-vmspace-unmap-safety
 
 # Compile-only targets
 COMPILE_TARGETS := vstd_extra aster_common
