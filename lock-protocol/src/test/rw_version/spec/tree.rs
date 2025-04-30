@@ -38,9 +38,9 @@ pub open spec fn rc_equal(
     cursors: Set<CursorState>,
 ) -> bool
     recommends cursors.finite(),
-    decreases cursors.len(),
+    decreases cursors.len(), when cursors.finite()
 {
-    if (cursors.finite()) {
+    //if (cursors.finite()) {
         if rc == 0 && cursors.len() == 0 { true }
         else if cursors.len() == 0 { false }
         else {
@@ -62,7 +62,7 @@ pub open spec fn rc_equal(
                 )
             }
         }
-    } else { arbitrary() }
+    //} else { arbitrary() }
 }
 
 #[invariant]
@@ -91,6 +91,8 @@ pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
 
 #[invariant]
 pub fn inv_cursors(&self) -> bool {
+    &&& self.cursors.dom().finite()
+    &&& self.cursors.values().finite()
     &&& forall |cpu: CpuId| #![auto]
         self.cursors.dom().contains(cpu) <==> valid_cpu(self.cpu_num, cpu)
 
@@ -143,10 +145,11 @@ init!{
             |nid| NodeHelper::valid_nid(nid),
             |nid| 0,
         );
-        init cursors = Map::new(
-            |cpu| valid_cpu(cpu_num, cpu),
-            |cpu| CursorState::Void,
-        );
+        init cursors = Seq::new(cpu_num, |cpu:int| cpu as nat).to_set().mk_map(|cpu| CursorState::Void);
+        //init cursors = Map::new(
+        //    |cpu| valid_cpu(cpu_num, cpu),
+        //    |cpu| CursorState::Void,
+        //);
     }
 }
 

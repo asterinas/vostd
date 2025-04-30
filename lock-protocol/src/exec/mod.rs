@@ -36,7 +36,8 @@ pub const SIZEOF_PAGETABLEENTRY: usize = 24;
 global layout SimplePageTableEntry is size == 24, align == 8;
 
 pub const SIZEOF_FRAME: usize = 24 * 512;
-  // 8 bytes for pa + 8 bytes for each pte
+
+// 8 bytes for pa + 8 bytes for each pte
 global layout SimpleFrame is size == 12288, align == 8;
 
 pub const MAX_FRAME_NUM: usize = 10000;
