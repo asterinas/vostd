@@ -57,6 +57,11 @@ cargo xtask bootstrap --no-vscode-extension
 
 `Verus` and `verus-analyzer` should be automatically cloned and built in the `tools` directory. If download fails, please clone these two repos manually at `tools/verus` and `tools/verus-analyzer`, then run `cargo xtask bootstrap` again.
 
+#### Update Verus
+```bash
+cargo xtask update
+```
+
 #### Build Verification Targets 
 
 Then, run ``make`` to build the common libraries and all verification targets.

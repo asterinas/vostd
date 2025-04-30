@@ -186,6 +186,7 @@ impl<T> SpinLock<T> {
         }
     }
 
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn lock(&self) -> (res: Tracked<SpinLockGuard<T, PreemptDisabled>>)
         requires
             self.wf(),

@@ -90,6 +90,7 @@ impl DeferPagesArray {
                         !all_cpu_sets[pages_ghost.len() - i - 1].is_empty_spec()
                             ==> new_pages@.contains(pages_ghost[i])
                     },
+            decreases pages.len(),
         {
             assert(pages@.len() > 0);
             let _len = pages.len();
@@ -184,6 +185,7 @@ impl DeferPagesArray {
                 inserted == defers_len,
                 defers@.len() == 0,
                 defers@ =~= Seq::empty(),
+            decreases defers.len(),
         {
             assert(defers@.len() > 0);
             let _len = defers.len();
