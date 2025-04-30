@@ -9,6 +9,7 @@ members = [
     "fvt6-vmreader-and-vmwriter",
     "fvt10-pt-cursor-navigation",
     "fvt11-pt-cursor-guards",
+    "lock-protocol",
 ]
 exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
 resolver = "2"
