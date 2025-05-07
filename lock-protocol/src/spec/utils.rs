@@ -391,7 +391,9 @@ impl NodeHelper {
                 assert(cur_rt < nid < cur_rt + Self::tree_size_spec(cur_level as int));
                 assert(0 <= nid - cur_rt - 1 < Self::tree_size_spec(cur_level as int) - 1);
                 assert(nid - cur_rt - 1 < sz * 512);
-                assert(offset * sz <= nid - cur_rt - 1) by { admit() };
+                assert(offset * sz <= nid - cur_rt - 1) by {
+                    lemma_fundamental_div_mod(nid - cur_rt - 1, sz as int);
+                };
                 assert(offset < 512) by {
                     lemma_div_by_multiple_is_strongly_ordered(
                         offset * sz as int,
@@ -406,10 +408,14 @@ impl NodeHelper {
 
             let new_rt = cur_rt + offset * sz + 1;
             assert(new_rt <= nid) by {
-                assert(offset * sz <= nid - cur_rt - 1) by { admit() };
+                assert(offset * sz <= nid - cur_rt - 1) by {
+                    lemma_remainder_lower(nid - cur_rt - 1, sz as int);
+                };
             };
             assert(nid < new_rt + sz) by {
-                assert(nid - cur_rt - 1 < offset * sz + sz) by { admit() };
+                assert(nid - cur_rt - 1 < offset * sz + sz) by {
+                    lemma_remainder(nid - cur_rt - 1, sz as int);
+                };
             };
 
             if new_rt == nid {
@@ -469,7 +475,7 @@ impl NodeHelper {
             cur_rt
         } else {
             let new_trace = trace.subrange(1, trace.len() as int);
-            assert(new_trace.len() == trace.len() - 1) by { admit() };
+            assert(new_trace.len() == trace.len() - 1);
 
             let new_rt = cur_rt + trace[0] * Self::tree_size_spec(cur_level - 1) + 1;
             assert({
@@ -510,13 +516,25 @@ impl NodeHelper {
             let sz = Self::tree_size_spec(cur_level - 1);
             assert(new_rt <= nid < new_rt + sz);
             assert(cur_rt + trace[0] * sz + 1 <= nid < cur_rt + trace[0] * sz + sz + 1);
-            assert(cur_rt <= nid < cur_rt + Self::tree_size_spec(cur_level)) by {
+            assert(cur_rt <= nid);
+            // first, we still know from earlier that nid < new_rt + sz
+            assert(nid < new_rt + sz);
+            // then prove that new_rt + sz <= cur_rt + tree_size_spec(cur_level)
+            assert(new_rt + sz <= cur_rt + Self::tree_size_spec(cur_level)) by {
+                // tree_size_spec(cur_level) = 512*sz + 1
+                assert(Self::tree_size_spec(cur_level) == Self::tree_size_spec(cur_level - 1) * 512
+                    + 1) by { Self::lemma_tree_size_spec() };
+
+                // need: trace[0]*sz + sz <= 512*sz
                 assert(trace[0] < 512);
                 assert(trace[0] * sz + sz <= 512 * sz) by {
                     lemma_mul_is_distributive_add_other_way(sz as int, trace[0] as int, 1);
                     lemma_mul_inequality((trace[0] + 1) as int, 512, sz as int);
                 };
             };
+
+            // now re‑combine for the final bound
+            assert(nid < cur_rt + Self::tree_size_spec(cur_level));
 
             let offset = ((nid - cur_rt - 1) / sz as int) as nat;
             assert(trace[0] == offset) by {

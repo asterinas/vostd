@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := all
+.PHONY: lock-protocol
 
 # List of verification targets
 VERIFICATION_TARGETS := \
@@ -16,6 +17,9 @@ COMPILE_TARGETS := vstd_extra aster_common
 # Pattern rule for individual FVT targets
 fvt%:
 	cargo xtask verify --targets $(filter fvt$*-%, $(VERIFICATION_TARGETS))
+
+lock-protocol:
+	cargo xtask verify --targets lock-protocol
 
 fmt:
 	cargo xtask fmt

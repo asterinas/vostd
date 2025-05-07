@@ -654,12 +654,12 @@ pub open spec fn frame_index_to_addr_spec(index: usize) -> usize {
 
 #[verifier::when_used_as_spec(frame_index_to_addr_spec)]
 pub fn frame_index_to_addr(index: usize) -> (res: usize)
+    requires
+        (PHYSICAL_BASE_ADDRESS_SPEC() + index * SIZEOF_FRAME) < usize::MAX,
     ensures
         res == frame_index_to_addr_spec(index),
 {
-    assert((PHYSICAL_BASE_ADDRESS_SPEC() + index * SIZEOF_FRAME) < usize::MAX) by {
-        admit();
-    }  // TODO
+    assert((PHYSICAL_BASE_ADDRESS_SPEC() + index * SIZEOF_FRAME) < usize::MAX);
     (PHYSICAL_BASE_ADDRESS() + index * SIZEOF_FRAME) as usize
 }
 
@@ -670,12 +670,11 @@ pub open spec fn frame_addr_to_index_spec(addr: usize) -> usize {
 
 #[verifier::when_used_as_spec(frame_addr_to_index_spec)]
 pub fn frame_addr_to_index(addr: usize) -> (res: usize)
+    requires
+        addr >= PHYSICAL_BASE_ADDRESS(),
     ensures
         res == frame_addr_to_index_spec(addr),
 {
-    assert((addr - PHYSICAL_BASE_ADDRESS()) >= 0) by {
-        admit();
-    }  // TODO
     ((addr - PHYSICAL_BASE_ADDRESS()) / SIZEOF_FRAME) as usize
 }
 
