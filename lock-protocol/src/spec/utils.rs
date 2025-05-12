@@ -391,9 +391,6 @@ impl NodeHelper {
                 assert(cur_rt < nid < cur_rt + Self::tree_size_spec(cur_level as int));
                 assert(0 <= nid - cur_rt - 1 < Self::tree_size_spec(cur_level as int) - 1);
                 assert(nid - cur_rt - 1 < sz * 512);
-                assert(offset * sz <= nid - cur_rt - 1) by {
-                    lemma_fundamental_div_mod(nid - cur_rt - 1, sz as int);
-                };
                 assert(offset < 512) by {
                     lemma_div_by_multiple_is_strongly_ordered(
                         offset * sz as int,
