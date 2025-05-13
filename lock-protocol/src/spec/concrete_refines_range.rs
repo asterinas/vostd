@@ -133,7 +133,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             );
             assert(_nodes.submap_of(pre.nodes));
             assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
-                pre.nodes[_nid].is_Empty()
+                pre.nodes[_nid] is Empty
             } by {
                 assert(_nodes.dom().contains(_nid));
                 assert(pre.nodes.dom().contains(_nid));
@@ -144,12 +144,12 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             assert forall |i| nid <= i < NodeHelper::next_outside_subtree(nid) implies {
                 interp(pre).slots[i].is_Empty()
             } by {
-                assert(pre.nodes[i].is_Empty()) by {
+                assert(pre.nodes[i] is Empty) by {
                     assert(NodeHelper::in_subtree(nid, i));
                 };
             };
             assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
-                post.nodes[_nid].is_EmptyLocked()
+                post.nodes[_nid] is EmptyLocked
             );
             let _slots = Map::new(
                 |i| nid <= i < NodeHelper::next_outside_subtree(nid),
@@ -205,7 +205,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             );
             assert(_nodes.submap_of(pre.nodes));
             assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
-                pre.nodes[_nid].is_EmptyLocked()
+                pre.nodes[_nid] is EmptyLocked
             } by {
                 assert(_nodes.dom().contains(_nid));
                 assert(pre.nodes.dom().contains(_nid));
@@ -214,14 +214,14 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 nid <= _nid < NodeHelper::next_outside_subtree(nid)
             );
             assert forall |i| nid <= i < NodeHelper::next_outside_subtree(nid) implies {
-                interp(pre).slots[i].is_EmptyLocked()
+                interp(pre).slots[i] is EmptyLocked
             } by {
-                assert(pre.nodes[i].is_EmptyLocked()) by {
+                assert(pre.nodes[i] is EmptyLocked) by {
                     assert(NodeHelper::in_subtree(nid, i));
                 };
             };
             assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
-                post.nodes[_nid].is_Empty()
+                post.nodes[_nid] is Empty
             );
             let _slots = Map::new(
                 |i| nid <= i < NodeHelper::next_outside_subtree(nid),

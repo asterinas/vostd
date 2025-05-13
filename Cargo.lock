@@ -116,6 +116,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lock-protocol"
+version = "0.1.0"
+dependencies = [
+ "vstd",
+]
+
+[[package]]
 name = "num-derive"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -40,7 +40,6 @@ pub open spec fn rc_equal(
     recommends cursors.finite(),
     decreases cursors.len(), when cursors.finite()
 {
-    //if (cursors.finite()) {
         if rc == 0 && cursors.len() == 0 { true }
         else if cursors.len() == 0 { false }
         else {
@@ -62,7 +61,6 @@ pub open spec fn rc_equal(
                 )
             }
         }
-    //} else { arbitrary() }
 }
 
 #[invariant]

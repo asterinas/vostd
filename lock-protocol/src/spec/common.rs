@@ -31,7 +31,6 @@ pub open spec fn valid_pte_offset(offset: nat) -> bool {
 } // verus!
 verus! {
 
-#[is_variant]
 pub enum NodeState {
     Empty,
     EmptyLocked,
@@ -40,7 +39,6 @@ pub enum NodeState {
     LockedOutside,
 }
 
-#[is_variant]
 pub enum CursorState {
     Empty,
     Creating(NodeId, NodeId, NodeId),

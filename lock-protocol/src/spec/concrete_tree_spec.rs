@@ -49,7 +49,7 @@ pub fn inv_cursors(&self) -> bool {
 }
 
 pub open spec fn is_locked(&self, st: NodeId, en: NodeId) -> bool {
-    forall |nid| st <= nid < en ==> (self.nodes[nid].is_EmptyLocked() || self.nodes[nid].is_Locked())
+    forall |nid| st <= nid < en ==> (self.nodes[nid] is EmptyLocked || self.nodes[nid] is Locked)
 }
 
 #[invariant]
@@ -247,16 +247,16 @@ fn node_acquire_outside_cursor_inductive(pre: Self, post: Self, nid: NodeId) {
         }
     } by {
         assert(pre.cursors[cpu] =~= post.cursors[cpu]);
-        if !pre.cursors[cpu].is_Empty() {
+        if pre.cursors[cpu] !is Empty {
             let (st, en) = pre.cursors[cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 if _nid != nid {
                     assert(post.nodes[_nid] =~= pre.nodes[_nid]);
                 } else {
-                    assert(post.nodes[nid].is_LockedOutside());
+                    assert(post.nodes[nid] is LockedOutside);
                 }
             };
         }
@@ -274,16 +274,16 @@ fn node_release_outside_cursor_inductive(pre: Self, post: Self, nid: NodeId) {
         }
     } by {
         assert(pre.cursors[cpu] =~= post.cursors[cpu]);
-        if !pre.cursors[cpu].is_Empty() {
+        if pre.cursors[cpu] !is Empty {
             let (st, en) = pre.cursors[cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 if _nid != nid {
                     assert(post.nodes[_nid] =~= pre.nodes[_nid]);
                 } else {
-                    assert(post.nodes[nid].is_Free());
+                    assert(post.nodes[nid] is Free);
                 }
             };
         }
@@ -302,10 +302,10 @@ fn node_create_in_cursor_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeI
     } by {
         assert(pre.cursors[_cpu] =~= post.cursors[_cpu]);
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        if !pre.cursors[_cpu].is_Empty() {
+        if pre.cursors[_cpu] !is Empty {
             let (st, en) = pre.cursors[_cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -313,13 +313,13 @@ fn node_create_in_cursor_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeI
         }
     };
 
-    assert(post.cursors[cpu].is_Hold());
-    let st = post.cursors[cpu].get_Hold_0();
-    let en = post.cursors[cpu].get_Hold_1();
+    assert(post.cursors[cpu] is Hold);
+    let st = post.cursors[cpu]->Hold_0;
+    let en = post.cursors[cpu]->Hold_1;
     assert forall |_nid| st <= _nid < en implies {
-        post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+        post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
     } by {
-        if _nid == nid { assert(post.nodes[nid].is_Locked()); }
+        if _nid == nid { assert(post.nodes[nid] is Locked); }
         else {
             assert(NodeHelper::valid_nid(_nid));
             assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -338,16 +338,16 @@ fn node_create_outside_cursor_inductive(pre: Self, post: Self, nid: NodeId) {
         }
     } by {
         assert(pre.cursors[cpu] =~= post.cursors[cpu]);
-        if !pre.cursors[cpu].is_Empty() {
+        if pre.cursors[cpu] !is Empty {
             let (st, en) = pre.cursors[cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 if _nid != nid {
                     assert(post.nodes[_nid] =~= pre.nodes[_nid]);
                 } else {
-                    assert(post.nodes[nid].is_Locked());
+                    assert(post.nodes[nid] is Locked);
                 }
             };
         }
@@ -356,10 +356,10 @@ fn node_create_outside_cursor_inductive(pre: Self, post: Self, nid: NodeId) {
 
 #[inductive(cursor_create_start)]
 fn cursor_create_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    assert(post.cursors[cpu].is_Creating());
-    let st = post.cursors[cpu].get_Creating_0();
-    let en = post.cursors[cpu].get_Creating_1();
-    let cur_nid = post.cursors[cpu].get_Creating_2();
+    assert(post.cursors[cpu] is Creating);
+    let st = post.cursors[cpu]->Creating_0;
+    let en = post.cursors[cpu]->Creating_1;
+    let cur_nid = post.cursors[cpu]->Creating_2;
     assert(st == cur_nid);
     assert(en == st + NodeHelper::sub_tree_size(st));
     assert(en <= NodeHelper::total_size()) by {
@@ -371,7 +371,7 @@ fn cursor_create_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
 
 #[inductive(node_acquire)]
 fn node_acquire_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    assert(pre.nodes[nid].is_Free());
+    assert(pre.nodes[nid] is Free);
     assert forall |_cpu| _cpu != cpu && #[trigger] post.cursors.contains_key(_cpu) implies {
         post.cursors[cpu].no_overlap(&post.cursors[_cpu])
     } by {
@@ -395,10 +395,10 @@ fn node_acquire_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     } by {
         assert(pre.cursors[_cpu] =~= post.cursors[_cpu]);
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        if !pre.cursors[_cpu].is_Empty() {
+        if pre.cursors[_cpu] !is Empty {
             let (st, en) = pre.cursors[_cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -406,13 +406,13 @@ fn node_acquire_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         }
     };
 
-    assert(post.cursors[cpu].is_Creating());
-    let st = post.cursors[cpu].get_Creating_0();
-    let en = post.cursors[cpu].get_Creating_2();
+    assert(post.cursors[cpu] is Creating);
+    let st = post.cursors[cpu]->Creating_0;
+    let en = post.cursors[cpu]->Creating_2;
     assert forall |_nid| st <= _nid < en implies {
-        post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+        post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
     } by {
-        if _nid == nid { assert(post.nodes[nid].is_Locked()); }
+        if _nid == nid { assert(post.nodes[nid] is Locked); }
         else {
             assert(NodeHelper::valid_nid(_nid));
             assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -428,21 +428,21 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     );
     assert(_nodes.submap_of(pre.nodes));
     assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
-        pre.nodes[_nid].is_Empty()
+        pre.nodes[_nid] is Empty
     } by {
         assert(_nodes.dom().contains(_nid));
         assert(pre.nodes.dom().contains(_nid));
     };
     assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
-        post.nodes[_nid].is_EmptyLocked()
+        post.nodes[_nid] is EmptyLocked
     );
     assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
         nid <= _nid < NodeHelper::next_outside_subtree(nid)
     );
-    assert(post.cursors[cpu].is_Creating());
-    let st = post.cursors[cpu].get_Creating_0();
-    let en = post.cursors[cpu].get_Creating_1();
-    let cur_nid = post.cursors[cpu].get_Creating_2();
+    assert(post.cursors[cpu] is Creating);
+    let st = post.cursors[cpu]->Creating_0;
+    let en = post.cursors[cpu]->Creating_1;
+    let cur_nid = post.cursors[cpu]->Creating_2;
     assert(cur_nid <= en) by {
         assert(en == NodeHelper::next_outside_subtree(st));
         assert(cur_nid == NodeHelper::next_outside_subtree(nid));
@@ -460,7 +460,7 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 },
             }
         } by {
-            assert(pre.nodes[_nid].is_Empty());
+            assert(pre.nodes[_nid] is Empty);
             assert(pre.cursors[_cpu].node_is_not_held(_nid));
         };
         match post.cursors[_cpu] {
@@ -496,10 +496,10 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     } by {
         assert(pre.cursors[_cpu] =~= post.cursors[_cpu]);
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        if !pre.cursors[_cpu].is_Empty() {
+        if pre.cursors[_cpu] !is Empty {
             let (st, en) = pre.cursors[_cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -507,13 +507,13 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         }
     };
     assert forall |_nid| st <= _nid < cur_nid implies {
-        post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+        post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
     } by {
         if _nid < nid {
             assert(NodeHelper::valid_nid(_nid));
             assert(pre.nodes[_nid] =~= post.nodes[_nid]);
         } else {
-            assert(post.nodes[_nid].is_EmptyLocked());
+            assert(post.nodes[_nid] is EmptyLocked);
         }
     };
 }
@@ -536,7 +536,7 @@ fn cursor_destroy_start_inductive(pre: Self, post: Self, cpu: CpuId) {
 
 #[inductive(node_release)]
 fn node_release_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    assert(pre.nodes[nid].is_Locked());
+    assert(pre.nodes[nid] is Locked);
     assert(pre.cursors[cpu].node_is_held(nid));
     assert forall |_cpu| _cpu != cpu && #[trigger] post.cursors.contains_key(_cpu) implies {
         post.cursors[cpu].no_overlap(&post.cursors[_cpu])
@@ -561,10 +561,10 @@ fn node_release_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     } by {
         assert(pre.cursors[_cpu] =~= post.cursors[_cpu]);
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        if !pre.cursors[_cpu].is_Empty() {
+        if pre.cursors[_cpu] !is Empty {
             let (st, en) = pre.cursors[_cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -572,11 +572,11 @@ fn node_release_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         }
     };
 
-    assert(post.cursors[cpu].is_Destroying());
-    let st = post.cursors[cpu].get_Destroying_0();
-    let en = post.cursors[cpu].get_Destroying_2();
+    assert(post.cursors[cpu]is Destroying);
+    let st = post.cursors[cpu]->Destroying_0;
+    let en = post.cursors[cpu]->Destroying_2;
     assert forall |_nid| st <= _nid < en implies {
-        post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+        post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
     } by {
         assert(NodeHelper::valid_nid(_nid));
         assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -591,13 +591,13 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     );
     assert(_nodes.submap_of(pre.nodes));
     assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
-        pre.nodes[_nid].is_EmptyLocked()
+        pre.nodes[_nid] is EmptyLocked
     } by {
         assert(_nodes.dom().contains(_nid));
         assert(pre.nodes.dom().contains(_nid));
     };
     assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
-        post.nodes[_nid].is_Empty()
+        post.nodes[_nid] is Empty
     );
     assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
         nid <= _nid < NodeHelper::next_outside_subtree(nid)
@@ -615,7 +615,7 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 },
             }
         } by {
-            assert(pre.nodes[_nid].is_EmptyLocked());
+            assert(pre.nodes[_nid] is EmptyLocked);
             assert(pre.cursors[_cpu].node_is_not_held(_nid));
         };
         match post.cursors[_cpu] {
@@ -641,9 +641,9 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         };
     };
 
-    let st = post.cursors[cpu].get_Destroying_0();
-    let en = post.cursors[cpu].get_Destroying_1();
-    let cur_nid = post.cursors[cpu].get_Destroying_2();
+    let st = post.cursors[cpu]->Destroying_0;
+    let en = post.cursors[cpu]->Destroying_1;
+    let cur_nid = post.cursors[cpu]->Destroying_2;
     assert forall |_cpu| _cpu != cpu && post.cursors.contains_key(_cpu) implies {
         match post.cursors[_cpu] {
             CursorState::Empty => true,
@@ -654,10 +654,10 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     } by {
         assert(pre.cursors[_cpu] =~= post.cursors[_cpu]);
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        if !pre.cursors[_cpu].is_Empty() {
+        if pre.cursors[_cpu] !is Empty {
             let (st, en) = pre.cursors[_cpu].get_locked_range();
             assert forall |_nid| st <= _nid < en implies {
-                post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+                post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
             } by {
                 assert(NodeHelper::valid_nid(_nid));
                 assert(post.nodes[_nid] =~= pre.nodes[_nid]);
@@ -665,13 +665,13 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         }
     };
     assert forall |_nid| st <= _nid < cur_nid implies {
-        post.nodes[_nid].is_EmptyLocked() || post.nodes[_nid].is_Locked()
+        post.nodes[_nid] is EmptyLocked || post.nodes[_nid] is Locked
     } by {
         if _nid < nid {
             assert(NodeHelper::valid_nid(_nid));
             assert(pre.nodes[_nid] =~= post.nodes[_nid]);
         } else {
-            assert(post.nodes[_nid].is_EmptyLocked());
+            assert(post.nodes[_nid] is EmptyLocked);
         }
     };
 }
