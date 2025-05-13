@@ -212,7 +212,7 @@ impl<
     /// depending on the access method.
     pub fn new(pt: &'a PageTable<M, E, C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
         if !M::covers(va)
-        // || va.is_empty()
+        // || va is Empty
          || !(va.start < va.end) {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
         }

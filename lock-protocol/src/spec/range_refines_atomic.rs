@@ -101,8 +101,8 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         }
 
         range_acquire_end(cpu) => {
-            let l = post.ranges[cpu].get_Hold_0();
-            let r = post.ranges[cpu].get_Hold_1();
+            let l = post.ranges[cpu]->Hold_0;
+            let r = post.ranges[cpu]->Hold_1;
             let new_range = RangeState::Hold(l, r);
             assert(interp(pre).ranges.insert(cpu, new_range) =~= interp(post).ranges);
 

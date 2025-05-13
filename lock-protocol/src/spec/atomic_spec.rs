@@ -25,7 +25,7 @@ pub fn inv(&self) -> bool {
 
     &&& forall |cpu: CpuId| #![auto] self.ranges.contains_key(cpu) ==> {
         &&& self.ranges[cpu].inv()
-        &&& self.ranges[cpu].is_Empty() || self.ranges[cpu].is_Hold()
+        &&& self.ranges[cpu] is Empty || self.ranges[cpu] is Hold
         &&& match self.ranges[cpu] {
             RangeState::Empty => true,
             RangeState::Hold(l, r) => valid_range(self.size, l, r),
@@ -60,7 +60,7 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(valid_range(pre.size, l, r));
 
-        require(pre.ranges[cpu].is_Empty());
+        require(pre.ranges[cpu] is Empty);
         let new_range = RangeState::Hold(l, r);
         require(pre.all_no_overlap(&new_range));
         update ranges = pre.ranges.insert(cpu, new_range);
@@ -71,7 +71,7 @@ transition!{
     release(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        require(pre.ranges[cpu].is_Hold());
+        require(pre.ranges[cpu] is Hold);
         let new_range = RangeState::Empty;
         update ranges = pre.ranges.insert(cpu, new_range);
     }

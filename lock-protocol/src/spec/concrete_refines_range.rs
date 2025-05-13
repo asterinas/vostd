@@ -115,9 +115,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
 
         node_acquire(cpu, nid) => {
             assert(interp(post).slots =~= interp(pre).slots.insert(nid, SlotState::Locked));
-            let l = interp(pre).ranges[cpu].get_Creating_0();
-            let r = interp(pre).ranges[cpu].get_Creating_1();
-            let cur_p = interp(pre).ranges[cpu].get_Creating_2();
+            let l = interp(pre).ranges[cpu]->Creating_0;
+            let r = interp(pre).ranges[cpu]->Creating_1;
+            let cur_p = interp(pre).ranges[cpu]->Creating_2;
             let new_range = RangeState::Creating(l, r, cur_p + 1);
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
             RangeSpec::show::pos_acquire(interp(pre), interp(post), cpu, nid);
@@ -142,7 +142,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 nid <= _nid < NodeHelper::next_outside_subtree(nid)
             );
             assert forall |i| nid <= i < NodeHelper::next_outside_subtree(nid) implies {
-                interp(pre).slots[i].is_Empty()
+                interp(pre).slots[i] is Empty
             } by {
                 assert(pre.nodes[i] is Empty) by {
                     assert(NodeHelper::in_subtree(nid, i));
@@ -157,9 +157,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             );
             assert(interp(post).slots =~= interp(pre).slots.union_prefer_right(_slots));
 
-            let l = interp(pre).ranges[cpu].get_Creating_0();
-            let r = interp(pre).ranges[cpu].get_Creating_1();
-            let cur_p = interp(pre).ranges[cpu].get_Creating_2();
+            let l = interp(pre).ranges[cpu]->Creating_0;
+            let r = interp(pre).ranges[cpu]->Creating_1;
+            let cur_p = interp(pre).ranges[cpu]->Creating_2;
             let new_range = RangeState::Creating(l, r, NodeHelper::next_outside_subtree(nid));
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
 
@@ -169,17 +169,17 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         }
 
         cursor_create_end(cpu) => {
-            let l = interp(pre).ranges[cpu].get_Creating_0();
-            let r = interp(pre).ranges[cpu].get_Creating_1();
-            let cur_p = interp(pre).ranges[cpu].get_Creating_2();
+            let l = interp(pre).ranges[cpu]->Creating_0;
+            let r = interp(pre).ranges[cpu]->Creating_1;
+            let cur_p = interp(pre).ranges[cpu]->Creating_2;
             let new_range = RangeState::Hold(l, r);
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
             RangeSpec::show::range_acquire_end(interp(pre), interp(post), cpu);
         }
 
         cursor_destroy_start(cpu) => {
-            let l = interp(pre).ranges[cpu].get_Hold_0();
-            let r = interp(pre).ranges[cpu].get_Hold_1();
+            let l = interp(pre).ranges[cpu]->Hold_0;
+            let r = interp(pre).ranges[cpu]->Hold_1;
             let new_range = RangeState::Destroying(l, r, r);
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
             RangeSpec::show::range_release_start(interp(pre), interp(post), cpu);
@@ -187,9 +187,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
 
         node_release(cpu, nid) => {
             assert(interp(post).slots =~= interp(pre).slots.insert(nid, SlotState::Free));
-            let l = interp(pre).ranges[cpu].get_Destroying_0();
-            let r = interp(pre).ranges[cpu].get_Destroying_1();
-            let cur_p = interp(pre).ranges[cpu].get_Destroying_2();
+            let l = interp(pre).ranges[cpu]->Destroying_0;
+            let r = interp(pre).ranges[cpu]->Destroying_1;
+            let cur_p = interp(pre).ranges[cpu]->Destroying_2;
             let new_range = RangeState::Destroying(l, r, nid);
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
             RangeSpec::show::pos_release(interp(pre), interp(post), cpu, nid);
@@ -229,9 +229,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             );
             assert(interp(post).slots =~= interp(pre).slots.union_prefer_right(_slots));
 
-            let l = interp(pre).ranges[cpu].get_Destroying_0();
-            let r = interp(pre).ranges[cpu].get_Destroying_1();
-            let cur_p = interp(pre).ranges[cpu].get_Destroying_2();
+            let l = interp(pre).ranges[cpu]->Destroying_0;
+            let r = interp(pre).ranges[cpu]->Destroying_1;
+            let cur_p = interp(pre).ranges[cpu]->Destroying_2;
             let new_range = RangeState::Destroying(l, r, nid);
             assert(interp(post).ranges =~= interp(pre).ranges.insert(cpu, new_range));
 

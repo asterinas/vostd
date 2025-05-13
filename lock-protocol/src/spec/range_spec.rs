@@ -44,7 +44,7 @@ pub fn inv_ranges(&self) -> bool {
 }
 
 pub open spec fn is_locked(&self, l: nat, r: nat) -> bool {
-    forall |i| l <= i < r ==> (self.slots[i].is_EmptyLocked() || self.slots[i].is_Locked())
+    forall |i| l <= i < r ==> (self.slots[i] is EmptyLocked || self.slots[i] is Locked)
 }
 
 #[invariant]
@@ -79,7 +79,7 @@ transition!{
     slot_acquire_outside_range(p: nat) {
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_Free());
+        require(pre.slots[p] is Free);
         update slots = pre.slots.insert(p, SlotState::LockedOutside);
     }
 }
@@ -88,7 +88,7 @@ transition!{
     slot_release_outside_range(p: nat) {
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_LockedOutside());
+        require(pre.slots[p] is LockedOutside);
         update slots = pre.slots.insert(p, SlotState::Free);
     }
 }
@@ -98,12 +98,12 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_EmptyLocked());
+        require(pre.slots[p] is EmptyLocked);
         update slots = pre.slots.insert(p, SlotState::Locked);
 
-        require(pre.ranges[cpu].is_Hold());
-        let l = pre.ranges[cpu].get_Hold_0();
-        let r = pre.ranges[cpu].get_Hold_1();
+        require(pre.ranges[cpu] is Hold);
+        let l = pre.ranges[cpu]->Hold_0;
+        let r = pre.ranges[cpu]->Hold_1;
         require(l <= p < r);
     }
 }
@@ -112,7 +112,7 @@ transition!{
     slot_create_outside_range(p: nat) {
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_Empty());
+        require(pre.slots[p] is Empty);
         update slots = pre.slots.insert(p, SlotState::LockedOutside);
     }
 }
@@ -122,7 +122,7 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(valid_range(pre.size, l, r));
 
-        require(pre.ranges[cpu].is_Empty());
+        require(pre.ranges[cpu] is Empty);
         update ranges = pre.ranges.insert(cpu, RangeState::Creating(l, r, l));
     }
 }
@@ -132,13 +132,13 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_Free());
+        require(pre.slots[p] is Free);
         update slots = pre.slots.insert(p, SlotState::Locked);
 
-        require(pre.ranges[cpu].is_Creating());
-        let l = pre.ranges[cpu].get_Creating_0();
-        let r = pre.ranges[cpu].get_Creating_1();
-        let cur_p = pre.ranges[cpu].get_Creating_2();
+        require(pre.ranges[cpu] is Creating);
+        let l = pre.ranges[cpu]->Creating_0;
+        let r = pre.ranges[cpu]->Creating_1;
+        let cur_p = pre.ranges[cpu]->Creating_2;
         require(p == cur_p && p < r);
         update ranges = pre.ranges.insert(cpu, RangeState::Creating(l, r, p + 1));
     }
@@ -162,10 +162,10 @@ transition!{
         require(old_slots.submap_of(pre.slots));
         update slots = pre.slots.union_prefer_right(new_slots);
 
-        require(pre.ranges[cpu].is_Creating());
-        let l = pre.ranges[cpu].get_Creating_0();
-        let r = pre.ranges[cpu].get_Creating_1();
-        let cur_p = pre.ranges[cpu].get_Creating_2();
+        require(pre.ranges[cpu] is Creating);
+        let l = pre.ranges[cpu]->Creating_0;
+        let r = pre.ranges[cpu]->Creating_1;
+        let cur_p = pre.ranges[cpu]->Creating_2;
         require(p == cur_p && p + skip_len <= r);
         update ranges = pre.ranges.insert(cpu, RangeState::Creating(l, r, p + skip_len));
     }
@@ -175,10 +175,10 @@ transition!{
     range_acquire_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        require(pre.ranges[cpu].is_Creating());
-        let l = pre.ranges[cpu].get_Creating_0();
-        let r = pre.ranges[cpu].get_Creating_1();
-        let cur_p = pre.ranges[cpu].get_Creating_2();
+        require(pre.ranges[cpu] is Creating);
+        let l = pre.ranges[cpu]->Creating_0;
+        let r = pre.ranges[cpu]->Creating_1;
+        let cur_p = pre.ranges[cpu]->Creating_2;
         require(cur_p == r);
         update ranges = pre.ranges.insert(cpu, RangeState::Hold(l, r));
     }
@@ -188,9 +188,9 @@ transition!{
     range_release_start(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        require(pre.ranges[cpu].is_Hold());
-        let l = pre.ranges[cpu].get_Hold_0();
-        let r = pre.ranges[cpu].get_Hold_1();
+        require(pre.ranges[cpu] is Hold);
+        let l = pre.ranges[cpu]->Hold_0;
+        let r = pre.ranges[cpu]->Hold_1;
         update ranges = pre.ranges.insert(cpu, RangeState::Destroying(l, r, r));
     }
 }
@@ -200,13 +200,13 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(valid_pos(pre.size, p));
 
-        require(pre.slots[p].is_Locked());
+        require(pre.slots[p] is Locked);
         update slots = pre.slots.insert(p, SlotState::Free);
 
-        require(pre.ranges[cpu].is_Destroying());
-        let l = pre.ranges[cpu].get_Destroying_0();
-        let r = pre.ranges[cpu].get_Destroying_1();
-        let cur_p = pre.ranges[cpu].get_Destroying_2();
+        require(pre.ranges[cpu] is Destroying);
+        let l = pre.ranges[cpu]->Destroying_0;
+        let r = pre.ranges[cpu]->Destroying_1;
+        let cur_p = pre.ranges[cpu]->Destroying_2;
         require(cur_p == p + 1 && p >= l);
         update ranges = pre.ranges.insert(cpu, RangeState::Destroying(l, r, p));
     }
@@ -230,10 +230,10 @@ transition!{
         require(old_slots.submap_of(pre.slots));
         update slots = pre.slots.union_prefer_right(new_slots);
 
-        require(pre.ranges[cpu].is_Destroying());
-        let l = pre.ranges[cpu].get_Destroying_0();
-        let r = pre.ranges[cpu].get_Destroying_1();
-        let cur_p = pre.ranges[cpu].get_Destroying_2();
+        require(pre.ranges[cpu] is Destroying);
+        let l = pre.ranges[cpu]->Destroying_0;
+        let r = pre.ranges[cpu]->Destroying_1;
+        let cur_p = pre.ranges[cpu]->Destroying_2;
         require(cur_p == p + skip_len && p >= l);
         update ranges = pre.ranges.insert(cpu, RangeState::Destroying(l, r, p));
     }
@@ -243,10 +243,10 @@ transition!{
     range_release_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        require(pre.ranges[cpu].is_Destroying());
-        let l = pre.ranges[cpu].get_Destroying_0();
-        let r = pre.ranges[cpu].get_Destroying_1();
-        let cur_p = pre.ranges[cpu].get_Destroying_2();
+        require(pre.ranges[cpu] is Destroying);
+        let l = pre.ranges[cpu]->Destroying_0;
+        let r = pre.ranges[cpu]->Destroying_1;
+        let cur_p = pre.ranges[cpu]->Destroying_2;
         require(cur_p == l);
         update ranges = pre.ranges.insert(cpu, RangeState::Empty);
     }
@@ -270,16 +270,16 @@ fn slot_acquire_outside_range_inductive(pre: Self, post: Self, p: nat) {
         }
     } by {
         assert(pre.ranges[cpu] =~= post.ranges[cpu]);
-        if !pre.ranges[cpu].is_Empty() {
+        if pre.ranges[cpu] !is Empty {
             let (l, r) = pre.ranges[cpu].get_locked_range();
             assert forall |i| l <= i < r implies {
-                post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+                post.slots[i] is EmptyLocked || post.slots[i] is Locked
             } by {
                 assert(valid_pos(pre.size, i));
                 if i != p {
                     assert(post.slots[i] =~= pre.slots[i]);
                 } else {
-                    assert(post.slots[p].is_LockedOutside());
+                    assert(post.slots[p] is LockedOutside);
                 }
             };
         }
@@ -297,16 +297,16 @@ fn slot_release_outside_range_inductive(pre: Self, post: Self, p: nat) {
         }
     } by {
         assert(pre.ranges[cpu] =~= post.ranges[cpu]);
-        if !pre.ranges[cpu].is_Empty() {
+        if pre.ranges[cpu] !is Empty {
             let (l, r) = pre.ranges[cpu].get_locked_range();
             assert forall |i| l <= i < r implies {
-                post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+                post.slots[i] is EmptyLocked || post.slots[i] is Locked
             } by {
                 assert(valid_pos(pre.size, i));
                 if i != p {
                     assert(post.slots[i] =~= pre.slots[i]);
                 } else {
-                    assert(post.slots[p].is_Free());
+                    assert(post.slots[p] is Free);
                 }
             };
         }
@@ -325,10 +325,10 @@ fn slot_create_in_range_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
     } by {
         assert(pre.ranges[_cpu] =~= post.ranges[_cpu]);
         assert(pre.ranges[cpu].no_overlap(&pre.ranges[_cpu]));
-        if !pre.ranges[_cpu].is_Empty() {
+        if pre.ranges[_cpu] !is Empty {
             let (l, r) = pre.ranges[_cpu].get_locked_range();
             assert forall |i| l <= i < r implies {
-                post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+                post.slots[i] is EmptyLocked || post.slots[i] is Locked
             } by {
                 assert(valid_pos(pre.size, i));
                 assert(post.slots[i] =~= pre.slots[i]);
@@ -336,13 +336,13 @@ fn slot_create_in_range_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
         }
     };
 
-    assert(post.ranges[cpu].is_Hold());
-    let l = post.ranges[cpu].get_Hold_0();
-    let r = post.ranges[cpu].get_Hold_1();
+    assert(post.ranges[cpu] is Hold);
+    let l = post.ranges[cpu]->Hold_0;
+    let r = post.ranges[cpu]->Hold_1;
     assert forall |i| l <= i < r implies {
-        post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+        post.slots[i] is EmptyLocked || post.slots[i] is Locked
     } by {
-        if i == p { assert(post.slots[p].is_Locked()); }
+        if i == p { assert(post.slots[p] is Locked); }
         else {
             assert(valid_pos(pre.size, i));
             assert(post.slots[i] =~= pre.slots[i]);
@@ -361,16 +361,16 @@ fn slot_create_outside_range_inductive(pre: Self, post: Self, p: nat) {
         }
     } by {
         assert(pre.ranges[cpu] =~= post.ranges[cpu]);
-        if !pre.ranges[cpu].is_Empty() {
+        if pre.ranges[cpu] !is Empty {
             let (l, r) = pre.ranges[cpu].get_locked_range();
             assert forall |i| l <= i < r implies {
-                post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+                post.slots[i] is EmptyLocked || post.slots[i] is Locked
             } by {
                 assert(valid_pos(pre.size, i));
                 if i != p {
                     assert(post.slots[i] =~= pre.slots[i]);
                 } else {
-                    assert(post.slots[p].is_LockedOutside());
+                    assert(post.slots[p] is LockedOutside);
                 }
             };
         }
@@ -386,12 +386,12 @@ fn range_acquire_start_inductive(pre: Self, post: Self, cpu: CpuId, l: nat, r: n
 
 #[inductive(pos_acquire)]
 fn pos_acquire_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
-    assert(pre.slots[p].is_Free());
+    assert(pre.slots[p] is Free);
     assert(pre.slots.insert(p, SlotState::Locked) =~= post.slots);
 
-    let l = pre.ranges[cpu].get_Creating_0();
-    let r = pre.ranges[cpu].get_Creating_1();
-    let cur_p = pre.ranges[cpu].get_Creating_2();
+    let l = pre.ranges[cpu]->Creating_0;
+    let r = pre.ranges[cpu]->Creating_1;
+    let cur_p = pre.ranges[cpu]->Creating_2;
     assert(cur_p == p && cur_p < r);
     assert(pre.ranges.insert(cpu, RangeState::Creating(l, r, cur_p + 1)) =~= post.ranges);
 
@@ -426,10 +426,10 @@ fn pos_acquire_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
     } by {
         assert(pre.ranges[_cpu] =~= post.ranges[_cpu]);
         assert(pre.ranges[cpu].no_overlap(&pre.ranges[_cpu]));
-        if !pre.ranges[_cpu].is_Empty() {
+        if pre.ranges[_cpu] !is Empty {
             let (l, r) = pre.ranges[_cpu].get_locked_range();
             assert forall |_i| l <= _i < r implies {
-                post.slots[_i].is_EmptyLocked() || post.slots[_i].is_Locked()
+                post.slots[_i] is EmptyLocked || post.slots[_i] is Locked
             } by {
                 assert(valid_pos(pre.size, _i));
                 assert(post.slots[_i] =~= pre.slots[_i]);
@@ -437,9 +437,9 @@ fn pos_acquire_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
         }
     };
     assert forall |i| l <= i < cur_p implies {
-        post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+        post.slots[i] is EmptyLocked || post.slots[i] is Locked
     } by {
-        if i == p { assert(post.slots[p].is_Locked()); }
+        if i == p { assert(post.slots[p] is Locked); }
         else {
             assert(valid_pos(pre.size, i));
         }
@@ -454,13 +454,13 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
     );
     assert(_slots.submap_of(pre.slots));
     assert forall |i| p <= i < p + skip_len implies {
-        pre.slots[i].is_Empty()
+        pre.slots[i] is Empty
     } by {
         assert(_slots.dom().contains(i));
         assert(pre.slots.dom().contains(i));
     }
     assert(forall |i| p <= i < p + skip_len ==>
-        post.slots[i].is_EmptyLocked()
+        post.slots[i] is EmptyLocked
     );
 
     assert forall |_cpu| _cpu != cpu && #[trigger] post.ranges.contains_key(_cpu) implies {
@@ -475,7 +475,7 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
                 },
             }
         } by {
-            assert(pre.slots[i].is_Empty());
+            assert(pre.slots[i] is Empty);
             assert(pre.ranges[_cpu].pos_is_not_held(i));
         };
         match post.ranges[_cpu] {
@@ -497,10 +497,10 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
         };
     };
 
-    assert(post.ranges[cpu].is_Creating());
-    let l = post.ranges[cpu].get_Creating_0();
-    let r = post.ranges[cpu].get_Creating_1();
-    let cur_p = post.ranges[cpu].get_Creating_2();
+    assert(post.ranges[cpu] is Creating);
+    let l = post.ranges[cpu]->Creating_0;
+    let r = post.ranges[cpu]->Creating_1;
+    let cur_p = post.ranges[cpu]->Creating_2;
     assert forall |_cpu| _cpu != cpu && post.ranges.contains_key(_cpu) implies {
         match post.ranges[_cpu] {
             RangeState::Empty => true,
@@ -511,10 +511,10 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
     } by {
         assert(pre.ranges[_cpu] =~= post.ranges[_cpu]);
         assert(pre.ranges[cpu].no_overlap(&pre.ranges[_cpu]));
-        if !pre.ranges[_cpu].is_Empty() {
+        if pre.ranges[_cpu] !is Empty {
             let (l, r) = pre.ranges[_cpu].get_locked_range();
             assert forall |_i| l <= _i < r implies {
-                post.slots[_i].is_EmptyLocked() || post.slots[_i].is_Locked()
+                post.slots[_i] is EmptyLocked || post.slots[_i] is Locked
             } by {
                 assert(valid_pos(pre.size, _i));
                 assert(post.slots[_i] =~= pre.slots[_i]);
@@ -522,9 +522,9 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
         }
     };
     assert forall |i| l <= i < cur_p implies {
-        post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+        post.slots[i] is EmptyLocked || post.slots[i] is Locked
     } by {
-        if i >= p { assert(post.slots[i].is_EmptyLocked()); }
+        if i >= p { assert(post.slots[i] is EmptyLocked); }
         else {
             assert(valid_pos(pre.size, i));
         }
@@ -535,8 +535,8 @@ fn pos_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
 fn range_acquire_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     assert(pre.slots =~= post.slots);
 
-    let l = pre.ranges[cpu].get_Creating_0();
-    let r = pre.ranges[cpu].get_Creating_1();
+    let l = pre.ranges[cpu]->Creating_0;
+    let r = pre.ranges[cpu]->Creating_1;
     assert(pre.ranges[cpu] =~= RangeState::Creating(l, r, r));
     assert(pre.ranges.insert(cpu, RangeState::Hold(l, r)) =~= post.ranges);
     assert(forall |i: nat| #![auto]
@@ -593,22 +593,22 @@ fn pos_release_inductive(pre: Self, post: Self, cpu: CpuId, p: nat) {
     } by {
         assert(pre.ranges[_cpu] =~= post.ranges[_cpu]);
         assert(pre.ranges[cpu].no_overlap(&pre.ranges[_cpu]));
-        if !pre.ranges[_cpu].is_Empty() {
+        if pre.ranges[_cpu] !is Empty {
             let (l, r) = pre.ranges[_cpu].get_locked_range();
             assert forall |_i| l <= _i < r implies {
-                post.slots[_i].is_EmptyLocked() || post.slots[_i].is_Locked()
+                post.slots[_i] is EmptyLocked || post.slots[_i] is Locked
             } by {
                 assert(valid_pos(pre.size, _i));
                 assert(post.slots[_i] =~= pre.slots[_i]);
             };
         }
     };
-    assert(post.ranges[cpu].is_Destroying());
-    let l = post.ranges[cpu].get_Destroying_0();
-    let r = post.ranges[cpu].get_Destroying_1();
-    let cur_p = post.ranges[cpu].get_Destroying_2();
+    assert(post.ranges[cpu] is Destroying);
+    let l = post.ranges[cpu]->Destroying_0;
+    let r = post.ranges[cpu]->Destroying_1;
+    let cur_p = post.ranges[cpu]->Destroying_2;
     assert forall |i| l <= i < cur_p implies {
-        post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+        post.slots[i] is EmptyLocked || post.slots[i] is Locked
     } by {
         assert(valid_pos(pre.size, i));
     }
@@ -622,13 +622,13 @@ fn pos_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
     );
     assert(_slots.submap_of(pre.slots));
     assert forall |i| p <= i < p + skip_len implies {
-        pre.slots[i].is_EmptyLocked()
+        pre.slots[i] is EmptyLocked
     } by {
         assert(_slots.dom().contains(i));
         assert(pre.slots.dom().contains(i));
     }
     assert(forall |i| p <= i < p + skip_len ==>
-        post.slots[i].is_Empty()
+        post.slots[i] is Empty
     );
 
     assert forall |_cpu| _cpu != cpu && #[trigger] post.ranges.contains_key(_cpu) implies {
@@ -643,7 +643,7 @@ fn pos_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
                 },
             }
         } by {
-            assert(pre.slots[i].is_EmptyLocked());
+            assert(pre.slots[i] is EmptyLocked);
             assert(pre.ranges[_cpu].pos_is_not_held(i));
         };
         match post.ranges[_cpu] {
@@ -665,10 +665,10 @@ fn pos_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
         };
     };
 
-    assert(post.ranges[cpu].is_Destroying());
-    let l = post.ranges[cpu].get_Destroying_0();
-    let r = post.ranges[cpu].get_Destroying_1();
-    let cur_p = post.ranges[cpu].get_Destroying_2();
+    assert(post.ranges[cpu] is Destroying);
+    let l = post.ranges[cpu]->Destroying_0;
+    let r = post.ranges[cpu]->Destroying_1;
+    let cur_p = post.ranges[cpu]->Destroying_2;
     assert forall |_cpu| _cpu != cpu && post.ranges.contains_key(_cpu) implies {
         match post.ranges[_cpu] {
             RangeState::Empty => true,
@@ -679,10 +679,10 @@ fn pos_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
     } by {
         assert(pre.ranges[_cpu] =~= post.ranges[_cpu]);
         assert(pre.ranges[cpu].no_overlap(&pre.ranges[_cpu]));
-        if !pre.ranges[_cpu].is_Empty() {
+        if pre.ranges[_cpu] !is Empty {
             let (l, r) = pre.ranges[_cpu].get_locked_range();
             assert forall |_i| l <= _i < r implies {
-                post.slots[_i].is_EmptyLocked() || post.slots[_i].is_Locked()
+                post.slots[_i] is EmptyLocked || post.slots[_i] is Locked
             } by {
                 assert(valid_pos(pre.size, _i));
                 assert(post.slots[_i] =~= pre.slots[_i]);
@@ -690,7 +690,7 @@ fn pos_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, p: nat, skip_le
         }
     };
     assert forall |i| l <= i < cur_p implies {
-        post.slots[i].is_EmptyLocked() || post.slots[i].is_Locked()
+        post.slots[i] is EmptyLocked || post.slots[i] is Locked
     } by {
         assert(valid_pos(pre.size, i));
     }

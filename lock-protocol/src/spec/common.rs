@@ -97,7 +97,6 @@ impl CursorState {
 } // verus!
 verus! {
 
-#[is_variant]
 pub enum SlotState {
     Empty,
     EmptyLocked,
@@ -106,7 +105,6 @@ pub enum SlotState {
     LockedOutside,
 }
 
-#[is_variant]
 pub enum RangeState {
     Empty,
     Creating(nat, nat, nat),
