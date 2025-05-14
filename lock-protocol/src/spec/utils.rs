@@ -380,28 +380,16 @@ impl NodeHelper {
         if cur_level == 0 {
             Seq::empty()
         } else {
-            assert(1 <= cur_level <= 3);
             assert(Self::tree_size_spec(cur_level - 1) * 512 + 1 == Self::tree_size_spec(
                 cur_level as int,
             )) by { Self::lemma_tree_size_spec() };
 
             let sz = Self::tree_size_spec(cur_level - 1);
             // Prove offset < 512
-            assert(nid - cur_rt - 1 < sz * 512) by {
-                assert(cur_rt < nid < cur_rt + Self::tree_size_spec(cur_level as int));
-                assert(nid - cur_rt < Self::tree_size_spec(cur_level as int));
-                assert(nid - cur_rt - 1 < Self::tree_size_spec(cur_level as int) - 1);
-                assert(Self::tree_size_spec(cur_level as int) - 1 == sz * 512) by {
-                    Self::lemma_tree_size_spec();
-                };
-            };
             let offset = ((nid - cur_rt - 1) / sz as int) as nat;
             // now offset < 512 follows
             assert(offset < 512) by {
                 // offset*sz <= nid - cur_rt - 1 < sz*512
-                assert(offset * sz <= nid - cur_rt - 1) by {
-                    lemma_remainder_lower(nid - cur_rt - 1, sz as int);
-                };
                 assert(nid - cur_rt - 1 < sz * 512);
                 // Now use the actual quotient form:
                 lemma_multiply_divide_lt(nid - cur_rt - 1, sz as int, 512);
