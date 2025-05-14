@@ -72,7 +72,7 @@ pub fn inv_reader_counts(&self) -> bool {
 #[invariant]
 pub fn inv_unallocated_has_no_rc(&self) -> bool {
     forall |nid: NodeId| #![auto] self.reader_counts.dom().contains(nid) ==> {
-        self.nodes[nid].is_UnAllocated() ==> self.reader_counts[nid] == 0
+        self.nodes[nid] is UnAllocated ==> self.reader_counts[nid] == 0
     }
 }
 
@@ -105,7 +105,7 @@ pub fn inv_cursors(&self) -> bool {
 pub fn inv_rw_lock(&self) -> bool {
     forall |nid: NodeId| #![auto]
         self.reader_counts.dom().contains(nid) &&
-        self.reader_counts[nid] > 0 ==> self.nodes[nid].is_WriteUnLocked()
+        self.reader_counts[nid] > 0 ==> self.nodes[nid] is WriteUnLocked
 }
 
 #[invariant]
@@ -143,11 +143,10 @@ init!{
             |nid| NodeHelper::valid_nid(nid),
             |nid| 0,
         );
-        init cursors = Seq::new(cpu_num, |cpu:int| cpu as nat).to_set().mk_map(|cpu| CursorState::Void);
-        //init cursors = Map::new(
-        //    |cpu| valid_cpu(cpu_num, cpu),
-        //    |cpu| CursorState::Void,
-        //);
+        init cursors = Map::new(
+            |cpu| valid_cpu(cpu_num, cpu),
+            |cpu| CursorState::Void,
+        );
     }
 }
 
@@ -262,7 +261,9 @@ transition!{
 }
 
 #[inductive(initialize)]
-fn initialize_inductive(post: Self, cpu_num: CpuId) { admit(); }
+fn initialize_inductive(post: Self, cpu_num: CpuId) {
+    admit();
+ }
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }

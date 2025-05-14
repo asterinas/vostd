@@ -31,14 +31,12 @@ pub open spec fn wf_tree_path(path: Seq<NodeId>) -> bool {
 } // verus!
 verus! {
 
-#[is_variant]
 pub enum NodeState {
     UnAllocated,
     WriteUnLocked,
     WriteLocked,
 }
 
-#[is_variant]
 pub enum CursorState {
     Void,
     ReadLocking(Seq<NodeId>),
@@ -112,13 +110,11 @@ impl CursorState {
     }
 }
 
-#[is_variant]
 pub enum AtomicCursorState {
     Void,
     Locked(NodeId),
 }
 
-#[is_variant]
 pub enum NodeStability {
     Stable,
     Instable,

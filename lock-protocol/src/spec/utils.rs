@@ -888,6 +888,17 @@ impl NodeHelper {
     {
         Self::nid_to_dep(nid) < 3
     }
+
+    pub proof fn lemma_valid_nid_set_finite(nid: NodeId)
+        ensures
+            Set::new(|nid| Self::valid_nid(nid)).finite(),
+            Set::new(|nid| Self::valid_nid(nid)).len() == Self::total_size(),
+    {
+        assert(Set::new(|nid| Self::valid_nid(nid)) =~= Set::new(
+            |nid| pos_in_range(0, Self::total_size(), nid),
+        ));
+        lemma_pos_in_range_set_finite(0, Self::total_size());
+    }
 }
 
 } // verus!

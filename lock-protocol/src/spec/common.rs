@@ -158,3 +158,36 @@ impl RangeState {
 }
 
 } // verus!
+verus! {
+
+pub proof fn lemma_pos_in_range_set_finite(l: nat, r: nat)
+    requires
+        l <= r,
+    ensures
+        Set::new(|p: nat| pos_in_range(l, r, p)).finite(),
+        Set::new(|p: nat| pos_in_range(l, r, p)).len() == (r - l) as nat,
+    decreases r - l,
+{
+    if l == r {
+        assert(Set::new(|p: nat| pos_in_range(l, r, p)) =~= Set::empty());
+    } else {
+        lemma_pos_in_range_set_finite(l, (r - 1) as nat);
+        assert(Set::new(|p| pos_in_range(l, (r - 1) as nat, p)).insert((r - 1) as nat) =~= Set::new(
+            |p| pos_in_range(l, r, p),
+        ));
+    }
+}
+
+pub proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
+    ensures
+        Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).finite(),
+        Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).len() == cpu_num,
+    decreases cpu_num,
+{
+    assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) =~= Set::new(
+        |cpu: CpuId| pos_in_range(0, cpu_num, cpu),
+    ));
+    lemma_pos_in_range_set_finite(0, cpu_num);
+}
+
+} // verus!

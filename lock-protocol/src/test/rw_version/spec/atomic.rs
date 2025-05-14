@@ -24,8 +24,8 @@ pub fn inv_cursors(&self) -> bool {
 
     &&& forall |cpu: CpuId| #![auto]
         self.cursors.dom().contains(cpu) &&
-        self.cursors[cpu].is_Locked() ==>
-            NodeHelper::valid_nid(self.cursors[cpu].get_Locked_0())
+        self.cursors[cpu] is Locked ==>
+            NodeHelper::valid_nid(self.cursors[cpu]->Locked_0)
 }
 
 #[invariant]
@@ -33,11 +33,11 @@ pub fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
         self.cursors.dom().contains(cpu1) &&
-        self.cursors[cpu1].is_Locked() &&
+        self.cursors[cpu1] is Locked &&
         self.cursors.dom().contains(cpu2) &&
-        self.cursors[cpu2].is_Locked() ==> {
-            let nid1 = self.cursors[cpu1].get_Locked_0();
-            let nid2 = self.cursors[cpu2].get_Locked_0();
+        self.cursors[cpu2] is Locked ==> {
+            let nid1 = self.cursors[cpu1]->Locked_0;
+            let nid2 = self.cursors[cpu2]->Locked_0;
 
             !NodeHelper::in_subtree(nid1, nid2) &&
             !NodeHelper::in_subtree(nid2, nid1)
@@ -50,8 +50,8 @@ pub open spec fn all_non_overlapping(&self, nid: NodeId) -> bool
 {
     forall |cpu: CpuId| #![auto]
         self.cursors.dom().contains(cpu) &&
-        self.cursors[cpu].is_Locked() ==> {
-            let _nid = self.cursors[cpu].get_Locked_0();
+        self.cursors[cpu] is Locked ==> {
+            let _nid = self.cursors[cpu]->Locked_0;
 
             !NodeHelper::in_subtree(nid, _nid) &&
             !NodeHelper::in_subtree(_nid, nid)
@@ -73,7 +73,7 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
-        require(pre.cursors[cpu].is_Void());
+        require(pre.cursors[cpu] is Void);
         require(pre.all_non_overlapping(nid));
         let new_cursor = AtomicCursorState::Locked(nid);
         update cursors = pre.cursors.insert(cpu, new_cursor);
@@ -84,7 +84,7 @@ transition!{
     unlock(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        require(pre.cursors[cpu].is_Locked());
+        require(pre.cursors[cpu] is Locked);
         let new_cursor = AtomicCursorState::Void;
         update cursors = pre.cursors.insert(cpu, new_cursor);
     }
