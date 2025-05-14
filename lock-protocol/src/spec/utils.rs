@@ -810,7 +810,84 @@ impl NodeHelper {
             nid == Self::get_parent(Self::get_child(nid, offset)),
             offset == Self::get_offset(Self::get_child(nid, offset)),
     {
-        admit();
+        // ==== 0. Prep the dep/level/size and discharge all `recommends` ====
+        let dep = Self::nid_to_dep(nid);
+        assert(0 <= dep && dep < 4) by {
+            // from nid_to_dep(nid) < 3
+        };
+        let level = Self::dep_to_level(dep);
+        assert(1 <= level && level <= 4) by {
+            // lemma_dep_to_level: level = 4 - dep, and 0 ≤ dep < 4
+            Self::lemma_dep_to_level(dep);
+        };
+        let sz_dep = (level as int) - 2;
+        assert(0 <= sz_dep && sz_dep < 4) by {
+            // level ∈ {2,3,4} ⇒ level–2 ∈ {0,1,2} ⊂ [0,4)
+        };
+        let sz: nat = Self::tree_size_spec(sz_dep);
+
+        // ==== 1. Show the child is within [0, total_size()) ====
+
+        let child = Self::get_child(nid, offset);
+        // From lemma_valid_level_to_node(nid, level):
+        Self::lemma_valid_level_to_node(nid, level);
+        //   ⇒ nid + tree_size_spec(level-1) ≤ total_size
+        // We need:
+        //   nid + offset*sz + 1 ≤ nid + tree_size_spec(level-1)
+        //
+        // First:  offset*sz + 1 ≤ (offset+1)*sz
+        assert(sz >= 1) by {
+            Self::lemma_tree_size_spec();
+        };
+        assert(offset * (sz as int) + 1 <= (offset + 1) * (sz as int)) by {
+            assert(((offset as int) + 1) * (sz as int) == (offset as int) * (sz as int) + (
+            sz as int)) by {
+                lemma_mul_is_distributive_add(sz as int, offset as int, 1);
+            };
+            assert(offset * sz + 1 <= offset * sz + sz);
+        };
+        // Next: (offset+1)*sz ≤ 512*sz
+        assert((offset + 1) * (sz as int) <= 512 * (sz as int)) by {
+            lemma_mul_inequality(offset as int + 1, 512, sz as int);
+        };
+        // Finally:     512*sz < tree_size_spec(level-1)
+        assert(512 * (sz as int) < (Self::tree_size_spec((level as int) - 1) as int)) by {
+            // tree_size_spec(level) = 512 * tree_size_spec(level-1) + 1
+            Self::lemma_tree_size_spec();
+        };
+        // Chain them
+        assert(nid + offset * (sz as int) + 1 <= nid + Self::tree_size_spec((level as int) - 1))
+            by {}
+        assert(nid + offset * (sz as int) + 1 < Self::total_size()) by {}
+
+        // ==== 2. Show `child` agrees with `trace_to_nid_from_root(trace.push(offset))` ====
+
+        // Extract the root‐based trace for `nid`
+        let trace = Self::lemma_nid_to_trace(nid);
+        // By lemma_trace_to_nid_increment:
+        Self::lemma_trace_to_nid_increment(trace, offset);
+        assert(Self::trace_to_nid_from_root(trace.push(offset)) == child) by {}
+
+        // ==== 3. Round‐trip through get_parent and get_offset ====
+
+        // get_parent(child) unfolds to trace_to_nid_from_root((trace.push(offset)).drop_last())
+        assert(child != Self::root_id()) by {
+            // child ≥ nid+1 > 0
+        };
+        assert(Self::valid_nid(child));
+        assert((trace.push(offset)).drop_last() =~= trace) by {}
+        assert(Self::valid_trace((trace.push(offset)).drop_last()));
+        assert(Self::valid_trace(trace));
+        assert(Self::nid_to_trace(child) == trace.push(offset)) by {
+            Self::lemma_trace_to_nid_from_root(trace.push(offset));
+        };
+        assert(Self::get_parent(child) == Self::trace_to_nid_from_root(trace));
+        // But trace_to_nid_from_root(trace) = nid
+        Self::lemma_trace_to_nid_from_root(trace);
+        assert(Self::get_parent(child) == nid) by {}
+
+        // Finally, get_offset(child) = trace.last() = offset
+        assert(Self::get_offset(child) == offset);
     }
 
     pub open spec fn is_not_leaf(nid: NodeId) -> bool
