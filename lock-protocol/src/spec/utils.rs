@@ -386,21 +386,25 @@ impl NodeHelper {
             )) by { Self::lemma_tree_size_spec() };
 
             let sz = Self::tree_size_spec(cur_level - 1);
-            let offset = ((nid - cur_rt - 1) / sz as int) as nat;
-            assert(0 <= offset < 512) by {
+            // Prove offset < 512
+            assert(nid - cur_rt - 1 < sz * 512) by {
                 assert(cur_rt < nid < cur_rt + Self::tree_size_spec(cur_level as int));
-                assert(0 <= nid - cur_rt - 1 < Self::tree_size_spec(cur_level as int) - 1);
-                assert(nid - cur_rt - 1 < sz * 512);
-                assert(offset < 512) by {
-                    lemma_div_by_multiple_is_strongly_ordered(
-                        offset * sz as int,
-                        512 * sz as int,
-                        512,
-                        sz as int,
-                    );
-                    lemma_div_multiples_vanish(offset as int, sz as int);
-                    lemma_div_multiples_vanish(512, sz as int);
+                assert(nid - cur_rt < Self::tree_size_spec(cur_level as int));
+                assert(nid - cur_rt - 1 < Self::tree_size_spec(cur_level as int) - 1);
+                assert(Self::tree_size_spec(cur_level as int) - 1 == sz * 512) by {
+                    Self::lemma_tree_size_spec();
                 };
+            };
+            let offset = ((nid - cur_rt - 1) / sz as int) as nat;
+            // now offset < 512 follows
+            assert(offset < 512) by {
+                // offset*sz <= nid - cur_rt - 1 < sz*512
+                assert(offset * sz <= nid - cur_rt - 1) by {
+                    lemma_remainder_lower(nid - cur_rt - 1, sz as int);
+                };
+                assert(nid - cur_rt - 1 < sz * 512);
+                // Now use the actual quotient form:
+                lemma_multiply_divide_lt(nid - cur_rt - 1, sz as int, 512);
             };
 
             let new_rt = cur_rt + offset * sz + 1;
