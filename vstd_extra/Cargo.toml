@@ -9,4 +9,3 @@ edition = "2021"
 vstd = { path = "../tools/verus/source/vstd" }
 builtin = { path = "../tools/verus/source/builtin" }
 builtin_macros = { path = "../tools/verus/source/builtin_macros" }
-

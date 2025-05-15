@@ -6,6 +6,7 @@ use vstd::prelude::*;
 use super::common::*;
 use super::utils::*;
 use vstd::map_lib::*;
+use vstd_extra::set_extra::lemma_nat_range_finite;
 
 verus! {
 
@@ -296,12 +297,11 @@ proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
 ensures
     Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).finite(),
     Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).len() == cpu_num,
-decreases cpu_num,
 {
     assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) =~= Set::new(
-        |cpu: CpuId| crate::spec::common::pos_in_range(0, cpu_num, cpu),
+        |cpu: CpuId| 0<=cpu<cpu_num,
     ));
-    crate::spec::common::lemma_pos_in_range_set_finite(0, cpu_num);
+    lemma_nat_range_finite(0, cpu_num);
 }
 
 

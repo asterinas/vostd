@@ -15,7 +15,7 @@ pub use page_table::*;
 pub use page_table::node::*;
 pub use frame::*;
 
-use crate::helpers::extra_num::lemma_pow2_is_power2_to64;
+use vstd_extra::extra_num::lemma_pow2_is_power2_to64;
 use crate::helpers::math::lemma_page_shl;
 
 verus! {

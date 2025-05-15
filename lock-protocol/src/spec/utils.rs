@@ -4,6 +4,7 @@ use vstd::prelude::*;
 use vstd::arithmetic::power::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
+use vstd_extra::prelude::*;
 
 use super::common::*;
 
@@ -895,9 +896,9 @@ impl NodeHelper {
             Set::new(|nid| Self::valid_nid(nid)).len() == Self::total_size(),
     {
         assert(Set::new(|nid| Self::valid_nid(nid)) =~= Set::new(
-            |nid| pos_in_range(0, Self::total_size(), nid),
+            |nid| 0 <= nid < Self::total_size(),
         ));
-        lemma_pos_in_range_set_finite(0, Self::total_size());
+        lemma_nat_range_finite(0, Self::total_size());
     }
 }
 

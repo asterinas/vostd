@@ -123,12 +123,12 @@ impl<T, const N: usize> View for PointsToArray<T, N> {
 impl<V, const N: usize> PointsToArray<V, N> {
     #[verifier::inline]
     pub open spec fn ptr(&self) -> *mut [V; N] {
-        self.view().ptr
+        self@.ptr
     }
 
     #[verifier::inline]
     pub open spec fn opt_value(&self) -> [raw_ptr::MemContents<V>; N] {
-        self.view().value
+        self@.value
     }
 
     #[verifier::inline]
@@ -483,8 +483,8 @@ impl<V, const N: usize> PointsToArray<V, N> {
         N,
     >)
         ensures
-            res.view().ptr == pt.view().ptr,
-            res.view().value == mem_contents_wrap(pt.view().opt_value),
+            res@.ptr == pt@.ptr,
+            res@.value == mem_contents_wrap(pt@.opt_value),
     {
         Tracked::<PointsToArray<V, N>>::assume_new().get()
     }
@@ -492,8 +492,8 @@ impl<V, const N: usize> PointsToArray<V, N> {
     #[verifier::external_body]
     pub proof fn into_ptr(tracked self) -> (tracked res: raw_ptr::PointsTo<[V; N]>)
         ensures
-            res.view().ptr == self.view().ptr,
-            res.view().opt_value == mem_contents_unwrap(self.view().value),
+            res@.ptr == self@.ptr,
+            res@.opt_value == mem_contents_unwrap(self@.value),
     {
         Tracked::<raw_ptr::PointsTo<[V; N]>>::assume_new().get()
     }
@@ -551,7 +551,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         let tracked arr_perm = PointsToArray::into_array(ptr_perm);
         proof {
             arr_perm.is_nonnull();
-            axiom_mem_contents_wrap_correctness(ptr_perm.opt_value(), arr_perm.view().value);
+            axiom_mem_contents_wrap_correctness(ptr_perm.opt_value(), arr_perm@.value);
             assert(arr_perm.is_uninit_all());
         }
         let tracked pt = PointsTo { points_to: arr_perm, exposed, dealloc: Some(dealloc) };
@@ -619,7 +619,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         let tracked perm_ptr: raw_ptr::PointsTo<[V; N]> = points_to.into_ptr();
         proof {
             axiom_mem_contents_unwrap_uninit_correctness(
-                points_to.view().value,
+                points_to@.value,
                 perm_ptr.opt_value(),
             );
             assert(perm_ptr.is_uninit());

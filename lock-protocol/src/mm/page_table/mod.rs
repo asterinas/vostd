@@ -7,7 +7,8 @@ pub use node::*;
 use core::fmt::Debug;
 use std::{marker::PhantomData, ops::Range};
 
-use crate::helpers::{extra_num::lemma_usize_ilog2_to32, math::lemma_u64_and_less_than};
+use crate::helpers::{math::lemma_u64_and_less_than};
+use vstd_extra::extra_num::lemma_usize_ilog2_to32;
 
 use super::{
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, vm_space::Token, Paddr,

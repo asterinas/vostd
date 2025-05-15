@@ -120,6 +120,7 @@ name = "lock-protocol"
 version = "0.1.0"
 dependencies = [
  "vstd",
+ "vstd_extra",
 ]
 
 [[package]]
