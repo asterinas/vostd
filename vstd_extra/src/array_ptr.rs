@@ -40,14 +40,16 @@ pub open spec fn is_mem_contents_all_uninit<V, const N: usize>(
     forall|index: int| 0 <= index < N ==> #[trigger] arr[index].is_uninit()
 }
 
-pub uninterp spec fn mem_contents_unwrap<V, const N: usize>(arr: [raw_ptr::MemContents<V>; N]) -> (res:
-    raw_ptr::MemContents<[V; N]>)
+pub uninterp spec fn mem_contents_unwrap<V, const N: usize>(
+    arr: [raw_ptr::MemContents<V>; N],
+) -> (res: raw_ptr::MemContents<[V; N]>)
     recommends
         is_mem_contents_all_init(arr) || is_mem_contents_all_uninit(arr),
 ;
 
-pub uninterp spec fn mem_contents_wrap<V, const N: usize>(data: raw_ptr::MemContents<[V; N]>) -> (res:
-    [raw_ptr::MemContents<V>; N]);
+pub uninterp spec fn mem_contents_wrap<V, const N: usize>(
+    data: raw_ptr::MemContents<[V; N]>,
+) -> (res: [raw_ptr::MemContents<V>; N]);
 
 #[verifier::external_body]
 pub proof fn axiom_mem_contents_unwrap_init_correctness<V, const N: usize>(
@@ -336,10 +338,11 @@ pub tracked struct PointsTo<V, const N: usize> {
     dealloc: Option<raw_ptr::Dealloc>,
 }
 
-broadcast use
-    {raw_ptr::group_raw_ptr_axioms,
+broadcast use {
+    raw_ptr::group_raw_ptr_axioms,
     set_lib::group_set_lib_default,
-    set::group_set_axioms};
+    set::group_set_axioms,
+};
 
 impl<V, const N: usize> ArrayPtr<V, N> {
     /// Spec: cast the pointer to an integer
@@ -514,7 +517,7 @@ impl<V, const N: usize> Copy for ArrayPtr<V, N> {
 
 #[verifier::external_body]
 #[inline(always)]
-pub exec fn layout_for_array_is_valid<V:Sized, const N: usize>()
+pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
     ensures
         layout::valid_layout(
             layout::size_of::<[V; N]>() as usize,
@@ -618,10 +621,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         }
         let tracked perm_ptr: raw_ptr::PointsTo<[V; N]> = points_to.into_ptr();
         proof {
-            axiom_mem_contents_unwrap_uninit_correctness(
-                points_to@.value,
-                perm_ptr.opt_value(),
-            );
+            axiom_mem_contents_unwrap_uninit_correctness(points_to@.value, perm_ptr.opt_value());
             assert(perm_ptr.is_uninit());
         }
         let tracked perm_raw = perm_ptr.into_raw();

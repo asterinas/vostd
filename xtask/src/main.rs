@@ -798,7 +798,7 @@ fn build_vscode_extension(args: &BootstrapArgs) -> Result<(), DynError> {
     println!("Prepare the Verus Analyzer binary");
     #[cfg(target_os = "windows")]
     {
-        Command::new("powershell")
+        Command::new("pwsh")
     .current_dir(&verus_analyzer_dir)
     .arg("-Command")
     .arg(format!(
@@ -844,11 +844,11 @@ fn install_verusfmt() -> Result<(), DynError> {
     let status = {
         #[cfg(target_os = "windows")]
         {
-            // powershell.exe -ExecutionPolicy RemoteSigned -c "irm https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.ps1 | iex"
-            let mut cmd = Command::new("powershell");
+            // pwsh -ExecutionPolicy Bypass -c "irm https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.ps1 | iex"
+            let mut cmd = Command::new("pwsh");
             cmd
             .arg("-ExecutionPolicy")
-            .arg("RemoteSigned")
+            .arg("Bypass")
             .arg("-c")
             .arg("irm https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.ps1 | iex");
             println!("{:?}", cmd);
@@ -876,7 +876,7 @@ fn compile_verus() -> Result<(), DynError> {
     println!("Start to build the Verus compiler");
     #[cfg(target_os = "windows")]
     {
-        let cmd = &mut Command::new("powershell");
+        let cmd = &mut Command::new("pwsh");
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("/c")
             .arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
@@ -934,7 +934,7 @@ fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
             .join("z3.exe");
         if !z3_path.exists() {
             println!("Start to download the Z3 solver");
-            Command::new("powershell")
+            Command::new("pwsh")
                 .current_dir(Path::new("tools").join("verus").join("source"))
                 .arg("/c")
                 .arg(".\\tools\\get-z3.ps1")
@@ -1006,6 +1006,8 @@ fn exec_update(args: &UpdateArgs) -> Result<(), DynError> {
         repo.reset(&obj, ResetType::Hard, Some(&mut checkout_builder))?;
 
         compile_verus()?;
+
+        install_verusfmt()?;
     }
     Ok(())
 }
