@@ -10,6 +10,8 @@ pub use super::seq_extra::*;
 
 pub use super::set_extra::*;
 
+pub use super::map_extra::*;
+
 pub use super::ghost_tree::*;
 
 pub use super::extra_num::*;

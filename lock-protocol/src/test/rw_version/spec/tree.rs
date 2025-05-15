@@ -6,7 +6,8 @@ use vstd::prelude::*;
 use super::common::*;
 use super::utils::*;
 use vstd::map_lib::*;
-use vstd_extra::set_extra::lemma_nat_range_finite;
+use vstd_extra::set_extra::*;
+use vstd_extra::map_extra::*;
 
 verus! {
 
@@ -31,36 +32,29 @@ fields {
 #[invariant]
 pub fn inv_nodes(&self) -> bool {
     &&& forall |nid: NodeId| #![auto]
-        self.nodes.dom().contains(nid) <==> NodeHelper::valid_nid(nid)
-}
-
-pub open spec fn rc_equal(
-    nid: NodeId,
-    rc: nat,
-    cursors: Set<CursorState>,
-) -> bool
-    recommends cursors.finite(),
-{
-    rc == cursors.filter(|cursor:CursorState| cursor.hold_read_lock(nid)).len()
+        self.nodes.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
 #[invariant]
 pub fn inv_reader_counts(&self) -> bool {
     forall |nid: NodeId| #![auto]
-        self.reader_counts.dom().contains(nid) <==> NodeHelper::valid_nid(nid)
+        self.reader_counts.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
 #[invariant]
 pub fn inv_unallocated_has_no_rc(&self) -> bool {
-    forall |nid: NodeId| #![auto] self.reader_counts.dom().contains(nid) ==> {
+    forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==> {
         self.nodes[nid] is UnAllocated ==> self.reader_counts[nid] == 0
     }
 }
 
 #[invariant]
 pub fn rc_cursors_relation(&self) -> bool {
-    forall |nid: NodeId| #![auto] self.reader_counts.dom().contains(nid) ==>
-        Self::rc_equal(nid, self.reader_counts[nid], self.cursors.values())
+    forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
+        self.reader_counts[nid] == value_filter(
+            self.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len()
 }
 
 pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
@@ -71,21 +65,20 @@ pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
 #[invariant]
 pub fn inv_cursors(&self) -> bool {
     &&& self.cursors.dom().finite()
-    &&& self.cursors.values().finite()
     &&& forall |cpu: CpuId| #![auto]
-        self.cursors.dom().contains(cpu) <==> valid_cpu(self.cpu_num, cpu)
+        self.cursors.contains_key(cpu) <==> valid_cpu(self.cpu_num, cpu)
 
-    &&& forall |cpu: CpuId| #![auto] self.cursors.dom().contains(cpu) ==>
+    &&& forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
         self.cursors[cpu].inv()
 
-    &&& forall |cpu: CpuId| #![auto] self.cursors.dom().contains(cpu) ==>
+    &&& forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
         self.rc_positive(self.cursors[cpu].get_read_lock_path())
 }
 
 #[invariant]
 pub fn inv_rw_lock(&self) -> bool {
     forall |nid: NodeId| #![auto]
-        self.reader_counts.dom().contains(nid) &&
+        self.reader_counts.contains_key(nid) &&
         self.reader_counts[nid] > 0 ==> self.nodes[nid] is WriteUnLocked
 }
 
@@ -93,8 +86,8 @@ pub fn inv_rw_lock(&self) -> bool {
 pub fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
-        self.cursors.dom().contains(cpu1) &&
-        self.cursors.dom().contains(cpu2) ==> {
+        self.cursors.contains_key(cpu1) &&
+        self.cursors.contains_key(cpu2) ==> {
             if !self.cursors[cpu1].hold_write_lock() ||
                 !self.cursors[cpu2].hold_write_lock() { true }
             else {
@@ -253,24 +246,20 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
                 Self::lemma_valid_cpu_set_finite(post.cpu_num);
             }
         }
-        assert(post.cursors.values().finite()) by {
-            lemma_values_finite(
-                post.cursors);
-        }
     }
-    assert(post.rc_cursors_relation()) by {
-        assert forall |nid: NodeId| #[trigger] post.reader_counts.dom().contains(nid) implies
-        Self::rc_equal(nid, post.reader_counts[nid], post.cursors.values()) by{
-            assert(post.reader_counts[nid] == 0);
-            assert(post.cursors.values().filter(
-                |cursor: CursorState| cursor.hold_read_lock(nid)).is_empty());
-        }
+    assert(post.rc_cursors_relation()) by{
+        assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
+         post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)).len() by {
+                    lemma_value_filter_false(
+                        post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)
+                    );}
     }
-
  }
 
 #[inductive(locking_start)]
-fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
+fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
+    admit();
+ }
 
 #[inductive(unlocking_end)]
 fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
