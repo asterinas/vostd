@@ -40,13 +40,13 @@ pub open spec fn is_mem_contents_all_uninit<V, const N: usize>(
     forall|index: int| 0 <= index < N ==> #[trigger] arr[index].is_uninit()
 }
 
-pub open spec fn mem_contents_unwrap<V, const N: usize>(arr: [raw_ptr::MemContents<V>; N]) -> (res:
+pub uninterp spec fn mem_contents_unwrap<V, const N: usize>(arr: [raw_ptr::MemContents<V>; N]) -> (res:
     raw_ptr::MemContents<[V; N]>)
     recommends
         is_mem_contents_all_init(arr) || is_mem_contents_all_uninit(arr),
 ;
 
-pub open spec fn mem_contents_wrap<V, const N: usize>(data: raw_ptr::MemContents<[V; N]>) -> (res:
+pub uninterp spec fn mem_contents_wrap<V, const N: usize>(data: raw_ptr::MemContents<[V; N]>) -> (res:
     [raw_ptr::MemContents<V>; N]);
 
 #[verifier::external_body]
@@ -117,7 +117,7 @@ impl<V, const N: usize> PointsToArrayData<V, N> {
 impl<T, const N: usize> View for PointsToArray<T, N> {
     type V = PointsToArrayData<T, N>;
 
-    spec fn view(&self) -> Self::V;
+    uninterp spec fn view(&self) -> Self::V;
 }
 
 impl<V, const N: usize> PointsToArray<V, N> {
@@ -336,11 +336,10 @@ pub tracked struct PointsTo<V, const N: usize> {
     dealloc: Option<raw_ptr::Dealloc>,
 }
 
-#[verusfmt::skip]
 broadcast use
-    raw_ptr::group_raw_ptr_axioms,
+    {raw_ptr::group_raw_ptr_axioms,
     set_lib::group_set_lib_default,
-    set::group_set_axioms;
+    set::group_set_axioms};
 
 impl<V, const N: usize> ArrayPtr<V, N> {
     /// Spec: cast the pointer to an integer
@@ -515,13 +514,12 @@ impl<V, const N: usize> Copy for ArrayPtr<V, N> {
 
 #[verifier::external_body]
 #[inline(always)]
-pub exec fn layout_for_array_is_valid<V, const N: usize>()
+pub exec fn layout_for_array_is_valid<V:Sized, const N: usize>()
     ensures
         layout::valid_layout(
             layout::size_of::<[V; N]>() as usize,
             layout::align_of::<[V; N]>() as usize,
         ),
-        layout::is_sized::<[V; N]>(),
         layout::size_of::<[V; N]>() as usize as nat == layout::size_of::<[V; N]>(),
         layout::align_of::<[V; N]>() as usize as nat == layout::align_of::<[V; N]>(),
     opens_invariants none

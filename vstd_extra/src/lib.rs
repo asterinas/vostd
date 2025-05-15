@@ -4,6 +4,6 @@ pub mod extern_const;
 pub mod extra_num;
 pub mod ghost_tree;
 pub mod manually_drop;
-pub mod seq_extra;
-
 pub mod prelude;
+pub mod seq_extra;
+pub mod set_extra;

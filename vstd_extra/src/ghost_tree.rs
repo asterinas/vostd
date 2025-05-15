@@ -5,7 +5,7 @@ use super::seq_extra::*;
 
 verus! {
 
-broadcast use group_seq_axioms, group_seq_lib_default, group_seq_extra_lemmas;
+broadcast use {group_seq_axioms, group_seq_lib_default, group_seq_extra_lemmas};
 
 /// Path from the current node to the leaf of the tree
 /// `N` is the maximum number of children of a tree node
@@ -1291,7 +1291,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
 } // verus!
 verus! {
 
-pub open spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize>(
+pub uninterp spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize>(
     src: Node<T, N, L>,
     dst: Node<T, N, L>,
 ) -> TreePath<N>

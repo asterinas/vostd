@@ -178,16 +178,4 @@ pub proof fn lemma_pos_in_range_set_finite(l: nat, r: nat)
     }
 }
 
-pub proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
-    ensures
-        Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).finite(),
-        Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).len() == cpu_num,
-    decreases cpu_num,
-{
-    assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) =~= Set::new(
-        |cpu: CpuId| pos_in_range(0, cpu_num, cpu),
-    ));
-    lemma_pos_in_range_set_finite(0, cpu_num);
-}
-
 } // verus!

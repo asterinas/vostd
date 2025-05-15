@@ -4,11 +4,11 @@ use core::ops::Deref;
 
 verus! {
 
-pub closed spec fn ex_manually_drop_new_spec<V>(value: V) -> ManuallyDrop<V>;
+pub uninterp spec fn ex_manually_drop_new_spec<V>(value: V) -> ManuallyDrop<V>;
 
-pub closed spec fn ex_manually_drop_into_inner_spec<V>(slot: ManuallyDrop<V>) -> V;
+pub uninterp spec fn ex_manually_drop_into_inner_spec<V>(slot: ManuallyDrop<V>) -> V;
 
-pub closed spec fn ex_manually_drop_deref_spec<V: ?Sized>(slot: &ManuallyDrop<V>) -> &V;
+pub uninterp spec fn ex_manually_drop_deref_spec<V: ?Sized>(slot: &ManuallyDrop<V>) -> &V;
 
 #[verifier::external_fn_specification]
 #[verifier::when_used_as_spec(ex_manually_drop_new_spec)]

@@ -5,6 +5,7 @@ use vstd::prelude::*;
 
 use super::common::*;
 use super::utils::*;
+use vstd::map_lib::*;
 
 verus! {
 
@@ -38,29 +39,8 @@ pub open spec fn rc_equal(
     cursors: Set<CursorState>,
 ) -> bool
     recommends cursors.finite(),
-    decreases cursors.len(), when cursors.finite()
 {
-        if rc == 0 && cursors.len() == 0 { true }
-        else if cursors.len() == 0 { false }
-        else {
-            let cursor = cursors.choose();
-            if cursor.hold_read_lock(nid) {
-                if rc == 0 { false }
-                else {
-                    Self::rc_equal(
-                        nid,
-                        (rc - 1) as nat,
-                        cursors.remove(cursor)
-                    )
-                }
-            } else {
-                Self::rc_equal(
-                    nid,
-                    rc,
-                    cursors.remove(cursor)
-                )
-            }
-        }
+    rc == cursors.filter(|cursor:CursorState| cursor.hold_read_lock(nid)).len()
 }
 
 #[invariant]
@@ -262,7 +242,30 @@ transition!{
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId) {
-    admit();
+    assert(post.inv_cursors()) by{
+        assert(post.cursors.dom().finite()) by{
+            assert(post.cursors.dom()=~=Set::new(
+                |cpu| valid_cpu(post.cpu_num, cpu),
+            ));
+            assert(Set::new(|cpu:CpuId| valid_cpu(post.cpu_num, cpu)).finite()) by
+            {
+                Self::lemma_valid_cpu_set_finite(post.cpu_num);
+            }
+        }
+        assert(post.cursors.values().finite()) by {
+            lemma_values_finite(
+                post.cursors);
+        }
+    }
+    assert(post.rc_cursors_relation()) by {
+        assert forall |nid: NodeId| #[trigger] post.reader_counts.dom().contains(nid) implies
+        Self::rc_equal(nid, post.reader_counts[nid], post.cursors.values()) by{
+            assert(post.reader_counts[nid] == 0);
+            assert(post.cursors.values().filter(
+                |cursor: CursorState| cursor.hold_read_lock(nid)).is_empty());
+        }
+    }
+
  }
 
 #[inductive(locking_start)]
@@ -289,7 +292,21 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit();
 #[inductive(deallocate)]
 fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
+proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
+ensures
+    Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).finite(),
+    Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).len() == cpu_num,
+decreases cpu_num,
+{
+    assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) =~= Set::new(
+        |cpu: CpuId| crate::spec::common::pos_in_range(0, cpu_num, cpu),
+    ));
+    crate::spec::common::lemma_pos_in_range_set_finite(0, cpu_num);
 }
+
+
+}
+
 
 }
 
