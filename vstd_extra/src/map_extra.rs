@@ -14,4 +14,40 @@ pub proof fn lemma_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
 {
 }
 
+pub proof fn lemma_remove_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    requires
+        m.contains_key(k),
+        f(m[k]),
+    ensures
+        value_filter(m.remove(k), f) =~= value_filter(m, f).remove(k),
+{
+}
+
+pub proof fn lemma_remove_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    requires
+        m.contains_key(k),
+        !f(m[k]),
+    ensures
+        value_filter(m.remove(k), f) =~= value_filter(m, f),
+{
+}
+
+pub proof fn lemma_insert_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K, v: V)
+    requires
+        !m.contains_key(k),
+        f(v),
+    ensures
+        value_filter(m.insert(k, v), f) =~= value_filter(m, f).insert(k, v),
+{
+}
+
+pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K, v: V)
+    requires
+        !m.contains_key(k),
+        !f(v),
+    ensures
+        value_filter(m.insert(k, v), f) =~= value_filter(m, f),
+{
+}
+
 } // verus!

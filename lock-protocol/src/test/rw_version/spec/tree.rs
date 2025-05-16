@@ -154,6 +154,7 @@ transition!{
         add reader_counts += [ nid => rc + 1 ];
 
         remove cursors -= [ cpu => let CursorState::ReadLocking(path) ];
+        require(path.len()<3);
         require(wf_tree_path(path.push(nid)));
         add cursors += [ cpu => CursorState::ReadLocking(path.push(nid)) ];
     }
@@ -258,14 +259,54 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
-    admit();
+    assert(post.rc_cursors_relation()) by {
+        assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
+        post.reader_counts[nid] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len() by {
+                let f = |cursor: CursorState| cursor.hold_read_lock(nid);
+                lemma_remove_value_filter_false(
+                    pre.cursors, f, cpu
+                );
+                lemma_insert_value_filter_false(
+                    pre.cursors.remove(cpu), f, cpu, CursorState::ReadLocking(Seq::empty())
+                );
+            }
+    }
  }
 
 #[inductive(unlocking_end)]
-fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
+fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
+    assert(post.rc_cursors_relation()) by {
+        assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
+        post.reader_counts[nid] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len() by {
+                let f = |cursor: CursorState| cursor.hold_read_lock(nid);
+                lemma_remove_value_filter_false(
+                    pre.cursors, f, cpu
+                );
+                lemma_insert_value_filter_false(
+                    pre.cursors.remove(cpu), f, cpu, CursorState::Void
+                );
+            }
+    }
+}
 
 #[inductive(read_lock)]
-fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    assert(post.rc_cursors_relation()) by {
+        assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
+        post.reader_counts[nid] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len() by {
+                admit();
+        }
+    }
+ }
 
 #[inductive(read_unlock)]
 fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }

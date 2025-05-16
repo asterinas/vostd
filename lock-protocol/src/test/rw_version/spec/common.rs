@@ -1,6 +1,9 @@
+use std::path;
+
 use builtin::*;
 use builtin_macros::*;
-use vstd::prelude::*;
+use vstd::{prelude::*, seq::axiom_seq_push_index_different};
+use vstd_extra::ghost_tree::Node;
 
 use super::utils::*;
 
@@ -107,6 +110,58 @@ impl CursorState {
     {
         let path = self.get_read_lock_path();
         path.contains(nid)
+    }
+}
+
+pub proof fn lemma_wf_tree_path_nid_increasing(path: Seq<NodeId>)
+    requires
+        wf_tree_path(path),
+    ensures
+        forall|i: int, j: int|
+            #![trigger path[i],path[j]]
+            0 <= i < j < path.len() ==> path[i] < path[j],
+    decreases path.len(),
+{
+    if path.len() == 0 {
+    } else if path.len() == 1 {
+    } else {
+        assert forall|i: int, j: int| 0 <= i < j < path.len() implies path[i] < path[j] by {
+            assert forall|i: int, j: int| 0 <= i < j < path.len() - 1 implies path[i] < path[j] by {
+                lemma_wf_tree_path_nid_increasing(path.drop_last());
+                assert(path[i] == path.drop_last()[i]);
+                assert(path[j] == path.drop_last()[j]);
+            }
+        }
+    }
+}
+
+pub proof fn lemma_wf_tree_path_inversion(path: Seq<NodeId>)
+    requires
+        wf_tree_path(path),
+    ensures
+        path.len() > 0 ==> {
+            &&& path[0] == NodeHelper::root_id()
+            &&& wf_tree_path(path.drop_last())
+            &&& !path.drop_last().contains(path.last())
+        },
+{
+    if path.len() == 0 {
+    } else {
+        lemma_wf_tree_path_nid_increasing(path);
+    }
+}
+
+pub proof fn lemma_wf_tree_path_push_inversion(path: Seq<NodeId>, nid: NodeId)
+    requires
+        wf_tree_path(path.push(nid)),
+    ensures
+        wf_tree_path(path),
+        path.len() > 0 ==> NodeHelper::is_child(path.last(), nid),
+        !path.contains(nid),
+{
+    lemma_wf_tree_path_inversion(path.push(nid));
+    if (path.len() > 0) {
+        assert(path.push(nid).drop_last() =~= path);
     }
 }
 
