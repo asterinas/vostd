@@ -6,8 +6,7 @@ use vstd::prelude::*;
 use super::common::*;
 use super::utils::*;
 use vstd::map_lib::*;
-use vstd_extra::set_extra::*;
-use vstd_extra::map_extra::*;
+use vstd_extra::{seq_extra::*,set_extra::*,map_extra::*};
 
 verus! {
 
@@ -297,15 +296,31 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 
 #[inductive(read_lock)]
 fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    let path = pre.cursors[cpu].get_read_lock_path();
+    assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));
     assert(post.rc_cursors_relation()) by {
-        assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
-        post.reader_counts[nid] == value_filter(
+        assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
+        post.reader_counts[id] == value_filter(
             post.cursors,
-            |cursor: CursorState| cursor.hold_read_lock(nid),
+            |cursor: CursorState| cursor.hold_read_lock(id),
         ).len() by {
-                admit();
-        }
-    }
+                let f = |cursor: CursorState| cursor.hold_read_lock(id);
+                lemma_wf_tree_path_push_inversion(path, nid);
+                if id!=nid {
+                    assert(post.reader_counts[id] == pre.reader_counts[id]);
+                    assert(post.cursors[cpu].hold_read_lock(id) == pre.cursors[cpu].hold_read_lock(id)) by {
+                        lemma_push_contains_different(path, nid, id);
+                    }
+                    lemma_insert_value_filter_same_len(
+                        pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
+                    );
+                    }
+                else{
+                    admit();
+                }
+        };
+
+    };
  }
 
 #[inductive(read_unlock)]
