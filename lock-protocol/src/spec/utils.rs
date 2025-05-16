@@ -670,6 +670,7 @@ impl NodeHelper {
     {
     }
 
+    /* 
     pub proof fn lemma_in_subtree_bounded_is_child(pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(pa),
@@ -1203,7 +1204,7 @@ impl NodeHelper {
             assert(Self::next_outside_subtree(ch) == ch + sz_ch);
             assert(Self::next_outside_subtree(pa) == pa + sz_pa);
         };
-    }
+    }*/
 
     pub proof fn lemma_in_subtree_bounded(rt: NodeId, nd: NodeId)
         requires
@@ -1228,8 +1229,7 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
     {
-        &&& Self::in_subtree(pa, ch)
-        &&& Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch)
+        pa == Self::get_parent(ch)
     }
 
     pub open spec fn get_parent(nid: NodeId) -> NodeId
@@ -1245,32 +1245,34 @@ impl NodeHelper {
         }
     }
 
-    pub proof fn lemma_parent_child(nid: NodeId)
+    pub proof fn lemma_is_child_properties(pa: NodeId, ch: NodeId)
         requires
-            Self::valid_nid(nid),
-            nid != Self::root_id(),
+            Self::valid_nid(pa),
+            Self::valid_nid(ch),
+            Self::is_child(pa, ch),
+            ch != Self::root_id(),
         ensures
-            Self::is_child(Self::get_parent(nid), nid),
+            Self::in_subtree(pa, ch),
+            Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch),
     {
-        let trace = Self::nid_to_trace(nid);
+        let trace = Self::nid_to_trace(ch);
         assert(Self::valid_trace(trace)) by {
-            Self::lemma_nid_to_trace(nid);
+            Self::lemma_nid_to_trace(ch);
         };
-        let pa = Self::get_parent(nid);
         assert(pa == Self::trace_to_nid_from_root(trace.drop_last()));
         let pa_trace = Self::nid_to_trace(pa);
         assert(pa_trace =~= trace.drop_last()) by {
             Self::lemma_trace_to_nid_from_root(trace.drop_last());
         };
         assert(pa_trace.len() + 1 == trace.len());
-        assert(Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(nid));
+        assert(Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch));
 
         let pa_level = Self::dep_to_level(pa_trace.len());
-        let _nid = Self::lemma_trace_to_nid_split(pa_trace, seq![trace.last()], pa, pa_level - 1);
-        assert(_nid == nid) by {
+        let nid = Self::lemma_trace_to_nid_split(pa_trace, seq![trace.last()], pa, pa_level - 1);
+        assert(nid == ch) by {
             assert(pa_trace.add(seq![trace.last()]) =~= trace);
-            assert(_nid == Self::trace_to_nid_from_root(trace));
-            Self::lemma_nid_to_trace(nid);
+            assert(nid == Self::trace_to_nid_from_root(trace));
+            Self::lemma_nid_to_trace(ch);
         };
         assert(Self::valid_nid(pa)) by {
             Self::lemma_trace_to_nid_from_root(trace.drop_last());
@@ -1280,6 +1282,13 @@ impl NodeHelper {
         };
         Self::lemma_trace_to_nid_rec(seq![trace.last()], pa, pa_level - 1);
     }
+
+    pub proof fn lemma_parent_child(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+        ensures
+            Self::is_child(Self::get_parent(nid), nid),
+    {}
 
     pub open spec fn get_offset(nid: NodeId) -> nat
         recommends
