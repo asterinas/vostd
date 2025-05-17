@@ -675,10 +675,107 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
             Self::is_child(pa, ch),
+            ch != Self::root_id(),
         ensures
             Self::next_outside_subtree(ch) <= Self::next_outside_subtree(pa),
     {
-        admit()
+        let dep_pa = Self::nid_to_dep(pa);
+        let dep_ch = Self::nid_to_dep(ch);
+        assert(dep_ch == dep_pa + 1) by {
+            Self::lemma_is_child_properties(pa, ch);
+        };
+
+        let sz_pa = Self::sub_tree_size(pa);
+        let sz_ch = Self::sub_tree_size(ch);
+        Self::lemma_tree_size_spec();  // Apply tree size lemma to both nodes.
+
+        let level_pa = 4 - dep_pa;
+        let level_ch = 4 - dep_ch;
+
+        assert(level_ch == level_pa - 1);
+
+        // Verify trace properties.
+        let trace_pa = Self::lemma_nid_to_trace(pa);
+        let trace_ch = Self::lemma_nid_to_trace(ch);
+
+        // Set level bounds.
+        assert(1 <= level_ch <= 3);
+        assert(2 <= level_pa <= 4);
+
+        // Verify subtree containment.
+        assert((ch as int) + (sz_ch as int) <= (pa as int) + (sz_pa as int)) by {
+            assert(sz_ch < sz_pa);
+            // Break down into two cases:
+            // 1. If ch == pa, then ch + sz_ch == pa + sz_ch < pa + sz_pa, because sz_ch < sz_pa
+            // 2. If ch > pa, we need more detailed analysis
+            if ch == pa {
+            } else {
+                // Verify trace length relationship.
+                assert(trace_ch.len() == trace_pa.len() + 1);
+
+                // Prepare for increment lemma.
+                let offset = trace_ch.last();  // Get last element as offset.
+
+                // Get parent level.
+                let pa_level = Self::dep_to_level(dep_pa);
+
+                let sz = Self::tree_size_spec(pa_level - 2);
+
+                // Apply increment specification.
+                assert(Self::trace_to_nid_increment_spec(trace_pa, offset)) by {
+                    Self::lemma_trace_to_nid_increment(trace_pa, offset);
+                };
+
+                // The trace of ch is determined by its parent node's trace plus an offset
+                assert(ch != Self::root_id()) by {
+                    // A child node cannot be the root node, because it has depth > 0
+                    assert(dep_ch > 0);
+                    assert(Self::root_id() == 0);
+                    assert(ch > 0);
+                };
+
+                // Final formula: ch = pa + offset * sz + 1, where sz = tree_size_spec(pa_level - 2).
+                assert(ch == pa + offset * sz + 1) by {
+                    // By definition, get_parent uses trace.drop_last()
+                    assert(Self::get_parent(ch) == Self::trace_to_nid_from_root(
+                        Self::nid_to_trace(ch).drop_last(),
+                    ));
+
+                    // Direct proof that trace_ch's prefix must be trace_pa
+                    assert(trace_ch.drop_last() =~= trace_pa) by {
+                        // Using uniqueness of trace to nid mapping
+                        Self::lemma_trace_to_nid_from_root(trace_ch.drop_last());
+                    }
+
+                    // Now we prove that the last element of trace_ch is offset
+                    assert(trace_ch.last() == offset) by {
+                        // Now we can derive the relationship between ch and trace_ch
+                        assert(trace_ch =~= trace_pa.push(offset)) by {};
+
+                        // Since trace_ch =~= trace_pa.push(offset), we know
+                        assert(Self::trace_to_nid_from_root(trace_ch)
+                            == Self::trace_to_nid_from_root(trace_pa.push(offset)));
+                    }
+
+                    // With these two facts, we can construct the full proof:
+                    // 1. trace_ch.drop_last() =~= trace_pa
+                    // 2. trace_ch.last() == offset
+                    // Therefore: trace_ch =~= trace_pa.push(offset)
+                    assert(ch == pa + offset * sz + 1);
+                };
+
+                // We have proven that ch == pa + offset * sz + 1
+                // Also, we have proven that sz_ch < sz_pa
+                // So ch + sz_ch <= pa + offset * sz + 1 + sz_ch
+                // In the maximum case, offset is close to 512, and sz_pa is at least 512 * sz_ch + 1
+                // So ch + sz_ch < pa + sz_pa always holds
+                // Finally prove that ch + sz_ch <= pa + sz_pa
+                assert(ch + sz_ch <= pa + sz_pa) by {
+                    // Apply size ordering.
+                    assert(offset * sz + sz_ch <= offset * sz + sz);
+                };
+            }
+        };
     }
 
     pub proof fn lemma_in_subtree_bounded(rt: NodeId, nd: NodeId)
@@ -704,8 +801,7 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
     {
-        &&& Self::in_subtree(pa, ch)
-        &&& Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch)
+        pa == Self::get_parent(ch)
     }
 
     pub open spec fn get_parent(nid: NodeId) -> NodeId
@@ -721,32 +817,34 @@ impl NodeHelper {
         }
     }
 
-    pub proof fn lemma_parent_child(nid: NodeId)
+    pub proof fn lemma_is_child_properties(pa: NodeId, ch: NodeId)
         requires
-            Self::valid_nid(nid),
-            nid != Self::root_id(),
+            Self::valid_nid(pa),
+            Self::valid_nid(ch),
+            Self::is_child(pa, ch),
+            ch != Self::root_id(),
         ensures
-            Self::is_child(Self::get_parent(nid), nid),
+            Self::in_subtree(pa, ch),
+            Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch),
     {
-        let trace = Self::nid_to_trace(nid);
+        let trace = Self::nid_to_trace(ch);
         assert(Self::valid_trace(trace)) by {
-            Self::lemma_nid_to_trace(nid);
+            Self::lemma_nid_to_trace(ch);
         };
-        let pa = Self::get_parent(nid);
         assert(pa == Self::trace_to_nid_from_root(trace.drop_last()));
         let pa_trace = Self::nid_to_trace(pa);
         assert(pa_trace =~= trace.drop_last()) by {
             Self::lemma_trace_to_nid_from_root(trace.drop_last());
         };
         assert(pa_trace.len() + 1 == trace.len());
-        assert(Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(nid));
+        assert(Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch));
 
         let pa_level = Self::dep_to_level(pa_trace.len());
-        let _nid = Self::lemma_trace_to_nid_split(pa_trace, seq![trace.last()], pa, pa_level - 1);
-        assert(_nid == nid) by {
+        let nid = Self::lemma_trace_to_nid_split(pa_trace, seq![trace.last()], pa, pa_level - 1);
+        assert(nid == ch) by {
             assert(pa_trace.add(seq![trace.last()]) =~= trace);
-            assert(_nid == Self::trace_to_nid_from_root(trace));
-            Self::lemma_nid_to_trace(nid);
+            assert(nid == Self::trace_to_nid_from_root(trace));
+            Self::lemma_nid_to_trace(ch);
         };
         assert(Self::valid_nid(pa)) by {
             Self::lemma_trace_to_nid_from_root(trace.drop_last());
@@ -755,6 +853,14 @@ impl NodeHelper {
             Self::lemma_valid_level_to_node(pa, pa_level)
         };
         Self::lemma_trace_to_nid_rec(seq![trace.last()], pa, pa_level - 1);
+    }
+
+    pub proof fn lemma_parent_child(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+        ensures
+            Self::is_child(Self::get_parent(nid), nid),
+    {
     }
 
     pub open spec fn get_offset(nid: NodeId) -> nat
