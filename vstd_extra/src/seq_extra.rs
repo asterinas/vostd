@@ -82,8 +82,7 @@ pub broadcast group group_seq_extra_lemmas {
 }
 
 } // verus!
-
-verus!{
+verus! {
 
 pub proof fn lemma_push_contains_same<T>(s: Seq<T>, needle: T)
     ensures
@@ -98,11 +97,11 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     ensures
         #[trigger] s.push(new_elem).contains(needle) == s.contains(needle),
 {
-    if(s.contains(needle))
-    {
-        let i = choose |i: int| 0<=i<s.len()&&s[i] == needle;
+    if (s.contains(needle)) {
+        let i = choose|i: int| 0 <= i < s.len() && s[i] == needle;
         axiom_seq_push_index_different(s, needle, i);
-        assert(0<=i<s.push(new_elem).len()&&s.push(new_elem)[i] == needle);
+        assert(0 <= i < s.push(new_elem).len() && s.push(new_elem)[i] == needle);
     }
 }
-}
+
+} // verus!

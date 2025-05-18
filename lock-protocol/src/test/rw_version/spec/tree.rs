@@ -5,8 +5,8 @@ use vstd::prelude::*;
 
 use super::common::*;
 use super::utils::*;
-use vstd::map_lib::*;
-use vstd_extra::{seq_extra::*,set_extra::*,map_extra::*};
+use vstd::{set::*, set_lib::*, map_lib::*};
+use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 verus! {
 
@@ -316,8 +316,24 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     );
                     }
                 else{
-                    admit();
+                    assert(pre.reader_counts[nid]==value_filter(
+                        pre.cursors,
+                        |cursor: CursorState| cursor.hold_read_lock(nid),
+                    ).len());
+                    assert(post.reader_counts[nid] == pre.reader_counts[nid] + 1);
+                    assert(!pre.cursors[cpu].hold_read_lock(nid));
+                    assert(post.cursors[cpu].hold_read_lock(nid)) by {
+                        lemma_push_contains_same(path, nid);
+                    }
+                    lemma_remove_value_filter_false(
+                        pre.cursors, f, cpu
+                    );
+                    lemma_insert_value_filter_true(
+                        pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
+                    );
+                    axiom_set_insert_len(pre.cursors.dom(),cpu);
                 }
+                admit();
         };
 
     };
