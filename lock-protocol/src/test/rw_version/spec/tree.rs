@@ -307,7 +307,6 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 let f = |cursor: CursorState| cursor.hold_read_lock(id);
                 lemma_wf_tree_path_push_inversion(path, nid);
                 if id!=nid {
-                    assert(post.reader_counts[id] == pre.reader_counts[id]);
                     assert(post.cursors[cpu].hold_read_lock(id) == pre.cursors[cpu].hold_read_lock(id)) by {
                         lemma_push_contains_different(path, nid, id);
                     }
@@ -316,11 +315,6 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     );
                     }
                 else{
-                    assert(pre.reader_counts[nid]==value_filter(
-                        pre.cursors,
-                        |cursor: CursorState| cursor.hold_read_lock(nid),
-                    ).len());
-                    assert(post.reader_counts[nid] == pre.reader_counts[nid] + 1);
                     assert(!pre.cursors[cpu].hold_read_lock(nid));
                     assert(post.cursors[cpu].hold_read_lock(nid)) by {
                         lemma_push_contains_same(path, nid);
@@ -331,9 +325,10 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     lemma_insert_value_filter_true(
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
                     );
-                    axiom_set_insert_len(pre.cursors.dom(),cpu);
+                    lemma_insert_value_filter_different_len(
+                        pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
+                    );
                 }
-                admit();
         };
 
     };
