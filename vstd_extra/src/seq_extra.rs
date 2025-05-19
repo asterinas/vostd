@@ -104,4 +104,17 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     }
 }
 
+pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
+    requires
+        s.len() > 0,
+        s.last() != needle,
+    ensures
+        #[trigger] s.drop_last().contains(needle) == s.contains(needle),
+{
+    if (s.contains(needle)) {
+        let i = choose|i: int| 0 <= i < s.len() && s[i] == needle;
+        assert(0 <= i < s.drop_last().len() && s.drop_last()[i] == needle);
+    }
+}
+
 } // verus!

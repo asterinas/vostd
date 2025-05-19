@@ -49,7 +49,7 @@ pub fn inv_unallocated_has_no_rc(&self) -> bool {
 
 #[invariant]
 pub fn rc_cursors_relation(&self) -> bool {
-    forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
+    &&& forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
         self.reader_counts[nid] == value_filter(
             self.cursors,
             |cursor: CursorState| cursor.hold_read_lock(nid),
@@ -58,7 +58,13 @@ pub fn rc_cursors_relation(&self) -> bool {
 
 pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
     forall |i| #![auto] 0 <= i < path.len() ==>
-        self.reader_counts[path[i]] > 0
+    self.reader_counts[path[i]] > 0
+}
+
+#[invariant]
+pub fn inv_rc_positive(&self) -> bool {
+    forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
+        self.rc_positive(self.cursors[cpu].get_read_lock_path())
 }
 
 #[invariant]
@@ -69,9 +75,6 @@ pub fn inv_cursors(&self) -> bool {
 
     &&& forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
         self.cursors[cpu].inv()
-
-    &&& forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
-        self.rc_positive(self.cursors[cpu].get_read_lock_path())
 }
 
 #[invariant]
@@ -250,7 +253,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
     assert(post.rc_cursors_relation()) by{
         assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
          post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)).len() by {
-                    lemma_value_filter_false(
+                    lemma_value_filter_all_false(
                         post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)
                     );}
     }
@@ -332,44 +335,34 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let path = pre.cursors[cpu].get_read_lock_path();
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.drop_last())));
-    assert(post.inv_cursors()) by {
-        assert forall |cpu0: CpuId| #[trigger] post.cursors.contains_key(cpu0) implies
-        post.rc_positive(post.cursors[cpu0].get_read_lock_path()) by {
-            let path0 = post.cursors[cpu0].get_read_lock_path();
-            if cpu0 == cpu {
-                assert(post.cursors[cpu].get_read_lock_path() == path.drop_last());
-                admit();
-            } else {
-                assert(post.cursors[cpu0].get_read_lock_path() == pre.cursors[cpu0].get_read_lock_path());
-                admit();
-            }
-        /*assert forall |id: NodeId| #[trigger] post.cursors.contains_key(id) implies
-        post.cursors[id].inv() by {
-            assert(post.cursors[cpu].hold_read_lock(id) == pre.cursors[cpu].hold_read_lock(id)) by {
-                lemma_push_contains_different(path, nid, id);
-            }
-        }*/
-    };
-}
     assert(post.rc_cursors_relation()) by {
-        admit();
-    }
-    /*assert(post.rc_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
             post.cursors,
             |cursor: CursorState| cursor.hold_read_lock(id),
         ).len() by {
                 let f = |cursor: CursorState| cursor.hold_read_lock(id);
-                lemma_remove_value_filter_true(
-                    pre.cursors, f, cpu
-                );
-                lemma_insert_value_filter_same_len(
-                    pre.cursors.remove(cpu), f, cpu, CursorState::ReadLocking(path.drop_last())
-                );
-            }
-    }*/
+                lemma_wf_tree_path_inversion(path);
+                if id!=nid {
+                    assert(path.drop_last().contains(id)==path.contains(id)) by {
+                        lemma_drop_last_contains_different(path, id);
+                    };
+                    lemma_insert_value_filter_same_len(
+                        pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
+                    );
+                }
+                else{
+                    lemma_insert_value_filter_different_len(
+                        pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
+                    );
+                }
+        };
+    }
+    assert(post.inv_rc_positive()) by {
+        Self::lemma_inv_implies_inv_rc_positive(post);
+    };
  }
+
 
 #[inductive(write_lock)]
 fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
@@ -394,29 +387,62 @@ ensures
     lemma_nat_range_finite(0, cpu_num);
 }
 
-proof fn lemma_rc_cursors_relation_implies_rc_positive(
-    s: Self, cpu: CpuId, path: Seq<NodeId>
+
+proof fn lemma_inv_implies_inv_rc_positive(
+    s: Self
 )
 requires
+    s.inv_reader_counts(),
     s.inv_cursors(),
     s.rc_cursors_relation(),
-    s.cursors[cpu] is ReadLocking,
-    s.cursors[cpu].get_read_lock_path() == path,
 ensures
-    s.rc_positive(path),
+    s.inv_rc_positive(),
+
 {
-    /*assert forall |i| 0 <= i < path.len() implies
-        #[trigger]s.reader_counts[path[i]] > 0 by {
-            assert(s.reader_counts.contains_key(path[i]));
-            assert(s.cursors[cpu].hold_read_lock(path[i]));
-            assert(s.reader_counts[path[i]] == value_filter(
-                s.cursors,
-                |cursor: CursorState| cursor.hold_read_lock(path[i]),
-            ).len());
-            assert(s.cursors[cpu].hold_read_lock(path[i]));
+    assert forall |cpu: CpuId| #![trigger] s.cursors.contains_key(cpu) implies
+        #[trigger]s.rc_positive(s.cursors[cpu].get_read_lock_path()) by {
+            match s.cursors[cpu] {
+                CursorState::Void => {}
+                CursorState::ReadLocking(path) => {
+                    assert(path == s.cursors[cpu].get_read_lock_path());
+                    assert forall |i| 0 <= i < path.len() implies
+                    #[trigger]s.reader_counts[path[i]] > 0 by {
+                        let f = |cursor: CursorState| cursor.hold_read_lock(path[i]);
+                        let filtered_cursors = value_filter(
+                            s.cursors,
+                            f,
+                        );
+                        assert(NodeHelper::valid_nid(path[i]));
+                        assert(s.cursors[cpu].hold_read_lock(path[i]));
+                        lemma_value_filter_finite(s.cursors, f);
+                        axiom_set_contains_len(
+                            filtered_cursors.dom(),
+                            cpu,
+                        );
+                }
+                }
+                CursorState::WriteLocked(path0) => {
+                    let path = path0.drop_last();
+                    assert(path == s.cursors[cpu].get_read_lock_path());
+                    assert forall |i| 0 <= i < path.len() implies
+                    #[trigger]s.reader_counts[path[i]] > 0 by {
+                        let f = |cursor: CursorState| cursor.hold_read_lock(path[i]);
+                        let filtered_cursors = value_filter(
+                            s.cursors,
+                            f,
+                        );
+                        assert(NodeHelper::valid_nid(path[i]));
+                        assert(s.cursors[cpu].hold_read_lock(path[i]));
+                        lemma_value_filter_finite(s.cursors, f);
+                        axiom_set_contains_len(
+                            filtered_cursors.dom(),
+                            cpu,
+                        );
+                }
+            }
         }
-    }*/
-    admit();
+
+        }
 }
 }
 

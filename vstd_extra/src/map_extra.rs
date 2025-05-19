@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd::{set::*, map::*};
+use vstd::{map::*};
 
 verus! {
 
@@ -55,7 +55,15 @@ pub proof fn lemma_value_filter_contains<K, V>(m: Map<K, V>, f: spec_fn(V) -> bo
 {
 }
 
-pub proof fn lemma_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
+pub proof fn lemma_value_filter_all_true<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
+    requires
+        forall|k: K| m.contains_key(k) ==> #[trigger] f(m[k]),
+    ensures
+        value_filter(m, f) =~= m,
+{
+}
+
+pub proof fn lemma_value_filter_all_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
     requires
         forall|k: K| m.contains_key(k) ==> !#[trigger] f(m[k]),
     ensures
