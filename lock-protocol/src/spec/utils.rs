@@ -575,6 +575,22 @@ impl NodeHelper {
         Self::nid_to_trace(nid).len()
     }
 
+    pub open spec fn nid_to_level(nid: NodeId) -> nat
+        recommends
+            Self::valid_nid(nid),
+    {
+        Self::dep_to_level(Self::nid_to_dep(nid))
+    }
+
+    pub proof fn lemma_level_dep_relation(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+        ensures
+            Self::nid_to_level(nid) == 4 - Self::nid_to_dep(nid),
+    {
+        admit();
+    }
+
     pub proof fn lemma_valid_level_to_node(nid: NodeId, level: nat)
         requires
             Self::valid_nid(nid),
@@ -675,7 +691,6 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
             Self::is_child(pa, ch),
-            ch != Self::root_id(),
         ensures
             Self::next_outside_subtree(ch) <= Self::next_outside_subtree(pa),
     {
@@ -801,7 +816,7 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
     {
-        pa == Self::get_parent(ch)
+        pa == Self::get_parent(ch) && ch != Self::root_id()
     }
 
     pub open spec fn get_parent(nid: NodeId) -> NodeId
@@ -822,7 +837,6 @@ impl NodeHelper {
             Self::valid_nid(pa),
             Self::valid_nid(ch),
             Self::is_child(pa, ch),
-            ch != Self::root_id(),
         ensures
             Self::in_subtree(pa, ch),
             Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch),
@@ -858,6 +872,7 @@ impl NodeHelper {
     pub proof fn lemma_parent_child(nid: NodeId)
         requires
             Self::valid_nid(nid),
+            nid != Self::root_id(),
         ensures
             Self::is_child(Self::get_parent(nid), nid),
     {
@@ -1005,6 +1020,22 @@ impl NodeHelper {
             |nid| 0 <= nid < Self::total_size(),
         ));
         lemma_nat_range_finite(0, Self::total_size());
+    }
+
+    pub open spec fn trace_to_tree_path(trace: Seq<nat>) -> Seq<NodeId>
+        recommends
+            Self::valid_trace(trace),
+        decreases trace.len(),
+    {
+        if trace.len() == 0 {
+            seq![Self::root_id()]
+        } else {
+            let path = Self::trace_to_tree_path(trace.drop_last());
+            let offset = trace.last();
+            let sz = Self::tree_size_spec(3 - trace.len());
+            let nid = path.last();
+            path.push(nid + offset * sz + 1)
+        }
     }
 }
 

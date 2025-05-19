@@ -4,7 +4,8 @@ use state_machines_macros::state_machine;
 use vstd::prelude::*;
 use vstd::map::*;
 
-use super::{common::*, utils::*};
+use super::{common::*};
+use crate::spec::utils::*;
 
 verus! {
 

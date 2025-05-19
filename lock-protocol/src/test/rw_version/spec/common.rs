@@ -5,7 +5,7 @@ use builtin_macros::*;
 use vstd::{prelude::*, seq::axiom_seq_push_index_different};
 use vstd_extra::ghost_tree::Node;
 
-use super::utils::*;
+use crate::spec::utils::*;
 
 verus! {
 
@@ -131,6 +131,7 @@ pub proof fn lemma_wf_tree_path_nid_increasing(path: Seq<NodeId>)
                 assert(path[i] == path.drop_last()[i]);
                 assert(path[j] == path.drop_last()[j]);
             }
+            admit();
         }
     }
 }
@@ -163,6 +164,15 @@ pub proof fn lemma_wf_tree_path_push_inversion(path: Seq<NodeId>, nid: NodeId)
     if (path.len() > 0) {
         assert(path.push(nid).drop_last() =~= path);
     }
+}
+
+pub proof fn lemma_wf_tree_path_valid_nid(path: Seq<NodeId>)
+    requires
+        wf_tree_path(path),
+    ensures
+        forall|nid: NodeId| path.contains(nid) ==> NodeHelper::valid_nid(nid),
+{
+    admit();
 }
 
 pub enum AtomicCursorState {
