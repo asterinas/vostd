@@ -2,7 +2,7 @@ use std::path;
 
 use builtin::*;
 use builtin_macros::*;
-use vstd::{prelude::*, seq::axiom_seq_push_index_different};
+use vstd::{prelude::*, seq::*};
 use vstd_extra::ghost_tree::Node;
 
 use crate::spec::utils::*;
@@ -28,6 +28,7 @@ pub open spec fn wf_tree_path(path: Seq<NodeId>) -> bool {
         &&& path[0] == NodeHelper::root_id()
         &&& forall|i: int|
             1 <= i < path.len() ==> NodeHelper::is_child(path[i - 1], #[trigger] path[i])
+        &&& forall|i: int| 0 <= i < path.len() ==> #[trigger] NodeHelper::valid_nid(path[i])
     }
 }
 
@@ -164,15 +165,6 @@ pub proof fn lemma_wf_tree_path_push_inversion(path: Seq<NodeId>, nid: NodeId)
     if (path.len() > 0) {
         assert(path.push(nid).drop_last() =~= path);
     }
-}
-
-pub proof fn lemma_wf_tree_path_valid_nid(path: Seq<NodeId>)
-    requires
-        wf_tree_path(path),
-    ensures
-        forall|nid: NodeId| path.contains(nid) ==> NodeHelper::valid_nid(nid),
-{
-    admit();
 }
 
 pub enum AtomicCursorState {
