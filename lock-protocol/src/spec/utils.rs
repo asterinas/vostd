@@ -786,8 +786,20 @@ impl NodeHelper {
                 // So ch + sz_ch < pa + sz_pa always holds
                 // Finally prove that ch + sz_ch <= pa + sz_pa
                 assert(ch + sz_ch <= pa + sz_pa) by {
-                    // Apply size ordering.
-                    assert(offset * sz + sz_ch <= offset * sz + sz);
+                    // Now establish (offset+1) * sz <= 512 * sz using integer arithmetic
+                    // This holds because offset + 1 <= 512
+                    assert((offset + 1) * sz <= 512 * sz) by {
+                        // Since offset + 1 <= 512, we can use arithmetic inequality
+                        // (a * c <= b * c when a <= b and c >= 0)
+                        lemma_mul_inequality(offset as int + 1, 512, sz as int);
+                    };
+
+                    // Now we can derive offset*sz + sz <= 512*sz without explicit multiplication
+                    assert(offset * sz + sz == (offset + 1) * sz) by {
+                        // Use the distributive property: a*c + b*c = (a+b)*c
+                        // here with a=offset, b=1, c=sz
+                        lemma_mul_is_distributive_add_other_way(sz as int, offset as int, 1);
+                    };
                 };
             }
         };
