@@ -15,31 +15,38 @@ tokenized_state_machine!{
 TreeSpec {
 
 fields {
+    /// The number of CPUs in the system.
     #[sharding(constant)]
     pub cpu_num: CpuId,
 
+    /// The state of each node.
     #[sharding(map)]
     pub nodes: Map<NodeId, NodeState>,
 
+    /// The number of readers holding a read lock on each node.
     #[sharding(map)]
     pub reader_counts: Map<NodeId, nat>,
 
+    /// The state of cursors for each CPU.
     #[sharding(map)]
     pub cursors: Map<CpuId, CursorState>,
 }
 
+/// Every node should have a valid NodeId.
 #[invariant]
 pub fn inv_nodes(&self) -> bool {
     &&& forall |nid: NodeId| #![auto]
         self.nodes.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
+/// Every reader counter should be for a valid NodeId.
 #[invariant]
 pub fn inv_reader_counts(&self) -> bool {
     forall |nid: NodeId| #![auto]
         self.reader_counts.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
+/// Unallocated nodes should not have any reader counts.
 #[invariant]
 pub fn inv_unallocated_has_no_rc(&self) -> bool {
     forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==> {
@@ -47,26 +54,30 @@ pub fn inv_unallocated_has_no_rc(&self) -> bool {
     }
 }
 
+/// The number of cursors holding a read lock on each node should match the reader counts.
 #[invariant]
 pub fn rc_cursors_relation(&self) -> bool {
-    &&& forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
+    forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
         self.reader_counts[nid] == value_filter(
             self.cursors,
             |cursor: CursorState| cursor.hold_read_lock(nid),
         ).len()
 }
 
+/// If a cursor holds a read lock path, the reader count for each node in the path should be positive.
 pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
     forall |i| #![auto] 0 <= i < path.len() ==>
     self.reader_counts[path[i]] > 0
 }
 
+/// All cursors holding read lock paths should have positive reader counts.
 #[invariant]
 pub fn inv_rc_positive(&self) -> bool {
     forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
         self.rc_positive(self.cursors[cpu].get_read_lock_path())
 }
 
+/// The number of cursors should be equal to the number of CPUs and the invariant should hold for each cursor's state.
 #[invariant]
 pub fn inv_cursors(&self) -> bool {
     &&& self.cursors.dom().finite()
@@ -77,6 +88,7 @@ pub fn inv_cursors(&self) -> bool {
         self.cursors[cpu].inv()
 }
 
+/// Each node with a read lock held should be in the WriteUnLocked state.
 #[invariant]
 pub fn inv_rw_lock(&self) -> bool {
     forall |nid: NodeId| #![auto]
@@ -102,6 +114,7 @@ pub fn inv_non_overlapping(&self) -> bool {
         }
 }
 
+/// All cursors are initialized to the Void state and all nodes except the root are UnAllocated.
 init!{
     initialize(cpu_num: CpuId) {
         require(cpu_num > 0);
@@ -126,6 +139,7 @@ init!{
     }
 }
 
+/// Start a read lock on the specified CPU.
 transition!{
     locking_start(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -135,6 +149,7 @@ transition!{
     }
 }
 
+/// Release the cursor to the Void state if it releases all read locks in the path.
 transition!{
     unlocking_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -145,6 +160,7 @@ transition!{
     }
 }
 
+/// Acquire a read lock on the specified node and increment the reader count for that node.
 transition!{
     read_lock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -162,6 +178,7 @@ transition!{
     }
 }
 
+/// Release a read lock on the specified node and decrement the reader count for that node.
 transition!{
     read_unlock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -178,6 +195,7 @@ transition!{
     }
 }
 
+/// Acquire a write lock on the specified node and ensure that no other CPU has a read lock on it.
 transition!{
     write_lock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -195,6 +213,7 @@ transition!{
     }
 }
 
+/// Release a write lock on the specified node and downgrade the cursor to ReadLocking.
 transition!{
     write_unlock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -209,6 +228,7 @@ transition!{
     }
 }
 
+/// Ensure the cursor has a write lock on the specified node and allocates the node.
 transition!{
     allocate(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -223,6 +243,7 @@ transition!{
     }
 }
 
+/// Ensure the cursor has a write lock on the specified node and deallocates the node.
 transition!{
     deallocate(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
@@ -365,7 +386,39 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 
 
 #[inductive(write_lock)]
-fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    let path = pre.cursors[cpu].get_read_lock_path();
+    assert(post.cursors== pre.cursors.insert(cpu, CursorState::WriteLocked(path.push(nid))));
+    assert(post.cursors[cpu].get_read_lock_path() == path);
+    lemma_wf_tree_path_push_inversion(path,nid);
+    assert(post.rc_cursors_relation()) by {
+        assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
+        post.reader_counts[id] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(id),
+        ).len() by {
+            let f = |cursor:CursorState| cursor.hold_read_lock(id);
+            if id!=nid {
+                lemma_insert_value_filter_same_len(
+                    pre.cursors, f, cpu, CursorState::WriteLocked(path.push(nid))
+                );
+            }
+            else{
+                /*assert(!pre.cursors[cpu].hold_read_lock(nid));
+                assert(post.cursors[cpu].hold_read_lock(nid)) by {
+                    lemma_push_contains_same(path, nid);
+                }
+                lemma_insert_value_filter_different_len(
+                    pre.cursors, f, cpu, CursorState::WriteLocked(path.push(nid))
+                );*/
+                admit();
+            }
+        }
+    }
+    assert(post.inv_non_overlapping()) by {
+        admit();
+    }
+ }
 
 #[inductive(write_unlock)]
 fn write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
@@ -445,7 +498,6 @@ ensures
         }
 }
 }
-
 
 }
 

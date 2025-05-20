@@ -84,6 +84,7 @@ pub broadcast group group_seq_extra_lemmas {
 } // verus!
 verus! {
 
+/// The result of pushing elemrnt 'needle' into the sequence 's' contains 'needle'.
 pub proof fn lemma_push_contains_same<T>(s: Seq<T>, needle: T)
     ensures
         #[trigger] s.push(needle).contains(needle),
@@ -91,6 +92,8 @@ pub proof fn lemma_push_contains_same<T>(s: Seq<T>, needle: T)
     assert(s.push(needle).last() == needle);
 }
 
+/// If element 'needle' is different from 'new_elem', then whether the sequence 's' contains 'needle'
+/// after pushing 'new_elem' depends on whether 's' contains 'needle' before the push.
 pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     requires
         new_elem != needle,
@@ -104,6 +107,9 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     }
 }
 
+/// If the last element of the sequence 's' is different from 'needle', then whether the sequence
+/// 's' contains 'needle' after dropping the last element depends on whether 's' contains 'needle'
+/// before the drop.
 pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
     requires
         s.len() > 0,

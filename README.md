@@ -46,18 +46,20 @@ export PATH=$PATH:/usr/local/opt/binutils/bin/
 
 #### Build Verus
 
-For VsCode users, you can build verus with the verus-analyzer:
+You can build Verus with the following command:
 ```bash
 cargo xtask bootstrap
 ```
-otherwise, you can build it with:
-```bash
-cargo xtask bootstrap --no-vscode-extension
-```
+Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo xtask bootstrap` again.
 
-`Verus` and `verus-analyzer` should be automatically cloned and built in the `tools` directory. If download fails, please clone these two repos manually at `tools/verus` and `tools/verus-analyzer`, then run `cargo xtask bootstrap` again.
+#### IDE Support
+
+For VsCode users, you may find the `verus-analyzer` extension in the [marketplace.](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer)
 
 #### Update Verus
+
+You can always run the following command to update Verus to the latest supported version.
+
 ```bash
 cargo xtask update
 ```
@@ -72,11 +74,10 @@ cargo xtask compile --targets vstd_extra
 cargo xtask compile --targets aster_common
 cargo xtask verify --targets fvt5-lifecycle-safety
 cargo xtask verify --targets fvt10-pt-cursor-navigation
-cargo xtask verify --targets fvt11-pt-cursor-guards
+...
 ```
 
-After the first build, you may directly build one of the specific targets
-with ``make fvt10`` or ``make fvt11``
+After the first build, you may directly build one of the specific targets with commands like``make fvt10`.
 
 ## The verification targets
 
