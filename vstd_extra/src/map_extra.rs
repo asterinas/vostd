@@ -134,6 +134,11 @@ pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
         } else {
             value_filter(m, f)
         },
+        value_filter(m.insert(k, v), f) =~= if m.contains_key(k) {
+            value_filter(m, f).remove(k)
+        } else {
+            value_filter(m, f)
+        },
 {
 }
 

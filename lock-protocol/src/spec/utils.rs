@@ -582,13 +582,61 @@ impl NodeHelper {
         Self::dep_to_level(Self::nid_to_dep(nid))
     }
 
+    // Helper lemma: prove that the result length of nid_to_trace_rec does not exceed cur_level
+    proof fn lemma_trace_rec_len_le_level(nid: NodeId, cur_level: nat, cur_rt: NodeId)
+        requires
+            cur_level <= 3,
+        ensures
+            Self::nid_to_trace_rec(nid, cur_level, cur_rt).len() <= cur_level,
+        decreases cur_level,
+    {
+        if cur_level == 0 {
+            assert(Self::nid_to_trace_rec(nid, 0, cur_rt).len() == 0);
+        } else {
+            let sz = Self::tree_size_spec(cur_level - 1);
+            let offset = ((nid - cur_rt - 1) / sz as int) as nat;
+            let new_rt = cur_rt + offset * sz + 1;
+
+            if new_rt == nid {
+                // In this case, the returned sequence is seq![offset], with length 1
+                assert(Self::nid_to_trace_rec(nid, cur_level, cur_rt).len() == 1);
+            } else {
+                // This is the recursive case
+                // The result length of the recursive call does not exceed (cur_level-1)
+                Self::lemma_trace_rec_len_le_level(nid, (cur_level - 1) as nat, new_rt);
+            }
+        }
+    }
+
+    pub proof fn lemma_nid_to_dep_le_3(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+        ensures
+            Self::nid_to_dep(nid) <= 3,
+    {
+        if nid == Self::root_id() {
+            assert(Self::nid_to_trace(nid).len() == 0);
+        } else {
+            // nid_to_trace(nid) = nid_to_trace_rec(nid, 3, root)
+            let trace = Self::nid_to_trace(nid);
+            // Each level adds 1 element to trace at most, cur_level starts from 3
+            assert(trace.len() <= 3) by {
+                Self::lemma_trace_rec_len_le_level(nid, 3, Self::root_id());
+            };
+        }
+    }
+
     pub proof fn lemma_level_dep_relation(nid: NodeId)
         requires
             Self::valid_nid(nid),
         ensures
             Self::nid_to_level(nid) == 4 - Self::nid_to_dep(nid),
     {
-        admit();
+        // Since nid_to_dep(nid) = nid_to_trace(nid).len()
+        // and nid_to_trace uses 3 levels of recursion at most, depth < 4
+        assert(Self::nid_to_dep(nid) <= 3) by {
+            Self::lemma_nid_to_dep_le_3(nid);
+        };  // Hence: dep ∈ {0,1,2,3}
     }
 
     pub proof fn lemma_valid_level_to_node(nid: NodeId, level: nat)
@@ -1032,6 +1080,22 @@ impl NodeHelper {
             |nid| 0 <= nid < Self::total_size(),
         ));
         lemma_nat_range_finite(0, Self::total_size());
+    }
+
+    pub open spec fn trace_to_tree_path(trace: Seq<nat>) -> Seq<NodeId>
+        recommends
+            Self::valid_trace(trace),
+        decreases trace.len(),
+    {
+        if trace.len() == 0 {
+            seq![Self::root_id()]
+        } else {
+            let path = Self::trace_to_tree_path(trace.drop_last());
+            let offset = trace.last();
+            let sz = Self::tree_size_spec(3 - trace.len());
+            let nid = path.last();
+            path.push(nid + offset * sz + 1)
+        }
     }
 
     pub open spec fn trace_to_tree_path(trace: Seq<nat>) -> Seq<NodeId>
