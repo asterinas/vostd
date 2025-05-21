@@ -322,8 +322,6 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let path = pre.cursors[cpu].get_read_lock_path();
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));
-    let path = pre.cursors[cpu].get_read_lock_path();
-    assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));
     assert(post.rc_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
