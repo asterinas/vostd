@@ -1097,22 +1097,6 @@ impl NodeHelper {
             path.push(nid + offset * sz + 1)
         }
     }
-
-    pub open spec fn trace_to_tree_path(trace: Seq<nat>) -> Seq<NodeId>
-        recommends
-            Self::valid_trace(trace),
-        decreases trace.len(),
-    {
-        if trace.len() == 0 {
-            seq![Self::root_id()]
-        } else {
-            let path = Self::trace_to_tree_path(trace.drop_last());
-            let offset = trace.last();
-            let sz = Self::tree_size_spec(3 - trace.len());
-            let nid = path.last();
-            path.push(nid + offset * sz + 1)
-        }
-    }
 }
 
 } // verus!

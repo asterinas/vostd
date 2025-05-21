@@ -104,16 +104,15 @@ pub fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
         self.cursors.contains_key(cpu1) &&
-        self.cursors.contains_key(cpu2) ==> {
-            if !self.cursors[cpu1].hold_write_lock() ||
-                !self.cursors[cpu2].hold_write_lock() { true }
-            else {
-                let nid1 = self.cursors[cpu1].get_write_lock_node();
-                let nid2 = self.cursors[cpu2].get_write_lock_node();
+        self.cursors.contains_key(cpu2) &&
+        self.cursors[cpu1].hold_write_lock() &&
+        self.cursors[cpu2].hold_write_lock() ==>
+        {
+            let nid1 = self.cursors[cpu1].get_write_lock_node();
+            let nid2 = self.cursors[cpu2].get_write_lock_node();
 
-                !NodeHelper::in_subtree(nid1, nid2) &&
-                !NodeHelper::in_subtree(nid2, nid1)
-            }
+            !NodeHelper::in_subtree(nid1, nid2) &&
+            !NodeHelper::in_subtree(nid2, nid1)
         }
 }
 
@@ -263,8 +262,8 @@ transition!{
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId) {
-    assert(post.inv_cursors()) by{
-        assert(post.cursors.dom().finite()) by{
+    assert(post.inv_cursors()) by {
+        assert(post.cursors.dom().finite()) by {
             assert(post.cursors.dom()=~=Set::new(
                 |cpu| valid_cpu(post.cpu_num, cpu),
             ));
@@ -273,16 +272,16 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
                 Self::lemma_valid_cpu_set_finite(post.cpu_num);
             }
         }
-    }
-    assert(post.rc_cursors_relation()) by{
+    };
+    assert(post.rc_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
          post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)).len() by {
                     lemma_value_filter_all_false(
-                    lemma_value_filter_all_false(
                         post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)
-                    );}
-    }
- }
+                    );
+        }
+    };
+}
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
@@ -300,8 +299,8 @@ fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
                     pre.cursors.remove(cpu), f, cpu, CursorState::ReadLocking(Seq::empty())
                 );
             }
-    }
- }
+    };
+}
 
 #[inductive(unlocking_end)]
 fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
@@ -318,8 +317,8 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
                 lemma_insert_value_filter_false(
                     pre.cursors.remove(cpu), f, cpu, CursorState::Void
                 );
-            }
-    }
+            };
+    };
 }
 
 #[inductive(read_lock)]
@@ -331,10 +330,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.rc_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
-        assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
-        post.reader_counts[id] == value_filter(
             post.cursors,
-            |cursor: CursorState| cursor.hold_read_lock(id),
             |cursor: CursorState| cursor.hold_read_lock(id),
         ).len() by {
                 let f = |cursor: CursorState| cursor.hold_read_lock(id);
@@ -347,7 +343,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
                     );
                     }
-                else{
+                else {
                     assert(!pre.cursors[cpu].hold_read_lock(nid));
                     assert(post.cursors[cpu].hold_read_lock(nid)) by {
                         lemma_push_contains_same(path, nid);
@@ -359,29 +355,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         };
 
     };
-                let f = |cursor: CursorState| cursor.hold_read_lock(id);
-                lemma_wf_tree_path_push_inversion(path, nid);
-                if id!=nid {
-                    assert(post.cursors[cpu].hold_read_lock(id) == pre.cursors[cpu].hold_read_lock(id)) by {
-                        lemma_push_contains_different(path, nid, id);
-                    }
-                    lemma_insert_value_filter_same_len(
-                        pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
-                    );
-                    }
-                else{
-                    assert(!pre.cursors[cpu].hold_read_lock(nid));
-                    assert(post.cursors[cpu].hold_read_lock(nid)) by {
-                        lemma_push_contains_same(path, nid);
-                    }
-                    lemma_insert_value_filter_different_len(
-                        pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
-                    );
-                }
-        };
-
-    };
- }
+}
 
 #[inductive(read_unlock)]
 fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
@@ -403,49 +377,17 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
                     );
                 }
-                else{
+                else {
                     lemma_insert_value_filter_different_len(
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
                     );
                 }
         };
-    }
+    };
     assert(post.inv_rc_positive()) by {
         Self::lemma_inv_implies_inv_rc_positive(post);
     };
- }
-
-fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    let path = pre.cursors[cpu].get_read_lock_path();
-    assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.drop_last())));
-    assert(post.rc_cursors_relation()) by {
-        assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
-        post.reader_counts[id] == value_filter(
-            post.cursors,
-            |cursor: CursorState| cursor.hold_read_lock(id),
-        ).len() by {
-                let f = |cursor: CursorState| cursor.hold_read_lock(id);
-                lemma_wf_tree_path_inversion(path);
-                if id!=nid {
-                    assert(path.drop_last().contains(id)==path.contains(id)) by {
-                        lemma_drop_last_contains_different(path, id);
-                    };
-                    lemma_insert_value_filter_same_len(
-                        pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
-                    );
-                }
-                else{
-                    lemma_insert_value_filter_different_len(
-                        pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
-                    );
-                }
-        };
-    }
-    assert(post.inv_rc_positive()) by {
-        Self::lemma_inv_implies_inv_rc_positive(post);
-    };
- }
-
+}
 
 #[inductive(write_lock)]
 fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
@@ -465,15 +407,10 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     pre.cursors, f, cpu, CursorState::WriteLocked(path.push(nid))
                 );
             }
-            else{
-                /*assert(!pre.cursors[cpu].hold_read_lock(nid));
-                assert(post.cursors[cpu].hold_read_lock(nid)) by {
-                    lemma_push_contains_same(path, nid);
-                }
-                lemma_insert_value_filter_different_len(
+            else {
+                lemma_insert_value_filter_same_len(
                     pre.cursors, f, cpu, CursorState::WriteLocked(path.push(nid))
-                );*/
-                admit();
+                );
             }
         }
     }
@@ -503,9 +440,7 @@ ensures
 }
 
 
-proof fn lemma_inv_implies_inv_rc_positive(
-    s: Self
-)
+proof fn lemma_inv_implies_inv_rc_positive(s: Self)
 requires
     s.inv_reader_counts(),
     s.inv_cursors(),
@@ -556,11 +491,11 @@ ensures
                 }
             }
         }
-
-        }
-}
+        };
 }
 
-}
+}// TreeSpec
+}  // tokenized_state_machine!
+
 
 } // verus!
