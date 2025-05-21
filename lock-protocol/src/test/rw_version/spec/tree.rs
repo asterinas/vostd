@@ -7,9 +7,6 @@ use super::common::*;
 use crate::spec::utils::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
-use crate::spec::utils::*;
-use vstd::{set::*, set_lib::*, map_lib::*};
-use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 verus! {
 
