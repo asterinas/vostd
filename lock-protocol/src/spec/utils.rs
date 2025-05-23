@@ -13,8 +13,10 @@ verus! {
 pub struct NodeHelper;
 
 impl NodeHelper {
-    /// depth starts from 0(root) to 3 (leaf),
-    /// level starts from 4(root) to 1 (leaf).
+    /// depth starts from 0 (root) to 3 (leaf),
+    /// level starts from 4 (root) to 1 (leaf).
+    /// The mapping formula is `depth = 4 - level`, which reflects the inverse relationship
+    /// between `level` and `depth`.
     pub open spec fn level_to_dep(level: nat) -> nat
         recommends
             1 <= level <= 4,
