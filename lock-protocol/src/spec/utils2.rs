@@ -772,6 +772,25 @@ impl NodeHelper {
         Self::lemma_nid_to_trace_right_inverse();
     }
 
+    /// The function `trace_to_nid` is bijective between the valid trace set and the valid node id set.
+    pub proof fn lemma_trace_to_nid_bijective()
+        ensures
+            bijective_on(
+                |trace| Self::trace_to_nid(trace),
+                Self::valid_trace_set(),
+                Self::valid_nid_set(),
+            ),
+    {
+        Self::lemma_nid_to_trace_bijective();
+        Self::lemma_nid_to_trace_left_inverse();
+        lemma_inverse_of_bijection_is_bijective(
+            |nid| Self::nid_to_trace(nid),
+            |trace| Self::trace_to_nid(trace),
+            Self::valid_nid_set(),
+            Self::valid_trace_set(),
+        );
+    }
+
     // Helper lemma: prove that the result length of nid_to_trace_rec does not exceed cur_level
     proof fn lemma_trace_rec_len_le_level(nid: NodeId, cur_level: nat, cur_rt: NodeId)
         requires
@@ -1193,53 +1212,111 @@ impl NodeHelper {
         assert(Self::nid_to_trace(nid).push(offset).drop_last() =~= Self::nid_to_trace(nid));
     }
 
-    /// The set of valid node ids is finite and its cardinality is `total_size`.
-    pub proof fn lemma_valid_nid_set_cardinality(nid: NodeId)
+    /// The valid nid set's cardinality is `total_size`.
+    pub proof fn lemma_valid_nid_set_cardinality()
         ensures
             Self::valid_nid_set().finite(),
             Self::valid_nid_set().len() == Self::total_size(),
     {
-        assert(Set::new(|nid| Self::valid_nid(nid)) =~= Set::new(
-            |nid| 0 <= nid < Self::total_size(),
-        ));
+        assert(Self::valid_nid_set() =~= Set::new(|nid| 0 <= nid < Self::total_size()));
         lemma_nat_range_finite(0, Self::total_size());
     }
 
-    pub proof fn lemma_valid_trace_set_is_valid_nid_set_map_trace_to_nid()
+    /// The valid trace set's cardinality is `total_size`.
+    pub proof fn lemma_valid_trace_set_cardinality()
         ensures
-            Set::new(|trace| Self::valid_trace(trace)) =~= Set::new(|nid| Self::valid_nid(nid)).map(
-                |nid| Self::nid_to_trace(nid),
-            ),
+            Self::valid_trace_set().finite(),
+            Self::valid_trace_set().len() == Self::total_size(),
     {
-        admit();
+        Self::lemma_valid_nid_set_cardinality();
+        Self::lemma_nid_to_trace_bijective();
+        lemma_bijective_cardinality(
+            |nid| Self::nid_to_trace(nid),
+            Self::valid_nid_set(),
+            Self::valid_trace_set(),
+        );
     }
 
-    #[verifier::external_body]
     pub proof fn lemma_prefix_trace_cardinality(trace: Seq<nat>)
         requires
             Self::valid_trace(trace),
         ensures
-            Set::new(|subtree_trace| Self::valid_trace(subtree_trace)).filter(
-                |subtree_trace| trace.is_prefix_of(subtree_trace),
-            ).len() == Self::tree_size_spec(3 - trace.len()),
+            Self::valid_trace_set().filter(|subtree_trace| trace.is_prefix_of(subtree_trace)).len()
+                == Self::tree_size_spec(3 - trace.len()),
         decreases 3 - trace.len(),
     {
-        let trace_set = Set::new(|subtree_trace| Self::valid_trace(subtree_trace)).filter(
+        let subtree_trace_set = Self::valid_trace_set().filter(
             |subtree_trace| trace.is_prefix_of(subtree_trace),
         );
-        assert(trace_set.contains(trace));
+        assert(subtree_trace_set.contains(trace));
         Self::lemma_tree_size_spec_table();
+        Self::lemma_valid_trace_set_cardinality();
         if trace.len() == 3 {
             assert(forall|subtree_trace| #[trigger]
-                trace_set.contains(subtree_trace) ==> subtree_trace =~= trace);
-            assert(trace_set.is_singleton()) by {
+                subtree_trace_set.contains(subtree_trace) ==> subtree_trace =~= trace);
+            assert(subtree_trace_set.is_singleton()) by {
                 assert(forall|x, y|
-                    #![trigger trace_set.contains(x),trace_set.contains(y)]
-                    trace_set.contains(x) && trace_set.contains(y) ==> x == y);
-                axiom_set_contains_len(trace_set, trace);
-
+                    #![trigger subtree_trace_set.contains(x),subtree_trace_set.contains(y)]
+                    subtree_trace_set.contains(x) && subtree_trace_set.contains(y) ==> x == y);
             }
+            subtree_trace_set.lemma_singleton_size();
         } else {
+            let next_len = trace.len() + 1;
+            assert(next_len <= 3);
+            /*
+            let child_traces = Set::new(|child_trace: Seq<nat>| {
+                &&& Self::valid_trace(child_trace)
+                &&& trace.is_prefix_of(child_trace)
+                &&& child_trace.len() == next_len
+            });
+
+            assert forall|child_trace|
+                #[trigger] child_traces.contains(child_trace) implies
+                {
+                    &&& child_trace.subrange(0, trace.len() as int) =~= trace
+                    &&& child_trace.len() == next_len
+                    &&& 0 <= child_trace.last() < 512
+                };
+
+            assert forall|offset: nat|
+                0 <= offset < 512 implies {
+                    let child_trace = trace.push(offset);
+                    child_traces.contains(child_trace)
+                } by {
+                    assert(Self::valid_trace(trace.push(offset)));
+                };
+
+            assert(child_traces.len() == 512) by {
+                assert(child_traces.finite());
+                assert forall|x, y|
+                    child_traces.contains(x) && child_traces.contains(y) &&
+                    x.last() == y.last() implies x == y;
+            };
+
+            assert forall|subtree_trace|
+                subtree_trace_set.contains(subtree_trace) <==>
+                exists|child_trace|
+                    child_traces.contains(child_trace) &&
+                    child_trace.is_prefix_of(subtree_trace);
+
+            let sum = child_traces.map(|child_trace: Seq<nat>|
+                Self::valid_trace_set().filter(|subtree_trace|
+                    child_trace.is_prefix_of(subtree_trace)
+                ).len()
+            );
+
+            assert(sum == 512 * Self::tree_size_spec(3 - next_len)) by {
+                assert forall|child_trace|
+                    child_traces.contains(child_trace) implies
+                    Self::valid_trace_set().filter(|subtree_trace|
+                        child_trace.is_prefix_of(subtree_trace)
+                    ).len() == Self::tree_size_spec(3 - next_len) by {
+                    Self::lemma_prefix_trace_cardinality(child_trace);
+                };
+            };
+
+            assert(subtree_trace_set.len() == 512 * Self::tree_size_spec(3 - next_len));
+            assert(Self::tree_size_spec(3 - trace.len()) == 512 * Self::tree_size_spec(3 - next_len)); */
             admit();
         }
     }

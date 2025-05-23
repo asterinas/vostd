@@ -105,26 +105,6 @@ pub proof fn lemma_injective_implies_injective_on<T, U>(f: spec_fn(T) -> U, dom:
 {
 }
 
-/// Mapping a finite set with an injective function results in a set of the same cardinality.
-pub proof fn lemma_injective_on_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<T>, s: Set<T>)
-    requires
-        injective_on(f, dom),
-        s.finite(),
-        s <= dom,
-    ensures
-        s.len() == s.map(f).len(),
-        s.map(f).finite(),
-    decreases s.len(),
-{
-    if s.is_empty() {
-        assert(s.map(f) =~= Set::empty());
-    } else {
-        let x = s.choose();
-        lemma_injective_on_map_cardinality(f, dom, s.remove(x));
-        assert(s.map(f) =~= s.remove(x).map(f).insert(f(x)));
-    }
-}
-
 /// If `f` has a two-sided inverse `g` on `domain` and `codomain`, then `f` is bijective on that domain and codomain.
 pub proof fn lemma_two_sided_inverse_implies_bijective<A, B>(
     f: spec_fn(A) -> B,
@@ -196,6 +176,51 @@ pub proof fn lemma_inverse_of_bijection_is_bijective<A, B>(
     } else {
         lemma_right_inverse_of_bijection_is_bijective(f, g, domain, codomain);
     }
+}
+
+/// Mapping a finite set with an injective function results in a set of the same cardinality.
+pub proof fn lemma_injective_map_cardinality<T, U>(f: spec_fn(T) -> U, dom: Set<T>, s: Set<T>)
+    requires
+        injective_on(f, dom),
+        s.finite(),
+        s <= dom,
+    ensures
+        s.len() == s.map(f).len(),
+        s.map(f).finite(),
+    decreases s.len(),
+{
+    if s.is_empty() {
+        assert(s.map(f) =~= Set::empty());
+    } else {
+        let x = s.choose();
+        lemma_injective_map_cardinality(f, dom, s.remove(x));
+        assert(s.map(f) =~= s.remove(x).map(f).insert(f(x)));
+    }
+}
+
+pub proof fn lemma_bijective_cardinality<A, B>(f: spec_fn(A) -> B, domain: Set<A>, codomain: Set<B>)
+    requires
+        bijective_on(f, domain, codomain),
+        domain.finite(),
+    ensures
+        codomain.finite(),
+        domain.len() == codomain.len(),
+{
+    lemma_injective_map_cardinality(f, domain, domain);
+}
+
+pub proof fn lemma_bijective_subset_still_bijective<A, B>(
+    f: spec_fn(A) -> B,
+    domain: Set<A>,
+    codomain: Set<B>,
+    s: Set<A>,
+)
+    requires
+        bijective_on(f, domain, codomain),
+        s <= domain,
+    ensures
+        bijective_on(f, s, s.map(f)),
+{
 }
 
 } // verus!
