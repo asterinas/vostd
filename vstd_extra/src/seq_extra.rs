@@ -126,12 +126,12 @@ pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
 } // verus!
 verus! {
 
-/// Returns true if predicate `f(i,seq[i])` holds for all indexs 'i'.
+/// Returns true if predicate `f(i,seq[i])` holds for all indices 'i'.
 pub open spec fn forall_seq<T>(seq: Seq<T>, f: spec_fn(int, T) -> bool) -> bool {
     forall|i| #![trigger seq[i]] 0 <= i < seq.len() ==> f(i, seq[i])
 }
 
-/// Returns true if predicate `f(seq[i])` holds for all indexs 'i'. The name is to be aligend with `Seq::map_values`.
+/// Returns true if predicate `f(seq[i])` holds for all indices 'i'. The name is to be aligned with `Seq::map_values`.
 pub open spec fn forall_seq_values<T>(seq: Seq<T>, f: spec_fn(T) -> bool) -> bool {
     forall|i| #![trigger seq[i]] 0 <= i < seq.len() ==> f(seq[i])
 }
