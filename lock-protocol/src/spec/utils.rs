@@ -63,7 +63,8 @@ impl NodeHelper {
     {
     }
 
-    /// Returns the size of the tree with nodes at most `max_dep` depth.
+    /// Returns the total number of nodes in a full tree with a branching factor of 512,
+    /// up to and including the specified maximum depth (`max_dep`).
     pub open spec fn tree_size_spec(max_dep: int) -> nat
         recommends
             0 <= max_dep < 4,
