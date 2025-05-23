@@ -6,6 +6,7 @@ use vstd::prelude::*;
 use vstd::arithmetic::power::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
+use vstd::set::*;
 use vstd_extra::prelude::*;
 
 use super::common::*;
@@ -162,6 +163,16 @@ impl NodeHelper {
     pub open spec fn valid_trace(trace: Seq<nat>) -> bool {
         &&& 0 <= trace.len() < 4
         &&& forall_seq_values(trace, |offset: nat| 0 <= offset < 512)
+    }
+
+    /// The set of all valid node ids.
+    pub open spec fn valid_nid_set() -> Set<NodeId> {
+        Set::new(|nid: NodeId| Self::valid_nid(nid))
+    }
+
+    /// The set of all valid traces.
+    pub open spec fn valid_trace_set() -> Set<Seq<nat>> {
+        Set::new(|trace: Seq<nat>| Self::valid_trace(trace))
     }
 
     /// Returns the trace from cur_rt to the node with id `nid`.
@@ -580,6 +591,24 @@ impl NodeHelper {
         }
     }
 
+    /// 'trace_to_nid` is the left inverse of `nid_to_trace` between the valid node id set and the valid trace set.
+    pub proof fn lemma_nid_to_trace_left_inverse()
+        ensures
+            left_inverse_on(
+                |nid| Self::nid_to_trace(nid),
+                |trace| Self::trace_to_nid(trace),
+                Self::valid_nid_set(),
+                Self::valid_trace_set(),
+            ),
+    {
+        assert forall|nid| #[trigger]
+            Self::valid_nid_set().contains(nid) implies Self::valid_trace_set().contains(
+            Self::nid_to_trace(nid),
+        ) && Self::trace_to_nid(Self::nid_to_trace(nid)) == nid by {
+            Self::lemma_nid_to_trace_sound(nid);
+        };
+    }
+
     /// `trace_to_nid_rec` correctly returns a node id from the trace starting from `cur_rt`.
     /// We can reconstruct the trace using `nid_to_trace_rec` with the trace given by `trace_to_nid_rec`.
     #[verifier::spinoff_prover]
@@ -712,6 +741,37 @@ impl NodeHelper {
         Self::lemma_trace_to_nid_rec_sound(trace, 0, 3)
     }
 
+    /// `nid_to_trace` is the right inverse of `trace_to_nid` between the valid node id set and the valid trace set.
+    pub proof fn lemma_nid_to_trace_right_inverse()
+        ensures
+            right_inverse_on(
+                |trace| Self::nid_to_trace(trace),
+                |nid| Self::trace_to_nid(nid),
+                Self::valid_nid_set(),
+                Self::valid_trace_set(),
+            ),
+    {
+        assert forall|trace| #[trigger]
+            Self::valid_trace_set().contains(trace) implies Self::valid_nid_set().contains(
+            Self::trace_to_nid(trace),
+        ) && Self::nid_to_trace(Self::trace_to_nid(trace)) == trace by {
+            Self::lemma_trace_to_nid_sound(trace);
+        };
+    }
+
+    /// The function `nid_to_trace` is bijective between the valid node id set and the valid trace set.
+    pub proof fn lemma_nid_to_trace_bijective()
+        ensures
+            bijective_on(
+                |nid| Self::nid_to_trace(nid),
+                Self::valid_nid_set(),
+                Self::valid_trace_set(),
+            ),
+    {
+        Self::lemma_nid_to_trace_left_inverse();
+        Self::lemma_nid_to_trace_right_inverse();
+    }
+
     // Helper lemma: prove that the result length of nid_to_trace_rec does not exceed cur_level
     proof fn lemma_trace_rec_len_le_level(nid: NodeId, cur_level: nat, cur_rt: NodeId)
         requires
@@ -791,6 +851,7 @@ impl NodeHelper {
         };
     }
 
+    /// A valid node's subtree size is at least 1.
     pub proof fn lemma_sub_tree_size_lowerbound(nid: NodeId)
         requires
             Self::valid_nid(nid),
@@ -1115,6 +1176,8 @@ impl NodeHelper {
         Self::lemma_nid_to_trace_sound(nid);
     }
 
+    /// `get_child` correctly returns the child of a node.
+    /// The result indeed satisfies `is_child(nid, get_child(nid, offset))`.
     pub proof fn lemma_get_child_sound(nid: NodeId, offset: nat)
         requires
             Self::valid_nid(nid),
@@ -1130,15 +1193,55 @@ impl NodeHelper {
         assert(Self::nid_to_trace(nid).push(offset).drop_last() =~= Self::nid_to_trace(nid));
     }
 
-    pub proof fn lemma_valid_nid_set_finite(nid: NodeId)
+    /// The set of valid node ids is finite and its cardinality is `total_size`.
+    pub proof fn lemma_valid_nid_set_cardinality(nid: NodeId)
         ensures
-            Set::new(|nid| Self::valid_nid(nid)).finite(),
-            Set::new(|nid| Self::valid_nid(nid)).len() == Self::total_size(),
+            Self::valid_nid_set().finite(),
+            Self::valid_nid_set().len() == Self::total_size(),
     {
         assert(Set::new(|nid| Self::valid_nid(nid)) =~= Set::new(
             |nid| 0 <= nid < Self::total_size(),
         ));
         lemma_nat_range_finite(0, Self::total_size());
+    }
+
+    pub proof fn lemma_valid_trace_set_is_valid_nid_set_map_trace_to_nid()
+        ensures
+            Set::new(|trace| Self::valid_trace(trace)) =~= Set::new(|nid| Self::valid_nid(nid)).map(
+                |nid| Self::nid_to_trace(nid),
+            ),
+    {
+        admit();
+    }
+
+    #[verifier::external_body]
+    pub proof fn lemma_prefix_trace_cardinality(trace: Seq<nat>)
+        requires
+            Self::valid_trace(trace),
+        ensures
+            Set::new(|subtree_trace| Self::valid_trace(subtree_trace)).filter(
+                |subtree_trace| trace.is_prefix_of(subtree_trace),
+            ).len() == Self::tree_size_spec(3 - trace.len()),
+        decreases 3 - trace.len(),
+    {
+        let trace_set = Set::new(|subtree_trace| Self::valid_trace(subtree_trace)).filter(
+            |subtree_trace| trace.is_prefix_of(subtree_trace),
+        );
+        assert(trace_set.contains(trace));
+        Self::lemma_tree_size_spec_table();
+        if trace.len() == 3 {
+            assert(forall|subtree_trace| #[trigger]
+                trace_set.contains(subtree_trace) ==> subtree_trace =~= trace);
+            assert(trace_set.is_singleton()) by {
+                assert(forall|x, y|
+                    #![trigger trace_set.contains(x),trace_set.contains(y)]
+                    trace_set.contains(x) && trace_set.contains(y) ==> x == y);
+                axiom_set_contains_len(trace_set, trace);
+
+            }
+        } else {
+            admit();
+        }
     }
 }
 
