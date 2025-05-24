@@ -165,7 +165,7 @@ pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<
         let p = parts.choose();
         let rest = parts.remove(p);
         assert(parts =~= rest.insert(p));
-        lemma_arbitrary_union_cardiality_under_disjointness(rest);
+        lemma_arbitrary_union_cardinality_under_disjointness(rest);
         assert(arbitrary_union(rest).len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
         assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
         assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {

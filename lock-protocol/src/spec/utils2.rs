@@ -9,6 +9,8 @@ use vstd::arithmetic::mul::*;
 use vstd::set::*;
 use vstd_extra::prelude::*;
 
+use crate::mm::child;
+
 use super::common::*;
 
 verus! {
@@ -1260,14 +1262,33 @@ impl NodeHelper {
             }
             subtree_trace_set.lemma_singleton_size();
         } else {
-            let next_len = trace.len() + 1;
-            assert(next_len <= 3);
-            // Split into child traces by possible next offsets
-            let child_traces = Set::new(
-                |child_trace: Seq<nat>|
-                    exists|offset: nat| 0 <= offset < 512 && child_trace =~= trace.push(offset),
+            // Split the set between the singleton `trace` and `child_trace_set`.
+            let f = |child_trace: Seq<nat>| child_trace.len() > trace.len();
+            let child_trace_set = subtree_trace_set.filter(f);
+            let trace_singleton_set = subtree_trace_set.filter(
+                |child_trace: Seq<nat>| !f(child_trace),
             );
+            assert(trace_singleton_set.is_singleton()) by {
+                assert(trace_singleton_set.contains(trace));
+                assert forall|x, y|
+                    #![trigger trace_singleton_set.contains(x), trace_singleton_set.contains(y)]
+                    trace_singleton_set.contains(x) && trace_singleton_set.contains(y) implies x
+                    == y by {
+                    assert(x =~= trace);
+                    assert(y =~= trace);
+                }
+            }
+            assert(subtree_trace_set.len() == child_trace_set.len() + 1) by {
+                lemma_set_separation(subtree_trace_set, f);
+            }
 
+            // Split `child_trace_set` into child traces by possible next offsets
+            let offset_set = Set::new(|i: nat| 0 <= i < 512);
+            assert(offset_set.len() == 512) by {
+                lemma_nat_range_finite(0, 512);
+            }
+
+            /*
             // Show each child trace produces disjoint subtrees
             assert(forall|t1: Seq<nat>, t2: Seq<nat>|
                 #![trigger child_traces.contains(t1),child_traces.contains(t2)]
@@ -1288,19 +1309,17 @@ impl NodeHelper {
             // Key step: Show subtree_trace_set is union of child subtrees
             assert(subtree_trace_set =~= set_union(
                 child_traces.map(
+
                     |child_trace: Seq<nat>|
                         Self::valid_trace_set().filter(|st| child_trace.is_prefix_of(st)),
                 ),
             )) by {
                 admit();
-            }
+            }*/
 
             // Total size is 512 * tree_size_spec(3 - next_len)
             // = tree_size_spec(3 - trace.len())
-            assert(subtree_trace_set.len() == Self::tree_size_spec(3 - trace.len())) by {
-                Self::lemma_tree_size_spec_table();
-                admit();
-            }
+            admit();
         }
     }
 }
