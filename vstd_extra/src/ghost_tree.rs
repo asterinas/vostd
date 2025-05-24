@@ -5,8 +5,6 @@ use super::seq_extra::*;
 
 verus! {
 
-broadcast use {group_seq_axioms, group_seq_lib_default, group_seq_extra_lemmas};
-
 /// Path from the current node to the leaf of the tree
 /// `N` is the maximum number of children of a tree node
 /// `TreePath.index(i)` returns the `i`-th element of the path
