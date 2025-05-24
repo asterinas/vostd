@@ -285,8 +285,6 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTableLockTrait<E, C> for 
 
         assert(0 <= frame_addr_to_index(used_addr) < MAX_FRAME_NUM as usize);
         assert(mpt.wf()) by {
-            assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> mpt.mem@.contains_key(i));
             // all other frames are not changed
             assert(forall|i: usize|
                 0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> mpt.mem@[i].1@.mem_contents()
