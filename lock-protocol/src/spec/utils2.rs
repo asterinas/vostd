@@ -76,14 +76,13 @@ impl NodeHelper {
         recommends
             0 <= max_dep < 4,
         decreases max_dep,
+        when max_dep >= 0
     {
         let cur_dep = max_dep as nat;
         if max_dep == 0 {
-            Self::size_at_dep(cur_dep)
-        } else if max_dep > 0 {
-            Self::size_at_dep(cur_dep) + Self::tree_size_spec(max_dep - 1)
+            1
         } else {
-            arbitrary()
+            512 * Self::tree_size_spec(max_dep - 1) + 1
         }
     }
 
@@ -1263,61 +1262,45 @@ impl NodeHelper {
         } else {
             let next_len = trace.len() + 1;
             assert(next_len <= 3);
-            /*
-            let child_traces = Set::new(|child_trace: Seq<nat>| {
-                &&& Self::valid_trace(child_trace)
-                &&& trace.is_prefix_of(child_trace)
-                &&& child_trace.len() == next_len
-            });
-
-            assert forall|child_trace|
-                #[trigger] child_traces.contains(child_trace) implies
-                {
-                    &&& child_trace.subrange(0, trace.len() as int) =~= trace
-                    &&& child_trace.len() == next_len
-                    &&& 0 <= child_trace.last() < 512
-                };
-
-            assert forall|offset: nat|
-                0 <= offset < 512 implies {
-                    let child_trace = trace.push(offset);
-                    child_traces.contains(child_trace)
-                } by {
-                    assert(Self::valid_trace(trace.push(offset)));
-                };
-
-            assert(child_traces.len() == 512) by {
-                assert(child_traces.finite());
-                assert forall|x, y|
-                    child_traces.contains(x) && child_traces.contains(y) &&
-                    x.last() == y.last() implies x == y;
-            };
-
-            assert forall|subtree_trace|
-                subtree_trace_set.contains(subtree_trace) <==>
-                exists|child_trace|
-                    child_traces.contains(child_trace) &&
-                    child_trace.is_prefix_of(subtree_trace);
-
-            let sum = child_traces.map(|child_trace: Seq<nat>|
-                Self::valid_trace_set().filter(|subtree_trace|
-                    child_trace.is_prefix_of(subtree_trace)
-                ).len()
+            // Split into child traces by possible next offsets
+            let child_traces = Set::new(
+                |child_trace: Seq<nat>|
+                    exists|offset: nat| 0 <= offset < 512 && child_trace =~= trace.push(offset),
             );
 
-            assert(sum == 512 * Self::tree_size_spec(3 - next_len)) by {
-                assert forall|child_trace|
-                    child_traces.contains(child_trace) implies
-                    Self::valid_trace_set().filter(|subtree_trace|
-                        child_trace.is_prefix_of(subtree_trace)
-                    ).len() == Self::tree_size_spec(3 - next_len) by {
-                    Self::lemma_prefix_trace_cardinality(child_trace);
-                };
-            };
+            // Show each child trace produces disjoint subtrees
+            assert(forall|t1: Seq<nat>, t2: Seq<nat>|
+                #![trigger child_traces.contains(t1),child_traces.contains(t2)]
+                child_traces.contains(t1) && child_traces.contains(t2) && t1 != t2 ==> {
+                    let s1 = Self::valid_trace_set().filter(|st| t1.is_prefix_of(st));
+                    let s2 = Self::valid_trace_set().filter(|st| t2.is_prefix_of(st));
+                    s1.disjoint(s2)
+                });
 
-            assert(subtree_trace_set.len() == 512 * Self::tree_size_spec(3 - next_len));
-            assert(Self::tree_size_spec(3 - trace.len()) == 512 * Self::tree_size_spec(3 - next_len)); */
-            admit();
+            // Show child trace subtrees have size tree_size_spec(3 - next_len)
+            assert forall|child_trace|
+                child_traces.contains(child_trace) implies Self::valid_trace_set().filter(
+                |st| child_trace.is_prefix_of(st),
+            ).len() == Self::tree_size_spec(3 - next_len) by {
+                Self::lemma_prefix_trace_cardinality(child_trace);
+            }
+
+            // Key step: Show subtree_trace_set is union of child subtrees
+            assert(subtree_trace_set =~= set_union(
+                child_traces.map(
+                    |child_trace: Seq<nat>|
+                        Self::valid_trace_set().filter(|st| child_trace.is_prefix_of(st)),
+                ),
+            )) by {
+                admit();
+            }
+
+            // Total size is 512 * tree_size_spec(3 - next_len)
+            // = tree_size_spec(3 - trace.len())
+            assert(subtree_trace_set.len() == Self::tree_size_spec(3 - trace.len())) by {
+                Self::lemma_tree_size_spec_table();
+                admit();
+            }
         }
     }
 }

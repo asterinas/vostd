@@ -1,4 +1,4 @@
-use vstd::prelude::*;
+use vstd::{prelude::*, set::fold::*, set_lib::*};
 
 verus! {
 
@@ -120,6 +120,64 @@ pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
         if (!q(x)) {
             assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
         };
+    }
+}
+
+/// The union of all sets in a set of sets.
+pub open spec fn arbitrary_union<A>(sets: Set<Set<A>>) -> Set<A> {
+    Set::new(|x: A| exists|s: Set<A>| sets.contains(s) && s.contains(x))
+}
+
+/// A set of sets is pairwise disjoint if all distinct sets are disjoint.
+pub open spec fn pairwise_disjoint<A>(sets: Set<Set<A>>) -> bool {
+    forall|s1: Set<A>, s2: Set<A>|
+        #![trigger sets.contains(s1), sets.contains(s2)]
+        sets.contains(s1) && sets.contains(s2) && s1 != s2 ==> s1.disjoint(s2)
+}
+
+pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
+    // Each part is non-empty and subset of s
+    forall|part: Set<A>| #[trigger]
+        parts.contains(part) ==> !part.is_empty() && part <= s
+            &&
+        // Parts are pairwise disjoint
+        pairwise_disjoint(parts) &&
+        // Union of parts is s
+        s =~= arbitrary_union(parts)
+}
+
+/// If `parts` is a finite set of finite, pairwise-disjoint sets,
+/// then the cardinality of the union is the sum of cardinalities.
+pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
+    requires
+        parts.finite(),
+        pairwise_disjoint(parts),
+        forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite(),
+    ensures
+        arbitrary_union(parts).len() == parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()),
+        arbitrary_union(parts).finite(),
+    decreases parts.len(),
+{
+    if parts.is_empty() {
+        assert(arbitrary_union(parts) =~= Set::empty());
+        lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
+    } else {
+        let p = parts.choose();
+        let rest = parts.remove(p);
+        assert(parts =~= rest.insert(p));
+        lemma_arbitrary_union_cardiality_under_disjointness(rest);
+        assert(arbitrary_union(rest).len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
+        assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
+        assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {
+            lemma_set_disjoint_lens(arbitrary_union(rest), p);
+        }
+
+        assert(parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()) == rest.fold(
+            0nat,
+            |acc: nat, p: Set<A>| acc + p.len(),
+        ) + p.len()) by {
+            lemma_fold_insert(rest, 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
+        }
     }
 }
 
