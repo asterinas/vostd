@@ -1,4 +1,4 @@
-use vstd::prelude::*;
+use vstd::{prelude::*, set::fold::*, set_lib::*};
 
 verus! {
 
@@ -61,6 +61,123 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     } else {
         lemma_nat_range_finite(l, (r - 1) as nat);
         assert(Set::new(|p| l <= p < r - 1).insert((r - 1) as nat) =~= Set::new(|p| l <= p < r));
+    }
+}
+
+/// A finite set can be separated by a predicate.
+pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
+    requires
+        s.finite(),
+    ensures
+        #![trigger s.filter(f)]
+        s.filter(f).disjoint(s.filter(|x| !f(x))),
+        s =~= s.filter(f) + s.filter(|x| !f(x)),
+        s.filter(f).len() + s.filter(|x| !f(x)).len() == s.len(),
+    decreases s.len(),
+{
+    if s.is_empty() {
+        assert(s.filter(f) =~= Set::empty());
+        assert(s.filter(|x| !f(x)) =~= Set::empty());
+    } else {
+        let x = s.choose();
+        lemma_set_separation(s.remove(x), f);
+        if f(x) {
+            assert(s.filter(f) =~= s.remove(x).filter(f).insert(x));
+            assert(s.filter(|x| !f(x)) =~= s.remove(x).filter(|x| !f(x)));
+        } else {
+            assert(s.filter(f) =~= s.remove(x).filter(f));
+            assert(s.filter(|x| !f(x)) =~= s.remove(x).filter(|x| !f(x)).insert(x));
+        }
+    }
+}
+
+/// If no element in set `Set::new(|x: T| p(x))` satisfies the predicate `q`, then all elements
+/// satisfying `p` also satisfy `q`.
+pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
+    requires
+        Set::new(|x: T| p(x)).filter(|x| !q(x)).is_empty(),
+    ensures
+        forall|x: T| #[trigger] p(x) ==> q(x),
+{
+    assert forall|x: T| #[trigger] p(x) implies q(x) by {
+        if (!q(x)) {
+            assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+        };
+    }
+}
+
+/// If all elements in the finite set `Set::new(|x: T| p(x))` satisfy the predicate `q`, then all elements
+/// satisfying `p` also satisfy `q`.
+pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
+    requires
+        Set::new(|x: T| p(x)).finite(),
+        Set::new(|x: T| p(x)) == Set::new(|x: T| p(x)).filter(q),
+    ensures
+        forall|x: T| #[trigger] p(x) ==> q(x),
+{
+    lemma_set_separation(Set::new(|x: T| p(x)), q);
+    assert forall|x: T| #[trigger] p(x) implies q(x) by {
+        if (!q(x)) {
+            assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
+        };
+    }
+}
+
+/// The union of all sets in a set of sets.
+pub open spec fn arbitrary_union<A>(sets: Set<Set<A>>) -> Set<A> {
+    Set::new(|x: A| exists|s: Set<A>| sets.contains(s) && s.contains(x))
+}
+
+/// A set of sets is pairwise disjoint if all distinct sets are disjoint.
+pub open spec fn pairwise_disjoint<A>(sets: Set<Set<A>>) -> bool {
+    forall|s1: Set<A>, s2: Set<A>|
+        #![trigger sets.contains(s1), sets.contains(s2)]
+        sets.contains(s1) && sets.contains(s2) && s1 != s2 ==> s1.disjoint(s2)
+}
+
+pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
+    // Each part is non-empty and subset of s
+    forall|part: Set<A>| #[trigger]
+        parts.contains(part) ==> !part.is_empty() && part <= s
+            &&
+        // Parts are pairwise disjoint
+        pairwise_disjoint(parts) &&
+        // Union of parts is s
+        s =~= arbitrary_union(parts)
+}
+
+/// If `parts` is a finite set of finite, pairwise-disjoint sets,
+/// then the cardinality of the union is the sum of cardinalities.
+pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
+    requires
+        parts.finite(),
+        pairwise_disjoint(parts),
+        forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite(),
+    ensures
+        arbitrary_union(parts).len() == parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()),
+        arbitrary_union(parts).finite(),
+    decreases parts.len(),
+{
+    if parts.is_empty() {
+        assert(arbitrary_union(parts) =~= Set::empty());
+        lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
+    } else {
+        let p = parts.choose();
+        let rest = parts.remove(p);
+        assert(parts =~= rest.insert(p));
+        lemma_arbitrary_union_cardinality_under_disjointness(rest);
+        assert(arbitrary_union(rest).len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
+        assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
+        assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {
+            lemma_set_disjoint_lens(arbitrary_union(rest), p);
+        }
+
+        assert(parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()) == rest.fold(
+            0nat,
+            |acc: nat, p: Set<A>| acc + p.len(),
+        ) + p.len()) by {
+            lemma_fold_insert(rest, 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
+        }
     }
 }
 

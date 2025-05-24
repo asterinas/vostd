@@ -13,6 +13,10 @@ verus! {
 pub struct NodeHelper;
 
 impl NodeHelper {
+    /// depth starts from 0 (root) to 3 (leaf),
+    /// level starts from 4 (root) to 1 (leaf).
+    /// The mapping formula is `depth = 4 - level`, which reflects the inverse relationship
+    /// between `level` and `depth`.
     pub open spec fn level_to_dep(level: nat) -> nat
         recommends
             1 <= level <= 4,
@@ -59,6 +63,8 @@ impl NodeHelper {
     {
     }
 
+    /// Returns the total number of nodes in a full tree with a branching factor of 512,
+    /// up to and including the specified maximum depth (`max_dep`).
     pub open spec fn tree_size_spec(max_dep: int) -> nat
         recommends
             0 <= max_dep < 4,
