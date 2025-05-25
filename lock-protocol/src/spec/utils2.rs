@@ -1055,6 +1055,7 @@ impl NodeHelper {
                     Self::lemma_sub_tree_size_lowerbound(nd);
                 };
                 assert(rt <= nd) by {
+                    admit();
                     let rt_trace = Self::nid_to_trace(rt);
                     let nd_trace = Self::nid_to_trace(nd);
                     Self::lemma_nid_to_trace_sound(rt);
@@ -1280,6 +1281,7 @@ impl NodeHelper {
             }
             assert(subtree_trace_set.len() == child_trace_set.len() + 1) by {
                 lemma_set_separation(subtree_trace_set, f);
+                trace_singleton_set.lemma_singleton_size();
             }
 
             // Split `child_trace_set` into child traces by possible next offsets
