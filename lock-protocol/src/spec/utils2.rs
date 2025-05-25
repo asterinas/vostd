@@ -2,6 +2,7 @@ use std::intrinsics::offset;
 
 use builtin::*;
 use builtin_macros::*;
+use vstd::bytes;
 use vstd::prelude::*;
 use vstd::arithmetic::power::*;
 use vstd::arithmetic::div_mod::*;
@@ -335,6 +336,14 @@ impl NodeHelper {
     {
         let ids = trace.map(|i: int, offset: nat| Self::trace_to_nid(trace.subrange(0, i + 1)));
         seq![Self::root_id()] + ids
+    }
+
+    /// Returns the traces in the subtree of the given trace.
+    pub open spec fn get_subtree_traces(trace: Seq<nat>) -> Set<Seq<nat>>
+        recommends
+            Self::valid_trace(trace),
+    {
+        Self::valid_trace_set().filter(|subtree_trace| trace.is_prefix_of(subtree_trace))
     }
 
     proof fn lemma_trace_to_nid_rec_inductive(trace: Seq<nat>, cur_rt: NodeId, cur_level: int)
@@ -1056,7 +1065,7 @@ impl NodeHelper {
                 };
                 assert(rt <= nd) by {
                     admit();
-                    let rt_trace = Self::nid_to_trace(rt);
+                    /* let rt_trace = Self::nid_to_trace(rt);
                     let nd_trace = Self::nid_to_trace(nd);
                     Self::lemma_nid_to_trace_sound(rt);
                     Self::lemma_nid_to_trace_sound(nd);
@@ -1163,7 +1172,7 @@ impl NodeHelper {
                                 };
                             }
                         }
-                    }
+                    }*/
                 };
             };
         }
@@ -1239,17 +1248,50 @@ impl NodeHelper {
         );
     }
 
-    pub proof fn lemma_prefix_trace_cardinality(trace: Seq<nat>)
+    /// `get_subtree_traces` returns a finite set of traces.
+    pub proof fn lemma_get_subtree_traces_finite(trace: Seq<nat>)
+        ensures
+            Self::get_subtree_traces(trace).finite(),
+    {
+        Self::lemma_valid_trace_set_cardinality();
+    }
+
+    /// `get_subtree_traces` cotains the input trace.
+    pub proof fn lemma_get_subtree_traces_contains_self(trace: Seq<nat>)
         requires
             Self::valid_trace(trace),
         ensures
-            Self::valid_trace_set().filter(|subtree_trace| trace.is_prefix_of(subtree_trace)).len()
-                == Self::tree_size_spec(3 - trace.len()),
+            Self::get_subtree_traces(trace).contains(trace),
+            Self::get_subtree_traces(trace).len() > 0,
+    {
+        Self::lemma_get_subtree_traces_finite(trace);
+        axiom_set_contains_len(Self::get_subtree_traces(trace), trace);
+    }
+
+    pub proof fn lemma_get_subtree_traces_injective()
+        ensures
+            injective_on(|trace| Self::get_subtree_traces(trace), Self::valid_trace_set()),
+    {
+        assert forall|x, y|
+            #![trigger Self::get_subtree_traces(x), Self::get_subtree_traces(y)]
+            Self::valid_trace_set().contains(x) && Self::valid_trace_set().contains(y)
+                && Self::get_subtree_traces(x) == Self::get_subtree_traces(y) implies x == y by {
+            Self::lemma_get_subtree_traces_contains_self(x);
+            Self::lemma_get_subtree_traces_contains_self(y);
+            let z = choose|z| Self::get_subtree_traces(x).contains(z);
+            lemma_prefix_of_common_sequence(x, y, z);
+        }
+
+    }
+
+    pub proof fn lemma_get_subtree_traces_cardinality(trace: Seq<nat>)
+        requires
+            Self::valid_trace(trace),
+        ensures
+            Self::get_subtree_traces(trace).len() == Self::tree_size_spec(3 - trace.len()),
         decreases 3 - trace.len(),
     {
-        let subtree_trace_set = Self::valid_trace_set().filter(
-            |subtree_trace| trace.is_prefix_of(subtree_trace),
-        );
+        let subtree_trace_set = Self::get_subtree_traces(trace);
         assert(subtree_trace_set.contains(trace));
         Self::lemma_tree_size_spec_table();
         Self::lemma_valid_trace_set_cardinality();
@@ -1282,46 +1324,53 @@ impl NodeHelper {
             assert(subtree_trace_set.len() == child_trace_set.len() + 1) by {
                 lemma_set_separation(subtree_trace_set, f);
                 trace_singleton_set.lemma_singleton_size();
+                trace_singleton_set.lemma_singleton_size();
             }
 
-            // Split `child_trace_set` into child traces by possible next offsets
+            // Split `child_trace_set` into sets of traces with different offsets.
             let offset_set = Set::new(|i: nat| 0 <= i < 512);
-            assert(offset_set.len() == 512) by {
+            assert(offset_set.len() == 512 && offset_set.finite()) by {
                 lemma_nat_range_finite(0, 512);
             }
-
-            /*
-            // Show each child trace produces disjoint subtrees
-            assert(forall|t1: Seq<nat>, t2: Seq<nat>|
-                #![trigger child_traces.contains(t1),child_traces.contains(t2)]
-                child_traces.contains(t1) && child_traces.contains(t2) && t1 != t2 ==> {
-                    let s1 = Self::valid_trace_set().filter(|st| t1.is_prefix_of(st));
-                    let s2 = Self::valid_trace_set().filter(|st| t2.is_prefix_of(st));
-                    s1.disjoint(s2)
-                });
-
-            // Show child trace subtrees have size tree_size_spec(3 - next_len)
-            assert forall|child_trace|
-                child_traces.contains(child_trace) implies Self::valid_trace_set().filter(
-                |st| child_trace.is_prefix_of(st),
-            ).len() == Self::tree_size_spec(3 - next_len) by {
-                Self::lemma_prefix_trace_cardinality(child_trace);
+            let child_traces = offset_set.map(|offset| trace.push(offset));
+            assert(child_traces.len() == 512 && child_traces.finite()) by {
+                // Prove that push is injective
+                assert forall|t1: nat, t2: nat|
+                    #![trigger trace.push(t1), trace.push(t2)]
+                    trace.push(t1) == trace.push(t2) implies t1 == t2 by {
+                    assert(trace.push(t1).last() == trace.push(t2).last());
+                }
+                lemma_injective_implies_injective_on(|offset| trace.push(offset), offset_set);
+                lemma_injective_map_cardinality(
+                    |offset| trace.push(offset),
+                    offset_set,
+                    offset_set,
+                );
+            }
+            assert(child_traces <= Self::valid_trace_set()) by {
+                admit();
             }
 
-            // Key step: Show subtree_trace_set is union of child subtrees
-            assert(subtree_trace_set =~= set_union(
-                child_traces.map(
-
-                    |child_trace: Seq<nat>|
-                        Self::valid_trace_set().filter(|st| child_trace.is_prefix_of(st)),
-                ),
-            )) by {
+            let child_subtree_trace_set = child_traces.map(
+                |child_trace| Self::get_subtree_traces(child_trace),
+            );
+            assert(child_subtree_trace_set.len() == 512 && child_subtree_trace_set.finite()) by {
                 admit();
-            }*/
+            }
 
-            // Total size is 512 * tree_size_spec(3 - next_len)
-            // = tree_size_spec(3 - trace.len())
-            admit();
+            // Show that the child traces are disjoint
+            assert(pairwise_disjoint(child_subtree_trace_set)) by {
+                admit();
+            }
+            // Show that the arbitrary union of the child_subtree_trace_set is equal to the child_trace_set
+            assert(child_trace_set =~= arbitrary_union(child_subtree_trace_set)) by {
+                admit();
+            }
+
+            // Use induction hypothesis here.
+            assert(child_trace_set.len() == 512 * Self::tree_size_spec(2 - trace.len())) by {
+                admit();
+            }
         }
     }
 }

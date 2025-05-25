@@ -247,4 +247,16 @@ pub broadcast proof fn lemma_forall_seq_values_add<T>(s1: Seq<T>, s2: Seq<T>, f:
     }
 }
 
+/// If `source1` and `source2` are prefixes of `child`, then either `source1` is equal to `source2` or
+/// one of them is a prefix of the other.
+pub proof fn lemma_prefix_of_common_sequence(source1: Seq<nat>, source2: Seq<nat>, child: Seq<nat>)
+    requires
+        source1.is_prefix_of(child),
+        source2.is_prefix_of(child),
+    ensures
+        source1 == source2 || source1.len() < source2.len() && source1.is_prefix_of(source2)
+            || source2.len() < source1.len() && source2.is_prefix_of(source1),
+{
+}
+
 } // verus!
