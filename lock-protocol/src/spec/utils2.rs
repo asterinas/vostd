@@ -1045,142 +1045,6 @@ impl NodeHelper {
         }
     }
 
-    /// 'in_subtree' is equivalent to the node id being less than or equal to the
-    /// node id plus the size of its subtree.
-    pub proof fn lemma_in_subtree_iff_in_subtree_size_range(rt: NodeId, nd: NodeId)
-        requires
-            Self::valid_nid(rt),
-            Self::valid_nid(nd),
-        ensures
-            Self::in_subtree(rt, nd) ==> rt <= nd < Self::next_outside_subtree(rt),
-            rt <= nd < Self::next_outside_subtree(rt) ==> Self::in_subtree(rt, nd),
-    {
-        if Self::in_subtree(rt, nd) {
-            assert(rt <= nd < Self::next_outside_subtree(rt)) by {
-                assert(Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt)) by {
-                    Self::lemma_in_subtree_bound(rt, nd);
-                };
-                assert(nd < Self::next_outside_subtree(nd)) by {
-                    Self::lemma_sub_tree_size_lowerbound(nd);
-                };
-                assert(rt <= nd) by {
-                    admit();
-                    /* let rt_trace = Self::nid_to_trace(rt);
-                    let nd_trace = Self::nid_to_trace(nd);
-                    Self::lemma_nid_to_trace_sound(rt);
-                    Self::lemma_nid_to_trace_sound(nd);
-
-                    assert(rt_trace.is_prefix_of(nd_trace));
-
-                    if rt_trace.len() == 0 {
-                    } else {
-                        if rt == nd {
-                        } else {
-                            // rt != nd and in_subtree(rt, nd), first handle the characteristics of trace_to_nid_rec
-                            // Structured method to prove node relationships
-                            // rt_trace is a prefix of nd_trace
-                            // Since in_subtree(rt, nd), we know that rt_trace.len() < nd_trace.len()
-                            // Use properties from lemma_trace_to_nid_rec_sound
-                            // This lemma ensures: cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                            // Directly use definitions of rt and nd along with trace relationship
-                            assert(Self::trace_to_nid(rt_trace) == rt) by {
-                                Self::lemma_nid_to_trace_sound(rt);
-                            };
-
-                            assert(Self::trace_to_nid(nd_trace) == nd) by {
-                                Self::lemma_nid_to_trace_sound(nd);
-                            };
-
-                            // Discuss the relationship between rt and nd based on trace prefix relationship
-                            // We can use the mathematical properties of the node encoding scheme
-
-                            // When rt_trace is a prefix of nd_trace, encoding rules ensure rt <= nd
-                            // Consider the node encoding method in the tree:
-                            // 1. For a parent node P and child node C, always P < C
-                            // 2. At the same level in the tree, left nodes have smaller IDs than right nodes
-
-                            // For any node, its ID is greater than all of its ancestor nodes' IDs
-                            // This is due to the way node IDs are calculated:
-                            // - Root node ID is 0
-                            // - Child node IDs are calculated using parent node ID plus an offset
-
-                            // Therefore, if rt_trace is a prefix of nd_trace
-                            // then rt is an ancestor of nd, and according to encoding rules, rt <= nd
-
-                            // Use induction on nd_trace.len() - rt_trace.len()
-                            let trace_diff = nd_trace.len() - rt_trace.len();
-
-                            // Base case: if trace_diff is 0, then both traces are the same, rt = nd
-                            // Induction step: if trace_diff > 0, use the property that child node ID > parent node ID
-
-                            if trace_diff == 0 {
-                                // Traces have same length and rt_trace is a prefix of nd_trace, so traces are identical
-                                assert(rt_trace =~= nd_trace);
-                                assert(rt == nd);
-                            } else {
-                                // Use actual tree node encoding calculation rules for proof
-                                // In trace_to_nid_rec, each time an offset is added, the node ID increases
-                                // Specifically, if we have a trace T of length L with node ID N
-                                // When we add an offset O to form trace T', the new node ID N' = N + O*sz + 1
-                                // Therefore N' > N always holds
-                                // Using the guarantee from lemma_trace_to_nid_rec_sound:
-                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                                // We can decompose nd_trace into rt_trace and suffix
-                                let suffix = nd_trace.subrange(
-                                    rt_trace.len() as int,
-                                    nd_trace.len() as int,
-                                );
-
-                                let dep_level = Self::level_to_dep(rt_trace.len()) - 1;
-
-                                assert(Self::valid_trace(rt_trace.add(suffix))) by {
-                                    // Directly derive from the premise nd_trace = rt_trace.add(suffix)
-                                    assert(nd_trace =~= rt_trace.add(suffix)) by {
-                                        // Derived from prefix relationship and subrange operations
-                                        assert(rt_trace.is_prefix_of(nd_trace));
-                                        assert(rt_trace =~= nd_trace.subrange(
-                                            0,
-                                            rt_trace.len() as int,
-                                        ));
-                                    };
-                                };
-
-                                assert(rt + Self::tree_size_spec(dep_level) <= Self::total_size())
-                                    by {
-                                    // First prove the validity of rt
-                                    assert(Self::valid_nid(rt)) by {
-                                        // Derived from premise
-                                    };
-                                    Self::lemma_valid_level_to_node(rt);
-                                };
-
-                                assert(Self::trace_to_nid(rt_trace.add(suffix))
-                                    == Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
-                                    // Prepare conditions for the lemma
-                                    assert(rt == Self::trace_to_nid(rt_trace)) by {
-                                        Self::lemma_nid_to_trace_sound(rt);
-                                    };
-                                    // Apply the lemma_trace_to_nid_split
-                                    Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, dep_level);
-                                };
-
-                                // Use the key property from lemma_trace_to_nid_rec_sound:
-                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                                assert(rt <= Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
-                                    // Now all preconditions are satisfied
-                                    Self::lemma_trace_to_nid_rec_sound(suffix, rt, dep_level);
-                                };
-                            }
-                        }
-                    }*/
-                };
-            };
-        }
-        if rt <= nd < Self::next_outside_subtree(rt) {
-            admit();
-        }
-    }
-
     /// `get_parent` correctly returns the parent of a node.
     /// The result indeed satisfies `is_child(get_parent(nid), nid)`.
     pub proof fn lemma_get_parent_sound(nid: NodeId)
@@ -1423,6 +1287,201 @@ impl NodeHelper {
                 == Self::sub_tree_size(nid),
     {
         admit();
+    }
+
+    proof fn lemma_in_subtree_implies_nid_range(rt: NodeId, nd: NodeId)
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(nd),
+            Self::in_subtree(rt, nd),
+        ensures
+            rt <= nd < Self::next_outside_subtree(rt),
+    {
+        assert(rt <= nd < Self::next_outside_subtree(rt)) by {
+            assert(Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt)) by {
+                Self::lemma_in_subtree_bound(rt, nd);
+            };
+            assert(nd < Self::next_outside_subtree(nd)) by {
+                Self::lemma_sub_tree_size_lowerbound(nd);
+            };
+            assert(rt <= nd) by {
+                admit();
+                /* let rt_trace = Self::nid_to_trace(rt);
+                    let nd_trace = Self::nid_to_trace(nd);
+                    Self::lemma_nid_to_trace_sound(rt);
+                    Self::lemma_nid_to_trace_sound(nd);
+
+                    assert(rt_trace.is_prefix_of(nd_trace));
+
+                    if rt_trace.len() == 0 {
+                    } else {
+                        if rt == nd {
+                        } else {
+                            // rt != nd and in_subtree(rt, nd), first handle the characteristics of trace_to_nid_rec
+                            // Structured method to prove node relationships
+                            // rt_trace is a prefix of nd_trace
+                            // Since in_subtree(rt, nd), we know that rt_trace.len() < nd_trace.len()
+                            // Use properties from lemma_trace_to_nid_rec_sound
+                            // This lemma ensures: cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
+                            // Directly use definitions of rt and nd along with trace relationship
+                            assert(Self::trace_to_nid(rt_trace) == rt) by {
+                                Self::lemma_nid_to_trace_sound(rt);
+                            };
+
+                            assert(Self::trace_to_nid(nd_trace) == nd) by {
+                                Self::lemma_nid_to_trace_sound(nd);
+                            };
+
+                            // Discuss the relationship between rt and nd based on trace prefix relationship
+                            // We can use the mathematical properties of the node encoding scheme
+
+                            // When rt_trace is a prefix of nd_trace, encoding rules ensure rt <= nd
+                            // Consider the node encoding method in the tree:
+                            // 1. For a parent node P and child node C, always P < C
+                            // 2. At the same level in the tree, left nodes have smaller IDs than right nodes
+
+                            // For any node, its ID is greater than all of its ancestor nodes' IDs
+                            // This is due to the way node IDs are calculated:
+                            // - Root node ID is 0
+                            // - Child node IDs are calculated using parent node ID plus an offset
+
+                            // Therefore, if rt_trace is a prefix of nd_trace
+                            // then rt is an ancestor of nd, and according to encoding rules, rt <= nd
+
+                            // Use induction on nd_trace.len() - rt_trace.len()
+                            let trace_diff = nd_trace.len() - rt_trace.len();
+
+                            // Base case: if trace_diff is 0, then both traces are the same, rt = nd
+                            // Induction step: if trace_diff > 0, use the property that child node ID > parent node ID
+
+                            if trace_diff == 0 {
+                                // Traces have same length and rt_trace is a prefix of nd_trace, so traces are identical
+                                assert(rt_trace =~= nd_trace);
+                                assert(rt == nd);
+                            } else {
+                                // Use actual tree node encoding calculation rules for proof
+                                // In trace_to_nid_rec, each time an offset is added, the node ID increases
+                                // Specifically, if we have a trace T of length L with node ID N
+                                // When we add an offset O to form trace T', the new node ID N' = N + O*sz + 1
+                                // Therefore N' > N always holds
+                                // Using the guarantee from lemma_trace_to_nid_rec_sound:
+                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
+                                // We can decompose nd_trace into rt_trace and suffix
+                                let suffix = nd_trace.subrange(
+                                    rt_trace.len() as int,
+                                    nd_trace.len() as int,
+                                );
+
+                                let dep_level = Self::level_to_dep(rt_trace.len()) - 1;
+
+                                assert(Self::valid_trace(rt_trace.add(suffix))) by {
+                                    // Directly derive from the premise nd_trace = rt_trace.add(suffix)
+                                    assert(nd_trace =~= rt_trace.add(suffix)) by {
+                                        // Derived from prefix relationship and subrange operations
+                                        assert(rt_trace.is_prefix_of(nd_trace));
+                                        assert(rt_trace =~= nd_trace.subrange(
+                                            0,
+                                            rt_trace.len() as int,
+                                        ));
+                                    };
+                                };
+
+                                assert(rt + Self::tree_size_spec(dep_level) <= Self::total_size())
+                                    by {
+                                    // First prove the validity of rt
+                                    assert(Self::valid_nid(rt)) by {
+                                        // Derived from premise
+                                    };
+                                    Self::lemma_valid_level_to_node(rt);
+                                };
+
+                                assert(Self::trace_to_nid(rt_trace.add(suffix))
+                                    == Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
+                                    // Prepare conditions for the lemma
+                                    assert(rt == Self::trace_to_nid(rt_trace)) by {
+                                        Self::lemma_nid_to_trace_sound(rt);
+                                    };
+                                    // Apply the lemma_trace_to_nid_split
+                                    Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, dep_level);
+                                };
+
+                                // Use the key property from lemma_trace_to_nid_rec_sound:
+                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
+                                assert(rt <= Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
+                                    // Now all preconditions are satisfied
+                                    Self::lemma_trace_to_nid_rec_sound(suffix, rt, dep_level);
+                                };
+                            }
+                        }
+                    }*/
+            };
+        };
+    }
+
+    /// If a node id is in the range of a subtree, then it is in the subtree (given b trace prefix).
+    /// We prove this by showing that we can find exactly `sub_tree_size(rt)` node ids in the range
+    /// `rt <= nd < next_outside_subtree(rt)` that is in the subtree, so every node id in the range
+    /// is in the subtree.
+    proof fn lemma_nid_range_implies_in_subtree(rt: NodeId, nd: NodeId)
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(nd),
+            rt <= nd < Self::next_outside_subtree(rt),
+        ensures
+            Self::in_subtree(rt, nd),
+    {
+        // Showing every node id in the range is valid and the range is `Self::sub_tree_size(rt)`
+        let nid_set = Set::new(|nid: nat| rt <= nid < Self::next_outside_subtree(rt));
+        assert(nid_set.len() == Self::sub_tree_size(rt) && nid_set.finite()) by {
+            lemma_nat_range_finite(rt, Self::next_outside_subtree(rt));
+        }
+        assert(nid_set =~= nid_set.filter(|id| Self::valid_nid(id))) by {
+            assert forall|id| #[trigger] nid_set.contains(id) implies Self::valid_nid(id) by {
+                Self::lemma_sub_tree_size_bounded(rt);
+            }
+        }
+        assert(nid_set =~= Self::valid_nid_set().filter(
+            |id| rt <= id < Self::next_outside_subtree(rt),
+        ));
+
+        // Shhowing there are exactly `sub_tree_size(rt)` node ids that are in the subtree
+        let child_set = Self::valid_nid_set().filter(|id| Self::in_subtree(rt, id));
+        assert(child_set.len() == Self::sub_tree_size(rt)) by {
+            Self::lemma_in_subtree_cardinality(rt);
+        };
+        // Every node id in the subtree falls in the range
+        assert(child_set =~= child_set.filter(|id| rt <= id < Self::next_outside_subtree(rt))) by {
+            assert forall|id| #[trigger] child_set.contains(id) implies rt <= id
+                < Self::next_outside_subtree(rt) by {
+                Self::lemma_in_subtree_implies_nid_range(rt, id);
+            }
+        }
+        // So we can find exactly `sub_tree_size(rt)` node ids in the range that are in the subtree
+        assert(child_set =~= nid_set.filter(|id| Self::in_subtree(rt, id)));
+        assert(nid_set.len() == nid_set.filter(|id| Self::in_subtree(rt, id)).len());
+        // Therefore, every node id in the range is in the subtree
+        assert(nid_set == nid_set.filter(|id| Self::in_subtree(rt, id))) by {
+            lemma_filter_len_unchanged_implies_equal(nid_set, |id| Self::in_subtree(rt, id));
+        }
+        assert(nid_set.contains(nd));
+        assert(Self::in_subtree(rt, nd));
+    }
+
+    /// 'in_subtree' is equivalent to the node id being less than or equal to the
+    /// node id plus the size of its subtree.
+    pub proof fn lemma_in_subtree_iff_nid_range(rt: NodeId, nd: NodeId)
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(nd),
+        ensures
+            Self::in_subtree(rt, nd) <==> rt <= nd < Self::next_outside_subtree(rt),
+    {
+        if Self::in_subtree(rt, nd) {
+            Self::lemma_in_subtree_implies_nid_range(rt, nd);
+        }
+        if rt <= nd < Self::next_outside_subtree(rt) {
+            Self::lemma_nid_range_implies_in_subtree(rt, nd);
+        }
     }
 }
 

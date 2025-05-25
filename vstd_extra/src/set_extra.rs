@@ -6,9 +6,24 @@ verus! {
 /// is empty.
 pub proof fn lemma_filter_all_false<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
-        forall|x: T| s.contains(x) ==> !#[trigger] f(x),
+        forall|x: T| #[trigger] s.contains(x) ==> !f(x),
     ensures
         s.filter(f).is_empty(),
+{
+}
+
+pub proof fn lemma_filter_all_true<T>(s: Set<T>, f: spec_fn(T) -> bool)
+    requires
+        forall|x: T| #[trigger] s.contains(x) ==> f(x),
+    ensures
+        s.filter(f) =~= s,
+{
+}
+
+pub proof fn lemma_filter_commute<T>(s: Set<T>, f: spec_fn(T) -> bool, g: spec_fn(T) -> bool)
+    ensures
+        s.filter(f).filter(g) =~= s.filter(g).filter(f),
+    decreases s.len(),
 {
 }
 
@@ -91,6 +106,16 @@ pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     }
 }
 
+pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T) -> bool)
+    requires
+        s.finite(),
+        s.filter(f).len() == s.len(),
+    ensures
+        s.filter(f) =~= s,
+{
+    lemma_set_separation(s, f)
+}
+
 /// If no element in set `Set::new(|x: T| p(x))` satisfies the predicate `q`, then all elements
 /// satisfying `p` also satisfy `q`.
 pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
@@ -111,7 +136,7 @@ pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
 pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spec_fn(T) -> bool)
     requires
         Set::new(|x: T| p(x)).finite(),
-        Set::new(|x: T| p(x)) == Set::new(|x: T| p(x)).filter(q),
+        Set::new(|x: T| p(x)).len() == Set::new(|x: T| p(x)).filter(q).len(),
     ensures
         forall|x: T| #[trigger] p(x) ==> q(x),
 {
