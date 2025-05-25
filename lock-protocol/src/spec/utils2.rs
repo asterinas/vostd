@@ -1414,6 +1414,16 @@ impl NodeHelper {
             }
         }
     }
+
+    pub proof fn lemma_in_subtree_cardinality(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+        ensures
+            Self::valid_nid_set().filter(|id| Self::in_subtree(nid, id)).len()
+                == Self::sub_tree_size(nid),
+    {
+        admit();
+    }
 }
 
 } // verus!
