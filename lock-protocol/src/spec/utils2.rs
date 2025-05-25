@@ -1332,6 +1332,7 @@ impl NodeHelper {
             assert(offset_set.len() == 512 && offset_set.finite()) by {
                 lemma_nat_range_finite(0, 512);
             }
+            // The set of all child traces
             let child_traces = offset_set.map(|offset| trace.push(offset));
             assert(child_traces.len() == 512 && child_traces.finite()) by {
                 // Prove that push is injective
@@ -1347,21 +1348,33 @@ impl NodeHelper {
                     offset_set,
                 );
             }
-            assert(child_traces <= Self::valid_trace_set()) by {
-                admit();
-            }
-
+            assert(child_traces <= Self::valid_trace_set());
+            // The set of each child trace's subtree traces set
             let child_subtree_trace_set = child_traces.map(
                 |child_trace| Self::get_subtree_traces(child_trace),
             );
+            // Use induction hypothesis here, prove that each child trace's subtree traces set has the size of tree with a
+            // height of 2 - trace.len()
+            assert forall|child_trace| #[trigger]
+                child_traces.contains(child_trace) implies Self::get_subtree_traces(
+                child_trace,
+            ).len() == Self::tree_size_spec(2 - trace.len()) by {
+                Self::lemma_get_subtree_traces_cardinality(child_trace);
+            };
+            assert(forall|child_subtree_trace| #[trigger]
+                child_subtree_trace_set.contains(child_subtree_trace) ==> child_subtree_trace.len()
+                    == Self::tree_size_spec(2 - trace.len()));
             assert(child_subtree_trace_set.len() == 512 && child_subtree_trace_set.finite()) by {
-                admit();
+                Self::lemma_get_subtree_traces_injective();
+                lemma_injective_map_cardinality(
+                    |child_trace| Self::get_subtree_traces(child_trace),
+                    Self::valid_trace_set(),
+                    child_traces,
+                );
             }
 
             // Show that the child traces are disjoint
-            assert(pairwise_disjoint(child_subtree_trace_set)) by {
-                admit();
-            }
+            assert(pairwise_disjoint(child_subtree_trace_set));
             // Show that the arbitrary union of the child_subtree_trace_set is equal to the child_trace_set
             assert(child_trace_set =~= arbitrary_union(child_subtree_trace_set)) by {
                 admit();
@@ -1369,7 +1382,10 @@ impl NodeHelper {
 
             // Use induction hypothesis here.
             assert(child_trace_set.len() == 512 * Self::tree_size_spec(2 - trace.len())) by {
-                admit();
+                lemma_arbitrary_union_cardinality_under_disjointness_same_length(
+                    child_subtree_trace_set,
+                    Self::tree_size_spec(2 - trace.len()),
+                );
             }
         }
     }

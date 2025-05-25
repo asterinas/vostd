@@ -181,4 +181,35 @@ pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<
     }
 }
 
+pub proof fn lemma_arbitrary_union_cardinality_under_disjointness_same_length<A>(
+    parts: Set<Set<A>>,
+    c: nat,
+)
+    requires
+        parts.finite(),
+        pairwise_disjoint(parts),
+        forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite() && p.len() == c,
+    ensures
+        arbitrary_union(parts).len() == parts.len() * c,
+        arbitrary_union(parts).finite(),
+    decreases parts.len(),
+{
+    if parts.is_empty() {
+        assert(arbitrary_union(parts) =~= Set::empty());
+    } else {
+        let p = parts.choose();
+        let rest = parts.remove(p);
+        assert(parts =~= rest.insert(p));
+        lemma_arbitrary_union_cardinality_under_disjointness_same_length(rest, c);
+        assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
+        assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {
+            lemma_set_disjoint_lens(arbitrary_union(rest), p);
+        }
+        assert(arbitrary_union(parts).len() == (rest.len() + 1) * c) by (nonlinear_arith)
+            requires
+                arbitrary_union(parts).len() == rest.len() * c + c,
+        ;
+    }
+}
+
 } // verus!
