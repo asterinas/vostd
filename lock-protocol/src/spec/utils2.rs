@@ -1334,115 +1334,148 @@ impl NodeHelper {
                 Self::lemma_sub_tree_size_lowerbound(nd);
             };
             assert(rt <= nd) by {
-                admit();
-                /* let rt_trace = Self::nid_to_trace(rt);
-                    let nd_trace = Self::nid_to_trace(nd);
+                let rt_trace = Self::nid_to_trace(rt);
+                let nd_trace = Self::nid_to_trace(nd);
+
+                // First prove that both are valid traces
+                assert(Self::valid_trace(rt_trace)) by {
                     Self::lemma_nid_to_trace_sound(rt);
+                }
+                assert(Self::valid_trace(nd_trace)) by {
                     Self::lemma_nid_to_trace_sound(nd);
+                }
 
-                    assert(rt_trace.is_prefix_of(nd_trace));
+                // Since in_subtree(rt, nd), we know rt_trace is a prefix of nd_trace
+                assert(rt_trace.is_prefix_of(nd_trace));
 
-                    if rt_trace.len() == 0 {
+                if rt_trace.len() == 0 {
+                    // rt is root (0), so 0 <= nd is trivially true
+                } else {
+                    if rt == nd {
+                        // Trivial case: rt == nd implies rt <= nd
                     } else {
-                        if rt == nd {
-                        } else {
-                            // rt != nd and in_subtree(rt, nd), first handle the characteristics of trace_to_nid_rec
-                            // Structured method to prove node relationships
-                            // rt_trace is a prefix of nd_trace
-                            // Since in_subtree(rt, nd), we know that rt_trace.len() < nd_trace.len()
-                            // Use properties from lemma_trace_to_nid_rec_sound
-                            // This lemma ensures: cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                            // Directly use definitions of rt and nd along with trace relationship
-                            assert(Self::trace_to_nid(rt_trace) == rt) by {
-                                Self::lemma_nid_to_trace_sound(rt);
-                            };
+                        // DIRECT APPROACH: use lemma_trace_to_nid_rec_sound directly
+                        // When one trace is a proper prefix of another, the corresponding node
+                        // is an ancestor in the tree and has a smaller node ID
+                        // Get the suffix part of nd_trace after rt_trace
+                        let suffix = nd_trace.subrange(
+                            rt_trace.len() as int,
+                            nd_trace.len() as int,
+                        );
 
-                            assert(Self::trace_to_nid(nd_trace) == nd) by {
-                                Self::lemma_nid_to_trace_sound(nd);
-                            };
+                        // Validate the level parameter for dep_to_level
+                        assert(0 <= rt_trace.len() < 4) by {
+                            // Valid trace has length < 4
+                        }
 
-                            // Discuss the relationship between rt and nd based on trace prefix relationship
-                            // We can use the mathematical properties of the node encoding scheme
+                        // We know cur_level needs to be 3 - suffix.len()
+                        let cur_level = 3 - rt_trace.len();
 
-                            // When rt_trace is a prefix of nd_trace, encoding rules ensure rt <= nd
-                            // Consider the node encoding method in the tree:
-                            // 1. For a parent node P and child node C, always P < C
-                            // 2. At the same level in the tree, left nodes have smaller IDs than right nodes
-
-                            // For any node, its ID is greater than all of its ancestor nodes' IDs
-                            // This is due to the way node IDs are calculated:
-                            // - Root node ID is 0
-                            // - Child node IDs are calculated using parent node ID plus an offset
-
-                            // Therefore, if rt_trace is a prefix of nd_trace
-                            // then rt is an ancestor of nd, and according to encoding rules, rt <= nd
-
-                            // Use induction on nd_trace.len() - rt_trace.len()
-                            let trace_diff = nd_trace.len() - rt_trace.len();
-
-                            // Base case: if trace_diff is 0, then both traces are the same, rt = nd
-                            // Induction step: if trace_diff > 0, use the property that child node ID > parent node ID
-
-                            if trace_diff == 0 {
-                                // Traces have same length and rt_trace is a prefix of nd_trace, so traces are identical
-                                assert(rt_trace =~= nd_trace);
-                                assert(rt == nd);
-                            } else {
-                                // Use actual tree node encoding calculation rules for proof
-                                // In trace_to_nid_rec, each time an offset is added, the node ID increases
-                                // Specifically, if we have a trace T of length L with node ID N
-                                // When we add an offset O to form trace T', the new node ID N' = N + O*sz + 1
-                                // Therefore N' > N always holds
-                                // Using the guarantee from lemma_trace_to_nid_rec_sound:
-                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                                // We can decompose nd_trace into rt_trace and suffix
-                                let suffix = nd_trace.subrange(
-                                    rt_trace.len() as int,
-                                    nd_trace.len() as int,
-                                );
-
-                                let dep_level = Self::level_to_dep(rt_trace.len()) - 1;
-
-                                assert(Self::valid_trace(rt_trace.add(suffix))) by {
-                                    // Directly derive from the premise nd_trace = rt_trace.add(suffix)
-                                    assert(nd_trace =~= rt_trace.add(suffix)) by {
-                                        // Derived from prefix relationship and subrange operations
-                                        assert(rt_trace.is_prefix_of(nd_trace));
-                                        assert(rt_trace =~= nd_trace.subrange(
-                                            0,
-                                            rt_trace.len() as int,
-                                        ));
-                                    };
-                                };
-
-                                assert(rt + Self::tree_size_spec(dep_level) <= Self::total_size())
-                                    by {
-                                    // First prove the validity of rt
-                                    assert(Self::valid_nid(rt)) by {
-                                        // Derived from premise
-                                    };
-                                    Self::lemma_valid_level_to_node(rt);
-                                };
-
-                                assert(Self::trace_to_nid(rt_trace.add(suffix))
-                                    == Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
-                                    // Prepare conditions for the lemma
-                                    assert(rt == Self::trace_to_nid(rt_trace)) by {
-                                        Self::lemma_nid_to_trace_sound(rt);
-                                    };
-                                    // Apply the lemma_trace_to_nid_split
-                                    Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, dep_level);
-                                };
-
-                                // Use the key property from lemma_trace_to_nid_rec_sound:
-                                // cur_rt <= trace_to_nid_rec(trace, cur_rt, cur_level)
-                                assert(rt <= Self::trace_to_nid_rec(suffix, rt, dep_level)) by {
-                                    // Now all preconditions are satisfied
-                                    Self::lemma_trace_to_nid_rec_sound(suffix, rt, dep_level);
-                                };
+                        // Prove that suffix is a valid trace
+                        assert(Self::valid_trace(suffix)) by {
+                            assert(suffix.len() < 4);
+                            assert(forall|i: int|
+                                #![trigger suffix[i]]
+                                0 <= i < suffix.len() ==> 0 <= suffix[i] < 512) by {
+                                assert(forall|i: int|
+                                    #![trigger nd_trace[i + rt_trace.len()]]
+                                    0 <= i < suffix.len() ==> 0 <= nd_trace[i + rt_trace.len()]
+                                        < 512);
                             }
                         }
-                    }*/
+
+                        // Apply trace_to_nid_rec_sound directly using our key insights:
+                        // 1. rt = trace_to_nid(rt_trace)
+                        // 2. nd = trace_to_nid(rt_trace.add(suffix))
+                        // 3. Using lemma_trace_to_nid_rec_sound, we know:
+                        //    cur_rt <= trace_to_nid_rec(trace, cur_rt, level)
+
+                        assert(cur_level >= 0);
+                        assert(Self::valid_nid(rt));
+
+                        // Check if rt has enough space for the subtree
+                        assert(rt + Self::tree_size_spec(cur_level) <= Self::total_size()) by {
+                            Self::lemma_sub_tree_size_bounded(rt);
+                        }
+
+                        // Show nd = trace_to_nid_rec(suffix, rt, cur_level)
+                        assert(nd == Self::trace_to_nid_rec(suffix, rt, cur_level)) by {
+                            // Show rt_trace.add(suffix) ~= nd_trace
+                            assert(rt_trace.add(suffix) =~= nd_trace) by {
+                                assert(rt_trace.is_prefix_of(nd_trace));
+                                assert(rt_trace =~= nd_trace.subrange(0, rt_trace.len() as int));
+                            }
+
+                            // First, prove that rt == trace_to_nid(rt_trace)
+                            assert(rt == Self::trace_to_nid(rt_trace)) by {
+                                Self::lemma_nid_to_trace_sound(rt);
+                            }
+
+                            // Instead of directly proving nd == trace_to_nid(rt_trace.add(suffix)),
+                            // we'll use a different approach that relies on the bijectivity of nid_to_trace and trace_to_nid
+
+                            // First establish that nid_to_trace(nd) =~= rt_trace.add(suffix)
+                            assert(Self::nid_to_trace(nd) =~= rt_trace.add(suffix)) by {
+                                assert(Self::nid_to_trace(nd) =~= nd_trace);  // By definition of nd
+                                assert(nd_trace =~= rt_trace.add(suffix));  // Already proved above
+                            }
+
+                            // Now use the bijectivity property: if nid_to_trace(nd) == trace, then nd == trace_to_nid(trace)
+                            Self::lemma_nid_to_trace_bijective();
+
+                            // Use the right inverse property: trace_to_nid(nid_to_trace(nd)) == nd
+                            assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == nd) by {
+                                Self::lemma_nid_to_trace_sound(nd);
+                            }
+
+                            // Since nid_to_trace(nd) =~= rt_trace.add(suffix), and we have
+                            // trace_to_nid(nid_to_trace(nd)) == nd
+                            // we need to show that trace_to_nid is preserved by the equivalence relation
+                            assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == Self::trace_to_nid(
+                                rt_trace.add(suffix),
+                            )) by {
+                                // We need to show that if t1 =~= t2, then trace_to_nid(t1) == trace_to_nid(t2)
+                                // We'll use lemma_trace_to_nid_sound to help with this
+                                let t1 = Self::nid_to_trace(nd);
+                                let t2 = rt_trace.add(suffix);
+                                assert(Self::valid_trace(t1));
+                                assert(Self::valid_trace(t2));
+
+                                // Apply sound lemma to both traces
+                                Self::lemma_trace_to_nid_sound(t1);
+                                Self::lemma_trace_to_nid_sound(t2);
+
+                                // Now we have:
+                                // t1 =~= nid_to_trace(trace_to_nid(t1))
+                                // t2 =~= nid_to_trace(trace_to_nid(t2))
+                                // And t1 =~= t2
+                                // Therefore nid_to_trace(trace_to_nid(t1)) =~= nid_to_trace(trace_to_nid(t2))
+                                // By injectivity of nid_to_trace, trace_to_nid(t1) == trace_to_nid(t2)
+                                assert(t1 =~= t2);
+                                assert(t1 =~= Self::nid_to_trace(Self::trace_to_nid(t1)));
+                                assert(t2 =~= Self::nid_to_trace(Self::trace_to_nid(t2)));
+
+                                // Now use bijectivity to conclude trace_to_nid(t1) == trace_to_nid(t2)
+                                Self::lemma_nid_to_trace_right_inverse();
+                            }
+
+                            // Now we can conclude nd == trace_to_nid(rt_trace.add(suffix))
+                            assert(nd == Self::trace_to_nid(rt_trace.add(suffix)));
+
+                            // Now use lemma_trace_to_nid_split to complete the proof
+                            Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, cur_level);
+
+                            // By the ensures clause of lemma_trace_to_nid_split, we have:
+                            // trace_to_nid(rt_trace.add(suffix)) == trace_to_nid_rec(suffix, rt, cur_level)
+                            // Therefore, nd == trace_to_nid_rec(suffix, rt, cur_level)
+                        }
+
+                        // Now directly apply lemma_trace_to_nid_rec_sound
+                        assert(rt <= Self::trace_to_nid_rec(suffix, rt, cur_level)) by {
+                            Self::lemma_trace_to_nid_rec_sound(suffix, rt, cur_level);
+                        }
+                    }
+                }
             };
         };
     }
