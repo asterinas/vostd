@@ -829,7 +829,7 @@ impl NodeHelper {
         }
     }
 
-    /// `nid_to_depth` returns correctly returns a depth of 3 or less.
+    /// `nid_to_depth` correctly returns a depth of 3 or less.
     pub proof fn lemma_nid_to_dep_le_3(nid: NodeId)
         requires
             Self::valid_nid(nid),
@@ -855,11 +855,9 @@ impl NodeHelper {
         ensures
             Self::nid_to_level(nid) == 4 - Self::nid_to_dep(nid),
     {
-        // Since nid_to_dep(nid) = nid_to_trace(nid).len()
-        // and nid_to_trace uses 3 levels of recursion at most, depth < 4
         assert(Self::nid_to_dep(nid) <= 3) by {
             Self::lemma_nid_to_dep_le_3(nid);
-        };  // Hence: dep ∈ {0,1,2,3}
+        };
     }
 
     /// A valid node's descendant's id is less than or equal to the total size.
@@ -1009,8 +1007,8 @@ impl NodeHelper {
         };
     }
 
-    // If 'nd' is in the subtree of 'rt', then the next node id outside the subtree of 'nd' is less than or equal to
-    // the next node id outside the subtree of 'rt'.
+    // If 'nd' is in the subtree of 'rt', then `next_outside_subtree(nd)` (the next node id outside the subtree of 'nd') is less than or equal to
+    // `next_outside_subtree(rt)`.
     pub proof fn lemma_in_subtree_bound(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
@@ -1120,7 +1118,7 @@ impl NodeHelper {
         Self::lemma_valid_trace_set_cardinality();
     }
 
-    /// `get_subtree_traces` cotains the input trace.
+    /// `get_subtree_traces` contains the input trace.
     pub proof fn lemma_get_subtree_traces_contains_self(trace: Seq<nat>)
         requires
             Self::valid_trace(trace),
@@ -1132,6 +1130,7 @@ impl NodeHelper {
         axiom_set_contains_len(Self::get_subtree_traces(trace), trace);
     }
 
+    /// `get_subtree_traces` is injective
     pub proof fn lemma_get_subtree_traces_injective()
         ensures
             injective_on(|trace| Self::get_subtree_traces(trace), Self::valid_trace_set()),
@@ -1148,6 +1147,7 @@ impl NodeHelper {
 
     }
 
+    /// The cardinality of the subtree traces is equal to the tree size specification.
     pub proof fn lemma_get_subtree_traces_cardinality(trace: Seq<nat>)
         requires
             Self::valid_trace(trace),
@@ -1279,6 +1279,7 @@ impl NodeHelper {
         }
     }
 
+    /// The cardinality of nodes in subtree is `sub_tree_size`
     pub proof fn lemma_in_subtree_cardinality(nid: NodeId)
         requires
             Self::valid_nid(nid),
@@ -1286,9 +1287,37 @@ impl NodeHelper {
             Self::valid_nid_set().filter(|id| Self::in_subtree(nid, id)).len()
                 == Self::sub_tree_size(nid),
     {
-        admit();
+        let nid_trace = Self::nid_to_trace(nid);
+        let subtree_traces = Self::get_subtree_traces(nid_trace);
+        let subtree_ids = Self::valid_nid_set().filter(|id| Self::in_subtree(nid, id));
+        Self::lemma_nid_to_trace_sound(nid);
+        Self::lemma_valid_nid_set_cardinality();
+        assert(subtree_traces.len() == Self::sub_tree_size(nid) && subtree_traces.finite()) by {
+            Self::lemma_get_subtree_traces_cardinality(nid_trace);
+            Self::lemma_get_subtree_traces_finite(nid_trace);
+        }
+        assert(bijective_on(|id| Self::nid_to_trace(id), subtree_ids, subtree_traces)) by {
+            Self::lemma_nid_to_trace_bijective();
+            // Prove subtree_traces =~= subtree_ids.map(nid_to_trace)
+            assert forall|trace| #[trigger]
+                subtree_traces.contains(trace) == subtree_ids.map(
+                    |id| Self::nid_to_trace(id),
+                ).contains(trace) by {
+                if subtree_traces.contains(trace) {
+                    let trace_id = Self::trace_to_nid(trace);
+                    assert(subtree_ids.contains(trace_id) && Self::nid_to_trace(trace_id) == trace)
+                        by {
+                        Self::lemma_trace_to_nid_sound(trace);
+                    }
+                }
+            }
+            assert(subtree_traces =~= subtree_ids.map(|id| Self::nid_to_trace(id)));
+
+        }
+        lemma_bijective_cardinality(|id| Self::nid_to_trace(id), subtree_ids, subtree_traces);
     }
 
+    /// If a node id is in the subtree, than it falls in the range of [rt, next_outside_subtree(rt)).
     proof fn lemma_in_subtree_implies_nid_range(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
@@ -1418,7 +1447,7 @@ impl NodeHelper {
         };
     }
 
-    /// If a node id is in the range of a subtree, then it is in the subtree (given b trace prefix).
+    /// If a node id is in the range [rt, next_outside_subtree(rt)), then it is in the subtree (given by trace prefix).
     /// We prove this by showing that we can find exactly `sub_tree_size(rt)` node ids in the range
     /// `rt <= nd < next_outside_subtree(rt)` that is in the subtree, so every node id in the range
     /// is in the subtree.
@@ -1467,8 +1496,7 @@ impl NodeHelper {
         assert(Self::in_subtree(rt, nd));
     }
 
-    /// 'in_subtree' is equivalent to the node id being less than or equal to the
-    /// node id plus the size of its subtree.
+    /// 'in_subtree' is equivalent to the node id in range [rt, next_outside_subtree(rt))
     pub proof fn lemma_in_subtree_iff_nid_range(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),

@@ -79,7 +79,7 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     }
 }
 
-/// A finite set can be separated by a predicate.
+/// A finite set can be separated by a predicate into two disjoiint sets.
 pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
         s.finite(),
@@ -106,6 +106,8 @@ pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     }
 }
 
+/// If the length of the filtered set is equal to the length of the original set,
+/// then the filtered set is equal to the original set.
 pub proof fn lemma_filter_len_unchanged_implies_equal<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
         s.finite(),
@@ -206,6 +208,8 @@ pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<
     }
 }
 
+/// If `parts` is a finite set of finite, pairwise-disjoint sets, and each set has the same length `c`,
+/// then the cardinality of the union is the product of the number of sets and `c`.
 pub proof fn lemma_arbitrary_union_cardinality_under_disjointness_same_length<A>(
     parts: Set<Set<A>>,
     c: nat,
