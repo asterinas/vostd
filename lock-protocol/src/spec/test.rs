@@ -51,14 +51,50 @@ pub open spec fn nid_to_trace(nid: nat) -> Seq<nat>
     }
 }
 
-pub proof fn lemma_test(rt: nat, ch: nat)
+pub uninterp spec fn trace_to_nid_rec(trace: Seq<nat>, cur_rt: nat, dep_level: nat) -> nat;
+
+pub uninterp spec fn trace_to_nid(trace: Seq<nat>) -> nat;
+
+pub axiom fn axiom_nid_to_trace_sound(nid:nat)
+    requires
+        valid_nid(nid),
+    ensures
+        trace_to_nid(nid_to_trace(nid)) == nid,
+;
+
+pub proof fn lemma_test(rt: nat, nd: nat)
     requires
         valid_nid(rt),
-        valid_nid(ch),
-        nid_to_trace(rt).is_prefix_of(nid_to_trace(ch)),
+        valid_nid(nd),
+        nid_to_trace(rt).is_prefix_of(nid_to_trace(nd)),
     ensures
-        rt <= ch,
+        rt <= nd,
 {
-}
+    let rt_trace = nid_to_trace(rt);
+    let nd_trace = nid_to_trace(nd);
+    axiom_nid_to_trace_sound(rt);
+    axiom_nid_to_trace_sound(nd);
+    if rt_trace.len() == 0 {} else
+    {
+        if rt == nd {} else
+        {
+            let trace_diff = nd_trace.len() - rt_trace.len();
+            if trace_diff == 0 {
+                assert(rt_trace =~= nd_trace);
+                assert(rt==nd);
+            } else
+            {
+                let suffix = nd_trace.subrange(
+                    rt_trace.len() as int,
+                    nd_trace.len() as int,
+                );
+                let dep_level = 3- rt_trace.len();
+                assert(rt+ tree_size_spec(dep_level) <= tree_size_spec(3)) by {admit();};
+                assert(trace_to_nid(rt_trace.add(suffix)) == trace_to_nid_rec(suffix,rt,dep_level as nat)) by {admit();};
+                assert(rt<= trace_to_nid_rec(suffix,rt,dep_level as nat)) by {admit();};
+            }
+        }
+    }
+    }
 
 } // verus!
