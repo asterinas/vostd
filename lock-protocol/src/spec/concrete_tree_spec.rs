@@ -156,11 +156,11 @@ transition!{
         require(NodeHelper::valid_nid(nid));
 
         remove nodes -= (Map::new(
-            |_nid| NodeHelper::in_subtree(nid, _nid),
+            |_nid| NodeHelper::in_subtree_range(nid, _nid),
             |_nid| NodeState::Empty,
         ));
         add nodes += (Map::new(
-            |_nid| NodeHelper::in_subtree(nid, _nid),
+            |_nid| NodeHelper::in_subtree_range(nid, _nid),
             |_nid| NodeState::EmptyLocked,
         ));
 
@@ -209,11 +209,11 @@ transition!{
         require(NodeHelper::valid_nid(nid));
 
         remove nodes -= (Map::new(
-            |_nid| NodeHelper::in_subtree(nid, _nid),
+            |_nid| NodeHelper::in_subtree_range(nid, _nid),
             |_nid| NodeState::EmptyLocked,
         ));
         add nodes += (Map::new(
-            |_nid| NodeHelper::in_subtree(nid, _nid),
+            |_nid| NodeHelper::in_subtree_range(nid, _nid),
             |_nid| NodeState::Empty,
         ));
 
@@ -423,20 +423,20 @@ fn node_acquire_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 #[inductive(node_acquire_skip)]
 fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let _nodes = Map::new(
-        |_nid| NodeHelper::in_subtree(nid, _nid),
+        |_nid| NodeHelper::in_subtree_range(nid, _nid),
         |_nid| NodeState::Empty,
     );
     assert(_nodes.submap_of(pre.nodes));
-    assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
+    assert forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) implies {
         pre.nodes[_nid] is Empty
     } by {
         assert(_nodes.dom().contains(_nid));
         assert(pre.nodes.dom().contains(_nid));
     };
-    assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
+    assert(forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) ==>
         post.nodes[_nid] is EmptyLocked
     );
-    assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
+    assert(forall |_nid| NodeHelper::in_subtree_range(nid, _nid) <==>
         nid <= _nid < NodeHelper::next_outside_subtree(nid)
     );
     assert(post.cursors[cpu] is Creating);
@@ -446,13 +446,14 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(cur_nid <= en) by {
         assert(en == NodeHelper::next_outside_subtree(st));
         assert(cur_nid == NodeHelper::next_outside_subtree(nid));
+        NodeHelper::lemma_in_subtree_iff_in_subtree_range(st,nid);
         NodeHelper::lemma_in_subtree_bounded(st, nid);
     };
     assert forall |_cpu| _cpu != cpu && #[trigger] post.cursors.contains_key(_cpu) implies {
         post.cursors[cpu].no_overlap(&post.cursors[_cpu])
     } by {
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        assert forall |_nid| NodeHelper::in_subtree(nid, _nid) implies {
+        assert forall |_nid| NodeHelper::in_subtree_range(nid, _nid) implies {
             match post.cursors[_cpu] {
                 CursorState::Empty => true,
                 CursorState::Creating(st, _, en) | CursorState::Hold(st, en) | CursorState::Destroying(st, _, en) => {
@@ -469,17 +470,17 @@ fn node_acquire_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 let nid_tail = (NodeHelper::next_outside_subtree(nid) - 1) as nat;
                 assert(nid_tail < st || nid >= en || st == en) by {
                     assert(nid < st || nid >= en) by {
-                        assert(NodeHelper::in_subtree(nid, nid)) by {
-                            NodeHelper::lemma_in_subtree_0(nid);
+                        assert(NodeHelper::in_subtree_range(nid, nid)) by {
+                            NodeHelper::lemma_sub_tree_size_lowerbound(nid);
                         };
                     };
                     assert(nid_tail < st || nid_tail >= en) by {
-                        assert(NodeHelper::in_subtree(nid, nid_tail)) by {
+                        assert(NodeHelper::in_subtree_range(nid, nid_tail)) by {
                             NodeHelper::lemma_sub_tree_size_lowerbound(nid);
                         };
                     };
                     if nid < st && nid_tail >= en && st != en {
-                        assert(NodeHelper::in_subtree(nid, st));
+                        assert(NodeHelper::in_subtree_range(nid, st));
                     }
                 };
             },
@@ -586,20 +587,20 @@ fn node_release_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 #[inductive(node_release_skip)]
 fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let _nodes = Map::new(
-        |_nid| NodeHelper::in_subtree(nid, _nid),
+        |_nid| NodeHelper::in_subtree_range(nid, _nid),
         |_nid| NodeState::EmptyLocked,
     );
     assert(_nodes.submap_of(pre.nodes));
-    assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
+    assert forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) implies {
         pre.nodes[_nid] is EmptyLocked
     } by {
         assert(_nodes.dom().contains(_nid));
         assert(pre.nodes.dom().contains(_nid));
     };
-    assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
+    assert(forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) ==>
         post.nodes[_nid] is Empty
     );
-    assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
+    assert(forall |_nid| NodeHelper::in_subtree_range(nid, _nid) <==>
         nid <= _nid < NodeHelper::next_outside_subtree(nid)
     );
 
@@ -607,7 +608,7 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         post.cursors[cpu].no_overlap(&post.cursors[_cpu])
     } by {
         assert(pre.cursors[cpu].no_overlap(&pre.cursors[_cpu]));
-        assert forall |_nid| NodeHelper::in_subtree(nid, _nid) implies {
+        assert forall |_nid| NodeHelper::in_subtree_range(nid, _nid) implies {
             match post.cursors[_cpu] {
                 CursorState::Empty => true,
                 CursorState::Creating(st, _, en) | CursorState::Hold(st, en) | CursorState::Destroying(st, _, en) => {
@@ -624,17 +625,17 @@ fn node_release_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 let nid_tail = (NodeHelper::next_outside_subtree(nid) - 1) as nat;
                 assert(nid_tail < st || nid >= en || st == en) by {
                     assert(nid < st || nid >= en) by {
-                        assert(NodeHelper::in_subtree(nid, nid)) by {
-                            NodeHelper::lemma_in_subtree_0(nid);
+                        assert(NodeHelper::in_subtree_range(nid, nid)) by {
+                            NodeHelper::lemma_sub_tree_size_lowerbound(nid);
                         };
                     };
                     assert(nid_tail < st || nid_tail >= en) by {
-                        assert(NodeHelper::in_subtree(nid, nid_tail)) by {
+                        assert(NodeHelper::in_subtree_range(nid, nid_tail)) by {
                             NodeHelper::lemma_sub_tree_size_lowerbound(nid);
                         };
                     };
                     if nid < st && nid_tail >= en && st != en {
-                        assert(NodeHelper::in_subtree(nid, st));
+                        assert(NodeHelper::in_subtree_range(nid, st));
                     }
                 };
             },

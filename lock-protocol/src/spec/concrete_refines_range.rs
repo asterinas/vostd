@@ -55,7 +55,7 @@ pub proof fn init_refines_init(post: StateC) {
     case_on_init!{post, ConcreteSpec => {
         initialize(cpu_num) => {
             assert(NodeHelper::total_size() > 0) by {
-                NodeHelper::lemma_tree_size_spec();
+                NodeHelper::lemma_tree_size_spec_table();
             };
             let slots = Map::new(
                 |i| valid_pos(NodeHelper::total_size(), i),
@@ -128,27 +128,27 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 NodeHelper::lemma_sub_tree_size_lowerbound(nid);
             };
             let _nodes = Map::new(
-                |_nid: NodeId| NodeHelper::in_subtree(nid, _nid),
+                |_nid: NodeId| NodeHelper::in_subtree_range(nid, _nid),
                 |_nid| NodeState::Empty,
             );
             assert(_nodes.submap_of(pre.nodes));
-            assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
+            assert forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) implies {
                 pre.nodes[_nid] is Empty
             } by {
                 assert(_nodes.dom().contains(_nid));
                 assert(pre.nodes.dom().contains(_nid));
             };
-            assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
+            assert(forall |_nid| NodeHelper::in_subtree_range(nid, _nid) <==>
                 nid <= _nid < NodeHelper::next_outside_subtree(nid)
             );
             assert forall |i| nid <= i < NodeHelper::next_outside_subtree(nid) implies {
                 interp(pre).slots[i] is Empty
             } by {
                 assert(pre.nodes[i] is Empty) by {
-                    assert(NodeHelper::in_subtree(nid, i));
+                    assert(NodeHelper::in_subtree_range(nid, i));
                 };
             };
-            assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
+            assert(forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) ==>
                 post.nodes[_nid] is EmptyLocked
             );
             let _slots = Map::new(
@@ -200,27 +200,27 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 NodeHelper::lemma_sub_tree_size_lowerbound(nid);
             };
             let _nodes = Map::new(
-                |_nid: NodeId| NodeHelper::in_subtree(nid, _nid),
+                |_nid: NodeId| NodeHelper::in_subtree_range(nid, _nid),
                 |_nid| NodeState::EmptyLocked,
             );
             assert(_nodes.submap_of(pre.nodes));
-            assert forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) implies {
+            assert forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) implies {
                 pre.nodes[_nid] is EmptyLocked
             } by {
                 assert(_nodes.dom().contains(_nid));
                 assert(pre.nodes.dom().contains(_nid));
             };
-            assert(forall |_nid| NodeHelper::in_subtree(nid, _nid) <==>
+            assert(forall |_nid| NodeHelper::in_subtree_range(nid, _nid) <==>
                 nid <= _nid < NodeHelper::next_outside_subtree(nid)
             );
             assert forall |i| nid <= i < NodeHelper::next_outside_subtree(nid) implies {
                 interp(pre).slots[i] is EmptyLocked
             } by {
                 assert(pre.nodes[i] is EmptyLocked) by {
-                    assert(NodeHelper::in_subtree(nid, i));
+                    assert(NodeHelper::in_subtree_range(nid, i));
                 };
             };
-            assert(forall |_nid| #[trigger] NodeHelper::in_subtree(nid, _nid) ==>
+            assert(forall |_nid| #[trigger] NodeHelper::in_subtree_range(nid, _nid) ==>
                 post.nodes[_nid] is Empty
             );
             let _slots = Map::new(
