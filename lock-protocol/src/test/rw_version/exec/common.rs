@@ -8,9 +8,11 @@ use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::power2::*;
 use vstd::bits::*;
 
-use super::super::spec::{common::*, utils::*};
-use super::super::vstd_extra::bits::*;
+use crate::helpers::bits::*;
 use crate::helpers::extern_const::*;
+// use super::super::spec::{common::*, utils::*};
+use super::super::spec::common::*;
+use crate::spec::utils::*;
 
 verus! {
 
@@ -102,7 +104,7 @@ pub open spec fn va_level_to_trace(va: Vaddr, level: Level) -> Seq<nat> {
 }
 
 pub open spec fn va_level_to_nid(va: Vaddr, level: Level) -> NodeId {
-    NodeHelper::trace_to_nid_from_root(va_level_to_trace(va, level))
+    NodeHelper::trace_to_nid(va_level_to_trace(va, level))
 }
 
 } // verus!

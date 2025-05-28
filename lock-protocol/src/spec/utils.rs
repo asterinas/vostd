@@ -302,6 +302,13 @@ impl NodeHelper {
         Self::dep_to_level(Self::nid_to_dep(nid))
     }
 
+    pub open spec fn is_not_leaf(nid: NodeId) -> bool 
+        recommends
+            Self::valid_nid(nid),
+    {
+        0 <= Self::nid_to_dep(nid) < 3 
+    }
+
     /// Returns the size of the subtree rooted at `nid`.
     pub open spec fn sub_tree_size(nid: NodeId) -> nat
         recommends

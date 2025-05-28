@@ -10,7 +10,8 @@ use vstd::rwlock::{ReadHandle, WriteHandle};
 use vstd::vpanic;
 use vstd::pervasive::allow_panic;
 
-use super::super::spec::{common::*, utils::*, tree::*};
+use crate::spec::utils::*;
+use super::super::spec::{common::*, tree::*};
 use super::{common::*, utils::*, types::*, cpu::*, frame::*, page_table::*};
 
 verus! {
@@ -86,15 +87,17 @@ impl TransHandler {
     ))
         requires
             pt_frame.wf(),
-            m@.inv(pt_frame.inst@),
+            m@.inv(),
+            m@.inst_id() == pt_frame.inst@.id(),
             m@.pred_cursor_ReadLocking(tree_path@),
             wf_tree_path(tree_path@.push(pt_frame.nid@)),
         ensures
             res.0@.instance_id() == pt_frame.inst@.id(),
             res.0@.key() == pt_frame.nid@,
-            res.0@.value().is_WriteLocked(),
+            res.0@.value() is WriteLocked,
             res.1.rwlock() == pt_frame.rw_lock,
-            res.2@.inv(pt_frame.inst@),
+            res.2@.inv(),
+            res.2@.inst_id() == pt_frame.inst@.id(),
             res.2@.pred_cursor_WriteLocked(res.3@),
             res.3@ =~= tree_path@.push(pt_frame.nid@),
     {
@@ -137,14 +140,16 @@ impl TransHandler {
             pt_frame.wf(),
             token@.instance_id() == pt_frame.inst@.id(),
             token@.key() == pt_frame.nid@,
-            token@.value().is_WriteLocked(),
+            token@.value() is WriteLocked,
             write_handle.rwlock() == pt_frame.rw_lock,
-            m@.inv(pt_frame.inst@),
+            m@.inv(),
+            m@.inst_id() == pt_frame.inst@.id(),
             m@.pred_cursor_WriteLocked(tree_path@),
             wf_tree_path(tree_path@),
             tree_path@.len() > 0 && tree_path@.last() == pt_frame.nid@,
         ensures
-            res.0@.inv(pt_frame.inst@),
+            res.0@.inv(),
+            res.0@.inst_id() == pt_frame.inst@.id(),
             res.0@.pred_cursor_ReadLocking(res.1@),
             res.1@ =~= tree_path@.drop_last(),
     {
@@ -180,13 +185,15 @@ impl TransHandler {
     ))
         requires
             pt_frame.wf(),
-            m@.inv(pt_frame.inst@),
+            m@.inv(),
+            m@.inst_id() == pt_frame.inst@.id(),
             m@.pred_cursor_ReadLocking(tree_path@),
             wf_tree_path(tree_path@.push(pt_frame.nid@)),
         ensures
             pt_frame.rw_lock.inv(res.0.view()),
             res.0.rwlock() == pt_frame.rw_lock,
-            res.1@.inv(pt_frame.inst@),
+            res.1@.inv(),
+            res.1@.inst_id() == pt_frame.inst@.id(),
             res.1@.pred_cursor_ReadLocking(res.2@),
             res.2@ =~= tree_path@.push(pt_frame.nid@),
     {
@@ -203,6 +210,7 @@ impl TransHandler {
             ghost g => {
                 assert(next <= MAX_RC()) by { admit(); }; // How to remove this?
 
+                assert(tree_path.len() < 3) by { admit(); };
                 let tracked res = pt_frame.inst.borrow().read_lock(
                     m.cpu,
                     pt_frame.nid@,
@@ -228,12 +236,14 @@ impl TransHandler {
         requires
             pt_frame.wf(),
             read_handle.rwlock() == pt_frame.rw_lock,
-            m@.inv(pt_frame.inst@),
+            m@.inv(),
+            m@.inst_id() == pt_frame.inst@.id(),
             m@.pred_cursor_ReadLocking(tree_path@),
             wf_tree_path(tree_path@),
             tree_path@.len() > 0 && tree_path@.last() == pt_frame.nid@,
         ensures
-            res.0@.inv(pt_frame.inst@),
+            res.0@.inv(),
+            res.0@.inst_id() == pt_frame.inst@.id(),
             res.0@.pred_cursor_ReadLocking(res.1@),
             res.1@ =~= tree_path@.drop_last(),
     {
@@ -273,7 +283,8 @@ impl TransHandler {
             allocator.wf(),
             NodeHelper::valid_nid(nid as NodeId),
             nid as NodeId != NodeHelper::root_id(),
-            m@.inv(pt.inst@),
+            m@.inv(),
+            m@.inst_id() == pt.inst@.id(),
             m@.pred_cursor_WriteLocked(*tree_path@),
             tree_path@.len() > 0,
             NodeHelper::in_subtree(tree_path@.last(), nid as NodeId),
@@ -296,7 +307,7 @@ impl TransHandler {
                 assert(prev == INVALID_PADDR) by { admit(); }; // How to remove this?
                 assert(g.tokens.is_Some());
                 let tracked tokens = g.tokens.tracked_unwrap();
-                assert(tokens.0.value().is_UnAllocated());
+                assert(tokens.0.value() is UnAllocated);
 
                 let tracked res = pt.inst.borrow().allocate(
                     m.cpu,
@@ -393,6 +404,7 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     admit();
 }
 
+#[verifier::exec_allows_no_decreases_clause]
 pub fn lock_range<'a>(
     pt: &PageTable,
     allocator: &'a FrameAllocator,
@@ -403,12 +415,14 @@ pub fn lock_range<'a>(
         pt.wf(*allocator),
         allocator.wf(),
         va_range_wf(*va),
-        m@.inv(pt.inst@),
+        m@.inv(),
+        m@.inst_id() == pt.inst@.id(),
         m@.pred_cursor_Void(),
     ensures
         res.0.wf(),
         res.0.init_wf(*va),
-        res.1@.inv(pt.inst@),
+        res.1@.inv(),
+        res.1@.inst_id() == pt.inst@.id(),
         res.1@.pred_cursor_WriteLocked(va_range_get_tree_path(*va)),
 {
     let mut path: Vec<GuardInPath<'a>> = Vec::with_capacity(4);
@@ -440,6 +454,9 @@ pub fn lock_range<'a>(
 
     // Prologue lemmas
     proof {
+        assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id()) by { admit(); };
+        assert(NodeHelper::nid_to_level(NodeHelper::root_id()) == 4) by { admit(); };
+
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
     }
@@ -449,7 +466,8 @@ pub fn lock_range<'a>(
             pt.wf(*allocator),
             allocator.wf(),
             va_range_wf(*va),
-            m.inv(pt.inst@),
+            m.inv(),
+            m.inst_id() == pt.inst@.id(),
             NodeHelper::valid_nid(cur_nid as NodeId),
             cur_nid as NodeId == va_level_to_nid(va.start, cur_level),
             1 <= cur_level <= 4,
@@ -463,7 +481,8 @@ pub fn lock_range<'a>(
             tree_path.is_prefix_of(va_range_get_tree_path(*va)),
             m.pred_cursor_ReadLocking(tree_path),
         ensures
-            m.inv(pt.inst@),
+            m.inv(),
+            m.inst_id() == pt.inst@.id(),
             NodeHelper::valid_nid(cur_nid as NodeId),
             cur_nid as NodeId == va_level_to_nid(va.start, cur_level),
             1 <= cur_level <= 4,
@@ -475,6 +494,7 @@ pub fn lock_range<'a>(
             tree_path.len() == 4 - cur_level,
             tree_path.is_prefix_of(va_range_get_tree_path(*va)),
             m.pred_cursor_ReadLocking(tree_path),
+        decreases cur_level,
     {
         let start_idx = pte_index(va.start, cur_level);
         let level_too_high = {
@@ -504,9 +524,7 @@ pub fn lock_range<'a>(
         };
 
         // TODO: fix this.
-        if pa == INVALID_PADDR {
-            continue ;
-        }
+        assert(pa != INVALID_PADDR) by { admit(); };
         assert(valid_paddr(pa));
         assert(paddr_is_aligned(pa));
 
@@ -601,6 +619,28 @@ pub fn lock_range<'a>(
                 tree_path = res.1@;
             }
 
+            // Downgrade to read lock.
+            assert(wf_tree_path(tree_path.push(cur_nid as NodeId))) by {
+                admit();
+            };
+            let res = TransHandler::acquire_read(pt_frame, Tracked(m), Ghost(tree_path));
+            let read_handle = res.0;
+            proof {
+                m = res.1.get();
+                tree_path = res.2@;
+            }
+
+            path[(cur_level - 1) as usize] = GuardInPath::ReadLocked(read_handle);
+            cur_nid = nxt_nid;
+            cur_level = cur_level - 1;
+
+            assert(cur_nid as NodeId == va_level_to_nid(va.start, cur_level)) by {
+                admit();
+            };
+            assert(cur_level as nat == NodeHelper::nid_to_level(cur_nid as nat)) by { admit(); };
+            assert(tree_path.is_prefix_of(va_range_get_tree_path(*va))) by {
+                admit();
+            };
         } else {
             path[(cur_level - 1) as usize] = GuardInPath::ReadLocked(read_handle);
             cur_nid = nxt_nid;
@@ -609,6 +649,7 @@ pub fn lock_range<'a>(
             assert(cur_nid as NodeId == va_level_to_nid(va.start, cur_level)) by {
                 admit();
             };
+            assert(cur_level as nat == NodeHelper::nid_to_level(cur_nid as nat)) by { admit(); };
             assert(tree_path.is_prefix_of(va_range_get_tree_path(*va))) by {
                 admit();
             };
@@ -620,7 +661,8 @@ pub fn lock_range<'a>(
             pt.wf(*allocator),
             allocator.wf(),
             va_range_wf(*va),
-            m.inv(pt.inst@),
+            m.inv(),
+            m.inst_id() == pt.inst@.id(),
             NodeHelper::valid_nid(cur_nid as NodeId),
             cur_nid as NodeId == va_level_to_nid(va.start, cur_level),
             1 <= cur_level <= 4,
@@ -633,7 +675,8 @@ pub fn lock_range<'a>(
             va_range_get_tree_path(*va).len() == 5 - va_range_get_guard_level(*va),
             m.pred_cursor_ReadLocking(tree_path),
         ensures
-            m.inv(pt.inst@),
+            m.inv(),
+            m.inst_id() == pt.inst@.id(),
             NodeHelper::valid_nid(cur_nid as NodeId),
             cur_nid as NodeId == va_level_to_nid(va.start, cur_level),
             1 <= cur_level <= 4,

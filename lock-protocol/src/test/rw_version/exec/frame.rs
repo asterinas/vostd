@@ -9,12 +9,11 @@ use vstd::vstd::arithmetic::power2::*;
 use vstd::bits::*;
 use vstd::atomic_ghost::AtomicU64;
 
-use super::super::vstd_extra::{
-    manually_drop::*,
-};
+use vstd_extra::manually_drop::*;
+use crate::spec::utils::*;
 use super::super::spec::{
     common::*,
-    utils::*,
+    // utils::*,
     tree::*,
 };
 use super::{
@@ -123,7 +122,7 @@ pub open spec fn wf(&self) -> bool {
         &&& forall |token: Tracked<NodeToken>| #[trigger] self.rw_lock.inv(token) <==> {
             &&& token@.instance_id() == self.inst@.id()
             &&& token@.key() == self.nid@
-            &&& token@.value().is_WriteUnLocked()
+            &&& token@.value() is WriteUnLocked
         }
 
         // &&& self.ptes@.len() == 512
@@ -265,7 +264,7 @@ impl FrameAllocator {
             inst@.cpu_num() == GLOBAL_CPU_NUM,
             node_token@.instance_id() == inst@.id(),
             node_token@.key() == nid@,
-            node_token@.value().is_WriteUnLocked(),
+            node_token@.value() is WriteUnLocked,
             rc_token@.instance_id() == inst@.id(),
             rc_token@.key() == nid@,
             rc_token@.value() == 0,
