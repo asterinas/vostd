@@ -56,14 +56,6 @@ Verus should be automatically cloned and built in the `tools` directory. If down
 
 For VsCode users, you may find the `verus-analyzer` extension in the [marketplace.](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer)
 
-#### Update Verus
-
-You can always run the following command to update Verus to the latest supported version.
-
-```bash
-cargo xtask update
-```
-
 #### Build Verification Targets 
 
 Then, run ``make`` to build the common libraries and all verification targets.
@@ -96,3 +88,17 @@ Target ``fvt11-pt-guards`` extends the previous target's specification with a sy
 ``src/page_table/cursor/mod.rs`` and note that the proofs are much more complex, requiring multiple assertions and lemmas.
 
 We will release the code for more verification targets.
+
+## Contributing to VOSTD
+
+We welcome contributions!
+
+#### Common Conventions
+
+- We add an `axiom_` prefix to the name of each `axiom fn` and a `lemma_` prefix to each `proof fn`.
+- We prefer associated functions to isolated lemmas.
+
+#### Tips
+
+- During your development process, please frequently run `cargo xtask update` to update to the [latest supported version](https://github.com/asterinas/verus) of Verus.
+- Before submitting the code, please always run `cargo xtask fmt`.
