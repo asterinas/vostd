@@ -166,8 +166,7 @@ pub broadcast proof fn lemma_forall_seq_values_index<T>(s: Seq<T>, f: spec_fn(T)
 /// `forall_seq(s.push(v),f)` is equivalent to `forall_seq(s,f)` and `f(s.len(),v)`.
 pub broadcast proof fn lemma_forall_seq_push<T>(s: Seq<T>, f: spec_fn(int, T) -> bool, v: T)
     ensures
-        forall_seq(s, f) && f(s.len() as int, v) ==> #[trigger] forall_seq(s.push(v), f),
-        forall_seq(s.push(v), f) ==> forall_seq(s, f) && f(s.len() as int, v),
+        forall_seq(s, f) && f(s.len() as int, v) <==> #[trigger] forall_seq(s.push(v), f),
 {
     if (forall_seq(s.push(v), f)) {
         assert forall|i| 0 <= i < s.len() implies f(i, s[i]) by {
@@ -180,8 +179,7 @@ pub broadcast proof fn lemma_forall_seq_push<T>(s: Seq<T>, f: spec_fn(int, T) ->
 /// `forall_seq_values(s.push(v),f)` is equivalent to `forall_seq_values(s,f)` and `f(v)`.
 pub broadcast proof fn lemma_forall_seq_values_push<T>(s: Seq<T>, f: spec_fn(T) -> bool, v: T)
     ensures
-        #[trigger] forall_seq_values(s.push(v), f) ==> forall_seq_values(s, f) && f(v),
-        forall_seq_values(s, f) && f(v) ==> forall_seq_values(s.push(v), f),
+        #[trigger] forall_seq_values(s.push(v), f) <==> forall_seq_values(s, f) && f(v),
 {
     if (forall_seq_values(s.push(v), f)) {
         assert forall|i| 0 <= i < s.len() implies f(s[i]) by {
@@ -196,11 +194,10 @@ pub broadcast proof fn lemma_forall_seq_drop_last<T>(s: Seq<T>, f: spec_fn(int, 
     requires
         s.len() > 0,
     ensures
-        forall_seq(s, f) ==> #[trigger] forall_seq(s.drop_last(), f) && f(
+        forall_seq(s, f) <==> #[trigger] forall_seq(s.drop_last(), f) && f(
             s.len() as int - 1,
             s.last(),
         ),
-        forall_seq(s.drop_last(), f) && f(s.len() as int - 1, s.last()) ==> forall_seq(s, f),
 {
     assert(s =~= s.drop_last().push(s.last()));
 }
@@ -210,19 +207,17 @@ pub broadcast proof fn lemma_forall_seq_values_drop_last<T>(s: Seq<T>, f: spec_f
     requires
         s.len() > 0,
     ensures
-        forall_seq_values(s, f) ==> #[trigger] forall_seq_values(s.drop_last(), f) && f(s.last()),
-        forall_seq_values(s.drop_last(), f) && f(s.last()) ==> forall_seq_values(s, f),
+        forall_seq_values(s, f) <==> #[trigger] forall_seq_values(s.drop_last(), f) && f(s.last()),
 {
     assert(s =~= s.drop_last().push(s.last()));
 }
 
 pub broadcast proof fn lemma_forall_seq_values_add<T>(s1: Seq<T>, s2: Seq<T>, f: spec_fn(T) -> bool)
     ensures
-        forall_seq_values(s1, f) && forall_seq_values(s2, f) ==> #[trigger] forall_seq_values(
+        forall_seq_values(s1, f) && forall_seq_values(s2, f) <==> #[trigger] forall_seq_values(
             s1 + s2,
             f,
         ),
-        forall_seq_values(s1 + s2, f) ==> forall_seq_values(s1, f) && forall_seq_values(s2, f),
     decreases s2.len(),
 // Induction proof on the length of s2
 

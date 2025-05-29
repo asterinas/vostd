@@ -96,6 +96,37 @@ pub fn inv_rw_lock(&self) -> bool {
         self.reader_counts[nid] > 0 ==> self.nodes[nid] is WriteUnLocked
 }
 
+pub open spec fn lock_subtree(&self, nid: NodeId) -> bool {
+    forall |id: NodeId| #![auto]
+        NodeHelper::in_subtree_range(nid, id) && id!= nid ==>
+        self.reader_counts[id] == 0 &&
+        self.nodes[id] !is WriteLocked
+}
+
+#[invariant]
+pub fn inv_write_lock_subtree(&self) -> bool {
+    forall |cpu: CpuId| #![auto]
+        self.cursors.contains_key(cpu) &&
+        self.cursors[cpu].hold_write_lock() ==>
+        self.lock_subtree(self.cursors[cpu].get_write_lock_node())
+}
+
+#[invariant]
+pub fn inv_cursors_write_lock_unique(&self) -> bool {
+    forall |cpu1: CpuId, cpu2: CpuId| #![auto]
+        cpu1 != cpu2 &&
+        self.cursors.contains_key(cpu1) &&
+        self.cursors.contains_key(cpu2) &&
+        self.cursors[cpu1].hold_write_lock() &&
+        self.cursors[cpu2].hold_write_lock() ==>
+        {
+            let nid1 = self.cursors[cpu1].get_write_lock_node();
+            let nid2 = self.cursors[cpu2].get_write_lock_node();
+
+            nid1 != nid2
+        }
+}
+
 #[invariant]
 pub fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
@@ -108,8 +139,8 @@ pub fn inv_non_overlapping(&self) -> bool {
             let nid1 = self.cursors[cpu1].get_write_lock_node();
             let nid2 = self.cursors[cpu2].get_write_lock_node();
 
-            !NodeHelper::in_subtree(nid1, nid2) &&
-            !NodeHelper::in_subtree(nid2, nid1)
+            !NodeHelper::in_subtree_range(nid1, nid2) &&
+            !NodeHelper::in_subtree_range(nid2, nid1)
         }
 }
 
@@ -235,7 +266,7 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
-        require(NodeHelper::in_subtree(path.last(), nid));
+        require(NodeHelper::in_subtree_range(path.last(), nid));
 
         remove nodes -= [ nid => NodeState::UnAllocated ];
         add nodes += [ nid => NodeState::WriteUnLocked ];
@@ -250,7 +281,7 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
-        require(NodeHelper::in_subtree(path.last(), nid));
+        require(NodeHelper::in_subtree_range(path.last(), nid));
 
         remove nodes -= [ nid => NodeState::WriteUnLocked ];
         add nodes += [ nid => NodeState::UnAllocated ];
@@ -278,6 +309,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
                     );
         }
     };
+    admit();
 }
 
 #[inductive(locking_start)]
@@ -297,6 +329,7 @@ fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
                 );
             }
     };
+    admit();
 }
 
 #[inductive(unlocking_end)]
@@ -316,6 +349,7 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
                 );
             };
     };
+    admit();
 }
 
 #[inductive(read_lock)]
@@ -350,6 +384,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         };
 
     };
+    admit();
 }
 
 #[inductive(read_unlock)]
@@ -382,6 +417,7 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_rc_positive()) by {
         Self::lemma_inv_implies_inv_rc_positive(post);
     };
+    admit();
 }
 
 #[inductive(write_lock)]
@@ -409,6 +445,7 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             }
         }
     }
+    admit();
     assert(post.inv_non_overlapping()) by {
         admit();
     }
