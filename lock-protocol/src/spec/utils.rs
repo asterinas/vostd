@@ -1550,6 +1550,25 @@ impl NodeHelper {
             Self::lemma_in_subtree_range_implies_in_subtree(rt, nd);
         }
     }
+
+    pub proof fn lemma_child_in_subtree_implies_in_subtree(rt: NodeId, pa: NodeId, ch: NodeId)
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(pa),
+            Self::valid_nid(ch),
+            Self::in_subtree(rt, ch),
+            Self::is_child(pa, ch),
+            rt != ch,
+        ensures
+            Self::in_subtree(rt, pa),
+    {
+        if (Self::nid_to_trace(ch).len() == Self::nid_to_trace(rt).len()) {
+            assert(Self::nid_to_trace(ch) =~= Self::nid_to_trace(rt));
+            Self::lemma_nid_to_trace_sound(ch);
+            Self::lemma_nid_to_trace_sound(rt);
+            assert(ch == rt);
+        }
+    }
 }
 
 } // verus!
