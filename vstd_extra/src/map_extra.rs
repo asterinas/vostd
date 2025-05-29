@@ -202,3 +202,128 @@ pub proof fn lemma_insert_value_filter_different_len<K, V>(
 }
 
 } // verus!
+
+verus! {
+
+/// Returns true if predicate `f(k,v)` holds for all `(k,v)` in `map`.
+pub open spec fn forall_map<K, V>(map: Map<K, V>, f: spec_fn(K, V) -> bool) -> bool {
+    forall|k| #[trigger] map.contains_key(k) ==> f(k, map[k])
+}
+
+/// Returns true if predicate `f(v)` holds for all values in `map`.
+pub open spec fn forall_map_values<K, V>(map: Map<K, V>, f: spec_fn(V) -> bool) -> bool {
+    forall|k| #[trigger] map.contains_key(k) ==> f(map[k])
+}
+
+pub broadcast group group_forall_map_lemmas {
+    lemma_forall_map_insert,
+    lemma_forall_map_values_insert,
+    lemma_forall_map_remove,
+    lemma_forall_map_values_remove,
+}
+
+/// For any key in the map, `f(k, map[k])` holds if `forall_map(map, f)` holds.
+pub proof fn lemma_forall_map_entry<K, V>(m: Map<K, V>, f: spec_fn(K, V) -> bool, k: K)
+    requires
+        forall_map(m, f),
+        m.contains_key(k),
+    ensures
+        f(k, m[k]),
+{
+}
+
+/// For any key in the map, `f(map[k])` holds if `forall_map_values(map, f)` holds.
+pub proof fn lemma_forall_map_values_entry<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    requires
+        forall_map_values(m, f),
+        m.contains_key(k),
+    ensures
+        f(m[k]),
+{
+}
+
+/// `forall_map(m.insert(k, v), f)` holds if `f(k, v)` holds and
+/// `forall_map(m.remove(k),f)` (if `m` contains `k`) or `forall_map(m, f)` (if `m` does not contain `k`).
+pub broadcast proof fn lemma_forall_map_insert<K,V>(m: Map<K, V>, f: spec_fn(K, V) -> bool, k: K, v: V)
+    ensures            
+        #[trigger] forall_map(m.insert(k, v), f) ==>
+        f(k,v) && if m.contains_key(k) {
+            forall_map(m.remove(k), f)
+        } else {
+            forall_map(m, f)
+        },
+{
+    assert(m.insert(k, v).contains_key(k));
+    if m.contains_key(k) {
+        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+    } else {
+        assert(m.insert(k, v) =~= m.insert(k, v));
+    }
+    if forall_map(m.insert(k, v), f) {
+        if m.contains_key(k) {
+        } else {
+            assert(forall |k0| #[trigger] m.contains_key(k0) ==> m.insert(k,v).contains_key(k0));
+        }
+    }
+}
+
+/// `forall_map_values(m.insert(k, v), f)` holds if `f(v)` holds and
+/// `forall_map_values(m.remove(k),f)` (if `m` contains `k`) or `forall_map_values(m, f)` (if `m` does not contain `k`).
+pub broadcast proof fn lemma_forall_map_values_insert<K,V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K, v: V)
+    ensures            
+        #[trigger] forall_map_values(m.insert(k, v), f) ==>
+        f(v) && if m.contains_key(k) {
+            forall_map_values(m.remove(k), f)
+        } else {
+            forall_map_values(m, f)
+        },
+{
+    assert(m.insert(k, v).contains_key(k));
+    if m.contains_key(k) {
+        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+    } else {
+        assert(m.insert(k, v) =~= m.insert(k, v));
+    }
+    if forall_map_values(m.insert(k, v), f) {
+        if m.contains_key(k) {
+        } else {
+            assert(forall |k0| #[trigger] m.contains_key(k0) ==> m.insert(k,v).contains_key(k0));
+        }
+    }
+}
+
+/// `forall_map(m,f)` holds if `forall_map(m.remove(k), f)` holds and
+/// `f(k, m[k])` holds (if `m` contains `k`).
+pub broadcast proof fn lemma_forall_map_remove<K,V>(m: Map<K, V>, f: spec_fn(K, V) -> bool, k: K)
+    ensures            
+        forall_map(m, f) <==> 
+        #[trigger] 
+        forall_map(m.remove(k), f) && (m.contains_key(k) ==> f(k, m[k])),
+{
+    if m.contains_key(k) {
+        assert(m=~= m.remove(k).insert(k, m[k]));
+    }
+    else
+    {
+        assert(m=~= m.remove(k));
+    }
+}
+
+/// `forall_map_values(m,f)` holds if `forall_map_values(m.remove(k), f)` holds and
+/// `f(m[k])` holds (if `m` contains `k`).
+pub broadcast proof fn lemma_forall_map_values_remove<K,V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    ensures            
+        forall_map_values(m, f) <==> 
+        #[trigger] 
+        forall_map_values(m.remove(k), f) && (m.contains_key(k) ==> f(m[k])),
+{
+    if m.contains_key(k) {
+        assert(m=~= m.remove(k).insert(k, m[k]));
+    }
+    else
+    {
+        assert(m=~= m.remove(k));
+    }
+
+}
+}
