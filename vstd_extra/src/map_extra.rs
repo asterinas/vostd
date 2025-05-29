@@ -40,12 +40,18 @@ pub open spec fn value_filter<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool) -> Map<
     m.restrict(m.dom().filter(|s| f(m[s])))
 }
 
+pub broadcast group group_value_filter_lemmas {
+    lemma_value_filter_finite,
+    lemma_insert_value_filter_same_len,
+    lemma_insert_value_filter_different_len,
+}
+
 /// The result of value-filtering a finite map is also finite.
-pub proof fn lemma_value_filter_finite<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
+pub broadcast proof fn lemma_value_filter_finite<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
     requires
         m.dom().finite(),
     ensures
-        value_filter(m, f).dom().finite(),
+        #[trigger] value_filter(m, f).dom().finite(),
 {
     assert(value_filter(m, f).dom() =~= m.dom().filter(|s| f(m[s])));
     m.dom().lemma_len_filter(|s| f(m[s]));
@@ -146,7 +152,7 @@ pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
 /// is equal to the length of the value-filtered map for the original map `m`
 /// if `k` exists in `m`, and `m[k]` and `v` both satisfy/un-satisfy the predicate
 /// function `f`.
-pub proof fn lemma_insert_value_filter_same_len<K, V>(
+pub broadcast proof fn lemma_insert_value_filter_same_len<K, V>(
     m: Map<K, V>,
     f: spec_fn(V) -> bool,
     k: K,
@@ -157,7 +163,7 @@ pub proof fn lemma_insert_value_filter_same_len<K, V>(
         m.contains_key(k),
         f(m[k]) == f(v),
     ensures
-        value_filter(m.insert(k, v), f).len() == value_filter(m, f).len(),
+        #[trigger] value_filter(m.insert(k, v), f).len() == value_filter(m, f).len(),
 {
     lemma_value_filter_finite(m, f);
     if f(v) {
@@ -173,7 +179,7 @@ pub proof fn lemma_insert_value_filter_same_len<K, V>(
 /// is equal to the length of the value-filtered map for the original map `m`
 /// plus one if `m[k]` does not satisfy `f` but `v` does, and minus one if
 /// `m[k]` satisfies `f` but `v` does not.
-pub proof fn lemma_insert_value_filter_different_len<K, V>(
+pub broadcast proof fn lemma_insert_value_filter_different_len<K, V>(
     m: Map<K, V>,
     f: spec_fn(V) -> bool,
     k: K,
@@ -184,7 +190,7 @@ pub proof fn lemma_insert_value_filter_different_len<K, V>(
         m.contains_key(k),
         f(m[k]) != f(v),
     ensures
-        value_filter(m.insert(k, v), f).len() == value_filter(m, f).len() + if f(v) {
+        #[trigger] value_filter(m.insert(k, v), f).len() == value_filter(m, f).len() + if f(v) {
             1
         } else {
             -1

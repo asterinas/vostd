@@ -1551,10 +1551,11 @@ impl NodeHelper {
         }
     }
 
+    /// If `ch` is a child of `pa`, `ch` is in the subtree of `rt`, and `rt` is not equal to `ch`,
+    /// then `pa` is in the subtree of `rt`.
     pub proof fn lemma_child_in_subtree_implies_in_subtree(rt: NodeId, pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(rt),
-            Self::valid_nid(pa),
             Self::valid_nid(ch),
             Self::in_subtree(rt, ch),
             Self::is_child(pa, ch),
@@ -1567,6 +1568,48 @@ impl NodeHelper {
             Self::lemma_nid_to_trace_sound(ch);
             Self::lemma_nid_to_trace_sound(rt);
             assert(ch == rt);
+        }
+    }
+
+    /// The `in_subtree_range` version of `lemma_child_in_subtree_implies_in_subtree`.
+    pub proof fn lemma_child_in_subtree_range_implies_in_subtree_range(
+        rt: NodeId,
+        pa: NodeId,
+        ch: NodeId,
+    )
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(pa),
+            Self::in_subtree_range(rt, ch),
+            Self::is_child(pa, ch),
+            rt != ch,
+        ensures
+            Self::in_subtree_range(rt, pa),
+    {
+        Self::lemma_in_subtree_iff_in_subtree_range(rt, ch);
+        Self::lemma_in_subtree_iff_in_subtree_range(rt, pa);
+        Self::lemma_child_in_subtree_implies_in_subtree(rt, pa, ch);
+    }
+
+    /// If `pa` is not in the subtree of `rt`, `ch` is a child of `pa`, and `rt` is not equal to `ch`,
+    /// then `ch` is not in the subtree of `rt`.
+    pub proof fn lemma_not_in_subtree_range_implies_child_not_in_subtree_range(
+        rt: NodeId,
+        pa: NodeId,
+        ch: NodeId,
+    )
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(pa),
+            Self::is_child(pa, ch),
+            rt != ch,
+            !Self::in_subtree_range(rt, pa),
+        ensures
+            !Self::in_subtree_range(rt, ch),
+    {
+        if Self::in_subtree_range(rt, ch) {
+            Self::lemma_next_outside_subtree_bounded(rt);
+            Self::lemma_child_in_subtree_range_implies_in_subtree_range(rt, pa, ch);
         }
     }
 }
