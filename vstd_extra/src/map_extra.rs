@@ -40,12 +40,18 @@ pub open spec fn value_filter<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool) -> Map<
     m.restrict(m.dom().filter(|s| f(m[s])))
 }
 
+pub broadcast group group_value_filter_lemmas {
+    lemma_value_filter_finite,
+    lemma_insert_value_filter_same_len,
+    lemma_insert_value_filter_different_len,
+}
+
 /// The result of value-filtering a finite map is also finite.
-pub proof fn lemma_value_filter_finite<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
+pub broadcast proof fn lemma_value_filter_finite<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
     requires
         m.dom().finite(),
     ensures
-        value_filter(m, f).dom().finite(),
+        #[trigger] value_filter(m, f).dom().finite(),
 {
     assert(value_filter(m, f).dom() =~= m.dom().filter(|s| f(m[s])));
     m.dom().lemma_len_filter(|s| f(m[s]));
@@ -146,7 +152,7 @@ pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -
 /// is equal to the length of the value-filtered map for the original map `m`
 /// if `k` exists in `m`, and `m[k]` and `v` both satisfy/un-satisfy the predicate
 /// function `f`.
-pub proof fn lemma_insert_value_filter_same_len<K, V>(
+pub broadcast proof fn lemma_insert_value_filter_same_len<K, V>(
     m: Map<K, V>,
     f: spec_fn(V) -> bool,
     k: K,
@@ -157,7 +163,7 @@ pub proof fn lemma_insert_value_filter_same_len<K, V>(
         m.contains_key(k),
         f(m[k]) == f(v),
     ensures
-        value_filter(m.insert(k, v), f).len() == value_filter(m, f).len(),
+        #[trigger] value_filter(m.insert(k, v), f).len() == value_filter(m, f).len(),
 {
     lemma_value_filter_finite(m, f);
     if f(v) {
@@ -173,7 +179,7 @@ pub proof fn lemma_insert_value_filter_same_len<K, V>(
 /// is equal to the length of the value-filtered map for the original map `m`
 /// plus one if `m[k]` does not satisfy `f` but `v` does, and minus one if
 /// `m[k]` satisfies `f` but `v` does not.
-pub proof fn lemma_insert_value_filter_different_len<K, V>(
+pub broadcast proof fn lemma_insert_value_filter_different_len<K, V>(
     m: Map<K, V>,
     f: spec_fn(V) -> bool,
     k: K,
@@ -184,7 +190,7 @@ pub proof fn lemma_insert_value_filter_different_len<K, V>(
         m.contains_key(k),
         f(m[k]) != f(v),
     ensures
-        value_filter(m.insert(k, v), f).len() == value_filter(m, f).len() + if f(v) {
+        #[trigger] value_filter(m.insert(k, v), f).len() == value_filter(m, f).len() + if f(v) {
             1
         } else {
             -1
@@ -199,6 +205,139 @@ pub proof fn lemma_insert_value_filter_different_len<K, V>(
         assert(value_filter(m.insert(k, v), f).len() == value_filter(m, f).remove(k).len());
         lemma_map_remove_len(value_filter(m, f), k);
     }
+}
+
+} // verus!
+verus! {
+
+/// Returns true if predicate `f(k,v)` holds for all `(k,v)` in `map`.
+pub open spec fn forall_map<K, V>(map: Map<K, V>, f: spec_fn(K, V) -> bool) -> bool {
+    forall|k| #[trigger] map.contains_key(k) ==> f(k, map[k])
+}
+
+/// Returns true if predicate `f(v)` holds for all values in `map`.
+pub open spec fn forall_map_values<K, V>(map: Map<K, V>, f: spec_fn(V) -> bool) -> bool {
+    forall|k| #[trigger] map.contains_key(k) ==> f(map[k])
+}
+
+pub broadcast group group_forall_map_lemmas {
+    lemma_forall_map_insert,
+    lemma_forall_map_values_insert,
+    lemma_forall_map_remove,
+    lemma_forall_map_values_remove,
+}
+
+/// For any key in the map, `f(k, map[k])` holds if `forall_map(map, f)` holds.
+pub proof fn lemma_forall_map_entry<K, V>(m: Map<K, V>, f: spec_fn(K, V) -> bool, k: K)
+    requires
+        forall_map(m, f),
+        m.contains_key(k),
+    ensures
+        f(k, m[k]),
+{
+}
+
+/// For any key in the map, `f(map[k])` holds if `forall_map_values(map, f)` holds.
+pub proof fn lemma_forall_map_values_entry<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    requires
+        forall_map_values(m, f),
+        m.contains_key(k),
+    ensures
+        f(m[k]),
+{
+}
+
+/// `forall_map(m.insert(k, v), f)` holds if `f(k, v)` holds and
+/// `forall_map(m.remove(k),f)` (if `m` contains `k`) or `forall_map(m, f)` (if `m` does not contain `k`).
+pub broadcast proof fn lemma_forall_map_insert<K, V>(
+    m: Map<K, V>,
+    f: spec_fn(K, V) -> bool,
+    k: K,
+    v: V,
+)
+    ensures
+        #[trigger] forall_map(m.insert(k, v), f) ==> f(k, v) && if m.contains_key(k) {
+            forall_map(m.remove(k), f)
+        } else {
+            forall_map(m, f)
+        },
+{
+    assert(m.insert(k, v).contains_key(k));
+    if m.contains_key(k) {
+        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+    } else {
+        assert(m.insert(k, v) =~= m.insert(k, v));
+    }
+    if forall_map(m.insert(k, v), f) {
+        if m.contains_key(k) {
+        } else {
+            assert(forall|k0| #[trigger] m.contains_key(k0) ==> m.insert(k, v).contains_key(k0));
+        }
+    }
+}
+
+/// `forall_map_values(m.insert(k, v), f)` holds if `f(v)` holds and
+/// `forall_map_values(m.remove(k),f)` (if `m` contains `k`) or `forall_map_values(m, f)` (if `m` does not contain `k`).
+pub broadcast proof fn lemma_forall_map_values_insert<K, V>(
+    m: Map<K, V>,
+    f: spec_fn(V) -> bool,
+    k: K,
+    v: V,
+)
+    ensures
+        #[trigger] forall_map_values(m.insert(k, v), f) ==> f(v) && if m.contains_key(k) {
+            forall_map_values(m.remove(k), f)
+        } else {
+            forall_map_values(m, f)
+        },
+{
+    assert(m.insert(k, v).contains_key(k));
+    if m.contains_key(k) {
+        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+    } else {
+        assert(m.insert(k, v) =~= m.insert(k, v));
+    }
+    if forall_map_values(m.insert(k, v), f) {
+        if m.contains_key(k) {
+        } else {
+            assert(forall|k0| #[trigger] m.contains_key(k0) ==> m.insert(k, v).contains_key(k0));
+        }
+    }
+}
+
+/// `forall_map(m,f)` holds if `forall_map(m.remove(k), f)` holds and
+/// `f(k, m[k])` holds (if `m` contains `k`).
+pub broadcast proof fn lemma_forall_map_remove<K, V>(m: Map<K, V>, f: spec_fn(K, V) -> bool, k: K)
+    ensures
+        forall_map(m, f) <==> #[trigger] forall_map(m.remove(k), f) && (m.contains_key(k) ==> f(
+            k,
+            m[k],
+        )),
+{
+    if m.contains_key(k) {
+        assert(m =~= m.remove(k).insert(k, m[k]));
+    } else {
+        assert(m =~= m.remove(k));
+    }
+}
+
+/// `forall_map_values(m,f)` holds if `forall_map_values(m.remove(k), f)` holds and
+/// `f(m[k])` holds (if `m` contains `k`).
+pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
+    m: Map<K, V>,
+    f: spec_fn(V) -> bool,
+    k: K,
+)
+    ensures
+        forall_map_values(m, f) <==> #[trigger] forall_map_values(m.remove(k), f) && (
+        m.contains_key(k) ==> f(m[k])),
+{
+    if m.contains_key(k) {
+        assert(m =~= m.remove(k).insert(k, m[k]));
+    } else {
+        assert(m =~= m.remove(k));
+    }
+
 }
 
 } // verus!

@@ -10,6 +10,11 @@ use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 verus! {
 
+broadcast use {
+    vstd_extra::map_extra::group_forall_map_lemmas,
+    vstd_extra::map_extra::group_value_filter_lemmas,
+};
+
 tokenized_state_machine!{
 
 TreeSpec {
@@ -35,7 +40,7 @@ fields {
 /// Every node should have a valid NodeId.
 #[invariant]
 pub fn inv_nodes(&self) -> bool {
-    &&& forall |nid: NodeId| #![auto]
+    forall |nid: NodeId| #![auto]
         self.nodes.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
@@ -46,58 +51,69 @@ pub fn inv_reader_counts(&self) -> bool {
         self.reader_counts.contains_key(nid) <==> NodeHelper::valid_nid(nid)
 }
 
-/// Unallocated nodes should not have any reader counts.
-#[invariant]
-pub fn inv_unallocated_has_no_rc(&self) -> bool {
-    forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==> {
-        self.nodes[nid] is UnAllocated ==> self.reader_counts[nid] == 0
-    }
-}
-
-/// The number of cursors holding a read lock on each node should match the reader counts.
-#[invariant]
-pub fn rc_cursors_relation(&self) -> bool {
-    &&& forall |nid: NodeId| #![auto] self.reader_counts.contains_key(nid) ==>
-        self.reader_counts[nid] == value_filter(
-            self.cursors,
-            |cursor: CursorState| cursor.hold_read_lock(nid),
-        ).len()
-}
-
-/// If a cursor holds a read lock path, the reader count for each node in the path should be positive.
-pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
-    forall |i| #![auto] 0 <= i < path.len() ==>
-    self.reader_counts[path[i]] > 0
-}
-
-/// All cursors holding read lock paths should have positive reader counts.
-#[invariant]
-pub fn inv_rc_positive(&self) -> bool {
-    forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
-        self.rc_positive(self.cursors[cpu].get_read_lock_path())
-}
-
-/// The number of cursors should be equal to the number of CPUs and the invariant should hold for each cursor's state.
+/// Each cursor should be for a valid CPU, and the invariant should hold for each cursor's state.
 #[invariant]
 pub fn inv_cursors(&self) -> bool {
     &&& self.cursors.dom().finite()
     &&& forall |cpu: CpuId| #![auto]
         self.cursors.contains_key(cpu) <==> valid_cpu(self.cpu_num, cpu)
-
-    &&& forall |cpu: CpuId| #![auto] self.cursors.contains_key(cpu) ==>
-        self.cursors[cpu].inv()
+    &&& forall_map_values(self.cursors, |cursor: CursorState| cursor.inv())
 }
 
-/// Each node with a read lock held should be in the WriteUnLocked state.
+/// Unallocated or WriteLocked nodes should not have any reader counts.
 #[invariant]
-pub fn inv_rw_lock(&self) -> bool {
-    forall |nid: NodeId| #![auto]
-        self.reader_counts.contains_key(nid) &&
-        self.reader_counts[nid] > 0 ==> self.nodes[nid] is WriteUnLocked
+pub fn inv_nodes_reader_counts_relation(&self) -> bool {
+    forall_map(self.reader_counts, |nid: NodeId, rc: nat| rc > 0 ==> self.nodes[nid] is WriteUnLocked)
+    // This is equivalent to `self.nodes[nid] is UnAllocated || self.nodes[nid] is WriteUnLocked
+    // ==> self.reader_counts[nid] == 0`*/
 }
 
+/// The number of cursors holding a read lock on each node should match the reader counts.
 #[invariant]
-pub fn inv_non_overlapping(&self) -> bool {
+pub fn inv_reader_counts_cursors_relation(&self) -> bool {
+    forall_map(self.reader_counts, |nid: NodeId, rc: nat|
+        rc == value_filter(
+            self.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len()
+    )
+}
+
+/// If a cursor holds a read lock path, the reader count for each node in the path should be positive.
+pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
+    forall_seq_values(path, |id| self.reader_counts[id] > 0)
+}
+
+/// All cursors holding read lock paths should have positive reader counts.
+//  This invariant is not marked #[invariant] as it is implied by `inv_reader_counts_cursors_relation`.
+pub open spec fn inv_rc_positive(&self) -> bool {
+    forall_map_values(self.cursors, |cursor: CursorState|
+        self.rc_positive(cursor.get_read_lock_path())
+    )
+}
+
+/// The subtree rooted at `nid` should not have any read counts and should not be WriteLocked.
+pub open spec fn subtree_locked(&self, nid: NodeId) -> bool {
+    forall |id: NodeId| #![auto]
+        NodeHelper::in_subtree_range(nid, id) && id != nid ==>
+        self.reader_counts[id] == 0 &&
+        self.nodes[id] !is WriteLocked
+}
+
+/// If a cursor holds a write lock, the node should be WriteLocked and its subtree should be locked.
+pub open spec fn inv_write_lock_cursors_subtree_locked(&self) -> bool {
+    forall_map_values (self.cursors, |cursor: CursorState|
+        cursor.hold_write_lock() ==>
+        {
+            let nid = cursor.get_write_lock_node();
+            self.nodes[nid] is WriteLocked &&
+            self.subtree_locked(nid)
+        }
+    )
+}
+
+/// If two cursors hold write locks, they should not be on the same node.
+pub open spec fn inv_write_lock_cursors_distinct(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
         self.cursors.contains_key(cpu1) &&
@@ -108,8 +124,32 @@ pub fn inv_non_overlapping(&self) -> bool {
             let nid1 = self.cursors[cpu1].get_write_lock_node();
             let nid2 = self.cursors[cpu2].get_write_lock_node();
 
-            !NodeHelper::in_subtree(nid1, nid2) &&
-            !NodeHelper::in_subtree(nid2, nid1)
+            nid1 != nid2
+        }
+}
+
+#[invariant]
+pub fn inv_rw_lock(&self) -> bool
+{
+    &&& self.inv_write_lock_cursors_subtree_locked()
+    &&& self.inv_write_lock_cursors_distinct()
+}
+
+/// If two cursors hold write locks, the write-locked node should not overlap
+/// This invariant is not marked #[invariant] as it is directly implied by `inv_rw_lock`.
+pub open spec fn inv_non_overlapping(&self) -> bool {
+    forall |cpu1: CpuId, cpu2: CpuId| #![auto]
+        cpu1 != cpu2 &&
+        self.cursors.contains_key(cpu1) &&
+        self.cursors.contains_key(cpu2) &&
+        self.cursors[cpu1].hold_write_lock() &&
+        self.cursors[cpu2].hold_write_lock() ==>
+        {
+            let nid1 = self.cursors[cpu1].get_write_lock_node();
+            let nid2 = self.cursors[cpu2].get_write_lock_node();
+
+            !NodeHelper::in_subtree_range(nid1, nid2) &&
+            !NodeHelper::in_subtree_range(nid2, nid1)
         }
 }
 
@@ -190,7 +230,9 @@ transition!{
         require(path.len() > 0 && path.last() == nid);
         add cursors += [ cpu => CursorState::ReadLocking(path.drop_last()) ];
 
-        assert(rc > 0);
+        assert(rc > 0) by {
+            pre.lemma_inv_implies_inv_rc_positive()
+        };
     }
 }
 
@@ -235,7 +277,7 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
-        require(NodeHelper::in_subtree(path.last(), nid));
+        require(NodeHelper::in_subtree_range(path.last(), nid));
 
         remove nodes -= [ nid => NodeState::UnAllocated ];
         add nodes += [ nid => NodeState::WriteUnLocked ];
@@ -250,7 +292,7 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
-        require(NodeHelper::in_subtree(path.last(), nid));
+        require(NodeHelper::in_subtree_range(path.last(), nid));
 
         remove nodes -= [ nid => NodeState::WriteUnLocked ];
         add nodes += [ nid => NodeState::UnAllocated ];
@@ -270,7 +312,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
             }
         }
     };
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
          post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)).len() by {
                     lemma_value_filter_all_false(
@@ -282,7 +324,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
         post.reader_counts[nid] == value_filter(
             post.cursors,
@@ -301,7 +343,7 @@ fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
 
 #[inductive(unlocking_end)]
 fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
         post.reader_counts[nid] == value_filter(
             post.cursors,
@@ -321,22 +363,22 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 #[inductive(read_lock)]
 fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let path = pre.cursors[cpu].get_read_lock_path();
+    lemma_wf_tree_path_push_inversion(path, nid);
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
             post.cursors,
             |cursor: CursorState| cursor.hold_read_lock(id),
         ).len() by {
                 let f = |cursor: CursorState| cursor.hold_read_lock(id);
-                lemma_wf_tree_path_push_inversion(path, nid);
                 if id!=nid {
                     assert(post.cursors[cpu].hold_read_lock(id) == pre.cursors[cpu].hold_read_lock(id)) by {
                         lemma_push_contains_different(path, nid, id);
                     }
                     lemma_insert_value_filter_same_len(
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
-                    );
+                    )
                     }
                 else {
                     assert(!pre.cursors[cpu].hold_read_lock(nid));
@@ -350,13 +392,37 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         };
 
     };
+    assert (post.inv_write_lock_cursors_subtree_locked()) by {
+        assert forall |cpu0: CpuId| #[trigger] pre.cursors.contains_key(cpu0) &&
+            pre.cursors[cpu0].hold_write_lock() implies
+            !NodeHelper::in_subtree_range(
+                pre.cursors[cpu0].get_write_lock_node(), nid
+            ) by {
+                if path.len() == 0 {
+                    assert(nid == NodeHelper::root_id());
+                    pre.lemma_write_lock_root_id_state(cpu0);
+                    assert(pre.reader_counts[NodeHelper::root_id()] > 0);
+                }
+                else
+                {
+                    let locked_write_node = pre.cursors[cpu0].get_write_lock_node();
+                    let read_node = pre.cursors[cpu].get_read_lock_path().last();
+                    assert(pre.reader_counts[read_node]>0) by {
+                        pre.lemma_inv_implies_inv_rc_positive();
+                    };
+                    assert(!NodeHelper::in_subtree_range(locked_write_node, read_node));
+                    NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(
+                        locked_write_node, read_node, nid);
+                }
+            };
+    }
 }
 
 #[inductive(read_unlock)]
 fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     let path = pre.cursors[cpu].get_read_lock_path();
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.drop_last())));
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
             post.cursors,
@@ -379,9 +445,6 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 }
         };
     };
-    assert(post.inv_rc_positive()) by {
-        Self::lemma_inv_implies_inv_rc_positive(post);
-    };
 }
 
 #[inductive(write_lock)]
@@ -390,7 +453,7 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::WriteLocked(path.push(nid))));
     assert(post.cursors[cpu].get_read_lock_path() == path);
     lemma_wf_tree_path_push_inversion(path,nid);
-    assert(post.rc_cursors_relation()) by {
+    assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
         post.reader_counts[id] == value_filter(
             post.cursors,
@@ -409,8 +472,8 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             }
         }
     }
-    assert(post.inv_non_overlapping()) by {
-        admit();
+    assert(post.inv_write_lock_cursors_subtree_locked()) by {
+       admit();
     }
  }
 
@@ -435,31 +498,30 @@ ensures
 }
 
 
-proof fn lemma_inv_implies_inv_rc_positive(s: Self)
+proof fn lemma_inv_implies_inv_rc_positive(&self)
 requires
-    s.inv_reader_counts(),
-    s.inv_cursors(),
-    s.rc_cursors_relation(),
+    self.inv_cursors(),
+    self.inv_reader_counts(),
+    self.inv_reader_counts_cursors_relation(),
 ensures
-    s.inv_rc_positive(),
-
+    self.inv_rc_positive(),
 {
-    assert forall |cpu: CpuId| #![trigger] s.cursors.contains_key(cpu) implies
-        #[trigger]s.rc_positive(s.cursors[cpu].get_read_lock_path()) by {
-            match s.cursors[cpu] {
+    assert forall |cpu: CpuId| #![trigger] self.cursors.contains_key(cpu) implies
+        #[trigger]self.rc_positive(self.cursors[cpu].get_read_lock_path()) by {
+            match self.cursors[cpu] {
                 CursorState::Void => {}
                 CursorState::ReadLocking(path) => {
-                    assert(path == s.cursors[cpu].get_read_lock_path());
+                    assert(path == self.cursors[cpu].get_read_lock_path());
                     assert forall |i| 0 <= i < path.len() implies
-                    #[trigger]s.reader_counts[path[i]] > 0 by {
+                    #[trigger]self.reader_counts[path[i]] > 0 by {
                         let f = |cursor: CursorState| cursor.hold_read_lock(path[i]);
                         let filtered_cursors = value_filter(
-                            s.cursors,
+                            self.cursors,
                             f,
                         );
                         assert(NodeHelper::valid_nid(path[i]));
-                        assert(s.cursors[cpu].hold_read_lock(path[i]));
-                        lemma_value_filter_finite(s.cursors, f);
+                        assert(self.cursors[cpu].hold_read_lock(path[i]));
+                        lemma_value_filter_finite(self.cursors, f);
                         axiom_set_contains_len(
                             filtered_cursors.dom(),
                             cpu,
@@ -468,17 +530,17 @@ ensures
                 }
                 CursorState::WriteLocked(path0) => {
                     let path = path0.drop_last();
-                    assert(path == s.cursors[cpu].get_read_lock_path());
+                    assert(path == self.cursors[cpu].get_read_lock_path());
                     assert forall |i| 0 <= i < path.len() implies
-                    #[trigger]s.reader_counts[path[i]] > 0 by {
+                    #[trigger]self.reader_counts[path[i]] > 0 by {
                         let f = |cursor: CursorState| cursor.hold_read_lock(path[i]);
                         let filtered_cursors = value_filter(
-                            s.cursors,
+                            self.cursors,
                             f,
                         );
                         assert(NodeHelper::valid_nid(path[i]));
-                        assert(s.cursors[cpu].hold_read_lock(path[i]));
-                        lemma_value_filter_finite(s.cursors, f);
+                        assert(self.cursors[cpu].hold_read_lock(path[i]));
+                        lemma_value_filter_finite(self.cursors, f);
                         axiom_set_contains_len(
                             filtered_cursors.dom(),
                             cpu,
@@ -487,6 +549,59 @@ ensures
             }
         }
         };
+}
+
+proof fn lemma_inv_implies_inv_non_overlapping(&self)
+requires
+    self.inv_write_lock_cursors_subtree_locked(),
+    self.inv_write_lock_cursors_distinct(),
+ensures
+    self.inv_non_overlapping(),
+{
+}
+
+proof fn lemma_write_lock_root_id_state(&self, cpu: CpuId)
+requires
+    valid_cpu(self.cpu_num, cpu),
+    self.cursors[cpu].hold_write_lock(),
+    self.inv_cursors(),
+    self.inv_reader_counts(),
+    self.inv_reader_counts_cursors_relation(),
+    self.inv_write_lock_cursors_subtree_locked(),
+ensures
+    self.nodes[NodeHelper::root_id()] is WriteLocked ||
+    self.reader_counts[NodeHelper::root_id()] > 0,
+{
+    let path = self.cursors[cpu].get_path();
+    assert(wf_tree_path(path));
+    assert(path.len() > 0);
+    if(path.len() == 1){
+        assert(self.cursors[cpu].get_write_lock_node() == NodeHelper::root_id());
+        assert(self.nodes[NodeHelper::root_id()] is WriteLocked);
+    } else
+    {
+        assert(self.cursors[cpu].get_read_lock_path()[0] == NodeHelper::root_id());
+        self.lemma_inv_implies_inv_rc_positive();
+    }
+}
+
+proof fn lemma_read_counter_zero_implies_subtree_zero(&self, nid: NodeId, child: NodeId)
+requires
+    self.inv_cursors(),
+    self.inv_reader_counts(),
+    self.inv_reader_counts_cursors_relation(),
+    NodeHelper::valid_nid(nid),
+    self.reader_counts[nid] == 0,
+    NodeHelper::in_subtree_range(nid, child),
+ensures
+    self.reader_counts[child] == 0,
+{
+    NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child);
+    self.lemma_inv_implies_inv_rc_positive();
+    /*if self.reader_counts[child] > 0 {
+        assert(self.reader_counts[nid] > 0);
+    }*/
+    admit();
 }
 
 }// TreeSpec
