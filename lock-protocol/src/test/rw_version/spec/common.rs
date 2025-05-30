@@ -167,6 +167,50 @@ pub proof fn lemma_wf_tree_path_push_inversion(path: Seq<NodeId>, nid: NodeId)
     }
 }
 
+pub proof fn lemma_wf_tree_path_in_subtree_range(path: Seq<NodeId>)
+    requires
+        wf_tree_path(path),
+    ensures
+        forall|i: int, j: int|
+            #![trigger path[i],path[j]]
+            0 <= i <= j < path.len() ==> NodeHelper::in_subtree_range(path[i], path[j]),
+    decreases path.len(),
+{
+    if path.len() == 0 {
+    } else if path.len() == 1 {
+        NodeHelper::lemma_in_subtree_self(path[0]);
+        NodeHelper::lemma_in_subtree_iff_in_subtree_range(path[0], path[0]);
+    } else {
+        let last = path.last();
+        let rest = path.drop_last();
+        let rest_last = rest.last();
+        assert forall|i: int, j: int|
+            #![trigger path[i],path[j]]
+            0 <= i <= j < path.len() implies NodeHelper::in_subtree_range(path[i], path[j]) by {
+            lemma_wf_tree_path_in_subtree_range(rest);
+            if j < rest.len() {
+                assert(path[i] == rest[i]);
+                assert(path[j] == rest[j]);
+            } else {
+                assert(path[j] == last);
+                if (i == j) {
+                    NodeHelper::lemma_in_subtree_self(last);
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(last, last);
+                } else {
+                    assert(path[i] == rest[i]);
+                    assert(NodeHelper::is_child(rest_last, last));
+                    assert(NodeHelper::in_subtree_range(path[i], rest_last));
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(path[i], rest_last);
+                    assert(NodeHelper::in_subtree(path[i], rest_last));
+                    NodeHelper::lemma_in_subtree_is_child_in_subtree(path[i], rest_last, last);
+                    assert(NodeHelper::in_subtree(path[i], last));
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(path[i], last);
+                }
+            }
+        }
+    }
+}
+
 pub enum AtomicCursorState {
     Void,
     Locked(NodeId),

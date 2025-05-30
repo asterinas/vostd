@@ -472,7 +472,9 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             }
         }
     }
-    admit();
+    assert(post.inv_write_lock_cursors_subtree_locked()) by {
+       admit();
+    }
  }
 
 #[inductive(write_unlock)]
@@ -581,6 +583,25 @@ ensures
         assert(self.cursors[cpu].get_read_lock_path()[0] == NodeHelper::root_id());
         self.lemma_inv_implies_inv_rc_positive();
     }
+}
+
+proof fn lemma_read_counter_zero_implies_subtree_zero(&self, nid: NodeId, child: NodeId)
+requires
+    self.inv_cursors(),
+    self.inv_reader_counts(),
+    self.inv_reader_counts_cursors_relation(),
+    NodeHelper::valid_nid(nid),
+    self.reader_counts[nid] == 0,
+    NodeHelper::in_subtree_range(nid, child),
+ensures
+    self.reader_counts[child] == 0,
+{
+    NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child);
+    self.lemma_inv_implies_inv_rc_positive();
+    /*if self.reader_counts[child] > 0 {
+        assert(self.reader_counts[nid] > 0);
+    }*/
+    admit();
 }
 
 }// TreeSpec
