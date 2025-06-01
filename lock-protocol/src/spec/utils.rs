@@ -20,6 +20,10 @@ broadcast use vstd_extra::seq_extra::group_forall_seq_lemmas;
 
 pub struct NodeHelper;
 
+pub broadcast group group_node_helper_lemmas {
+    NodeHelper::lemma_in_subtree_iff_in_subtree_range,
+}
+
 impl NodeHelper {
     /// depth starts from 0(root) to 3 (leaf),
     /// level starts from 4(root) to 1 (leaf).
@@ -156,7 +160,6 @@ impl NodeHelper {
         ensures
             Self::valid_nid(Self::root_id()),
     {
-        Self::lemma_tree_size_spec_table();
     }
 
     // Lemmas about trace.
@@ -196,7 +199,7 @@ impl NodeHelper {
     }
 
     /// Returns the trace from root to the node with id `nid`.
-    pub closed spec fn nid_to_trace(nid: NodeId) -> Seq<nat>
+    pub open spec fn nid_to_trace(nid: NodeId) -> Seq<nat>
         recommends
             Self::valid_nid(nid),
     {
@@ -319,13 +322,14 @@ impl NodeHelper {
         nid + Self::sub_tree_size(nid)
     }
 
-    /// Returns 'true' if 'nd' is in the subtree of 'rt' (the trace of 'rt' is a prefix of the trace of 'nd')
+    /// Returns 'true' if 'nd' is in the subtree of 'rt' (the trace of 'rt' is a prefix of the trace of 'nd' and 'nd' is valid).
     pub open spec fn in_subtree(rt: NodeId, nd: NodeId) -> bool
         recommends
             Self::valid_nid(rt),
             Self::valid_nid(nd),
     {
-        Self::nid_to_trace(rt).is_prefix_of(Self::nid_to_trace(nd))
+        &&& Self::nid_to_trace(rt).is_prefix_of(Self::nid_to_trace(nd))
+        &&& Self::valid_nid(nd)
     }
 
     pub open spec fn in_subtree_range(rt: NodeId, nd: NodeId) -> bool
@@ -899,6 +903,8 @@ impl NodeHelper {
 
     /// A node is in its own subtree.
     pub proof fn lemma_in_subtree_self(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
         ensures
             Self::in_subtree(nid, nid),
     {
@@ -908,6 +914,7 @@ impl NodeHelper {
     pub proof fn lemma_is_child_implies_in_subtree(pa: NodeId, ch: NodeId)
         requires
             Self::is_child(pa, ch),
+            Self::valid_nid(ch),
         ensures
             Self::in_subtree(pa, ch),
             Self::nid_to_dep(pa) + 1 == Self::nid_to_dep(ch),
@@ -1006,7 +1013,6 @@ impl NodeHelper {
     pub proof fn lemma_in_subtree_bounded(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
-            Self::valid_nid(nd),
             Self::in_subtree(rt, nd),
         ensures
             Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt),
@@ -1315,7 +1321,6 @@ impl NodeHelper {
     proof fn lemma_in_subtree_implies_in_subtree_range(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
-            Self::valid_nid(nd),
             Self::in_subtree(rt, nd),
         ensures
             Self::in_subtree_range(rt, nd),
@@ -1523,13 +1528,15 @@ impl NodeHelper {
     }
 
     /// 'in_subtree' is equivalent to 'in_subtree_range' (nd in [rt, next_outside_subtree(rt)))
-    pub proof fn lemma_in_subtree_iff_in_subtree_range(rt: NodeId, nd: NodeId)
+    pub broadcast proof fn lemma_in_subtree_iff_in_subtree_range(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
         ensures
-            (Self::in_subtree(rt, nd) && Self::valid_nid(nd)) <==> Self::in_subtree_range(rt, nd),
+            #![trigger Self::in_subtree(rt, nd)]
+            #![trigger Self::in_subtree_range(rt, nd)]
+            Self::in_subtree(rt, nd) <==> Self::in_subtree_range(rt, nd),
     {
-        if Self::in_subtree(rt, nd) && Self::valid_nid(nd) {
+        if Self::in_subtree(rt, nd) {
             Self::lemma_in_subtree_implies_in_subtree_range(rt, nd);
         }
         if rt <= nd < Self::next_outside_subtree(rt) {
@@ -1543,7 +1550,7 @@ impl NodeHelper {
     pub proof fn lemma_child_in_subtree_implies_in_subtree(rt: NodeId, pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(rt),
-            Self::valid_nid(ch),
+            Self::valid_nid(pa),
             Self::in_subtree(rt, ch),
             Self::is_child(pa, ch),
             rt != ch,
@@ -1604,6 +1611,7 @@ impl NodeHelper {
     pub proof fn lemma_in_subtree_is_child_in_subtree(rt: NodeId, nd: NodeId, ch: NodeId)
         requires
             Self::in_subtree(rt, nd),
+            Self::valid_nid(ch),
             Self::is_child(nd, ch),
         ensures
             Self::in_subtree(rt, ch),
@@ -1614,6 +1622,7 @@ impl NodeHelper {
     pub proof fn lemma_is_child_nid_increasing(pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(pa),
+            Self::valid_nid(ch),
             Self::is_child(pa, ch),
         ensures
             pa < ch,

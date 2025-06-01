@@ -13,6 +13,7 @@ verus! {
 broadcast use {
     vstd_extra::map_extra::group_forall_map_lemmas,
     vstd_extra::map_extra::group_value_filter_lemmas,
+    crate::spec::utils::group_node_helper_lemmas,
 };
 
 tokenized_state_machine!{
@@ -76,6 +77,17 @@ pub fn inv_reader_counts_cursors_relation(&self) -> bool {
             self.cursors,
             |cursor: CursorState| cursor.hold_read_lock(nid),
         ).len()
+    )
+}
+
+/// If a node is WriteLocked, it should have one cursor holding a write lock on it.
+#[invariant]
+pub fn inv_write_lock_nodes_cursors_relation(&self) -> bool {
+    forall_map(self.nodes, |nid: NodeId, state: NodeState|
+        state is WriteLocked ==>
+        exists |cpu: CpuId| #[trigger] self.cursors.contains_key(cpu) &&
+            self.cursors[cpu].hold_write_lock() &&
+            self.cursors[cpu].get_write_lock_node() == nid
     )
 }
 
@@ -399,6 +411,8 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 pre.cursors[cpu0].get_write_lock_node(), nid
             ) by {
                 if path.len() == 0 {
+                    // If the path is empty, it means we locked the root node, therefore
+                    // there are no writelocked cursors in the previous state.
                     assert(nid == NodeHelper::root_id());
                     pre.lemma_write_lock_root_id_state(cpu0);
                     assert(pre.reader_counts[NodeHelper::root_id()] > 0);
@@ -449,7 +463,9 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 
 #[inductive(write_lock)]
 fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    broadcast use crate::spec::utils::group_node_helper_lemmas;
     let path = pre.cursors[cpu].get_read_lock_path();
+    let read_node = path.last();
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::WriteLocked(path.push(nid))));
     assert(post.cursors[cpu].get_read_lock_path() == path);
     lemma_wf_tree_path_push_inversion(path,nid);
@@ -473,7 +489,38 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         }
     }
     assert(post.inv_write_lock_cursors_subtree_locked()) by {
-       admit();
+       assert forall |cpu0: CpuId| #[trigger] post.cursors.contains_key(cpu0) &&
+            post.cursors[cpu0].hold_write_lock() implies
+            post.nodes[post.cursors[cpu0].get_write_lock_node()] is WriteLocked &&
+            post.subtree_locked(post.cursors[cpu0].get_write_lock_node()) by {
+                let locked_node = post.cursors[cpu0].get_write_lock_node();
+                if path.len() == 0 {
+                    assert(nid == NodeHelper::root_id());
+                    assert(pre.reader_counts[NodeHelper::root_id()] == 0);
+                    if cpu != cpu0 {
+                        //No write lock cursor is possible in the previous state.
+                        pre.lemma_write_lock_root_id_state(cpu0);
+                    } else
+                    {
+                        pre.lemma_read_counter_zero_implies_subtree_locked(locked_node,nid);
+                    }
+                } else {
+                    if cpu != cpu0 {
+                        assert(!NodeHelper::in_subtree_range(locked_node,nid)) by {
+                            assert(NodeHelper::is_child(read_node,nid));
+                            assert(pre.reader_counts[read_node]>0) by {
+                                pre.lemma_inv_implies_inv_rc_positive();
+                            }
+                            NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(locked_node,read_node,nid);
+                        };
+                    } else
+                    {
+                        // nid is naturally subtree_locked
+                        NodeHelper::lemma_in_subtree_self(nid);
+                        pre.lemma_read_counter_zero_implies_subtree_locked(nid,nid);
+                    }
+                }
+            }
     }
  }
 
@@ -560,6 +607,7 @@ ensures
 {
 }
 
+/// If any cursor holds a write lock, the root node is either WriteLocked or has a positive reader count.
 proof fn lemma_write_lock_root_id_state(&self, cpu: CpuId)
 requires
     valid_cpu(self.cpu_num, cpu),
@@ -585,23 +633,101 @@ ensures
     }
 }
 
+/// If the reader count for a node is zero, then all its children in the subtree also have zero reader counts.
 proof fn lemma_read_counter_zero_implies_subtree_zero(&self, nid: NodeId, child: NodeId)
 requires
+    self.inv_nodes(),
     self.inv_cursors(),
     self.inv_reader_counts(),
     self.inv_reader_counts_cursors_relation(),
+    self.inv_write_lock_nodes_cursors_relation(),
     NodeHelper::valid_nid(nid),
     self.reader_counts[nid] == 0,
     NodeHelper::in_subtree_range(nid, child),
 ensures
     self.reader_counts[child] == 0,
+    nid != child ==> self.nodes[child] !is WriteLocked,
 {
-    NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child);
-    self.lemma_inv_implies_inv_rc_positive();
-    /*if self.reader_counts[child] > 0 {
-        assert(self.reader_counts[nid] > 0);
-    }*/
-    admit();
+    NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid,child);
+    let f = |cursor: CursorState| cursor.hold_read_lock(child);
+    if nid == child {}
+    else
+    {
+        broadcast use {
+            vstd_extra::map_extra::group_forall_map_lemmas,
+            vstd_extra::map_extra::group_value_filter_lemmas,
+            crate::spec::utils::group_node_helper_lemmas,
+        };
+        if child == NodeHelper::root_id() {}
+        else
+        {
+            if self.reader_counts[child] > 0 {
+                // If the child has positive reader count, then there must be a cursor holding a read lock on it,
+                // then the cursor must also hold nid.
+                let cursor_cpu = choose |cpu| value_filter(self.cursors, f).contains_key(cpu);
+                assert(value_filter(self.cursors,f).dom().finite());
+                lemma_value_filter_choose(self.cursors, f);
+                assert(self.cursors.contains_key(cursor_cpu)) by
+                {
+                    lemma_value_filter_contains_key(self.cursors,f,cursor_cpu);
+                }
+                self.cursors[cursor_cpu].lemma_get_read_lock_path_is_prefix_of_get_path();
+                let path = self.cursors[cursor_cpu].get_path();
+                let read_path = self.cursors[cursor_cpu].get_read_lock_path();
+                assert (self.reader_counts[nid] > 0) by {
+                    assert (read_path.contains(child));
+                    lemma_wf_tree_path_contains_descendant_implies_contains_ancestor(read_path,nid,child);
+                    assert (read_path.contains(nid));
+                    self.lemma_inv_implies_inv_rc_positive();
+                };
+            }
+            if self.nodes[child] is WriteLocked {
+                // If the child is WriteLocked, then there must be a cursor holding a write lock on it,
+                // then the cursor must also hold nid.
+                assert (self.nodes.contains_key(child));
+                let cursor_cpu = choose |cpu| #[trigger] self.cursors.contains_key(cpu) &&
+                    self.cursors[cpu].hold_write_lock() &&
+                    self.cursors[cpu].get_write_lock_node() == child;
+                let path = self.cursors[cursor_cpu].get_path();
+                let read_path = self.cursors[cursor_cpu].get_read_lock_path();
+                assert (self.reader_counts[nid] > 0) by {
+                    assert (path.contains(nid)) by {
+                        lemma_wf_tree_path_contains_descendant_implies_contains_ancestor(path,nid,child);
+                    }
+                    assert (read_path.contains(nid)) by
+                    {
+                        lemma_drop_last_contains_different(path, nid);
+                    }
+                    self.lemma_inv_implies_inv_rc_positive();
+                };
+            }
+        }
+    }
+}
+
+proof fn lemma_read_counter_zero_implies_subtree_locked(&self, nid: NodeId, child: NodeId)
+requires
+    self.inv_nodes(),
+    self.inv_cursors(),
+    self.inv_reader_counts(),
+    self.inv_reader_counts_cursors_relation(),
+    self.inv_write_lock_nodes_cursors_relation(),
+    NodeHelper::valid_nid(nid),
+    self.reader_counts[nid] == 0,
+    NodeHelper::in_subtree_range(nid, child),
+ensures
+    self.subtree_locked(child),
+{
+    broadcast use crate::spec::utils::group_node_helper_lemmas;
+    assert forall |id: NodeId| #[trigger] NodeHelper::in_subtree_range(child, id) && id != child implies
+        self.reader_counts[id] == 0 &&
+        self.nodes[id] !is WriteLocked by {
+            assert(NodeHelper::valid_nid(child)) by {
+                NodeHelper::lemma_in_subtree_bounded(nid,child);
+            }
+            assert(NodeHelper::in_subtree_range(nid,id));
+            self.lemma_read_counter_zero_implies_subtree_zero(nid,id);
+        };
 }
 
 }// TreeSpec

@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd::{map::*};
+use vstd::{set::*, map::*};
 
 verus! {
 
@@ -40,8 +40,13 @@ pub open spec fn value_filter<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool) -> Map<
     m.restrict(m.dom().filter(|s| f(m[s])))
 }
 
+pub open spec fn value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool) -> K {
+    choose|k: K| value_filter(m, f).contains_key(k)
+}
+
 pub broadcast group group_value_filter_lemmas {
     lemma_value_filter_finite,
+    lemma_value_filter_choose,
     lemma_insert_value_filter_same_len,
     lemma_insert_value_filter_different_len,
 }
@@ -205,6 +210,25 @@ pub broadcast proof fn lemma_insert_value_filter_different_len<K, V>(
         assert(value_filter(m.insert(k, v), f).len() == value_filter(m, f).remove(k).len());
         lemma_map_remove_len(value_filter(m, f), k);
     }
+}
+
+pub proof fn lemma_value_filter_contains_key<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K)
+    requires
+        value_filter(m, f).contains_key(k),
+    ensures
+        m.contains_key(k),
+{
+}
+
+pub broadcast proof fn lemma_value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
+    requires
+        value_filter(m, f).len() != 0,
+        value_filter(m, f).dom().finite(),
+    ensures
+        value_filter(m, f).contains_key(#[trigger] value_filter_choose(m, f)),
+        f(m[value_filter_choose(m, f)]),
+{
+    axiom_set_choose_len(value_filter(m, f).dom());
 }
 
 } // verus!
