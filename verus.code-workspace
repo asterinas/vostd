@@ -8,15 +8,5 @@
         "[rust]": {
             "editor.tabSize": 2,
         },
-        "rust-analyzer.server.path": "${workspaceFolder}/tools/verus-analyzer/dist/verus-analyzer-aarch64-apple-darwin",
-        "rust-analyzer.server.extraEnv": {
-            "VERUS_BINARY_PATH": "${workspaceFolder}/tools/verus/source/target-verus/release/verus",
-            "TMPDIR": "/tmp/.verus",
-            "VERUS_FMT_BINARY_PATH": "~/.cargo/bin/verusfmt",
-        },
-        "rust-analyzer.checkOnSave": false,
-        "rust-analyzer.check.overrideCommand": [
-            "${workspaceFolder}/tools/verus/source/target-verus/release/verus",
-        ]
     },
 }

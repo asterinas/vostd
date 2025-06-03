@@ -208,9 +208,6 @@ enum Commands {
 
 #[derive(Parser, Debug)]
 struct BootstrapArgs {
-    /*#[arg(long = "no-vscode-extension", help = "Do not build verus vscode extension",
-        default_value = "false", action = ArgAction::SetTrue)]
-    no_vscode_extension: bool,*/
     #[arg(long = "restart", help = "Remove all toolchain and restart the bootstrap",
         default_value = "false", action = ArgAction::SetTrue)]
     restart: bool,
@@ -742,90 +739,6 @@ fn apply_patch(dir: &Path, patch: &Path) -> bool {
     status.success()
 }
 
-#[allow(dead_code)]
-// Not required because verus-analyzer now can be found in VsCode extension marketplace
-fn build_vscode_extension(args: &BootstrapArgs) -> Result<(), DynError> {
-    let verus_analyzer_repo = "https://github.com/asterinas/verus-analyzer.git";
-    let verus_analyzer_dir = Path::new("tools").join("verus-analyzer");
-
-    if args.restart && verus_analyzer_dir.exists() {
-        std::fs::remove_dir_all(&verus_analyzer_dir)?;
-    }
-
-    if !verus_analyzer_dir.exists() {
-        println!(
-            "Start to clone the Verus Analyzer repository to {}",
-            verus_analyzer_dir.display()
-        );
-        let res = Repository::clone(verus_analyzer_repo, &verus_analyzer_dir);
-        if res.is_err() {
-            eprintln!("Failed to clone the Verus Analyzer repository. Please try to manually clone it to {} and run
-      `cargo xtask bootstrap` again", verus_analyzer_dir.display());
-            std::process::exit(1);
-        }
-    }
-
-    /*let verus_analyzer_patch = Path::new("..")
-        .join("patches")
-        .join("verus-analyzer-fixes.patch");
-    if !is_patch_applied(&verus_analyzer_dir, &verus_analyzer_patch) {
-        println!("Apply the Verus Analyzer patch");
-        apply_patch(&verus_analyzer_dir, &verus_analyzer_patch);
-    }*/
-
-    println!("Start to build the Verus Analyzer");
-    #[cfg(target_os = "windows")]
-    {
-        let cmd = &mut Command::new("cmd");
-        cmd.current_dir(&verus_analyzer_dir)
-            .env_remove("RUSTUP_TOOLCHAIN")
-            .arg("/c")
-            .arg("cargo xtask dist");
-        println!("{:?}", cmd);
-        cmd.status()?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let cmd = &mut Command::new("bash");
-        cmd.current_dir(&verus_analyzer_dir)
-            .env_remove("RUSTUP_TOOLCHAIN")
-            .arg("-c")
-            .arg("cargo xtask dist");
-        println!("{:?}", cmd);
-        cmd.status()?;
-    }
-
-    println!("Prepare the Verus Analyzer binary");
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("pwsh")
-    .current_dir(&verus_analyzer_dir)
-    .arg("-Command")
-    .arg(format!(
-        "Get-ChildItem -Path './dist' -Filter 'verus-analyzer*.zip' | Expand-Archive -DestinationPath './dist' -Force"
-    ))
-    .status()?;
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Command::new("bash")
-            .current_dir(&verus_analyzer_dir)
-            .arg("-c")
-            .arg("gunzip ./dist/verus-analyzer-*.gz && chmod u+x ./dist/verus-analyzer-*")
-            .status()?;
-    }
-    let server = fs::read_dir(verus_analyzer_dir.join("dist"))
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-
-    println!("Done LSP server: {:?}", server);
-
-    Ok(())
-}
-
 fn is_verusfmt_installed() -> bool {
     let output = Command::new("verusfmt").arg("--version").output();
     match output {
@@ -972,10 +885,6 @@ fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
     }*/
 
     compile_verus()?;
-
-    /*if !args.no_vscode_extension {
-        build_vscode_extension(args)?;
-    }*/
 
     if args.restart || !is_verusfmt_installed() {
         install_verusfmt()?;

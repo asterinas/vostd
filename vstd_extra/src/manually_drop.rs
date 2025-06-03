@@ -31,7 +31,7 @@ pub fn ex_manually_drop_deref<V: ?Sized>(slot: &ManuallyDrop<V>) -> &V {
 pub broadcast proof fn ex_manually_drop_value_properties<V: Sized>(value: V)
     ensures
         #[trigger] ManuallyDrop::into_inner(ManuallyDrop::new(value)) == value,
-        ManuallyDrop::new(value).deref() == &value,
+        *ManuallyDrop::new(value) == value,
         forall|other: V| value == other ==> ManuallyDrop::new(value) == ManuallyDrop::new(other),
 {
     admit();
@@ -39,14 +39,14 @@ pub broadcast proof fn ex_manually_drop_value_properties<V: Sized>(value: V)
 
 pub broadcast proof fn ex_manually_drop_ref_properties<V: Sized>(r: &V)
     ensures
-        #[trigger] ManuallyDrop::new(*r).deref() == r,
+        #[trigger] *ManuallyDrop::new(*r) == r,
 {
     admit();
 }
 
 pub broadcast proof fn ex_manually_drop_properties<V: Sized>(slot: ManuallyDrop<V>)
     ensures
-        #[trigger] ManuallyDrop::new(*slot.deref()) == slot,
+        #[trigger] ManuallyDrop::new(*slot) == slot,
 {
     admit();
 }
