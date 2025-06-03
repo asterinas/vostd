@@ -4,51 +4,60 @@ use core::ops::Deref;
 
 verus! {
 
-pub uninterp spec fn ex_manually_drop_new_spec<V>(value: V) -> ManuallyDrop<V>;
-
-pub uninterp spec fn ex_manually_drop_into_inner_spec<V>(slot: ManuallyDrop<V>) -> V;
+pub uninterp spec fn ex_manually_drop_new_spec<T>(value: T) -> ManuallyDrop<T>;
 
 pub uninterp spec fn ex_manually_drop_deref_spec<V: ?Sized>(slot: &ManuallyDrop<V>) -> &V;
 
-#[verifier::external_fn_specification]
+pub open spec fn manually_drop_unwrap<V>(slot: ManuallyDrop<V>) -> V {
+    *ex_manually_drop_deref_spec(&slot)
+}
+
 #[verifier::when_used_as_spec(ex_manually_drop_new_spec)]
-pub fn ex_manually_drop_new<V>(value: V) -> ManuallyDrop<V> {
-    ManuallyDrop::new(value)
-}
+pub assume_specification<T>[ std::mem::ManuallyDrop::<T>::new ](value: T) -> ManuallyDrop<T>
+    returns
+        ex_manually_drop_new_spec(value),
+;
 
-#[verifier::external_fn_specification]
-#[verifier::when_used_as_spec(ex_manually_drop_into_inner_spec)]
-pub fn ex_manually_drop_into_inner<V>(slot: ManuallyDrop<V>) -> V {
-    ManuallyDrop::into_inner(slot)
-}
-
-#[verifier::external_fn_specification]
 #[verifier::when_used_as_spec(ex_manually_drop_deref_spec)]
-pub fn ex_manually_drop_deref<V: ?Sized>(slot: &ManuallyDrop<V>) -> &V {
-    slot.deref()
-}
+pub assume_specification<V: ?Sized>[ std::mem::ManuallyDrop::<V>::deref ](
+    slot: &ManuallyDrop<V>,
+) -> &V
+    returns
+        ex_manually_drop_deref_spec(slot),
+;
 
-pub broadcast proof fn ex_manually_drop_value_properties<V: Sized>(value: V)
+#[verifier::when_used_as_spec(manually_drop_unwrap)]
+pub assume_specification<V>[ std::mem::ManuallyDrop::<V>::into_inner ](slot: ManuallyDrop<V>) -> V
+    returns
+        *ex_manually_drop_deref_spec(&slot),
+;
+
+pub broadcast axiom fn ex_manually_drop_value_axiom<V: Sized>(value: V)
     ensures
-        #[trigger] ManuallyDrop::into_inner(ManuallyDrop::new(value)) == value,
-        *ManuallyDrop::new(value) == value,
-        forall|other: V| value == other ==> ManuallyDrop::new(value) == ManuallyDrop::new(other),
-{
-    admit();
-}
+        #[trigger] *ex_manually_drop_deref_spec(&ManuallyDrop::new(value)) == value,
+;
 
-pub broadcast proof fn ex_manually_drop_ref_properties<V: Sized>(r: &V)
+pub proof fn ex_manually_drop_value_properties<V: Sized>(value: V)
     ensures
-        #[trigger] *ManuallyDrop::new(*r) == r,
+        ManuallyDrop::into_inner(ManuallyDrop::new(value)) == value,
+        forall|other: V|
+            #![trigger ManuallyDrop::new(value), ManuallyDrop::new(other)]
+            value == other ==> ManuallyDrop::new(value) == ManuallyDrop::new(other),
 {
-    admit();
+    ex_manually_drop_value_axiom(value);
 }
 
-pub broadcast proof fn ex_manually_drop_properties<V: Sized>(slot: ManuallyDrop<V>)
+pub proof fn ex_manually_drop_ref_properties<V: Sized>(r: &V)
+    ensures
+        #[trigger] ex_manually_drop_deref_spec(&ManuallyDrop::new(*r)) == r,
+{
+    ex_manually_drop_value_axiom(*r);
+}
+
+/* ///Seems wrong
+pub broadcast axiom fn ex_manually_drop_properties<V: Sized>(slot: ManuallyDrop<V>)
     ensures
         #[trigger] ManuallyDrop::new(*slot) == slot,
-{
-    admit();
-}
-
+        #[trigger] ManuallyDrop::into_inner(ManuallyDrop::new(*slot)) == slot;
+*/
 } // verus!

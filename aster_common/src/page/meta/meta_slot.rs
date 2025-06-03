@@ -56,7 +56,7 @@ impl MetaSlotInner {
 
     pub open spec fn borrow_pt_spec(& self) -> & PageTablePageMeta
     {
-        &get_union_field::<MetaSlotInner, ManuallyDrop<PageTablePageMeta>>(*self, "_pt").deref()
+        &manually_drop_unwrap(get_union_field::<MetaSlotInner, ManuallyDrop<PageTablePageMeta>>(*self, "_pt"))
     }
 
     #[verifier::external_body]
@@ -72,7 +72,7 @@ impl MetaSlotInner {
 
     pub open spec fn borrow_frame_spec(&self) -> & FrameMeta
     {
-        &get_union_field::<MetaSlotInner, ManuallyDrop<FrameMeta>>(*self, "_frame").deref()
+        &manually_drop_unwrap(get_union_field::<MetaSlotInner, ManuallyDrop<FrameMeta>>(*self, "_frame"))
     }
 
     #[verifier::external_body]
@@ -94,7 +94,7 @@ impl MetaSlot {
             inner_perm.is_init(),
             is_variant(inner_perm.value(), "_pt"),
     {
-        &get_union_field::<MetaSlotInner, ManuallyDrop<PageTablePageMeta>>(inner_perm.value(), "_pt").deref()
+        &manually_drop_unwrap(get_union_field::<MetaSlotInner, ManuallyDrop<PageTablePageMeta>>(inner_perm.value(), "_pt"))
     }
 
     pub fn borrow_pt<'a>(&'a self,
@@ -118,7 +118,7 @@ impl MetaSlot {
             inner_perm.is_init(),
             is_variant(inner_perm.value(), "_frame"),
     {
-        &get_union_field::<MetaSlotInner, ManuallyDrop<FrameMeta>>(inner_perm.value(), "_frame").deref()
+        &manually_drop_unwrap(get_union_field::<MetaSlotInner, ManuallyDrop<FrameMeta>>(inner_perm.value(), "_frame"))
     }
 
     pub fn borrow_frame<'a>(&'a self,
