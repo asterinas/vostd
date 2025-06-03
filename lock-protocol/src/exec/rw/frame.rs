@@ -9,20 +9,11 @@ use vstd::vstd::arithmetic::power2::*;
 use vstd::bits::*;
 use vstd::atomic_ghost::AtomicU64;
 
-use super::super::vstd_extra::{
-    manually_drop::*,
-};
-use super::super::spec::{
-    common::*,
-    utils::*,
-    tree::*,
-};
-use super::{
-    common::*,
-    types::*,
-};
+use vstd_extra::manually_drop::*;
+use crate::spec::{common::*, utils::*, tree::*};
+use super::{common::*, types::*};
 
-verus!{
+verus! {
 
 pub type FrameId = u64;
 
@@ -87,7 +78,7 @@ pub fn pa_to_fid(pa: Paddr) -> (res: FrameId)
 
 }
 
-verus!{
+verus! {
 
 pub union Frame {
     pub void_frame: ManuallyDrop<VoidFrame>,
@@ -108,7 +99,7 @@ pub struct PageTableFrame {
     pub pa: Paddr,
     pub rw_lock: RwLock<Tracked<NodeToken>, spec_fn(Tracked<NodeToken>) -> bool>,
     pub rc: AtomicU64<_, RcToken, _>,
-    
+
     // // Actual contents in frame
     // pub ptes: Vec<AtomicU64<_, Option<()>, _>>,
 
@@ -123,7 +114,7 @@ pub open spec fn wf(&self) -> bool {
         &&& forall |token: Tracked<NodeToken>| #[trigger] self.rw_lock.inv(token) <==> {
             &&& token@.instance_id() == self.inst@.id()
             &&& token@.key() == self.nid@
-            &&& token@.value().is_WriteUnLocked()
+            &&& token@.value() is WriteUnLocked
         }
 
         // &&& self.ptes@.len() == 512
@@ -176,11 +167,11 @@ pub open spec fn wf(&self) -> bool {
                 FrameUsage::PageTable => {
                     &&& is_variant(self.frames@[fid as int], "page_table_frame")
                     &&& get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(
-                        self.frames@[fid as int], 
+                        self.frames@[fid as int],
                         "page_table_frame",
                     ).deref().wf()
                     &&& get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(
-                        self.frames@[fid as int], 
+                        self.frames@[fid as int],
                         "page_table_frame",
                     ).deref().pa == fid_to_pa(fid)
                 },
@@ -195,7 +186,7 @@ impl FrameAllocator {
     pub open spec fn inv_pt_frame(frame: Frame) -> bool {
         &&& is_variant(frame, "page_table_frame")
         &&& get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(
-            frame, 
+            frame,
             "page_table_frame",
         ).deref().wf()
     }
@@ -265,7 +256,7 @@ impl FrameAllocator {
             inst@.cpu_num() == GLOBAL_CPU_NUM,
             node_token@.instance_id() == inst@.id(),
             node_token@.key() == nid@,
-            node_token@.value().is_WriteUnLocked(),
+            node_token@.value() is WriteUnLocked,
             rc_token@.instance_id() == inst@.id(),
             rc_token@.key() == nid@,
             rc_token@.value() == 0,
