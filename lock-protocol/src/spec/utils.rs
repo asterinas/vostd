@@ -27,6 +27,7 @@ pub broadcast group group_node_helper_lemmas {
 impl NodeHelper {
     /// depth starts from 0(root) to 3 (leaf),
     /// level starts from 4(root) to 1 (leaf).
+    #[verifier::inline]
     pub open spec fn level_to_dep(level: nat) -> nat
         recommends
             1 <= level <= 4,
@@ -34,6 +35,7 @@ impl NodeHelper {
         (4 - level) as nat
     }
 
+    #[verifier::inline]
     pub open spec fn dep_to_level(dep: nat) -> nat
         recommends
             0 <= dep < 4,
@@ -148,10 +150,12 @@ impl NodeHelper {
         Self::tree_size_spec(3)
     }
 
+    // Do not inline this function, it serves as a trigger.
     pub open spec fn valid_nid(nid: NodeId) -> bool {
         0 <= nid < Self::total_size()
     }
 
+    #[verifier::inline]
     pub open spec fn root_id() -> NodeId {
         0
     }
