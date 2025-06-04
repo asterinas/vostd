@@ -525,13 +525,31 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
  }
 
 #[inductive(write_unlock)]
-fn write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    assert (post.inv_reader_counts_cursors_relation()) by {
+        assert forall |id: NodeId| #[trigger] post.reader_counts.contains_key(id) implies
+        post.reader_counts[id] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(id),
+        ).len() by {
+            // The read locking state does not change.
+            let f = |cursor: CursorState| cursor.hold_read_lock(id);
+            assert (pre.cursors[cpu].hold_read_lock(id) == post.cursors[cpu].hold_read_lock(id));
+            assert (post.cursors == pre.cursors.insert(
+                cpu, CursorState::ReadLocking(pre.cursors[cpu].get_path().drop_last())
+            ));
+            lemma_insert_value_filter_same_len(
+                pre.cursors, f, cpu, CursorState::ReadLocking(pre.cursors[cpu].get_path().drop_last())
+            );
+        };
+    }
+}
 
 #[inductive(allocate)]
-fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(deallocate)]
-fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
 ensures
