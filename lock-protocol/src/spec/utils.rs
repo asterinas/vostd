@@ -81,6 +81,7 @@ impl NodeHelper {
     }
 
     /// Returns the size of the tree with nodes at most `max_dep` depth.
+    #[verifier::memoize]
     pub closed spec fn tree_size_spec(max_dep: int) -> nat
         recommends
             0 <= max_dep < 4,
@@ -138,7 +139,6 @@ impl NodeHelper {
             Self::tree_size_relation_spec(2),
             Self::tree_size_relation_spec(3),
     {
-        Self::lemma_tree_size_spec_table();
         assert(Self::tree_size_relation_spec(0)) by (compute_only);
         assert(Self::tree_size_relation_spec(1)) by (compute_only);
         assert(Self::tree_size_relation_spec(2)) by (compute_only);
@@ -555,7 +555,7 @@ impl NodeHelper {
         } else {
             assert(Self::tree_size_spec(cur_level - 1) * 512 + 1 == Self::tree_size_spec(
                 cur_level as int,
-            )) by { Self::lemma_tree_size_spec_table() };
+            ));
 
             let sz = Self::tree_size_spec(cur_level - 1);
             // Prove offset < 512
@@ -656,7 +656,6 @@ impl NodeHelper {
 
     {
         if trace.len() == 0 {
-            assert(Self::tree_size_spec(cur_level) > 0) by { Self::lemma_tree_size_spec_table() };
         } else {
             let new_trace = trace.subrange(1, trace.len() as int);
             assert(new_trace.len() == trace.len() - 1);
@@ -668,7 +667,7 @@ impl NodeHelper {
             }) by {
                 assert(Self::tree_size_spec(cur_level - 1) * 512 + 1 == Self::tree_size_spec(
                     cur_level,
-                )) by { Self::lemma_tree_size_spec_table() };
+                ));
                 assert(Self::tree_size_spec(cur_level) - 1 - trace[0] * Self::tree_size_spec(
                     cur_level - 1,
                 ) == (512 - trace[0]) * Self::tree_size_spec(cur_level - 1)) by {
@@ -689,9 +688,6 @@ impl NodeHelper {
                         Self::tree_size_spec(cur_level - 1) as int,
                     )
                 };
-                assert(Self::tree_size_spec(cur_level - 1) > 0) by {
-                    Self::lemma_tree_size_spec_table()
-                };
             };
 
             let new_level = cur_level - 1;
@@ -709,7 +705,7 @@ impl NodeHelper {
             assert(new_rt + sz <= cur_rt + Self::tree_size_spec(cur_level)) by {
                 // tree_size_spec(cur_level) = 512*sz + 1
                 assert(Self::tree_size_spec(cur_level) == Self::tree_size_spec(cur_level - 1) * 512
-                    + 1) by { Self::lemma_tree_size_spec_table() };
+                    + 1);
 
                 // need: trace[0]*sz + sz <= 512*sz
                 assert(trace[0] < 512);
@@ -759,7 +755,6 @@ impl NodeHelper {
             Self::valid_nid(Self::trace_to_nid(trace)),
             trace =~= Self::nid_to_trace(Self::trace_to_nid(trace)),
     {
-        Self::lemma_tree_size_spec_table();
         Self::lemma_trace_to_nid_rec_sound(trace, 0, 3)
     }
 
@@ -891,7 +886,6 @@ impl NodeHelper {
         ensures
             Self::sub_tree_size(nid) >= 1,
     {
-        Self::lemma_tree_size_spec_table();
         Self::lemma_nid_to_trace_sound(nid);
     }
 
@@ -937,7 +931,6 @@ impl NodeHelper {
         let dep_ch = Self::nid_to_dep(ch);
         let sz_pa = Self::sub_tree_size(pa);
         let sz_ch = Self::sub_tree_size(ch);
-        Self::lemma_tree_size_spec_table();  // Apply tree size lemma to both nodes.
         // Verify trace properties.
         let trace_pa = Self::nid_to_trace(pa);
         let trace_ch = Self::nid_to_trace(ch);
@@ -1161,7 +1154,6 @@ impl NodeHelper {
     {
         let subtree_trace_set = Self::get_subtree_traces(trace);
         assert(subtree_trace_set.contains(trace));
-        Self::lemma_tree_size_spec_table();
         Self::lemma_valid_trace_set_cardinality();
         if trace.len() == 3 {
             assert(forall|subtree_trace| #[trigger]
