@@ -7,7 +7,7 @@ use vstd::hash_map::*;
 use vstd::tokens::*;
 use vstd::atomic_ghost::*;
 
-use super::super::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, tree::*};
 use super::{common::*, types::*, frame::*};
 
 verus! {
@@ -28,7 +28,7 @@ pub open spec fn inv(&self) -> bool {
         &&& self.tokens.is_Some() ==> {
             &&& self.tokens.get_Some_0().0.instance_id() == self.inst.id()
             &&& self.tokens.get_Some_0().0.key() == self.nid
-            &&& self.tokens.get_Some_0().0.value().is_UnAllocated()
+            &&& self.tokens.get_Some_0().0.value() is UnAllocated
 
             &&& self.tokens.get_Some_0().1.instance_id() == self.inst.id()
             &&& self.tokens.get_Some_0().1.key() == self.nid

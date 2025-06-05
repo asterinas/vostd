@@ -255,6 +255,14 @@ impl NodeHelper {
         nid1 + offset * sz + 1
     }
 
+    /// Returns true is the node is not a leaf
+    pub open spec fn is_not_leaf(nid: NodeId) -> bool
+        recommends
+            Self::valid_nid(nid),
+    {
+        Self::nid_to_dep(nid) < 3
+    }
+
     /// Returns the child node id from the node id and offset.
     pub open spec fn get_child(nid: NodeId, offset: nat) -> NodeId
         recommends
