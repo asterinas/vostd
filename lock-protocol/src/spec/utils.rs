@@ -1235,25 +1235,24 @@ impl NodeHelper {
 
             // Show that the child traces are disjoint
             assert(pairwise_disjoint(child_subtree_trace_set));
-            // Show that the arbitrary union of the child_subtree_trace_set is equal to the child_trace_set
-            assert(child_trace_set =~= arbitrary_union(child_subtree_trace_set)) by {
+            // Show that the flatten of the child_subtree_trace_set is equal to the child_trace_set
+            assert(child_trace_set =~= child_subtree_trace_set.flatten()) by {
                 assert forall|child_trace: Seq<nat>| #[trigger]
-                    child_trace_set.contains(child_trace) == arbitrary_union(
-                        child_subtree_trace_set,
-                    ).contains(child_trace) by {
+                    child_trace_set.contains(child_trace)
+                        == child_subtree_trace_set.flatten().contains(child_trace) by {
                     if child_trace_set.contains(child_trace) {
                         assert(trace.is_prefix_of(child_trace));
                         let trace_child = child_trace.subrange(0, (trace.len() + 1) as int);
                         let offset = child_trace[trace.len() as int];
                         assert(trace_child =~= trace.push(offset));
                         assert(offset_set.contains(offset));
-                        // Definition of arbitrary union
+                        // Definition of flatten
                         assert(child_traces.contains(trace_child));
                         assert(child_subtree_trace_set.contains(
                             Self::get_subtree_traces(trace_child),
                         ));
                     }
-                    if arbitrary_union(child_subtree_trace_set).contains(child_trace) {
+                    if child_subtree_trace_set.flatten().contains(child_trace) {
                         let child_subtree_trace = choose|t: Set<Seq<nat>>|
                             child_subtree_trace_set.contains(t) && t.contains(child_trace);
                         let trace_child = choose|t: Seq<nat>| #[trigger]
@@ -1267,7 +1266,7 @@ impl NodeHelper {
             }
 
             assert(child_trace_set.len() == 512 * Self::tree_size_spec(2 - trace.len())) by {
-                lemma_arbitrary_union_cardinality_under_disjointness_same_length(
+                lemma_flatten_cardinality_under_disjointness_same_length(
                     child_subtree_trace_set,
                     Self::tree_size_spec(2 - trace.len()),
                 );

@@ -150,11 +150,6 @@ pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
     }
 }
 
-/// The union of all sets in a set of sets.
-pub open spec fn arbitrary_union<A>(sets: Set<Set<A>>) -> Set<A> {
-    Set::new(|x: A| exists|s: Set<A>| sets.contains(s) && s.contains(x))
-}
-
 /// A set of sets is pairwise disjoint if all distinct sets are disjoint.
 pub open spec fn pairwise_disjoint<A>(sets: Set<Set<A>>) -> bool {
     forall|s1: Set<A>, s2: Set<A>|
@@ -170,33 +165,33 @@ pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
         // Parts are pairwise disjoint
         pairwise_disjoint(parts) &&
         // Union of parts is s
-        s =~= arbitrary_union(parts)
+        s =~= parts.flatten()
 }
 
 /// If `parts` is a finite set of finite, pairwise-disjoint sets,
 /// then the cardinality of the union is the sum of cardinalities.
-pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
+pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
     requires
         parts.finite(),
         pairwise_disjoint(parts),
         forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite(),
     ensures
-        arbitrary_union(parts).len() == parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()),
-        arbitrary_union(parts).finite(),
+        parts.flatten().len() == parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()),
+        parts.flatten().finite(),
     decreases parts.len(),
 {
     if parts.is_empty() {
-        assert(arbitrary_union(parts) =~= Set::empty());
+        assert(parts.flatten() =~= Set::empty());
         lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
     } else {
         let p = parts.choose();
         let rest = parts.remove(p);
         assert(parts =~= rest.insert(p));
-        lemma_arbitrary_union_cardinality_under_disjointness(rest);
-        assert(arbitrary_union(rest).len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
-        assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
-        assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {
-            lemma_set_disjoint_lens(arbitrary_union(rest), p);
+        lemma_flatten_cardinality_under_disjointness(rest);
+        assert(rest.flatten().len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
+        assert(parts.flatten() =~= rest.flatten().union(p));
+        assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
+            lemma_set_disjoint_lens(rest.flatten(), p);
         }
 
         assert(parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()) == rest.fold(
@@ -210,33 +205,30 @@ pub proof fn lemma_arbitrary_union_cardinality_under_disjointness<A>(parts: Set<
 
 /// If `parts` is a finite set of finite, pairwise-disjoint sets, and each set has the same length `c`,
 /// then the cardinality of the union is the product of the number of sets and `c`.
-pub proof fn lemma_arbitrary_union_cardinality_under_disjointness_same_length<A>(
-    parts: Set<Set<A>>,
-    c: nat,
-)
+pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: Set<Set<A>>, c: nat)
     requires
         parts.finite(),
         pairwise_disjoint(parts),
         forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite() && p.len() == c,
     ensures
-        arbitrary_union(parts).len() == parts.len() * c,
-        arbitrary_union(parts).finite(),
+        parts.flatten().len() == parts.len() * c,
+        parts.flatten().finite(),
     decreases parts.len(),
 {
     if parts.is_empty() {
-        assert(arbitrary_union(parts) =~= Set::empty());
+        assert(parts.flatten() =~= Set::empty());
     } else {
         let p = parts.choose();
         let rest = parts.remove(p);
         assert(parts =~= rest.insert(p));
-        lemma_arbitrary_union_cardinality_under_disjointness_same_length(rest, c);
-        assert(arbitrary_union(parts) =~= arbitrary_union(rest).union(p));
-        assert(arbitrary_union(parts).len() == arbitrary_union(rest).len() + p.len()) by {
-            lemma_set_disjoint_lens(arbitrary_union(rest), p);
+        lemma_flatten_cardinality_under_disjointness_same_length(rest, c);
+        assert(parts.flatten() =~= rest.flatten().union(p));
+        assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
+            lemma_set_disjoint_lens(rest.flatten(), p);
         }
-        assert(arbitrary_union(parts).len() == (rest.len() + 1) * c) by (nonlinear_arith)
+        assert(parts.flatten().len() == (rest.len() + 1) * c) by (nonlinear_arith)
             requires
-                arbitrary_union(parts).len() == rest.len() * c + c,
+                parts.flatten().len() == rest.len() * c + c,
         ;
     }
 }
