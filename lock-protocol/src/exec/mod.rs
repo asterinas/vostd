@@ -1,3 +1,7 @@
+mod rw;
+mod test_map;
+// mod test_map2;
+
 use vstd::prelude::*;
 use core::num;
 use std::collections::HashMap;
@@ -25,9 +29,6 @@ use crate::{
 use vstd::simple_pptr::*;
 
 use crate::exec;
-
-mod test_map;
-// mod test_map2;
 
 verus! {
 
