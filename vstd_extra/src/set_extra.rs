@@ -6,7 +6,7 @@ verus! {
 /// is empty.
 pub proof fn lemma_filter_all_false<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
-        forall|x: T| #[trigger] s.contains(x) ==> !f(x),
+        s.all(|x: T| !f(x)),
     ensures
         s.filter(f).is_empty(),
 {
@@ -14,7 +14,7 @@ pub proof fn lemma_filter_all_false<T>(s: Set<T>, f: spec_fn(T) -> bool)
 
 pub proof fn lemma_filter_all_true<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
-        forall|x: T| #[trigger] s.contains(x) ==> f(x),
+        s.all(f),
     ensures
         s.filter(f) =~= s,
 {
@@ -209,7 +209,7 @@ pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: 
     requires
         parts.finite(),
         pairwise_disjoint(parts),
-        forall|p: Set<A>| #[trigger] parts.contains(p) ==> p.finite() && p.len() == c,
+        parts.all(|p: Set<A>| p.finite() && p.len() == c),
     ensures
         parts.flatten().len() == parts.len() * c,
         parts.flatten().finite(),

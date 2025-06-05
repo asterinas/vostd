@@ -4,25 +4,9 @@ use vstd::seq::*;
 verus! {
 
 #[verifier::external_body]
-pub proof fn seq_tracked_empty<T>() -> (tracked res: Seq<T>)
-    ensures
-        res == Seq::<T>::empty(),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
 pub proof fn seq_tracked_new<T>(len: nat, f: impl Fn(int) -> T) -> (tracked res: Seq<T>)
     ensures
         res == Seq::<T>::new(len, f),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
-pub proof fn seq_tracked_push<T>(s: Seq<T>, x: T) -> (tracked res: Seq<T>)
-    ensures
-        res == s.push(x),
 {
     unimplemented!();
 }

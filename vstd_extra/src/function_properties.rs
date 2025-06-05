@@ -24,7 +24,7 @@ pub open spec fn left_inverse_on<A, B>(
     domain: Set<A>,
     codomain: Set<B>,
 ) -> bool {
-    forall|x: A| #[trigger] domain.contains(x) ==> codomain.contains(f(x)) && g(f(x)) == x
+    domain.all(|x: A| codomain.contains(f(x)) && g(f(x)) == x)
 }
 
 /// `g` is a right inverse of `f` on `codomain` if `f(g(y)) == y` for all `y` in `codomain`,
@@ -35,7 +35,7 @@ pub open spec fn right_inverse_on<A, B>(
     domain: Set<A>,
     codomain: Set<B>,
 ) -> bool {
-    forall|y: B| #[trigger] codomain.contains(y) ==> domain.contains(g(y)) && f(g(y)) == y
+    codomain.all(|y: B| domain.contains(g(y)) && f(g(y)) == y)
 }
 
 /// `g` is a two-sided inverse of `f` if it is both a left and right inverse.
