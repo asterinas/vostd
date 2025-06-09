@@ -271,6 +271,7 @@ impl TransHandler {
         (Tracked(m), Ghost(tree_path))
     }
 
+    #[verifier::external_body]
     pub fn allocate(
         pt: &PageTable,
         // allocator: &mut FrameAllocator,
@@ -406,6 +407,7 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
 }
 
 #[verifier::exec_allows_no_decreases_clause]
+#[verifier::external_body]
 pub fn lock_range<'a>(
     pt: &PageTable,
     allocator: &'a FrameAllocator,
