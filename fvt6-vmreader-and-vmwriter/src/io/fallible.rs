@@ -1,8 +1,7 @@
 use vstd::prelude::*;
 use core::result::Result;
-
 use super::vmrw::{VmReader, VmWriter};
-use crate::{common::*, io::model::VmIoModel};
+use crate::{common::*, error::Error, io::model::VmIoModel};
 
 verus! {
 

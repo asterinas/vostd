@@ -1,6 +1,5 @@
 use vstd::prelude::*;
-use std::fmt::Error;
-use crate::{common::*};
+use crate::{common::*, error::Error};
 
 verus! {
 

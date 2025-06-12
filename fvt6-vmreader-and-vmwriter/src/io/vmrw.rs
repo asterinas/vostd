@@ -1,6 +1,5 @@
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
-use std::fmt::Error;
 use core::marker::PhantomData;
 
 use crate::{common::*, io::model::VmIoModel, io::fallible::*, io::specs::*};
