@@ -307,7 +307,7 @@ impl TransHandler {
             update prev -> next;
             ghost g => {
                 assert(prev == INVALID_PADDR) by { admit(); }; // How to remove this?
-                assert(g.tokens.is_Some());
+                assert(g.tokens is Some);
                 let tracked tokens = g.tokens.tracked_unwrap();
                 assert(tokens.0.value() is UnAllocated);
 
@@ -525,7 +525,7 @@ pub fn lock_range<'a>(
             ghost g => {
                 assert(g.nid == cur_nid as NodeId);
                 if res != INVALID_PADDR {
-                    assert(g.tokens.is_None());
+                    assert(g.tokens is None);
                 }
             }
         };
@@ -708,7 +708,7 @@ pub fn lock_range<'a>(
             ghost g => {
                 assert(g.nid == cur_nid as NodeId);
                 if res != INVALID_PADDR {
-                    assert(g.tokens.is_None());
+                    assert(g.tokens is None);
                 }
             }
         };
