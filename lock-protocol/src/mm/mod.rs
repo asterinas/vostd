@@ -72,6 +72,7 @@ pub const fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
     assert(t == 9) by {
         assert(nr_subpage_per_huge() == 512);
         assert(log(2, 512) == 9) by {
+            reveal(pow);
             assert(512 == pow(2, 9)) by (compute_only);
             assert(log(2, 512) == 9) by { lemma_log_pow(2, 9) }
         }

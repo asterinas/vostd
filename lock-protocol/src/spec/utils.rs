@@ -74,6 +74,7 @@ impl NodeHelper {
             Self::size_at_dep(2) == 262144,
             Self::size_at_dep(3) == 134217728,
     {
+        reveal(pow);
         assert(Self::size_at_dep(0) == 1) by (compute_only);
         assert(Self::size_at_dep(1) == 512) by (compute_only);
         assert(Self::size_at_dep(2) == 262144) by (compute_only);

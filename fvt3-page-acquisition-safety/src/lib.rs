@@ -7,6 +7,5 @@
 
 pub mod abstract_state;
 pub mod common;
-pub mod errors;
 pub mod page;
 pub mod rust_core_mem;

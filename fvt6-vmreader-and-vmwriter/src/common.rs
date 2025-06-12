@@ -1,7 +1,6 @@
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
-pub use crate::error::*;
 pub use crate::pod::*;
 
 verus! {

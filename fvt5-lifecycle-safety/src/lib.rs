@@ -7,7 +7,6 @@
 
 pub mod abstract_state;
 pub mod common;
-pub mod errors;
 pub mod frame;
 pub mod page;
 pub mod page_table;
