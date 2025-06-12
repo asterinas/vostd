@@ -17,7 +17,6 @@ use super::{common::*, utils::*, types::*, cpu::*, frame::*, page_table::*};
 
 verus! {
 
-#[is_variant]
 pub enum GuardInPath<'a> {
     ReadLocked(ReadHandle<'a, Tracked<NodeToken>, spec_fn(Tracked<NodeToken>) -> bool>),
     WriteLocked(WriteHandle<'a, Tracked<NodeToken>, spec_fn(Tracked<NodeToken>) -> bool>),
@@ -44,11 +43,11 @@ pub open spec fn wf(&self) -> bool {
         &&& forall |level: Level| #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
                 if level < self.guard_level {
-                    self.path[level - 1].is_None()
+                    self.path[level - 1] is None
                 } else if level == self.guard_level {
-                    self.path[level - 1].is_WriteLocked()
+                    self.path[level - 1] is WriteLocked
                 } else {
-                    self.path[level - 1].is_ReadLocked()
+                    self.path[level - 1] is ReadLocked
                 }
             }
 
@@ -433,12 +432,12 @@ pub fn lock_range<'a>(
         invariant
             0 <= i <= 4,
             path@.len() == i,
-            forall|_i| 0 <= _i < i ==> path@[_i].is_None(),
+            forall|_i| 0 <= _i < i ==> path@[_i] is None,
     {
         path.push(GuardInPath::None);
     }
     assert(path.len() == 4);
-    assert(forall|i| 0 <= i < 4 ==> path@[i].is_None());
+    assert(forall|i| 0 <= i < 4 ==> path@[i] is None);
 
     let mut cur_nid: u64 = 0;
     let mut cur_level: Level = 4;
@@ -482,8 +481,8 @@ pub fn lock_range<'a>(
             cur_level >= va_range_get_guard_level(*va),
             1 <= va_range_get_guard_level(*va) <= 4,
             path.len() == 4,
-            forall|i| cur_level <= i < 4 ==> path@[i].is_ReadLocked(),
-            forall|i| 0 <= i < cur_level ==> path@[i].is_None(),
+            forall|i| cur_level <= i < 4 ==> path@[i] is ReadLocked,
+            forall|i| 0 <= i < cur_level ==> path@[i] is None,
             tree_path.len() == 4 - cur_level,
             tree_path.is_prefix_of(va_range_get_tree_path(*va)),
             m.pred_cursor_ReadLocking(tree_path),
@@ -496,8 +495,8 @@ pub fn lock_range<'a>(
             cur_level as nat == NodeHelper::nid_to_level(cur_nid as NodeId),
             cur_level == va_range_get_guard_level(*va),
             path.len() == 4,
-            forall|i| cur_level <= i < 4 ==> path@[i].is_ReadLocked(),
-            forall|i| 0 <= i < cur_level ==> path@[i].is_None(),
+            forall|i| cur_level <= i < 4 ==> path@[i] is ReadLocked,
+            forall|i| 0 <= i < cur_level ==> path@[i] is None,
             tree_path.len() == 4 - cur_level,
             tree_path.is_prefix_of(va_range_get_tree_path(*va)),
             m.pred_cursor_ReadLocking(tree_path),
@@ -680,8 +679,8 @@ pub fn lock_range<'a>(
             1 <= cur_level <= 4,
             cur_level == va_range_get_guard_level(*va),
             path.len() == 4,
-            forall|i| cur_level <= i < 4 ==> path@[i].is_ReadLocked(),
-            forall|i| 0 <= i < cur_level ==> path@[i].is_None(),
+            forall|i| cur_level <= i < 4 ==> path@[i] is ReadLocked,
+            forall|i| 0 <= i < cur_level ==> path@[i] is None,
             tree_path.len() == 4 - cur_level,
             tree_path.is_prefix_of(va_range_get_tree_path(*va)),
             va_range_get_tree_path(*va).len() == 5 - va_range_get_guard_level(*va),
@@ -694,9 +693,9 @@ pub fn lock_range<'a>(
             1 <= cur_level <= 4,
             cur_level == va_range_get_guard_level(*va),
             path.len() == 4,
-            forall|i| cur_level <= i < 4 ==> path@[i].is_ReadLocked(),
-            path@[cur_level - 1].is_WriteLocked(),
-            forall|i| 0 <= i < cur_level - 1 ==> path@[i].is_None(),
+            forall|i| cur_level <= i < 4 ==> path@[i] is ReadLocked,
+            path@[cur_level - 1] is WriteLocked,
+            forall|i| 0 <= i < cur_level - 1 ==> path@[i] is None,
             tree_path.len() == 5 - cur_level,
             tree_path =~= va_range_get_tree_path(*va),
             m.pred_cursor_WriteLocked(tree_path),

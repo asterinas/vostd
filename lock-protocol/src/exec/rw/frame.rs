@@ -86,6 +86,16 @@ pub fn pa_to_fid(pa: Paddr) -> (res: FrameId)
     pa >> 12
 }
 
+pub proof fn lemma_fid_to_pa_pa_to_fid(fid: FrameId)
+    requires
+        valid_fid(fid),
+    ensures
+        pa_to_fid(fid_to_pa(fid)) == fid,
+{
+    assert((fid<<12)>>12 == fid) by (bit_vector)
+        requires 0 <= fid < 256u64;
+}
+
 }
 
 verus! {
@@ -151,7 +161,6 @@ pub open spec fn wf(&self) -> bool {
 
 }
 
-#[is_variant]
 pub enum FrameUsage {
     Void,
     PageTable,
@@ -247,7 +256,7 @@ impl FrameAllocator {
             self.usages@[pa_to_fid(res) as int] is Void,
     {
         let fid = self.find_void_frame();
-        assert(pa_to_fid(fid_to_pa(fid)) == fid) by { admit(); };
+        assert(pa_to_fid(fid_to_pa(fid)) == fid) by { lemma_fid_to_pa_pa_to_fid(fid) };
         fid_to_pa(fid)
     }
 
