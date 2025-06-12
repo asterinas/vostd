@@ -35,11 +35,14 @@ pub open spec fn paddr_is_aligned_spec(pa: Paddr) -> bool {
 pub fn paddr_is_aligned(pa: Paddr) -> (res: bool)
     requires
         valid_paddr(pa),
-    ensures
-        res == paddr_is_aligned_spec(pa),
+    returns paddr_is_aligned_spec(pa),
 {
-    assume(false);
-    (pa & (1u64 << 12)) == 0
+    assert(low_bits_mask(12) == 0xfff) by {
+        lemma_low_bits_mask_values();
+    }
+    assert((1u64<<12) - 1 == 0xfff) by (compute_only);
+
+    (pa & ((1 << 12) - 1)) == 0
 }
 
 pub open spec fn fid_to_pa_spec(fid: FrameId) -> (res: Paddr) {
@@ -55,7 +58,13 @@ pub fn fid_to_pa(fid: FrameId) -> (res: Paddr)
         valid_paddr(res),
         paddr_is_aligned(res),
 {
-    assume(false);
+    assert(0 <= (fid<<12) < (256u64 << 12)) by (bit_vector)
+        requires 0<= fid < 256u64;
+    assert((fid<<12) & 0xfff == 0) by (bit_vector);
+    assert(low_bits_mask(12) == 0xfff) by {
+        lemma_low_bits_mask_values();
+    }
+
     fid << 12
 }
 
@@ -72,7 +81,8 @@ pub fn pa_to_fid(pa: Paddr) -> (res: FrameId)
         res == pa_to_fid_spec(pa),
         valid_fid(res),
 {
-    assume(false);
+    assert(0 <= pa>>12 < 256u64) by (bit_vector)
+        requires 0 <= pa < (256u64<<12);
     pa >> 12
 }
 
@@ -208,7 +218,7 @@ impl FrameAllocator {
             self.wf(),
             valid_paddr(pa),
             paddr_is_aligned(pa),
-            self.usages@[pa_to_fid_spec(pa) as int].is_PageTable(),
+            self.usages@[pa_to_fid_spec(pa) as int] is PageTable,
         ensures
             *res =~= self.frames@[pa_to_fid(pa) as int],
             Self::inv_pt_frame(*res),
@@ -223,7 +233,7 @@ impl FrameAllocator {
             self.wf(),
         ensures
             valid_fid(res),
-            self.usages@[res as int].is_Void(),
+            self.usages@[res as int] is Void,
     {
         0
     }
@@ -234,7 +244,7 @@ impl FrameAllocator {
         ensures
             valid_paddr(res),
             paddr_is_aligned(res),
-            self.usages@[pa_to_fid(res) as int].is_Void(),
+            self.usages@[pa_to_fid(res) as int] is Void,
     {
         let fid = self.find_void_frame();
         assert(pa_to_fid(fid_to_pa(fid)) == fid) by { admit(); };
@@ -255,7 +265,7 @@ impl FrameAllocator {
             self.wf(),
             valid_paddr(pa),
             paddr_is_aligned(pa),
-            self.usages@[pa_to_fid(pa) as int].is_Void(), // Fix this
+            self.usages@[pa_to_fid(pa) as int] is Void, // Fix this
 
             NodeHelper::valid_nid(nid@),
             inst@.cpu_num() == GLOBAL_CPU_NUM,
@@ -267,7 +277,7 @@ impl FrameAllocator {
             rc_token@.value() == 0,
         ensures
             self.wf(),
-            self.usages@[pa_to_fid(pa) as int].is_PageTable(),
+            self.usages@[pa_to_fid(pa) as int] is PageTable,
     {}
 
 }

@@ -537,7 +537,7 @@ pub fn lock_range<'a>(
         assert(valid_paddr(pa));
         assert(paddr_is_aligned(pa));
 
-        assert(allocator.usages@[pa_to_fid(pa) as int].is_PageTable()) by {
+        assert(allocator.usages@[pa_to_fid(pa) as int] is PageTable) by {
             admit();
         };
         let frame: &Frame = allocator.get_pt_frame_from_pa(pa);
@@ -720,7 +720,7 @@ pub fn lock_range<'a>(
         assert(valid_paddr(pa));
         assert(paddr_is_aligned(pa));
 
-        assert(allocator.usages@[pa_to_fid(pa) as int].is_PageTable()) by {
+        assert(allocator.usages@[pa_to_fid(pa) as int] is PageTable) by {
             admit();
         };
         let frame: &Frame = allocator.get_pt_frame_from_pa(pa);

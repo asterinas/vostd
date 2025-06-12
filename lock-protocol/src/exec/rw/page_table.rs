@@ -69,7 +69,7 @@ pub open spec fn wf(&self, allocator: FrameAllocator) -> bool {
         &&& pa != INVALID_PADDR ==> {
             &&& valid_paddr(pa)
             &&& paddr_is_aligned(pa)
-            // &&& allocator.usages@[pa_to_fid(pa)].is_PageTable()
+            // &&& allocator.usages@[pa_to_fid(pa)] is PageTable
             // &&& allocator.get_pt_frame_from_pa_spec(pa).nid@ == nid
             // &&& allocator.get_pt_frame_from_pa_spec(pa).inst@.id() == inst@.id()
         }
