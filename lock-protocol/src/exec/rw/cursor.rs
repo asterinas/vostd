@@ -108,7 +108,7 @@ impl TransHandler {
             pt_frame.rc => no_op();
             update prev -> next;
             ghost g => {
-                //assert(prev == 0) by { admit(); }; // How to remove this?
+                assert(prev == 0) by { admit(); }; // How to remove this?
 
                 let tracked res = pt_frame.inst.borrow().write_lock(
                     m.cpu,
