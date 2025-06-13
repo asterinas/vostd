@@ -36,9 +36,7 @@ pub open spec fn wf(&self) -> bool {
     predicate {
         &&& self.path@.len() == 4
 
-        &&& 1 <= self.level <= 4
-        &&& 1 <= self.guard_level <= 4
-        &&& self.level <= self.guard_level
+        &&& 1 <= self.level <= self.guard_level <= 4
 
         &&& forall |level: Level| #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
@@ -110,7 +108,7 @@ impl TransHandler {
             pt_frame.rc => no_op();
             update prev -> next;
             ghost g => {
-                assert(prev == 0) by { admit(); }; // How to remove this?
+                //assert(prev == 0) by { admit(); }; // How to remove this?
 
                 let tracked res = pt_frame.inst.borrow().write_lock(
                     m.cpu,

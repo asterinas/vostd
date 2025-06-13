@@ -32,11 +32,11 @@ pub MAX_RC [MAX_RC_SPEC, CONST_MAX_RC]: u64 = 382);
 verus! {
 
 pub open spec fn valid_vaddr(va: Vaddr) -> bool {
-    0 <= va < pow2(48)
+    0 <= va < (1u64 << 48)
 }
 
 pub open spec fn valid_va_range(va: Range<Vaddr>) -> bool {
-    0 <= va.start <= va.end <= pow2(48)
+    0 <= va.start <= va.end <= (1u64 << 48)
 }
 
 pub open spec fn vaddr_is_aligned_spec(va: Vaddr) -> bool {
@@ -47,8 +47,8 @@ pub open spec fn vaddr_is_aligned_spec(va: Vaddr) -> bool {
 pub fn vaddr_is_aligned(va: Vaddr) -> (res: bool)
     requires
         valid_vaddr(va),
-    ensures
-        res == vaddr_is_aligned_spec(va),
+    returns
+        vaddr_is_aligned_spec(va),
 {
     (va & low_bits_mask_u64(12)) == 0
 }

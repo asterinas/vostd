@@ -376,19 +376,15 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         &self.value
     }
 
-    pub proof fn axiom_size_positive()
+    pub axiom fn axiom_size_positive()
         ensures
             Self::size() > 0,
-    {
-        admit()
-    }
+    ;
 
-    pub proof fn axiom_max_depth_positive()
+    pub axiom fn axiom_max_depth_positive()
         ensures
             Self::max_depth() > 0,
-    {
-        admit()
-    }
+    ;
 
     pub open spec fn inv_node(self) -> bool {
         &&& self.value.inv()
@@ -1323,19 +1319,15 @@ pub tracked struct Tree<T: TreeNodeValue, const N: usize, const L: usize> {
 }
 
 impl<T: TreeNodeValue, const N: usize, const L: usize> Tree<T, N, L> {
-    pub proof fn axiom_depth_positive()
+    pub axiom fn axiom_depth_positive()
         ensures
             L > 0,
-    {
-        admit()
-    }
+    ;
 
-    pub proof fn axiom_size_positive()
+    pub axiom fn axiom_size_positive()
         ensures
             N > 0,
-    {
-        admit()
-    }
+    ;
 
     pub open spec fn inv(self) -> bool {
         &&& self.root.inv()
