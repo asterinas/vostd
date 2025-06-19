@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use core::num;
+use core::{num, ops::Range};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
@@ -14,7 +14,8 @@ use crate::{
         cursor::{Cursor, CursorMut},
         meta::{AnyFrameMeta, MetaSlot},
         page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
-        PagingConstsTrait, UserMode, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig,
+        PagingLevel,
     },
     spec::simple_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
@@ -26,6 +27,50 @@ use crate::exec::*;
 use crate::spec::spt_helpers::*;
 
 verus! {
+
+struct TestPtConfig;
+
+unsafe impl PageTableConfig for TestPtConfig {
+    type C = PagingConsts;
+    type E = SimplePageTableEntry;
+
+    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
+        0..256
+    }
+
+    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
+        0..256
+    }
+
+    fn TOP_LEVEL_CAN_UNMAP() -> bool {
+        true
+    }
+
+    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
+        true
+    }
+
+    type Item = TestPtItem;
+
+    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        (item.paddr, item.level, item.prop)
+    }
+
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+        TestPtItem {
+            paddr,
+            level,
+            prop,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TestPtItem {
+    paddr: Paddr,
+    level: PagingLevel,
+    prop: PageProperty,
+}
 
 pub fn test(va: Vaddr, frame: Frame, page_prop: page_prop::PageProperty)
 requires
@@ -47,8 +92,8 @@ requires
 
     // TODO: use Cursor::new
     let mut cursor =
-    CursorMut::<UserMode, SimplePageTableEntry, PagingConsts, FakePageTableLock<SimplePageTableEntry, PagingConsts>> {
-        0: Cursor::<UserMode, SimplePageTableEntry, PagingConsts, FakePageTableLock<SimplePageTableEntry, PagingConsts>> {
+    CursorMut::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
+        0: Cursor::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
             path: Vec::new(),
             level: 4,
             guard_level: NR_LEVELS as u8,
