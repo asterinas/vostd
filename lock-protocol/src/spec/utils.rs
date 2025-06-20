@@ -172,7 +172,7 @@ impl NodeHelper {
     // The length of the trace is at most 3.
     pub open spec fn valid_trace(trace: Seq<nat>) -> bool {
         &&& 0 <= trace.len() < 4
-        &&& forall_seq_values(trace, |offset: nat| 0 <= offset < 512)
+        &&& trace.all(|offset: nat| 0 <= offset < 512)
     }
 
     /// The set of all valid node ids.

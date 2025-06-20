@@ -93,7 +93,7 @@ pub fn inv_write_lock_nodes_cursors_relation(&self) -> bool {
 
 /// If a cursor holds a read lock path, the reader count for each node in the path should be positive.
 pub open spec fn rc_positive(&self, path: Seq<NodeId>) -> bool {
-    forall_seq_values(path, |id| self.reader_counts[id] > 0)
+    path.all(|id| self.reader_counts[id] > 0)
 }
 
 /// All cursors holding read lock paths should have positive reader counts.
@@ -243,6 +243,9 @@ transition!{
         add cursors += [ cpu => CursorState::ReadLocking(path.drop_last()) ];
 
         assert(rc > 0) by {
+            broadcast use {
+                vstd_extra::seq_extra::group_forall_seq_lemmas,
+            };
             pre.lemma_inv_implies_inv_rc_positive()
         };
     }
@@ -374,6 +377,9 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 
 #[inductive(read_lock)]
 fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    broadcast use {crate::spec::utils::group_node_helper_lemmas,
+        vstd_extra::seq_extra::group_forall_seq_lemmas,
+    };
     let path = pre.cursors[cpu].get_read_lock_path();
     lemma_wf_tree_path_push_inversion(path, nid);
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));
@@ -463,7 +469,9 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 
 #[inductive(write_lock)]
 fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    broadcast use crate::spec::utils::group_node_helper_lemmas;
+    broadcast use {crate::spec::utils::group_node_helper_lemmas,
+        vstd_extra::seq_extra::group_forall_seq_lemmas,
+    };
     let path = pre.cursors[cpu].get_read_lock_path();
     let read_node = path.last();
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::WriteLocked(path.push(nid))));
@@ -494,6 +502,7 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             post.nodes[post.cursors[cpu0].get_write_lock_node()] is WriteLocked &&
             post.subtree_locked(post.cursors[cpu0].get_write_lock_node()) by {
                 let locked_node = post.cursors[cpu0].get_write_lock_node();
+                assert(NodeHelper::valid_nid(locked_node));
                 if path.len() == 0 {
                     assert(nid == NodeHelper::root_id());
                     assert(pre.reader_counts[NodeHelper::root_id()] == 0);
@@ -571,6 +580,9 @@ requires
 ensures
     self.inv_rc_positive(),
 {
+    broadcast use {
+        vstd_extra::seq_extra::group_forall_seq_lemmas,
+    };
     assert forall |cpu: CpuId| #![trigger] self.cursors.contains_key(cpu) implies
         #[trigger]self.rc_positive(self.cursors[cpu].get_read_lock_path()) by {
             match self.cursors[cpu] {
@@ -638,6 +650,9 @@ ensures
     self.nodes[NodeHelper::root_id()] is WriteLocked ||
     self.reader_counts[NodeHelper::root_id()] > 0,
 {
+    broadcast use {
+        vstd_extra::seq_extra::group_forall_seq_lemmas,
+    };
     let path = self.cursors[cpu].get_path();
     assert(wf_tree_path(path));
     assert(path.len() > 0);
@@ -666,6 +681,9 @@ ensures
     self.reader_counts[child] == 0,
     nid != child ==> self.nodes[child] !is WriteLocked,
 {
+    broadcast use {
+                vstd_extra::seq_extra::group_forall_seq_lemmas,
+            };
     NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid,child);
     let f = |cursor: CursorState| cursor.hold_read_lock(child);
     if nid == child {}
