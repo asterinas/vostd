@@ -25,8 +25,8 @@ use crate::{
 };
 
 use super::{
-    pte_index, KernelMode, PageTable, PageTableEntryTrait, PageTableError, PageTableMode,
-    PagingConsts, PagingConstsTrait, PagingLevel, UserMode,
+    pte_index, PageTable, PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait,
+    PagingLevel,
 };
 
 use crate::spec::simple_page_table;

@@ -15,13 +15,13 @@ use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{pte_index, Paddr, NR_ENTRIES};
+use crate::mm::{pte_index, Paddr, PageTableConfig, NR_ENTRIES};
 use crate::{
     mm::{
         cursor::{Cursor, CursorMut},
         meta::{AnyFrameMeta, MetaSlot},
         page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
-        PagingConstsTrait, UserMode, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
     },
     spec::simple_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
@@ -226,17 +226,14 @@ impl AnyFrameMeta for SimpleFrameMeta {
 
 // TODO: This FakePageTableLock will ignore Entry and MetaSlot.
 // TODO: We possibly need to use PageTableNode later.
-pub struct FakePageTableLock<E: PageTableEntryTrait, C: PagingConstsTrait> {
+pub struct FakePageTableLock<C: PageTableConfig> {
     pub paddr: Paddr,
-    pub phantom: std::marker::PhantomData<(E, C)>,
+    pub phantom: std::marker::PhantomData<(C)>,
 }
 
-impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTableLockTrait<E, C> for FakePageTableLock<
-    E,
-    C,
-> {
+impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
     // #[verifier::external_body]
-    // fn entry(&self, idx: usize) -> crate::mm::entry::Entry<'_, E, C, Self> {
+    // fn entry(&self, idx: usize) -> crate::mm::entry::Entry<'_, C, Self> {
     //     Entry::new_at(self, idx)
     // }
     fn paddr(&self) -> crate::mm::Paddr {
@@ -331,7 +328,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTableLockTrait<E, C> for 
         todo!()
     }
 
-    fn read_pte(&self, idx: usize, mpt: &exec::MockPageTable) -> (res: E)
+    fn read_pte(&self, idx: usize, mpt: &exec::MockPageTable) -> (res: C::E)
         ensures
             mpt.wf(),
             res.frame_paddr() == get_pte_from_addr_spec(
@@ -351,13 +348,13 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTableLockTrait<E, C> for 
         assert(self.paddr + idx * SIZEOF_PAGETABLEENTRY < usize::MAX) by {
             admit();
         }  // TODO
-        E::from_usize(self.paddr + idx * SIZEOF_PAGETABLEENTRY, mpt)
+        C::E::from_usize(self.paddr + idx * SIZEOF_PAGETABLEENTRY, mpt)
     }
 
     fn write_pte(
         &self,
         idx: usize,
-        pte: E,
+        pte: C::E,
         mpt: &mut MockPageTable,
         level: crate::mm::PagingLevel,
         ghost_index: usize,
@@ -431,7 +428,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTableLockTrait<E, C> for 
     }
 
     #[verifier::external_body]
-    fn meta(&self) -> &PageTablePageMeta<E, C> {
+    fn meta(&self) -> &PageTablePageMeta<C> {
         unimplemented!("meta")
     }
 

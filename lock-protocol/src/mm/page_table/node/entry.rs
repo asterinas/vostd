@@ -7,7 +7,7 @@ use crate::mm::{
     page_prop::PageProperty,
     page_size,
     vm_space::Token,
-    PageTableEntryTrait, PagingConstsTrait, PagingLevel,
+    PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
 };
 
 use super::{Child, MapTrackingStatus, PageTableLockTrait, PageTableNode};
@@ -25,7 +25,7 @@ verus! {
 /// This is a static reference to an entry in a node that does not account for
 /// a dynamic reference count to the child. It can be used to create a owned
 /// handle, which is a [`Child`].
-pub struct Entry<'a, E: PageTableEntryTrait, C: PagingConstsTrait, PTL: PageTableLockTrait<E, C>> {
+pub struct Entry<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -33,23 +33,18 @@ pub struct Entry<'a, E: PageTableEntryTrait, C: PagingConstsTrait, PTL: PageTabl
     /// other CPUs may modify the memory location for accessed/dirty bits. Such
     /// accesses will violate the aliasing rules of Rust and cause undefined
     /// behaviors.
-    pub pte: E,
+    pub pte: C::E,
     /// The index of the entry in the node.
     pub idx: usize,
     /// The node that contains the entry.
-    // node: &'a mut PageTableLock<E, C>,
+    // node: &'a mut PageTableLock<C>,
     pub node: &'a PTL,
-    pub phantom: std::marker::PhantomData<(E, C)>,
+    pub phantom: std::marker::PhantomData<(C)>,
 }
 
-impl<'a, E: PageTableEntryTrait, C: PagingConstsTrait, PTL: PageTableLockTrait<E, C>> Entry<
-    'a,
-    E,
-    C,
-    PTL,
-> {
+impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     /// Gets a reference to the child.
-    pub(in crate::mm) fn to_ref(&self, mpt: &exec::MockPageTable) -> (res: Child<E, C>)
+    pub(in crate::mm) fn to_ref(&self, mpt: &exec::MockPageTable) -> (res: Child<C>)
         requires
             mpt.wf(),
             self.pte.pte_paddr() == exec::get_pte_from_addr(self.pte.pte_paddr(), mpt).pte_addr,
@@ -106,12 +101,12 @@ impl<'a, E: PageTableEntryTrait, C: PagingConstsTrait, PTL: PageTableLockTrait<E
     // #[verifier::external_body]
     pub(in crate::mm) fn replace(
         self,
-        new_child: Child<E, C>,
+        new_child: Child<C>,
         mpt: &mut exec::MockPageTable,
         level: PagingLevel,
         ghost_index: usize,  // TODO: make it ghost
         used_pte_addr_token: Tracked<simple_page_table::SimplePageTable::unused_pte_addrs>,
-    ) -> (res: Child<E, C>)
+    ) -> (res: Child<C>)
         requires
             !old(mpt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(mpt).wf(),
@@ -178,7 +173,7 @@ impl<'a, E: PageTableEntryTrait, C: PagingConstsTrait, PTL: PageTableLockTrait<E
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bounds of the node.
-    // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<E, C>, idx: usize) -> Self {
+    // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
     pub fn new_at(node: &'a PTL, idx: usize, mpt: &exec::MockPageTable) -> (res: Self)
         requires
             idx < nr_subpage_per_huge(),

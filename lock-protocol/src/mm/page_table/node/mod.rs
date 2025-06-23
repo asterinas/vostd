@@ -33,6 +33,7 @@ use crate::spec::simple_page_table;
 use crate::mm::NR_ENTRIES;
 
 use super::cursor::spec_helpers;
+use super::PageTableConfig;
 
 verus! {
 
@@ -42,7 +43,7 @@ pub type PageTableNode = Frame;
 // We add PageTableLockTrait to make the verification easier.
 // Originally, it is just a struct that holds a frame.
 // TODO: Can we also change the source code?
-pub trait PageTableLockTrait<E: PageTableEntryTrait, C: PagingConstsTrait>: Sized {
+pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
     // fn entry(&self, idx: usize) -> Entry<'_, E, C, Self>
     // requires
     //     idx < nr_subpage_per_huge();
@@ -130,7 +131,7 @@ pub trait PageTableLockTrait<E: PageTableEntryTrait, C: PagingConstsTrait>: Size
 
     fn nr_children(&self) -> u16;
 
-    fn read_pte(&self, idx: usize, mpt: &exec::MockPageTable) -> (res: E)
+    fn read_pte(&self, idx: usize, mpt: &exec::MockPageTable) -> (res: C::E)
         requires
             idx < nr_subpage_per_huge(),
             mpt.wf(),
@@ -150,7 +151,7 @@ pub trait PageTableLockTrait<E: PageTableEntryTrait, C: PagingConstsTrait>: Size
     fn write_pte(
         &self,
         idx: usize,
-        pte: E,
+        pte: C::E,
         mpt: &mut exec::MockPageTable,
         level: PagingLevel,
         ghost_index: usize,
@@ -174,13 +175,13 @@ pub trait PageTableLockTrait<E: PageTableEntryTrait, C: PagingConstsTrait>: Size
     // fn nr_children_mut(&mut self) -> &mut u16;
     fn change_children(&self, delta: i16);
 
-    fn meta(&self) -> &PageTablePageMeta<E, C>;
+    fn meta(&self) -> &PageTablePageMeta<C>;
 }
 
 /// The metadata of any kinds of page table pages.
 /// Make sure the the generic parameters don't effect the memory layout.
 // #[derive(Debug)] // TODO: Debug for PageTablePageMeta
-pub struct PageTablePageMeta<E: PageTableEntryTrait, C: PagingConstsTrait> {
+pub struct PageTablePageMeta<C: PageTableConfig> {
     /// The lock for the page table page.
     pub lock: spin::queued::LockBody,
     /// The number of valid PTEs. It is mutable if the lock is held.
@@ -198,7 +199,7 @@ pub struct PageTablePageMeta<E: PageTableEntryTrait, C: PagingConstsTrait> {
     pub level: PagingLevel,
     /// Whether the pages mapped by the node is tracked.
     pub is_tracked: MapTrackingStatus,
-    pub _phantom: core::marker::PhantomData<(E, C)>,
+    pub _phantom: core::marker::PhantomData<C>,
 }
 
 /// Describe if the physical address recorded in this page table refers to a
@@ -217,12 +218,7 @@ pub enum MapTrackingStatus {
     Tracked,
 }
 
-impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTablePageMeta<
-    E,
-    C,
-> where
-// [(); C::NR_LEVELS as usize]:,
- {
+impl<C: PageTableConfig> PageTablePageMeta<C> {
     // TODO: Implement
     #[verifier::external_body]
     pub fn new_locked(level: PagingLevel, is_tracked: MapTrackingStatus) -> Self {
@@ -242,12 +238,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> PageTablePageMeta<
 // SAFETY: The layout of the `PageTablePageMeta` is ensured to be the same for
 // all possible generic parameters. And the layout fits the requirements.
 // unsafe
-impl<E: PageTableEntryTrait, C: PagingConstsTrait> AnyFrameMeta for PageTablePageMeta<
-    E,
-    C,
-> where
-// [(); C::NR_LEVELS as usize]:,
- {
+impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     // TODO: Implement AnyFrameMeta for PageTablePageMeta
 
 }

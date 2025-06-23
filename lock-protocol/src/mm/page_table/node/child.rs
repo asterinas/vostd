@@ -10,6 +10,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::Token;
 use crate::mm::Frame;
 use crate::mm::Paddr;
+use crate::mm::PageTableConfig;
 use crate::mm::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
@@ -30,13 +31,7 @@ verus! {
 /// either a page table node or a page, it holds a reference count to the
 /// corresponding page.
 // #[derive(Debug)] // TODO: Debug for Child
-pub(in crate::mm) enum Child<
-    // E: PageTableEntryTrait = PageTableEntry,
-    // C: PagingConstsTrait = PagingConsts,
-    E: PageTableEntryTrait,
-    C: PagingConstsTrait,
-    // T: AnyFrameMeta
-> {
+pub(in crate::mm) enum Child<C: PageTableConfig> {
     /// A owning handle to a raw page table node.
     PageTable(PageTableNode),
     /// A reference of a child page table node, in the form of a physical
@@ -46,12 +41,12 @@ pub(in crate::mm) enum Child<
     Frame(Frame, PageProperty),
     /// Mapped frames that are not tracked by handles.
     Untracked(Paddr, PagingLevel, PageProperty),
-    Token(Token, PhantomData<(E, C)>),
+    Token(Token, PhantomData<C>),
     None,
 }
 
 // impl Child {
-impl<E: PageTableEntryTrait, C: PagingConstsTrait> Child<E, C> {
+impl<C: PageTableConfig> Child<C> {
     #[verifier::inline]
     pub open spec fn is_none_spec(&self) -> bool {
         match self {
@@ -77,7 +72,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> Child<E, C> {
     /// Usually this is for recording the PTE into a page table node. When the
     /// child is needed again by reading the PTE of a page table node, extra
     /// information should be provided using the [`Child::from_pte`] method.
-    pub(super) fn into_pte(self, mpt: &mut exec::MockPageTable, ghost_index: usize) -> (res: E)
+    pub(super) fn into_pte(self, mpt: &mut exec::MockPageTable, ghost_index: usize) -> (res: C::E)
         requires
             old(mpt).wf(),
             spec_helpers::mpt_not_contains_not_allocated_frames(
@@ -98,20 +93,20 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> Child<E, C> {
         match self {
             Child::PageTable(pt) => {
                 // let pt = ManuallyDrop::new(pt);
-                E::new_pt(pt.start_paddr())
+                C::E::new_pt(pt.start_paddr())
             },
             Child::PageTableRef(_) => {
                 // panic!("`PageTableRef` should not be converted to PTE");
                 // TODO
-                E::new_absent()
+                C::E::new_absent()
             },
             Child::Frame(page, prop) => {
                 let level = page.map_level();
-                E::new_page(page.into_raw(), level, prop, mpt, ghost_index)
+                C::E::new_page(page.into_raw(), level, prop, mpt, ghost_index)
             },
-            Child::Untracked(pa, level, prop) => E::new_page(pa, level, prop, mpt, ghost_index),
-            Child::None => E::new_absent(),
-            Child::Token(token, _) => E::new_token(token),
+            Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop, mpt, ghost_index),
+            Child::None => C::E::new_absent(),
+            Child::Token(token, _) => C::E::new_token(token),
         }
     }
 
@@ -130,7 +125,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> Child<E, C> {
     // TODO: Implement the conversion from PTE.
     #[verifier::external_body]
     pub(super) fn from_pte(
-        pte: E,
+        pte: C::E,
         // level: PagingLevel,
         is_tracked: MapTrackingStatus,
         mpt: &exec::MockPageTable,
@@ -197,7 +192,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> Child<E, C> {
     // TODO: Implement the conversion from PTE.
     // #[verifier::external_body]
     pub(super) fn ref_from_pte(
-        pte: &E,
+        pte: &C::E,
         // level: PagingLevel, // TODO: node.level is not supported for now
         is_tracked: MapTrackingStatus,
         clone_raw: bool,
