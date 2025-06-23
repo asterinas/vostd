@@ -15,9 +15,9 @@ pub trait MapForwardTrait<Dst>: Sized {
     spec fn map_forward_spec(self, bm: &[BitMapping<Self, Dst>]) -> Dst;
 
     #[verifier::when_used_as_spec(map_forward_spec)]
-    fn map_forward(self, bm: &[BitMapping<Self, Dst>]) -> (res: Dst)
-        ensures
-            res == self.map_forward_spec(bm),
+    fn map_forward(self, bm: &[BitMapping<Self, Dst>]) -> Dst
+        returns
+            self.map_forward_spec(bm),
     ;
 
     broadcast proof fn lemma_equal_map_froward(
@@ -50,8 +50,7 @@ macro_rules! impl_map_forward {
             }
 
             #[verifier::external_body]
-            #[verifier::when_used_as_spec(map_forward_spec)]
-            fn map_forward(self, bm: &[BitMapping<Self, $dst>]) -> (res: $dst)
+            fn map_forward(self, bm: &[BitMapping<Self, $dst>]) -> $dst
             {
                 bm.iter().fold(0 as $dst, |acc, m| {
                     if self & m.src == m.src {
@@ -76,9 +75,9 @@ pub trait MapInvertForwardTrait<Dst>: Sized {
     spec fn map_invert_forward_spec(self, bm: &[BitMapping<Self, Dst>]) -> Dst;
 
     #[verifier::when_used_as_spec(map_invert_forward_spec)]
-    fn map_invert_forward(self, bm: &[BitMapping<Self, Dst>]) -> (res: Dst)
-        ensures
-            res == self.map_invert_forward_spec(bm),
+    fn map_invert_forward(self, bm: &[BitMapping<Self, Dst>]) -> Dst
+        returns
+            self.map_invert_forward_spec(bm),
     ;
 
     broadcast proof fn lemma_equal_map_invert_froward(
@@ -112,9 +111,7 @@ macro_rules! impl_map_invert_forward {
             }
 
             #[verifier::external_body]
-            #[verifier::when_used_as_spec(map_invert_forward_spec)]
-            fn map_invert_forward(self, bm: &[BitMapping<Self, $dst>]) -> (res: $dst)
-                ensures res == self.map_invert_forward_spec(bm)
+            fn map_invert_forward(self, bm: &[BitMapping<Self, $dst>]) -> $dst
             {
                 let inv_src = !self;
                 bm.iter().fold(0 as $dst, |acc, m| {
@@ -140,9 +137,9 @@ pub trait MapBackward<Src>: Sized {
     spec fn map_backward_spec(self, bm: &[BitMapping<Src, Self>]) -> Src;
 
     #[verifier::when_used_as_spec(map_backward_spec)]
-    fn map_backward(self, bm: &[BitMapping<Src, Self>]) -> (res: Src)
-        ensures
-            res == self.map_backward_spec(bm),
+    fn map_backward(self, bm: &[BitMapping<Src, Self>]) -> Src
+        returns
+            self.map_backward_spec(bm),
     ;
 
     broadcast proof fn lemma_equal_map_backward(
@@ -176,9 +173,7 @@ macro_rules! impl_map_backward {
             }
 
             #[verifier::external_body]
-            #[verifier::when_used_as_spec(map_backward_spec)]
-            fn map_backward(self, bm: &[BitMapping<$src, Self>]) -> (res: $src)
-                ensures res == self.map_backward_spec(bm)
+            fn map_backward(self, bm: &[BitMapping<$src, Self>]) -> $src
             {
                 bm.iter().fold(0 as $src, |acc, m| {
                     if self & m.dst == m.dst {
@@ -203,9 +198,9 @@ pub trait MapInvertBackward<Src>: Sized {
     spec fn map_invert_backward_spec(self, bm: &[BitMapping<Src, Self>]) -> Src;
 
     #[verifier::when_used_as_spec(map_invert_backward_spec)]
-    fn map_invert_backward(self, bm: &[BitMapping<Src, Self>]) -> (res: Src)
-        ensures
-            res == self.map_invert_backward_spec(bm),
+    fn map_invert_backward(self, bm: &[BitMapping<Src, Self>]) -> Src
+        returns
+            self.map_invert_backward_spec(bm),
     ;
 
     broadcast proof fn lemma_equal_map_invert_backward(
@@ -240,9 +235,7 @@ macro_rules! impl_map_invert_backward {
             }
 
             #[verifier::external_body]
-            #[verifier::when_used_as_spec(map_invert_backward_spec)]
-            fn map_invert_backward(self, bm: &[BitMapping<$src, Self>]) -> (res: $src)
-                ensures res == self.map_invert_backward_spec(bm)
+            fn map_invert_backward(self, bm: &[BitMapping<$src, Self>]) ->  $src
             {
                 let inv_src = !self;
                 bm.iter().fold(0 as $src, |acc, m| {

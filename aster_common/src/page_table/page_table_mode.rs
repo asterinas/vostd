@@ -60,7 +60,6 @@ impl PageTableMode for UserMode {
         0..MAX_USERSPACE_VADDR()
     }
 
-    #[verifier::when_used_as_spec(VADDR_RANGE_spec)]
     #[inline(always)]
     #[allow(non_snake_case)]
     fn VADDR_RANGE() -> (res: Range<Vaddr>)
@@ -91,7 +90,6 @@ impl PageTableMode for KernelMode {
         KERNEL_VADDR_RANGE()
     }
 
-    #[verifier::when_used_as_spec(VADDR_RANGE_spec)]
     #[inline(always)]
     #[allow(non_snake_case)]
     fn VADDR_RANGE() -> (res: Range<Vaddr>)

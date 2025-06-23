@@ -201,7 +201,6 @@ pub broadcast proof fn lemma_seq_all_add<T>(s1: Seq<T>, s2: Seq<T>, f: spec_fn(T
         }
         if (s1 + s2).all(f) {
             assert((s1 + s2).drop_last() =~= s1 + s2.drop_last());
-            //assert(forall_seq_values((s2.drop_last()),f));
             assert(s2 =~= s2.drop_last().push(s2.last()));
             assert((s1 + s2).last() == s2.last());
         }

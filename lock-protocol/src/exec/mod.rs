@@ -105,10 +105,7 @@ impl PageTableEntryTrait for SimplePageTableEntry {
         self.frame_pa != 0
     }
 
-    fn frame_paddr(&self) -> (res: usize)
-        ensures
-            res == self.frame_paddr_spec(),
-    {
+    fn frame_paddr(&self) -> (res: usize) {
         self.frame_pa as usize
     }
 
@@ -212,10 +209,7 @@ impl PageTableEntryTrait for SimplePageTableEntry {
         res
     }
 
-    fn pte_paddr(&self) -> (res: Paddr)
-        ensures
-            res == self.pte_addr_spec(),
-    {
+    fn pte_paddr(&self) -> (res: Paddr) {
         self.pte_addr as Paddr
     }
 

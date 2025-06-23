@@ -52,7 +52,6 @@ impl PageMeta for FrameMeta {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(USAGE_spec)]
     fn USAGE() -> (res: PageUsage)
         ensures
             res == Self::USAGE_spec(),
@@ -141,7 +140,6 @@ impl PageMeta for PageTablePageMeta {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(USAGE_spec)]
     fn USAGE() -> (res: PageUsage)
         ensures
             res == Self::USAGE_spec(),
@@ -222,7 +220,6 @@ impl PageMeta for MetaPageMeta {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(USAGE_spec)]
     fn USAGE() -> (res: PageUsage)
         ensures
             res == Self::USAGE_spec(),
@@ -260,7 +257,6 @@ impl PageMeta for KernelMeta {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(USAGE_spec)]
     fn USAGE() -> (res: PageUsage)
         ensures
             res == Self::USAGE_spec(),

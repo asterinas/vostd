@@ -27,7 +27,6 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
         ensures
             res == Self::BASE_PAGE_SIZE_spec(),
@@ -45,7 +44,6 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
         ensures
             res == Self::NR_LEVELS_spec(),
@@ -60,7 +58,6 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
     fn ADDRESS_WIDTH() -> (res: usize)
         ensures
             res == Self::ADDRESS_WIDTH_spec(),
@@ -75,7 +72,6 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
     fn HIGHEST_TRANSLATION_LEVEL() -> (res: PagingLevel)
         ensures
             res == Self::HIGHEST_TRANSLATION_LEVEL_spec(),
@@ -98,7 +94,6 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(PTE_SIZE_spec)]
     fn PTE_SIZE() -> (res: usize)
         ensures
             res == Self::PTE_SIZE_spec(),
