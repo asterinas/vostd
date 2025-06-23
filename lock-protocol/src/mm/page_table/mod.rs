@@ -127,11 +127,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::BASE_PAGE_SIZE_SPEC()
     }
 
-    #[verifier::when_used_as_spec(BASE_PAGE_SIZE_SPEC)]
-    fn BASE_PAGE_SIZE() -> (res: usize)
-        ensures
-            res == Self::BASE_PAGE_SIZE_SPEC(),
-    {
+    fn BASE_PAGE_SIZE() -> (res: usize) {
         C::C::BASE_PAGE_SIZE()
     }
 
@@ -139,11 +135,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::NR_LEVELS_SPEC()
     }
 
-    #[verifier::when_used_as_spec(NR_LEVELS_SPEC)]
-    fn NR_LEVELS() -> (res: PagingLevel)
-        ensures
-            res == Self::NR_LEVELS_SPEC(),
-    {
+    fn NR_LEVELS() -> (res: PagingLevel) {
         C::C::NR_LEVELS()
     }
 }
@@ -279,7 +271,6 @@ Sized {
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_SPEC)]
     fn BASE_PAGE_SIZE() -> (res: usize)
         ensures
-            res == Self::BASE_PAGE_SIZE_SPEC(),
             res != 0,
             res == Self::BASE_PAGE_SIZE_SPEC(),
     ;
