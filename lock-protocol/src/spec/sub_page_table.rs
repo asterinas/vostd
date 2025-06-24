@@ -58,7 +58,9 @@ pub ghost struct FrameView {
 
 } // verus!
 tokenized_state_machine! {
-SimplePageTable {
+
+// A state machine for a sub-tree of a page table.
+SubPageTableStateMachine {
 
     fields {
         #[sharding(variable)]

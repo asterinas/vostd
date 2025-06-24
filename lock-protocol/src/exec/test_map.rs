@@ -17,14 +17,12 @@ use crate::{
         PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig,
         PagingLevel,
     },
-    spec::simple_page_table,
+    spec::sub_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
 };
 use vstd::simple_pptr::*;
 
 use crate::exec::*;
-
-use crate::spec::spt_helpers::*;
 
 verus! {
 
@@ -84,7 +82,7 @@ requires
         Tracked(unused_addrs),
         Tracked(pte_token),
         Tracked(unused_pte_addrs),
-    ) = simple_page_table::SimplePageTable::Instance::initialize();
+    ) = sub_page_table::SubPageTableStateMachine::Instance::initialize();
     let tracked tokens = Tokens {
         unused_addrs: unused_addrs.into_map(),
         unused_pte_addrs: unused_pte_addrs.into_map(),
@@ -144,7 +142,7 @@ requires
         let tracked used_addr = tokens.unused_addrs.tracked_remove(p.addr()as int);
         assert(used_addr.element() == p.addr() as int);
 
-        instance.new_at(p.addr() as int, simple_page_table::FrameView {
+        instance.new_at(p.addr() as int, sub_page_table::FrameView {
             pa: p.addr() as int,
             pte_addrs: Set::empty(),
         }, sub_page_table.frames.borrow_mut(), used_addr, sub_page_table.ptes.borrow_mut());

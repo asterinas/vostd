@@ -23,7 +23,7 @@ use crate::{
         page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
         PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
     },
-    spec::simple_page_table,
+    spec::sub_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
 };
 use vstd::simple_pptr::*;
@@ -247,7 +247,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut exec::SubPageTable,
         cur_alloc_index: usize,
         used_addr: usize,
-        used_addr_token: Tracked<simple_page_table::SimplePageTable::unused_addrs>,
+        used_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_addrs>,
     ) -> (res: Self) where Self: Sized {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
         broadcast use vstd::hash_map::group_hash_map_axioms;
@@ -268,7 +268,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
             assert(!spt.frames@.value().contains_key(used_addr as int));
             spt.instance.get().new_at(
                 p.addr() as int,
-                simple_page_table::FrameView { pa: p.addr() as int, pte_addrs: Set::empty() },
+                sub_page_table::FrameView { pa: p.addr() as int, pte_addrs: Set::empty() },
                 spt.frames.borrow_mut(),
                 used_addr_token.get(),
                 spt.ptes.borrow_mut(),
@@ -358,7 +358,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut SubPageTable,
         level: crate::mm::PagingLevel,
         ghost_index: usize,
-        used_pte_addr_token: Tracked<simple_page_table::SimplePageTable::unused_pte_addrs>,
+        used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     )
         ensures
             spt.wf(),
@@ -459,9 +459,9 @@ struct_with_invariants!{
     /// A sub-tree in a page table.
     pub struct SubPageTable {
         pub mem: HashMap<usize, (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>)>, // mem is indexed by index!
-        pub frames: Tracked<simple_page_table::SimplePageTable::frames>, // frame is indexed by paddr!
-        pub ptes: Tracked<simple_page_table::SimplePageTable::ptes>,
-        pub instance: Tracked<simple_page_table::SimplePageTable::Instance>,
+        pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>, // frame is indexed by paddr!
+        pub ptes: Tracked<sub_page_table::SubPageTableStateMachine::ptes>,
+        pub instance: Tracked<sub_page_table::SubPageTableStateMachine::Instance>,
     }
 
     pub open spec fn wf(&self) -> bool {
@@ -509,8 +509,11 @@ struct_with_invariants!{
 }
 
 pub tracked struct Tokens {
-    pub tracked unused_addrs: Map<int, simple_page_table::SimplePageTable::unused_addrs>,
-    pub tracked unused_pte_addrs: Map<int, simple_page_table::SimplePageTable::unused_pte_addrs>,
+    pub tracked unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
+    pub tracked unused_pte_addrs: Map<
+        int,
+        sub_page_table::SubPageTableStateMachine::unused_pte_addrs,
+    >,
 }
 
 pub fn main_test() {

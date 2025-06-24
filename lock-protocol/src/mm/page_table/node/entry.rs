@@ -14,7 +14,7 @@ use super::{Child, MapTrackingStatus, PageTableLockTrait, PageTableNode};
 
 use crate::exec;
 
-use crate::spec::simple_page_table;
+use crate::spec::sub_page_table;
 
 verus! {
 
@@ -105,7 +105,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         spt: &mut exec::SubPageTable,
         level: PagingLevel,
         ghost_index: usize,  // TODO: make it ghost
-        used_pte_addr_token: Tracked<simple_page_table::SimplePageTable::unused_pte_addrs>,
+        used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     ) -> (res: Child<C>)
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),

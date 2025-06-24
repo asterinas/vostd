@@ -33,7 +33,7 @@ use super::{
     PagingConstsTrait, PagingLevel,
 };
 
-use crate::spec::simple_page_table;
+use crate::spec::sub_page_table;
 use crate::exec;
 use spec_helpers::*;
 use crate::mm::NR_ENTRIES;
@@ -727,7 +727,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             cur_entry.pte.pte_paddr() as int,
         );
 
-        // TODO: P0 Fix the last level frame in SimplePageTable and SubPageTable.
+        // TODO: P0 Fix the last level frame in SubPageTableStateMachine and SubPageTable.
         // Map the current page.
         let old_entry = cur_entry.replace(
             Child::Frame(frame, prop),
@@ -890,7 +890,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 }
                 continue ;
             }
-            let tracked used_pte_addr_token: simple_page_table::SimplePageTable::unused_pte_addrs;
+            let tracked used_pte_addr_token:
+                sub_page_table::SubPageTableStateMachine::unused_pte_addrs;
             proof {
                 used_pte_addr_token =
                 unused_pte_addrs.tracked_remove(unused_pte_addrs.dom().choose());

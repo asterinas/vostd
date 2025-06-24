@@ -28,7 +28,7 @@ use crate::sync::spin;
 use crate::x86_64::paddr_to_vaddr;
 
 use crate::exec;
-use crate::spec::simple_page_table;
+use crate::spec::sub_page_table;
 
 use crate::mm::NR_ENTRIES;
 
@@ -68,7 +68,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         spt: &mut exec::SubPageTable,
         cur_alloc_index: usize,
         used_addr: usize,
-        used_addr_token: Tracked<simple_page_table::SimplePageTable::unused_addrs>,
+        used_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_addrs>,
     ) -> (res: Self) where Self: Sized
         requires
             old(spt).mem@.contains_key(cur_alloc_index),
@@ -155,7 +155,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         spt: &mut exec::SubPageTable,
         level: PagingLevel,
         ghost_index: usize,
-        used_pte_addr_token: Tracked<simple_page_table::SimplePageTable::unused_pte_addrs>,
+        used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     )
         requires
             idx < nr_subpage_per_huge(),

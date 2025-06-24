@@ -29,7 +29,7 @@ use super::{
     PagingLevel,
 };
 
-use crate::spec::simple_page_table;
+use crate::spec::sub_page_table;
 use crate::exec;
 
 verus! {
@@ -50,8 +50,8 @@ pub open spec fn instance_match(spt: &exec::SubPageTable, tokens: exec::Tokens) 
 
 pub open spec fn instance_match_addrs(
     spt: &exec::SubPageTable,
-    unused_addrs: Map<int, simple_page_table::SimplePageTable::unused_addrs>,
-    unused_pte_addrs: Map<int, simple_page_table::SimplePageTable::unused_pte_addrs>,
+    unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
+    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
 ) -> bool {
     &&& forall|i|
         unused_addrs.contains_key(i) ==> #[trigger] unused_addrs[i].instance_id()
@@ -101,8 +101,8 @@ pub open spec fn mpt_not_contains_not_allocated_frames(
 }
 
 pub open spec fn unallocated_frames_are_unused(
-    unused_addrs: Map<int, simple_page_table::SimplePageTable::unused_addrs>,
-    unused_pte_addrs: Map<int, simple_page_table::SimplePageTable::unused_pte_addrs>,
+    unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
+    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     cur_alloc_index: usize,
 ) -> bool {
     &&& forall|i: usize|
@@ -117,8 +117,8 @@ pub open spec fn unallocated_frames_are_unused(
 }
 
 pub open spec fn tokens_wf(
-    unused_addrs: Map<int, simple_page_table::SimplePageTable::unused_addrs>,
-    unused_pte_addrs: Map<int, simple_page_table::SimplePageTable::unused_pte_addrs>,
+    unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
+    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
 ) -> bool {
     &&& forall|key|
         { unused_addrs.dom().contains(key) ==> #[trigger] unused_addrs[key].element() == key }

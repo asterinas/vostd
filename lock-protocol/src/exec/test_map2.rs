@@ -37,7 +37,7 @@ requires
         Tracked(unused_addrs),
         Tracked(pte_token),
         Tracked(unused_pte_addrs),
-    ) = simple_page_table::SimplePageTable::Instance::initialize();
+    ) = simple_page_table::SubPageTableStateMachine::Instance::initialize();
     let tracked tokens = Tokens {
         unused_addrs: unused_addrs.into_map(),
         unused_pte_addrs: unused_pte_addrs.into_map(),
