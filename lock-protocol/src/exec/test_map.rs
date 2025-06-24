@@ -105,7 +105,7 @@ requires
     };
     assert(cursor.0.level == 4);
 
-    let mut mock_page_table = MockPageTable {
+    let mut sub_page_table = SubPageTable {
         mem: alloc_page_table_entries(),
         frames: Tracked(frames_token),
         ptes: Tracked(pte_token),
@@ -113,7 +113,7 @@ requires
     };
 
     let mut cur_alloc_index: usize = 0; // TODO: theoretically, this should be atomic
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &mock_page_table.mem); // TODO: permission violation
+    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem); // TODO: permission violation
     let f = exec::create_new_frame(PHYSICAL_BASE_ADDRESS(), 4);
     assert(f.ptes[0].frame_pa == 0 as u64);
     p.write(Tracked(&mut pt), f);
@@ -123,23 +123,23 @@ requires
     assert(pt.value().ptes == f.ptes);
     assert(pt.value().ptes[0].frame_pa == 0 as u64);
 
-    assert(mock_page_table.wf());
+    assert(sub_page_table.wf());
 
-    assert(mock_page_table.mem.len() == MAX_FRAME_NUM);
+    assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
     assert(p.addr() == PHYSICAL_BASE_ADDRESS() as usize);
-    assert(mock_page_table.mem@.contains_key(cur_alloc_index));
+    assert(sub_page_table.mem@.contains_key(cur_alloc_index));
 
-    mock_page_table.mem.remove(&cur_alloc_index);
-    assert(mock_page_table.mem.len() == MAX_FRAME_NUM - 1);
-    mock_page_table.mem.insert(cur_alloc_index, (p, Tracked(pt)));
-    assert(mock_page_table.mem.len() == MAX_FRAME_NUM);
+    sub_page_table.mem.remove(&cur_alloc_index);
+    assert(sub_page_table.mem.len() == MAX_FRAME_NUM - 1);
+    sub_page_table.mem.insert(cur_alloc_index, (p, Tracked(pt)));
+    assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
 
-    assert(mock_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<SimpleFrame>::Uninit);
 
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &mock_page_table.mem);
+    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem);
     assert(pt.mem_contents() != MemContents::<SimpleFrame>::Uninit);
 
-    // assert(mock_page_table.wf()); this should fail
+    // assert(sub_page_table.wf()); this should fail
     proof{
         let tracked used_addr = tokens.unused_addrs.tracked_remove(p.addr()as int);
         assert(used_addr.element() == p.addr() as int);
@@ -147,9 +147,9 @@ requires
         instance.new_at(p.addr() as int, simple_page_table::FrameView {
             pa: p.addr() as int,
             pte_addrs: Set::empty(),
-        }, mock_page_table.frames.borrow_mut(), used_addr, mock_page_table.ptes.borrow_mut());
+        }, sub_page_table.frames.borrow_mut(), used_addr, sub_page_table.ptes.borrow_mut());
     }
-    assert(mock_page_table.wf());
+    assert(sub_page_table.wf());
 
     cur_alloc_index = cur_alloc_index + 1;
 
@@ -165,7 +165,7 @@ requires
 
     cursor.map(frame, page_prop,
         Tracked(tokens),
-        &mut mock_page_table,
+        &mut sub_page_table,
         &mut cur_alloc_index
     );
 
@@ -174,7 +174,7 @@ requires
 
     let level4_index = pte_index(va, NR_LEVELS as u8);
     let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
-    let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, &mock_page_table);
+    let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, &sub_page_table);
 
     // let level3_frame_addr = cursor.0.path[(NR_LEVELS as usize) - 2].as_ref().unwrap().paddr() as usize;
     // assert(level4_pte.frame_pa == level3_frame_addr as u64);

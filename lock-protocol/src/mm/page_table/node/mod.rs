@@ -65,56 +65,56 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
     fn alloc(
         level: PagingLevel,
         is_tracked: MapTrackingStatus,
-        mpt: &mut exec::MockPageTable,
+        spt: &mut exec::SubPageTable,
         cur_alloc_index: usize,
         used_addr: usize,
         used_addr_token: Tracked<simple_page_table::SimplePageTable::unused_addrs>,
     ) -> (res: Self) where Self: Sized
         requires
-            old(mpt).mem@.contains_key(cur_alloc_index),
-            old(mpt).mem@[cur_alloc_index].1@.mem_contents().is_uninit(),  // this means !mpt.frames@.contains_key(used_addr) because mpt is wf.
+            old(spt).mem@.contains_key(cur_alloc_index),
+            old(spt).mem@[cur_alloc_index].1@.mem_contents().is_uninit(),  // this means !spt.frames@.contains_key(used_addr) because spt is wf.
             forall|i: int|
-                old(mpt).ptes@.value().contains_key(i) ==> (#[trigger] old(
-                    mpt,
+                old(spt).ptes@.value().contains_key(i) ==> (#[trigger] old(
+                    spt,
                 ).ptes@.value()[i]).frame_pa != used_addr,
             forall|i: int|
-                0 <= i < NR_ENTRIES ==> !#[trigger] old(mpt).ptes@.value().contains_key(
+                0 <= i < NR_ENTRIES ==> !#[trigger] old(spt).ptes@.value().contains_key(
                     used_addr + i * exec::SIZEOF_PAGETABLEENTRY as int,
                 ),
             used_addr_token@.element() == used_addr as int,
-            old(mpt).wf(),
+            old(spt).wf(),
             cur_alloc_index < exec::MAX_FRAME_NUM,
             cur_alloc_index < usize::MAX - 1,  // this is just for cur_alloc_index + 1 to be safe for the post condition
-            used_addr_token@.instance_id() == old(mpt).instance@.id(),
+            used_addr_token@.instance_id() == old(spt).instance@.id(),
             used_addr == exec::frame_index_to_addr(cur_alloc_index),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(mpt), cur_alloc_index),
+            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), cur_alloc_index),
             used_addr == exec::frame_index_to_addr(cur_alloc_index) as usize,
         ensures
-            mpt.instance@.id() == old(mpt).instance@.id(),
+            spt.instance@.id() == old(spt).instance@.id(),
             res.paddr() == used_addr as usize,
-            mpt.wf(),
+            spt.wf(),
             forall|i: int|
-                mpt.ptes@.value().contains_key(i) ==> (#[trigger] mpt.ptes@.value()[i]).frame_pa
+                spt.ptes@.value().contains_key(i) ==> (#[trigger] spt.ptes@.value()[i]).frame_pa
                     != used_addr,
             forall|i: int|
-                0 <= i < NR_ENTRIES ==> !#[trigger] mpt.ptes@.value().contains_key(
+                0 <= i < NR_ENTRIES ==> !#[trigger] spt.ptes@.value().contains_key(
                     used_addr + i * exec::SIZEOF_PAGETABLEENTRY as int,
                 ),
-            mpt.frames@.value().contains_key(used_addr as int),
-            mpt.mem@.contains_key(cur_alloc_index),
-            mpt.mem@[cur_alloc_index].1@.mem_contents().is_init(),
+            spt.frames@.value().contains_key(used_addr as int),
+            spt.mem@.contains_key(cur_alloc_index),
+            spt.mem@[cur_alloc_index].1@.mem_contents().is_init(),
             // all frame_pa of allocated pte are 0
             forall|i: int|
                 0 <= i < NR_ENTRIES
-                    ==> #[trigger] mpt.mem@[cur_alloc_index].1@.value().ptes[i].frame_pa == 0,
-            // mpt still contains the old frames
+                    ==> #[trigger] spt.mem@[cur_alloc_index].1@.value().ptes[i].frame_pa == 0,
+            // spt still contains the old frames
             forall|i|
-                old(mpt).frames@.value().contains_key(i) ==> mpt.frames@.value().contains_key(i),
+                old(spt).frames@.value().contains_key(i) ==> spt.frames@.value().contains_key(i),
             spec_helpers::mpt_not_contains_not_allocated_frames(
-                mpt,
+                spt,
                 (cur_alloc_index + 1) as usize,
             ),
-            spec_helpers::pte_keys_do_not_change(mpt, old(mpt)),
+            spec_helpers::pte_keys_do_not_change(spt, old(spt)),
     ;
 
     fn unlock(&mut self) -> PageTableNode;
@@ -131,20 +131,20 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
 
     fn nr_children(&self) -> u16;
 
-    fn read_pte(&self, idx: usize, mpt: &exec::MockPageTable) -> (res: C::E)
+    fn read_pte(&self, idx: usize, spt: &exec::SubPageTable) -> (res: C::E)
         requires
             idx < nr_subpage_per_huge(),
-            mpt.wf(),
+            spt.wf(),
         ensures
-            mpt.wf(),
+            spt.wf(),
             res.pte_paddr() == self.paddr() + idx * exec::SIZEOF_PAGETABLEENTRY,
-            res.pte_paddr() == exec::get_pte_from_addr_spec(res.pte_paddr(), mpt).pte_addr,
-            res.frame_paddr() == exec::get_pte_from_addr_spec(res.pte_paddr(), mpt).frame_pa,
-            res.frame_paddr() == 0 ==> !mpt.ptes@.value().contains_key(res.pte_paddr() as int),
+            res.pte_paddr() == exec::get_pte_from_addr_spec(res.pte_paddr(), spt).pte_addr,
+            res.frame_paddr() == exec::get_pte_from_addr_spec(res.pte_paddr(), spt).frame_pa,
+            res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(res.pte_paddr() as int),
             res.frame_paddr() != 0 ==> {
-                &&& mpt.ptes@.value().contains_key(res.pte_paddr() as int)
-                &&& mpt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& mpt.frames@.value().contains_key(res.frame_paddr() as int)
+                &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
+                &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
+                &&& spt.frames@.value().contains_key(res.frame_paddr() as int)
             },
     ;
 
@@ -152,24 +152,24 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         &self,
         idx: usize,
         pte: C::E,
-        mpt: &mut exec::MockPageTable,
+        spt: &mut exec::SubPageTable,
         level: PagingLevel,
         ghost_index: usize,
         used_pte_addr_token: Tracked<simple_page_table::SimplePageTable::unused_pte_addrs>,
     )
         requires
             idx < nr_subpage_per_huge(),
-            old(mpt).wf(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(mpt), ghost_index),
-            used_pte_addr_token@.instance_id() == old(mpt).instance@.id(),
+            old(spt).wf(),
+            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
+            used_pte_addr_token@.instance_id() == old(spt).instance@.id(),
             used_pte_addr_token@.element() == self.paddr() + idx
                 * exec::SIZEOF_PAGETABLEENTRY as int,
         ensures
-            mpt.wf(),
-            mpt.ptes@.instance_id() == old(mpt).ptes@.instance_id(),
-            mpt.frames@.instance_id() == old(mpt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(mpt, old(mpt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(mpt, ghost_index),
+            spt.wf(),
+            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
+            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
+            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
     ;
 
     // fn nr_children_mut(&mut self) -> &mut u16;

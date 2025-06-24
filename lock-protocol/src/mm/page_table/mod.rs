@@ -159,18 +159,18 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
-    fn is_present(&self, mpt: &exec::MockPageTable) -> (res: bool)
+    fn is_present(&self, spt: &exec::SubPageTable) -> (res: bool)
         requires
-            mpt.wf(),
-            self.pte_paddr() == exec::get_pte_from_addr(self.pte_paddr(), mpt).pte_addr,
-            self.frame_paddr() == exec::get_pte_from_addr(self.pte_paddr(), mpt).frame_pa,
+            spt.wf(),
+            self.pte_paddr() == exec::get_pte_from_addr(self.pte_paddr(), spt).pte_addr,
+            self.frame_paddr() == exec::get_pte_from_addr(self.pte_paddr(), spt).frame_pa,
         ensures
-    // mpt.ptes@.value().contains_key(self.pte_paddr() as int) == res,
+    // spt.ptes@.value().contains_key(self.pte_paddr() as int) == res,
 
-            res ==> mpt.ptes@.value().contains_key(self.pte_paddr() as int)
-                && mpt.frames@.value().contains_key(self.frame_paddr() as int),
-            !res ==> !mpt.ptes@.value().contains_key(self.pte_paddr() as int),
-            mpt.wf(),
+            res ==> spt.ptes@.value().contains_key(self.pte_paddr() as int)
+                && spt.frames@.value().contains_key(self.frame_paddr() as int),
+            !res ==> !spt.ptes@.value().contains_key(self.pte_paddr() as int),
+            spt.wf(),
     ;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
@@ -178,18 +178,18 @@ Sized {
         paddr: Paddr,
         level: PagingLevel,
         prop: PageProperty,
-        mpt: &mut exec::MockPageTable,
+        spt: &mut exec::SubPageTable,
         ghost_index: usize,
     ) -> (res: Self)
         requires
-            old(mpt).wf(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(mpt), ghost_index),
+            old(spt).wf(),
+            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
         ensures
-            mpt.wf(),
-            mpt.ptes@.instance_id() == old(mpt).ptes@.instance_id(),
-            mpt.frames@.instance_id() == old(mpt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(mpt, old(mpt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(mpt, ghost_index),
+            spt.wf(),
+            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
+            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
+            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
     ;
 
     /// Create a new PTE that map to a child page table.
@@ -244,17 +244,17 @@ Sized {
 
     /// Converts a usize `pte_raw` into a PTE.
     // TODO: Implement as_usize and from_usize
-    fn from_usize(pte_raw: usize, mpt: &exec::MockPageTable) -> (res: Self)
+    fn from_usize(pte_raw: usize, spt: &exec::SubPageTable) -> (res: Self)
         requires
-            mpt.wf(),
+            spt.wf(),
         ensures
             res.pte_paddr() == pte_raw as Paddr,
-            res.frame_paddr() == exec::get_pte_from_addr_spec(pte_raw, mpt).frame_pa,
-            res.frame_paddr() == 0 ==> !mpt.ptes@.value().contains_key(pte_raw as int),
+            res.frame_paddr() == exec::get_pte_from_addr_spec(pte_raw, spt).frame_pa,
+            res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(pte_raw as int),
             res.frame_paddr() != 0 ==> {
-                &&& mpt.ptes@.value().contains_key(res.pte_paddr() as int)
-                &&& mpt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& mpt.frames@.value().contains_key(res.frame_paddr() as int)
+                &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
+                &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
+                &&& spt.frames@.value().contains_key(res.frame_paddr() as int)
             },
     ;
 }

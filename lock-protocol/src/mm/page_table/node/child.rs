@@ -72,21 +72,21 @@ impl<C: PageTableConfig> Child<C> {
     /// Usually this is for recording the PTE into a page table node. When the
     /// child is needed again by reading the PTE of a page table node, extra
     /// information should be provided using the [`Child::from_pte`] method.
-    pub(super) fn into_pte(self, mpt: &mut exec::MockPageTable, ghost_index: usize) -> (res: C::E)
+    pub(super) fn into_pte(self, spt: &mut exec::SubPageTable, ghost_index: usize) -> (res: C::E)
         requires
-            old(mpt).wf(),
+            old(spt).wf(),
             spec_helpers::mpt_not_contains_not_allocated_frames(
-                old(mpt),
+                old(spt),
                 ghost_index,
             ),  // TODO: can we remove this?
 
         ensures
-            mpt.wf(),
-            mpt.ptes@.instance_id() == old(mpt).ptes@.instance_id(),
-            mpt.frames@.instance_id() == old(mpt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(mpt, old(mpt)),
+            spt.wf(),
+            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
+            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
+            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
             spec_helpers::mpt_not_contains_not_allocated_frames(
-                mpt,
+                spt,
                 ghost_index,
             ),  // TODO: can we remove this?
     {
@@ -102,9 +102,9 @@ impl<C: PageTableConfig> Child<C> {
             },
             Child::Frame(page, prop) => {
                 let level = page.map_level();
-                C::E::new_page(page.into_raw(), level, prop, mpt, ghost_index)
+                C::E::new_page(page.into_raw(), level, prop, spt, ghost_index)
             },
-            Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop, mpt, ghost_index),
+            Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop, spt, ghost_index),
             Child::None => C::E::new_absent(),
             Child::Token(token, _) => C::E::new_token(token),
         }
@@ -128,9 +128,9 @@ impl<C: PageTableConfig> Child<C> {
         pte: C::E,
         // level: PagingLevel,
         is_tracked: MapTrackingStatus,
-        mpt: &exec::MockPageTable,
+        spt: &exec::SubPageTable,
     ) -> Self {
-        if !pte.is_present(mpt) {
+        if !pte.is_present(spt) {
             // let paddr = pte.paddr();
             // if paddr == 0 {
             //     return Child::None;
@@ -196,14 +196,14 @@ impl<C: PageTableConfig> Child<C> {
         // level: PagingLevel, // TODO: node.level is not supported for now
         is_tracked: MapTrackingStatus,
         clone_raw: bool,
-        mpt: &exec::MockPageTable,
+        spt: &exec::SubPageTable,
     ) -> (res: Self)
         requires
-            mpt.wf(),
-            pte.pte_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), mpt).pte_addr,
-            pte.frame_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), mpt).frame_pa,
+            spt.wf(),
+            pte.pte_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), spt).pte_addr,
+            pte.frame_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), spt).frame_pa,
         ensures
-            if (mpt.ptes@.value().contains_key(pte.pte_paddr() as int)) {
+            if (spt.ptes@.value().contains_key(pte.pte_paddr() as int)) {
                 if (clone_raw) {
                     match res {
                         Child::PageTable(_) => true,
@@ -212,7 +212,7 @@ impl<C: PageTableConfig> Child<C> {
                 } else {
                     match res {
                         Child::PageTableRef(pt) => pt == pte.frame_paddr() as usize
-                            && mpt.frames@.value().contains_key(pt as int),
+                            && spt.frames@.value().contains_key(pt as int),
                         _ => false,
                     }
                 }
@@ -223,7 +223,7 @@ impl<C: PageTableConfig> Child<C> {
                 }
             },
     {
-        if !pte.is_present(mpt) {
+        if !pte.is_present(spt) {
             // let paddr = pte.paddr();
             // if paddr == 0 {
             //     return Child::None;
