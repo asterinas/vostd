@@ -26,24 +26,34 @@ use super::node::{
 
 verus! {
 
-#[is_variant]
 pub enum GuardInPath {
     ReadLocked(PageTableReadLock),
     WriteLocked(PageTableWriteLock),
     None,
 }
 
-struct_with_invariants!{
+impl GuardInPath {
+    #[verifier::external_body] // Verus does not support replace.
+    pub fn take(&mut self) -> (res: Self)
+        ensures
+            res =~= *old(self),
+            *self is None,
+    {
+        core::mem::replace(self, Self::None)
+    }
+}
 
 pub struct Cursor {
     pub path: Vec<GuardInPath>,
     pub level: PagingLevel,
     pub guard_level: PagingLevel,
     pub va: Vaddr,
+    pub inst: Tracked<SpecInstance>,
+    pub unlock_level: Ghost<PagingLevel> // Used for 'unlock_range'.
 }
 
-pub open spec fn wf(&self, mem: &MemContent) -> bool {
-    predicate {
+impl Cursor {
+    pub open spec fn wf(&self, mem: &MemContent) -> bool {
         &&& self.path@.len() == 4
 
         &&& 1 <= self.level <= self.guard_level <= 4
@@ -55,20 +65,22 @@ pub open spec fn wf(&self, mem: &MemContent) -> bool {
                 } else if level == self.guard_level {
                     &&& self.path[level - 1] is WriteLocked
                     &&& self.path[level - 1]->WriteLocked_0.wf(mem)
+                    &&& self.path[level - 1]->WriteLocked_0.inst_id() == self.inst@.id()
                 } else {
                     &&& self.path[level - 1] is ReadLocked
                     &&& self.path[level - 1]->ReadLocked_0.wf(mem)
+                    &&& self.path[level - 1]->ReadLocked_0.inst_id() == self.inst@.id()
                 }
             }
 
         // &&& valid_vaddr(self.va)
         // &&& vaddr_is_aligned(self.va)
+            
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+
+        &&& self.unlock_level@ == self.guard_level
     }
-}
 
-}
-
-impl Cursor {
     pub open spec fn wf_init(&self, va: Range<Vaddr>) -> bool
         recommends
             va_range_wf(va),
@@ -76,6 +88,48 @@ impl Cursor {
         &&& self.level == self.guard_level
         &&& self.va == va.start
         &&& self.level == va_range_get_guard_level(va)
+    }
+
+    pub open spec fn wf_unlock(&self) -> bool {
+        &&& self.unlock_level@ == 5
+        &&& forall |level: int| #![trigger self.path@[level - 1]]
+            1 <= level <= 4 ==>
+                self.path@[level - 1] is None
+    }
+
+    pub open spec fn wf_with_lock_protocol_model(
+        &self,
+        m: LockProtocolModel,
+    ) -> bool {
+        &&& m.inst_id() == self.inst@.id()
+        &&& m.path().len() == 5 - self.unlock_level@
+        &&& forall |level: int| #![trigger self.path[level - 1]]
+            self.unlock_level@ <= level <= 4 ==> {
+                &&& !(self.path[level - 1] is None)
+                &&& match self.path[level - 1] {
+                    GuardInPath::ReadLocked(rguard) => 
+                        m.path()[4 - level] == rguard.nid(),
+                    GuardInPath::WriteLocked(wguard) =>
+                        m.path()[4 - level] == wguard.nid(),
+                    GuardInPath::None => true,
+                }
+            }
+    }
+
+    #[verifier::external_body] // Verus does not support index for &mut.
+    pub fn take_guard(&mut self, idx: usize) -> (res: GuardInPath)
+        requires
+            0 <= idx < old(self).path@.len(),
+        ensures
+            res =~= old(self).path@[idx as int],
+            self.path@ =~= old(self).path@.update(idx as int, GuardInPath::None),
+            self.level == old(self).level,
+            self.guard_level == old(self).guard_level,
+            self.va =~= old(self).va,
+            self.inst@ =~= old(self).inst@,
+            self.unlock_level@ == old(self).unlock_level@,
+    {
+        self.path[idx].take()
     }
 }
 
@@ -175,10 +229,12 @@ pub fn lock_range(
     ensures
         res.0.wf(mem),
         res.0.wf_init(*va),
+        res.0.inst@.id() == pt.inst@.id(),
         res.1@.inv(),
         res.1@.inst_id() == pt.inst@.id(),
         res.1@.state() is WriteLocked,
         res.1@.path() =~= va_range_get_tree_path(*va),
+        res.0.wf_with_lock_protocol_model(res.1@),
 {
     let mut path: Vec<GuardInPath> = Vec::with_capacity(4);
     let mut i: usize = 0;
@@ -238,11 +294,15 @@ pub fn lock_range(
             level >= va_range_get_guard_level(*va),
             1 <= va_range_get_guard_level(*va) <= 4,
             path.len() == 4,
-            forall|i| #![auto] level <= i < 4 ==> {
-                &&& path@[i] is ReadLocked
-                &&& path@[i]->ReadLocked_0.wf(mem)
-            },
-            forall|i| 0 <= i < level ==> path@[i] is None,
+            forall|i: int| #![trigger path@[i - 1]] 
+                level < i <= 4 ==> {
+                    &&& path@[i - 1] is ReadLocked
+                    &&& path@[i - 1]->ReadLocked_0.wf(mem)
+                    &&& path@[i - 1]->ReadLocked_0.inst_id() == pt.inst@.id()
+                    &&& m.path()[4 - i] == path@[i - 1]->ReadLocked_0.nid()
+                },
+            forall|i: int| #![trigger path@[i - 1]] 
+                1 <= i <= level ==> path@[i - 1] is None,
             m.path().len() == 4 - level,
             m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
@@ -259,11 +319,15 @@ pub fn lock_range(
             level as nat == NodeHelper::nid_to_level(cur_nid),
             level == va_range_get_guard_level(*va),
             path.len() == 4,
-            forall|i| #![auto] level <= i < 4 ==> {
-                &&& path@[i] is ReadLocked
-                &&& path@[i]->ReadLocked_0.wf(mem)
-            },
-            forall|i| 0 <= i < level ==> path@[i] is None,
+            forall|i: int| #![trigger path@[i - 1]] 
+                level < i <= 4 ==> {
+                    &&& path@[i - 1] is ReadLocked
+                    &&& path@[i - 1]->ReadLocked_0.wf(mem)
+                    &&& path@[i - 1]->ReadLocked_0.inst_id() == pt.inst@.id()
+                    &&& m.path()[4 - i] == path@[i - 1]->ReadLocked_0.nid()
+                },
+            forall|i: int| #![trigger path@[i - 1]] 
+                1 <= i <= level ==> path@[i - 1] is None,
             m.path().len() == 4 - level,
             m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
@@ -424,14 +488,93 @@ pub fn lock_range(
 
     path[level as usize - 1] = GuardInPath::WriteLocked(cur_pt_wlockguard);
 
-    let cursor = Cursor { path, level: level, guard_level: level, va: va.start };
+    let tracked inst = pt.inst.borrow().clone();
+    let cursor = Cursor { 
+        path, 
+        level: level, 
+        guard_level: level, 
+        va: va.start, 
+        inst: Tracked(inst),
+        unlock_level: Ghost(level),
+    };
 
     (cursor, Tracked(m))
 }
 
 pub fn unlock_range(
     cursor: &mut Cursor,
-) 
-{}
+    m: Tracked<LockProtocolModel>,
+    mem: &MemContent,
+) -> (res: Tracked<LockProtocolModel>)
+    requires
+        old(cursor).wf(mem),
+        old(cursor).wf_with_lock_protocol_model(m@),
+        m@.inv(),
+        m@.state() is WriteLocked,
+    ensures
+        cursor.wf_unlock(),
+        res@.inv(),
+        res@.state() is Void,
+{
+    let tracked mut m = m.get();
+
+    let guard_level = cursor.guard_level;
+    let GuardInPath::WriteLocked(mut guard_node) = cursor.take_guard(guard_level as usize - 1)
+    else { unreached() };
+
+    assert(m.path().len() == 5 - guard_level);
+    assert(m.path()[4 - guard_level] == guard_node.nid());
+    let res = guard_node.unlock(mem, Tracked(m));
+    let pt = res.0;
+    proof { m = res.1.get(); }
+    pt.into_raw(mem);
+    cursor.unlock_level = 
+        Ghost((cursor.unlock_level@ + 1) as PagingLevel);
+
+    let mut i = guard_level + 1;
+    while i <= 4 
+        invariant
+            guard_level + 1 <= i <= 5,
+            i == cursor.unlock_level@,
+            cursor.path@.len() == 4,
+            forall|level: int| #![trigger cursor.path@[level - 1]] 
+                i <= level <= 4 ==> {
+                    &&& cursor.path@[level - 1] is ReadLocked
+                    &&& cursor.path@[level - 1]->ReadLocked_0.wf(mem)
+                    &&& cursor.path@[level - 1]->ReadLocked_0.inst_id() == 
+                        cursor.inst@.id()
+                },
+            forall|level: int| #![trigger cursor.path@[level - 1]]
+                1 <= level < i ==> cursor.path@[level - 1] is None,
+            cursor.wf_with_lock_protocol_model(m),
+            m.inv(),
+            m.state() is ReadLocking,
+            cursor.inst@.cpu_num() == GLOBAL_CPU_NUM,
+        decreases 5 - i,
+    {
+        match cursor.take_guard(i as usize - 1) {
+            GuardInPath::None => unreached(),
+            GuardInPath::ReadLocked(mut rguard) => {
+                assert(m.path()[4 - i] == rguard.nid());
+                let res = rguard.unlock(mem, Tracked(m));
+                let pt = res.0;
+                proof { m = res.1.get(); }
+                pt.into_raw(mem);
+                cursor.unlock_level = 
+                    Ghost((cursor.unlock_level@ + 1) as PagingLevel);
+            }
+            GuardInPath::WriteLocked(_) => unreached(),
+            // GuardInPath::ImplicitlyLocked(_) => unreached(),
+        }
+        i += 1;
+    }
+
+    proof {
+        let tracked token = cursor.inst.borrow().unlocking_end(m.cpu, m.token);
+        m.token = token;
+    }
+
+    Tracked(m)
+}
 
 } // verus!
