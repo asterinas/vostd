@@ -1,5 +1,4 @@
 // Copied from vstd
-
 use core::marker::PhantomData;
 use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
@@ -305,10 +304,10 @@ pub tracked struct PageTableEntryPerms {
 
 impl PageTableEntryPerms {
     pub open spec fn wf(
-        &self, 
+        &self,
         paddr: Paddr,
         level: PagingLevel,
-        instance_id: InstanceId, 
+        instance_id: InstanceId,
         nid: NodeId,
     ) -> bool
         recommends
@@ -318,12 +317,18 @@ impl PageTableEntryPerms {
         &&& self.inner.is_init_all()
         &&& self.inner.value().len() == 512
         // Page table well-formed.
-        &&& forall |i: nat| #![auto] 0 <= self.inner.value().len() < 512 ==> {
-            &&& self.inner.value()[i as int].wf()
-            &&& self.inner.value()[i as int].wf_with_node_info(
-                paddr, level, instance_id, nid, i,
-            )
-        }
+        &&& forall|i: nat|
+            #![auto]
+            0 <= self.inner.value().len() < 512 ==> {
+                &&& self.inner.value()[i as int].wf()
+                &&& self.inner.value()[i as int].wf_with_node_info(
+                    paddr,
+                    level,
+                    instance_id,
+                    nid,
+                    i,
+                )
+            }
     }
 
     pub open spec fn addr(&self) -> Vaddr {
@@ -333,8 +338,14 @@ impl PageTableEntryPerms {
 
 pub ghost struct RwInternalPred;
 
-impl InvariantPredicate<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms)> for RwInternalPred {
-    open spec fn inv(k: (InstanceId, NodeId, Paddr, PagingLevel), v: (NodeToken, PageTableEntryPerms)) -> bool {
+impl InvariantPredicate<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+> for RwInternalPred {
+    open spec fn inv(
+        k: (InstanceId, NodeId, Paddr, PagingLevel),
+        v: (NodeToken, PageTableEntryPerms),
+    ) -> bool {
         &&& v.0.instance_id() == k.0
         &&& NodeHelper::valid_nid(k.1)
         &&& v.0.key() == k.1
@@ -344,24 +355,59 @@ impl InvariantPredicate<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, Pa
     }
 }
 
-type RwInstance = 
-    RwLockToks::Instance<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwExcToken = 
-    RwLockToks::flag_exc<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwRcToken = 
-    RwLockToks::flag_rc<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwRealRcToken =
-    RwLockToks::flag_real_rc<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwWriterToken = 
-    RwLockToks::writer<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwMockReaderToken =
-    RwLockToks::mock_reader<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwReaderToken =
-    RwLockToks::reader<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwPendingWriterToken = 
-    RwLockToks::pending_writer<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
-type RwPendingReaderToken =
-    RwLockToks::pending_reader<(InstanceId, NodeId, Paddr, PagingLevel), (NodeToken, PageTableEntryPerms), RwInternalPred>;
+type RwInstance = RwLockToks::Instance<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwExcToken = RwLockToks::flag_exc<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwRcToken = RwLockToks::flag_rc<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwRealRcToken = RwLockToks::flag_real_rc<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwWriterToken = RwLockToks::writer<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwMockReaderToken = RwLockToks::mock_reader<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwReaderToken = RwLockToks::reader<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwPendingWriterToken = RwLockToks::pending_writer<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
+
+type RwPendingReaderToken = RwLockToks::pending_reader<
+    (InstanceId, NodeId, Paddr, PagingLevel),
+    (NodeToken, PageTableEntryPerms),
+    RwInternalPred,
+>;
 
 struct_with_invariants! {
     // Here all types are determined.
@@ -382,7 +428,7 @@ struct_with_invariants! {
         predicate {
             &&& valid_paddr(self.paddr@)
             &&& 1 <= self.level@ <= 4
-            &&& self.inst@.k() == 
+            &&& self.inst@.k() ==
                 (self.pt_inst@.id(), self.nid@, self.paddr@, self.level@)
             &&& self.pt_inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& NodeHelper::valid_nid(self.nid@)
@@ -424,9 +470,7 @@ impl RwWriteGuard {
         &&& self.token@.instance_id() == rwlock.pt_inst@.id()
         &&& self.token@.key() == rwlock.nid@
         &&& self.token@.value() is WriteLocked
-        &&& self.perms@.wf(
-            rwlock.paddr@, rwlock.level@, rwlock.pt_inst@.id(), rwlock.nid@
-        )
+        &&& self.perms@.wf(rwlock.paddr@, rwlock.level@, rwlock.pt_inst@.id(), rwlock.nid@)
         &&& self.perms@.addr() == paddr_to_vaddr(rwlock.paddr@)
     }
 
@@ -446,10 +490,12 @@ impl RwReadGuard {
         &&& self.handle@.element().0.key() == rwlock.nid@
         &&& self.handle@.element().0.value() is WriteUnLocked
         &&& self.handle@.element().1.wf(
-            rwlock.paddr@, rwlock.level@, rwlock.pt_inst@.id(), rwlock.nid@
+            rwlock.paddr@,
+            rwlock.level@,
+            rwlock.pt_inst@.id(),
+            rwlock.nid@,
         )
-        &&& self.handle@.element().1.addr() == 
-            paddr_to_vaddr(rwlock.paddr@)
+        &&& self.handle@.element().1.addr() == paddr_to_vaddr(rwlock.paddr@)
     }
 
     pub open spec fn view_token(&self) -> NodeToken {
@@ -460,10 +506,10 @@ impl RwReadGuard {
         self.handle@.element().1
     }
 
-    pub fn borrow(
-        &self,
-        rwlock: &PageTablePageRwLock,
-    ) -> (res: (Tracked<&NodeToken>, Tracked<&PageTableEntryPerms>))
+    pub fn borrow(&self, rwlock: &PageTablePageRwLock) -> (res: (
+        Tracked<&NodeToken>,
+        Tracked<&PageTableEntryPerms>,
+    ))
         requires
             self.wf(rwlock),
         ensures
@@ -479,10 +525,7 @@ impl RwReadGuard {
         (Tracked(token), Tracked(perms))
     }
 
-    pub fn borrow_token(
-        &self,
-        rwlock: &PageTablePageRwLock,
-    ) -> (res: Tracked<&NodeToken>)
+    pub fn borrow_token(&self, rwlock: &PageTablePageRwLock) -> (res: Tracked<&NodeToken>)
         requires
             self.wf(rwlock),
         ensures
@@ -491,10 +534,7 @@ impl RwReadGuard {
         self.borrow(rwlock).0
     }
 
-    pub fn borrow_perms(
-        &self,
-        rwlock: &PageTablePageRwLock,
-    ) -> (res: Tracked<&PageTableEntryPerms>)
+    pub fn borrow_perms(&self, rwlock: &PageTablePageRwLock) -> (res: Tracked<&PageTableEntryPerms>)
         requires
             self.wf(rwlock),
         ensures
@@ -506,15 +546,12 @@ impl RwReadGuard {
     // pub closed spec fn rwlock(self) -> PageTablePageRwLock {
     //     *self.rwlock
     // }
-
     // pub closed spec fn pt_inst_id(self) -> InstanceId {
     //     self.rwlock.pt_inst@.id()
     // }
-
     // pub closed spec fn nid(self) -> NodeId {
     //     self.rwlock.nid@
     // }
-
     // pub proof fn lemma_readers_match(
     //     tracked read_handle1: &RwReadGuard,
     //     tracked read_handle2: &RwReadGuard,
@@ -534,7 +571,6 @@ impl RwReadGuard {
     //         &read_handle2.handle.borrow(),
     //     );
     // }
-
     // pub fn release_read(
     //     self,
     //     m: Tracked<LockProtocolModel>,
@@ -553,18 +589,15 @@ impl RwReadGuard {
     //     proof {
     //         use_type_invariant(&self);
     //     }
-
     //     let tracked mut m = m.get();
     //     let RwReadGuard { handle: Tracked(handle), rwlock } = self;
     //     let tracked mut mock_handle_opt: Option<RwMockReaderToken> = Option::None;
-
     //     let _ = atomic_with_ghost!(
     //         &rwlock.real_rc => fetch_sub(1);
     //         ghost g => {
-    //             let tracked mock_handle = 
+    //             let tracked mock_handle =
     //                 rwlock.inst.borrow().dec_real_rc(handle.element(), &mut g.0, handle);
     //             mock_handle_opt = Option::Some(mock_handle);
-
     //             let tracked res = rwlock.pt_inst.borrow().read_unlock(
     //                 m.cpu, rwlock.nid@, g.1, m.token,
     //             );
@@ -573,7 +606,6 @@ impl RwReadGuard {
     //             m.token = cursor_token;
     //         }
     //     );
-
     //     let tracked mock_handle = match mock_handle_opt {
     //         Option::Some(t) => t,
     //         Option::None => proof_from_false(),
@@ -584,14 +616,11 @@ impl RwReadGuard {
     //             rwlock.inst.borrow().release_shared(&mut g, mock_handle);
     //         }
     //     );
-
     //     Tracked(m)
     // }
-
     // pub closed spec fn paddr_spec(&self) -> Paddr {
     //     self.rwlock.paddr()
     // }
-
     // #[inline(always)]
     // #[verifier::when_used_as_spec(paddr_spec)]
     // pub fn paddr(&self) -> (res: Paddr)
@@ -600,11 +629,9 @@ impl RwReadGuard {
     // {
     //     self.rwlock.paddr
     // }
-
     // pub fn level(&self) -> PagingLevel {
     //     self.rwlock.level
     // }
-
     // pub fn read_pte(&self, offset: usize) -> (res: Pte)
     //     requires
     //         0 <= offset < 512,
@@ -617,7 +644,6 @@ impl RwReadGuard {
     //     reveal(PageTablePageRwLock::wf);
     //     reveal(PageTablePageRwLock::paddr);
     //     reveal(RwReadGuard::paddr_spec);
-
     //     let vaddr: Vaddr = paddr_to_vaddr(self.paddr());
     //     let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(vaddr);
     //     let tracked pair = self.rwlock.inst.borrow().read_guard(
@@ -640,10 +666,8 @@ impl RwReadGuard {
     //         self.rwlock.nid@,
     //         offset as nat,
     //     )) by { admit(); };
-
     //     pte
     // }
-
     // pub fn read_child_ref(&self, offset: usize) -> (res: Child)
     //     requires
     //         0 <= offset < 512,
@@ -652,12 +676,11 @@ impl RwReadGuard {
     //     proof {
     //         use_type_invariant(self);
     //     }
-
     //     let pte: Pte = self.read_pte(offset);
     //     Child::ref_from_pte(&pte, self.level(), /*self.is_tracked(),*/ false)
     // }
-
-    pub fn no_op() {}
+    pub fn no_op() {
+    }
 }
 
 impl PageTablePageRwLock {
@@ -677,8 +700,7 @@ impl PageTablePageRwLock {
         self.pt_inst@.id()
     }
 
-    pub proof fn get_pt_inst(tracked &self) -> (tracked res: SpecInstance)
-    {
+    pub proof fn get_pt_inst(tracked &self) -> (tracked res: SpecInstance) {
         self.pt_inst.borrow().clone()
     }
 
@@ -687,10 +709,10 @@ impl PageTablePageRwLock {
     }
 
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn lock_write(
-        &self, 
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (RwWriteGuard, Tracked<LockProtocolModel>))
+    pub fn lock_write(&self, m: Tracked<LockProtocolModel>) -> (res: (
+        RwWriteGuard,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             self.wf(),
             m@.inv(),
@@ -714,7 +736,8 @@ impl PageTablePageRwLock {
                 },
                 self.wf(),
         {
-            let result = atomic_with_ghost!(
+            let result =
+                atomic_with_ghost!(
                 &self.exc => compare_exchange(false, true);
                 returning res;
                 ghost g => {
@@ -724,7 +747,8 @@ impl PageTablePageRwLock {
                 }
             );
 
-            done = match result {
+            done =
+            match result {
                 Result::Ok(_) => true,
                 _ => false,
             };
@@ -733,7 +757,7 @@ impl PageTablePageRwLock {
         let tracked mut m = m.get();
         let ghost path = m.path();
         let mut write_handle_opt: Option<RwWriteGuard> = None;
-        
+
         loop
             invariant_except_break
                 pending_writer_token is Some,
@@ -756,12 +780,13 @@ impl PageTablePageRwLock {
             let tracked mut handle_opt: Option<RwWriterToken> = None;
             let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
 
-            let result = atomic_with_ghost!(
+            let result =
+                atomic_with_ghost!(
                 &self.rc => load();
                 returning res;
                 ghost g => {
                     if res == 0 {
-                        let tracked pw_token = match pending_writer_token { 
+                        let tracked pw_token = match pending_writer_token {
                             Option::Some(t) => t,
                             Option::None => proof_from_false(),
                         };
@@ -791,7 +816,8 @@ impl PageTablePageRwLock {
                     Option::None => proof_from_false(),
                 };
 
-                let _ = atomic_with_ghost!(
+                let _ =
+                    atomic_with_ghost!(
                     &self.real_rc => no_op();
                     ghost g => {
                         self.inst.borrow().write_locked_implies_real_rc_is_zero(&g.0, &handle);
@@ -814,7 +840,7 @@ impl PageTablePageRwLock {
                     token: Tracked(token),
                 };
                 write_handle_opt = Some(write_handle);
-                break;
+                break ;
             }
         }
 
@@ -823,11 +849,9 @@ impl PageTablePageRwLock {
         (write_handle, Tracked(m))
     }
 
-    pub fn unlock_write(
-        &self,
-        guard: RwWriteGuard,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn unlock_write(&self, guard: RwWriteGuard, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             self.wf(),
             guard.wf(self),
@@ -847,9 +871,7 @@ impl PageTablePageRwLock {
         let tracked mut token = guard.token.get();
 
         proof {
-            let tracked res = self.pt_inst.borrow().write_unlock(
-                m.cpu, self.nid@, token, m.token,
-            );
+            let tracked res = self.pt_inst.borrow().write_unlock(m.cpu, self.nid@, token, m.token);
             let tracked (Tracked(node_token), Tracked(cursor_token)) = res;
             token = node_token;
             m.token = cursor_token;
@@ -859,7 +881,7 @@ impl PageTablePageRwLock {
             &self.exc => store(false);
             ghost g => {
                 assert(RwInternalPred::inv(
-                    self.inst@.k(), 
+                    self.inst@.k(),
                     (token, perms),
                 )) by { admit(); };
                 self.inst.borrow().release_exc(
@@ -872,10 +894,10 @@ impl PageTablePageRwLock {
     }
 
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn lock_read(
-        &self,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (RwReadGuard, Tracked<LockProtocolModel>))
+    pub fn lock_read(&self, m: Tracked<LockProtocolModel>) -> (res: (
+        RwReadGuard,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             self.wf(),
             m@.inv(),
@@ -910,15 +932,17 @@ impl PageTablePageRwLock {
                 m.state() is ReadLocking,
                 m.path() =~= path.push(self.nid()),
         {
-            let val = atomic_with_ghost!(
-                &self.rc => load(); 
+            let val =
+                atomic_with_ghost!(
+                &self.rc => load();
                 ghost g => {}
             );
 
             let tracked mut pending_reader_token: Option<RwPendingReaderToken> = Option::None;
 
             if val < u64::MAX {
-                let result = atomic_with_ghost!(
+                let result =
+                    atomic_with_ghost!(
                     &self.rc => compare_exchange(val, val + 1);
                     returning res;
                     ghost g => {
@@ -934,16 +958,17 @@ impl PageTablePageRwLock {
                     Result::Ok(_) => {
                         let tracked mut mock_handle_opt: Option<RwMockReaderToken> = None;
 
-                        let result = atomic_with_ghost!(
+                        let result =
+                            atomic_with_ghost!(
                             &self.exc => load();
                             returning res;
                             ghost g => {
                                 if res == false {
-                                    let tracked pr_token = match pending_reader_token { 
-                                        Option::Some(t) => t, 
+                                    let tracked pr_token = match pending_reader_token {
+                                        Option::Some(t) => t,
                                         Option::None => proof_from_false(),
                                     };
-                                    let tracked mock_handle = 
+                                    let tracked mock_handle =
                                         self.inst.borrow().acquire_read_end(&g, pr_token);
                                     pending_reader_token = None;
                                     mock_handle_opt = Some(mock_handle);
@@ -954,8 +979,8 @@ impl PageTablePageRwLock {
                         if result == false {
                             let tracked mut handle_opt: Option<RwReaderToken> = None;
 
-                            // The loop is unnecessary, since the property of real_rc 
-                            // guarantees that it will never overflow. But it's very hard 
+                            // The loop is unnecessary, since the property of real_rc
+                            // guarantees that it will never overflow. But it's very hard
                             // to prove this in Verus. So we made this compromise.
                             loop
                                 invariant_except_break
@@ -975,29 +1000,37 @@ impl PageTablePageRwLock {
                                     m.path() =~= path.push(self.nid@),
                                     handle_opt.is_Some(),
                                     handle_opt->Some_0.instance_id() == self.inst_id(),
-                                    handle_opt->Some_0.element().0.instance_id() == self.pt_inst_id(),
+                                    handle_opt->Some_0.element().0.instance_id()
+                                        == self.pt_inst_id(),
                                     handle_opt->Some_0.element().0.key() == self.nid@,
                                     handle_opt->Some_0.element().0.value() is WriteUnLocked,
                                     handle_opt->Some_0.element().1.wf(
-                                        self.paddr@, self.level@, self.pt_inst_id(), self.nid@
+                                        self.paddr@,
+                                        self.level@,
+                                        self.pt_inst_id(),
+                                        self.nid@,
                                     ),
-                                    handle_opt->Some_0.element().1.addr() == paddr_to_vaddr(self.paddr@),
+                                    handle_opt->Some_0.element().1.addr() == paddr_to_vaddr(
+                                        self.paddr@,
+                                    ),
                             {
-                                let val = atomic_with_ghost!(
-                                    &self.real_rc => load(); 
+                                let val =
+                                    atomic_with_ghost!(
+                                    &self.real_rc => load();
                                     ghost g => {}
                                 );
 
                                 if val < u64::MAX {
-                                    let result = atomic_with_ghost!(
+                                    let result =
+                                        atomic_with_ghost!(
                                         &self.real_rc => compare_exchange(val, val + 1);
                                         returning res;
                                         ghost g => {
                                             if res is Ok {
                                                 let tracked mock_handle = mock_handle_opt.tracked_take();
-                                                let tracked (_, Tracked(handle)) = 
+                                                let tracked (_, Tracked(handle)) =
                                                     self.inst.borrow().inc_real_rc(&mut g.0, mock_handle);
-                                                let tracked (node_token, _) = 
+                                                let tracked (node_token, _) =
                                                     self.inst.borrow().read_guard(
                                                         handle.element(), &handle,
                                                     );
@@ -1012,7 +1045,9 @@ impl PageTablePageRwLock {
                                     );
 
                                     match result {
-                                        Result::Ok(_) => { break; },
+                                        Result::Ok(_) => {
+                                            break ;
+                                        },
                                         _ => {},
                                     }
                                 }
@@ -1022,17 +1057,16 @@ impl PageTablePageRwLock {
                                 Option::Some(t) => t,
                                 Option::None => proof_from_false(),
                             };
-                            let read_handle = RwReadGuard { 
-                                handle: Tracked(handle),
-                            };
+                            let read_handle = RwReadGuard { handle: Tracked(handle) };
                             read_handle_opt = Some(read_handle);
-                            break;
+                            break ;
                         } else {
-                            let _ = atomic_with_ghost!(
+                            let _ =
+                                atomic_with_ghost!(
                                 &self.rc => fetch_sub(1);
                                 ghost g => {
-                                    let tracked pr_token = match pending_reader_token { 
-                                        Option::Some(t) => t, 
+                                    let tracked pr_token = match pending_reader_token {
+                                        Option::Some(t) => t,
                                         Option::None => proof_from_false(),
                                     };
                                     self.inst.borrow().acquire_read_abandon(&mut g, pr_token);
@@ -1050,11 +1084,9 @@ impl PageTablePageRwLock {
         (read_handle, Tracked(m))
     }
 
-    pub fn unlock_read(
-        &self,
-        guard: RwReadGuard,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn unlock_read(&self, guard: RwReadGuard, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             self.wf(),
             guard.wf(self),
@@ -1072,10 +1104,11 @@ impl PageTablePageRwLock {
         let RwReadGuard { handle: Tracked(handle) } = guard;
         let tracked mut mock_handle_opt: Option<RwMockReaderToken> = Option::None;
 
-        let _ = atomic_with_ghost!(
+        let _ =
+            atomic_with_ghost!(
             &self.real_rc => fetch_sub(1);
             ghost g => {
-                let tracked mock_handle = 
+                let tracked mock_handle =
                     self.inst.borrow().dec_real_rc(handle.element(), &mut g.0, handle);
                 mock_handle_opt = Option::Some(mock_handle);
 
@@ -1092,7 +1125,8 @@ impl PageTablePageRwLock {
             Option::Some(t) => t,
             Option::None => proof_from_false(),
         };
-        let _ = atomic_with_ghost!(
+        let _ =
+            atomic_with_ghost!(
             &self.rc => fetch_sub(1);
             ghost g => {
                 self.inst.borrow().release_shared(&mut g, mock_handle);
@@ -1101,7 +1135,6 @@ impl PageTablePageRwLock {
 
         Tracked(m)
     }
-
 }
 
 } // verus!

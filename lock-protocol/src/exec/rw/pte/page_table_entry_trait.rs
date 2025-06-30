@@ -72,13 +72,11 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     fn new_pt(paddr: Paddr) -> (res: Self)
         requires
             valid_paddr(paddr),
-        ensures 
+        ensures
             res =~= Self::new_pt_spec(paddr),
             res.is_present(),
             valid_paddr(res.paddr_spec()),
-            !res.is_last_spec(
-                PageTableNode::from_raw_spec(paddr).level_spec()
-            ),
+            !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
     ;
 
     spec fn paddr_spec(&self) -> Paddr;

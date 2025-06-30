@@ -17,18 +17,17 @@ pub use super::configs::*;
 verus! {
 
 pub type Paddr = usize;
+
 pub type Vaddr = usize;
+
 pub type PagingLevel = usize;
 
 // pub const MAX_FRAME_NUM: u64 = 256;
-
 pub const INVALID_PADDR: Paddr = 0xffff_ffff_ffff_ffff;
 
 // extern_const!(
 // pub MAX_RC [MAX_RC_SPEC, CONST_MAX_RC]: u64 = 382);
-
 } // verus!
-
 verus! {
 
 pub uninterp spec fn valid_paddr(pa: Paddr) -> bool;
@@ -40,15 +39,15 @@ pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
 #[verifier::external_body]
 pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
     requires
-        // valid_paddr(pa),
+// valid_paddr(pa),
+
     ensures
         va == paddr_to_vaddr_spec(pa),
 {
     unimplemented!()
 }
 
-}
-
+} // verus!
 verus! {
 
 pub open spec fn valid_vaddr(va: Vaddr) -> bool {
@@ -126,9 +125,7 @@ pub open spec fn va_level_to_nid(va: Vaddr, level: PagingLevel) -> NodeId {
     NodeHelper::trace_to_nid(va_level_to_trace(va, level))
 }
 
-pub proof fn lemma_va_level_to_nid_inc(
-    va: Vaddr, level: PagingLevel, nid: NodeId, idx: nat,
-)
+pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeId, idx: nat)
     requires
         valid_vaddr(va),
         1 <= level < 4,
@@ -139,7 +136,7 @@ pub proof fn lemma_va_level_to_nid_inc(
     ensures
         NodeHelper::get_child(nid, idx) == va_level_to_nid(va, level),
 {
-    admit(); // TODO
+    admit();  // TODO
 }
 
 } // verus!

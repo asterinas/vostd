@@ -12,4 +12,4 @@ pub struct MemContent {
     pub meta_slot_array: MetaSlotArray,
 }
 
-}
+} // verus!

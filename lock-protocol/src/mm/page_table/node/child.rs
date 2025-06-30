@@ -31,7 +31,7 @@ verus! {
 /// either a page table node or a page, it holds a reference count to the
 /// corresponding page.
 // #[derive(Debug)] // TODO: Debug for Child
-pub(in crate::mm) enum Child<C: PageTableConfig> {
+pub enum Child<C: PageTableConfig> {
     /// A owning handle to a raw page table node.
     PageTable(PageTableNode),
     /// A reference of a child page table node, in the form of a physical

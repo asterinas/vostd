@@ -1,6 +1,6 @@
-pub mod rwlock;
 pub mod child;
 pub mod entry;
+pub mod rwlock;
 
 use builtin::*;
 use builtin_macros::*;
@@ -43,20 +43,18 @@ impl PageTableNode {
         &meta_slot.get_inner_pt()
     }
 
-    pub uninterp spec fn from_raw_spec(
-        paddr: Paddr,
-    ) -> Self;
+    pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
 
     #[verifier::external_body]
     pub fn from_raw(
-        paddr: Paddr, 
+        paddr: Paddr,
         mem: &MemContent,
         nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
     ) -> (res: Self)
         ensures
             res =~= Self::from_raw_spec(paddr),
-            res.wf(mem),    
+            res.wf(mem),
             paddr == res.perm@.frame_paddr(),
             res.nid@ == nid@,
             res.inst@.id() == inst_id@,
@@ -67,10 +65,7 @@ impl PageTableNode {
     pub uninterp spec fn into_raw_spec(self) -> Paddr;
 
     #[verifier::external_body]
-    pub fn into_raw(
-        self, 
-        mem: &MemContent,
-    ) -> (res: Paddr)
+    pub fn into_raw(self, mem: &MemContent) -> (res: Paddr)
         requires
             self.wf(mem),
         ensures
@@ -122,11 +117,10 @@ impl PageTableNode {
         meta_slot.get_inner_pt().level
     }
 
-    pub fn lock_write(
-        self,
-        mem: &MemContent,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (PageTableWriteLock, Tracked<LockProtocolModel>))
+    pub fn lock_write(self, mem: &MemContent, m: Tracked<LockProtocolModel>) -> (res: (
+        PageTableWriteLock,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             self.wf(mem),
             m@.inv(),
@@ -143,19 +137,17 @@ impl PageTableNode {
     {
         let tracked mut m = m.get();
         let res = self.meta(mem).lock.lock_write(Tracked(m));
-        proof { m = res.1.get(); }
-        let write_guard = PageTableWriteLock {
-            frame: Some(self),
-            guard: Some(res.0),
-        };
+        proof {
+            m = res.1.get();
+        }
+        let write_guard = PageTableWriteLock { frame: Some(self), guard: Some(res.0) };
         (write_guard, Tracked(m))
     }
 
-    pub fn lock_read(
-        self,
-        mem: &MemContent,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (PageTableReadLock, Tracked<LockProtocolModel>))
+    pub fn lock_read(self, mem: &MemContent, m: Tracked<LockProtocolModel>) -> (res: (
+        PageTableReadLock,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             self.wf(mem),
             m@.inv(),
@@ -173,11 +165,10 @@ impl PageTableNode {
     {
         let tracked mut m = m.get();
         let res = self.meta(mem).lock.lock_read(Tracked(m));
-        proof { m = res.1.get(); }
-        let read_guard = PageTableReadLock {
-            frame: Some(self),
-            guard: Some(res.0),
-        };
+        proof {
+            m = res.1.get();
+        }
+        let read_guard = PageTableReadLock { frame: Some(self), guard: Some(res.0) };
         (read_guard, Tracked(m))
     }
 }
@@ -237,11 +228,7 @@ impl PageTableReadLock {
         self.meta(mem).level
     }
 
-    pub fn read_child_ref(
-        &self, 
-        idx: usize,
-        mem: &MemContent,
-    ) -> (res: Child)
+    pub fn read_child_ref(&self, idx: usize, mem: &MemContent) -> (res: Child)
         requires
             self.wf(mem),
             0 <= idx < 512,
@@ -257,11 +244,10 @@ impl PageTableReadLock {
         Child::ref_from_pte(&pte, self.level(mem), false, mem)
     }
 
-    pub fn unlock(
-        &mut self, 
-        mem: &MemContent,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (PageTableNode, Tracked<LockProtocolModel>))
+    pub fn unlock(&mut self, mem: &MemContent, m: Tracked<LockProtocolModel>) -> (res: (
+        PageTableNode,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             old(self).wf(mem),
             m@.inv(),
@@ -281,17 +267,15 @@ impl PageTableReadLock {
         let tracked mut m = m.get();
         let guard = self.guard.take().unwrap();
         let res = self.meta(mem).lock.unlock_read(guard, Tracked(m));
-        proof { m = res.get(); }
+        proof {
+            m = res.get();
+        }
         let frame = self.frame.take().unwrap();
         (frame, Tracked(m))
     }
 
-    #[verifier::external_body] // TODO
-    pub fn read_pte(
-        &self,
-        idx: usize,
-        mem: &MemContent,
-    ) -> (res: Pte)
+    #[verifier::external_body]  // TODO
+    pub fn read_pte(&self, idx: usize, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
             0 <= idx < 512,
@@ -318,7 +302,7 @@ impl PageTableReadLock {
         self.frame->Some_0.meta_spec()
     }
 
-    pub fn meta(&self, mem: &MemContent) -> (res: &PageTablePageMeta) 
+    pub fn meta(&self, mem: &MemContent) -> (res: &PageTablePageMeta)
         requires
             self.wf_frame(mem),
         ensures
@@ -357,10 +341,7 @@ impl PageTableWriteLock {
         self.frame->Some_0.nid@
     }
 
-    pub proof fn tracked_pt_inst(
-        tracked &self,
-        mem: &MemContent
-    ) -> (tracked res: SpecInstance)
+    pub proof fn tracked_pt_inst(tracked &self, mem: &MemContent) -> (tracked res: SpecInstance)
         requires
             self.wf(mem),
         ensures
@@ -369,11 +350,7 @@ impl PageTableWriteLock {
         self.frame.tracked_borrow().inst.borrow().clone()
     }
 
-    pub fn entry(
-        &self, 
-        idx: usize,
-        mem: &MemContent,
-    ) -> (res: Entry)
+    pub fn entry(&self, idx: usize, mem: &MemContent) -> (res: Entry)
         requires
             self.wf(mem),
             0 <= idx < 512,
@@ -411,11 +388,10 @@ impl PageTableWriteLock {
         self.meta(mem).level
     }
 
-    pub fn unlock(
-        &mut self,
-        mem: &MemContent,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (PageTableNode, Tracked<LockProtocolModel>))
+    pub fn unlock(&mut self, mem: &MemContent, m: Tracked<LockProtocolModel>) -> (res: (
+        PageTableNode,
+        Tracked<LockProtocolModel>,
+    ))
         requires
             old(self).wf(mem),
             m@.inv(),
@@ -435,17 +411,15 @@ impl PageTableWriteLock {
         let tracked mut m = m.get();
         let guard = self.guard.take().unwrap();
         let res = self.meta(mem).lock.unlock_write(guard, Tracked(m));
-        proof { m = res.get(); }
+        proof {
+            m = res.get();
+        }
         let frame = self.frame.take().unwrap();
         (frame, Tracked(m))
     }
 
-    #[verifier::external_body] // TODO
-    pub fn read_pte(
-        &self,
-        idx: usize,
-        mem: &MemContent,
-    ) -> (res: Pte)
+    #[verifier::external_body]  // TODO
+    pub fn read_pte(&self, idx: usize, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
             0 <= idx < 512,
@@ -467,13 +441,8 @@ impl PageTableWriteLock {
         pte
     }
 
-    #[verifier::external_body] // TODO
-    pub fn write_pte(
-        &mut self,
-        idx: usize,
-        pte: Pte,
-        mem: &MemContent,
-    )
+    #[verifier::external_body]  // TODO
+    pub fn write_pte(&mut self, idx: usize, pte: Pte, mem: &MemContent)
         requires
             old(self).wf(mem),
             0 <= idx < 512,
@@ -499,7 +468,7 @@ impl PageTableWriteLock {
         self.frame->Some_0.meta_spec()
     }
 
-    pub fn meta(&self, mem: &MemContent) -> (res: &PageTablePageMeta) 
+    pub fn meta(&self, mem: &MemContent) -> (res: &PageTablePageMeta)
         requires
             self.wf_frame(mem),
         ensures
@@ -509,4 +478,4 @@ impl PageTableWriteLock {
     }
 }
 
-}
+} // verus!

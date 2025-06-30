@@ -11,14 +11,13 @@ use super::MetaSlot;
 verus! {
 
 // global layout MetaSlot is size == 12, align == 12;
-
 pub uninterp spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr;
 
 /// Converts a physical address of a base frame to the virtual address of the metadata slot.
 #[inline(always)]
 #[verifier::when_used_as_spec(frame_to_meta_spec)]
 #[verifier::external_body]
-pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr) 
+pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
     ensures
         res == frame_to_meta_spec(paddr),
 {
@@ -44,4 +43,4 @@ pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
     unimplemented!()
 }
 
-}
+} // verus!

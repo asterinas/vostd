@@ -65,4 +65,4 @@ pub fn pa_to_fid(pa: Paddr) -> (res: FrameId)
     pa >> 12
 }
 
-}
+} // verus!

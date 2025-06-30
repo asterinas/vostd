@@ -228,7 +228,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(default_spec)]
     fn default() -> (res: Self)
         ensures res == Self::default_spec()
     {
@@ -241,7 +240,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(new_absent_spec)]
     #[verifier::external_body] // TODO
     fn new_absent() -> (res: Self)
         ensures res == Self::new_absent_spec()
@@ -255,7 +253,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(as_value_spec)]
     fn as_value(&self) -> (res: u64)
             ensures res == self.as_value_spec()
     {
@@ -268,7 +265,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(is_present_spec)]
     fn is_present(&self) -> (res: bool)
         ensures res == self.is_present_spec()
     {
@@ -319,7 +315,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(paddr_spec)]
     fn paddr(&self) -> (res: Paddr)
         ensures res == self.paddr_spec()
     {
@@ -332,7 +327,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(prop_spec)]
     fn prop(&self) -> (res: PageProperty)
         ensures res == self.prop_spec()
     {
@@ -346,7 +340,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(is_last_spec)]
     fn is_last(&self, level: PagingLevel) -> (res: bool)
         ensures res == self.is_last_spec(level)
     {

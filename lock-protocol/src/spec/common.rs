@@ -32,15 +32,15 @@ pub open spec fn wf_tree_path(path: Seq<NodeId>) -> bool {
     }
 }
 
-pub proof fn lemma_wf_tree_path_inc(path: Seq<NodeId>, nid: NodeId) 
+pub proof fn lemma_wf_tree_path_inc(path: Seq<NodeId>, nid: NodeId)
     requires
         wf_tree_path(path),
         NodeHelper::valid_nid(nid),
         path.len() > 0 ==> NodeHelper::is_child(path.last(), nid),
     ensures
         wf_tree_path(path.push(nid)),
-{ 
-    admit(); // TODO
+{
+    admit();  // TODO
 }
 
 } // verus!

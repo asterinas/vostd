@@ -36,27 +36,20 @@ impl Entry {
         &&& 0 <= self.idx < 512
     }
 
-    pub open spec fn wf_with_node(
-        &self,
-        node: PageTableWriteLock,
-    ) -> bool {
+    pub open spec fn wf_with_node(&self, node: PageTableWriteLock) -> bool {
         let _node = node.frame->Some_0;
 
         self.pte.wf_with_node_info(
-            _node.start_paddr_spec(), 
+            _node.start_paddr_spec(),
             _node.level_spec(),
-            _node.inst@.id(), 
-            _node.nid@, 
+            _node.inst@.id(),
+            _node.nid@,
             self.idx as nat,
         )
     }
 
     /// Gets a reference to the child.
-    pub fn to_ref(
-        &self,
-        node: &PageTableWriteLock,
-        mem: &MemContent,
-    ) -> (res: Child) 
+    pub fn to_ref(&self, node: &PageTableWriteLock, mem: &MemContent) -> (res: Child)
         requires
             self.wf(),
             self.wf_with_node(*node),
@@ -69,7 +62,12 @@ impl Entry {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
-        Child::ref_from_pte(&self.pte, node.level(mem), /*self.node.is_tracked(),*/ false, mem)
+        Child::ref_from_pte(
+            &self.pte,
+            node.level(mem),  /*self.node.is_tracked(),*/
+            false,
+            mem,
+        )
     }
 
     /// Replaces the entry with a new child.
@@ -80,13 +78,8 @@ impl Entry {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    #[verifier::external_body] // TODO
-    pub fn replace(
-        self, 
-        new_child: Child,
-        node: &mut PageTableWriteLock,
-        mem: &MemContent,
-    ) 
+    #[verifier::external_body]  // TODO
+    pub fn replace(self, new_child: Child, node: &mut PageTableWriteLock, mem: &MemContent)
         requires
             self.wf(),
             self.wf_with_node(*old(node)),
@@ -98,20 +91,17 @@ impl Entry {
             node.nid() == old(node).nid(),
     {
         // assert!(new_child.is_compatible(self.node.level(), self.node.is_tracked()));
-
         // SAFETY: The entry structure represents an existent entry with the
         // right node information. The old PTE is overwritten by the new child
         // so that it is not used anymore.
         // let old_child =
-            // unsafe { Child::from_pte(self.pte, self.node.level(), self.node.is_tracked()) };
-            // Child::from_pte(self.pte, self.node.level(), /*self.node.is_tracked()*/);
-
+        // unsafe { Child::from_pte(self.pte, self.node.level(), self.node.is_tracked()) };
+        // Child::from_pte(self.pte, self.node.level(), /*self.node.is_tracked()*/);
         // if old_child.is_none() && !new_child.is_none() {
         //     *self.node.nr_children_mut() += 1;
         // } else if !old_child.is_none() && new_child.is_none() {
         //     *self.node.nr_children_mut() -= 1;
         // }
-
         // SAFETY:
         //  1. The index is within the bounds.
         //  2. The new PTE is compatible with the page table node, as asserted above.
@@ -127,11 +117,7 @@ impl Entry {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bounds of the node.
-    pub fn new_at(
-        idx: usize,
-        node: &PageTableWriteLock,
-        mem: &MemContent,
-    ) -> (res: Self)
+    pub fn new_at(idx: usize, node: &PageTableWriteLock, mem: &MemContent) -> (res: Self)
         requires
             0 <= idx < 512,
             node.wf(mem),
@@ -146,4 +132,4 @@ impl Entry {
     }
 }
 
-}
+} // verus!

@@ -74,7 +74,7 @@ impl MetaSlot {
             self.wf(),
             self.is_pt(),
         ensures
-            *res =~= self.get_inner_pt_spec()
+            *res =~= self.get_inner_pt_spec(),
     {
         self.inner.as_ref().unwrap()
     }
@@ -137,4 +137,4 @@ impl MetaSlotArray {
     }
 }
 
-}
+} // verus!

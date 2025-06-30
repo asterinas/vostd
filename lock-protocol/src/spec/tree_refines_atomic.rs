@@ -10,14 +10,12 @@ use state_machines_macros::case_on_next;
 use super::common::*;
 use super::utils::*;
 
-use super::{
-    tree::TreeSpec,
-    atomic::AtomicSpec,
-};
+use super::{tree::TreeSpec, atomic::AtomicSpec};
 
-verus!{
+verus! {
 
 type StateC = TreeSpec::State;
+
 type StateA = AtomicSpec::State;
 
 pub open spec fn interp_cursor_state(s: CursorState) -> AtomicCursorState {
@@ -54,15 +52,17 @@ pub proof fn init_refines_init(post: StateC) {
 }
 
 pub proof fn next_refines_next(pre: StateC, post: StateC) {
-    requires({
-        &&& pre.invariant()
-        &&& post.invariant()
-        &&& interp(pre).invariant()
-        &&& StateC::next(pre, post)
-    });
+    requires(
+        {
+            &&& pre.invariant()
+            &&& post.invariant()
+            &&& interp(pre).invariant()
+            &&& StateC::next(pre, post)
+        },
+    );
     ensures(StateA::next(interp(pre), interp(post)));
     case_on_next!{pre, post, TreeSpec => {
-        
+
         locking_start(cpu) => {
             assert_maps_equal!(interp(pre).cursors, interp(post).cursors);
             AtomicSpec::show::no_op(interp(pre), interp(post));
@@ -86,9 +86,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         write_lock(cpu, nid) => {
             broadcast use NodeHelper::lemma_in_subtree_iff_in_subtree_range;
             assert(
-                interp(post).cursors =~= 
+                interp(post).cursors =~=
                 interp(pre).cursors.insert(
-                    cpu, 
+                    cpu,
                     AtomicCursorState::Locked(nid),
                 )
             );
@@ -97,9 +97,9 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
 
         write_unlock(cpu, nid) => {
             assert(
-                interp(post).cursors =~= 
+                interp(post).cursors =~=
                 interp(pre).cursors.insert(
-                    cpu, 
+                    cpu,
                     AtomicCursorState::Void,
                 )
             );
@@ -119,4 +119,4 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
     }}
 }
 
-}
+} // verus!

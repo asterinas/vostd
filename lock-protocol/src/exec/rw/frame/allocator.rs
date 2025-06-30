@@ -45,11 +45,10 @@ pub open spec fn wf(&self) -> bool {
 }
 
 impl FrameAllocator {
-
     pub open spec fn inv_pt_frame(frame: Frame) -> bool {
         &&& is_variant(frame, "page_table_frame")
         &&& manually_drop_unwrap(
-            get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(frame, "page_table_frame")
+            get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(frame, "page_table_frame"),
         ).wf()
     }
 
@@ -58,7 +57,7 @@ impl FrameAllocator {
             get_union_field::<Frame, ManuallyDrop<PageTableFrame>>(
                 self.frames@[pa_to_fid(pa) as int],
                 "page_table_frame",
-            )
+            ),
         )
     }
 
@@ -114,8 +113,7 @@ impl FrameAllocator {
             self.wf(),
             valid_paddr(pa),
             paddr_is_aligned(pa),
-            self.usages@[pa_to_fid(pa) as int] is Void, // Fix this
-
+            self.usages@[pa_to_fid(pa) as int] is Void,  // Fix this
             NodeHelper::valid_nid(nid@),
             inst@.cpu_num() == GLOBAL_CPU_NUM,
             node_token@.instance_id() == inst@.id(),
@@ -127,8 +125,8 @@ impl FrameAllocator {
         ensures
             self.wf(),
             self.usages@[pa_to_fid(pa) as int] is PageTable,
-    {}
-
+    {
+    }
 }
 
-}
+} // verus!

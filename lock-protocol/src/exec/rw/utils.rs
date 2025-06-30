@@ -81,7 +81,7 @@ impl NodeHelperExec {
         nid + offset * sz + 1
     }
 
-    pub fn is_not_leaf_exec(nid: usize) -> (res: bool) 
+    pub fn is_not_leaf_exec(nid: usize) -> (res: bool)
         requires
             NodeHelper::valid_nid(nid as NodeId),
         ensures

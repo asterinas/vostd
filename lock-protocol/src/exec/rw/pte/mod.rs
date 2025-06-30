@@ -1,11 +1,11 @@
 pub mod page_prop;
-pub mod page_table_entry_trait;
 pub mod page_table_entry;
+pub mod page_table_entry_trait;
 pub mod page_table_flags;
 
 use vstd::prelude::*;
 
-use crate::spec::{common::*, utils::*, };
+use crate::spec::{common::*, utils::*};
 use super::{common::*, types::*};
 use super::node::PageTableNode;
 
@@ -16,7 +16,7 @@ use page_table_entry::PageTableEntry;
 verus! {
 
 pub struct Pte {
-    // We only concerned about: 
+    // We only concerned about:
     //  (1) is_present
     //  (2) is_last
     pub inner: PageTableEntry,
@@ -56,10 +56,10 @@ impl Pte {
 
     pub open spec fn wf_with_node_info(
         &self,
-        paddr: Paddr, 
+        paddr: Paddr,
         level: PagingLevel,
-        inst_id: InstanceId, 
-        nid: NodeId, 
+        inst_id: InstanceId,
+        nid: NodeId,
         offset: nat,
     ) -> bool {
         self.inner.is_present() ==> {
@@ -72,8 +72,7 @@ impl Pte {
                 &&& self.inst@ is Some
                 &&& self.inst@->Some_0.id() == inst_id
                 &&& self.nid@ is Some
-                &&& self.nid@->Some_0 == 
-                    NodeHelper::get_child(nid, offset)
+                &&& self.nid@->Some_0 == NodeHelper::get_child(nid, offset)
             }
         }
     }
@@ -113,11 +112,7 @@ impl Pte {
             res.wf(),
             res.wf_new_absent(),
     {
-        Self {
-            inner: PageTableEntry::new_absent(),
-            nid: Ghost(None),
-            inst: Tracked(None),
-        }
+        Self { inner: PageTableEntry::new_absent(), nid: Ghost(None), inst: Tracked(None) }
     }
 
     pub open spec fn wf_new_page(
@@ -125,18 +120,13 @@ impl Pte {
         paddr: Paddr,
         level: PagingLevel,
         prop: PageProperty,
-    ) -> bool
-    {
+    ) -> bool {
         &&& self.inner =~= PageTableEntry::new_page_spec(paddr, level, prop)
         &&& self.nid@ is None
         &&& self.inst@ is None
     }
 
-    pub fn new_page(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> (res: Self)
+    pub fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
             valid_paddr(paddr),
             level == 1,
@@ -151,13 +141,7 @@ impl Pte {
         }
     }
 
-    pub open spec fn wf_new_pt(
-        &self,
-        paddr: Paddr,   
-        inst: SpecInstance,
-        nid: NodeId,
-    ) -> bool
-    {
+    pub open spec fn wf_new_pt(&self, paddr: Paddr, inst: SpecInstance, nid: NodeId) -> bool {
         &&& self.inner =~= PageTableEntry::new_pt_spec(paddr)
         &&& self.nid@ is Some
         &&& self.nid@->Some_0 == nid
@@ -165,11 +149,7 @@ impl Pte {
         &&& self.inst@->Some_0 =~= inst
     }
 
-    pub fn new_pt(
-        paddr: Paddr,   
-        inst: Tracked<SpecInstance>,
-        nid: Ghost<NodeId>,
-    ) -> (res: Self)
+    pub fn new_pt(paddr: Paddr, inst: Tracked<SpecInstance>, nid: Ghost<NodeId>) -> (res: Self)
         requires
             valid_paddr(paddr),
             inst@.cpu_num() == GLOBAL_CPU_NUM,
@@ -199,6 +179,8 @@ impl Clone for Pte {
     }
 }
 
-impl Copy for Pte {}
+impl Copy for Pte {
 
 }
+
+} // verus!

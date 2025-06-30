@@ -6,11 +6,7 @@ use vstd::vpanic;
 
 use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*, mem_content::*};
-use super::super::pte::{
-    Pte, 
-    page_prop::PageProperty,
-    page_table_entry_trait::*,
-};
+use super::super::pte::{Pte, page_prop::PageProperty, page_table_entry_trait::*};
 use super::PageTableNode;
 
 verus! {
@@ -30,16 +26,16 @@ pub enum Child {
     // Untracked(Paddr, PagingLevel, PageProperty),
     // Status(Status),
     None,
-
     Unimplemented,
 }
 
 impl Child {
     #[verifier::external_body]
     pub proof fn axiom_no_huge_page(self)
-        ensures 
+        ensures
             self is Frame ==> self->Frame_1 == 1,
-    {}
+    {
+    }
 
     pub open spec fn wf(&self, mem: &MemContent) -> bool {
         match *self {
@@ -55,23 +51,18 @@ impl Child {
             },
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
-                &&& level == 1 // TODO: We don't support huge pages yet.
-            }
+                &&& level == 1  // TODO: We don't support huge pages yet.
+
+            },
             _ => true,
         }
     }
 
-    pub open spec fn wf_into_pte(
-        &self,
-        pte: Pte,
-    ) -> bool 
-    {
+    pub open spec fn wf_into_pte(&self, pte: Pte) -> bool {
         match *self {
-            Child::PageTable(pt, inst, nid) =>
-                pte.wf_new_pt(pt.start_paddr_spec(), inst@, nid@),
+            Child::PageTable(pt, inst, nid) => pte.wf_new_pt(pt.start_paddr_spec(), inst@, nid@),
             Child::PageTableRef(_, _, _) => true,
-            Child::Frame(paddr, level, prop) =>
-                pte.wf_new_page(paddr, level, prop),
+            Child::Frame(paddr, level, prop) => pte.wf_new_page(paddr, level, prop),
             Child::None => pte.wf_new_absent(),
             Child::Unimplemented => pte.wf_new_absent(),
         }
@@ -86,10 +77,7 @@ impl Child {
     /// Usually this is for recording the PTE into a page table node. When the
     /// child is needed again by reading the PTE of a page table node, extra
     /// information should be provided using the [`Child::from_pte`] method.
-    pub fn into_pte(
-        self,
-        mem: &MemContent,
-    ) -> (res: Pte)
+    pub fn into_pte(self, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
             !(self is PageTableRef),
@@ -110,33 +98,28 @@ impl Child {
             //     let level = page.map_level();
             //     Pte::new_page(page.into_raw(), level, prop)
             // }
-            Child::Frame(paddr, level, prop) => {
-                Pte::new_page(paddr, level, prop)
-            },
+            Child::Frame(paddr, level, prop) => { Pte::new_page(paddr, level, prop) },
             // Child::Untracked(pa, level, prop) => Pte::new_page(pa, level, prop),
             Child::None => Pte::new_absent(),
             // Child::Status(status) => Pte::new_status(status),
-
             Child::Unimplemented => Pte::new_absent(),
         }
     }
 
-    pub open spec fn wf_from_pte(
-        &self, 
-        pte: Pte,
-        level: PagingLevel,
-    ) -> bool {
+    pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
         if !pte.inner.is_present() {
-            if pte.inner.paddr() == 0 { *self is None }
-            else { *self is Unimplemented }
-        } else { // pte.inner.is_present()
+            if pte.inner.paddr() == 0 {
+                *self is None
+            } else {
+                *self is Unimplemented
+            }
+        } else {  // pte.inner.is_present()
             if !pte.inner.is_last(level) {
                 &&& *self is PageTable
-                &&& self->PageTable_0 =~= 
-                    PageTableNode::from_raw_spec(pte.inner.paddr())
+                &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
                 &&& self->PageTable_1@ =~= pte.inst@->Some_0
                 &&& self->PageTable_2@ =~= pte.nid()
-            } else { // pte.inner.is_last(level)
+            } else {  // pte.inner.is_last(level)
                 &&& *self is Frame
                 &&& self->Frame_0 == pte.inner.paddr()
                 &&& self->Frame_1 == level
@@ -162,7 +145,7 @@ impl Child {
         level: PagingLevel,
         // is_tracked: MapTrackingStatus,
         mem: &MemContent,
-    ) -> (res: Self) 
+    ) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
@@ -183,7 +166,6 @@ impl Child {
                 return Child::Unimplemented;
             }
         }
-
         let paddr = pte.inner.paddr();
 
         if !pte.inner.is_last(level) {
@@ -191,21 +173,11 @@ impl Child {
             // at the given level.
             // let pt = unsafe { PageTableNode::from_raw(paddr) };
             // debug_assert_eq!(pt.level(), level - 1);
-            let pt = PageTableNode::from_raw(
-                paddr, 
-                mem, 
-                Ghost(pte.nid()),
-                Ghost(pte.inst_id()),
-            );
+            let pt = PageTableNode::from_raw(paddr, mem, Ghost(pte.nid()), Ghost(pte.inst_id()));
             assert(pte.inst@ is Some);
             assert(pte.nid@ is Some);
-            return Child::PageTable(
-                pt,
-                Tracked(pte.tracked_inst()), 
-                Ghost(pte.nid()),
-            );
+            return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
         }
-
         // match is_tracked {
         //     MapTrackingStatus::Tracked => {
         //         // SAFETY: The physical address points to a valid page.
@@ -215,25 +187,22 @@ impl Child {
         //     MapTrackingStatus::Untracked => Child::Untracked(paddr, level, pte.prop()),
         //     MapTrackingStatus::NotApplicable => panic!("Invalid tracking status"),
         // }
+
         Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
     }
 
-
-    pub open spec fn wf_ref_from_pte(
-        &self,
-        pte: Pte,
-        level: PagingLevel,
-        clone_raw: bool,
-    ) -> bool {
+    pub open spec fn wf_ref_from_pte(&self, pte: Pte, level: PagingLevel, clone_raw: bool) -> bool {
         if !pte.inner.is_present() {
-            if pte.inner.paddr() == 0 { *self is None }
-            else { *self is Unimplemented }
-        } else { // pte.inner.is_present()
+            if pte.inner.paddr() == 0 {
+                *self is None
+            } else {
+                *self is Unimplemented
+            }
+        } else {  // pte.inner.is_present()
             if !pte.inner.is_last(level) {
                 if clone_raw {
                     &&& *self is PageTable
-                    &&& self->PageTable_0 =~= 
-                        PageTableNode::from_raw_spec(pte.inner.paddr())
+                    &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
                     &&& self->PageTable_1@ =~= pte.inst@->Some_0
                     &&& self->PageTable_2@ =~= pte.nid()
                 } else {
@@ -242,7 +211,7 @@ impl Child {
                     &&& self->PageTableRef_1@ =~= pte.inst@->Some_0
                     &&& self->PageTableRef_2@ =~= pte.nid()
                 }
-            } else { // pte.inner.is_last(level)
+            } else {  // pte.inner.is_last(level)
                 &&& *self is Frame
                 &&& self->Frame_0 == pte.inner.paddr()
                 &&& self->Frame_1 == level
@@ -275,7 +244,7 @@ impl Child {
         // is_tracked: MapTrackingStatus,
         clone_raw: bool,
         mem: &MemContent,
-    ) -> (res: Self) 
+    ) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
@@ -296,7 +265,6 @@ impl Child {
                 return Child::Unimplemented;
             }
         }
-
         let paddr = pte.inner.paddr();
 
         if !pte.inner.is_last(level) {
@@ -308,7 +276,7 @@ impl Child {
                 // at the given level.
                 // let pt = unsafe { PageTableNode::from_raw(paddr) };
                 let pt = PageTableNode::from_raw(
-                    paddr, 
+                    paddr,
                     mem,
                     Ghost(pte.nid()),
                     Ghost(pte.inst_id()),
@@ -316,22 +284,13 @@ impl Child {
                 // debug_assert_eq!(pt.level(), level - 1);
                 assert(pte.inst@ is Some);
                 assert(pte.nid@ is Some);
-                return Child::PageTable(
-                    pt, 
-                    Tracked(pte.tracked_inst()), 
-                    Ghost(pte.nid()),
-                );
+                return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
             } else {
                 assert(pte.inst@ is Some);
                 assert(pte.nid@ is Some);
-                return Child::PageTableRef(
-                    paddr,
-                    Tracked(pte.tracked_inst()), 
-                    Ghost(pte.nid()),
-                );
+                return Child::PageTableRef(paddr, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
             }
         }
-
         // match is_tracked {
         //     MapTrackingStatus::Tracked => {
         //         // SAFETY: The physical address is valid and the PTE already owns
@@ -348,9 +307,9 @@ impl Child {
         //     },
         //     MapTrackingStatus::NotApplicable => panic!("Invalid tracking status"),
         // }
+
         Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
     }
-
 }
 
-}
+} // verus!
