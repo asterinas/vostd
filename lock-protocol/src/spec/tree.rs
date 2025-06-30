@@ -152,8 +152,8 @@ pub fn inv_rw_lock(&self) -> bool
 pub open spec fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
-        self.cursors.contains_key(cpu1) &&
-        self.cursors.contains_key(cpu2) &&
+        self.cursors.dom().contains(cpu1) &&
+        self.cursors.dom().contains(cpu2) &&
         self.cursors[cpu1].hold_write_lock() &&
         self.cursors[cpu2].hold_write_lock() ==>
         {
@@ -242,12 +242,12 @@ transition!{
         require(path.len() > 0 && path.last() == nid);
         add cursors += [ cpu => CursorState::ReadLocking(path.drop_last()) ];
 
-        assert(rc > 0) by {
-            broadcast use {
-                vstd_extra::seq_extra::group_forall_seq_lemmas,
-            };
-            pre.lemma_inv_implies_inv_rc_positive()
-        };
+        // assert(rc > 0) by {
+        //     broadcast use {
+        //         vstd_extra::seq_extra::group_forall_seq_lemmas,
+        //     };
+        //     pre.lemma_inv_implies_inv_rc_positive()
+        // };
     }
 }
 
@@ -464,6 +464,12 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     );
                 }
         };
+    };
+    assert(pre.reader_counts[nid] > 0) by {
+        broadcast use {
+            vstd_extra::seq_extra::group_forall_seq_lemmas,
+        };
+        pre.lemma_inv_implies_inv_rc_positive()
     };
 }
 
