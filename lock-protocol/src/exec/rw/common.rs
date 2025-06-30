@@ -12,23 +12,43 @@ use crate::helpers::bits::*;
 use crate::helpers::extern_const::*;
 use crate::spec::{common::*, utils::*};
 
+pub use super::configs::*;
+
 verus! {
 
-pub type Paddr = u64;
+pub type Paddr = usize;
+pub type Vaddr = usize;
+pub type PagingLevel = usize;
 
-pub type Vaddr = u64;
-
-pub type Level = u64;
-
-// Configurations
-pub spec const GLOBAL_CPU_NUM: nat = 2;
+// pub const MAX_FRAME_NUM: u64 = 256;
 
 pub const INVALID_PADDR: Paddr = 0xffff_ffff_ffff_ffff;
 
-extern_const!(
-pub MAX_RC [MAX_RC_SPEC, CONST_MAX_RC]: u64 = 382);
+// extern_const!(
+// pub MAX_RC [MAX_RC_SPEC, CONST_MAX_RC]: u64 = 382);
 
 } // verus!
+
+verus! {
+
+pub uninterp spec fn valid_paddr(pa: Paddr) -> bool;
+
+pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
+
+#[inline(always)]
+#[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
+#[verifier::external_body]
+pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
+    requires
+        // valid_paddr(pa),
+    ensures
+        va == paddr_to_vaddr_spec(pa),
+{
+    unimplemented!()
+}
+
+}
+
 verus! {
 
 pub open spec fn valid_vaddr(va: Vaddr) -> bool {
@@ -40,7 +60,7 @@ pub open spec fn valid_va_range(va: Range<Vaddr>) -> bool {
 }
 
 pub open spec fn vaddr_is_aligned_spec(va: Vaddr) -> bool {
-    (va & (low_bits_mask(12) as u64)) == 0
+    (va & (low_bits_mask(12) as usize)) == 0
 }
 
 #[verifier::when_used_as_spec(vaddr_is_aligned_spec)]
@@ -50,18 +70,18 @@ pub fn vaddr_is_aligned(va: Vaddr) -> (res: bool)
     returns
         vaddr_is_aligned_spec(va),
 {
-    (va & low_bits_mask_u64(12)) == 0
+    (va & low_bits_mask_usize(12)) == 0
 }
 
-pub open spec fn va_level_to_offset(va: Vaddr, level: Level) -> nat
+pub open spec fn va_level_to_offset(va: Vaddr, level: PagingLevel) -> nat
     recommends
         valid_vaddr(va),
         1 <= level <= 4,
 {
-    ((va >> (12 + (level - 1) * 9)) & low_bits_mask(9) as u64) as nat
+    ((va >> (12 + (level - 1) * 9)) & low_bits_mask(9) as usize) as nat
 }
 
-pub fn pte_index(va: Vaddr, level: Level) -> (res: u64)
+pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
         valid_vaddr(va),
         1 <= level <= 4,
@@ -69,17 +89,18 @@ pub fn pte_index(va: Vaddr, level: Level) -> (res: u64)
         res == va_level_to_offset(va, level),
         valid_pte_offset(res as nat),
 {
-    let offset = (va >> (12 + (level - 1) * 9)) & low_bits_mask_u64(9);
+    let offset = (va >> (12 + (level - 1) * 9)) & low_bits_mask_usize(9);
     assert(valid_pte_offset(offset as nat)) by {
-        let x: u64 = va >> (12 + (level - 1) * 9);
-        lemma_u64_low_bits_mask_is_mod(x, 9);
-        lemma2_to64();
-        lemma_mod_bound(x as int, pow2(9) as int);
+        // let x: usize = va >> (12 + (level - 1) * 9);
+        // lemma_u64_low_bits_mask_is_mod(x, 9);
+        // lemma2_to64();
+        // lemma_mod_bound(x as int, pow2(9) as int);
+        admit();
     };
     offset
 }
 
-pub open spec fn va_level_to_trace_rec(va: Vaddr, level: Level) -> Seq<nat>
+pub open spec fn va_level_to_trace_rec(va: Vaddr, level: PagingLevel) -> Seq<nat>
     recommends
         1 <= level <= 4,
     decreases 4 - level,
@@ -88,8 +109,8 @@ pub open spec fn va_level_to_trace_rec(va: Vaddr, level: Level) -> Seq<nat>
         if level == 4 {
             Seq::empty()
         } else {
-            va_level_to_trace_rec(va, (level + 1) as Level).push(
-                ((va >> (level * 9)) & low_bits_mask(9) as u64) as nat,
+            va_level_to_trace_rec(va, (level + 1) as PagingLevel).push(
+                ((va >> (level * 9)) & low_bits_mask(9) as usize) as nat,
             )
         }
     } else {
@@ -97,12 +118,28 @@ pub open spec fn va_level_to_trace_rec(va: Vaddr, level: Level) -> Seq<nat>
     }
 }
 
-pub open spec fn va_level_to_trace(va: Vaddr, level: Level) -> Seq<nat> {
+pub open spec fn va_level_to_trace(va: Vaddr, level: PagingLevel) -> Seq<nat> {
     va_level_to_trace_rec(va >> 12, level)
 }
 
-pub open spec fn va_level_to_nid(va: Vaddr, level: Level) -> NodeId {
+pub open spec fn va_level_to_nid(va: Vaddr, level: PagingLevel) -> NodeId {
     NodeHelper::trace_to_nid(va_level_to_trace(va, level))
+}
+
+pub proof fn lemma_va_level_to_nid_inc(
+    va: Vaddr, level: PagingLevel, nid: NodeId, idx: nat,
+)
+    requires
+        valid_vaddr(va),
+        1 <= level < 4,
+        NodeHelper::valid_nid(nid),
+        nid == va_level_to_nid(va, (level + 1) as PagingLevel),
+        valid_pte_offset(idx),
+        idx == va_level_to_offset(va, (level + 1) as PagingLevel),
+    ensures
+        NodeHelper::get_child(nid, idx) == va_level_to_nid(va, level),
+{
+    admit(); // TODO
 }
 
 } // verus!

@@ -1085,6 +1085,7 @@ impl NodeHelper {
             Self::valid_nid(Self::get_child(nid, offset)),
             nid == Self::get_parent(Self::get_child(nid, offset)),
             offset == Self::get_offset(Self::get_child(nid, offset)),
+            Self::is_child(nid, Self::get_child(nid, offset)),
     {
         Self::lemma_nid_to_trace_sound(nid);
         Self::lemma_trace_to_nid_sound(Self::nid_to_trace(nid).push(offset));
@@ -1633,6 +1634,17 @@ impl NodeHelper {
     {
         Self::lemma_is_child_implies_in_subtree(pa, ch);
         Self::lemma_in_subtree_iff_in_subtree_range(pa, ch);
+    }
+
+    pub proof fn lemma_is_child_level_relation(pa: NodeId, ch: NodeId)
+        requires
+            Self::valid_nid(pa),
+            Self::valid_nid(ch),
+            Self::is_child(pa, ch),
+        ensures
+            Self::nid_to_level(pa) == Self::nid_to_level(ch) + 1,
+    {
+        admit(); // TODO
     }
 }
 

@@ -20,25 +20,20 @@ impl LockProtocolModel {
         self.token.value()
     }
 
+    pub open spec fn path(&self) -> Seq<NodeId> {
+        match self.state() {
+            CursorState::Void => Seq::empty(),
+            CursorState::ReadLocking(_) => self.state()->ReadLocking_0,
+            CursorState::WriteLocked(_) => self.state()->WriteLocked_0,
+        }
+    }
+
     pub open spec fn inv(&self) -> bool {
         &&& valid_cpu(GLOBAL_CPU_NUM, self.cpu)
         &&& self.token.instance_id() == self.inst.id()
         &&& self.token.key() == self.cpu
         &&& self.inst.cpu_num() == GLOBAL_CPU_NUM
-    }
-
-    pub open spec fn pred_cursor_Void(&self) -> bool {
-        self.state() is Void
-    }
-
-    pub open spec fn pred_cursor_ReadLocking(&self, path: Seq<NodeId>) -> bool {
-        &&& self.state() is ReadLocking
-        &&& self.state()->ReadLocking_0 =~= path
-    }
-
-    pub open spec fn pred_cursor_WriteLocked(&self, path: Seq<NodeId>) -> bool {
-        &&& self.state() is WriteLocked
-        &&& self.state()->WriteLocked_0 =~= path
+        &&& wf_tree_path(self.path())
     }
 }
 
