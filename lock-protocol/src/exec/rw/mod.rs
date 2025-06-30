@@ -8,4 +8,3 @@ pub mod node;
 pub mod page_table;
 pub mod pte;
 pub mod types;
-pub mod utils;
