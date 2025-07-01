@@ -240,10 +240,9 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    #[verifier::external_body] // TODO
-    fn new_absent() -> (res: Self)
-        ensures res == Self::new_absent_spec()
+    fn new_absent() -> Self
     {
+        assert(0 & PageTableFlags::PRESENT() == 0) by (bit_vector);
         Self::default()
     }
 
@@ -253,8 +252,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn as_value(&self) -> (res: u64)
-            ensures res == self.as_value_spec()
+    fn as_value(&self) -> u64
     {
         self.0 as u64
     }
@@ -265,8 +263,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn is_present(&self) -> (res: bool)
-        ensures res == self.is_present_spec()
+    fn is_present(&self) -> bool
     {
         self.0 & PageTableFlags::PRESENT() != 0
     }
@@ -277,7 +274,6 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     fn set_prop(&mut self, prop: PageProperty)
-        ensures self == old(self).set_prop_spec(prop)
     {
         let flags = Self::format_flags(prop);
         self.prop_assign(flags)
@@ -306,6 +302,10 @@ impl PageTableEntryTrait for PageTableEntry {
     #[verifier::external_body] // TODO
     fn new_pt(paddr: Paddr) -> Self {
         let addr = paddr & PHYS_ADDR_MASK();
+        proof{
+            let bit = addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER();
+            assert(bit & PageTableFlags::PRESENT() != 0) by (bit_vector);
+        }
         Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
     }
 
@@ -315,8 +315,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn paddr(&self) -> (res: Paddr)
-        ensures res == self.paddr_spec()
+    fn paddr(&self) -> Paddr
     {
         self.0 & PHYS_ADDR_MASK()
     }
@@ -340,12 +339,16 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn is_last(&self, level: PagingLevel) -> (res: bool)
-        ensures res == self.is_last_spec(level)
+    fn is_last(&self, level: PagingLevel) -> bool
     {
         // level == 1 || (self.0 & PageTableFlags::HUGE() != 0)
         level == 1
     }
+
+    /* proof fn lemma_page_table_entry_properties()
+    {
+        assert(!Self::default().is_present());
+    }*/
 
 }
 

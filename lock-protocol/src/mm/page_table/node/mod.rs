@@ -219,8 +219,6 @@ pub enum MapTrackingStatus {
 }
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-    // TODO: Implement
-    #[verifier::external_body]
     pub fn new_locked(level: PagingLevel, is_tracked: MapTrackingStatus) -> Self {
         Self {
             // nr_children: SyncUnsafeCell::new(0),

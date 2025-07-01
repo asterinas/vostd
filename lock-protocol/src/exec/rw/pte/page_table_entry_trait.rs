@@ -15,21 +15,23 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
 
     /// For implement `Default` trait.
     #[verifier::when_used_as_spec(default_spec)]
-    fn default() -> (res: Self)
-        ensures
-            res == Self::default_spec(),
+    fn default() -> Self
+        returns
+            Self::default_spec(),
     ;
 
     spec fn as_value_spec(&self) -> u64;
 
     /// For implement `Pod` trait.
     #[verifier::when_used_as_spec(as_value_spec)]
-    fn as_value(&self) -> (res: u64)
-        ensures
-            res == self.as_value_spec(),
+    fn as_value(&self) -> u64
+        returns
+            self.as_value_spec(),
     ;
 
-    spec fn new_absent_spec() -> Self;
+    open spec fn new_absent_spec() -> Self {
+        Self::default_spec()
+    }
 
     /// Create a set of new invalid page table flags that indicates an absent page.
     ///
@@ -37,17 +39,18 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     #[verifier::when_used_as_spec(new_absent_spec)]
     fn new_absent() -> (res: Self)
         ensures
-            res =~= Self::new_absent_spec(),
             !res.is_present(),
+        returns
+            Self::new_absent_spec(),
     ;
 
     spec fn is_present_spec(&self) -> bool;
 
     /// If the flags are present with valid mappings.
     #[verifier::when_used_as_spec(is_present_spec)]
-    fn is_present(&self) -> (res: bool)
-        ensures
-            res == self.is_present_spec(),
+    fn is_present(&self) -> bool
+        returns
+            self.is_present_spec(),
     ;
 
     spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
@@ -59,10 +62,11 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
             valid_paddr(paddr),
             level == 1,
         ensures
-            res =~= Self::new_page_spec(paddr, level, prop),
             res.is_present(),
             valid_paddr(res.paddr_spec()),
             res.is_last_spec(level),
+        returns
+            Self::new_page_spec(paddr, level, prop),
     ;
 
     spec fn new_pt_spec(paddr: Paddr) -> Self;
@@ -73,10 +77,11 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
         requires
             valid_paddr(paddr),
         ensures
-            res =~= Self::new_pt_spec(paddr),
             res.is_present(),
             valid_paddr(res.paddr_spec()),
             !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
+        returns
+            Self::new_pt_spec(paddr),
     ;
 
     spec fn paddr_spec(&self) -> Paddr;
@@ -86,17 +91,17 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     /// - the physical address of the next level page table;
     /// - or the physical address of the page it maps to.
     #[verifier::when_used_as_spec(paddr_spec)]
-    fn paddr(&self) -> (res: Paddr)
-        ensures
-            res == self.paddr_spec(),
+    fn paddr(&self) -> Paddr
+        returns
+            self.paddr_spec(),
     ;
 
     spec fn prop_spec(&self) -> PageProperty;
 
     #[verifier::when_used_as_spec(prop_spec)]
-    fn prop(&self) -> (res: PageProperty)
-        ensures
-            res == self.prop_spec(),
+    fn prop(&self) -> PageProperty
+        returns
+            self.prop_spec(),
     ;
 
     spec fn set_prop_spec(&self, prop: PageProperty) -> Self;
@@ -113,10 +118,19 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     /// The level of the page table the entry resides is given since architectures
     /// like amd64 only uses a huge bit in intermediate levels.
     #[verifier::when_used_as_spec(is_last_spec)]
-    fn is_last(&self, level: PagingLevel) -> (res: bool)
+    fn is_last(&self, level: PagingLevel) -> bool
+        returns
+            self.is_last_spec(level),
+    ;/*/// Specify the requirement for the PTE implementation to be valid
+    proof fn lemma_page_table_entry_properties()
         ensures
-            res == self.is_last_spec(level),
-    ;
+            !Self::default().is_present(),
+            forall |p: Paddr, level: PagingLevel, prop: PageProperty|
+                #[trigger]Self::new_page(p, level, prop).is_present(),
+            forall |p: Paddr|
+                #[trigger]Self::new_pt(p).is_present(),
+    ;*/
+
 }
 
 } // verus!

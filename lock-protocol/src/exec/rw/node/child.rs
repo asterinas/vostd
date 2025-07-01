@@ -32,7 +32,8 @@ pub enum Child {
 impl Child {
     pub axiom fn axiom_no_huge_page(self)
         ensures
-            self is Frame ==> self->Frame_1 == 1,;
+            self is Frame ==> self->Frame_1 == 1,
+    ;
 
     pub open spec fn wf(&self, mem: &MemContent) -> bool {
         match *self {
