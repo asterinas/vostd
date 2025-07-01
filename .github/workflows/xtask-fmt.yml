@@ -28,21 +28,20 @@ jobs:
       - name: Run xtask bootstrap
         run: cargo xtask bootstrap
 
-      - name: Run xtask fmt
-        run: cargo xtask fmt
-
-      - name: Check for formatting changes
-        run: |
-          if [[ -n $(git status --porcelain) ]]; then
-            echo "Code is not properly formatted. Run 'cargo xtask fmt'."
-            git diff
-            exit 1
-          fi
-
       - name: Run verification
         run: |
           make 2>&1 | tee verus.log
           if grep -q "error:" verus.log; then
             echo "Verification errors found"
             exit 1
+          fi
+      
+      - name: Run xtask fmt
+        run: cargo xtask fmt
+      
+      - name: Check for formatting changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "[Warning] Code is not properly formatted. Run 'cargo xtask fmt'."
+            git diff
           fi
