@@ -43,6 +43,7 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
         returns
             Self::new_absent_spec(),
     ;
+    
 
     spec fn is_present_spec(&self) -> bool;
 
@@ -63,7 +64,7 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
             level == 1,
         ensures
             res.is_present(),
-            valid_paddr(res.paddr_spec()),
+            res.paddr_spec() == paddr,
             res.is_last_spec(level),
         returns
             Self::new_page_spec(paddr, level, prop),
@@ -78,7 +79,7 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
             valid_paddr(paddr),
         ensures
             res.is_present(),
-            valid_paddr(res.paddr_spec()),
+            res.paddr_spec() == paddr,
             !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
         returns
             Self::new_pt_spec(paddr),
@@ -121,15 +122,31 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     fn is_last(&self, level: PagingLevel) -> bool
         returns
             self.is_last_spec(level),
-    ;/*/// Specify the requirement for the PTE implementation to be valid
+    ;
+
+    /// Specify the requirement for the PTE implementation to be valid
     proof fn lemma_page_table_entry_properties()
         ensures
             !Self::default().is_present(),
             forall |p: Paddr, level: PagingLevel, prop: PageProperty|
-                #[trigger]Self::new_page(p, level, prop).is_present(),
-            forall |p: Paddr|
-                #[trigger]Self::new_pt(p).is_present(),
-    ;*/
+                #![trigger Self::new_page(p, level, prop)]
+                valid_paddr(p) && level == 1 ==> 
+                    {
+                        let page = Self::new_page(p, level, prop);
+                        &&& page.is_present()
+                        &&& page.paddr_spec() == p
+                        &&& page.is_last(level)
+                    },
+                forall |p: Paddr|
+                #![trigger Self::new_pt(p)]  
+                valid_paddr(p) ==> {
+                    let pt = Self::new_pt(p);
+                    &&& pt.is_present()
+                    &&& pt.paddr_spec() == p
+                    &&& !pt.is_last(PageTableNode::from_raw_spec(p).level_spec())
+                }
+
+    ;
 
 }
 

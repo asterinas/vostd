@@ -13,13 +13,13 @@ impl !Send for DisabledPreemptGuard {
 }
 
 #[verifier::external_body]
-extern  fn cpu_local_inc_guard_count()
+extern "C" fn cpu_local_inc_guard_count()
     opens_invariants none
     no_unwind
 ;
 
 #[verifier::external_body]
-extern  fn cpu_local_dec_guard_count()
+extern "C" fn cpu_local_dec_guard_count()
     opens_invariants none
     no_unwind
 ;

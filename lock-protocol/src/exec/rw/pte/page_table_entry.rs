@@ -122,10 +122,25 @@ impl PageTableEntry {
         let flags: u8 = prop.flags.value();
         let priv_flags: u8 = prop.priv_flags.value();
         PageTableFlags::PRESENT()
-            | flags.map_forward(&PAGE_FLAG_MAPPING)
-            | flags.map_invert_forward(&PAGE_INVERTED_FLAG_MAPPING)
-            | priv_flags.map_forward(&PAGE_PRIV_MAPPING)
+            | flags.map_forward_spec(&PAGE_FLAG_MAPPING)
+            | flags.map_invert_forward_spec(&PAGE_INVERTED_FLAG_MAPPING)
+            | priv_flags.map_forward_spec(&PAGE_PRIV_MAPPING)
             | Self::encode_cache(prop.cache)
+    }
+
+    proof fn lemma_format_flags_present(prop: PageProperty)
+        ensures
+            Self::format_flags(prop) & PageTableFlags::PRESENT() != 0,
+    {
+        let flags: u8 = prop.flags.value();
+        let priv_flags: u8 = prop.priv_flags.value();
+        let flag1 = flags.map_forward_spec(&PAGE_FLAG_MAPPING);
+        let flag2 = flags.map_invert_forward_spec(&PAGE_INVERTED_FLAG_MAPPING);
+        let priv_flag = priv_flags.map_forward_spec(&PAGE_PRIV_MAPPING);
+        let cache_flag = Self::encode_cache(prop.cache);
+        assert(
+            (PageTableFlags::PRESENT() | flag1 | flag2 | priv_flag | cache_flag) & PageTableFlags::PRESENT() != 0
+        ) by (bit_vector);
     }
 
     #[verifier::external_body]
@@ -291,6 +306,16 @@ impl PageTableEntryTrait for PageTableEntry {
         let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
         let flags = Self::format_flags(prop) as usize;
+        
+        proof{
+            Self::lemma_page_table_entry_properties();
+            assert(flags & PageTableFlags::PRESENT() != 0) by {
+            Self::lemma_format_flags_present(prop);}
+            assert((addr | hp | flags) & PageTableFlags::PRESENT() != 0) by (bit_vector) requires
+                flags & PageTableFlags::PRESENT() != 0;
+            assert(Self(addr | hp | flags).is_last(level));
+        }
+
         Self(addr | hp | flags)
     }
 
@@ -345,10 +370,10 @@ impl PageTableEntryTrait for PageTableEntry {
         level == 1
     }
 
-    /* proof fn lemma_page_table_entry_properties()
+    #[verifier::external_body]
+    proof fn lemma_page_table_entry_properties()
     {
-        assert(!Self::default().is_present());
-    }*/
+    }
 
 }
 
