@@ -43,7 +43,6 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
         returns
             Self::new_absent_spec(),
     ;
-    
 
     spec fn is_present_spec(&self) -> bool;
 
@@ -128,26 +127,23 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
     proof fn lemma_page_table_entry_properties()
         ensures
             !Self::default().is_present(),
-            forall |p: Paddr, level: PagingLevel, prop: PageProperty|
+            forall|p: Paddr, level: PagingLevel, prop: PageProperty|
                 #![trigger Self::new_page(p, level, prop)]
-                valid_paddr(p) && level == 1 ==> 
-                    {
-                        let page = Self::new_page(p, level, prop);
-                        &&& page.is_present()
-                        &&& page.paddr_spec() == p
-                        &&& page.is_last(level)
-                    },
-                forall |p: Paddr|
-                #![trigger Self::new_pt(p)]  
+                valid_paddr(p) && level == 1 ==> {
+                    let page = Self::new_page(p, level, prop);
+                    &&& page.is_present()
+                    &&& page.paddr_spec() == p
+                    &&& page.is_last(level)
+                },
+            forall|p: Paddr|
+                #![trigger Self::new_pt(p)]
                 valid_paddr(p) ==> {
                     let pt = Self::new_pt(p);
                     &&& pt.is_present()
                     &&& pt.paddr_spec() == p
                     &&& !pt.is_last(PageTableNode::from_raw_spec(p).level_spec())
-                }
-
+                },
     ;
-
 }
 
 } // verus!

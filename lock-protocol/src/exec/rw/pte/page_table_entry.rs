@@ -306,7 +306,7 @@ impl PageTableEntryTrait for PageTableEntry {
         let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
         let flags = Self::format_flags(prop) as usize;
-        
+
         proof{
             Self::lemma_page_table_entry_properties();
             assert(flags & PageTableFlags::PRESENT() != 0) by {
