@@ -213,7 +213,7 @@ struct BootstrapArgs {
     restart: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.86.0", action = ArgAction::Set)]
+        default_value = "1.88.0", action = ArgAction::Set)]
     rust_version: String,
 }
 
@@ -224,7 +224,7 @@ struct UpdateArgs {
     no_verus: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.86.0", action = ArgAction::Set)]
+        default_value = "1.88.0", action = ArgAction::Set)]
     rust_version: String,
 }
 

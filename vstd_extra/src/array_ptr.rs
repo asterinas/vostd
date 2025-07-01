@@ -828,6 +828,7 @@ impl<V, const N: usize> ArrayPtr<V, N> {
             forall|i: int|
                 0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
             perm.opt_value()[index as int] == raw_ptr::MemContents::Init(value),
+        opens_invariants none
         no_unwind
     {
         proof {
