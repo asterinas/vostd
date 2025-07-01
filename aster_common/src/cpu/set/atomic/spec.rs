@@ -17,8 +17,8 @@ tokenized_state_machine!{
         init! {
             initialize(cpu_set_inv: Set<nat>) {
                 init cpu_set_inv = Set::new(|e: Option<nat>| {
-                    e.is_None() || {
-                        &&& e.is_Some()
+                    e is None || {
+                        &&& e is Some
                         &&& cpu_set_inv.contains(e.unwrap())
                     }
                 });

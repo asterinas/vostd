@@ -97,7 +97,7 @@ impl PageTableModel {
     // }
     // pub open spec fn nodes_mapped_refinement(self) -> bool {
     //     forall |i:int|
-    //         self.mapped[i].is_Some() ==>
+    //         self.mapped[i] is Some ==>
     //         exists |j:int|
     //             #[trigger]
     //             self.nodes[i as usize]@.value.perms.unwrap().value().index(j) == self.mapped[i].unwrap()

@@ -59,14 +59,14 @@ tokenized_state_machine!{
 
         #[invariant]
         pub fn sto_user_inv(&self) -> bool {
-            self.storage.is_Some() ==>
+            self.storage is Some ==>
                 self.user_inv.contains(self.storage.get_Some_0())
         }
 
         #[invariant]
         pub fn lock_inv(&self) -> bool {
-            &&& self.locked <==> self.guard.is_Some()
-            &&& self.storage.is_Some() <==> self.guard.is_None()
+            &&& self.locked <==> self.guard is Some
+            &&& self.storage is Some <==> self.guard is None
         }
 
         #[inductive(initialize)]

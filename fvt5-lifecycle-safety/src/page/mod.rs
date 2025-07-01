@@ -147,6 +147,7 @@ impl<M: PageMeta> Page<M> {
         (paddr, Tracked(end_state))
     }
 
+    #[verifier::external_body]
     #[rustc_allow_incoherent_impl]
     pub fn from_raw(
         paddr: Paddr,

@@ -65,7 +65,7 @@ verus! {
 
 impl MetaSlot {
     #[rustc_allow_incoherent_impl]
-    pub open spec fn id(&self) -> u64;
+    pub uninterp spec fn id(&self) -> u64;
 
     #[rustc_allow_incoherent_impl]
     pub open spec fn invariant_id(&self) -> bool {
@@ -117,10 +117,10 @@ verus! {
 //
 impl MetaSlot {
     #[rustc_allow_incoherent_impl]
-    pub open spec fn model_from_paddr_spec(paddr: Paddr) -> Tracked<MetaSlotModel>;
+    pub uninterp spec fn model_from_paddr_spec(paddr: Paddr) -> Tracked<MetaSlotModel>;
 
     #[rustc_allow_incoherent_impl]
-    pub open spec fn concrete_from_paddr_spec(paddr: Paddr) -> &'static Self;
+    pub uninterp spec fn concrete_from_paddr_spec(paddr: Paddr) -> &'static Self;
 
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]

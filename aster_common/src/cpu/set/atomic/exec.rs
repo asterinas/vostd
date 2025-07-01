@@ -22,7 +22,7 @@ struct_with_invariants! {
             forall |i: int| where (0 <= i < self.inner.len()) specifically (self.inner[i])
             is (b: bool, g: AtomicCpuSetSpec::cpu_set_inv) {
             &&& g.instance_id() == inst@.id()
-            &&& if !b { g.element() == Some(i as nat) } else { g.element().is_None() }
+            &&& if !b { g.element() == Some(i as nat) } else { g.element() is None }
         }
     }
 }
@@ -91,7 +91,7 @@ impl AtomicCpuSet {
             let b = cpu_set.contains(cpu);
             let tracked token = if b {
                 let tracked res = none_token.clone();
-                assume(res.element().is_None());
+                assume(res.element() is None);
                 res
             } else {
                 assert(cpu_set.not_contains_spec(cpu@));
@@ -144,7 +144,7 @@ impl AtomicCpuSet {
             if !res.0 {
                 self.token_val(res.1@, cpu@)
             } else {
-                res.1@.element().is_None()
+                res.1@.element() is None
             },
     {
         let ghost mut token;

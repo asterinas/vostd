@@ -37,7 +37,7 @@ impl PageTableNode {
         &'a self,
         Tracked(p_slot): Tracked<&'a simple_pptr::PointsTo<MetaSlot>>,
         Tracked(p_inner): Tracked<&'a cell::PointsTo<MetaSlotInner>>,
-    ) -> (res: &PageTablePageMeta)
+    ) -> (res: &'a PageTablePageMeta)
         requires
             self.inv(),
             p_slot.pptr() == self.page.ptr,

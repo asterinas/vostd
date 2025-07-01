@@ -515,7 +515,7 @@ impl<M: PageMeta> Page<M> {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub open spec fn model_from_slot_spec(slot: &MetaSlot) -> Tracked<PageModel>;
+    pub uninterp spec fn model_from_slot_spec(slot: &MetaSlot) -> Tracked<PageModel>;
 
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]

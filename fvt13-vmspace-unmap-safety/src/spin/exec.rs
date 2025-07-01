@@ -54,7 +54,7 @@ impl<'a, T> SpinLockGuard<'a, T, PreemptDisabled> {
     pub fn deref(&self) -> (res: &T)
         requires
             self.inv(),
-            self.cell_perms@@.value.is_Some(),
+            self.cell_perms@@.value is Some,
         ensures
             self.inv(),
             *res == self.cell_perms@@.value.get_Some_0(),
@@ -65,10 +65,10 @@ impl<'a, T> SpinLockGuard<'a, T, PreemptDisabled> {
     pub fn get(&mut self) -> (res: T)
         requires
             old(self).inv(),
-            old(self).cell_perms@@.value.is_Some(),
+            old(self).cell_perms@@.value is Some,
         ensures
             self.inv(),
-            self.cell_perms@@.value.is_None(),
+            self.cell_perms@@.value is None,
             res == old(self).cell_perms@@.value.get_Some_0(),
             self.lock.inv(res),
     {
@@ -78,11 +78,11 @@ impl<'a, T> SpinLockGuard<'a, T, PreemptDisabled> {
     pub fn put(&mut self, val: T)
         requires
             old(self).inv(),
-            old(self).cell_perms@@.value.is_None(),
+            old(self).cell_perms@@.value is None,
             old(self).lock.inv(val),
         ensures
             self.inv(),
-            self.cell_perms@@.value.is_Some(),
+            self.cell_perms@@.value is Some,
             self.cell_perms@@.value.get_Some_0() == val,
             self.lock.inv(val),
     {
@@ -92,7 +92,7 @@ impl<'a, T> SpinLockGuard<'a, T, PreemptDisabled> {
     pub fn drop(self)
         requires
             self.inv(),
-            self.cell_perms@@.value.is_Some(),
+            self.cell_perms@@.value is Some,
     {
         self.lock.release(Tracked(self));
     }
@@ -102,7 +102,7 @@ impl<'a, T> SpinLockGuard<'a, T, PreemptDisabled> {
 //     pub fn drop(self)
 //         requires
 //             self.inv(),
-//             self.cell_perms@@.value.is_Some(),
+//             self.cell_perms@@.value is Some,
 //     {
 //         self._guard.drop();
 //         self.lock.release(Tracked(self));
@@ -121,7 +121,7 @@ struct_with_invariants!{
         predicate {
             forall |v: PointsTo<T>| #[trigger] self.inst@.user_inv().contains(v) <==> {
                 &&& v@.pcell == self.data.id()
-                &&& v@.value.is_Some()
+                &&& v@.value is Some
                 &&& self.user_inv@.contains(v@.value.get_Some_0())
             }
         }
@@ -161,7 +161,7 @@ impl<T> SpinLock<T> {
             |s: PointsTo<T>|
                 {
                     &&& equal(s@.pcell, pcell_data.id())
-                    &&& s@.value.is_Some()
+                    &&& s@.value is Some
                     &&& set_inv.contains(s@.value.get_Some_0())
                 },
         );
@@ -203,11 +203,11 @@ impl<T> SpinLock<T> {
             invariant
                 self.wf(),
                 acquired ==> {
-                    &&& guard.is_Some()
+                    &&& guard is Some
                     &&& guard.get_Some_0()@.instance_id() == self.inst@.id()
-                    &&& cell_perms.is_Some()
+                    &&& cell_perms is Some
                     &&& cell_perms.get_Some_0()@.pcell == self.data.id()
-                    &&& cell_perms.get_Some_0()@.value.is_Some()
+                    &&& cell_perms.get_Some_0()@.value is Some
                     &&& self.inv(cell_perms.get_Some_0()@.value.get_Some_0())
                 },
         {
@@ -245,7 +245,7 @@ impl<T> SpinLock<T> {
             self.wf_guard(&guard@),
             guard@.lock =~= self,
             guard@.inv(),
-            guard@.cell_perms@@.value.is_Some(),
+            guard@.cell_perms@@.value is Some,
             self.inv(guard@.cell_perms@@.value.get_Some_0()),
         ensures
             self.wf(),
