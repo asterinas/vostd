@@ -201,7 +201,7 @@ RwLockToks<K, V, Pred: InvariantPredicate<K, V>> {
             remove mock_reader -= {()};
 
             assert(pre.flag_rc >= 1) by {
-                assert(pre.storage.is_Some());
+                assert(pre.storage is Some);
             };
             update flag_rc = (pre.flag_rc - 1) as nat;
         }
@@ -228,7 +228,7 @@ RwLockToks<K, V, Pred: InvariantPredicate<K, V>> {
 
     #[invariant]
     pub fn mock_reader_implies_storage_is_some(&self) -> bool {
-        self.mock_reader.count(()) > 0 ==> self.storage.is_Some()
+        self.mock_reader.count(()) > 0 ==> self.storage is Some
     }
 
     #[invariant]
@@ -290,7 +290,7 @@ RwLockToks<K, V, Pred: InvariantPredicate<K, V>> {
     #[inductive(release_shared)]
     fn release_shared_inductive(pre: Self, post: Self) {
         broadcast use group_multiset_axioms;
-        assert(pre.storage.is_Some());
+        assert(pre.storage is Some);
     }
 }
 
@@ -630,7 +630,7 @@ impl PageTablePageRwLock {
                 wf_tree_path(m.path().push(self.nid())),
                 path =~= m.path(),
             ensures
-                write_handle_opt.is_Some(),
+                write_handle_opt is Some,
                 write_handle_opt->Some_0.wf(self),
                 m.inv(),
                 m.inst_id() == self.pt_inst_id(),
@@ -705,7 +705,7 @@ impl PageTablePageRwLock {
             }
         }
 
-        assert(write_handle_opt.is_Some());
+        assert(write_handle_opt is Some);
         let write_handle = write_handle_opt.unwrap();
         (write_handle, Tracked(m))
     }
@@ -786,7 +786,7 @@ impl PageTablePageRwLock {
                 wf_tree_path(m.path().push(self.nid())),
                 path =~= m.path(),
             ensures
-                read_handle_opt.is_Some(),
+                read_handle_opt is Some,
                 read_handle_opt->Some_0.wf(self),
                 m.inv(),
                 m.inst_id() == self.pt_inst_id(),
@@ -852,14 +852,14 @@ impl PageTablePageRwLock {
                                     m.path().len() < 3,
                                     wf_tree_path(m.path().push(self.nid())),
                                     path =~= m.path(),
-                                    mock_handle_opt.is_Some(),
+                                    mock_handle_opt is Some,
                                     mock_handle_opt->Some_0.instance_id() == self.inst_id(),
                                 ensures
                                     m.inv(),
                                     m.inst_id() == self.pt_inst_id(),
                                     m.state() is ReadLocking,
                                     m.path() =~= path.push(self.nid@),
-                                    handle_opt.is_Some(),
+                                    handle_opt is Some,
                                     handle_opt->Some_0.instance_id() == self.inst_id(),
                                     handle_opt->Some_0.element().0.instance_id()
                                         == self.pt_inst_id(),
@@ -940,7 +940,7 @@ impl PageTablePageRwLock {
             }
         }
 
-        assert(read_handle_opt.is_Some());
+        assert(read_handle_opt is Some);
         let read_handle = read_handle_opt.unwrap();
         (read_handle, Tracked(m))
     }

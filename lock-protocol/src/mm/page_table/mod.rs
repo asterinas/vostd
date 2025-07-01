@@ -46,7 +46,7 @@ pub enum PageTableError {
 ///  - if the provided raw form matches the item that was consumed by
 ///    `item_into_raw`, `item_from_raw` restores the exact item that was
 ///    consumed by `item_into_raw`.
-pub(crate) unsafe trait PageTableConfig {
+pub/*(crate)*/ unsafe trait PageTableConfig {
     /// The index range at the top level (`C::NR_LEVELS`) page table.
     ///
     /// When configured with this value, the [`PageTable`] instance will only
