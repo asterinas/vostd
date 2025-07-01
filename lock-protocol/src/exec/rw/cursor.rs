@@ -345,6 +345,12 @@ pub fn lock_range(
             Ghost(pt.inst@.id()),
         );
         proof {
+            if m.path().len() == 0 {
+                assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id()) by {
+                    admit();
+                };
+            }
+            assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id());
             lemma_wf_tree_path_inc(m.path(), cur_pt.nid@);
         }
         let res = cur_pt.lock_read(mem, Tracked(m));

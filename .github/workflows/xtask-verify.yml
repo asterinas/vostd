@@ -31,6 +31,12 @@ jobs:
         run: |
           make 2>&1 | tee verus.log
           if grep -q "error:" verus.log; then
-            echo "Verification errors found"
+            echo "::error title=Verification Failed::Verification errors found in the code"
+            echo "Verification errors:"
+            grep "error:" verus.log | while read line; do
+              echo "::error::$line"
+            done
             exit 1
+          else
+            echo "✅ Verification passed!"
           fi
