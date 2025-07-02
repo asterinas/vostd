@@ -51,8 +51,7 @@ pub uninterp spec fn mem_contents_wrap<V, const N: usize>(
     data: raw_ptr::MemContents<[V; N]>,
 ) -> (res: [raw_ptr::MemContents<V>; N]);
 
-#[verifier::external_body]
-pub proof fn axiom_mem_contents_unwrap_init_correctness<V, const N: usize>(
+pub axiom fn axiom_mem_contents_unwrap_init_correctness<V, const N: usize>(
     arr: [raw_ptr::MemContents<V>; N],
     res: raw_ptr::MemContents<[V; N]>,
 )
@@ -62,12 +61,9 @@ pub proof fn axiom_mem_contents_unwrap_init_correctness<V, const N: usize>(
     ensures
         res.is_init(),
         forall|index: int| 0 <= index < N ==> #[trigger] res.value()[index] == arr[index].value(),
-{
-    unimplemented!();
-}
+;
 
-#[verifier::external_body]
-pub proof fn axiom_mem_contents_unwrap_uninit_correctness<V, const N: usize>(
+pub axiom fn axiom_mem_contents_unwrap_uninit_correctness<V, const N: usize>(
     arr: [raw_ptr::MemContents<V>; N],
     res: raw_ptr::MemContents<[V; N]>,
 )
@@ -76,12 +72,9 @@ pub proof fn axiom_mem_contents_unwrap_uninit_correctness<V, const N: usize>(
         is_mem_contents_all_uninit(arr),
     ensures
         res.is_uninit(),
-{
-    unimplemented!();
-}
+;
 
-#[verifier::external_body]
-pub proof fn axiom_mem_contents_wrap_correctness<V, const N: usize>(
+pub axiom fn axiom_mem_contents_wrap_correctness<V, const N: usize>(
     data: raw_ptr::MemContents<[V; N]>,
     res: [raw_ptr::MemContents<V>; N],
 )
@@ -91,9 +84,7 @@ pub proof fn axiom_mem_contents_wrap_correctness<V, const N: usize>(
         data.is_uninit() ==> is_mem_contents_all_uninit(res),
         data.is_init() ==> is_mem_contents_all_init(res) && forall|index: int|
             0 <= index < N ==> #[trigger] res[index].value() == data.value()[index],
-{
-    unimplemented!();
-}
+;
 
 impl<V, const N: usize> PointsToArrayData<V, N> {
     #[verifier::external_body]

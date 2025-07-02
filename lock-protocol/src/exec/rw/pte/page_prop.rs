@@ -322,6 +322,17 @@ impl PageFlags {
     {
         Self { bits: 0b00010000 }
     }
+
+    #[verifier::external_body]
+    pub proof fn lemma_consts_properties()
+        ensures
+            Self::R().value().ilog2() == 0,
+            Self::W().value().ilog2() == 1,
+            Self::X().value().ilog2() == 2,
+            Self::ACCESSED().value().ilog2() == 3,
+            Self::DIRTY().value().ilog2() == 4,
+    {
+    }
 }
 
 }
@@ -428,6 +439,15 @@ impl PrivilegedPageFlags {
         ensures res == Self::SHARED_spec()
     {
         Self { bits: 0b10000000 }
+    }
+
+    #[verifier::external_body]
+    pub proof fn lemma_consts_properties()
+        ensures
+            Self::USER().value().ilog2() == 0,
+            Self::GLOBAL().value().ilog2() == 1,
+            Self::SHARED().value().ilog2() == 7,
+    {
     }
 
 }

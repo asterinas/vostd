@@ -49,6 +49,35 @@ decl_bms_const!(
 );
 
 verus! {
+    /// Parse a bit-flag bits `val` in the representation of `from` to `to` in bits.
+macro_rules! parse_flags {
+    ($val:expr, $from:expr, $to:expr) => {
+        ($val as usize & $from as usize) >> $from.ilog2() << $to.ilog2()
+    };
+}
+
+pub proof fn lemma_parse_flag_consts(flag:usize)
+    ensures
+        parse_flags!(flag, PageTableFlags::WRITABLE(), PageFlags::W().value()) == if flag & PageTableFlags::WRITABLE() == 0 {0} else{ PageFlags::W().value()},
+        parse_flags!(flag, PageTableFlags::PRESENT(), PageFlags::R().value()) == if flag & PageTableFlags::PRESENT() == 0 {0} else{ PageFlags::R().value()},
+        parse_flags!(flag, PageTableFlags::ACCESSED(), PageFlags::ACCESSED().value()) == if flag & PageTableFlags::ACCESSED() == 0 {0} else{ PageFlags::ACCESSED().value()},
+        parse_flags!(!flag, PageTableFlags::NO_EXECUTE(), PageFlags::X().value()) == if !flag & PageTableFlags::NO_EXECUTE() == 0 {0} else{ PageFlags::X().value()},
+        parse_flags!(flag, PageTableFlags::DIRTY(), PageFlags::DIRTY().value()) == if flag & PageTableFlags::DIRTY() == 0 {0} else{ PageFlags::DIRTY().value()},
+        parse_flags!(flag, PageTableFlags::USER(), PrivilegedPageFlags::USER().value()) == if flag & PageTableFlags::USER() == 0 {0} else{ PrivilegedPageFlags::USER().value()},
+        parse_flags!(flag, PageTableFlags::GLOBAL(), PrivilegedPageFlags::GLOBAL().value()) == if flag & PageTableFlags::GLOBAL() == 0 {0} else{ PrivilegedPageFlags::GLOBAL().value()},
+    {
+        lemma_parse_flag_present(flag);
+        lemma_parse_flag_writable(flag);
+        lemma_parse_flag_accessed(flag);
+        lemma_parse_flag_no_execute(!flag);
+        lemma_parse_flag_dirty(flag);
+        lemma_parse_flag_user(flag);
+        lemma_parse_flag_global(flag);
+    }
+
+}
+
+verus! {
 
 #[repr(transparent)]
 #[derive(Copy, Debug, PartialEq)]
@@ -181,12 +210,18 @@ impl PageTableEntry {
     }
 
     pub open spec fn format_property_spec(entry: usize) -> PageProperty {
-        let flags: u8 = entry.map_backward(&PAGE_FLAG_MAPPING)
-                      | entry.map_invert_backward(&PAGE_INVERTED_FLAG_MAPPING);
-        let priv_flags: u8 = entry.map_backward(&PAGE_PRIV_MAPPING);
+        let flags: u8 =
+            if entry & PageTableFlags::PRESENT() == 0 {0} else { PageFlags::R().value() } |
+            if entry & PageTableFlags::WRITABLE() == 0 {0} else { PageFlags::W().value() } |
+            if entry & PageTableFlags::ACCESSED() == 0 {0} else { PageFlags::ACCESSED().value() } |
+            if entry & PageTableFlags::DIRTY() == 0 {0} else { PageFlags::DIRTY().value() } |
+            if !entry & PageTableFlags::NO_EXECUTE() == 0 {0} else { PageFlags::X().value() };
+        let priv_flags: u8 =
+            if entry & PageTableFlags::USER() == 0 {0} else { PrivilegedPageFlags::USER().value() } |
+            if entry & PageTableFlags::GLOBAL() == 0 {0} else { PrivilegedPageFlags::GLOBAL().value() };
         let cache = Self::format_cache(entry);
         PageProperty {
-            flags: PageFlags::from_bits(flags),
+            flags: PageFlags::from_bits(flags as u8),
             cache,
             priv_flags: PrivilegedPageFlags::from_bits(priv_flags),
         }
@@ -197,14 +232,23 @@ impl PageTableEntry {
     pub fn format_property(entry: usize) -> (res: PageProperty)
         ensures res == Self::format_property_spec(entry)
     {
-        let flags = entry.map_backward(&PAGE_FLAG_MAPPING)
-                  | entry.map_invert_backward(&PAGE_INVERTED_FLAG_MAPPING);
-        let priv_flags: u8 = entry.map_backward(&PAGE_PRIV_MAPPING);
+        proof{
+            lemma_parse_flag_consts(entry);
+        }
+        let flags =
+            parse_flags!(entry, PageTableFlags::PRESENT(), PageFlags::R().value()) |
+            parse_flags!(entry, PageTableFlags::WRITABLE(), PageFlags::W().value()) |
+            parse_flags!(entry, PageTableFlags::ACCESSED(), PageFlags::ACCESSED().value()) |
+            parse_flags!(entry, PageTableFlags::DIRTY(), PageFlags::DIRTY().value()) |
+            parse_flags!(!entry, PageTableFlags::NO_EXECUTE(), PageFlags::X().value());
+        let priv_flags  =
+            parse_flags!(entry, PageTableFlags::USER(), PrivilegedPageFlags::USER().value()) |
+            parse_flags!(entry, PageTableFlags::GLOBAL(), PrivilegedPageFlags::GLOBAL().value());
         let cache = Self::format_cache(entry);
         PageProperty {
-            flags: PageFlags::from_bits(flags),
+            flags: PageFlags::from_bits(flags as u8),
             cache,
-            priv_flags: PrivilegedPageFlags::from_bits(priv_flags),
+            priv_flags: PrivilegedPageFlags::from_bits(priv_flags as u8),
         }
     }
 
@@ -378,3 +422,131 @@ impl PageTableEntryTrait for PageTableEntry {
 }
 
 }
+
+macro_rules! declare_parse_flag_const {
+    ($name:ident, $from_expr:expr, $from_mask:expr, $from_bit:expr, $from_ty: ty, $to_expr:expr, $to_mask:expr, $to_bit:expr, $to_ty: ty) => {
+        verus!{
+        proof fn $name(flag: $from_ty)
+            ensures
+                parse_flags!(flag, $from_expr, $to_expr) ==
+                    if flag & $from_expr == 0 { 0 } else { $to_expr },
+        {
+            PageTableFlags::lemma_consts_properties();
+            PageFlags::lemma_consts_properties();
+            PrivilegedPageFlags::lemma_consts_properties();
+
+            assert(
+                parse_flags!(flag, $from_expr, $to_expr) ==
+                    (flag & ($from_mask as $from_ty)) >> $from_bit << $to_bit
+            );
+
+            if flag & $from_mask != 0 {
+                assert(flag & $from_mask == $from_mask) by (bit_vector)
+                    requires flag & $from_mask != 0;
+                assert(($from_mask as $from_ty >> $from_bit << $to_bit) == $to_mask) by (bit_vector);
+            }
+
+            if flag & $from_mask == 0 {
+                assert(0 as $from_ty >> $from_bit << $to_bit == 0) by (bit_vector);
+            }
+        }
+    }
+    };
+}
+
+declare_parse_flag_const!(
+    lemma_parse_flag_present,
+    PageTableFlags::PRESENT(),
+    0b00000001,
+    0,
+    usize,
+    PageFlags::R().value(),
+    0b00000001,
+    0,
+    u8
+);
+
+/*
+declare_parse_flag_const!(
+    lemma_parse_flag_present_inverted,
+    PageFlags::R().value(),
+    0b00000001,
+    0,
+    u8,
+    PageTableFlags::PRESENT(),
+    0b00000001,
+    0,
+    usize
+);*/
+
+declare_parse_flag_const!(
+    lemma_parse_flag_writable,
+    PageTableFlags::WRITABLE(),
+    0b00000010,
+    1,
+    usize,
+    PageFlags::W().value(),
+    0b00000010,
+    1,
+    u8
+);
+
+declare_parse_flag_const!(
+    lemma_parse_flag_accessed,
+    PageTableFlags::ACCESSED(),
+    0b00100000,
+    5,
+    usize,
+    PageFlags::ACCESSED().value(),
+    0b00001000,
+    3,
+    u8
+);
+
+declare_parse_flag_const!(
+    lemma_parse_flag_dirty,
+    PageTableFlags::DIRTY(),
+    0b01000000,
+    6,
+    usize,
+    PageFlags::DIRTY().value(),
+    0b00010000,
+    4,
+    u8
+);
+
+declare_parse_flag_const!(
+    lemma_parse_flag_user,
+    PageTableFlags::USER(),
+    0b00000100,
+    2,
+    usize,
+    PrivilegedPageFlags::USER().value(),
+    0b00000001,
+    0,
+    u8
+);
+
+declare_parse_flag_const!(
+    lemma_parse_flag_global,
+    PageTableFlags::GLOBAL(),
+    0b00000001_00000000,
+    8,
+    usize,
+    PrivilegedPageFlags::GLOBAL().value(),
+    0b00000010,
+    1,
+    u8
+);
+
+declare_parse_flag_const!(
+    lemma_parse_flag_no_execute,
+    PageTableFlags::NO_EXECUTE(),
+    1usize << 63,
+    63,
+    usize,
+    PageFlags::X().value(),
+    0b00000100,
+    2,
+    u8
+);

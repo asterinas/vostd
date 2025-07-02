@@ -1,5 +1,13 @@
 extern crate vstd_extra;
-use aster_common::{x86_64::*, mm::*, page::{meta::*,model::PageUsePermission}, page_prop::*, page_table::*, task::*, vm_space::*};
+use aster_common::{
+    x86_64::*,
+    mm::*,
+    page::{meta::*, model::PageUsePermission},
+    page_prop::*,
+    page_table::*,
+    task::*,
+    vm_space::*,
+};
 use std::fs::read;
 
 use vstd::prelude::*;
@@ -9,12 +17,12 @@ use crate::common::*;
 use super::*;
 use super::model::*;
 
-/* 
+/*
 verus! {
 /// # Write of the `MetaSlotInner` to the `MetaSlot`.
-/// 
-/// Verus (and also safe Rust) does not support writing value to 
-/// the union type. So we use a more verbose way to define the 
+///
+/// Verus (and also safe Rust) does not support writing value to
+/// the union type. So we use a more verbose way to define the
 /// new object of the `MetaSlotInner`.
 
 impl MetaSlotInner {
@@ -39,10 +47,10 @@ verus!{
 impl MetaSlot {
 
 /// Simulate the initial state of the `MetaSlot`.
-/// 
+///
 /// This function is purely logical and not used for the implementation.
 /// It is defined for verify the invariants of the `MetaSlot`.
-/// 
+///
 #[rustc_allow_incoherent_impl]
 pub fn init() -> (res: (Self, Tracked<MetaSlotModel>))
     ensures
@@ -81,7 +89,7 @@ pub fn init() -> (res: (Self, Tracked<MetaSlotModel>))
 
 /// implements `self.usage.compare_exchange(0, u)`
 #[rustc_allow_incoherent_impl]
-pub fn claim(&self, usage: PageUsage, Tracked(model): Tracked<MetaSlotModel>) 
+pub fn claim(&self, usage: PageUsage, Tracked(model): Tracked<MetaSlotModel>)
     -> (res: (bool, Tracked<MetaSlotModel>))
     requires
         self.inv_relate(model),
@@ -186,7 +194,7 @@ pub fn dec(&self, mut model: Tracked<MetaSlotModel>) -> (res: (u32, Tracked<Meta
 
 /// implements `(ptr as *mut M).write(M::default())` for `from_unused()`
 #[rustc_allow_incoherent_impl]
-pub fn put_inner(&self, inner: MetaSlotInner, mut model: Tracked<MetaSlotModel>) 
+pub fn put_inner(&self, inner: MetaSlotInner, mut model: Tracked<MetaSlotModel>)
     -> (res: Tracked<MetaSlotModel>)
     requires
         self.inv_relate(model@),
@@ -209,7 +217,7 @@ pub fn put_inner(&self, inner: MetaSlotInner, mut model: Tracked<MetaSlotModel>)
 }
 
 /// seal the `inner` for `from_unused()`
-/// 
+///
 /// This function is purely logical and not used for the implementation.
 #[rustc_allow_incoherent_impl]
 pub fn seal(&self, mut model: Tracked<MetaSlotModel>) -> (res: Tracked<MetaSlotModel>)
@@ -230,7 +238,7 @@ pub fn seal(&self, mut model: Tracked<MetaSlotModel>) -> (res: Tracked<MetaSlotM
 }
 
 /// complete M::on_drop() for `drop_as_last()`
-/// 
+///
 /// This function is purely logical and not used for the implementation.
 #[rustc_allow_incoherent_impl]
 pub fn clear_inner(&self, mut model: Tracked<MetaSlotModel>) -> (res: Tracked<MetaSlotModel>)

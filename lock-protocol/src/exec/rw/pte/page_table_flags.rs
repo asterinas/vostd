@@ -1,4 +1,9 @@
+use vstd::arithmetic::power2::{lemma2_to64, lemma2_to64_rest};
 use vstd::prelude::*;
+use vstd::arithmetic::{
+    power2::pow2,
+    logarithm::{log, lemma_log_pow},
+};
 
 verus! {
 
@@ -145,6 +150,22 @@ impl PageTableFlags {
         ensures res == Self::NO_EXECUTE_spec()
     {
         1usize << 63
+    }
+
+    #[verifier::external_body]
+    pub proof fn lemma_consts_properties()
+        ensures
+            Self::PRESENT().ilog2() == 0,
+            Self::WRITABLE().ilog2() == 1,
+            Self::USER().ilog2() == 2,
+            Self::WRITE_THROUGH().ilog2() == 3,
+            Self::NO_CACHE().ilog2() == 4,
+            Self::ACCESSED().ilog2() == 5,
+            Self::DIRTY().ilog2() == 6,
+            Self::HUGE().ilog2() == 7,
+            Self::GLOBAL().ilog2() == 8,
+            Self::NO_EXECUTE().ilog2() == 63,
+    {
     }
 
 }
