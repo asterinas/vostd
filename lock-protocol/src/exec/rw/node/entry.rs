@@ -40,7 +40,6 @@ impl Entry {
         let _node = node.frame->Some_0;
 
         self.pte.wf_with_node_info(
-            _node.start_paddr_spec(),
             _node.level_spec(),
             _node.inst@.id(),
             _node.nid@,
@@ -78,12 +77,13 @@ impl Entry {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    #[verifier::external_body]  // TODO
     pub fn replace(self, new_child: Child, node: &mut PageTableWriteLock, mem: &MemContent)
         requires
             self.wf(),
             self.wf_with_node(*old(node)),
             new_child.wf(mem),
+            !(new_child is PageTableRef),
+            new_child.wf_with_node(self.idx as nat, *old(node)),
             old(node).wf(mem),
         ensures
             node.wf(mem),
@@ -124,6 +124,7 @@ impl Entry {
         ensures
             res.wf(),
             res.wf_with_node(*node),
+            res.idx == idx,
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };

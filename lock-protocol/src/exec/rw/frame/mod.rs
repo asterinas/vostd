@@ -16,13 +16,20 @@ use super::node::PageTableNode;
 verus! {
 
 #[verifier::external_body]  // TODO
-pub fn allocate_pt(level: PagingLevel, mem: &MemContent) -> (res: PageTableNode)
+pub fn allocate_pt(
+    level: PagingLevel, 
+    mem: &MemContent,
+    inst: Tracked<SpecInstance>,
+    nid: Ghost<NodeId>,
+) -> (res: PageTableNode)
     requires
-// Root of the page table can not be allocated.
-
+        // Root of the page table can not be allocated.
         1 <= level < 4,
     ensures
         res.wf(mem),
+        res.inst@.cpu_num() == GLOBAL_CPU_NUM,
+        res.inst@.id() == inst@.id(),
+        res.nid@ == nid@,
 {
     unimplemented!()
 }

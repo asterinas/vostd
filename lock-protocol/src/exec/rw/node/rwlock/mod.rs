@@ -322,7 +322,6 @@ impl PageTableEntryPerms {
             0 <= self.inner.value().len() < 512 ==> {
                 &&& self.inner.value()[i as int].wf()
                 &&& self.inner.value()[i as int].wf_with_node_info(
-                    paddr,
                     level,
                     instance_id,
                     nid,

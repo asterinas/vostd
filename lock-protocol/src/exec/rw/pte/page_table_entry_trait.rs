@@ -82,7 +82,7 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
             res.is_present(),
             valid_paddr(res.paddr()),
             res.paddr_spec() == paddr & PHYS_ADDR_MASK(),
-            !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
+            // !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
         returns
             Self::new_pt_spec(paddr),
     ;

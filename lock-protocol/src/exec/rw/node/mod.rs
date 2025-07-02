@@ -274,7 +274,7 @@ impl PageTableReadLock {
         (frame, Tracked(m))
     }
 
-    #[verifier::external_body]  // TODO
+    #[verifier::external_body]
     pub fn read_pte(&self, idx: usize, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
@@ -282,7 +282,6 @@ impl PageTableReadLock {
         ensures
             res.wf(),
             res.wf_with_node_info(
-                self.frame->Some_0.start_paddr_spec(),
                 self.frame->Some_0.level_spec(),
                 self.frame->Some_0.inst@.id(),
                 self.frame->Some_0.nid@,
@@ -358,6 +357,7 @@ impl PageTableWriteLock {
             self.wf(mem),
             res.wf(),
             res.wf_with_node(*self),
+            res.idx == idx,
     {
         Entry::new_at(idx, self, mem)
     }
@@ -426,7 +426,6 @@ impl PageTableWriteLock {
         ensures
             res.wf(),
             res.wf_with_node_info(
-                self.frame->Some_0.start_paddr_spec(),
                 self.frame->Some_0.level_spec(),
                 self.frame->Some_0.inst@.id(),
                 self.frame->Some_0.nid@,
@@ -448,7 +447,6 @@ impl PageTableWriteLock {
             0 <= idx < 512,
             pte.wf(),
             pte.wf_with_node_info(
-                old(self).frame->Some_0.start_paddr_spec(),
                 old(self).frame->Some_0.level_spec(),
                 old(self).frame->Some_0.inst@.id(),
                 old(self).frame->Some_0.nid@,
@@ -456,6 +454,8 @@ impl PageTableWriteLock {
             ),
         ensures
             self.wf(mem),
+            self.inst_id() == old(self).inst_id(),
+            self.nid() == old(self).nid(),
     {
         let va = paddr_to_vaddr(self.paddr(mem));
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);

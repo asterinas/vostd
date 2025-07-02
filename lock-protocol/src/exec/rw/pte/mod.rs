@@ -56,14 +56,12 @@ impl Pte {
 
     pub open spec fn wf_with_node_info(
         &self,
-        paddr: Paddr,
         level: PagingLevel,
         inst_id: InstanceId,
         nid: NodeId,
         offset: nat,
     ) -> bool {
         self.inner.is_present() ==> {
-            &&& self.inner.paddr() == paddr
             &&& self.inner.is_last(level) ==> {
                 &&& self.nid@ is None
                 &&& self.inst@ is None
@@ -111,6 +109,7 @@ impl Pte {
         ensures
             res.wf(),
             res.wf_new_absent(),
+            !res.inner.is_present(),
     {
         Self { inner: PageTableEntry::new_absent(), nid: Ghost(None), inst: Tracked(None) }
     }
@@ -133,6 +132,9 @@ impl Pte {
         ensures
             res.wf(),
             res.wf_new_page(paddr, level, prop),
+            res.inner.is_present(),
+            valid_paddr(res.inner.paddr_spec()),
+            res.inner.is_last_spec(level),
     {
         Self {
             inner: PageTableEntry::new_page(paddr, level, prop),
@@ -157,6 +159,8 @@ impl Pte {
         ensures
             res.wf(),
             res.wf_new_pt(paddr, inst@, nid@),
+            res.inner.is_present(),
+            valid_paddr(res.inner.paddr_spec()),
     {
         Self {
             inner: PageTableEntry::new_pt(paddr),
