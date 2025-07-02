@@ -254,12 +254,9 @@ pub fn lock_range(
 
     // Prologue lemmas
     proof {
-        assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id()) by {
-            admit();
-        };
-        assert(NodeHelper::nid_to_level(NodeHelper::root_id()) == 4) by {
-            admit();
-        };
+        reveal(NodeHelper::trace_to_nid_rec);
+        assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id());
+        assert(NodeHelper::nid_to_level(NodeHelper::root_id()) == 4);
 
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
@@ -345,12 +342,9 @@ pub fn lock_range(
             Ghost(pt.inst@.id()),
         );
         proof {
-            if m.path().len() == 0 {
-                assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id()) by {
-                    admit();
-                };
-            }
-            assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id());
+            assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id()) by {
+                reveal(NodeHelper::trace_to_nid_rec);
+            };
             lemma_wf_tree_path_inc(m.path(), cur_pt.nid@);
         }
         let res = cur_pt.lock_read(mem, Tracked(m));

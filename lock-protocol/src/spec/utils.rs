@@ -216,7 +216,8 @@ impl NodeHelper {
     }
 
     /// Returns the node id from the trace.
-    pub closed spec fn trace_to_nid_rec(trace: Seq<nat>, cur_rt: NodeId, cur_level: int) -> NodeId
+    #[verifier::opaque]
+    pub open spec fn trace_to_nid_rec(trace: Seq<nat>, cur_rt: NodeId, cur_level: int) -> NodeId
         recommends
             Self::valid_trace(trace),
             Self::valid_nid(cur_rt),
@@ -236,7 +237,7 @@ impl NodeHelper {
     }
 
     /// Returns the node id from the trace starting from root.
-    pub closed spec fn trace_to_nid(trace: Seq<nat>) -> NodeId
+    pub open spec fn trace_to_nid(trace: Seq<nat>) -> NodeId
         recommends
             Self::valid_trace(trace),
     {
@@ -386,6 +387,7 @@ impl NodeHelper {
                 true
             },
     {
+        reveal(NodeHelper::trace_to_nid_rec);
     }
 
     pub open spec fn trace_to_nid_upperbound_spec(max_dep: nat) -> nat
@@ -478,6 +480,7 @@ impl NodeHelper {
                 trace.push(offset),
             ),
     {
+        reveal(NodeHelper::trace_to_nid_rec);
         let func = |param: (NodeId, int), offset: nat|
             {
                 let nid = param.0;
@@ -522,6 +525,7 @@ impl NodeHelper {
     // Induction proof on the length of the trace2
 
     {
+        reveal(NodeHelper::trace_to_nid_rec);
         if trace2.len() == 0 {
             assert(trace1.add(trace2) =~= trace1);
         } else {
@@ -591,6 +595,7 @@ impl NodeHelper {
 
             if new_rt == nid {
                 let trace = seq![offset];
+                reveal(NodeHelper::trace_to_nid_rec);
                 assert(Self::trace_to_nid_rec(trace, cur_rt, cur_level as int) == nid) by {
                     Self::lemma_trace_to_nid_rec_inductive(trace, cur_rt, cur_level as int);
                 };
@@ -618,6 +623,7 @@ impl NodeHelper {
             Self::valid_trace(Self::nid_to_trace(nid)),
             Self::trace_to_nid(Self::nid_to_trace(nid)) == nid,
     {
+        reveal(NodeHelper::trace_to_nid_rec);
         if nid != Self::root_id() {
             Self::lemma_nid_to_trace_rec_sound(nid, 3, 0)
         } else {
@@ -664,6 +670,7 @@ impl NodeHelper {
     // Induction proof on the length of the trace
 
     {
+        reveal(NodeHelper::trace_to_nid_rec);
         if trace.len() == 0 {
         } else {
             let new_trace = trace.subrange(1, trace.len() as int);
@@ -705,6 +712,7 @@ impl NodeHelper {
             let nid = Self::trace_to_nid_rec(trace, cur_rt, cur_level);
 
             let sz = Self::tree_size_spec(cur_level - 1);
+            reveal(NodeHelper::trace_to_nid_rec);
             assert(new_rt <= nid < new_rt + sz);
             assert(cur_rt + trace[0] * sz + 1 <= nid < cur_rt + trace[0] * sz + sz + 1);
             assert(cur_rt <= nid);
@@ -879,6 +887,7 @@ impl NodeHelper {
     {
         let trace = Self::nid_to_trace(nid);
         Self::lemma_nid_to_trace_sound(nid);
+        reveal(NodeHelper::trace_to_nid_rec);
         assert(nid <= Self::trace_to_nid_upperbound_spec(trace.len())) by {
             Self::lemma_trace_to_nid_inner(trace);
         };
