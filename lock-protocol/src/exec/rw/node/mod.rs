@@ -274,7 +274,6 @@ impl PageTableReadLock {
         (frame, Tracked(m))
     }
 
-    #[verifier::external_body]
     pub fn read_pte(&self, idx: usize, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
@@ -293,6 +292,7 @@ impl PageTableReadLock {
         let guard: &RwReadGuard = self.guard.as_ref().unwrap();
         let res = guard.borrow_perms(&self.meta(mem).lock);
         let tracked perms = res.get();
+        assert(perms.inner.value()[idx as int].wf());
         let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
         pte
     }
@@ -418,7 +418,6 @@ impl PageTableWriteLock {
         (frame, Tracked(m))
     }
 
-    #[verifier::external_body]  // TODO
     pub fn read_pte(&self, idx: usize, mem: &MemContent) -> (res: Pte)
         requires
             self.wf(mem),
@@ -436,11 +435,11 @@ impl PageTableWriteLock {
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
         let guard: &RwWriteGuard = self.guard.as_ref().unwrap();
         let tracked perms = guard.perms.borrow();
+        assert(perms.inner.value()[idx as int].wf());
         let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
         pte
     }
 
-    #[verifier::external_body]  // TODO
     pub fn write_pte(&mut self, idx: usize, pte: Pte, mem: &MemContent)
         requires
             old(self).wf(mem),
@@ -460,6 +459,24 @@ impl PageTableWriteLock {
         let va = paddr_to_vaddr(self.paddr(mem));
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
         let mut guard = self.guard.take().unwrap();
+        assert forall |i: int| #![trigger guard.perms@.inner.opt_value()[i]]
+        0 <= i < 512 && i != idx implies {
+            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf()
+            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node_info(
+                self.meta_spec().lock.level@,
+                self.meta_spec().lock.pt_inst@.id(),
+                self.meta_spec().lock.nid@,
+                i as nat,
+            )
+        } by {
+            assert(guard.perms@.inner.value()[i].wf());
+            assert(guard.perms@.inner.value()[i].wf_with_node_info(
+                self.meta_spec().lock.level@,
+                self.meta_spec().lock.pt_inst@.id(),
+                self.meta_spec().lock.nid@,
+                i as nat,
+            ));
+        };
         ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
         self.guard = Some(guard);
     }
