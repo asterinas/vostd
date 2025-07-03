@@ -11,6 +11,7 @@ members = [
     "fvt11-pt-cursor-guards",
     "fvt13-vmspace-unmap-safety",
     "lock-protocol",
+    "os-model",
 ]
 exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
 resolver = "2"

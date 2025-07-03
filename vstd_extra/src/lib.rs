@@ -1,5 +1,6 @@
 pub mod array_ptr;
 pub mod bit_mapping;
+pub mod bits_extra;
 pub mod extern_const;
 pub mod extra_num;
 pub mod function_properties;

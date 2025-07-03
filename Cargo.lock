@@ -144,6 +144,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "os-model"
+version = "0.1.0"
+dependencies = [
+ "vstd",
+ "vstd_extra",
+]
+
+[[package]]
 name = "prettyplease_verus"
 version = "0.2.29"
 dependencies = [
