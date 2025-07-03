@@ -30,7 +30,10 @@ pub const INVALID_PADDR: Paddr = 0xffff_ffff_ffff_ffff;
 } // verus!
 verus! {
 
-pub uninterp spec fn valid_paddr(pa: Paddr) -> bool;
+// Maybe introduce a MAX_PADDR constant in the future.
+pub open spec fn valid_paddr(pa: Paddr) -> bool {
+    true
+}
 
 pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
 

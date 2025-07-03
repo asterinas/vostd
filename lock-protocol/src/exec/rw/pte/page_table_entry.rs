@@ -22,7 +22,7 @@ extern_const!(
 /// Masks of the physical address.
 pub PHYS_ADDR_MASK
     [PHYS_ADDR_MASK_SPEC, CONST_PHYS_ADDR_MASK]: usize =
-    0xffff_ffff_ffff_f000);
+    0x7fff_ffff_ffff_f000);
 
 impl Clone for PageTableEntry {
     fn clone(&self) -> (res: Self)
@@ -101,30 +101,8 @@ impl PageTableEntry {
             | Self::encode_cache(prop.cache)
     }
 
-    proof fn lemma_format_flags_present(prop: PageProperty)
-        ensures
-            Self::format_flags(prop) & PageTableFlags::PRESENT().bits() != 0,
-    {
-        let flags: u8 = prop.flags.bits();
-        let priv_flags: u8 = prop.priv_flags.bits();
-        let flag_1 = if flags & PageFlags::R().bits() == 0 {0} else { PageTableFlags::PRESENT().bits() };
-        let flag_2 = if flags & PageFlags::W().bits() == 0 {0} else { PageTableFlags::WRITABLE().bits() };
-        let flag_3 = if flags & PageFlags::ACCESSED().bits() == 0 {0} else { PageTableFlags::ACCESSED().bits() };
-        let flag_4 = if flags & PageFlags::DIRTY().bits() == 0 {0} else { PageTableFlags::DIRTY().bits() };
-        let flag_5 = if !flags & PageFlags::X().bits() == 0 {0} else { PageTableFlags::NO_EXECUTE().bits() };
-        let flag_6 = if priv_flags & PrivilegedPageFlags::USER().bits() == 0 {0} else { PageTableFlags::USER().bits() };
-        let flag_7 = if priv_flags & PrivilegedPageFlags::GLOBAL().bits() == 0 {0} else { PageTableFlags::GLOBAL().bits() };
-        let flag_8 = Self::encode_cache(prop.cache);
-        let present_mask = PageTableFlags::PRESENT().bits();
-        assert(
-            (present_mask | flag_1 | flag_2 | flag_3 | flag_4 | flag_5 | flag_6 | flag_7 | flag_8) & present_mask != 0
-        ) by (bit_vector) requires
-            present_mask == 0b1;
-    }
-
-
     #[verifier::when_used_as_spec(format_flags_spec)]
-    pub fn format_flags(prop: PageProperty) -> usize
+    pub fn format_flags(prop: PageProperty) -> (res: usize)
         returns Self::format_flags_spec(prop)
     {
         let flags: u8 = prop.flags.bits();
@@ -145,6 +123,39 @@ impl PageTableEntry {
             | parse_flags!(priv_flags, PrivilegedPageFlags::USER(), PageTableFlags::USER())
             | parse_flags!(priv_flags, PrivilegedPageFlags::GLOBAL(), PageTableFlags::GLOBAL())
             | Self::encode_cache(prop.cache)
+    }
+
+    proof fn lemma_format_flags_properties(prop: PageProperty)
+        ensures
+            Self::format_flags(prop) & PageTableFlags::PRESENT().bits() != 0,
+            Self::format_flags(prop) & PHYS_ADDR_MASK() == 0,
+    {
+        let flags: u8 = prop.flags.bits();
+        let priv_flags: u8 = prop.priv_flags.bits();
+        let flag_1 = if flags & 0b1 == 0 {0} else { 0b1 };
+        let flag_2 = if flags & 0b10 == 0 {0} else { 0b10 };
+        let flag_3 = if flags & 0b1000 == 0 {0} else { 0b100000 };
+        let flag_4 = if flags & 0b10000 == 0 {0} else { 0b1000000 };
+        let flag_5 = if !flags & 0b100 == 0 {0} else { 1usize << 63 };
+        let flag_6 = if priv_flags & 0b1 == 0 {0} else { 0b100 };
+        let flag_7 = if priv_flags & 0b10 == 0 {0} else { 0b1_00000000 };
+        let flag_8 = Self::encode_cache(prop.cache);
+        let present_mask = PageTableFlags::PRESENT().bits();
+        assert(
+            (present_mask | flag_1 | flag_2 | flag_3 | flag_4 | flag_5 | flag_6 | flag_7 | flag_8) & present_mask != 0
+        ) by (bit_vector) requires
+            present_mask == 0b1;
+        assert((present_mask | flag_1 | flag_2 | flag_3 | flag_4 | flag_5 | flag_6 | flag_7 | flag_8) & 0x7fff_ffff_ffff_f000 == 0) by (bit_vector)
+            requires
+                present_mask == 0b1,
+                flag_1 == 0 || flag_1 == 0b1,
+                flag_2 == 0 || flag_2 == 0b10,
+                flag_3 == 0 || flag_3 == 0b100000,
+                flag_4 == 0 || flag_4 == 0b1000000,
+                flag_5 == 0 || flag_5 == 1usize << 63,
+                flag_6 == 0 || flag_6 == 0b100,
+                flag_7 == 0 || flag_7 == 0b1_00000000,
+                flag_8 == 0 || flag_8 == 0b10000 || flag_8 == 0b1000;
     }
 
     pub open spec fn format_cache_spec(flags: usize) -> CachePolicy {
@@ -236,6 +247,16 @@ impl PageTableEntry {
         }
     }
 
+    pub proof fn lemma_format_huge_page_properties(level: PagingLevel)
+        ensures
+            Self::format_huge_page(level) as usize & PHYS_ADDR_MASK() == 0,
+    {
+        let flag = Self::format_huge_page(level);
+        assert(flag & 0x7fff_ffff_ffff_f000 == 0) by (bit_vector)
+            requires
+                flag == 0 || flag == 0b10000000 as u64;
+    }
+
 }
 
 }
@@ -311,7 +332,6 @@ impl PageTableEntryTrait for PageTableEntry {
         Self(addr | hp | flags)
     }
 
-    #[verifier::external_body] // TODO
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
         let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
@@ -319,11 +339,17 @@ impl PageTableEntryTrait for PageTableEntry {
 
         proof{
             Self::lemma_page_table_entry_properties();
-            assert(flags & PageTableFlags::PRESENT().bits() != 0) by {
-            Self::lemma_format_flags_present(prop);}
-            assert((addr | hp | flags) & PageTableFlags::PRESENT().bits() != 0) by (bit_vector) requires
-                flags & PageTableFlags::PRESENT().bits() != 0;
+            Self::lemma_format_flags_properties(prop);
+            Self::lemma_format_huge_page_properties(level);
+            let present_mask = PageTableFlags::PRESENT().bits();
+            assert((addr | hp | flags) & present_mask != 0) by (bit_vector) requires
+                flags & present_mask != 0;
             assert(Self(addr | hp | flags).is_last(level));
+            assert((addr | hp | flags) & 0x7fff_ffff_ffff_f000 == addr) by (bit_vector) requires
+                hp & 0x7fff_ffff_ffff_f000 == 0,
+                flags & 0x7fff_ffff_ffff_f000 == 0,
+                addr == paddr & 0x7fff_ffff_ffff_f000
+                ;
         }
 
         Self(addr | hp | flags)

@@ -31,7 +31,7 @@ impl PageTableFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(bits_spec)]
-    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas")]
+    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
     pub const fn value(&self) -> usize
         returns self.bits_spec()
     {
@@ -178,8 +178,8 @@ impl PageTableFlags {
         Self { bits: 1usize << 63 }
     }
 
-    #[verifier::external_body]
-    pub proof fn lemma_consts_properties()
+    // Unfortunately, Verus does not support reasoning about ilog2 yet.
+    pub axiom fn lemma_consts_properties()
         ensures
             Self::PRESENT().bits().ilog2() == 0,
             Self::WRITABLE().bits().ilog2() == 1,
@@ -191,8 +191,7 @@ impl PageTableFlags {
             Self::HUGE().bits().ilog2() == 7,
             Self::GLOBAL().bits().ilog2() == 8,
             Self::NO_EXECUTE().bits().ilog2() == 63,
-    {
-    }
+    ;
 
 }
 
