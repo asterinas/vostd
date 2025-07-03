@@ -49,8 +49,8 @@ impl PageProperty {
     }
 
     #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(flags: PageFlags, cache: CachePolicy) -> (res: Self)
-        ensures res == Self::new_spec(flags, cache)
+    pub fn new(flags: PageFlags, cache: CachePolicy) -> Self
+        returns Self::new_spec(flags, cache)
     {
         Self {
             flags,
@@ -68,8 +68,8 @@ impl PageProperty {
     }
 
     #[verifier::when_used_as_spec(new_absent_spec)]
-    pub fn new_absent() -> (res: Self)
-        ensures res == Self::new_absent_spec()
+    pub fn new_absent() -> Self
+        returns Self::new_absent_spec()
     {
         Self {
             flags: PageFlags::empty(),
@@ -103,8 +103,8 @@ impl CachePolicy {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(N_spec)]
-    pub const fn N() -> (res: usize)
-        ensures res == Self::N_spec()
+    pub const fn N() -> usize
+        returns Self::N_spec()
     {
         (CachePolicy::Writeback.value() + 1) as usize
     }
@@ -122,8 +122,8 @@ impl CachePolicy {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(value_spec)]
-    pub const fn value(&self) -> (res: u8)
-        ensures res == self.value()
+    pub const fn value(&self) -> u8
+        returns self.value_spec()
     {
         match self {
             CachePolicy::Uncacheable => 0,
@@ -169,8 +169,8 @@ impl PageFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(empty_spec)]
-    pub const fn empty() -> (res: Self)
-        ensures res == Self::empty_spec()
+    pub const fn empty() -> Self
+        returns Self::empty_spec()
     {
         Self { bits: 0 }
     }
@@ -221,8 +221,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(R_spec)]
-    pub const fn R() -> (res: Self)
-        ensures res == Self::R_spec()
+    pub const fn R() -> Self
+        returns Self::R_spec()
     {
         Self { bits: 0b00000001 }
     }
@@ -236,8 +236,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(W_spec)]
-    pub const fn W() -> (res: Self)
-        ensures res == Self::W_spec()
+    pub const fn W() -> Self
+        returns Self::W_spec()
     {
         Self { bits: 0b00000010 }
     }
@@ -251,8 +251,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(X_spec)]
-    pub const fn X() -> (res: Self)
-        ensures res == Self::X_spec()
+    pub const fn X() -> Self
+        returns Self::X_spec()
     {
         Self { bits: 0b00000100 }
     }
@@ -266,8 +266,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(X_spec)]
-    pub const fn RW() -> (res: Self)
-        ensures res == Self::RW_spec()
+    pub const fn RW() -> Self
+        returns Self::RW_spec()
     {
         Self { bits: Self::R().bits() | Self::W().bits() }
     }
@@ -281,8 +281,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(RX_spec)]
-    pub const fn RX() -> (res: Self)
-        ensures res == Self::RX_spec()
+    pub const fn RX() -> Self
+        returns Self::RX_spec()
     {
         Self { bits: Self::R().bits() | Self::X().bits() }
     }
@@ -296,8 +296,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(RWX_spec)]
-    pub const fn RWX() -> (res: Self)
-        ensures res == Self::RWX_spec()
+    pub const fn RWX() -> Self
+        returns Self::RWX_spec()
     {
         Self { bits: Self::R().bits() | Self::W().bits() | Self::X().bits() }
     }
@@ -311,8 +311,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(ACCESSED_spec)]
-    pub const fn ACCESSED() -> (res: Self)
-        ensures res == Self::ACCESSED_spec()
+    pub const fn ACCESSED() -> Self
+        returns Self::ACCESSED_spec()
     {
         Self { bits: 0b00001000 }
     }
@@ -326,8 +326,8 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(DIRTY_spec)]
-    pub const fn DIRTY() -> (res: Self)
-        ensures res == Self::DIRTY_spec()
+    pub const fn DIRTY() -> Self
+        returns Self::DIRTY_spec()
     {
         Self { bits: 0b00010000 }
     }
@@ -373,8 +373,8 @@ impl PrivilegedPageFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(empty_spec)]
-    pub const fn empty() -> (res: Self)
-        ensures res == Self::empty_spec()
+    pub const fn empty() -> Self
+        returns Self::empty_spec()
     {
         Self { bits: 0 }
     }
@@ -408,8 +408,8 @@ impl PrivilegedPageFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(from_bits_spec)]
-    pub fn from_bits(value: u8) -> (res: Self)
-        ensures res == Self::from_bits_spec(value)
+    pub fn from_bits(value: u8) -> Self
+        returns Self::from_bits_spec(value)
     {
         Self { bits: value }
     }
@@ -438,8 +438,8 @@ impl PrivilegedPageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(GLOBAL_spec)]
-    pub const fn GLOBAL() -> (res: Self)
-        ensures res == Self::GLOBAL_spec()
+    pub const fn GLOBAL() -> Self
+        returns Self::GLOBAL_spec()
     {
         Self { bits: 0b00000010 }
     }
@@ -453,8 +453,8 @@ impl PrivilegedPageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[verifier::when_used_as_spec(SHARED_spec)]
-    pub const fn SHARED() -> (res: Self)
-        ensures res == Self::SHARED_spec()
+    pub const fn SHARED() -> Self
+        returns Self::SHARED_spec()
     {
         Self { bits: 0b10000000 }
     }
