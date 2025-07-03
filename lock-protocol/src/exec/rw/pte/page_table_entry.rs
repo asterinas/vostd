@@ -43,15 +43,10 @@ macro_rules! parse_flags {
 #[allow(non_snake_case)]
 impl PageTableEntry {
 
-    #[verifier::inline]
-    pub open spec fn PROP_MASK_spec() -> usize {
-        !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE().bits())
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(PROP_MASK_spec)]
+    #[verifier::allow_in_spec]
     pub const fn PROP_MASK() -> usize
-        returns Self::PROP_MASK_spec()
+        returns  !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE().bits())
     {
         !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE().bits())
     }
@@ -271,8 +266,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn default() -> (res: Self)
-        ensures res == Self::default_spec()
+    fn default() -> Self
     {
         Self(0)
     }
