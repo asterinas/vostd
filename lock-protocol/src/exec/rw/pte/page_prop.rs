@@ -190,6 +190,7 @@ impl PageFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(bits_spec)]
+    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
     pub const fn value(&self) -> (res: u8)
         returns self.bits_spec()
     {
@@ -259,7 +260,7 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[verifier::inline]
     pub open spec fn RW_spec() -> Self {
-        Self { bits: Self::R().value() | Self::W().value() }
+        Self { bits: Self::R().bits() | Self::W().bits() }
     }
 
     #[allow(non_snake_case)]
@@ -268,13 +269,13 @@ impl PageFlags {
     pub const fn RW() -> (res: Self)
         ensures res == Self::RW_spec()
     {
-        Self { bits: Self::R().value() | Self::W().value() }
+        Self { bits: Self::R().bits() | Self::W().bits() }
     }
 
     #[allow(non_snake_case)]
     #[verifier::inline]
     pub open spec fn RX_spec() -> Self {
-        Self { bits: Self::R().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
@@ -283,13 +284,13 @@ impl PageFlags {
     pub const fn RX() -> (res: Self)
         ensures res == Self::RX_spec()
     {
-        Self { bits: Self::R().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
     #[verifier::inline]
     pub open spec fn RWX_spec() -> Self {
-        Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::W().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
@@ -298,7 +299,7 @@ impl PageFlags {
     pub const fn RWX() -> (res: Self)
         ensures res == Self::RWX_spec()
     {
-        Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::W().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
@@ -334,11 +335,11 @@ impl PageFlags {
     #[verifier::external_body]
     pub proof fn lemma_consts_properties()
         ensures
-            Self::R().value().ilog2() == 0,
-            Self::W().value().ilog2() == 1,
-            Self::X().value().ilog2() == 2,
-            Self::ACCESSED().value().ilog2() == 3,
-            Self::DIRTY().value().ilog2() == 4,
+            Self::R().bits().ilog2() == 0,
+            Self::W().bits().ilog2() == 1,
+            Self::X().bits().ilog2() == 2,
+            Self::ACCESSED().bits().ilog2() == 3,
+            Self::DIRTY().bits().ilog2() == 4,
     {
     }
 }
@@ -385,6 +386,7 @@ impl PrivilegedPageFlags {
 
     #[inline(always)]
     #[verifier::when_used_as_spec(bits_spec)]
+    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
     pub const fn value(&self) -> u8
         returns self.bits_spec()
     {
@@ -460,9 +462,9 @@ impl PrivilegedPageFlags {
     #[verifier::external_body]
     pub proof fn lemma_consts_properties()
         ensures
-            Self::USER().value().ilog2() == 0,
-            Self::GLOBAL().value().ilog2() == 1,
-            Self::SHARED().value().ilog2() == 7,
+            Self::USER().bits().ilog2() == 0,
+            Self::GLOBAL().bits().ilog2() == 1,
+            Self::SHARED().bits().ilog2() == 7,
     {
     }
 
