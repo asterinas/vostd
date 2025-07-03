@@ -45,7 +45,9 @@ impl Child {
                 &&& NodeHelper::valid_nid(nid@)
             },
             Self::PageTableRef(pa, inst, nid) => {
-                &&& valid_paddr(pa)
+                &&& valid_paddr(
+                    pa,
+                )
                 // &&& PageTableNode::from_raw_spec(pa).inst@.id() == inst@.id()
                 // &&& PageTableNode::from_raw_spec(pa).nid@ == nid@
                 &&& inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -54,16 +56,13 @@ impl Child {
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
+
             },
             _ => true,
         }
     }
 
-    pub open spec fn wf_with_node(
-        &self, 
-        idx: nat,
-        node: PageTableWriteLock,
-    ) -> bool {
+    pub open spec fn wf_with_node(&self, idx: nat, node: PageTableWriteLock) -> bool {
         match *self {
             Child::PageTable(pt, inst, nid) => {
                 &&& node.level_spec() == (pt.level_spec() + 1) as PagingLevel
@@ -74,9 +73,7 @@ impl Child {
                 &&& node.inst_id() == inst@.id()
                 &&& NodeHelper::get_child(node.nid(), idx) == nid@
             },
-            Child::Frame(paddr, level, prop) => {
-                &&& node.level_spec() == level
-            },
+            Child::Frame(paddr, level, prop) => { &&& node.level_spec() == level },
             Child::None => true,
             Child::Unimplemented => true,
         }
@@ -88,7 +85,7 @@ impl Child {
                 &&& pte.wf_new_pt(pt.start_paddr_spec(), inst@, nid@)
                 &&& pte.inner.is_present()
                 &&& !pte.inner.is_last((pt.level_spec() + 1) as PagingLevel)
-            }
+            },
             Child::PageTableRef(_, _, _) => true,
             Child::Frame(paddr, level, prop) => {
                 &&& pte.wf_new_page(paddr, level, prop)

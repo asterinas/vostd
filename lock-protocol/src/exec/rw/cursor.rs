@@ -426,18 +426,14 @@ pub fn lock_range(
                         //     new_pt_is_tracked,
                         // );
                         let pt = allocate_pt(
-                            level - 1, 
-                            mem, 
+                            level - 1,
+                            mem,
                             Tracked(pt.inst.borrow().clone()),
-                            Ghost(nxt_nid)
+                            Ghost(nxt_nid),
                         );
                         let tracked pt_inst = pt.inst.borrow().clone();
                         cur_pt_paddr = pt.start_paddr(mem);
-                        let new_child = Child::PageTable(
-                            pt,
-                            Tracked(pt_inst),
-                            Ghost(nxt_nid),
-                        );
+                        let new_child = Child::PageTable(pt, Tracked(pt_inst), Ghost(nxt_nid));
                         assert(new_child.wf(mem)) by {
                             NodeHelper::lemma_get_child_sound(cur_nid, start_idx as nat);
                         };

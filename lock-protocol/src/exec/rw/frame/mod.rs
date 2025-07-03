@@ -17,13 +17,14 @@ verus! {
 
 #[verifier::external_body]  // TODO
 pub fn allocate_pt(
-    level: PagingLevel, 
+    level: PagingLevel,
     mem: &MemContent,
     inst: Tracked<SpecInstance>,
     nid: Ghost<NodeId>,
 ) -> (res: PageTableNode)
     requires
-        // Root of the page table can not be allocated.
+// Root of the page table can not be allocated.
+
         1 <= level < 4,
     ensures
         res.wf(mem),

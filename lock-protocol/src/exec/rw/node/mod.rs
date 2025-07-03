@@ -459,8 +459,9 @@ impl PageTableWriteLock {
         let va = paddr_to_vaddr(self.paddr(mem));
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
         let mut guard = self.guard.take().unwrap();
-        assert forall |i: int| #![trigger guard.perms@.inner.opt_value()[i]]
-        0 <= i < 512 && i != idx implies {
+        assert forall|i: int|
+            #![trigger guard.perms@.inner.opt_value()[i]]
+            0 <= i < 512 && i != idx implies {
             &&& guard.perms@.inner.opt_value()[i]->Init_0.wf()
             &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node_info(
                 self.meta_spec().lock.level@,
