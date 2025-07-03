@@ -176,14 +176,22 @@ impl PageFlags {
     }
 
     #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
+    pub open spec fn bits_spec(&self) -> u8 {
         self.bits
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
+    #[verifier::when_used_as_spec(bits_spec)]
+    pub const fn bits(&self) -> (res: u8)
+        returns self.bits_spec()
+    {
+        self.bits
+    }
+
+    #[inline(always)]
+    #[verifier::when_used_as_spec(bits_spec)]
     pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
+        returns self.bits_spec()
     {
         self.bits
     }
@@ -371,14 +379,22 @@ impl PrivilegedPageFlags {
     }
 
     #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
+    pub open spec fn bits_spec(&self) -> u8 {
         self.bits
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
-    pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
+    #[verifier::when_used_as_spec(bits_spec)]
+    pub const fn value(&self) -> u8
+        returns self.bits_spec()
+    {
+        self.bits
+    }
+
+    #[inline(always)]
+    #[verifier::when_used_as_spec(bits_spec)]
+    pub const fn bits(&self) -> u8
+        returns self.bits_spec()
     {
         self.bits
     }
