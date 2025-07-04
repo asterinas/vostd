@@ -356,18 +356,12 @@ pub proof fn bits_of_nr_pte_index()
     lemma_usize_ilog2_to32();
 }
 
-#[verifier::inline]
-pub open spec fn nr_pte_index_bits_spec<C: PagingConstsTrait>() -> usize {
-    // nr_subpage_per_huge::<C>().ilog2() as usize // TODO
-    nr_subpage_per_huge().ilog2() as usize
-}
-
 /// The number of virtual address bits used to index a PTE in a page.
 #[inline(always)]
-#[verifier::when_used_as_spec(nr_pte_index_bits_spec)]
+#[verifier::allow_in_spec]
 pub const fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
-    ensures
-        res == nr_pte_index_bits_spec::<C>(),
+    returns
+        nr_subpage_per_huge().ilog2() as usize,
 {
     // nr_subpage_per_huge::<C>().ilog2() as usize // TODO
     nr_subpage_per_huge().ilog2() as usize

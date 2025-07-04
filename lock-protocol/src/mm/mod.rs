@@ -102,18 +102,13 @@ pub const fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
     res as usize
 }
 
-pub open spec fn nr_subpage_per_huge_spec() -> usize {
-    // C::BASE_PAGE_SIZE / C::PTE_SIZE
-    BASE_PAGE_SIZE / PTE_SIZE
-}
-
 /// The number of sub pages in a huge page.
-#[verifier::when_used_as_spec(nr_subpage_per_huge_spec)]
+#[verifier::allow_in_spec]
 pub const fn nr_subpage_per_huge() -> (res: usize)
     ensures
         res != 0,
-        res == nr_subpage_per_huge_spec(),
-        res == BASE_PAGE_SIZE / PTE_SIZE,
+    returns
+        BASE_PAGE_SIZE / PTE_SIZE,
 {
     // C::BASE_PAGE_SIZE / C::PTE_SIZE
     BASE_PAGE_SIZE / PTE_SIZE

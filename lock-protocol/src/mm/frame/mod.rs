@@ -55,30 +55,20 @@ impl Frame {
     ///
     /// Currently, the level is always 1, which means the frame is a regular
     /// page frame.
-    #[verifier::when_used_as_spec(map_level_spec)]
+    #[verifier::allow_in_spec]
     pub const fn map_level(&self) -> (res: PagingLevel)
-        ensures
-            res == 1,
-            res == self.map_level_spec(),
+        returns
+            1 as PagingLevel,
     {
-        1
-    }
-
-    pub open spec fn map_level_spec(&self) -> PagingLevel {
         1
     }
 
     /// Gets the size of this page in bytes.
-    #[verifier::when_used_as_spec(size_spec)]
+    #[verifier::allow_in_spec]
     pub const fn size(&self) -> (res: usize)
-        ensures
-            res == PAGE_SIZE,
-            res == self.size_spec(),
+        returns
+            PAGE_SIZE,
     {
-        PAGE_SIZE
-    }
-
-    pub open spec fn size_spec(&self) -> usize {
         PAGE_SIZE
     }
 

@@ -98,15 +98,11 @@ pub enum CachePolicy {
 
 #[allow(non_snake_case)]
 impl CachePolicy {
-    #[verifier::inline]
-    pub open spec fn N_spec() -> usize {
-        (CachePolicy::Writeback.value() + 1) as usize
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(N_spec)]
+    #[verifier::allow_in_spec]
     pub const fn N() -> (res: usize)
-        ensures res == Self::N_spec()
+        returns
+            (CachePolicy::Writeback.value() + 1) as usize
     {
         (CachePolicy::Writeback.value() + 1) as usize
     }
@@ -163,194 +159,126 @@ impl PageFlags {
         self.bits & 0b00000001 != 0
     }
 
-
-    #[verifier::inline]
-    pub open spec fn empty_spec() -> Self {
-        Self { bits: 0 }
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(empty_spec)]
-    pub const fn empty() -> (res: Self)
-        ensures res == Self::empty_spec()
+    #[verifier::allow_in_spec]
+    pub const fn empty() -> Self
+        returns (Self { bits: 0 })
     {
         Self { bits: 0 }
     }
 
-    #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
-        self.bits
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
-    pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
+    #[verifier::allow_in_spec]
+    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
+    pub const fn value(&self) -> u8
+        returns self.bits
     {
         self.bits
     }
 
-    #[verifier::inline]
-    pub open spec fn from_bits_spec(value: u8) -> Self {
-        Self { bits: value }
+    #[inline(always)]
+    #[verifier::allow_in_spec]
+    pub const fn bits(&self) -> u8
+        returns self.bits
+    {
+        self.bits
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(from_bits_spec)]
-    pub fn from_bits(value: u8) -> (res: Self)
-        ensures
-            res == Self::from_bits_spec(value),
-            res.bits == value,
+    #[verifier::allow_in_spec]
+    pub fn from_bits(value: u8) -> Self
+        returns (Self { bits: value })
     {
         Self { bits: value }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn R_spec() -> Self {
-        Self { bits: 0b00000001 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(R_spec)]
-    pub const fn R() -> (res: Self)
-        ensures res == Self::R_spec()
+    #[verifier::allow_in_spec]
+    pub const fn R() -> Self
+        returns (Self { bits: 0b00000001 })
     {
         Self { bits: 0b00000001 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn W_spec() -> Self {
-        Self { bits: 0b00000010 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(W_spec)]
-    pub const fn W() -> (res: Self)
-        ensures res == Self::W_spec()
+    #[verifier::allow_in_spec]
+    pub const fn W() -> Self
+        returns (Self { bits: 0b00000010 })
     {
         Self { bits: 0b00000010 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn X_spec() -> Self {
-        Self { bits: 0b00000100 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(X_spec)]
-    pub const fn X() -> (res: Self)
-        ensures res == Self::X_spec()
+    #[verifier::allow_in_spec]
+    pub const fn X() -> Self
+        returns (Self { bits: 0b00000100 })
     {
         Self { bits: 0b00000100 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn RW_spec() -> Self {
-        Self { bits: Self::R().value() | Self::W().value() }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(X_spec)]
-    pub const fn RW() -> (res: Self)
-        ensures res == Self::RW_spec()
+    #[verifier::allow_in_spec]
+    pub const fn RW() -> Self
+        returns (Self { bits: Self::R().bits() | Self::W().bits() })
     {
-        Self { bits: Self::R().value() | Self::W().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn RX_spec() -> Self {
-        Self { bits: Self::R().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::W().bits() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(RX_spec)]
-    pub const fn RX() -> (res: Self)
-        ensures res == Self::RX_spec()
+    #[verifier::allow_in_spec]
+    pub const fn RX() -> Self
+        returns (Self { bits: Self::R().bits() | Self::X().bits() })
     {
-        Self { bits: Self::R().value() | Self::X().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn RWX_spec() -> Self {
-        Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
+        Self { bits: Self::R().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(RWX_spec)]
-    pub const fn RWX() -> (res: Self)
-        ensures res == Self::RWX_spec()
+    #[verifier::allow_in_spec]
+    pub const fn RWX() -> Self
+        returns
+            (Self { bits: Self::R().bits() | Self::W().bits() | Self::X().bits() })
     {
-        Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
-    }
-
-    #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn ACCESSED_spec() -> Self {
-        Self { bits: 0b00001000 }
+        Self { bits: Self::R().bits() | Self::W().bits() | Self::X().bits() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(ACCESSED_spec)]
-    pub const fn ACCESSED() -> (res: Self)
-        ensures res == Self::ACCESSED_spec()
+    #[verifier::allow_in_spec]
+    pub const fn ACCESSED() -> Self
+        returns (Self { bits: 0b00001000 })
     {
         Self { bits: 0b00001000 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn DIRTY_spec() -> Self {
-        Self { bits: 0b00010000 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(DIRTY_spec)]
-    pub const fn DIRTY() -> (res: Self)
-        ensures res == Self::DIRTY_spec()
+    #[verifier::allow_in_spec]
+    pub const fn DIRTY() -> Self
+        returns (Self { bits: 0b00010000 })
     {
         Self { bits: 0b00010000 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn AVAIL1_spec() -> Self {
-        Self { bits: 0b01000000 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(AVAIL1_spec)]
-    pub const fn AVAIL1() -> (res: Self)
-        ensures res == Self::AVAIL1_spec()
+    #[verifier::allow_in_spec]
+    pub const fn AVAIL1() -> Self
+        returns (Self { bits: 0b01000000 })
     {
         Self { bits: 0b01000000 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn AVAIL2_spec() -> Self {
-        Self { bits: 0b10000000 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(AVAIL2_spec)]
-    pub const fn AVAIL2() -> (res: Self)
-        ensures res == Self::AVAIL2_spec()
+    #[verifier::allow_in_spec]
+    pub const fn AVAIL2() -> Self
+        returns (Self { bits: 0b10000000 })
     {
         Self { bits: 0b10000000 }
     }
@@ -378,86 +306,62 @@ pub broadcast proof fn lemma_privileged_page_flags_equal_soundness(a: Privileged
 { }
 
 impl PrivilegedPageFlags {
-    #[verifier::inline]
-    pub open spec fn empty_spec() -> Self {
-        Self { bits: 0 }
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(empty_spec)]
+    #[verifier::allow_in_spec]
     pub const fn empty() -> (res: Self)
-        ensures res == Self::empty_spec()
+        returns (Self { bits: 0 })
     {
         Self { bits: 0 }
     }
 
-    #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
-        self.bits
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
-    pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
+    #[verifier::allow_in_spec]
+    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
+    pub const fn value(&self) -> u8
+        returns self.bits
     {
         self.bits
     }
 
-    #[verifier::inline]
-    pub open spec fn from_bits_spec(value: u8) -> Self {
-        Self { bits: value }
+    #[inline(always)]
+    #[verifier::allow_in_spec]
+    pub const fn bits(&self) -> u8
+        returns self.bits
+    {
+        self.bits
     }
 
     #[inline(always)]
-    #[verifier::when_used_as_spec(from_bits_spec)]
-    pub fn from_bits(value: u8) -> (res: Self)
-        ensures res == Self::from_bits_spec(value)
+    #[verifier::allow_in_spec]
+    pub fn from_bits(value: u8) -> Self
+        returns (Self { bits: value })
     {
         Self { bits: value }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn USER_spec() -> Self {
+    #[inline(always)]
+    #[verifier::allow_in_spec]
+    pub const fn USER() -> Self
+        returns (Self { bits: 0b00000001 })
+    {
         Self { bits: 0b00000001 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(USER_spec)]
-    pub const fn USER() -> (res: Self)
-        ensures res == Self::USER_spec()
-    {
-        Self { bits: 0b00000001 }
-    }
-
-    #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn GLOBAL_spec() -> Self {
-        Self { bits: 0b00000010 }
-    }
-
-    #[allow(non_snake_case)]
-    #[inline(always)]
-    #[verifier::when_used_as_spec(GLOBAL_spec)]
-    pub const fn GLOBAL() -> (res: Self)
-        ensures res == Self::GLOBAL_spec()
+    #[verifier::allow_in_spec]
+    pub const fn GLOBAL() -> Self
+        returns (Self { bits: 0b00000010 })
     {
         Self { bits: 0b00000010 }
     }
 
     #[allow(non_snake_case)]
-    #[verifier::inline]
-    pub open spec fn SHARED_spec() -> Self {
-        Self { bits: 0b10000000 }
-    }
-
-    #[allow(non_snake_case)]
     #[inline(always)]
-    #[verifier::when_used_as_spec(SHARED_spec)]
-    pub const fn SHARED() -> (res: Self)
-        ensures res == Self::SHARED_spec()
+    #[verifier::allow_in_spec]
+    pub const fn SHARED() -> Self
+        returns (Self { bits: 0b10000000 })
     {
         Self { bits: 0b10000000 }
     }

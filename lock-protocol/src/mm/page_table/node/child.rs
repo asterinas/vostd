@@ -47,16 +47,11 @@ pub enum Child<C: PageTableConfig> {
 
 // impl Child {
 impl<C: PageTableConfig> Child<C> {
-    #[verifier::inline]
-    pub open spec fn is_none_spec(&self) -> bool {
-        match self {
-            Child::None => true,
-            _ => false,
-        }
-    }
-
-    #[verifier::when_used_as_spec(is_none_spec)]
-    pub fn is_none(&self) -> bool {
+    #[verifier::allow_in_spec]
+    pub fn is_none(&self) -> bool
+        returns
+            self is None,
+    {
         match self {
             Child::None => true,
             _ => false,

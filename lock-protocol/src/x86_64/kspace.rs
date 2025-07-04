@@ -50,21 +50,13 @@ pub LINEAR_MAPPING_VADDR_RANGE [LINEAR_MAPPING_VADDR_RANGE_SPEC, CONST_LINEAR_MA
 
 verus! {
 
-#[verifier::inline]
-pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize
-    recommends
-        pa < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
-{
-    (pa + LINEAR_MAPPING_BASE_VADDR()) as usize
-}
-
 #[inline(always)]
-#[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
+#[verifier::allow_in_spec]
 pub fn paddr_to_vaddr(pa: Paddr) -> (res: usize)
     requires
         pa < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
-    ensures
-        res == paddr_to_vaddr_spec(pa),
+    returns
+        (pa + LINEAR_MAPPING_BASE_VADDR()) as usize,
 {
     (pa + LINEAR_MAPPING_BASE_VADDR()) as usize
 }
@@ -78,21 +70,13 @@ pub proof fn lemma_linear_mapping_base_vaddr_properties()
     assert(VMALLOC_BASE_VADDR() == 0xffff_fd00_0000_0000) by (compute_only);
 }
 
-#[verifier::inline]
-pub open spec fn vaddr_to_paddr_spec(va: Vaddr) -> usize
-    recommends
-        LINEAR_MAPPING_BASE_VADDR() <= va < VMALLOC_BASE_VADDR(),
-{
-    (va - LINEAR_MAPPING_BASE_VADDR()) as usize
-}
-
 #[inline(always)]
-#[verifier::when_used_as_spec(vaddr_to_paddr_spec)]
+#[verifier::allow_in_spec]
 pub fn vaddr_to_paddr(va: Vaddr) -> (res: usize)
     requires
         LINEAR_MAPPING_BASE_VADDR() <= va < VMALLOC_BASE_VADDR(),
-    ensures
-        res == vaddr_to_paddr(va),
+    returns
+        (va - LINEAR_MAPPING_BASE_VADDR()) as usize,
 {
     (va - LINEAR_MAPPING_BASE_VADDR()) as usize
 }

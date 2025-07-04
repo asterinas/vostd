@@ -96,15 +96,10 @@ pub enum CachePolicy {
 
 #[allow(non_snake_case)]
 impl CachePolicy {
-    #[verifier::inline]
-    pub open spec fn N_spec() -> usize {
-        (CachePolicy::Writeback.value() + 1) as usize
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(N_spec)]
+    #[verifier::allow_in_spec]
     pub const fn N() -> usize
-        returns Self::N_spec()
+        returns (CachePolicy::Writeback.value() + 1) as usize
     {
         (CachePolicy::Writeback.value() + 1) as usize
     }

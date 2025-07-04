@@ -61,16 +61,12 @@ pub open spec fn valid_va_range(va: Range<Vaddr>) -> bool {
     0 <= va.start <= va.end <= (1u64 << 48)
 }
 
-pub open spec fn vaddr_is_aligned_spec(va: Vaddr) -> bool {
-    (va & (low_bits_mask(12) as usize)) == 0
-}
-
-#[verifier::when_used_as_spec(vaddr_is_aligned_spec)]
+#[verifier::allow_in_spec]
 pub fn vaddr_is_aligned(va: Vaddr) -> (res: bool)
     requires
         valid_vaddr(va),
     returns
-        vaddr_is_aligned_spec(va),
+        (va & (low_bits_mask(12) as usize)) == 0,
 {
     (va & low_bits_mask_usize(12)) == 0
 }
