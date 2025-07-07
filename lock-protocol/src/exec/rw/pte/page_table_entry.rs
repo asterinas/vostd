@@ -350,18 +350,25 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     open spec fn new_pt_spec(paddr: Paddr) -> Self {
-        let addr = paddr & PHYS_ADDR_MASK();
-        Self(addr | PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits())
+        let flags = PageTableFlags::PRESENT().bits()
+            | PageTableFlags::WRITABLE().bits()
+            | PageTableFlags::USER().bits();
+        Self(paddr & PHYS_ADDR_MASK() | flags)
     }
 
-    #[verifier::external_body] // TODO
-    fn new_pt(paddr: Paddr) -> Self {
-        let addr = paddr & PHYS_ADDR_MASK();
+    fn new_pt(paddr: Paddr) -> Self 
+    {
+        let flags = PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits();
         proof{
-            let bit = addr | PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits();
-            assert(bit & PageTableFlags::PRESENT().bits() != 0) by (bit_vector);
+            assert((0b1usize| 0b10 | 0b100) & 0x7fff_ffff_ffff_f000 == 0) by (bit_vector);
+            assert((0b1usize | 0b10 | 0b100) & 0b1 != 0) by (bit_vector)
+                requires flags & 0x7fff_ffff_ffff_f000 == 0;
+            assert((paddr & 0x7fff_ffff_ffff_f000 | flags) & 0x7fff_ffff_ffff_f000 == paddr & 0x7fff_ffff_ffff_f000) by (bit_vector)
+                requires flags & 0x7fff_ffff_ffff_f000 == 0;
+            assert((paddr & 0x7fff_ffff_ffff_f000 | flags) & 0b1 != 0) by (bit_vector)
+                requires flags & 0b1 != 0;
         }
-        Self(addr | PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits())
+        Self(paddr & PHYS_ADDR_MASK() | flags)
     }
 
     #[verifier::inline]

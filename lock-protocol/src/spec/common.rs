@@ -56,7 +56,7 @@ pub proof fn lemma_wf_tree_path_inc(path: Seq<NodeId>, nid: NodeId)
         }
     }
     assert(new_path.all(|n| NodeHelper::valid_nid(n))) by {
-        assert forall|n: NodeId| new_path.contains(n) implies NodeHelper::valid_nid(n) by {
+        assert forall|n: NodeId| #[trigger]new_path.contains(n) implies NodeHelper::valid_nid(n) by {
             if path.contains(n) {
                 assert(path.all(|m| NodeHelper::valid_nid(m)));
             } else {
