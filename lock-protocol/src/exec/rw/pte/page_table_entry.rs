@@ -94,7 +94,7 @@ impl PageTableEntryTrait for PageTableEntry {
         Self(paddr & Self::PHYS_ADDR_MASK() | flags)
     }
 
-    
+
     fn new_pt(paddr: Paddr) -> Self
     {
         let flags = PageTableFlags::PRESENT().bits() | PageTableFlags::WRITABLE().bits() | PageTableFlags::USER().bits();

@@ -78,7 +78,9 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
             valid_paddr(paddr),
         ensures
             res.is_present(),
-            valid_paddr(res.paddr()),
+            valid_paddr(
+                res.paddr(),
+            ),
     // !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
 
         returns
