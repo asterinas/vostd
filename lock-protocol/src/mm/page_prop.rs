@@ -42,17 +42,14 @@ verus! {
 
 impl PageProperty {
 
-    pub open spec fn new_spec(flags: PageFlags, cache: CachePolicy) -> Self {
-        Self {
+    #[verifier::allow_in_spec]
+    pub fn new(flags: PageFlags, cache: CachePolicy) -> Self
+        returns
+        (Self {
             flags,
             cache,
             priv_flags: PrivilegedPageFlags::USER(),
-        }
-    }
-
-    #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(flags: PageFlags, cache: CachePolicy) -> (res: Self)
-        ensures res == Self::new_spec(flags, cache)
+        })
     {
         Self {
             flags,
@@ -61,17 +58,14 @@ impl PageProperty {
         }
     }
 
-    pub open spec fn new_absent_spec() -> Self {
-        Self {
+    #[verifier::allow_in_spec]
+    pub fn new_absent() -> Self
+        returns
+        (Self {
             flags: PageFlags::empty(),
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::empty(),
-        }
-    }
-
-    #[verifier::when_used_as_spec(new_absent_spec)]
-    pub fn new_absent() -> (res: Self)
-        ensures res == Self::new_absent_spec()
+        })
     {
         Self {
             flags: PageFlags::empty(),

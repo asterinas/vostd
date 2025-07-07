@@ -17,9 +17,9 @@ macro_rules! extern_const {
         #[doc = concat!("The executable code of constant `", stringify!($name), "` when used cross-crate.")]
         #[allow(non_snake_case)]
         #[inline(always)]
-        #[verifier::when_used_as_spec($name_spec)]
-        $_vis const fn $name() -> (val: $_ty)
-            ensures val == $name_const
+        #[verifier::allow_in_spec]
+        $_vis const fn $name() -> $_ty
+            returns $name_const
         { $name_const }
     }
     };

@@ -38,13 +38,12 @@ pub struct Frame {
 impl Frame {
     /// Gets the physical address of the start of the frame.
     // TODO: Implement
-    #[verifier::when_used_as_spec(start_paddr_spec)]
-    pub fn start_paddr(&self) -> Paddr {
+    #[verifier::allow_in_spec]
+    pub fn start_paddr(&self) -> Paddr
+        returns
+            self.ptr as Paddr,
+    {
         // self.slot().frame_paddr() // TODO
-        self.ptr as Paddr
-    }
-
-    pub open spec fn start_paddr_spec(&self) -> Paddr {
         self.ptr as Paddr
     }
 
