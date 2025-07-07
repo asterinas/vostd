@@ -63,7 +63,7 @@ unsafe impl PageTableConfig for TestPtConfig {
     }
 }
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 struct TestPtItem {
     paddr: Paddr,
     level: PagingLevel,
