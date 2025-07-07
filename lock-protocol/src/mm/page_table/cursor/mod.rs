@@ -527,101 +527,30 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 ),
             decreases self.0.level - frame.map_level(),
         {
-            // debug_assert!(should_map_as_tracked::<M>(self.0.va)); // TODO
             let cur_level = self.0.level;
             let cur_entry = self.0.cur_entry(spt);
             match cur_entry.to_ref(spt) {
                 Child::PageTableRef(pt) => {
-                    assert(spt.frames@.value().contains_key(pt as int));
-                    assert(cur_entry.pte.frame_paddr() == pt);
-                    assert(cur_entry.pte.frame_paddr() != 0);
                     reveal_with_fuel(Cursor::sub_page_table_valid_before_map_level, 4);
                     reveal_with_fuel(Cursor::path_matchs_page_table, 4);
-                    assert(self.0.sub_page_table_valid_before_map_level(
-                        spt,
-                        &frame,
-                        root_level@,
-                        root_addr as int,
-                        self.0.level,
-                    ));
-                    assert(self.0.sub_page_table_valid_before_map_level(
-                        spt,
-                        &frame,
-                        root_level@,
-                        root_addr as int,
-                        (self.0.level - 1) as u8,
-                    ));
                     // SAFETY: `pt` points to a PT that is attached to a node
                     // in the locked sub-tree, so that it is locked and alive.
                     self.0.push_level(
-                    // unsafe { PageTableLock::from_raw_paddr(pt) }
-
                         PTL::from_raw_paddr(pt),
                         root_level,
                         // ghost
                         spt,
                     );
-                    assert(self.0.va == old(self).0.va);
-                    assert(self.0.path@.len() == old(self).0.path@.len());
-                    assert(self.0.path[cur_level - 2].is_some());
-                    assert(self.0.path[old(self).0.level - 1].is_some());
-                    assert(self.0.path[root_level@ - 1] == old(self).0.path[root_level@ - 1]);
-
-                    assert(mpt_not_contains_not_allocated_frames(spt, *cur_alloc_index));
-                    assert(forall|i: int|
-                        path_index_at_level(self.0.level) <= i <= path_index_at_level(root_level@)
-                            ==> #[trigger] spt.frames@.value().contains_key(
-                            self.0.path[i].unwrap().paddr() as int,
-                        ));
-                    assert(self.0.sub_page_table_valid_before_map_level(
-                        spt,
-                        &frame,
-                        old(self).0.level,
-                        self.0.path[path_index_at_level(old(self).0.level)].unwrap().paddr() as int,
-                        self.0.level,
-                    ));
-                    assert(self.0.path_matchs_page_table(
-                        spt,
-                        old(self).0.level,
-                        /* root */
-                        self.0.path[old(self).0.level as usize - 1].unwrap().paddr() as int,
-                        /* last level */
-                        self.0.level,
-                    ));
                 },
                 Child::PageTable(_) => {
                     // unreachable!();
                     assert(false);
                 },
                 Child::None => {
-                    assert(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
-                    assert(cur_entry.pte.frame_paddr() == 0);
-                    assert(mpt_not_contains_not_allocated_frames(spt, *cur_alloc_index));
-
-                    let preempt_guard = crate::task::disable_preempt();  // currently nothing happen
+                    let preempt_guard = crate::task::disable_preempt();  // TODO: currently nothing happens, we may need a machine model
 
                     let used_addr = exec::frame_index_to_addr(*cur_alloc_index);
                     let tracked used_addr_token = unused_addrs.tracked_remove(used_addr as int);
-                    assert(used_addr_token.instance_id() == spt.instance@.id());
-                    // before_alloc
-                    {
-                        assert(used_addr_token.element() == used_addr as int);  // ensured by token_wf
-                        assert(!spt.frames@.value().contains_key(used_addr as int));  // ensured by unallocated_frames_are_unused
-                        assert(spt.mem@[*cur_alloc_index].1@.mem_contents() == MemContents::<
-                            exec::SimpleFrame,
-                        >::Uninit);
-                        assert(forall|i: int|
-                            0 <= i < NR_ENTRIES ==> !(#[trigger] spt.ptes@.value().dom().contains(
-                                used_addr + i * exec::SIZEOF_PAGETABLEENTRY,
-                            )));
-                        assert(forall|i: int|
-                            0 <= i < NR_ENTRIES ==> !#[trigger] spt.ptes@.value().contains_key(
-                                used_addr + i * exec::SIZEOF_PAGETABLEENTRY as int,
-                            ));
-                        assert(forall|i: int| #[trigger]
-                            spt.ptes@.value().contains_key(i) ==> (spt.ptes@.value()[i]).frame_pa
-                                != used_addr);
-                    }
                     let pt = PTL::alloc(
                         cur_level - 1,
                         MapTrackingStatus::Tracked,
@@ -631,21 +560,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         Tracked(used_addr_token),  // TODO: can we pass all the tokens directly?
                     );  // alloc frame here
                     let ghost_index = *cur_alloc_index + 1;
-                    assert(unallocated_frames_are_unused(
-                        unused_addrs,
-                        unused_pte_addrs,
-                        ghost_index,
-                    ));  // TODO: P0
 
                     let paddr = pt.into_raw_paddr();
-
-                    assert(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
-                    assert(spt.wf());
-                    assume(cur_entry.pte.pte_paddr() == cur_entry.node.paddr() as int + pte_index(
+                    reveal(spec_helpers::frame_keys_do_not_change);
+                    assert(cur_entry.pte.pte_paddr() == cur_entry.node.paddr() as int + pte_index(
                         self.0.va,
                         cur_level,
                     ) * exec::SIZEOF_PAGETABLEENTRY);
-                    reveal(spec_helpers::frame_keys_do_not_change);
                     assume(unused_pte_addrs.contains_key(cur_entry.pte.pte_paddr() as int));  // TODO: P0 need more wf
                     let tracked used_pte_addr_token = unused_pte_addrs.tracked_remove(
                         cur_entry.pte.pte_paddr() as int,
