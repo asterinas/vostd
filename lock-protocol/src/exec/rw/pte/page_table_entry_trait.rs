@@ -4,7 +4,6 @@ use vstd::prelude::*;
 use super::super::common::*;
 use super::super::node::PageTableNode;
 use super::page_prop::*;
-use super::page_table_entry::PHYS_ADDR_MASK;
 
 verus! {
 
@@ -65,7 +64,6 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
         ensures
             res.is_present(),
             valid_paddr(res.paddr()),
-            res.paddr() == paddr & PHYS_ADDR_MASK(),
             res.is_last_spec(level),
         returns
             Self::new_page_spec(paddr, level, prop),
@@ -81,8 +79,6 @@ pub trait PageTableEntryTrait: Copy + Debug + Sized + Sync + PartialEq {
         ensures
             res.is_present(),
             valid_paddr(res.paddr()),
-            res.paddr_spec() == paddr
-                & PHYS_ADDR_MASK(),
     // !res.is_last_spec(PageTableNode::from_raw_spec(paddr).level_spec()),
 
         returns
