@@ -162,13 +162,30 @@ pub open spec fn va_range_get_guard_level(va: Range<Vaddr>) -> PagingLevel
     va_range_get_guard_level_rec(va, 4)
 }
 
+pub proof fn lemma_va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel)
+    requires
+        va_range_wf(va),
+        1 <= level <= 4,
+    ensures
+        1 <= va_range_get_guard_level_rec(va, level) <= level,
+    decreases level,
+{
+    if level > 1 {
+        let st = va.start;
+        let en = (va.end - 1) as usize;
+        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
+            lemma_va_range_get_guard_level_rec(va, (level - 1) as PagingLevel);
+        }
+    }
+}
+
 pub proof fn lemma_va_range_get_guard_level(va: Range<Vaddr>)
     requires
         va_range_wf(va),
     ensures
         1 <= va_range_get_guard_level(va) <= 4,
 {
-    admit();  // TODO
+    lemma_va_range_get_guard_level_rec(va, 4);
 }
 
 pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
