@@ -198,58 +198,6 @@ pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
     NodeHelper::trace_to_tree_path(trace)
 }
 
-pub proof fn lemma_va_level_to_trace_rec_len(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= 4,
-    ensures
-        va_level_to_trace_rec(va, level).len() == 4 - level,
-    decreases 4 - level,
-{
-    if level < 4 {
-        lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
-    }
-}
-
-pub proof fn lemma_va_level_to_trace_rec_valid(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= 4,
-    ensures
-        NodeHelper::valid_trace(va_level_to_trace_rec(va, level)),
-    decreases 4 - level,
-{
-    if level < 4 {
-        lemma_va_level_to_trace_rec_valid(va, (level + 1) as PagingLevel);
-        let offset = (va >> (level * 9)) & low_bits_mask(9) as usize;
-        assert(offset < 512) by {
-            assert(low_bits_mask(9) == 511) by {
-                lemma_low_bits_mask_values();
-            };
-            assert((va >> (level * 9)) & 511 <= 511) by (bit_vector);
-        }
-        // By inductive hypothesis, the recursive trace is valid
-        assert(NodeHelper::valid_trace(va_level_to_trace_rec(va, (level + 1) as PagingLevel)));
-        // Therefore its length is < 4
-        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() < 4);
-        // Since we add exactly one element, the new length is still < 4
-        assert(va_level_to_trace_rec(va, level).len() == va_level_to_trace_rec(
-            va,
-            (level + 1) as PagingLevel,
-        ).len() + 1);
-        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() + 1 <= 3) by {
-            lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
-        };
-    }
-}
-
-pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= 4,
-    ensures
-        NodeHelper::valid_trace(va_level_to_trace(va, level)),
-{
-    lemma_va_level_to_trace_rec_valid(va >> 12, level);
-}
-
 pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     requires
         va_range_wf(va),
