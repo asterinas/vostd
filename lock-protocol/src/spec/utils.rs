@@ -1653,7 +1653,9 @@ impl NodeHelper {
         ensures
             Self::nid_to_level(pa) == Self::nid_to_level(ch) + 1,
     {
-        admit();  // TODO
+        Self::lemma_is_child_implies_in_subtree(pa, ch);
+        Self::lemma_level_dep_relation(pa);
+        Self::lemma_level_dep_relation(ch);
     }
 }
 
