@@ -6,6 +6,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::atomic_with_ghost;
+use vstd::bits::*;
 use vstd::rwlock::{ReadHandle, WriteHandle};
 use vstd::vpanic;
 use vstd::pervasive::allow_panic;
@@ -197,6 +198,58 @@ pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
     NodeHelper::trace_to_tree_path(trace)
 }
 
+pub proof fn lemma_va_level_to_trace_rec_len(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= 4,
+    ensures
+        va_level_to_trace_rec(va, level).len() == 4 - level,
+    decreases 4 - level,
+{
+    if level < 4 {
+        lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
+    }
+}
+
+pub proof fn lemma_va_level_to_trace_rec_valid(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= 4,
+    ensures
+        NodeHelper::valid_trace(va_level_to_trace_rec(va, level)),
+    decreases 4 - level,
+{
+    if level < 4 {
+        lemma_va_level_to_trace_rec_valid(va, (level + 1) as PagingLevel);
+        let offset = (va >> (level * 9)) & low_bits_mask(9) as usize;
+        assert(offset < 512) by {
+            assert(low_bits_mask(9) == 511) by {
+                lemma_low_bits_mask_values();
+            };
+            assert((va >> (level * 9)) & 511 <= 511) by (bit_vector);
+        }
+        // By inductive hypothesis, the recursive trace is valid
+        assert(NodeHelper::valid_trace(va_level_to_trace_rec(va, (level + 1) as PagingLevel)));
+        // Therefore its length is < 4
+        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() < 4);
+        // Since we add exactly one element, the new length is still < 4
+        assert(va_level_to_trace_rec(va, level).len() == va_level_to_trace_rec(
+            va,
+            (level + 1) as PagingLevel,
+        ).len() + 1);
+        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() + 1 <= 3) by {
+            lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
+        };
+    }
+}
+
+pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= 4,
+    ensures
+        NodeHelper::valid_trace(va_level_to_trace(va, level)),
+{
+    lemma_va_level_to_trace_rec_valid(va >> 12, level);
+}
+
 pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     requires
         va_range_wf(va),
@@ -208,7 +261,26 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
             ),
         va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
 {
-    admit();  //TODO
+    let guard_level = va_range_get_guard_level(va);
+    let trace = va_level_to_trace(va.start, guard_level);
+    lemma_va_range_get_guard_level(va);
+    lemma_va_level_to_trace_rec_len(va.start >> 12, guard_level);
+    assert(trace.len() == 4 - guard_level);
+    let path = va_range_get_tree_path(va);
+    assert(path.len() == 1 + trace.len());
+    assert(path.len() == 5 - guard_level);
+    assert forall|i| 0 <= i < path.len() implies NodeHelper::valid_nid(path[i]) by {
+        let nid = path[i];
+        if i == 0 {
+            assert(nid == NodeHelper::root_id());
+            NodeHelper::lemma_root_id();
+        } else {
+            let sub_trace = trace.subrange(0, i);
+            assert(nid == NodeHelper::trace_to_nid(sub_trace));
+            lemma_va_level_to_trace_valid(va.start, guard_level);
+            NodeHelper::lemma_trace_to_nid_sound(sub_trace);
+        }
+    }
 }
 
 // pub proof fn lemma_va_range_get_tree_path_inc(
