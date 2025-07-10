@@ -195,6 +195,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
                     == res.pte.frame_paddr() as int
                 &&& spt.frames@.value().contains_key(res.pte.frame_paddr() as int)
             },
+            res.node == node,
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
