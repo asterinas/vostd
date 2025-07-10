@@ -74,7 +74,7 @@ pub struct Cursor<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> {
 }
 
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
-const MAX_NR_LEVELS: usize = 4;
+pub const MAX_NR_LEVELS: usize = 4;
 
 // #[derive(Clone, Debug)] // TODO: Implement Debug and Clone for PageTableItem
 pub enum PageTableItem {

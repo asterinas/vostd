@@ -3,7 +3,7 @@ pub mod mapping;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd::raw_ptr::{PointsTo};
 
 use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*};
@@ -86,9 +86,8 @@ pub tracked struct MetaSlotPerm {
 }
 
 impl MetaSlotPerm {
-    pub open spec fn relate(&self, ptr: PPtr<MetaSlot>) -> bool {
-        &&& self.inner.pptr() == ptr
-        &&& self.inner.addr() == ptr.addr()
+    pub open spec fn relate(&self, ptr: *const MetaSlot) -> bool {
+        &&& self.inner.ptr() == ptr
     }
 
     pub open spec fn wf(&self, meta_slot_array: &MetaSlotArray) -> bool {
@@ -111,7 +110,7 @@ impl MetaSlotPerm {
     }
 
     pub open spec fn meta_vaddr(&self) -> Vaddr {
-        self.inner.addr()
+        self.inner.ptr() as usize
     }
 
     pub open spec fn value(&self) -> MetaSlot {
@@ -121,7 +120,7 @@ impl MetaSlotPerm {
 
 struct_with_invariants! {
     pub struct MetaSlotArray {
-        pub vec: Vec<PPtr<MetaSlot>>,
+        pub vec: Vec<* const MetaSlot>,
     }
 
     pub open spec fn wf(&self) -> bool {

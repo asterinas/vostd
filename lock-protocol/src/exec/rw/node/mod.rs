@@ -5,7 +5,7 @@ pub mod rwlock;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::simple_pptr::{PPtr, PointsTo};
+use vstd::raw_ptr::{PointsTo, ptr_ref};
 
 use vstd_extra::array_ptr::*;
 
@@ -19,7 +19,7 @@ use entry::Entry;
 verus! {
 
 pub struct PageTableNode {
-    pub ptr: PPtr<MetaSlot>,
+    pub ptr: *const MetaSlot,
     pub perm: Tracked<MetaSlotPerm>,
     pub nid: Ghost<NodeId>,
     pub inst: Tracked<SpecInstance>,
@@ -38,7 +38,7 @@ impl PageTableNode {
             *res =~= self.meta_spec(),
     {
         let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = self.ptr.borrow(Tracked(perm));
+        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(perm)));
         assert(meta_slot.is_pt());
         &meta_slot.get_inner_pt()
     }
@@ -112,7 +112,7 @@ impl PageTableNode {
             res == self.level_spec(),
     {
         let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = self.ptr.borrow(Tracked(perm));
+        let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
         assert(meta_slot.is_pt());
         meta_slot.get_inner_pt().level
     }

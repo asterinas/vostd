@@ -19,6 +19,7 @@ use super::{common::*, types::*, mem_content::*, cpu::*, frame::*, page_table::*
 use super::node::{
     PageTableNode, PageTableReadLock, PageTableWriteLock, child::Child, entry::Entry, rwlock::*,
 };
+use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 
 verus! {
 
@@ -40,7 +41,7 @@ impl GuardInPath {
 }
 
 pub struct Cursor {
-    pub path: Vec<GuardInPath>,
+    pub path: [GuardInPath; MAX_NR_LEVELS],
     pub level: PagingLevel,
     pub guard_level: PagingLevel,
     pub va: Vaddr,
@@ -213,11 +214,8 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     let trace = va_level_to_trace(va.start, guard_level);
     lemma_va_range_get_guard_level(va);
     lemma_va_level_to_trace_rec_len(va.start >> 12, guard_level);
-    assert(trace.len() == 4 - guard_level);
     let path = va_range_get_tree_path(va);
-    assert(path.len() == 1 + trace.len());
-    assert(path.len() == 5 - guard_level);
-    assert forall|i| 0 <= i < path.len() implies NodeHelper::valid_nid(path[i]) by {
+    assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
         let nid = path[i];
         if i == 0 {
             assert(nid == NodeHelper::root_id());
@@ -259,24 +257,16 @@ pub fn lock_range(
         res.1@.path() =~= va_range_get_tree_path(*va),
         res.0.wf_with_lock_protocol_model(res.1@),
 {
-    let mut path: Vec<GuardInPath> = Vec::with_capacity(4);
-    let mut i: usize = 0;
-    while i < 4
-        invariant
-            0 <= i <= 4,
-            path@.len() == i,
-            forall|_i| 0 <= _i < i ==> path@[_i] is None,
-    {
-        path.push(GuardInPath::None);
-        i += 1;
-    }
-    assert(path.len() == 4);
-    assert(forall|i| 0 <= i < 4 ==> path@[i] is None);
+    let mut path: [GuardInPath; MAX_NR_LEVELS] = [
+        GuardInPath::None,
+        GuardInPath::None,
+        GuardInPath::None,
+        GuardInPath::None,
+    ];
 
     let ghost mut cur_nid: NodeId = 0;
     let mut level: PagingLevel = 4;
 
-    assert(cur_nid == NodeHelper::root_id());
     assert(NodeHelper::valid_nid(cur_nid)) by {
         NodeHelper::lemma_root_id();
     };
