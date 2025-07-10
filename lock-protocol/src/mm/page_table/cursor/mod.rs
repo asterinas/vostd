@@ -332,11 +332,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
                     == res.pte.frame_paddr() as int
                 &&& spt.frames@.value().contains_key(res.pte.frame_paddr() as int)
             },
-
-            res.pte.pte_paddr() == res.node.paddr() as int + pte_index(
-                self.va,
-                self.level,
-            ) * exec::SIZEOF_PAGETABLEENTRY,
+            res.pte.pte_paddr() == res.node.paddr() as int + pte_index(self.va, self.level)
+                * exec::SIZEOF_PAGETABLEENTRY,
     {
         // let node = self.path[self.level as usize - 1].as_mut().unwrap();
         // node.entry(pte_index::<C>(self.va, self.level))
@@ -486,8 +483,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         while self.0.level
             > frame.map_level()
         // TODO || self.0.va % page_size::<C>(self.0.level) != 0 || self.0.va + page_size::<C>(self.0.level) > end
+
             invariant
         // self.0.va + page_size::<C>(self.0.level) <= end,
+
                 self.0.level >= frame.map_level(),
                 self.0.path.len() == old(self).0.path.len(),
                 self.va_valid(frame, Some(old(self))),
