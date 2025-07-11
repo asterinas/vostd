@@ -35,10 +35,10 @@ impl Child {
             self is Frame ==> self->Frame_1 == 1,
     ;
 
-    pub open spec fn wf(&self, mem: &MemContent) -> bool {
+    pub open spec fn wf(&self) -> bool {
         match *self {
             Self::PageTable(pt, inst, nid) => {
-                &&& pt.wf(mem)
+                &&& pt.wf()
                 &&& pt.inst@.id() == inst@.id()
                 &&& pt.nid@ == nid@
                 &&& inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -82,7 +82,7 @@ impl Child {
     pub open spec fn wf_into_pte(&self, pte: Pte) -> bool {
         match *self {
             Child::PageTable(pt, inst, nid) => {
-                &&& pte.wf_new_pt(pt.start_paddr_spec(), inst@, nid@)
+                &&& pte.wf_new_pt(pt.start_paddr(), inst@, nid@)
                 &&& pte.inner.is_present()
                 &&& !pte.inner.is_last((pt.level_spec() + 1) as PagingLevel)
             },
@@ -112,9 +112,9 @@ impl Child {
     /// Usually this is for recording the PTE into a page table node. When the
     /// child is needed again by reading the PTE of a page table node, extra
     /// information should be provided using the [`Child::from_pte`] method.
-    pub fn into_pte(self, mem: &MemContent) -> (res: Pte)
+    pub fn into_pte(self) -> (res: Pte)
         requires
-            self.wf(mem),
+            self.wf(),
             !(self is PageTableRef),
         ensures
             self.wf_into_pte(res),
@@ -122,7 +122,7 @@ impl Child {
     {
         match self {
             Child::PageTable(pt, inst, nid) => {
-                let paddr: Paddr = pt.start_paddr(mem);
+                let paddr: Paddr = pt.start_paddr();
                 let pt = ManuallyDrop::new(pt);
                 Pte::new_pt(paddr, inst, nid)
             },
@@ -180,14 +180,13 @@ impl Child {
         pte: Pte,
         level: PagingLevel,
         // is_tracked: MapTrackingStatus,
-        mem: &MemContent,
     ) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
             1 <= level <= 4,
         ensures
-            res.wf(mem),
+            res.wf(),
             res.wf_from_pte(pte, level),
             !(res is PageTableRef),
             res is Frame ==> res->Frame_1 == level,
@@ -209,7 +208,7 @@ impl Child {
             // at the given level.
             // let pt = unsafe { PageTableNode::from_raw(paddr) };
             // debug_assert_eq!(pt.level(), level - 1);
-            let pt = PageTableNode::from_raw(paddr, mem, Ghost(pte.nid()), Ghost(pte.inst_id()));
+            let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
             assert(pte.inst@ is Some);
             assert(pte.nid@ is Some);
             return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
@@ -279,14 +278,13 @@ impl Child {
         level: PagingLevel,
         // is_tracked: MapTrackingStatus,
         clone_raw: bool,
-        mem: &MemContent,
     ) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
             1 <= level <= 4,
         ensures
-            res.wf(mem),
+            res.wf(),
             res.wf_ref_from_pte(*pte, level, clone_raw),
             !clone_raw ==> !(res is PageTable),
             res is Frame ==> res->Frame_1 == level,
@@ -311,12 +309,7 @@ impl Child {
                 // SAFETY: The physical address points to a valid page table node
                 // at the given level.
                 // let pt = unsafe { PageTableNode::from_raw(paddr) };
-                let pt = PageTableNode::from_raw(
-                    paddr,
-                    mem,
-                    Ghost(pte.nid()),
-                    Ghost(pte.inst_id()),
-                );
+                let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
                 // debug_assert_eq!(pt.level(), level - 1);
                 assert(pte.inst@ is Some);
                 assert(pte.nid@ is Some);

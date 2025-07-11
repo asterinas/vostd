@@ -17,9 +17,9 @@ pub uninterp spec fn frame_to_meta_spec(paddr: Paddr) -> Vaddr;
 #[inline(always)]
 #[verifier::when_used_as_spec(frame_to_meta_spec)]
 #[verifier::external_body]
-pub const fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
-    ensures
-        res == frame_to_meta_spec(paddr),
+pub const fn frame_to_meta(paddr: Paddr) -> Vaddr
+    returns
+        frame_to_meta_spec(paddr),
 {
     // let base = FRAME_METADATA_RANGE.start;
     // let offset = paddr / PAGE_SIZE;
@@ -33,9 +33,9 @@ pub uninterp spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr;
 #[inline(always)]
 #[verifier::when_used_as_spec(meta_to_frame_spec)]
 #[verifier::external_body]
-pub const fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
-    ensures
-        res == meta_to_frame_spec(vaddr),
+pub const fn meta_to_frame(vaddr: Vaddr) -> Paddr
+    returns
+        meta_to_frame_spec(vaddr),
 {
     // let base = FRAME_METADATA_RANGE.start;
     // let offset = (vaddr - base) / size_of::<MetaSlot>();

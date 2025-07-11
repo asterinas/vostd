@@ -48,13 +48,13 @@ impl Entry {
     }
 
     /// Gets a reference to the child.
-    pub fn to_ref(&self, node: &PageTableWriteLock, mem: &MemContent) -> (res: Child)
+    pub fn to_ref(&self, node: &PageTableWriteLock) -> (res: Child)
         requires
             self.wf(),
             self.wf_with_node(*node),
-            node.wf(mem),
+            node.wf(),
         ensures
-            res.wf(mem),
+            res.wf(),
             !(res is PageTable),
             res is Frame ==> res->Frame_1 == node.level_spec(),
     {
@@ -63,9 +63,8 @@ impl Entry {
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
         Child::ref_from_pte(
             &self.pte,
-            node.level(mem),  /*self.node.is_tracked(),*/
+            node.level(),  /*self.node.is_tracked(),*/
             false,
-            mem,
         )
     }
 
@@ -77,16 +76,16 @@ impl Entry {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    pub fn replace(self, new_child: Child, node: &mut PageTableWriteLock, mem: &MemContent)
+    pub fn replace(self, new_child: Child, node: &mut PageTableWriteLock)
         requires
             self.wf(),
             self.wf_with_node(*old(node)),
-            new_child.wf(mem),
+            new_child.wf(),
             !(new_child is PageTableRef),
             new_child.wf_with_node(self.idx as nat, *old(node)),
-            old(node).wf(mem),
+            old(node).wf(),
         ensures
-            node.wf(mem),
+            node.wf(),
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
     {
@@ -106,8 +105,8 @@ impl Entry {
         //  1. The index is within the bounds.
         //  2. The new PTE is compatible with the page table node, as asserted above.
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
-        let pte = new_child.into_pte(mem);
-        node.write_pte(self.idx, pte, mem);
+        let pte = new_child.into_pte();
+        node.write_pte(self.idx, pte);
 
         // old_child
     }
@@ -117,10 +116,10 @@ impl Entry {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bounds of the node.
-    pub fn new_at(idx: usize, node: &PageTableWriteLock, mem: &MemContent) -> (res: Self)
+    pub fn new_at(idx: usize, node: &PageTableWriteLock) -> (res: Self)
         requires
             0 <= idx < 512,
-            node.wf(mem),
+            node.wf(),
         ensures
             res.wf(),
             res.wf_with_node(*node),
@@ -128,7 +127,7 @@ impl Entry {
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
-        let pte = node.read_pte(idx, mem);
+        let pte = node.read_pte(idx);
         Self { pte, idx }
     }
 }

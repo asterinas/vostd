@@ -17,8 +17,8 @@ pub struct PageTable {
 }
 
 impl PageTable {
-    pub open spec fn wf(&self, mem: &MemContent) -> bool {
-        &&& self.root.wf(mem)
+    pub open spec fn wf(&self) -> bool {
+        &&& self.root.wf()
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     }
 }

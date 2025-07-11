@@ -90,9 +90,9 @@ impl MetaSlotPerm {
         &&& self.inner.ptr() == ptr
     }
 
-    pub open spec fn wf(&self, meta_slot_array: &MetaSlotArray) -> bool {
-        &&& 0 <= self.slot_idx < meta_slot_array.len()
-        &&& self.relate(meta_slot_array.vec[self.slot_idx as int])
+    pub open spec fn wf(&self) -> bool {
+        //&&& 0 <= self.slot_idx < meta_slot_array.len()
+        //&&& self.relate(meta_slot_array.vec[self.slot_idx as int])
         &&& self.inner.is_init()
         &&& self.inner.value().wf()
         &&& self.inner.value().is_pt() ==> {
