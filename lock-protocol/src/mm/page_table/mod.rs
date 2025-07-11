@@ -12,7 +12,7 @@ use vstd_extra::extra_num::lemma_usize_ilog2_to32;
 
 use super::{
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, vm_space::Token, Paddr,
-    PagingLevel, Vaddr,
+    PagingLevel, Vaddr, NR_ENTRIES,
 };
 
 use crate::exec;
@@ -401,6 +401,7 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)  // TODO: type, 
     ensures
         res == pte_index_spec(va, level),
         res < nr_subpage_per_huge(),
+        res < NR_ENTRIES,
 {
     let base_bits = PagingConsts::BASE_PAGE_SIZE().ilog2();
     assert(base_bits == 12) by {

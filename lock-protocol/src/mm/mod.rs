@@ -107,6 +107,7 @@ pub const fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
 pub const fn nr_subpage_per_huge() -> (res: usize)
     ensures
         res != 0,
+        res == NR_ENTRIES,
     returns
         BASE_PAGE_SIZE / PTE_SIZE,
 {

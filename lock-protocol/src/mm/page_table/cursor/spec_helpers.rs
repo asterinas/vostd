@@ -66,6 +66,7 @@ pub open spec fn path_index_at_level(level: PagingLevel) -> int {
     level - 1
 }
 
+// TODO: this should be in spt.wf()?
 pub open spec fn mpt_and_tokens_wf(spt: &exec::SubPageTable, tokens: exec::Tokens) -> bool {
     &&& instance_match(spt, tokens)
     &&& forall|i: usize|
@@ -81,6 +82,54 @@ pub open spec fn mpt_and_tokens_wf(spt: &exec::SubPageTable, tokens: exec::Token
                 ==> #[trigger] tokens.unused_pte_addrs.contains_key(
                 spt.mem@[i].1@.value().ptes[j as int].frame_pa as int,
             )
+        // TODO: isn't this redundant with page_wf?
+    &&& forall|frame: int|
+        spt.frames@.value().contains_key(frame) ==> !#[trigger] tokens.unused_addrs.contains_key(
+            frame,
+        )
+    &&& forall|pte: int|
+        spt.ptes@.value().contains_key(pte) ==> !#[trigger] tokens.unused_pte_addrs.contains_key(
+            pte,
+        )
+    &&& forall|frame: int|
+        !spt.frames@.value().contains_key(frame) ==> #[trigger] tokens.unused_addrs.contains_key(
+            frame,
+        )
+    &&& forall|pte: int|
+        !spt.ptes@.value().contains_key(pte) ==> #[trigger] tokens.unused_pte_addrs.contains_key(
+            pte,
+        )
+}
+
+pub open spec fn mpt_and_tokens_wf_addrs(
+    spt: &exec::SubPageTable,
+    unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
+    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+) -> bool {
+    &&& instance_match_addrs(spt, unused_addrs, unused_pte_addrs)
+    &&& forall|i: usize|
+        0 <= i < exec::MAX_FRAME_NUM && spt.mem@[i].1@.is_uninit()
+            ==> #[trigger] unused_addrs.contains_key(exec::frame_index_to_addr(i) as int) && forall|
+            j: usize,
+        |
+            0 <= j < NR_ENTRIES ==> #[trigger] unused_pte_addrs.contains_key(
+                exec::frame_addr_to_index(i) + j * exec::SIZEOF_PAGETABLEENTRY as int,
+            )
+    &&& forall|i: usize|
+        0 <= i < exec::MAX_FRAME_NUM && #[trigger] spt.mem@[i].1@.is_init() ==> forall|j: usize|
+            0 <= j < NR_ENTRIES ==> #[trigger] spt.mem@[i].1@.value().ptes[j as int].frame_pa == 0
+                ==> #[trigger] unused_pte_addrs.contains_key(
+                spt.mem@[i].1@.value().ptes[j as int].frame_pa as int,
+            )
+        // TODO: isn't this redundant with page_wf?
+    &&& forall|frame: int|
+        spt.frames@.value().contains_key(frame) ==> !#[trigger] unused_addrs.contains_key(frame)
+    &&& forall|pte: int|
+        spt.ptes@.value().contains_key(pte) ==> !#[trigger] unused_pte_addrs.contains_key(pte)
+    &&& forall|frame: int|
+        !spt.frames@.value().contains_key(frame) ==> #[trigger] unused_addrs.contains_key(frame)
+    &&& forall|pte: int|
+        !spt.ptes@.value().contains_key(pte) ==> #[trigger] unused_pte_addrs.contains_key(pte)
 }
 
 pub open spec fn mpt_not_contains_not_allocated_frames(
@@ -102,14 +151,19 @@ pub open spec fn mpt_not_contains_not_allocated_frames(
 
 pub open spec fn unallocated_frames_are_unused(
     unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
-    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     cur_alloc_index: usize,
 ) -> bool {
-    &&& forall|i: usize|
+    forall|i: usize|
         cur_alloc_index <= i < exec::MAX_FRAME_NUM ==> #[trigger] unused_addrs.contains_key(
             exec::frame_index_to_addr(i) as int,
         )
-    &&& forall|i: usize|
+}
+
+pub open spec fn unallocated_ptes_are_unused(
+    unused_pte_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+    cur_alloc_index: usize,
+) -> bool {
+    forall|i: usize|
         cur_alloc_index <= i < exec::MAX_FRAME_NUM ==> forall|j: int|
             0 <= j < NR_ENTRIES ==> #[trigger] unused_pte_addrs.contains_key(
                 #[trigger] exec::frame_addr_to_index(i) + j * exec::SIZEOF_PAGETABLEENTRY as int,

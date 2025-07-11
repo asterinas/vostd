@@ -112,7 +112,8 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
                 old(spt).frames@.value().contains_key(i) ==> spt.frames@.value().contains_key(i),
             spec_helpers::mpt_not_contains_not_allocated_frames(
                 spt,
-                (cur_alloc_index + 1) as usize,
+                #[verifier::truncate]
+                ((cur_alloc_index + 1) as usize),
             ),
             spec_helpers::pte_keys_do_not_change(spt, old(spt)),
     ;
