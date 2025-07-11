@@ -137,7 +137,8 @@ pub open spec fn va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLev
     recommends
         va_range_wf(va),
         1 <= level <= 4,
-    decreases level when 1 <= level <= 4
+    decreases level,
+    when 1 <= level <= 4
 {
     if level == 1 {
         1
@@ -550,9 +551,6 @@ pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res:
     let GuardInPath::WriteLocked(mut guard_node) = cursor.take_guard(
         guard_level as usize - 1,
     ) else { unreached() };
-
-    assert(m.path().len() == 5 - guard_level);
-    assert(m.path()[4 - guard_level] == guard_node.nid());
     let res = guard_node.unlock(Tracked(m));
     let pt = res.0;
     proof {

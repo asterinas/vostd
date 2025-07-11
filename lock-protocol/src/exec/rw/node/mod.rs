@@ -39,7 +39,6 @@ impl PageTableNode {
     {
         let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
         let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(perm)));
-        assert(meta_slot.is_pt());
         &meta_slot.get_inner_pt()
     }
 
@@ -105,7 +104,6 @@ impl PageTableNode {
     {
         let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
         let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
-        assert(meta_slot.is_pt());
         meta_slot.get_inner_pt().level
     }
 

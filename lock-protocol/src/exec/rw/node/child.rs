@@ -209,8 +209,6 @@ impl Child {
             // let pt = unsafe { PageTableNode::from_raw(paddr) };
             // debug_assert_eq!(pt.level(), level - 1);
             let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
-            assert(pte.inst@ is Some);
-            assert(pte.nid@ is Some);
             return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
         }
         // match is_tracked {

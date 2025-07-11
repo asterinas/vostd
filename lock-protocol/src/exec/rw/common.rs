@@ -41,8 +41,9 @@ pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
 #[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
 #[verifier::external_body]
 pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
-    // requires
-    // valid_paddr(pa),
+// requires
+// valid_paddr(pa),
+
     ensures
         va == paddr_to_vaddr_spec(pa),
 {
@@ -84,15 +85,15 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
         1 <= level <= 4,
     ensures
         valid_pte_offset(res as nat),
-    returns 
+    returns
         va_level_to_offset(va, level) as usize,
 {
     let offset = (va >> (12 + (level - 1) * 9)) & low_bits_mask_usize(9);
-    
-    proof{
+
+    proof {
         lemma2_to64();
         let num = (va >> (12 + (level - 1) * 9));
-        assert ((num & 511) < 512) by (bit_vector);
+        assert((num & 511) < 512) by (bit_vector);
     }
 
     offset
@@ -101,7 +102,8 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
 pub open spec fn va_level_to_trace_rec(va: Vaddr, level: PagingLevel) -> Seq<nat>
     recommends
         1 <= level <= 4,
-    decreases 4 - level when 1 <= level <= 4
+    decreases 4 - level,
+    when 1 <= level <= 4
 {
     if level == 4 {
         Seq::empty()
@@ -181,21 +183,11 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
         // And va_level_to_nid(va, level + 1) == trace_to_nid(trace_level_plus_1)
         // So nid == trace_to_nid(trace_level_plus_1)
         // Since trace_to_nid is bijective, nid_to_trace(nid) == trace_level_plus_1
-        assert(nid == NodeHelper::trace_to_nid(trace_level_plus_1));
-        assert(NodeHelper::trace_to_nid(NodeHelper::nid_to_trace(nid)) == nid);
         assert(NodeHelper::trace_to_nid(NodeHelper::nid_to_trace(nid)) == NodeHelper::trace_to_nid(
             trace_level_plus_1,
         ));
         NodeHelper::lemma_trace_to_nid_bijective();
     };
-
-    // Therefore get_child(nid, idx) = trace_to_nid(trace_level_plus_1.push(idx)) = trace_to_nid(trace_level)
-    assert(NodeHelper::get_child(nid, idx) == NodeHelper::trace_to_nid(
-        trace_level_plus_1.push(idx),
-    ));
-    assert(trace_level_plus_1.push(idx) == trace_level);
-    assert(NodeHelper::get_child(nid, idx) == NodeHelper::trace_to_nid(trace_level));
-    assert(NodeHelper::trace_to_nid(trace_level) == va_level_to_nid(va, level));
 }
 
 pub proof fn lemma_va_level_to_trace_rec_len(va: Vaddr, level: PagingLevel)
@@ -237,13 +229,6 @@ pub proof fn lemma_va_level_to_trace_rec_valid(va: Vaddr, level: PagingLevel)
         }
         // By inductive hypothesis, the recursive trace is valid
         assert(NodeHelper::valid_trace(va_level_to_trace_rec(va, (level + 1) as PagingLevel)));
-        // Therefore its length is < 4
-        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() < 4);
-        // Since we add exactly one element, the new length is still < 4
-        assert(va_level_to_trace_rec(va, level).len() == va_level_to_trace_rec(
-            va,
-            (level + 1) as PagingLevel,
-        ).len() + 1);
         assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() + 1 <= 3) by {
             lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
         };

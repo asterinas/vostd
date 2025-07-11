@@ -282,16 +282,10 @@ RwLockToks<K, V, Pred: InvariantPredicate<K, V>> {
     fn release_exc_inductive(pre: Self, post: Self, x: V) { }
 
     #[inductive(dec_real_rc)]
-    fn dec_real_rc_inductive(pre: Self, post: Self, x: V) {
-        broadcast use group_multiset_axioms;
-        assert(equal(pre.storage, Option::Some(x)));
-    }
+    fn dec_real_rc_inductive(pre: Self, post: Self, x: V) { }
 
     #[inductive(release_shared)]
-    fn release_shared_inductive(pre: Self, post: Self) {
-        broadcast use group_multiset_axioms;
-        assert(pre.storage is Some);
-    }
+    fn release_shared_inductive(pre: Self, post: Self) { }
 }
 
 }
@@ -681,7 +675,6 @@ impl PageTablePageRwLock {
                             m.cpu, self.nid(), token, &g.1, m.token,
                         );
                         let tracked (Tracked(node_token), Tracked(cursor_token)) = res;
-                        assert(cursor_token.value() is WriteLocked);
                         assert(cursor_token.value()->WriteLocked_0 == m.path().push(self.nid()));
                         token = node_token;
                         m.token = cursor_token;
