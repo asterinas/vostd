@@ -137,23 +137,19 @@ pub open spec fn va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLev
     recommends
         va_range_wf(va),
         1 <= level <= 4,
-    decreases level,
+    decreases level when 1 <= level <= 4
 {
-    if 1 <= level <= 4 {
-        if level == 1 {
-            1
-        } else {
-            let st = va.start;
-            let en = (va.end - 1) as usize;
-
-            if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
-                va_range_get_guard_level_rec(va, (level - 1) as PagingLevel)
-            } else {
-                level
-            }
-        }
+    if level == 1 {
+        1
     } else {
-        arbitrary()
+        let st = va.start;
+        let en = (va.end - 1) as usize;
+
+        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
+            va_range_get_guard_level_rec(va, (level - 1) as PagingLevel)
+        } else {
+            level
+        }
     }
 }
 

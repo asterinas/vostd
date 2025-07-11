@@ -41,9 +41,8 @@ pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
 #[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
 #[verifier::external_body]
 pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
-    requires
-// valid_paddr(pa),
-
+    // requires
+    // valid_paddr(pa),
     ensures
         va == paddr_to_vaddr_spec(pa),
 {
@@ -84,35 +83,32 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
         valid_vaddr(va),
         1 <= level <= 4,
     ensures
-        res == va_level_to_offset(va, level),
         valid_pte_offset(res as nat),
+    returns 
+        va_level_to_offset(va, level) as usize,
 {
     let offset = (va >> (12 + (level - 1) * 9)) & low_bits_mask_usize(9);
-    assert(valid_pte_offset(offset as nat)) by {
-        // let x: usize = va >> (12 + (level - 1) * 9);
-        // lemma_u64_low_bits_mask_is_mod(x, 9);
-        // lemma2_to64();
-        // lemma_mod_bound(x as int, pow2(9) as int);
-        admit();
-    };
+    
+    proof{
+        lemma2_to64();
+        let num = (va >> (12 + (level - 1) * 9));
+        assert ((num & 511) < 512) by (bit_vector);
+    }
+
     offset
 }
 
 pub open spec fn va_level_to_trace_rec(va: Vaddr, level: PagingLevel) -> Seq<nat>
     recommends
         1 <= level <= 4,
-    decreases 4 - level,
+    decreases 4 - level when 1 <= level <= 4
 {
-    if 1 <= level <= 4 {
-        if level == 4 {
-            Seq::empty()
-        } else {
-            va_level_to_trace_rec(va, (level + 1) as PagingLevel).push(
-                ((va >> (level * 9)) & low_bits_mask(9) as usize) as nat,
-            )
-        }
+    if level == 4 {
+        Seq::empty()
     } else {
-        arbitrary()
+        va_level_to_trace_rec(va, (level + 1) as PagingLevel).push(
+            ((va >> (level * 9)) & low_bits_mask(9) as usize) as nat,
+        )
     }
 }
 

@@ -166,15 +166,6 @@ impl PageFlags {
 
     #[inline(always)]
     #[verifier::allow_in_spec]
-    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
-    pub const fn value(&self) -> (res: u8)
-        returns self.bits
-    {
-        self.bits
-    }
-
-    #[inline(always)]
-    #[verifier::allow_in_spec]
     pub fn from_bits(value: u8) -> (res: Self)
         returns (Self { bits: value })
     {
@@ -293,15 +284,6 @@ impl PrivilegedPageFlags {
         returns (Self { bits: 0 })
     {
         Self { bits: 0 }
-    }
-
-    #[inline(always)]
-    #[verifier::allow_in_spec]
-    #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
-    pub const fn value(&self) -> u8
-        returns self.bits
-    {
-        self.bits
     }
 
     #[inline(always)]
