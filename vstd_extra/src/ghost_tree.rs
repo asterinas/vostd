@@ -778,26 +778,63 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         } else {
             let (hd, tl) = path.pop_head();
             match self.child(hd) {
-                Some(child) => seq![child.value].add(child.recursive_trace(tl)),
-                None => Seq::empty(),
+                Some(child) => seq![self.value].add(child.recursive_trace(tl)),
+                None =>  seq![self.value],
             }
         }
     }
 
-    pub proof fn recursive_trace_up_to(self, path1: TreePath<N>, path2: TreePath<N>, n: int)
+    pub proof fn lemma_recursive_trace_length(self, path: TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
+        ensures
+            #[trigger] self.recursive_trace(path).len() <= path.len() + 1,
+        decreases
+            path.len()
+    {
+        if path.len() == 0 {}
+        else {
+            let (hd, tl) = path.pop_head();
+            path.pop_head_preserves_inv();
+            match self.child(hd){
+                None => {
+                }
+                Some(child) => {
+                    child.lemma_recursive_trace_length(tl);
+                }
+            }
+        }
+    }
+
+    pub proof fn lemma_recursive_trace_up_to(self, path1: TreePath<N>, path2: TreePath<N>, n: int)
         requires
             self.inv(),
             path1.inv(),
             path2.inv(),
             n <= path1.len(),
             n <= path2.len(),
-            forall|i: int| 0 <= i <= n ==> path1.0[i] == path2.0[i],
+            forall|i: int| 0 <= i < n ==> path1.0[i] == path2.0[i],
+            self.recursive_trace(path1).len() > n
         ensures
+            self.recursive_trace(path2).len() > n,
             forall|i: int|
                 0 <= i <= n ==> self.recursive_trace(path1)[i] == self.recursive_trace(path2)[i],
         decreases n,
     {
-        admit()
+        if n <= 0 {}
+        else {
+            let (hd1, tl1) = path1.pop_head();
+            let (hd2, tl2) = path2.pop_head();
+            match self.child(hd1){
+                None => {}
+                Some(child) =>{
+                    path1.pop_head_preserves_inv();
+                    path2.pop_head_preserves_inv();
+                    child.lemma_recursive_trace_up_to(tl1, tl2, n - 1);
+                }
+            }
+        }
     }
 
     /// Walk to the end of a path and return the subtree at the end
@@ -817,6 +854,89 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             match self.child(hd) {
                 Some(child) => child.recursive_seek(tl),
                 None => None,
+            }
+        }
+    }
+
+    pub proof fn lemma_recursive_seek_trace_length(self, path:TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
+            path.len() < L - self.level,
+            self.recursive_seek(path) is Some,
+        ensures
+            self.recursive_trace(path).len() == path.len() + 1
+        decreases
+            path.len()
+    {
+        if path.len() == 0 {}
+        else {
+            let (hd, tl) = path.pop_head();
+            match self.child(hd){
+                None => { assert(false) }
+                Some(child) => {
+                    path.pop_head_preserves_inv();
+                    child.lemma_recursive_seek_trace_length(tl)
+                }
+            }
+        }
+    }
+
+    pub proof fn lemma_recursive_seek_trace_next(self, path: TreePath<N>, idx: usize)
+        requires
+            self.recursive_seek(path) is Some,
+            self.recursive_seek(path).unwrap().children[idx as int] is Some,
+            self.inv(),
+            path.inv(),
+            path.len() < L - self.level,
+            0 <= idx < N,
+        ensures
+            self.recursive_trace(path.push_tail(idx)).len() == path.len() + 2,
+
+            self.recursive_seek(path).unwrap().children[idx as int].unwrap().value == self.recursive_trace(
+                path.push_tail(idx),
+            )[path.len() as int + 1],
+        decreases path.len(),
+    {
+        assert(self.recursive_trace(path).len() == path.len() + 1) by {
+            self.lemma_recursive_seek_trace_length(path)
+        }
+        let path2 = path.push_tail(idx);
+        assert(path2.inv()) by { path.push_tail_preserves_inv(idx); }
+        assert(forall |i:int| 0 <= i < path.len() ==> path.0[i] == path2.0[i]);
+        assert(self.recursive_trace(path2).len() >= path.len() + 1) by{
+            self.lemma_recursive_trace_up_to(path, path2, path.len() as int)
+        }
+
+        if path.len() == 0 {
+            assert(path.is_empty());
+            assert(self.recursive_seek(path) == Some(self));
+            assert(self.recursive_trace(path2) =~= seq![self.value, self.children[idx as int].unwrap().value]) by{
+                reveal_with_fuel(Node::recursive_trace, 2)
+            }
+        }
+        else {
+            let (hd1, tl1) = path.pop_head();
+            let (hd2, tl2) = path2.pop_head();
+            assert(tl2 == tl1.push_tail(idx)) by {
+                assert(tl2.0 =~= tl1.0.push(idx));
+            }
+            assert(tl1.inv()) by{
+                path.pop_head_preserves_inv()
+            }
+            match self.child(hd2) {
+                None => { }
+                Some(child) => {
+                    assert(self.recursive_trace(path2) =~= seq![self.value] + child.recursive_trace(tl2));
+                    child.lemma_recursive_seek_trace_next(tl1, idx);
+                    assert(child.recursive_trace(tl2).len() >= path.len() + 1);
+                    assert(self.recursive_trace(path2).len() >= path.len() + 2);
+
+                    assert(
+                        self.recursive_trace(path2)[path.len() as int + 1]
+                        == child.recursive_trace(tl2)[path.len() as int ]
+                    );
+                }
             }
         }
     }
@@ -957,7 +1077,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    #[verifier::external_body]
+    // #[verifier::external_body]
     pub broadcast proof fn lemma_recursive_visit_induction(self, path: TreePath<N>)
         requires
             self.inv(),
@@ -1130,67 +1250,67 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         self.insert(key, node).lemma_child_on_subtree(key);
     }
 
-    pub broadcast proof fn lemma_remove_not_on_subtree(self, key: usize, node: Self)
-        requires
-            0 <= key < Self::size(),
-            self.inv(),
-            node.inv(),
-            node.level == self.level + 1,
-            self.child(key) == Some(node),
-        ensures
-            !#[trigger] self.remove(key).on_subtree(node),
-    {
-        admit();  // TODO
-    }
+    // pub broadcast proof fn lemma_remove_not_on_subtree(self, key: usize, node: Self)
+    //     requires
+    //         0 <= key < Self::size(),
+    //         self.inv(),
+    //         node.inv(),
+    //         node.level == self.level + 1,
+    //         self.child(key) == Some(node),
+    //     ensures
+    //         !#[trigger] self.remove(key).on_subtree(node),
+    // {
+    //     admit();  // TODO
+    // }
 
-    pub broadcast proof fn lemma_recursive_insert_on_subtree(self, path: TreePath<N>, node: Self)
-        requires
-            self.inv(),
-            path.inv(),
-            node.inv(),
-            path.len() < L - self.level,
-            node.level == self.level + path.len() as nat,
-        ensures
-            #[trigger] self.recursive_insert(path, node).on_subtree(node),
-        decreases path.len(),
-    {
-        admit();  // TODO
-    }
+    // pub broadcast proof fn lemma_recursive_insert_on_subtree(self, path: TreePath<N>, node: Self)
+    //     requires
+    //         self.inv(),
+    //         path.inv(),
+    //         node.inv(),
+    //         path.len() < L - self.level,
+    //         node.level == self.level + path.len() as nat,
+    //     ensures
+    //         #[trigger] self.recursive_insert(path, node).on_subtree(node),
+    //     decreases path.len(),
+    // {
+    //     admit();  // TODO
+    // }
 
-    pub broadcast proof fn lemma_recursive_remove_not_on_subtree(
-        self,
-        path: TreePath<N>,
-        node: Self,
-    )
-        requires
-            self.inv(),
-            path.inv(),
-            node.inv(),
-            path.len() < L - self.level,
-            node.level == self.level + path.len() as nat,
-            self.recursive_visit(path).last() == node,
-        ensures
-            !#[trigger] self.recursive_remove(path).on_subtree(node),
-        decreases path.len(),
-    {
-        admit();  // TODO
-    }
+    // pub broadcast proof fn lemma_recursive_remove_not_on_subtree(
+    //     self,
+    //     path: TreePath<N>,
+    //     node: Self,
+    // )
+    //     requires
+    //         self.inv(),
+    //         path.inv(),
+    //         node.inv(),
+    //         path.len() < L - self.level,
+    //         node.level == self.level + path.len() as nat,
+    //         self.recursive_visit(path).last() == node,
+    //     ensures
+    //         !#[trigger] self.recursive_remove(path).on_subtree(node),
+    //     decreases path.len(),
+    // {
+    //     admit();  // TODO
+    // }
 
-    pub broadcast proof fn lemma_recursive_visit_on_subtree(self, path: TreePath<N>)
-        requires
-            self.inv(),
-            path.inv(),
-            path.len() < L - self.level,
-            path.len() > 0,
-            #[trigger] self.recursive_visit(path).len() > 0,
-        ensures
-            forall|i: int|
-                0 <= i < self.recursive_visit(path).len() ==> #[trigger] self.on_subtree(
-                    self.recursive_visit(path)[i],
-                ),
-    {
-        admit();  // TODO
-    }
+    // pub broadcast proof fn lemma_recursive_visit_on_subtree(self, path: TreePath<N>)
+    //     requires
+    //         self.inv(),
+    //         path.inv(),
+    //         path.len() < L - self.level,
+    //         path.len() > 0,
+    //         #[trigger] self.recursive_visit(path).len() > 0,
+    //     ensures
+    //         forall|i: int|
+    //             0 <= i < self.recursive_visit(path).len() ==> #[trigger] self.on_subtree(
+    //                 self.recursive_visit(path)[i],
+    //             ),
+    // {
+    //     admit();  // TODO
+    // }
 
     pub proof fn level_increases(self)
         requires
@@ -1282,7 +1402,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
 } // verus!
 verus! {
 
-pub uninterp spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize>(
+pub closed spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize>(
     src: Node<T, N, L>,
     dst: Node<T, N, L>,
 ) -> TreePath<N>
@@ -1291,9 +1411,27 @@ pub uninterp spec fn path_between<T: TreeNodeValue, const N: usize, const L: usi
         dst.inv(),
         src.level <= dst.level,
         src.on_subtree(dst),
-;
+{
+    if src.inv() &&
+        dst.inv() &&
+        dst.level >= src.level &&
+        dst.level < L &&
+        src.on_subtree(dst)
+    {
+        if src == dst {
+            TreePath::new(seq![])
+        }
+        else {
+            choose |path: TreePath<N>| #[trigger]
+                path.inv() && path.len() > 0 && path.len() == dst.level - src.level
+                    && src.recursive_visit(path).last() == dst
+        }
+    }
+    else {
+        vstd::pervasive::arbitrary()
+    }
+}
 
-#[verifier::external_body]
 pub broadcast proof fn path_between_properties<T: TreeNodeValue, const N: usize, const L: usize>(
     src: Node<T, N, L>,
     dst: Node<T, N, L>,
@@ -1409,37 +1547,64 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Tree<T, N, L> {
     {
     }
 
-    pub proof fn trace_up_to(self, path1: TreePath<N>, path2: TreePath<N>, n: int)
+    pub proof fn lemma_trace_up_to(self, path1: TreePath<N>, path2: TreePath<N>, n: int)
         requires
             self.inv(),
+            path1.inv(),
+            path2.inv(),
             n <= path1.len(),
             n <= path2.len(),
             forall|i: int| 0 <= i < n ==> path1.0[i] == path2.0[i],
+            self.trace(path1).len() > n,
         ensures
+            self.trace(path2).len() > n,
             forall|i: int| 0 <= i <= n ==> self.trace(path1)[i] == self.trace(path2)[i],
-        decreases n,
     {
-        admit()
+        self.root.lemma_recursive_trace_up_to(path1, path2, n)
     }
 
-    pub broadcast proof fn trace_no_longer_than_path(self, path: TreePath<N>)
+    pub broadcast proof fn lemma_trace_length(self, path: TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
         ensures
-            #[trigger] self.trace(path).len() <= path.len(),
+            #[trigger] self.trace(path).len() <= path.len() + 1,
     {
-        admit()
+        self.root.lemma_recursive_trace_length(path);
     }
 
     pub open spec fn seek(self, path: TreePath<N>) -> Option<Node<T, N, L>> {
         self.root.recursive_seek(path)
     }
 
-    pub proof fn seek_trace_next(self, path: TreePath<N>, idx: usize)
+    pub proof fn lemma_seek_trace_length(self, path:TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
+            path.len() < L,
+            self.seek(path) is Some,
         ensures
+            self.trace(path).len() == path.len() + 1
+    {
+        self.root.lemma_recursive_seek_trace_length(path)
+    }
+
+    pub proof fn lemma_seek_trace_next(self, path: TreePath<N>, idx: usize)
+        requires
+            self.seek(path) is Some,
+            self.seek(path).unwrap().children[idx as int] is Some,
+            self.inv(),
+            path.inv(),
+            path.len() < L,
+            0 <= idx < N,
+        ensures
+            self.trace(path.push_tail(idx)).len() == path.len() + 2,
+
             self.seek(path).unwrap().children[idx as int].unwrap().value == self.trace(
                 path.push_tail(idx),
             )[path.len() as int + 1],
     {
-        admit()
+        self.root.lemma_recursive_seek_trace_next(path, idx)
     }
 
     pub broadcast proof fn insert_preserves_inv(self, path: TreePath<N>, node: Node<T, N, L>)
@@ -1578,10 +1743,10 @@ pub broadcast group group_ghost_tree {
     Node::lemma_on_subtree_reflexive,
     Node::lemma_child_on_subtree,
     Node::lemma_insert_on_subtree,
-    Node::lemma_remove_not_on_subtree,
-    Node::lemma_recursive_insert_on_subtree,
-    Node::lemma_recursive_remove_not_on_subtree,
-    Node::lemma_recursive_visit_on_subtree,
+    // Node::lemma_remove_not_on_subtree,
+    // Node::lemma_recursive_insert_on_subtree,
+    // Node::lemma_recursive_remove_not_on_subtree,
+    // Node::lemma_recursive_visit_on_subtree,
     Node::remaining_level_decreases,
     Node::lemma_recursive_remove_preserves_inv,
     path_between_properties,
