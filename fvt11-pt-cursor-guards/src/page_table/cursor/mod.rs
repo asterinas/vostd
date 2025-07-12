@@ -68,7 +68,7 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         barrier_lv == model.locked_subtree@.level && {
             forall|i: int|
                 0 <= i < barrier_lv ==> locked_path.index(i) == barrier_start_path@.index(i)
-                    && locked_path.index(i) == barrier_end_path@.index(i)
+                    && #[trigger] locked_path.index(i) == barrier_end_path@.index(i)
         } && {
             model.locked_subtree@.is_leaf() || barrier_start_path@.index(barrier_lv)
                 != barrier_end_path@.index(barrier_lv)
@@ -83,13 +83,13 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         let nodes = s.page_table.get_nodes(model.path);
         // Everything between the barrier level and the current level should be locked
         // Nothing else should be (by us) but could be locked by other cursors
-        (forall|i: int| 0 < i < self.level ==> self.guards[to_index(i)].is_none()) && (forall|
-            i: int,
-        |
-            self.level <= i <= self.guard_level ==> self.guards[to_index(i)].is_some()
+        (nodes.len() >= NR_LEVELS() - self.level + 1) && (forall|i: int|
+            0 < i < self.level ==> self.guards[#[trigger] to_index(i)].is_none()) && (forall|i: int|
+
+            self.level <= i <= self.guard_level ==> self.guards[#[trigger] to_index(i)].is_some()
                 && self.guards[to_index(i)].unwrap().relate(nodes[NR_LEVELS() - i])
                 && nodes[NR_LEVELS() - i].is_locked) && (forall|i: int|
-            self.guard_level < i <= NR_LEVELS() ==> self.guards[to_index(i)].is_none())
+            self.guard_level < i <= NR_LEVELS() ==> self.guards[#[trigger] to_index(i)].is_none())
     }
 
     #[rustc_allow_incoherent_impl]
@@ -138,15 +138,18 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         requires
             s.page_table.inv(),
             model.path.len() > 0,
+            model.inv(s),
         ensures
             forall|i: int|
                 0 <= i <= model.path.len() ==> s.page_table.get_nodes(
                     model.push_level_spec().path,
-                )[i] == s.page_table.get_nodes(model.path)[i],
+                )[i] == #[trigger] s.page_table.get_nodes(model.path)[i],
     {
         let n = model.path.len() as int;
         model.lemma_push_level_spec_extends(s);
-        s.page_table.tree@.trace_up_to(model.path@, model.push_level_spec().path@, n);
+        assert(model.path@.inv());
+        model.path@.push_tail_preserves_inv(0);
+        s.page_table.tree@.lemma_trace_up_to(model.path@, model.push_level_spec().path@, n);
     }
 
     /// Goes down a level to a child page table.
@@ -163,7 +166,8 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
             model.inv(s),
             s.page_table.inv(),
             old(self).relate(s, *model),
-            s.page_table.get_node(model.path).is_some(),
+            s.page_table.get_node(model.path).is_some(),  //this implies a lot of things
+            s.page_table.get_node(model.path).unwrap()@.children[0] is Some,
             node.relate(s.page_table.get_node(model.path).unwrap()@.children[0].unwrap().value),
             s.page_table.get_node(model.path).unwrap()@.children[0].unwrap().value.is_locked,
         ensures
@@ -175,7 +179,12 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         };
 
         let ghost old_nodes = s.page_table.get_nodes(model.path);
+        assert(old_nodes.len() == model.path.len() + 1);
+
         let ghost nodes = s.page_table.get_nodes(model.push_level_spec().path);
+        assert(nodes.len() == model.path.len() + 2) by {
+            s.page_table.tree@.lemma_seek_trace_next(model.path@, 0)
+        }
 
         assert(forall|i: int|
             NR_LEVELS() - self.guard_level <= i <= NR_LEVELS() - self.level ==> nodes[i]
@@ -188,7 +197,7 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         assert(nodes[NR_LEVELS() - self.level + 1] == s.page_table.get_node(
             model.path,
         ).unwrap()@.children[0].unwrap().value) by {
-            s.page_table.tree@.seek_trace_next(model.path@, 0);
+            s.page_table.tree@.lemma_seek_trace_next(model.path@, 0);
         };
 
         self.level = self.level - 1;
@@ -203,6 +212,7 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         assert(self.guards@[to_index(self.level as int)].unwrap().relate(
             nodes[NR_LEVELS() - self.level],
         ));
+
     }
 
     #[rustc_allow_incoherent_impl]
@@ -210,15 +220,18 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         requires
             s.page_table.inv(),
             model.path.len() > 0,
+            model.inv(s),
         ensures
             forall|i: int|
                 0 <= i <= model.pop_level_spec().path.len() ==> s.page_table.get_nodes(
                     model.pop_level_spec().path,
-                )[i] == s.page_table.get_nodes(model.path)[i],
+                )[i] == #[trigger] s.page_table.get_nodes(model.path)[i],
     {
         let n = model.pop_level_spec().path.len() as int;
         model.lemma_pop_level_spec_prepends(s);
-        s.page_table.tree@.trace_up_to(model.path@, model.pop_level_spec().path@, n);
+        assert(model.path@.inv());
+        model.path@.pop_tail_preserves_inv();
+        s.page_table.tree@.lemma_trace_up_to(model.path@, model.pop_level_spec().path@, n);
     }
 
     /// Goes up a level.
@@ -255,14 +268,23 @@ impl<'a, M: PageTableMode> Cursor<'a, M> {
         let ghost old_nodes = s.page_table.get_nodes(model.path);
         let ghost nodes = s.page_table.get_nodes(model.pop_level_spec().path);
 
-        assert(old_nodes.len() == NR_LEVELS() - self.level + 1) by {
-            s.page_table.get_nodes_len(model.path)
-        };
+        assert(old_nodes.len() == NR_LEVELS() - self.level + 1);
         assert(model.pop_level_spec().path.len() == NR_LEVELS() - self.level - 1) by {
             model.lemma_pop_level_spec_len()
         };
+        assert(model.pop_level_spec().path.inv()) by { model.path@.pop_tail_preserves_inv() }
+
         assert(nodes.len() == old_nodes.len() - 1) by {
-            s.page_table.get_nodes_len(model.pop_level_spec().path)
+            assert(nodes.len() <= model.path.len()) by {
+                s.page_table.tree@.lemma_trace_length(model.pop_level_spec().path@)
+            };
+            assert(model.path@.len() == NR_LEVELS() - self.level);
+            s.page_table.tree@.lemma_trace_up_to(
+                model.path@,
+                model.pop_level_spec().path@,
+                NR_LEVELS() - self.level - 1,
+            );
+            assert(nodes.len() > NR_LEVELS() - self.level - 1);
         };
 
         assert(forall|i: int|
