@@ -21,6 +21,7 @@ impl ConcreteCursor {
     pub open spec fn inv(self, s: AbstractState) -> bool {
         &&& self.path.inv()
         &&& s.page_table.tree@.on_tree(self.locked_subtree@)
+        &&& s.page_table.get_nodes(self.path).len() == self.path.len() + 1
     }
 
     #[verifier::inline]
@@ -69,7 +70,7 @@ impl ConcreteCursor {
         ensures
             forall|i: int|
                 0 <= i < self.path@.len() - 1 ==> self.pop_level_spec().path@.0[i]
-                    == self.path@.0[i],
+                    == #[trigger] self.path@.0[i],
     {
     }
 
@@ -96,7 +97,8 @@ impl ConcreteCursor {
     pub proof fn lemma_push_level_spec_extends(self, s: AbstractState)
         ensures
             forall|i: int|
-                0 <= i < self.path@.len() ==> self.push_level_spec().path@.0[i] == self.path@.0[i],
+                0 <= i < self.path@.len() ==> self.push_level_spec().path@.0[i]
+                    == #[trigger] self.path@.0[i],
     {
     }
 

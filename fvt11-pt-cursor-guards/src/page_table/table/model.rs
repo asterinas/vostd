@@ -26,14 +26,6 @@ impl PageTableModel {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub proof fn get_nodes_len(self, path: PageTableTreePathModel)
-        ensures
-            self.get_nodes(path).len() == path.len() + 1,
-    {
-        admit()
-    }
-
-    #[rustc_allow_incoherent_impl]
     pub open spec fn get_node(self, path: PageTableTreePathModel) -> Option<PageTableNodeModel>
         recommends
             self.inv(),
@@ -53,9 +45,6 @@ impl PageTableModel {
         ensures
             self.get_node(path) == Some(PageTableNodeModel::from_node(self.tree@.root)),
     {
-        assert(self.tree@.trace(path.inner).len() == 0) by {
-            self.tree@.trace_no_longer_than_path(path.inner)
-        };
     }
 
     #[rustc_allow_incoherent_impl]

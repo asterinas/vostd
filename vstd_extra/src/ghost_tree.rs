@@ -779,7 +779,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             let (hd, tl) = path.pop_head();
             match self.child(hd) {
                 Some(child) => seq![self.value].add(child.recursive_trace(tl)),
-                None =>  seq![self.value],
+                None => seq![self.value],
             }
         }
     }
@@ -790,19 +790,17 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             path.inv(),
         ensures
             #[trigger] self.recursive_trace(path).len() <= path.len() + 1,
-        decreases
-            path.len()
+        decreases path.len(),
     {
-        if path.len() == 0 {}
-        else {
+        if path.len() == 0 {
+        } else {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
-            match self.child(hd){
-                None => {
-                }
+            match self.child(hd) {
+                None => {},
                 Some(child) => {
                     child.lemma_recursive_trace_length(tl);
-                }
+                },
             }
         }
     }
@@ -815,24 +813,24 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             n <= path1.len(),
             n <= path2.len(),
             forall|i: int| 0 <= i < n ==> path1.0[i] == path2.0[i],
-            self.recursive_trace(path1).len() > n
+            self.recursive_trace(path1).len() > n,
         ensures
             self.recursive_trace(path2).len() > n,
             forall|i: int|
                 0 <= i <= n ==> self.recursive_trace(path1)[i] == self.recursive_trace(path2)[i],
         decreases n,
     {
-        if n <= 0 {}
-        else {
+        if n <= 0 {
+        } else {
             let (hd1, tl1) = path1.pop_head();
             let (hd2, tl2) = path2.pop_head();
-            match self.child(hd1){
-                None => {}
-                Some(child) =>{
+            match self.child(hd1) {
+                None => {},
+                Some(child) => {
                     path1.pop_head_preserves_inv();
                     path2.pop_head_preserves_inv();
                     child.lemma_recursive_trace_up_to(tl1, tl2, n - 1);
-                }
+                },
             }
         }
     }
@@ -858,26 +856,25 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    pub proof fn lemma_recursive_seek_trace_length(self, path:TreePath<N>)
+    pub proof fn lemma_recursive_seek_trace_length(self, path: TreePath<N>)
         requires
             self.inv(),
             path.inv(),
             path.len() < L - self.level,
             self.recursive_seek(path) is Some,
         ensures
-            self.recursive_trace(path).len() == path.len() + 1
-        decreases
-            path.len()
+            self.recursive_trace(path).len() == path.len() + 1,
+        decreases path.len(),
     {
-        if path.len() == 0 {}
-        else {
+        if path.len() == 0 {
+        } else {
             let (hd, tl) = path.pop_head();
-            match self.child(hd){
-                None => { assert(false) }
+            match self.child(hd) {
+                None => { assert(false) },
                 Some(child) => {
                     path.pop_head_preserves_inv();
                     child.lemma_recursive_seek_trace_length(tl)
-                }
+                },
             }
         }
     }
@@ -892,51 +889,49 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             0 <= idx < N,
         ensures
             self.recursive_trace(path.push_tail(idx)).len() == path.len() + 2,
-
-            self.recursive_seek(path).unwrap().children[idx as int].unwrap().value == self.recursive_trace(
-                path.push_tail(idx),
-            )[path.len() as int + 1],
+            self.recursive_seek(path).unwrap().children[idx as int].unwrap().value
+                == self.recursive_trace(path.push_tail(idx))[path.len() as int + 1],
         decreases path.len(),
     {
         assert(self.recursive_trace(path).len() == path.len() + 1) by {
             self.lemma_recursive_seek_trace_length(path)
         }
         let path2 = path.push_tail(idx);
-        assert(path2.inv()) by { path.push_tail_preserves_inv(idx); }
-        assert(forall |i:int| 0 <= i < path.len() ==> path.0[i] == path2.0[i]);
-        assert(self.recursive_trace(path2).len() >= path.len() + 1) by{
+        assert(path2.inv()) by {
+            path.push_tail_preserves_inv(idx);
+        }
+        assert(forall|i: int| 0 <= i < path.len() ==> path.0[i] == path2.0[i]);
+        assert(self.recursive_trace(path2).len() >= path.len() + 1) by {
             self.lemma_recursive_trace_up_to(path, path2, path.len() as int)
         }
 
         if path.len() == 0 {
             assert(path.is_empty());
             assert(self.recursive_seek(path) == Some(self));
-            assert(self.recursive_trace(path2) =~= seq![self.value, self.children[idx as int].unwrap().value]) by{
-                reveal_with_fuel(Node::recursive_trace, 2)
-            }
-        }
-        else {
+            assert(self.recursive_trace(path2) =~= seq![
+                self.value,
+                self.children[idx as int].unwrap().value,
+            ]) by { reveal_with_fuel(Node::recursive_trace, 2) }
+        } else {
             let (hd1, tl1) = path.pop_head();
             let (hd2, tl2) = path2.pop_head();
             assert(tl2 == tl1.push_tail(idx)) by {
                 assert(tl2.0 =~= tl1.0.push(idx));
             }
-            assert(tl1.inv()) by{
-                path.pop_head_preserves_inv()
-            }
+            assert(tl1.inv()) by { path.pop_head_preserves_inv() }
             match self.child(hd2) {
-                None => { }
+                None => {},
                 Some(child) => {
-                    assert(self.recursive_trace(path2) =~= seq![self.value] + child.recursive_trace(tl2));
+                    assert(self.recursive_trace(path2) =~= seq![self.value] + child.recursive_trace(
+                        tl2,
+                    ));
                     child.lemma_recursive_seek_trace_next(tl1, idx);
                     assert(child.recursive_trace(tl2).len() >= path.len() + 1);
                     assert(self.recursive_trace(path2).len() >= path.len() + 2);
 
-                    assert(
-                        self.recursive_trace(path2)[path.len() as int + 1]
-                        == child.recursive_trace(tl2)[path.len() as int ]
-                    );
-                }
+                    assert(self.recursive_trace(path2)[path.len() as int + 1]
+                        == child.recursive_trace(tl2)[path.len() as int]);
+                },
             }
         }
     }
@@ -1262,7 +1257,6 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     // {
     //     admit();  // TODO
     // }
-
     // pub broadcast proof fn lemma_recursive_insert_on_subtree(self, path: TreePath<N>, node: Self)
     //     requires
     //         self.inv(),
@@ -1276,7 +1270,6 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     // {
     //     admit();  // TODO
     // }
-
     // pub broadcast proof fn lemma_recursive_remove_not_on_subtree(
     //     self,
     //     path: TreePath<N>,
@@ -1295,7 +1288,6 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     // {
     //     admit();  // TODO
     // }
-
     // pub broadcast proof fn lemma_recursive_visit_on_subtree(self, path: TreePath<N>)
     //     requires
     //         self.inv(),
@@ -1311,7 +1303,6 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     // {
     //     admit();  // TODO
     // }
-
     pub proof fn level_increases(self)
         requires
             self.inv(),
@@ -1412,22 +1403,15 @@ pub closed spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize
         src.level <= dst.level,
         src.on_subtree(dst),
 {
-    if src.inv() &&
-        dst.inv() &&
-        dst.level >= src.level &&
-        dst.level < L &&
-        src.on_subtree(dst)
-    {
+    if src.inv() && dst.inv() && dst.level >= src.level && dst.level < L && src.on_subtree(dst) {
         if src == dst {
             TreePath::new(seq![])
-        }
-        else {
-            choose |path: TreePath<N>| #[trigger]
+        } else {
+            choose|path: TreePath<N>| #[trigger]
                 path.inv() && path.len() > 0 && path.len() == dst.level - src.level
                     && src.recursive_visit(path).last() == dst
         }
-    }
-    else {
+    } else {
         vstd::pervasive::arbitrary()
     }
 }
@@ -1577,14 +1561,14 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Tree<T, N, L> {
         self.root.recursive_seek(path)
     }
 
-    pub proof fn lemma_seek_trace_length(self, path:TreePath<N>)
+    pub proof fn lemma_seek_trace_length(self, path: TreePath<N>)
         requires
             self.inv(),
             path.inv(),
             path.len() < L,
             self.seek(path) is Some,
         ensures
-            self.trace(path).len() == path.len() + 1
+            self.trace(path).len() == path.len() + 1,
     {
         self.root.lemma_recursive_seek_trace_length(path)
     }
@@ -1599,7 +1583,6 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Tree<T, N, L> {
             0 <= idx < N,
         ensures
             self.trace(path.push_tail(idx)).len() == path.len() + 2,
-
             self.seek(path).unwrap().children[idx as int].unwrap().value == self.trace(
                 path.push_tail(idx),
             )[path.len() as int + 1],
