@@ -300,7 +300,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
                 == child_pt.paddr() as int,
     {
         self.level = self.level - 1;
-        // debug_assert_eq!(self.level, child_pt.level()); // TODO: assert
 
         // let old = self.path[self.level as usize - 1].replace(child_pt);
         let old = self.path.set(self.level as usize - 1, Some(child_pt));
@@ -314,8 +313,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             self.path.len() >= self.level as usize,
             self.path[self.level as usize - 1].is_some(),
             spt.wf(),
-    // sub_page_table.frames@.value().contains_key(self.path[self.level as usize - 1].unwrap().paddr() as int),
-
         ensures
             res.pte.pte_paddr() == self.path[self.level as usize - 1].unwrap().paddr() as usize
                 + pte_index(self.va, self.level) * exec::SIZEOF_PAGETABLEENTRY,
@@ -510,7 +507,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 mpt_and_tokens_wf_addrs(spt, unused_addrs, unused_pte_addrs),
                 mpt_not_contains_not_allocated_frames(spt, *cur_alloc_index),
                 unallocated_frames_are_unused(unused_addrs, *cur_alloc_index),
-                unallocated_ptes_are_unused(unused_pte_addrs, *cur_alloc_index),
                 tokens_wf(unused_addrs, unused_pte_addrs),
                 // the post condition
                 self.0.sub_page_table_valid_before_map_level(
@@ -587,7 +583,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     PTL::from_raw_paddr(paddr), root_level, spt);
 
                     *cur_alloc_index += 1;  // TODO: do it inside the alloc function
-                    assume(unallocated_ptes_are_unused(unused_pte_addrs, *cur_alloc_index));  // TODO: P0
                     assume(*cur_alloc_index < exec::MAX_FRAME_NUM - 4);  // TODO
 
                     // TODO: P0 see @path_matchs_page_table
