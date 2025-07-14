@@ -59,7 +59,7 @@ impl Cursor {
             #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
                 if level < self.guard_level {
-                    self.path[level - 1] is None
+                    self.path[level - 1] is Unlocked
                 } else if level == self.guard_level {
                     &&& self.path[level - 1] is Write
                     &&& self.path[level - 1]->Write_0.wf()
@@ -89,7 +89,7 @@ impl Cursor {
         &&& self.unlock_level@ == 5
         &&& forall|level: int|
             #![trigger self.path@[level - 1]]
-            1 <= level <= 4 ==> self.path@[level - 1] is None
+            1 <= level <= 4 ==> self.path@[level - 1] is Unlocked
     }
 
     pub open spec fn wf_with_lock_protocol_model(&self, m: LockProtocolModel) -> bool {
@@ -98,7 +98,7 @@ impl Cursor {
         &&& forall|level: int|
             #![trigger self.path[level - 1]]
             self.unlock_level@ <= level <= 4 ==> {
-                &&& !(self.path[level - 1] is None)
+                &&& !(self.path[level - 1] is Unlocked)
                 &&& match self.path[level - 1] {
                     GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
                     GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
@@ -310,7 +310,7 @@ pub fn lock_range(
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
-            forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is None,
+            forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
             m.path().len() == 4 - level,
             m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
@@ -334,7 +334,7 @@ pub fn lock_range(
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
-            forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is None,
+            forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
             m.path().len() == 4 - level,
             m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
@@ -576,7 +576,7 @@ pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res:
                 },
             forall|level: int|
                 #![trigger cursor.path@[level - 1]]
-                1 <= level < i ==> cursor.path@[level - 1] is None,
+                1 <= level < i ==> cursor.path@[level - 1] is Unlocked,
             cursor.wf_with_lock_protocol_model(m),
             m.inv(),
             m.state() is ReadLocking,
