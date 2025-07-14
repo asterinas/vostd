@@ -7,10 +7,9 @@ use vstd::map::*;
 use state_machines_macros::case_on_init;
 use state_machines_macros::case_on_next;
 
-use super::common::*;
-use super::utils::*;
+use crate::spec::{common::*, utils::*};
 
-use super::{tree::TreeSpec, atomic::AtomicSpec};
+use super::{types::*, tree::TreeSpec, atomic::AtomicSpec};
 
 verus! {
 

@@ -1,7 +1,7 @@
 use builtin::*;
 use builtin_macros::*;
 
-use crate::spec::tree::*;
+use crate::spec::rw::*;
 
 verus! {
 

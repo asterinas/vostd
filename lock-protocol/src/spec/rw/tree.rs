@@ -3,8 +3,8 @@ use builtin_macros::*;
 use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 
-use super::common::*;
-use crate::spec::utils::*;
+use crate::spec::{common::*, utils::*};
+use super::types::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 

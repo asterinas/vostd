@@ -10,7 +10,7 @@ use vstd::rwlock::RwLockPredicate;
 
 use vstd_extra::array_ptr::*;
 
-use crate::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::super::{common::*, types::*, cpu::*};
 use super::super::pte::Pte;
 

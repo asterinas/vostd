@@ -5,7 +5,7 @@ use vstd::prelude::*;
 use vstd::tokens::*;
 use vstd::atomic_ghost::*;
 
-use crate::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::{common::*, types::*, mem_content::*};
 use super::node::PageTableNode;
 

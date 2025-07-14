@@ -14,7 +14,7 @@ use vstd::pervasive::unreached;
 
 use vstd_extra::manually_drop::*;
 
-use crate::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::{common::*, types::*, mem_content::*, cpu::*, frame::*, page_table::*};
 use super::node::{
     PageTableNode, PageTableReadLock, PageTableWriteLock, child::Child, entry::Entry, rwlock::*,

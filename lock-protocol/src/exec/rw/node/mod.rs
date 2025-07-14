@@ -9,7 +9,7 @@ use vstd::raw_ptr::{PointsTo, ptr_ref};
 
 use vstd_extra::array_ptr::*;
 
-use crate::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::{common::*, types::*, mem_content::*, cpu::*};
 use super::pte::Pte;
 use rwlock::{PageTablePageRwLock, RwReadGuard, RwWriteGuard};

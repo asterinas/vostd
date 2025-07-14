@@ -9,7 +9,7 @@ use vstd::bits::*;
 use vstd::atomic_ghost::AtomicU64;
 
 use vstd_extra::manually_drop::*;
-use crate::spec::{common::*, utils::*, tree::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::{common::*, types::*, mem_content::*};
 use super::node::PageTableNode;
 
