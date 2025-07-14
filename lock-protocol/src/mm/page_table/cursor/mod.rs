@@ -211,8 +211,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& forall|i: int, j: int|
             0 <= i < j < self.path.len() ==> 0 < (j - 1) < PagingConsts::NR_LEVELS_SPEC()
                 && #[trigger] self.path[i].is_some() ==> #[trigger] self.path[j].is_some()
-        &&& forall|i: int| 1 <= i < self.path.len() && self.path[i].is_some() ==>
-         self.path[i - 1].is_some() ==> exec::get_pte_from_addr(
+        &&& forall|i: int|
+            1 <= i < self.path.len() && self.path[i].is_some() ==> self.path[i - 1].is_some()
+                ==> exec::get_pte_from_addr(
                 (#[trigger] self.path[i].unwrap().paddr() + pte_index(self.va, (i + 1) as u8)
                     * exec::SIZEOF_PAGETABLEENTRY) as usize,
                 sub_page_table,
@@ -309,14 +310,18 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             old(self).path[old(self).level as usize - 1].is_some(),
             old_level@ >= old(self).level,
             old(self).path_wf(spt),
-            child_pt.paddr() < exec::PHYSICAL_BASE_ADDRESS_SPEC() + exec::SIZEOF_FRAME * exec::MAX_FRAME_NUM,
+            child_pt.paddr() < exec::PHYSICAL_BASE_ADDRESS_SPEC() + exec::SIZEOF_FRAME
+                * exec::MAX_FRAME_NUM,
             spt.frames@.value().contains_key(child_pt.paddr() as int),
             spt.wf(),
             exec::get_pte_from_addr(
-                #[verifier::truncate] ((old(self).path[old(self).level - 1].unwrap().paddr() + pte_index(old(self).va, (old(self).level) as u8)
-                    * exec::SIZEOF_PAGETABLEENTRY) as usize),
+                #[verifier::truncate]
+                ((old(self).path[old(self).level - 1].unwrap().paddr() + pte_index(
+                    old(self).va,
+                    (old(self).level) as u8,
+                ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
                 spt,
-            ).frame_paddr() == child_pt.paddr()
+            ).frame_paddr() == child_pt.paddr(),
         ensures
             self.level == old(self).level - 1,
             self.path.len() == old(self).path.len(),
@@ -609,10 +614,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     // in the locked sub-tree, so that it is locked and alive.
                     assume(self.0.path_wf(spt));
                     assume(exec::get_pte_from_addr(
-                        #[verifier::truncate] ((self.0.path[self.0.level - 1].unwrap().paddr() + pte_index(self.0.va, (self.0.level) as u8)
-                            * exec::SIZEOF_PAGETABLEENTRY) as usize),
+                        #[verifier::truncate]
+                        ((self.0.path[self.0.level - 1].unwrap().paddr() + pte_index(
+                            self.0.va,
+                            (self.0.level) as u8,
+                        ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
                         spt,
-                    ).frame_paddr() == paddr); // TODO: set pte.frame_paddr
+                    ).frame_paddr() == paddr);  // TODO: set pte.frame_paddr
 
                     self.0.push_level(
                     // unsafe { PageTableLock::from_raw_paddr(paddr) }
