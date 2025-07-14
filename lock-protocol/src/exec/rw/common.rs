@@ -13,14 +13,9 @@ use crate::helpers::extern_const::*;
 use crate::spec::{common::*, utils::*};
 
 pub use super::configs::*;
+pub use crate::mm::{Paddr, Vaddr, PagingLevel};
 
 verus! {
-
-pub type Paddr = usize;
-
-pub type Vaddr = usize;
-
-pub type PagingLevel = usize;
 
 // pub const MAX_FRAME_NUM: u64 = 256;
 pub const INVALID_PADDR: Paddr = 0xffff_ffff_ffff_ffff;

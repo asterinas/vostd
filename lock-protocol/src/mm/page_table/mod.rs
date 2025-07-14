@@ -139,6 +139,38 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     fn NR_LEVELS() -> (res: PagingLevel) {
         C::C::NR_LEVELS()
     }
+
+    open spec fn HIGHEST_TRANSLATION_LEVEL_SPEC() -> PagingLevel {
+        C::C::HIGHEST_TRANSLATION_LEVEL_SPEC()
+    }
+
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel {
+        C::C::HIGHEST_TRANSLATION_LEVEL()
+    }
+
+    open spec fn PTE_SIZE_SPEC() -> usize {
+        C::C::PTE_SIZE_SPEC()
+    }
+
+    fn PTE_SIZE() -> usize {
+        C::C::PTE_SIZE()
+    }
+
+    open spec fn ADDRESS_WIDTH_SPEC() -> usize {
+        C::C::ADDRESS_WIDTH_SPEC()
+    }
+
+    fn ADDRESS_WIDTH() -> usize {
+        C::C::ADDRESS_WIDTH()
+    }
+
+    open spec fn VA_SIGN_EXT_SPEC() -> bool {
+        C::C::VA_SIGN_EXT_SPEC()
+    }
+
+    fn VA_SIGN_EXT() -> bool {
+        C::C::VA_SIGN_EXT()
+    }
 }
 
 pub trait PageTableEntryTrait:
@@ -278,24 +310,58 @@ Sized {
 
     spec fn NR_LEVELS_SPEC() -> PagingLevel;
 
-    // /// The number of levels in the page table.
-    // /// The numbering of levels goes from deepest node to the root node. For example,
-    // /// the level 1 to 5 on AMD64 corresponds to Page Tables, Page Directory Tables,
-    // /// Page Directory Pointer Tables, Page-Map Level-4 Table, and Page-Map Level-5
-    // /// Table, respectively.
+    /// The number of levels in the page table.
+    /// The numbering of levels goes from deepest node to the root node. For example,
+    /// the level 1 to 5 on AMD64 corresponds to Page Tables, Page Directory Tables,
+    /// Page Directory Pointer Tables, Page-Map Level-4 Table, and Page-Map Level-5
+    /// Table, respectively.
     #[verifier::when_used_as_spec(NR_LEVELS_SPEC)]
     fn NR_LEVELS() -> PagingLevel
         returns
             Self::NR_LEVELS_SPEC(),
-    ;  // /
-    // The highest level that a PTE can be directly used to translate a VA.
-    // /// This affects the the largest page size supported by the page table.
-    // const HIGHEST_TRANSLATION_LEVEL: PagingLevel;
-    // /// The size of a PTE.
-    // const PTE_SIZE: usize;
-    // /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
-    // /// If it is shorter than that, the higher bits in the highest level are ignored.
-    // const ADDRESS_WIDTH: usize;
+    ; 
+    
+    spec fn HIGHEST_TRANSLATION_LEVEL_SPEC() -> PagingLevel;
+    /// The highest level that a PTE can be directly used to translate a VA.
+    /// This affects the the largest page size supported by the page table.
+    #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_SPEC)]
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel
+        returns
+            Self::HIGHEST_TRANSLATION_LEVEL_SPEC(),
+    ;
+
+    spec fn PTE_SIZE_SPEC() -> usize;
+    
+    /// The size of a PTE.
+    fn PTE_SIZE() -> usize
+        returns
+            Self::PTE_SIZE_SPEC(),
+    ;
+    
+    spec fn ADDRESS_WIDTH_SPEC() -> usize;
+    /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
+    /// If it is shorter than that, the higher bits in the highest level are ignored.
+    fn ADDRESS_WIDTH() -> usize
+        returns
+            Self::ADDRESS_WIDTH_SPEC(),
+    ;
+
+    spec fn VA_SIGN_EXT_SPEC() -> bool;
+    /// Whether virtual addresses are sign-extended.
+    ///
+    /// The sign bit of a [`Vaddr`] is the bit at index [`PagingConstsTrait::ADDRESS_WIDTH`] - 1.
+    /// If this constant is `true`, bits in [`Vaddr`] that are higher than the sign bit must be
+    /// equal to the sign bit. If an address violates this rule, both the hardware and OSTD
+    /// should reject it.
+    ///
+    /// Otherwise, if this constant is `false`, higher bits must be zero.
+    ///
+    /// Regardless of sign extension, [`Vaddr`] is always not signed upon calculation.
+    /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
+    fn VA_SIGN_EXT() -> bool
+        returns
+            Self::VA_SIGN_EXT_SPEC(),
+    ;
 
 }
 
@@ -323,10 +389,38 @@ impl PagingConstsTrait for PagingConsts {
     fn NR_LEVELS() -> (res: PagingLevel) {
         4
     }
-    // const ADDRESS_WIDTH: usize = 48;
-    // const HIGHEST_TRANSLATION_LEVEL: PagingLevel = 2;
-    // const PTE_SIZE: usize = core::mem::size_of::<PageTableEntry>();
 
+    open spec fn HIGHEST_TRANSLATION_LEVEL_SPEC() -> PagingLevel {
+        2
+    }
+
+    fn HIGHEST_TRANSLATION_LEVEL() -> PagingLevel {
+        2
+    }
+
+    open spec fn PTE_SIZE_SPEC() -> usize {
+        core::mem::size_of::<exec::SimplePageTableEntry>()
+    }
+
+    fn PTE_SIZE() -> usize {
+        core::mem::size_of::<exec::SimplePageTableEntry>()
+    }
+
+    open spec fn ADDRESS_WIDTH_SPEC() -> usize {
+        48
+    }
+
+    fn ADDRESS_WIDTH() -> usize {
+        48
+    }
+
+    open spec fn VA_SIGN_EXT_SPEC() -> bool {
+        true
+    }
+
+    fn VA_SIGN_EXT() -> bool {
+        true
+    }
 }
 
 // Copied from aster_common
