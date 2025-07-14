@@ -37,6 +37,27 @@ pub broadcast proof fn lemma_pow2_is_power2(e: nat)
     }
 }
 
+pub proof fn lemma_is_power2_exists_pow2(e: nat)
+    requires
+        is_power_2(e as int),
+    ensures
+        exists|n: nat| pow2(n) == e,
+    decreases e,
+{
+    if e == 0 {
+    } else if e == 1 {
+        assert(pow2(0) == 1) by {
+            lemma2_to64();
+        };
+    } else {
+        lemma_is_power2_exists_pow2(e / 2);
+        let n = choose|n: nat| pow2(n) == e / 2;
+        assert(pow2(n + 1) == e) by {
+            lemma_pow2_unfold(n + 1);
+        }
+    }
+}
+
 pub proof fn lemma2_to64_hi32()
     ensures
         pow2(33) == 0x200000000,
@@ -388,9 +409,9 @@ pub proof fn lemma_log2_to64()
 
 } // verus!
 macro_rules! impl_external_ilog2 {
-    ($uN: ty, $bits: expr, $spec_name: ident, $ext_fn_name: ident,
+    ($uN: ty, $spec_name: ident, $ext_fn_name: ident,
     $pow2_lemma: ident, $pow2_ilog2_lemma: ident,
-    $log2_bounds_lemma: ident, $ilog2_ordered_lemma: ident $(,)?) => {
+    $log2_bounds_lemma: ident, $ilog2_ordered_lemma: ident, $is_power_2_is_ilog2_pow2_lemma: ident $(,)?) => {
         verus! {
             #[verifier::inline]
             pub open spec fn $spec_name(x: $uN) -> u32
@@ -418,7 +439,7 @@ macro_rules! impl_external_ilog2 {
 
             pub broadcast proof fn $pow2_ilog2_lemma(e: u32)
                 requires
-                    pow2(e as nat) < $uN::MAX,
+                    pow2(e as nat) <= $uN::MAX,
                 ensures
                     #[trigger] (pow2(e as nat) as $uN).ilog2() == e,
             {
@@ -427,19 +448,19 @@ macro_rules! impl_external_ilog2 {
 
             pub proof fn $log2_bounds_lemma(x: $uN)
                 ensures
-                    0 <= log(2, x as int) <= $bits,
-                    0 <= x.ilog2() <= $bits,
+                    0 <= log(2, x as int) <= $uN::BITS,
+                    0 <= x.ilog2() <= $uN::BITS,
             {
                 lemma_log_nonnegative(2, x as int);
                 assert(x <= $uN::MAX);
-                assert(($uN::MAX as int) < (pow2($bits) as int)) by {
+                assert(($uN::MAX as int) < (pow2($uN::BITS as nat) as int)) by {
                     lemma2_to64();
                 };
-                assert(log(2, x as int) <= log(2, pow2($bits) as int)) by {
-                    lemma_log_is_ordered(2, x as int, pow2($bits) as int);
+                assert(log(2, x as int) <= log(2, pow2($uN::BITS as nat) as int)) by {
+                    lemma_log_is_ordered(2, x as int, pow2($uN::BITS as nat) as int);
                 };
-                assert(log(2, pow2($bits) as int) == $bits) by {
-                    lemma_pow2_log2($bits);
+                assert(log(2, pow2($uN::BITS as nat) as int) == $uN::BITS) by {
+                    lemma_pow2_log2($uN::BITS as nat);
                 };
             }
 
@@ -453,63 +474,85 @@ macro_rules! impl_external_ilog2 {
                 $log2_bounds_lemma(y);
                 lemma_log_is_ordered(2, x as int, y as int);
             }
+
+            pub broadcast proof fn $is_power_2_is_ilog2_pow2_lemma(x: $uN)
+                requires
+                    #[trigger] is_power_2(x as int),
+                ensures
+                    x as nat == pow2(x.ilog2() as nat),
+            {
+                lemma_is_power2_exists_pow2(x as nat);
+                let n = choose |n: nat| pow2(n) == x as nat;
+                assert(log(2, x as int) == n) by {
+                    lemma_pow2_log2(n);
+                };
+                assert($uN::MAX as int + 1 == pow2($uN::BITS as nat) as int) by {
+                    lemma2_to64();
+                };
+                lemma_pow2(n);
+                lemma_pow2($uN::BITS as nat);
+                assert(n <= $uN::BITS) by {
+                    lemma_pow_increases_converse(2, n, $uN::BITS as nat);
+                };
+                assert(x.ilog2() == n);
+            }
         }
     };
 }
 
 impl_external_ilog2!(
     u8,
-    8,
     u8_ilog2_spec,
     ex_u8_ilog2,
     lemma_u8_pow2_ilog2_x,
     lemma_u8_pow2_ilog2,
     lemma_u8_log2_bounds,
     lemma_u8_ilog2_ordered,
+    lemma_u8_is_power_2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
     u16,
-    16,
     u16_ilog2_spec,
     ex_u16_ilog2,
     lemma_u16_pow2_ilog2_x,
     lemma_u16_pow2_ilog2,
     lemma_u16_log2_bounds,
     lemma_u16_ilog2_ordered,
+    lemma_u16_is_power_2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
     u32,
-    32,
     u32_ilog2_spec,
     ex_u32_ilog2,
     lemma_u32_pow2_ilog2_x,
     lemma_u32_pow2_ilog2,
     lemma_u32_log2_bounds,
     lemma_u32_ilog2_ordered,
+    lemma_u32_is_power_2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
     usize,
-    64,
     usize_ilog2_spec,
     ex_usize_ilog2,
     lemma_usize_pow2_ilog2_x,
     lemma_usize_pow2_ilog2,
     lemma_usize_log2_bounds,
     lemma_usize_ilog2_ordered,
+    lemma_usize_is_power_2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
     u64,
-    64,
     u64_ilog2_spec,
     ex_u64_ilog2,
     lemma_u64_pow2_ilog2_x,
     lemma_u64_pow2_ilog2,
     lemma_u64_log2_bounds,
     lemma_u64_ilog2_ordered,
+    lemma_u64_is_power_2_is_ilog2_pow2,
 );
 
 verus! {
