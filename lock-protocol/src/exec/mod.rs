@@ -297,11 +297,13 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
                         }
                 });
             assert(spt.frames@.value().contains_key(used_addr as int)
-                ==> spt.mem@[frame_addr_to_index(used_addr)].1@.mem_contents().is_init());  // NOTE: this is required for a specified version of verus (2025.04.14)
-            assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != used_addr
-                    ==> #[trigger] spt.frames@.value().contains_key(i as int)
-                    ==> spt.mem@[frame_addr_to_index(i) as usize].1@.mem_contents().is_init());  // NOTE: this is required for a specified version of verus (2025.04.14)
+                ==> spt.mem@[frame_addr_to_index(used_addr)].1@.mem_contents().is_init());
+            assert(forall|i: usize| #[trigger]
+                spt.frames@.value().contains_key(i as int) && i != used_addr
+                    ==> spt.mem@[frame_addr_to_index(i) as usize].1@.mem_contents().is_init());
+            assert(forall|i: int|
+                spt.frames@.value().contains_key(i) && i != used_addr ==> i < (
+                PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int);
         }
 
         print_msg("alloc frame", used_addr);
@@ -366,8 +368,8 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),
     {
-        assume(spt.mem@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
         assume(frame_addr_to_index(self.paddr) < MAX_FRAME_NUM as usize);  // TODO: P0
+        assume(spt.mem@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
         let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.mem);  // TODO: permission violation
         let mut frame = p.read(Tracked(&pt));
         frame.ptes[idx] = SimplePageTableEntry {
@@ -504,6 +506,8 @@ struct_with_invariants!{
                 && self.ptes@.value()[i].frame_pa as u64 != 0 // TODO: this is so wired
         &&& forall |i: int| #[trigger] self.ptes@.value().contains_key(i) ==> // TODO: why we need this? Isn't it preserved by page_wf?
                 self.frames@.value().contains_key(self.ptes@.value()[i].frame_pa as int)
+        &&& forall |i: int| #[trigger] self.frames@.value().contains_key(i) ==>
+                i < (PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int
         }
     }
 }
@@ -668,8 +672,10 @@ pub open spec fn frame_addr_to_index_spec(addr: usize) -> usize {
 pub fn frame_addr_to_index(addr: usize) -> (res: usize)
     requires
         addr >= PHYSICAL_BASE_ADDRESS(),
+        addr < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
     ensures
         res == frame_addr_to_index_spec(addr),
+        res < MAX_FRAME_NUM,
 {
     ((addr - PHYSICAL_BASE_ADDRESS()) / SIZEOF_FRAME) as usize
 }

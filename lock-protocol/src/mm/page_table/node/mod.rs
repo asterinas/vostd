@@ -165,6 +165,8 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
             used_pte_addr_token@.instance_id() == old(spt).instance@.id(),
             used_pte_addr_token@.element() == self.paddr() + idx
                 * exec::SIZEOF_PAGETABLEENTRY as int,
+    // old(spt).mem@[exec::frame_addr_to_index(self.paddr())].1@.mem_contents().is_init()
+
         ensures
             spt.wf(),
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),

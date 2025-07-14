@@ -115,6 +115,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
             used_pte_addr_token@.instance_id() == old(spt).instance@.id(),
             used_pte_addr_token@.element() == self.node.paddr() + self.idx
                 * exec::SIZEOF_PAGETABLEENTRY as int,
+    // old(spt).mem@[exec::frame_addr_to_index(self.node.paddr())].1@.mem_contents().is_init()
+
         ensures
             spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance@.id() == old(spt).instance@.id(),
