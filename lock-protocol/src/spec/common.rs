@@ -76,7 +76,6 @@ broadcast use {
     crate::spec::utils::group_node_helper_lemmas,
 };
 
-
 pub proof fn lemma_wf_tree_path_nid_increasing(path: Seq<NodeId>)
     requires
         wf_tree_path(path),

@@ -104,4 +104,4 @@ pub enum NodeStability {
     Instable,
 }
 
-}
+} // verus!

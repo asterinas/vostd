@@ -21,12 +21,10 @@ impl PteState {
     }
 
     pub open spec fn empty() -> Self {
-        Self {
-            inner: Seq::new(512, |i: int| None)
-        }
+        Self { inner: Seq::new(512, |i: int| None) }
     }
 
-    pub open spec fn is_void(&self, idx: nat) -> bool 
+    pub open spec fn is_void(&self, idx: nat) -> bool
         recommends
             self.wf(),
             0 <= idx < 512,
@@ -34,7 +32,7 @@ impl PteState {
         self.inner[idx] is None
     }
 
-    pub open spec fn is_alive(&self, idx: nat) -> bool 
+    pub open spec fn is_alive(&self, idx: nat) -> bool
         recommends
             self.wf(),
             0 <= idx < 512,
@@ -47,11 +45,8 @@ impl PteState {
             self.wf(),
             0 <= idx < 512,
     {
-        Self {
-            inner: self.inner.update(idx, v)
-        }
+        Self { inner: self.inner.update(idx, v) }
     }
-        
 }
 
 pub enum CursorState {
@@ -61,6 +56,4 @@ pub enum CursorState {
     UnLocking(NodeId, NodeId),
 }
 
-
-
-}
+} // verus!

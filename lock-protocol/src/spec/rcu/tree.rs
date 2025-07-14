@@ -8,7 +8,7 @@ use crate::spec::utils::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
-tokenized_state_machine!{
+tokenized_state_machine! {
 
 TreeSpec {
 
