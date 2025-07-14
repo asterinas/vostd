@@ -550,9 +550,9 @@ pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res:
     let tracked mut m = m.get();
 
     let guard_level = cursor.guard_level;
-    let GuardInPath::Write(mut guard_node) = cursor.take_guard(
-        guard_level as usize - 1,
-    ) else { unreached() };
+    let GuardInPath::Write(mut guard_node) = cursor.take_guard(guard_level as usize - 1) else {
+        unreached()
+    };
     let res = guard_node.unlock(Tracked(m));
     let pt = res.0;
     proof {
