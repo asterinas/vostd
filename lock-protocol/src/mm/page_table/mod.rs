@@ -319,9 +319,10 @@ Sized {
     fn NR_LEVELS() -> PagingLevel
         returns
             Self::NR_LEVELS_SPEC(),
-    ; 
-    
+    ;
+
     spec fn HIGHEST_TRANSLATION_LEVEL_SPEC() -> PagingLevel;
+
     /// The highest level that a PTE can be directly used to translate a VA.
     /// This affects the the largest page size supported by the page table.
     #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_SPEC)]
@@ -331,14 +332,15 @@ Sized {
     ;
 
     spec fn PTE_SIZE_SPEC() -> usize;
-    
+
     /// The size of a PTE.
     fn PTE_SIZE() -> usize
         returns
             Self::PTE_SIZE_SPEC(),
     ;
-    
+
     spec fn ADDRESS_WIDTH_SPEC() -> usize;
+
     /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
     /// If it is shorter than that, the higher bits in the highest level are ignored.
     fn ADDRESS_WIDTH() -> usize
@@ -347,6 +349,7 @@ Sized {
     ;
 
     spec fn VA_SIGN_EXT_SPEC() -> bool;
+
     /// Whether virtual addresses are sign-extended.
     ///
     /// The sign bit of a [`Vaddr`] is the bit at index [`PagingConstsTrait::ADDRESS_WIDTH`] - 1.
@@ -362,7 +365,6 @@ Sized {
         returns
             Self::VA_SIGN_EXT_SPEC(),
     ;
-
 }
 
 // TODO: This is for x86, create the arch directory and move this to x86/mod.rs
