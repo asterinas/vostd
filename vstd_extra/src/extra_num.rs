@@ -422,7 +422,7 @@ macro_rules! impl_external_ilog2 {
             #[verifier::when_used_as_spec($spec_name)]
             pub assume_specification[$uN::ilog2](x:$uN) -> u32
                 requires
-                    x != 0,
+                    x > 0,
                 returns
                     log(2, x as int) as u32,
                 opens_invariants none
