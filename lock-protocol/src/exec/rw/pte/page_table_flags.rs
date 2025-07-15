@@ -4,6 +4,7 @@ use vstd::arithmetic::{
     power2::pow2,
     logarithm::{log, lemma_log_pow},
 };
+use vstd_extra::extra_num::*;
 
 verus! {
 #[verifier::ext_equal]
@@ -124,8 +125,7 @@ impl PageTableFlags {
         Self { bits: 1usize << 63 }
     }
 
-    // Unfortunately, Verus does not support reasoning about ilog2 yet.
-    pub axiom fn lemma_consts_properties()
+    pub proof fn lemma_consts_properties()
         ensures
             Self::PRESENT().bits().ilog2() == 0,
             Self::WRITABLE().bits().ilog2() == 1,
@@ -138,7 +138,11 @@ impl PageTableFlags {
             Self::GLOBAL().bits().ilog2() == 8,
             Self::NO_EXECUTE().bits().ilog2() == 63,
             Self::NO_EXECUTE().bits() == 0x8000_0000_0000_0000,
-    ;
+    {
+        lemma_log2_to64();
+        assert(1usize << 63 == 0x8000_0000_0000_0000) by (bit_vector);
+        assert(Self::NO_EXECUTE().bits() == 0x8000_0000_0000_0000);
+    }
 
 }
 

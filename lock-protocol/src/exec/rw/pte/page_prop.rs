@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use vstd_extra::extra_num::*;
 
 verus! {
 
@@ -245,15 +246,16 @@ impl PageFlags {
         Self { bits: 0b00010000 }
     }
 
-    // Unfortunately, Verus does not support reasoning about ilog2 yet.
-    pub axiom fn lemma_consts_properties()
+    pub proof fn lemma_consts_properties()
         ensures
             Self::R().bits().ilog2() == 0,
             Self::W().bits().ilog2() == 1,
             Self::X().bits().ilog2() == 2,
             Self::ACCESSED().bits().ilog2() == 3,
             Self::DIRTY().bits().ilog2() == 4,
-    ;
+    {
+        lemma_log2_to64();
+    }
 }
 
 }
@@ -329,13 +331,14 @@ impl PrivilegedPageFlags {
         Self { bits: 0b10000000 }
     }
 
-    // Unfortunately, Verus does not support reasoning about ilog2 yet.
-    pub axiom fn lemma_consts_properties()
+    pub proof fn lemma_consts_properties()
         ensures
             Self::USER().bits().ilog2() == 0,
             Self::GLOBAL().bits().ilog2() == 1,
             Self::SHARED().bits().ilog2() == 7,
-    ;
+    {
+        lemma_log2_to64();
+    }
 
 }
 
