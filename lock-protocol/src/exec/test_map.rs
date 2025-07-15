@@ -96,7 +96,7 @@ requires
             level: 4,
             guard_level: NR_LEVELS as u8,
             va: va,
-            barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE, // TODO: maybe cursor::new can solve this
+            barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
             preempt_guard: disable_preempt(),
             _phantom: std::marker::PhantomData,
         }
@@ -170,7 +170,7 @@ requires
     assert(cursor.0.path.len() == NR_LEVELS as usize);
     assert(forall |i: usize| 1 < i <= NR_LEVELS as usize ==> #[trigger] cursor.0.path[i as int - 1].is_some());
 
-    let level4_index = pte_index(va, NR_LEVELS as u8);
+    let level4_index = pte_index::<PagingConsts>(va, NR_LEVELS as u8);
     let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
     let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, &sub_page_table);
 
