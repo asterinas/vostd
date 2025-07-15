@@ -137,6 +137,7 @@ impl PageTableFlags {
             Self::HUGE().bits().ilog2() == 7,
             Self::GLOBAL().bits().ilog2() == 8,
             Self::NO_EXECUTE().bits().ilog2() == 63,
+            Self::NO_EXECUTE().bits() == 0x8000_0000_0000_0000,
     ;
 
 }
