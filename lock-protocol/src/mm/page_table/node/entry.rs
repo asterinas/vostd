@@ -110,7 +110,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
-            self.idx < nr_subpage_per_huge(),
+            self.idx < nr_subpage_per_huge::<C>(),
             spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
             used_pte_addr_token@.instance_id() == old(spt).instance@.id(),
             used_pte_addr_token@.element() == self.node.paddr() + self.idx
@@ -178,7 +178,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
     pub fn new_at(node: &'a PTL, idx: usize, spt: &exec::SubPageTable) -> (res: Self)
         requires
-            idx < nr_subpage_per_huge(),
+            idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
         ensures
             res.pte.pte_paddr() == node.paddr() as usize + idx * exec::SIZEOF_PAGETABLEENTRY,

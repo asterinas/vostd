@@ -125,13 +125,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& sub_page_table.frames@.value().contains_key(root)
         &&& level > last_level ==> {
             &&& sub_page_table.ptes@.value().contains_key(
-                root + pte_index(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
+                root + pte_index::<C>(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
             )
             &&& self.sub_page_table_valid_after_map(
                 sub_page_table,
                 frame,
                 (level - 1) as u8,
-                sub_page_table.ptes@.value()[root + pte_index(self.va, level)
+                sub_page_table.ptes@.value()[root + pte_index::<C>(self.va, level)
                     * exec::SIZEOF_PAGETABLEENTRY as int].frame_pa,
                 last_level,
             )
@@ -139,9 +139,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& level == last_level ==> {
             &&& last_level == frame.map_level() ==> {
                 &&& sub_page_table.ptes@.value().contains_key(
-                    root + pte_index(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
+                    root + pte_index::<C>(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
                 )
-                &&& sub_page_table.ptes@.value()[root + pte_index(self.va, level)
+                &&& sub_page_table.ptes@.value()[root + pte_index::<C>(self.va, level)
                     * exec::SIZEOF_PAGETABLEENTRY as int].frame_pa == frame.start_paddr() as int
             }
         }
@@ -161,13 +161,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& sub_page_table.frames@.value().contains_key(root)
         &&& level > last_level ==> {
             &&& sub_page_table.ptes@.value().contains_key(
-                root + pte_index(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
+                root + pte_index::<C>(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
             )
             &&& self.sub_page_table_valid_before_map_level(
                 sub_page_table,
                 frame,
                 (level - 1) as u8,
-                sub_page_table.ptes@.value()[root + pte_index(self.va, level)
+                sub_page_table.ptes@.value()[root + pte_index::<C>(self.va, level)
                     * exec::SIZEOF_PAGETABLEENTRY as int].frame_pa,
                 last_level,
             )
@@ -188,12 +188,12 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& self.path[path_index_at_level(level)].unwrap().paddr() as int == root
         &&& level > last_level ==> {
             &&& sub_page_table.ptes@.value().contains_key(
-                root + pte_index(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
+                root + pte_index::<C>(self.va, level) * exec::SIZEOF_PAGETABLEENTRY as int,
             )
             &&& self.path_matchs_page_table(
                 sub_page_table,
                 (level - 1) as u8,
-                sub_page_table.ptes@.value()[root + pte_index(self.va, level)
+                sub_page_table.ptes@.value()[root + pte_index::<C>(self.va, level)
                     * exec::SIZEOF_PAGETABLEENTRY as int].frame_pa,
                 last_level,
             )
@@ -214,7 +214,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& forall|i: int|
             1 <= i < self.path.len() && self.path[i].is_some() ==> self.path[i - 1].is_some()
                 ==> exec::get_pte_from_addr(
-                (#[trigger] self.path[i].unwrap().paddr() + pte_index(self.va, (i + 1) as u8)
+                (#[trigger] self.path[i].unwrap().paddr() + pte_index::<C>(self.va, (i + 1) as u8)
                     * exec::SIZEOF_PAGETABLEENTRY) as usize,
                 sub_page_table,
             ).frame_paddr() == self.path[i - 1].unwrap().paddr()
@@ -316,7 +316,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             spt.wf(),
             exec::get_pte_from_addr(
                 #[verifier::truncate]
-                ((old(self).path[old(self).level - 1].unwrap().paddr() + pte_index(
+                ((old(self).path[old(self).level - 1].unwrap().paddr() + pte_index::<C>(
                     old(self).va,
                     (old(self).level) as u8,
                 ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
@@ -367,11 +367,11 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             self.path_wf(spt),
         ensures
             res.pte.pte_paddr() == self.path[self.level as usize - 1].unwrap().paddr() as usize
-                + pte_index(self.va, self.level) * exec::SIZEOF_PAGETABLEENTRY,
+                + pte_index::<C>(self.va, self.level) * exec::SIZEOF_PAGETABLEENTRY,
             res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
             res.pte.frame_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).frame_pa,
-            res.idx == pte_index(self.va, self.level),
-            res.idx < nr_subpage_per_huge(),
+            res.idx == pte_index::<C>(self.va, self.level),
+            res.idx < nr_subpage_per_huge::<C>(),
             res.pte.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(
                 res.pte.pte_paddr() as int,
             ),
@@ -381,12 +381,12 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
                     == res.pte.frame_paddr() as int
                 &&& spt.frames@.value().contains_key(res.pte.frame_paddr() as int)
             },
-            res.pte.pte_paddr() == res.node.paddr() as int + pte_index(self.va, self.level)
+            res.pte.pte_paddr() == res.node.paddr() as int + pte_index::<C>(self.va, self.level)
                 * exec::SIZEOF_PAGETABLEENTRY,
             self.path_wf(spt),
     {
         let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
-        let res = Entry::new_at(cur_node, pte_index(self.va, self.level), spt);
+        let res = Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), spt);
         res
     }
 }
@@ -615,7 +615,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     assume(self.0.path_wf(spt));
                     assume(exec::get_pte_from_addr(
                         #[verifier::truncate]
-                        ((self.0.path[self.0.level - 1].unwrap().paddr() + pte_index(
+                        ((self.0.path[self.0.level - 1].unwrap().paddr() + pte_index::<C>(
                             self.0.va,
                             (self.0.level) as u8,
                         ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
@@ -669,10 +669,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         assert(self.0.level == frame.map_level());
 
         let cur_entry = self.0.cur_entry(spt);
-        assume(cur_entry.idx < nr_subpage_per_huge() as usize);  // TODO
+        assume(cur_entry.idx < nr_subpage_per_huge::<C>() as usize);  // TODO
         assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));  // TODO
         assume(unused_pte_addrs.contains_key(cur_entry.pte.pte_paddr() as int));  // TODO: P0 need more wf
-        assume(cur_entry.pte.pte_paddr() == cur_entry.node.paddr() as int + pte_index(
+        assume(cur_entry.pte.pte_paddr() == cur_entry.node.paddr() as int + pte_index::<C>(
             self.0.va,
             self.0.level,
         ) * exec::SIZEOF_PAGETABLEENTRY);

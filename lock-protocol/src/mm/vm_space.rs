@@ -38,8 +38,8 @@ impl Token {
         returns
             0x7FFFFFF as usize,
     {
-        assert(((1usize << 39) - 1) / PAGE_SIZE as int == 0x7FFFFFF as usize) by (compute_only);
-        ((1usize << 39) - 1) / PAGE_SIZE
+        assert(((1usize << 39) - 1) / PAGE_SIZE() as int == 0x7FFFFFF as usize) by (compute_only);
+        ((1usize << 39) - 1) / PAGE_SIZE()
     }
 
     pub(crate) fn into_raw_inner(self) -> usize {
@@ -67,7 +67,7 @@ impl TryFrom<usize> for Token {
             0 <= value && value < Self::MASK(),
     {
         if value & Self::MASK() == 0 || value != 0 {
-            Ok(Self(value * PAGE_SIZE))
+            Ok(Self(value * PAGE_SIZE()))
         } else {
             Err(())
         }
@@ -76,7 +76,7 @@ impl TryFrom<usize> for Token {
 
 impl From<Token> for usize {
     fn from(token: Token) -> usize {
-        token.0 / PAGE_SIZE
+        token.0 / PAGE_SIZE()
     }
 }
 

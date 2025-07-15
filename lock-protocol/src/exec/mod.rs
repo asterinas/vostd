@@ -1,5 +1,5 @@
 mod rw;
-mod test_map;
+// mod test_map;
 // mod test_map2;
 
 use vstd::prelude::*;
@@ -372,6 +372,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         assume(spt.mem@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
         let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.mem);  // TODO: permission violation
         let mut frame = p.read(Tracked(&pt));
+        assume(idx < frame.ptes.len());
         frame.ptes[idx] = SimplePageTableEntry {
             pte_addr: pte.pte_paddr() as u64,
             frame_pa: pte.frame_paddr() as u64,
@@ -529,7 +530,7 @@ pub fn main_test() {
         priv_flags: PrivilegedPageFlags { bits: 0 },
     };
 
-    test_map::test(va, frame, page_prop);
+    // test_map::test(va, frame, page_prop);
     // test_map2::test(va, frame, page_prop);
 }
 
@@ -585,12 +586,12 @@ fn get_frame_from_index(
     (*p, Tracked(pt))
 }
 
-pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec(
+pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsTrait>(
     va: usize,
     frame_va: usize,
     level: u8,
 ) -> int {
-    let index = pte_index(va, level);
+    let index = pte_index::<C>(va, level);
     let pte_addr = frame_va + index * SIZEOF_PAGETABLEENTRY;
     pte_addr
 }

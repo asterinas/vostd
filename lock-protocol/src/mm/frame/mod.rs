@@ -64,11 +64,11 @@ impl Frame {
 
     /// Gets the size of this page in bytes.
     #[verifier::allow_in_spec]
-    pub const fn size(&self) -> (res: usize)
+    pub fn size(&self) -> (res: usize)
         returns
-            PAGE_SIZE,
+            PAGE_SIZE(),
     {
-        PAGE_SIZE
+        PAGE_SIZE()
     }
 
     /// Forgets the handle to the frame.

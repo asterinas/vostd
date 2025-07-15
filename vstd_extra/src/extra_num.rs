@@ -2,6 +2,7 @@ use vstd::prelude::*;
 use vstd::arithmetic::logarithm::*;
 use vstd::arithmetic::power2::*;
 use vstd::arithmetic::power::*;
+use vstd::bits::*;
 use vstd::layout::is_power_2;
 
 verus! {
@@ -12,6 +13,19 @@ pub broadcast proof fn lemma_pow2_log2(e: nat)
 {
     lemma_pow2(e);
     lemma_log_pow(2, e);
+}
+
+pub broadcast proof fn lemma_pow2_increases(e1: nat, e2: nat)
+    requires
+        e1 <= e2,
+    ensures
+        #[trigger] pow2(e1) <= #[trigger] pow2(e2),
+{
+    if e1 < e2 {
+        lemma_pow2_strictly_increases(e1, e2);
+    } else if e1 == e2 {
+        assert(pow2(e1) == pow2(e2));
+    }
 }
 
 pub broadcast proof fn lemma_pow2_is_power2(e: nat)
@@ -732,6 +746,22 @@ pub proof fn lemma_u64_ilog2_to64()
         (0x8000000000000000 as u64).ilog2() == 63,
 {
     lemma_log2_to64();
+}
+
+pub broadcast proof fn lemma_usize_shl_is_mul(x: usize, shift: usize)
+    requires
+        0 <= shift < usize::BITS,
+        x * pow2(shift as nat) <= usize::MAX,
+    ensures
+        #[trigger] (x << shift) == x * pow2(shift as nat),
+{
+    if usize::BITS == 64 {
+        lemma_u64_shl_is_mul(x as u64, shift as u64);
+    } else if usize::BITS == 32 {
+        lemma_u32_shl_is_mul(x as u32, shift as u32);
+    } else {
+        assert(false);
+    }
 }
 
 } // verus!

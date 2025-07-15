@@ -134,7 +134,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
 
     fn read_pte(&self, idx: usize, spt: &exec::SubPageTable) -> (res: C::E)
         requires
-            idx < nr_subpage_per_huge(),
+            idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
         ensures
             spt.wf(),
@@ -159,7 +159,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
     )
         requires
-            idx < nr_subpage_per_huge(),
+            idx < nr_subpage_per_huge::<C>(),
             old(spt).wf(),
             spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
             used_pte_addr_token@.instance_id() == old(spt).instance@.id(),

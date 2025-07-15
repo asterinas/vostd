@@ -63,7 +63,7 @@ pub fn paddr_to_vaddr(pa: Paddr) -> (res: usize)
 
 pub proof fn lemma_linear_mapping_base_vaddr_properties()
     ensures
-        LINEAR_MAPPING_BASE_VADDR() % PAGE_SIZE == 0,
+        LINEAR_MAPPING_BASE_VADDR() % PAGE_SIZE() == 0,
         LINEAR_MAPPING_BASE_VADDR() < VMALLOC_BASE_VADDR(),
 {
     assert(LINEAR_MAPPING_BASE_VADDR() == 0xffff_8000_0000_0000) by (compute_only);

@@ -2,13 +2,26 @@ pub mod cursor;
 pub mod node;
 
 use cursor::spec_helpers;
-use vstd::prelude::*;
+
 pub use node::*;
 use core::fmt::Debug;
 use std::{marker::PhantomData, ops::Range};
 
-use crate::helpers::{math::lemma_u64_and_less_than};
-use vstd_extra::extra_num::lemma_usize_ilog2_to32;
+use crate::{
+    helpers::math::lemma_u64_and_less_than,
+    mm::{BASE_PAGE_SIZE, PTE_SIZE},
+};
+
+use vstd::prelude::*;
+use vstd::{
+    arithmetic::{div_mod::lemma_div_non_zero, logarithm::*, power::pow, power2::*},
+    bits::*,
+    layout::is_power_2,
+};
+use vstd_extra::extra_num::{
+    lemma_log2_to64, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered, lemma_usize_ilog2_to32,
+    lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2, lemma_usize_shl_is_mul,
+};
 
 use super::{
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, vm_space::Token, Paddr,
@@ -170,6 +183,10 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 
     fn VA_SIGN_EXT() -> bool {
         C::C::VA_SIGN_EXT()
+    }
+
+    proof fn lemma_consts_properties() {
+        C::C::lemma_consts_properties();
     }
 }
 
@@ -334,6 +351,7 @@ Sized {
     spec fn PTE_SIZE_SPEC() -> usize;
 
     /// The size of a PTE.
+    #[verifier::when_used_as_spec(PTE_SIZE_SPEC)]
     fn PTE_SIZE() -> usize
         returns
             Self::PTE_SIZE_SPEC(),
@@ -343,6 +361,7 @@ Sized {
 
     /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
     /// If it is shorter than that, the higher bits in the highest level are ignored.
+    #[verifier::when_used_as_spec(ADDRESS_WIDTH_SPEC)]
     fn ADDRESS_WIDTH() -> usize
         returns
             Self::ADDRESS_WIDTH_SPEC(),
@@ -361,10 +380,55 @@ Sized {
     ///
     /// Regardless of sign extension, [`Vaddr`] is always not signed upon calculation.
     /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
+    #[verifier::when_used_as_spec(VA_SIGN_EXT_SPEC)]
     fn VA_SIGN_EXT() -> bool
         returns
             Self::VA_SIGN_EXT_SPEC(),
     ;
+
+    proof fn lemma_consts_properties()
+        ensures
+            0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
+            is_power_2(Self::BASE_PAGE_SIZE() as int),
+            is_power_2(Self::PTE_SIZE() as int),
+            1 <= Self::NR_LEVELS() <= 10,
+            0 <= Self::BASE_PAGE_SIZE().ilog2() - Self::PTE_SIZE().ilog2() <= 16,
+            Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE().ilog2()
+                - Self::PTE_SIZE().ilog2()) * Self::NR_LEVELS() == Self::ADDRESS_WIDTH()
+                < usize::BITS,
+    ;
+
+    proof fn lemma_consts_properties_derived()
+        ensures
+            Self::BASE_PAGE_SIZE() == pow2(Self::BASE_PAGE_SIZE().ilog2() as nat),
+            Self::PTE_SIZE() == pow2(Self::PTE_SIZE().ilog2() as nat),
+            0 < Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == pow2(
+                (Self::BASE_PAGE_SIZE().ilog2() - Self::PTE_SIZE().ilog2()) as nat,
+            ) <= usize::MAX,
+            Self::BASE_PAGE_SIZE() * pow2(
+                ((Self::BASE_PAGE_SIZE().ilog2() - Self::PTE_SIZE().ilog2())
+                    * Self::NR_LEVELS()) as nat,
+            ) == pow2(Self::ADDRESS_WIDTH() as nat) <= usize::MAX,
+    {
+        Self::lemma_consts_properties();
+        lemma_usize_is_power_2_is_ilog2_pow2(Self::BASE_PAGE_SIZE());
+        lemma_usize_is_power_2_is_ilog2_pow2(Self::PTE_SIZE());
+        lemma_usize_ilog2_ordered(Self::PTE_SIZE(), Self::BASE_PAGE_SIZE());
+        lemma_pow2_subtracts(
+            Self::PTE_SIZE().ilog2() as nat,
+            Self::BASE_PAGE_SIZE().ilog2() as nat,
+        );
+        lemma_div_non_zero(Self::BASE_PAGE_SIZE() as int, Self::PTE_SIZE() as int);
+        assert(pow2(usize::BITS as nat) as int == usize::MAX as int + 1) by {
+            lemma2_to64();
+        }
+        lemma_pow2_strictly_increases(Self::ADDRESS_WIDTH() as nat, usize::BITS as nat);
+        lemma_pow2_adds(
+            Self::BASE_PAGE_SIZE().ilog2() as nat,
+            ((Self::BASE_PAGE_SIZE().ilog2() - Self::PTE_SIZE().ilog2())
+                * Self::NR_LEVELS()) as nat,
+        );
+    }
 }
 
 // TODO: This is for x86, create the arch directory and move this to x86/mod.rs
@@ -401,10 +465,13 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     open spec fn PTE_SIZE_SPEC() -> usize {
-        core::mem::size_of::<exec::SimplePageTableEntry>()
+        8
     }
 
     fn PTE_SIZE() -> usize {
+        proof {
+            assume(core::mem::size_of::<exec::SimplePageTableEntry>() == 8);
+        }
         core::mem::size_of::<exec::SimplePageTableEntry>()
     }
 
@@ -423,6 +490,12 @@ impl PagingConstsTrait for PagingConsts {
     fn VA_SIGN_EXT() -> bool {
         true
     }
+
+    proof fn lemma_consts_properties() {
+        lemma_pow2_is_power2_to64();
+        lemma2_to64();
+        lemma_log2_to64();
+    }
 }
 
 // Copied from aster_common
@@ -437,11 +510,12 @@ pub proof fn bits_of_base_page_size()
 
 pub proof fn value_of_nr_subpage_per_huge()
     ensures
-// TODO
-// nr_subpage_per_huge::<PagingConsts>() == 512,
-
-        nr_subpage_per_huge() == 512,
+        nr_subpage_per_huge::<PagingConsts>() == 512,
 {
+    PagingConsts::lemma_consts_properties();
+    PagingConsts::lemma_consts_properties_derived();
+    assert(nr_subpage_per_huge::<PagingConsts>() == PagingConsts::BASE_PAGE_SIZE()
+        / PagingConsts::PTE_SIZE());
 }
 
 pub proof fn bits_of_nr_pte_index()
@@ -455,49 +529,51 @@ pub proof fn bits_of_nr_pte_index()
 /// The number of virtual address bits used to index a PTE in a page.
 #[inline(always)]
 #[verifier::allow_in_spec]
-pub const fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
+pub fn nr_pte_index_bits<C: PagingConstsTrait>() -> (res: usize)
     returns
-        nr_subpage_per_huge().ilog2() as usize,
+        (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as usize,
 {
-    // nr_subpage_per_huge::<C>().ilog2() as usize // TODO
-    nr_subpage_per_huge().ilog2() as usize
-}
-
-#[verifier::inline]
-pub open spec fn pte_index_mask_spec() -> usize {
-    0x1ff
+    proof {
+        C::lemma_consts_properties();
+        C::lemma_consts_properties_derived();
+        lemma_usize_pow2_ilog2((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as u32);
+    }
+    nr_subpage_per_huge::<C>().ilog2() as usize
 }
 
 #[inline(always)]
-#[verifier::when_used_as_spec(pte_index_mask_spec)]
-pub fn pte_index_mask() -> (res: usize)
-    ensures
-        res == pte_index_mask_spec(),
+#[verifier::allow_in_spec]
+pub fn pte_index_mask<C: PagingConstsTrait>() -> (res: usize)
+    returns
+        low_bits_mask((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat) as usize,
 {
-    // nr_subpage_per_huge::<PagingConsts>() - 1 // TODO
-    nr_subpage_per_huge() - 1
+    proof {
+        C::lemma_consts_properties();
+        C::lemma_consts_properties_derived();
+    }
+    nr_subpage_per_huge::<C>() - 1
 }
 
-pub open spec fn pte_index_spec(va: Vaddr, level: PagingLevel) -> usize
+pub open spec fn pte_index_spec<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
     recommends
         0 < level <= PagingConsts::NR_LEVELS_SPEC(),
 {
     let base_bits = PagingConsts::BASE_PAGE_SIZE_SPEC().ilog2();
     let index_bits = nr_pte_index_bits::<PagingConsts>();
     let shift = base_bits + (level - 1) as u32 * index_bits as u32;
-    (va >> shift) & pte_index_mask()
+    (va >> shift) & pte_index_mask::<C>()
 }
 
 #[verifier::when_used_as_spec(pte_index_spec)]
 /// The index of a VA's PTE in a page table node at the given level.
 // const fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
-pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)  // TODO: type, const
+pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
+    usize)  // TODO: type, const
     requires
         0 < level <= PagingConsts::NR_LEVELS_SPEC(),
     ensures
-        res == pte_index_spec(va, level),
-        res < nr_subpage_per_huge(),
-        res < NR_ENTRIES,
+        res == pte_index_spec::<C>(va, level),
+        res < nr_subpage_per_huge::<C>(),
 {
     let base_bits = PagingConsts::BASE_PAGE_SIZE().ilog2();
     assert(base_bits == 12) by {
@@ -509,10 +585,14 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)  // TODO: type, 
     };
     assert(0 <= (level - 1) * index_bits <= 36);
     let shift = base_bits + (level - 1) as u32 * index_bits as u32;
-    let res = (va >> shift) as u64 & pte_index_mask() as u64;
-    assert(res <= pte_index_mask()) by {
-        lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask() as u64);
+    let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
+    assert(res <= pte_index_mask::<C>()) by {
+        lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
     };
+    proof {
+        C::lemma_consts_properties();
+        C::lemma_consts_properties_derived();
+    }
     res as usize
 }
 
