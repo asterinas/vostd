@@ -29,7 +29,11 @@ pub open spec fn nr_subpage_per_huge_spec<C: PagingConstsTrait>() -> usize {
 pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
     ensures
         res == nr_subpage_per_huge_spec::<C>(),
+        res > 0,
 {
+    proof {
+        assume(C::BASE_PAGE_SIZE() / C::PTE_SIZE() > 0);
+    }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
 }
 

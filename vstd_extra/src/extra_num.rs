@@ -409,7 +409,7 @@ pub proof fn lemma_log2_to64()
 
 } // verus!
 macro_rules! impl_external_ilog2 {
-    ($uN: ty, $spec_name: ident, $ext_fn_name: ident,
+    ($uN: ty, $spec_name: ident,
     $pow2_lemma: ident, $pow2_ilog2_lemma: ident,
     $log2_bounds_lemma: ident, $ilog2_ordered_lemma: ident, $is_power_2_is_ilog2_pow2_lemma: ident $(,)?) => {
         verus! {
@@ -419,14 +419,14 @@ macro_rules! impl_external_ilog2 {
                 log(2, x as int) as u32
             }
 
-            #[verifier::external_fn_specification]
             #[verifier::when_used_as_spec($spec_name)]
-            pub fn $ext_fn_name(x: $uN) -> (res: u32)
-                ensures
-                    res == log(2, x as int),
-            {
-                x.ilog2()
-            }
+            pub assume_specification[$uN::ilog2](x:$uN) -> u32
+                requires
+                    x != 0,
+                returns
+                    log(2, x as int) as u32,
+                opens_invariants none
+                no_unwind;
 
             pub broadcast proof fn $pow2_lemma(e: u32, x: $uN)
                 requires
@@ -503,7 +503,6 @@ macro_rules! impl_external_ilog2 {
 impl_external_ilog2!(
     u8,
     u8_ilog2_spec,
-    ex_u8_ilog2,
     lemma_u8_pow2_ilog2_x,
     lemma_u8_pow2_ilog2,
     lemma_u8_log2_bounds,
@@ -514,7 +513,6 @@ impl_external_ilog2!(
 impl_external_ilog2!(
     u16,
     u16_ilog2_spec,
-    ex_u16_ilog2,
     lemma_u16_pow2_ilog2_x,
     lemma_u16_pow2_ilog2,
     lemma_u16_log2_bounds,
@@ -525,7 +523,6 @@ impl_external_ilog2!(
 impl_external_ilog2!(
     u32,
     u32_ilog2_spec,
-    ex_u32_ilog2,
     lemma_u32_pow2_ilog2_x,
     lemma_u32_pow2_ilog2,
     lemma_u32_log2_bounds,
@@ -536,7 +533,6 @@ impl_external_ilog2!(
 impl_external_ilog2!(
     usize,
     usize_ilog2_spec,
-    ex_usize_ilog2,
     lemma_usize_pow2_ilog2_x,
     lemma_usize_pow2_ilog2,
     lemma_usize_log2_bounds,
@@ -547,7 +543,6 @@ impl_external_ilog2!(
 impl_external_ilog2!(
     u64,
     u64_ilog2_spec,
-    ex_u64_ilog2,
     lemma_u64_pow2_ilog2_x,
     lemma_u64_pow2_ilog2,
     lemma_u64_log2_bounds,
