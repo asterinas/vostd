@@ -1,3 +1,4 @@
+pub mod allocator;
 pub mod meta;
 
 use std::marker::PhantomData;

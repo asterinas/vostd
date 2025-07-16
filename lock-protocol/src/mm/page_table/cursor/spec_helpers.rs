@@ -15,7 +15,7 @@ use vstd::tokens::SetToken;
 use crate::{
     helpers::align_ext::align_down,
     mm::{
-        child::Child, entry::Entry, frame, meta::AnyFrameMeta, node::PageTableNode,
+        child::Child, entry::Entry, frame::{self, allocator::AllocatorModel}, meta::AnyFrameMeta, node::PageTableNode,
         nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token, Frame,
         MapTrackingStatus, Paddr, PageTableLockTrait, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES,
         PAGE_SIZE,
@@ -47,21 +47,20 @@ pub open spec fn level_at_path_index(index: int) -> PagingLevel {
     (index + 1) as PagingLevel
 }
 
-pub open spec fn mpt_not_contains_not_allocated_frames(
+pub open spec fn spt_contains_no_unallocated_frames(
     spt: &exec::SubPageTable,
-    cur_alloc_index: usize,
+    alloc_model: &AllocatorModel,
 ) -> bool {
-    &&& forall|i: usize|
-        cur_alloc_index <= i < exec::MAX_FRAME_NUM ==> !spt.frames@.value().contains_key(
-            #[trigger] exec::frame_index_to_addr(i) as int,
-        ) && forall|j: usize|
-            0 <= j < NR_ENTRIES ==> !#[trigger] spt.ptes@.value().contains_key(
-                exec::frame_addr_to_index(i) + j * exec::SIZEOF_PAGETABLEENTRY as int,
-            )
-    &&& forall|i: usize|
-        cur_alloc_index <= i < exec::MAX_FRAME_NUM ==> forall|j: int| #[trigger]
-            spt.ptes@.value().contains_key(j) ==> spt.ptes@.value()[j].frame_pa
-                != #[trigger] exec::frame_index_to_addr(i) as int
+    &&& forall|i: usize| #[trigger] spt.frames@.value().contains_key(
+            exec::frame_index_to_addr(i) as int,
+        ) ==> alloc_model.allocated_addrs.contains(
+            exec::frame_index_to_addr(i) as int,
+        )
+    &&& forall|i: usize| #[trigger] spt.ptes@.value().contains_key(
+            i as int,
+        ) ==> alloc_model.allocated_addrs.contains(
+            spt.ptes@[i].frame_pa as int,
+        )
 }
 
 pub open spec fn frame_keys_do_not_change(

@@ -21,6 +21,7 @@ use crate::{
         meta::{AnyFrameMeta, MetaSlot},
         page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
         PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        frame::allocator::{alloc_page_table, AllocatorModel},
     },
     spec::sub_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
@@ -39,7 +40,7 @@ pub const SIZEOF_FRAME: usize = 24 * 512;
 
 global layout MockPageTablePage is size == 12288, align == 8;
 
-pub const MAX_FRAME_NUM: usize = 10000;
+pub use crate::mm::frame::allocator::MAX_FRAME_NUM;
 
 // TODO: This is a mock implementation of the page table entry.
 // Maybe it should be replaced with the actual implementation, e.g., x86_64.
@@ -124,7 +125,6 @@ impl PageTableEntryTrait for MockPageTableEntry {
         level: crate::mm::PagingLevel,
         prop: crate::mm::page_prop::PageProperty,
         spt: &mut SubPageTable,
-        ghost_index: usize,
     ) -> Self {
         // NOTE: this function currently does not create a actual page table entry
         MockPageTableEntry {
@@ -252,62 +252,28 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         is_tracked: crate::mm::MapTrackingStatus,
         // ghost
         spt: &mut exec::SubPageTable,
-        cur_alloc_index: usize,
-        used_addr: usize,
+        alloc_model: &mut AllocatorModel,
     ) -> (res: Self) where Self: Sized {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
         broadcast use vstd::hash_map::group_hash_map_axioms;
 
-        let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &spt.perms);  // TODO: permission violation
-        let f = create_new_frame(PHYSICAL_BASE_ADDRESS() + cur_alloc_index * SIZEOF_FRAME, level);
+        let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
+        let f = create_new_frame(p.addr(), level);
         p.write(Tracked(&mut pt), f);
 
-        assert(p.addr() == used_addr);
+        let frame_address = p.addr();
+        let frame_num = frame_addr_to_index(frame_address);
 
-        spt.perms.remove(&cur_alloc_index);
-        assert(spt.perms.len() == MAX_FRAME_NUM - 1);  // NOTE: need to be finite
-        spt.perms.insert(cur_alloc_index, (p, Tracked(pt)));
-        assert(spt.perms.len() == MAX_FRAME_NUM);
-        assert(spt.perms@.contains_key(cur_alloc_index));
+        spt.perms.insert(frame_num, (p, Tracked(pt)));
 
-        proof {
-            assert(!spt.frames@.value().contains_key(used_addr as int));
-        }
+        assert(!spt.frames@.value().contains_key(frame_num as int));
 
-        assert(0 <= frame_addr_to_index(used_addr) < MAX_FRAME_NUM as usize);
-        assert(spt.wf()) by {
-            assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.perms@.contains_key(i));
-            // all other frames are not changed
-            assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.perms@[i].1@.mem_contents()
-                    != MemContents::<MockPageTablePage>::Uninit ==> {
-                    #[trigger] spt.frames@.value().contains_key(frame_index_to_addr(i) as int)
-                        && forall|k: int|
-                        0 <= k < NR_ENTRIES ==> if ((
-                        #[trigger] spt.perms@[i].1@.value().ptes[k]).frame_pa != 0) {
-                            spt.ptes@.value().contains_key(
-                                spt.perms@[i].1@.value().ptes[k].pte_addr as int,
-                            )
-                        } else {
-                            !spt.ptes@.value().contains_key(
-                                spt.perms@[i].1@.mem_contents().value().ptes[k].pte_addr as int,
-                            )
-                        }
-                });
-            assert(spt.frames@.value().contains_key(used_addr as int)
-                ==> spt.perms@[frame_addr_to_index(used_addr)].1@.mem_contents().is_init());
-            assert(forall|i: usize| #[trigger]
-                spt.frames@.value().contains_key(i as int) && i != used_addr
-                    ==> spt.perms@[frame_addr_to_index(i) as usize].1@.mem_contents().is_init());
-            assert(forall|i: int|
-                spt.frames@.value().contains_key(i) && i != used_addr ==> i < (
-                PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int);
-        }
+        assert(0 <= frame_num < MAX_FRAME_NUM as usize);
+        assert(spt.wf());
 
-        print_msg("alloc frame", used_addr);
+        print_msg("alloc frame", frame_address);
 
-        FakePageTableLock { paddr: used_addr as Paddr, phantom: std::marker::PhantomData }
+        FakePageTableLock { paddr: frame_address as Paddr, phantom: std::marker::PhantomData }
     }
 
     #[verifier::external_body]
@@ -358,7 +324,6 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         pte: C::E,
         spt: &mut SubPageTable,
         level: crate::mm::PagingLevel,
-        ghost_index: usize,
     )
         ensures
             spt.wf(),
@@ -368,7 +333,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
     {
         assume(frame_addr_to_index(self.paddr) < MAX_FRAME_NUM as usize);  // TODO: P0
         assume(spt.perms@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
-        let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.perms);  // TODO: permission violation
+        let (p, Tracked(pt)) = spt.perms@[frame_addr_to_index(self.paddr)];
         let mut frame = p.read(Tracked(&pt));
         assume(idx < frame.ptes.len());
         frame.ptes[idx] = MockPageTableEntry {
@@ -512,61 +477,6 @@ pub fn main_test() {
 
     // test_map::test(va, frame, page_prop);
     // test_map2::test(va, frame, page_prop);
-}
-
-#[verifier::external_body]
-fn alloc_page_table_entries() -> (res: HashMap<
-    usize,
-    (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>),
->)
-    ensures
-        res@.dom().len() == MAX_FRAME_NUM,
-        res@.len() == MAX_FRAME_NUM,
-        res.len() == MAX_FRAME_NUM,
-        forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { res@.dom().contains(i) },
-        forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { res@.contains_key(i) },
-        forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { (#[trigger] res@[i]).1@.pptr() == res@[i].0 },
-        forall|i: usize|
-            0 <= i < MAX_FRAME_NUM ==> {
-                #[trigger] res@[i].1@.mem_contents() == MemContents::<MockPageTablePage>::Uninit
-            },
-        forall|i: usize|
-            0 <= i < MAX_FRAME_NUM ==> {
-                #[trigger] (res@[i]).0.addr() == PHYSICAL_BASE_ADDRESS() as usize + i * SIZEOF_FRAME
-            },
-        res@.dom().finite(),
-{
-    let mut map = HashMap::<
-        usize,
-        (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>),
-    >::new();
-    // map.insert(0, (PPtr::from_addr(0), Tracked::assume_new()));
-    let p = PHYSICAL_BASE_ADDRESS();
-    for i in 0..MAX_FRAME_NUM {  // TODO: possible overflow for executable code
-        map.insert(i, (PPtr::from_addr(p + i * SIZEOF_FRAME), Tracked::assume_new()));
-    }
-    map
-}
-
-#[verifier::external_body]
-fn get_frame_from_index(
-    index: usize,
-    map: &HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
-) -> (res: (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>))
-    requires
-        0 <= index < MAX_FRAME_NUM,
-        map@.dom().contains(index),
-        forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { map@.dom().contains(i) },
-        forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { (#[trigger] map@[i]).1@.pptr() == map@[i].0 },
-    ensures
-        res.1@.pptr() == res.0,
-        // NOTE: this is not true! && res.0.addr() == map@[index]@.0.addr()
-        res.0 == map@[index].0,
-        res.1 == map@[index].1,
-        map@[index].1@.mem_contents() == res.1@.mem_contents(),
-{
-    let (p, Tracked(pt)) = map.get(&index).unwrap();
-    (*p, Tracked(pt))
 }
 
 pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsTrait>(

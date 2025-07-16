@@ -16,6 +16,7 @@ use crate::{
         page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
         PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig,
         PagingLevel,
+        frame::allocator::{alloc_page_table, AllocatorModel},
     },
     spec::sub_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
@@ -98,14 +99,15 @@ requires
     assert(cursor.0.level == 4);
 
     let mut sub_page_table = SubPageTable {
-        perms: alloc_page_table_entries(),
+        perms: HashMap::new(),
         frames: Tracked(frames_token),
         ptes: Tracked(pte_token),
         instance: Tracked(instance.clone()),
     };
 
-    let mut cur_alloc_index: usize = 0; // TODO: theoretically, this should be atomic
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.perms); // TODO: permission violation
+    let mut alloc_model = AllocatorModel::new();
+
+    let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
     let f = exec::create_new_frame(PHYSICAL_BASE_ADDRESS(), 4);
     assert(f.ptes[0].frame_pa == 0 as u64);
     p.write(Tracked(&mut pt), f);
@@ -119,21 +121,13 @@ requires
 
     assert(sub_page_table.perms.len() == MAX_FRAME_NUM);
     assert(p.addr() == PHYSICAL_BASE_ADDRESS() as usize);
-    assert(sub_page_table.perms@.contains_key(cur_alloc_index));
 
-    sub_page_table.perms.remove(&cur_alloc_index);
-    assert(sub_page_table.perms.len() == MAX_FRAME_NUM - 1);
-    sub_page_table.perms.insert(cur_alloc_index, (p, Tracked(pt)));
-    assert(sub_page_table.perms.len() == MAX_FRAME_NUM);
+    sub_page_table.perms.insert(frame_addr_to_index(p.addr()), (p, Tracked(pt)));
 
-    assert(sub_page_table.perms@[cur_alloc_index].1@.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
-
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.perms);
+    let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     assert(sub_page_table.wf());
-
-    cur_alloc_index = cur_alloc_index + 1;
 
     cursor.0.path.push(None);
     cursor.0.path.push(None);
@@ -147,7 +141,7 @@ requires
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,
-        &mut cur_alloc_index
+        &mut alloc_model
     );
 
     assert(cursor.0.path.len() == NR_LEVELS as usize);

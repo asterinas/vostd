@@ -8,6 +8,7 @@ use crate::mm::{
     page_size,
     vm_space::Token,
     PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
+    frame::allocator::AllocatorModel,
 };
 
 use super::{Child, MapTrackingStatus, PageTableLockTrait, PageTableNode};
@@ -104,15 +105,15 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         new_child: Child<C>,
         spt: &mut exec::SubPageTable,
         level: PagingLevel,
-        ghost_index: usize,  // TODO: make it ghost
+        alloc_model: &AllocatorModel,
     ) -> (res: Child<C>)
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(
+            spec_helpers::spt_contains_no_unallocated_frames(
                 old(spt),
-                ghost_index,
+                alloc_model,
             ),
     // old(spt).mem@[exec::frame_addr_to_index(self.node.paddr())].1@.mem_contents().is_init()
 
@@ -153,10 +154,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
 
         self.node.write_pte(
             self.idx,
-            new_child.into_pte(spt, ghost_index),
+            new_child.into_pte(spt, alloc_model),
             spt,
             level,
-            ghost_index,
         );
 
         // TODO: P0

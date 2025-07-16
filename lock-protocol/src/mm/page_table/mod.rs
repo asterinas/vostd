@@ -9,7 +9,7 @@ use std::{marker::PhantomData, ops::Range};
 
 use crate::{
     helpers::math::lemma_u64_and_less_than,
-    mm::{BASE_PAGE_SIZE, PTE_SIZE},
+    mm::{BASE_PAGE_SIZE, PTE_SIZE, frame::allocator::AllocatorModel},
 };
 
 use vstd::prelude::*;
@@ -236,17 +236,17 @@ Sized {
         level: PagingLevel,
         prop: PageProperty,
         spt: &mut exec::SubPageTable,
-        ghost_index: usize,
+        alloc_model: &mut AllocatorModel,
     ) -> (res: Self)
         requires
             old(spt).wf(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
+            spec_helpers::spt_contains_no_unallocated_frames(old(spt), alloc_model),
         ensures
             spt.wf(),
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
+            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
     ;
 
     /// Create a new PTE that map to a child page table.

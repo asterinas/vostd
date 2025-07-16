@@ -22,7 +22,7 @@ use crate::{
     mm::{
         child::{self, Child},
         entry::Entry,
-        frame,
+        frame::{self, allocator::AllocatorModel},
         meta::AnyFrameMeta,
         node::PageTableNode,
         nr_subpage_per_huge,
@@ -234,10 +234,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             1 <= i < self.path.len() && self.path[i].is_some() ==> spt.frames@.value().contains_key(
                 ((#[trigger] self.path[i].unwrap().paddr()) as int),
             )
-        &&& forall|i: int|
-            1 <= i < self.path.len() && self.path[i].is_some() ==> (
-            #[trigger] self.path[i].unwrap().paddr()) < exec::PHYSICAL_BASE_ADDRESS_SPEC()
-                + exec::SIZEOF_FRAME * exec::MAX_FRAME_NUM
     }
 
     /// Creates a cursor claiming exclusive access over the given range.
@@ -448,20 +444,19 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         prop: PageProperty,
         // non ghost
         spt: &mut exec::SubPageTable,
-        cur_alloc_index: &mut usize,
+        alloc_model: &mut AllocatorModel,
     ) -> (res: Option<Frame>)
         requires
-    // cursor validation
-
+            old(alloc_model).wf(),
+            // cursor validation
             old(spt).wf(),
             old(self).va_valid(frame, None),
             level_is_greate_than_one(old(self).0.level),
             old(self).path_valid_before_map(),
             old(self).0.path_wf(old(spt)),
-            *old(cur_alloc_index) < exec::MAX_FRAME_NUM - 4,  // we have enough frames
             // page table validation
             old(self).0.sub_page_table_valid_before_map(old(spt)),
-            mpt_not_contains_not_allocated_frames(old(spt), *old(cur_alloc_index)),
+            spt_contains_no_unallocated_frames(old(spt), *old(alloc_model)),
             // path
             old(self).0.path_matchs_page_table(
                 old(spt),
@@ -472,7 +467,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         ensures
             self.path_valid_after_map(old(self)),
             spt.wf(),
-            *cur_alloc_index < exec::MAX_FRAME_NUM,
+            alloc_model.wf(),
             // the post condition
             self.0.sub_page_table_valid_after_map(
                 spt,
@@ -506,7 +501,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 ).0.path[path_index_at_level(root_level@)],
                 root_level@ >= self.0.level,
                 spt.wf(),
-                *cur_alloc_index < exec::MAX_FRAME_NUM - 4,  // we have enough frames
+                alloc_model.wf(),
                 forall|i: int|
                     path_index_at_level(self.0.level) <= i <= path_index_at_level(old(self).0.level)
                         ==> #[trigger] spt.frames@.value().contains_key(
@@ -555,15 +550,12 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 Child::None => {
                     let preempt_guard = crate::task::disable_preempt();  // TODO: currently nothing happens, we may need a machine model
 
-                    let used_addr = exec::frame_index_to_addr(*cur_alloc_index);
                     let pt = PTL::alloc(
                         cur_level - 1,
                         MapTrackingStatus::Tracked,
                         spt,
-                        *cur_alloc_index,
-                        used_addr,
-                    );  // alloc frame here
-                    let ghost_index = *cur_alloc_index + 1;
+                        alloc_model,
+                    );
 
                     let paddr = pt.into_raw_paddr();
                     assert(spt.perms@[exec::frame_addr_to_index(
@@ -576,7 +568,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         PageTableNode::from_raw(paddr)),
                         spt,
                         self.0.level,
-                        ghost_index,
+                        alloc_model,
                     );  // alloc pte here
                     // SAFETY: `pt` points to a PT that is attached to a node
                     // in the locked sub-tree, so that it is locked and alive.
@@ -593,9 +585,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     self.0.push_level(
                     // unsafe { PageTableLock::from_raw_paddr(paddr) }
                     PTL::from_raw_paddr(paddr), root_level, spt);
-
-                    *cur_alloc_index += 1;  // TODO: do it inside the alloc function
-                    assume(*cur_alloc_index < exec::MAX_FRAME_NUM - 4);  // TODO
 
                     // TODO: P0 see @path_matchs_page_table
                     assume(self.0.sub_page_table_valid_before_map_level(
@@ -648,7 +637,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             Child::Frame(frame, prop),
             spt,
             self.0.level,
-            *cur_alloc_index,
+            alloc_model,
         );
         self.0.move_forward();
 
