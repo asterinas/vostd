@@ -34,34 +34,30 @@ verus! {
 
 pub const SIZEOF_PAGETABLEENTRY: usize = 24;
 
-global layout SimplePageTableEntry is size == 24, align == 8;
+global layout MockPageTableEntry is size == 24, align == 8;
 
 pub const SIZEOF_FRAME: usize = 24 * 512;
 
-// 8 bytes for pa + 8 bytes for each pte
-global layout SimpleFrame is size == 12288, align == 8;
+global layout MockPageTablePage is size == 12288, align == 8;
 
 pub const MAX_FRAME_NUM: usize = 10000;
 
 // TODO: This is a mock implementation of the page table entry.
 // Maybe it should be replaced with the actual implementation, e.g., x86_64.
 #[derive(Copy, Clone)]
-pub struct SimplePageTableEntry {
-    pub pte_addr: u64,
-    pub frame_pa: u64,
-    pub level: u8,
-    // pub prop: PageProperty,
+pub struct MockPageTableEntry {
+    pub pte_addr: u64,  // 8 bytes
+    pub frame_pa: u64,  // 8 bytes
+    pub prop: PageProperty,  // 3 bytes
+    pub level: u8,  // 1 byte
 }
 
 #[derive(Copy, Clone)]
-pub struct SimpleFrame {
-    // TODO: Is this correct?
-    pub ptes:
-        [SimplePageTableEntry; NR_ENTRIES],
-    // pub ptes: Vec<SimplePageTableEntry>,
+pub struct MockPageTablePage {
+    pub ptes: [MockPageTableEntry; NR_ENTRIES],
 }
 
-pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: SimpleFrame)
+pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage)
     ensures
         res.ptes.len() == NR_ENTRIES,
         forall|i: int|
@@ -70,17 +66,23 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: SimpleFrame)
         forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].frame_pa == 0,
         forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].level == level as u8,
 {
-    let mut ptes = [SimplePageTableEntry { pte_addr: 0, frame_pa: 0, level: 0 };NR_ENTRIES];
+    let mut ptes = [MockPageTableEntry {
+        pte_addr: 0,
+        frame_pa: 0,
+        level: 0,
+        prop: PageProperty::new_absent(),
+    };NR_ENTRIES];
     for i in 0..NR_ENTRIES {
         assume(frame_addr + i * SIZEOF_PAGETABLEENTRY < usize::MAX as u64);
-        ptes[i] = SimplePageTableEntry {
+        ptes[i] = MockPageTableEntry {
             pte_addr: (frame_addr + i * SIZEOF_PAGETABLEENTRY) as u64,
             frame_pa: 0,
             level: level,
+            prop: PageProperty::new_absent(),
         };
     }
 
-    let f = SimpleFrame { ptes };
+    let f = MockPageTablePage { ptes };
 
     // assert(ptes[0].frame_pa == 0); // TODO: don't know why this fails
     assume(forall|i: int|
@@ -92,7 +94,7 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: SimpleFrame)
     f
 }
 
-impl PageTableEntryTrait for SimplePageTableEntry {
+impl PageTableEntryTrait for MockPageTableEntry {
     fn is_present(&self, spt: &SubPageTable) -> bool {
         assert(self.frame_pa == self.frame_paddr());
         assert(self.frame_pa != 0 ==> spt.ptes@.value().contains_key(self.pte_addr as int));
@@ -126,19 +128,25 @@ impl PageTableEntryTrait for SimplePageTableEntry {
         ghost_index: usize,
     ) -> Self {
         // NOTE: this function currently does not create a actual page table entry
-        SimplePageTableEntry {
+        MockPageTableEntry {
             pte_addr: 0,
             frame_pa: 0,
             level: 0,  // let's use level 0 represent a page
+            prop,
         }
     }
 
     #[verifier::external_body]
     fn new_pt(paddr: crate::mm::Paddr) -> Self {
-        SimplePageTableEntry {
+        MockPageTableEntry {
             pte_addr: 0,  // invalid
             frame_pa: paddr as u64,
             level: 0,  // invalid
+            prop: PageProperty {
+                flags: PageFlags::R(),
+                cache: page_prop::CachePolicy::Uncacheable,
+                priv_flags: PrivilegedPageFlags::empty(),
+            },
         }
     }
 
@@ -282,7 +290,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
             // all other frames are not changed
             assert(forall|i: usize|
                 0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.mem@[i].1@.mem_contents()
-                    != MemContents::<SimpleFrame>::Uninit ==> {
+                    != MemContents::<MockPageTablePage>::Uninit ==> {
                     #[trigger] spt.frames@.value().contains_key(frame_index_to_addr(i) as int)
                         && forall|k: int|
                         0 <= k < NR_ENTRIES ==> if ((
@@ -373,10 +381,11 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.mem);  // TODO: permission violation
         let mut frame = p.read(Tracked(&pt));
         assume(idx < frame.ptes.len());
-        frame.ptes[idx] = SimplePageTableEntry {
+        frame.ptes[idx] = MockPageTableEntry {
             pte_addr: pte.pte_paddr() as u64,
             frame_pa: pte.frame_paddr() as u64,
             level: level as u8,
+            prop: pte.prop(),
         };
         // TODO: P0 currently, the last level frame will cause the inconsistency
         // between spt.mem and spt.frames
@@ -461,7 +470,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
 struct_with_invariants!{
     /// A sub-tree in a page table.
     pub struct SubPageTable {
-        pub mem: HashMap<usize, (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>)>, // mem is indexed by index!
+        pub mem: HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>, // mem is indexed by index!
         pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>, // frame is indexed by paddr!
         pub ptes: Tracked<sub_page_table::SubPageTableStateMachine::ptes>,
         pub instance: Tracked<sub_page_table::SubPageTableStateMachine::Instance>,
@@ -537,7 +546,7 @@ pub fn main_test() {
 #[verifier::external_body]
 fn alloc_page_table_entries() -> (res: HashMap<
     usize,
-    (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>),
+    (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>),
 >)
     ensures
         res@.dom().len() == MAX_FRAME_NUM,
@@ -548,7 +557,7 @@ fn alloc_page_table_entries() -> (res: HashMap<
         forall|i: usize| 0 <= i < MAX_FRAME_NUM ==> { (#[trigger] res@[i]).1@.pptr() == res@[i].0 },
         forall|i: usize|
             0 <= i < MAX_FRAME_NUM ==> {
-                #[trigger] res@[i].1@.mem_contents() == MemContents::<SimpleFrame>::Uninit
+                #[trigger] res@[i].1@.mem_contents() == MemContents::<MockPageTablePage>::Uninit
             },
         forall|i: usize|
             0 <= i < MAX_FRAME_NUM ==> {
@@ -556,7 +565,10 @@ fn alloc_page_table_entries() -> (res: HashMap<
             },
         res@.dom().finite(),
 {
-    let mut map = HashMap::<usize, (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>)>::new();
+    let mut map = HashMap::<
+        usize,
+        (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>),
+    >::new();
     // map.insert(0, (PPtr::from_addr(0), Tracked::assume_new()));
     let p = PHYSICAL_BASE_ADDRESS();
     for i in 0..MAX_FRAME_NUM {  // TODO: possible overflow for executable code
@@ -568,8 +580,8 @@ fn alloc_page_table_entries() -> (res: HashMap<
 #[verifier::external_body]
 fn get_frame_from_index(
     index: usize,
-    map: &HashMap<usize, (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>)>,
-) -> (res: (PPtr<SimpleFrame>, Tracked<PointsTo<SimpleFrame>>))
+    map: &HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
+) -> (res: (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>))
     requires
         0 <= index < MAX_FRAME_NUM,
         map@.dom().contains(index),
@@ -597,24 +609,30 @@ pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsT
 }
 
 pub open spec fn get_pte_from_addr_spec(addr: usize, spt: &SubPageTable) -> (res:
-    SimplePageTableEntry)
+    MockPageTableEntry)
     recommends
         spt.wf(),
 {
     if (spt.ptes@.value().contains_key(addr as int)) {
-        SimplePageTableEntry {
+        MockPageTableEntry {
             pte_addr: addr as u64,
             frame_pa: spt.ptes@.value()[addr as int].frame_pa as u64,
             level: spt.ptes@.value()[addr as int].level as u8,
+            prop: spt.ptes@.value()[addr as int].prop,
         }
     } else {
-        SimplePageTableEntry { pte_addr: addr as u64, frame_pa: 0, level: 0 }
+        MockPageTableEntry {
+            pte_addr: addr as u64,
+            frame_pa: 0,
+            level: 0,
+            prop: PageProperty::new_absent(),
+        }
     }
 }
 
 #[verifier::external_body]
 #[verifier::when_used_as_spec(get_pte_from_addr_spec)]
-pub fn get_pte_from_addr(addr: usize, spt: &SubPageTable) -> (res: SimplePageTableEntry)
+pub fn get_pte_from_addr(addr: usize, spt: &SubPageTable) -> (res: MockPageTableEntry)
     requires
         0 <= addr < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * NR_ENTRIES,
         (addr - PHYSICAL_BASE_ADDRESS_SPEC()) % SIZEOF_PAGETABLEENTRY as int == 0,
@@ -627,7 +645,7 @@ pub fn get_pte_from_addr(addr: usize, spt: &SubPageTable) -> (res: SimplePageTab
             &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
         },
 {
-    let pte = PPtr::<SimplePageTableEntry>::from_addr(addr).read(Tracked::assume_new());  // TODO: permission violation
+    let pte = PPtr::<MockPageTableEntry>::from_addr(addr).read(Tracked::assume_new());  // TODO: permission violation
     println!("read_pte_from_addr pte_addr: {:#x}, frame_pa: {:#x}, level: {}", pte.pte_addr, pte.frame_pa, pte.level);
     pte
 }
@@ -702,7 +720,7 @@ pub fn PHYSICAL_BASE_ADDRESS() -> (res: usize)
     static MAP: OnceLock<Mutex<usize>> = OnceLock::new();
     if MAP.get().is_none() {
         unsafe {
-            let layout = Layout::new::<[SimplePageTableEntry; 4096]>();
+            let layout = Layout::new::<[MockPageTableEntry; 4096]>();
             let mut ptr = alloc(layout);
             MAP.set(Mutex::new(ptr as *mut u8 as usize)).unwrap();
         }

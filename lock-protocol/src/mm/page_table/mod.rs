@@ -470,9 +470,9 @@ impl PagingConstsTrait for PagingConsts {
 
     fn PTE_SIZE() -> usize {
         proof {
-            assume(core::mem::size_of::<exec::SimplePageTableEntry>() == 8);
+            assume(core::mem::size_of::<exec::MockPageTableEntry>() == 8);
         }
-        core::mem::size_of::<exec::SimplePageTableEntry>()
+        core::mem::size_of::<exec::MockPageTableEntry>()
     }
 
     open spec fn ADDRESS_WIDTH_SPEC() -> usize {

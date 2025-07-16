@@ -2,7 +2,6 @@
 #[allow(unused)]
 use builtin::*;
 use builtin_macros::*;
-
 use std::collections::HashMap;
 
 use state_machines_macros::*;
@@ -17,6 +16,8 @@ use vstd::raw_ptr::*;
 use vstd::simple_pptr::*;
 use vstd::simple_pptr::PointsTo;
 
+use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
+
 verus! {
 
 type Paddr = usize;
@@ -28,9 +29,6 @@ use crate::exec::SIZEOF_PAGETABLEENTRY;
 use crate::exec::SIZEOF_FRAME;
 
 #[derive(Clone, Copy)]
-pub struct PteFlag;
-
-#[derive(Clone, Copy)]
 pub struct Frame {
     // pub pa: Paddr,
     pub ptes: [PageTableEntry; 512],
@@ -40,14 +38,14 @@ pub struct Frame {
 #[derive(Clone, Copy)]
 pub struct PageTableEntry {
     pub frame_pa: Paddr,
-    pub flags: PteFlag,
     pub level: usize,
+    pub prop: PageProperty,
 }
 
 pub ghost struct PageTableEntryView {
     pub frame_pa: int,
-    pub flags: PteFlag,
     pub level: usize,
+    pub prop: PageProperty,
 }
 
 pub ghost struct FrameView {
@@ -160,8 +158,12 @@ SubPageTableStateMachine {
                 pte_addr,
                 PageTableEntryView {
                     frame_pa: child,
-                    flags: PteFlag,
                     level: level,
+                    prop: PageProperty {
+                        flags: PageFlags::R(),
+                        cache: CachePolicy::Writeback,
+                        priv_flags: PrivilegedPageFlags::empty(),
+                    },
                 }
             );
         }

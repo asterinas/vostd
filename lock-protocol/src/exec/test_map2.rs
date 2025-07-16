@@ -45,8 +45,8 @@ requires
 
     // TODO: use Cursor::new
     let mut cursor =
-    CursorMut::<UserMode, SimplePageTableEntry, PagingConsts, FakePageTableLock<SimplePageTableEntry, PagingConsts>> {
-        0: Cursor::<UserMode, SimplePageTableEntry, PagingConsts, FakePageTableLock<SimplePageTableEntry, PagingConsts>> {
+    CursorMut::<UserMode, MockPageTableEntry, PagingConsts, FakePageTableLock<MockPageTableEntry, PagingConsts>> {
+        0: Cursor::<UserMode, MockPageTableEntry, PagingConsts, FakePageTableLock<MockPageTableEntry, PagingConsts>> {
             path: Vec::new(),
             level: 4,
             guard_level: NR_LEVELS as u8,
@@ -67,16 +67,16 @@ requires
 
     let mut cur_alloc_index: usize = 0; // TODO: theoretically, this should be atomic
     let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem); // TODO: permission violation
-    p.write(Tracked(&mut pt), SimpleFrame {
+    p.write(Tracked(&mut pt), MockPageTablePage {
         ptes: {
-            let mut ptes = [SimplePageTableEntry {
+            let mut ptes = [MockPageTableEntry {
                 pte_addr: 0,
                 frame_pa: 0,
                 level: 0,
             }; NR_ENTRIES];
             for i in 0..NR_ENTRIES {
                 assert((PHYSICAL_BASE_ADDRESS() as u64 + i as u64 * SIZEOF_PAGETABLEENTRY as u64) < usize::MAX as u64) by { admit(); }; // TODO
-                ptes[i] = SimplePageTableEntry {
+                ptes[i] = MockPageTableEntry {
                     pte_addr: PHYSICAL_BASE_ADDRESS() as u64 + i as u64 * SIZEOF_PAGETABLEENTRY as u64,
                     frame_pa: 0,
                     level: 4,
@@ -87,7 +87,7 @@ requires
     });
 
 
-    assert(pt.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
     assert(pt.value().ptes.len() == NR_ENTRIES);
     // assert(pt.value().ptes[0].frame_pa == 0); // TODO: P0 don't know why this fails
     assume(forall |i: int| 0 <= i < NR_ENTRIES ==> (#[trigger] pt.value().ptes[i]).pte_addr == PHYSICAL_BASE_ADDRESS() as u64 + i as u64 * SIZEOF_PAGETABLEENTRY as u64);
@@ -105,10 +105,10 @@ requires
     sub_page_table.mem.insert(cur_alloc_index, (p, Tracked(pt)));
     assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
 
-    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem);
-    assert(pt.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     // assert(sub_page_table.wf()); this should fail
     proof{

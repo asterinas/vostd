@@ -30,7 +30,7 @@ struct TestPtConfig;
 
 unsafe impl PageTableConfig for TestPtConfig {
     type C = PagingConsts;
-    type E = SimplePageTableEntry;
+    type E = MockPageTableEntry;
 
     fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
         0..256
@@ -116,7 +116,7 @@ requires
     assert(f.ptes[0].frame_pa == 0 as u64);
     p.write(Tracked(&mut pt), f);
 
-    assert(pt.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
     assert(pt.value().ptes.len() == NR_ENTRIES);
     assert(pt.value().ptes == f.ptes);
     assert(pt.value().ptes[0].frame_pa == 0 as u64);
@@ -132,10 +132,10 @@ requires
     sub_page_table.mem.insert(cur_alloc_index, (p, Tracked(pt)));
     assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
 
-    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem);
-    assert(pt.mem_contents() != MemContents::<SimpleFrame>::Uninit);
+    assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     // assert(sub_page_table.wf()); this should fail
     proof{
