@@ -1,6 +1,5 @@
 mod rw;
 mod test_map;
-// mod test_map2;
 
 use vstd::prelude::*;
 use core::num;
