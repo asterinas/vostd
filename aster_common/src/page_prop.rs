@@ -40,7 +40,7 @@ verus! {
 
 impl PageProperty {
 
-    pub open spec fn new_spec(flags: PageFlags, cache: CachePolicy) -> Self {
+    pub open spec fn new_user_spec(flags: PageFlags, cache: CachePolicy) -> Self {
         Self {
             flags,
             cache,
@@ -48,9 +48,9 @@ impl PageProperty {
         }
     }
 
-    #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(flags: PageFlags, cache: CachePolicy) -> (res: Self)
-        ensures res == Self::new_spec(flags, cache)
+    #[verifier::when_used_as_spec(new_user_spec)]
+    pub fn new_user(flags: PageFlags, cache: CachePolicy) -> (res: Self)
+        ensures res == Self::new_user_spec(flags, cache)
     {
         Self {
             flags,
