@@ -754,7 +754,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
     ///
     /// This function will panic if the end range covers a part of a huge page
     /// and the next page is that huge page.
-    #[verifier::external_body]
     pub unsafe fn take_next(
         &mut self,
         len: usize,
@@ -762,9 +761,18 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         tokens: Tracked<exec::Tokens>,
         // non ghost, but it should be
         spt: &mut exec::SubPageTable,
-    ) -> PageTableItem {
+    ) -> PageTableItem
+    requires
+        old(spt).wf(),
+        old(self).0.va + len < MAX_USERSPACE_VADDR,
+        level_is_greate_than_one(old(self).0.level),
+        old(self).0.level <= C::NR_LEVELS(),
+        len % page_size::<C>(1) == 0,
+        old(self).path_valid_before_map(),
+        old(self).0.va + page_size::<C>(old(self).0.level) < old(self).0.va + len,
+    {
         let start = self.0.va;
-        // assert!(len % page_size::<C>(1) == 0); // TODO
+        assert(len % page_size::<C>(1) == 0);
         let end = start + len;
         // assert!(end <= self.0.barrier_va.end); // TODO
 
@@ -773,9 +781,21 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             unused_pte_addrs: mut unused_pte_addrs,
         } = tokens.get();  // TODO: can we just use the tokens inside the loop?
 
-        while self.0.va < end {
+        while self.0.va < end
+        invariant
+            spt.wf(),
+            self.0.level > 1,
+            self.0.level <= PagingConsts::NR_LEVELS(), // TODO: change to C::NR_LEVELS()
+            self.0.level <= C::NR_LEVELS(),
+            self.0.va + page_size::<C>(self.0.level) < end,
+            self.0.va + len < MAX_USERSPACE_VADDR,
+        decreases end - self.0.va,
+        {
             let cur_va = self.0.va;
             let cur_level = self.0.level;
+            assume(self.0.path.len() >= self.0.level as usize);
+            assume(self.0.path[self.0.level as usize - 1].is_some());
+            assume(self.0.path_wf(spt));
             let cur_entry = self.0.cur_entry(spt);
 
             // Skip if it is already absent.
@@ -786,6 +806,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     break ;
                 }
                 self.0.move_forward();
+                self.0.va = self.0.va + 1; // TODO: realize move_forward
+
+                assume(self.0.va + page_size::<C>(self.0.level) < end);
+                assume(self.0.va + len < MAX_USERSPACE_VADDR);
                 continue ;
             }
             // Go down if not applicable.
@@ -814,6 +838,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                                 break ;
                             }
                             self.0.move_forward();
+                            self.0.va = self.0.va + 1; // TODO: realize move_forward
                         }
                     },
                     Child::PageTable(_) => {
@@ -841,15 +866,27 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         assert(false);
                     },
                 }
+
+                self.0.va = self.0.va + 1; // TODO: realize move_forward
+                assume(self.0.va + page_size::<C>(self.0.level) < end);
+                assume(1 < self.0.level <= PagingConsts::NR_LEVELS_SPEC());
+                assume(self.0.va + len < MAX_USERSPACE_VADDR);
                 continue ;
             }
             let tracked used_pte_addr_token:
                 sub_page_table::SubPageTableStateMachine::unused_pte_addrs;
             proof {
+                assume(unused_pte_addrs.contains_key(unused_pte_addrs.dom().choose()));
                 used_pte_addr_token =
                 unused_pte_addrs.tracked_remove(unused_pte_addrs.dom().choose());
             }
             // Unmap the current page and return it.
+
+
+            assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
+            assume(cur_entry.idx < nr_subpage_per_huge::<C>());
+            assume(spec_helpers::mpt_not_contains_not_allocated_frames(spt, exec::MAX_FRAME_NUM));
+
             let old = cur_entry.replace(
                 Child::None,
                 spt,
@@ -861,6 +898,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 Child::Frame(page, prop) => PageTableItem::Mapped { va: self.0.va, page, prop },
                 Child::Untracked(pa, level, prop) => {
                     // debug_assert_eq!(level, self.0.level); // TODO
+                    assume(level == self.0.level);
                     PageTableItem::MappedUntracked {
                         va: self.0.va,
                         pa,
@@ -899,8 +937,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     }
                 },
                 Child::None | Child::PageTableRef(_) => {
-                    // unreachable!();
-                    assert(false);
                     PageTableItem::NotMapped { va: 0, len: 0 }
                 },
             };
