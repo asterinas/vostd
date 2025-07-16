@@ -259,17 +259,17 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
         broadcast use vstd::hash_map::group_hash_map_axioms;
 
-        let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &spt.mem);  // TODO: permission violation
+        let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &spt.perms);  // TODO: permission violation
         let f = create_new_frame(PHYSICAL_BASE_ADDRESS() + cur_alloc_index * SIZEOF_FRAME, level);
         p.write(Tracked(&mut pt), f);
 
         assert(p.addr() == used_addr);
 
-        spt.mem.remove(&cur_alloc_index);
-        assert(spt.mem.len() == MAX_FRAME_NUM - 1);  // NOTE: need to be finite
-        spt.mem.insert(cur_alloc_index, (p, Tracked(pt)));
-        assert(spt.mem.len() == MAX_FRAME_NUM);
-        assert(spt.mem@.contains_key(cur_alloc_index));
+        spt.perms.remove(&cur_alloc_index);
+        assert(spt.perms.len() == MAX_FRAME_NUM - 1);  // NOTE: need to be finite
+        spt.perms.insert(cur_alloc_index, (p, Tracked(pt)));
+        assert(spt.perms.len() == MAX_FRAME_NUM);
+        assert(spt.perms@.contains_key(cur_alloc_index));
 
         proof {
             assert(!spt.frames@.value().contains_key(used_addr as int));
@@ -278,29 +278,29 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         assert(0 <= frame_addr_to_index(used_addr) < MAX_FRAME_NUM as usize);
         assert(spt.wf()) by {
             assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.mem@.contains_key(i));
+                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.perms@.contains_key(i));
             // all other frames are not changed
             assert(forall|i: usize|
-                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.mem@[i].1@.mem_contents()
+                0 <= i < MAX_FRAME_NUM && i != cur_alloc_index ==> spt.perms@[i].1@.mem_contents()
                     != MemContents::<MockPageTablePage>::Uninit ==> {
                     #[trigger] spt.frames@.value().contains_key(frame_index_to_addr(i) as int)
                         && forall|k: int|
                         0 <= k < NR_ENTRIES ==> if ((
-                        #[trigger] spt.mem@[i].1@.value().ptes[k]).frame_pa != 0) {
+                        #[trigger] spt.perms@[i].1@.value().ptes[k]).frame_pa != 0) {
                             spt.ptes@.value().contains_key(
-                                spt.mem@[i].1@.value().ptes[k].pte_addr as int,
+                                spt.perms@[i].1@.value().ptes[k].pte_addr as int,
                             )
                         } else {
                             !spt.ptes@.value().contains_key(
-                                spt.mem@[i].1@.mem_contents().value().ptes[k].pte_addr as int,
+                                spt.perms@[i].1@.mem_contents().value().ptes[k].pte_addr as int,
                             )
                         }
                 });
             assert(spt.frames@.value().contains_key(used_addr as int)
-                ==> spt.mem@[frame_addr_to_index(used_addr)].1@.mem_contents().is_init());
+                ==> spt.perms@[frame_addr_to_index(used_addr)].1@.mem_contents().is_init());
             assert(forall|i: usize| #[trigger]
                 spt.frames@.value().contains_key(i as int) && i != used_addr
-                    ==> spt.mem@[frame_addr_to_index(i) as usize].1@.mem_contents().is_init());
+                    ==> spt.perms@[frame_addr_to_index(i) as usize].1@.mem_contents().is_init());
             assert(forall|i: int|
                 spt.frames@.value().contains_key(i) && i != used_addr ==> i < (
                 PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int);
@@ -368,8 +368,8 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),
     {
         assume(frame_addr_to_index(self.paddr) < MAX_FRAME_NUM as usize);  // TODO: P0
-        assume(spt.mem@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
-        let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.mem);  // TODO: permission violation
+        assume(spt.perms@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
+        let (p, Tracked(pt)) = get_frame_from_index(frame_addr_to_index(self.paddr), &spt.perms);  // TODO: permission violation
         let mut frame = p.read(Tracked(&pt));
         assume(idx < frame.ptes.len());
         frame.ptes[idx] = MockPageTableEntry {
@@ -379,7 +379,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
             prop: pte.prop(),
         };
         // TODO: P0 currently, the last level frame will cause the inconsistency
-        // between spt.mem and spt.frames
+        // between spt.perms and spt.frames
         p.write(Tracked(&mut pt), frame);
 
         // TODO: it seems we should not allocate here
@@ -459,54 +459,45 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
 struct_with_invariants!{
     /// A sub-tree in a page table.
     pub struct SubPageTable {
-        pub mem: HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>, // mem is indexed by index!
-        pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>, // frame is indexed by paddr!
+        /// Only frames in the sub-page-table are stored in this map.
+        pub perms: HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
+        // State machine.
+        pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>,
         pub ptes: Tracked<sub_page_table::SubPageTableStateMachine::ptes>,
         pub instance: Tracked<sub_page_table::SubPageTableStateMachine::Instance>,
     }
 
     pub open spec fn wf(&self) -> bool {
         predicate {
-        &&& self.frames@.instance_id() == self.instance@.id()
-        &&& self.ptes@.instance_id() == self.instance@.id()
-        &&& self.mem.len() == MAX_FRAME_NUM
-        &&& self.mem@.dom().finite()
-        &&& forall |i: usize| 0 <= i < MAX_FRAME_NUM ==> {
-            &&& (#[trigger] self.mem@.dom().contains(i))
-        }
-        &&& forall |i: usize| 0 <= i < MAX_FRAME_NUM ==> {
-            &&& (#[trigger] self.mem@[i]).1@.pptr() == self.mem@[i].0
-        }
-        &&& forall |i: usize| 0 <= i < MAX_FRAME_NUM ==> {
-            &&& (#[trigger] self.mem@[i].0.addr() == PHYSICAL_BASE_ADDRESS() as usize + i * SIZEOF_FRAME)
-        }
-        &&& forall |i: usize| 0 <= i < MAX_FRAME_NUM ==>
-                if (self.mem@[i].1@.mem_contents().is_init()) {
-                    #[trigger] self.frames@.value().contains_key(frame_index_to_addr(i) as int)
-                    &&
-                    forall |k: int| 0 <= k < NR_ENTRIES ==>
-                        if (self.mem@[i].1@.value().ptes[k].frame_pa != 0) {
-                            #[trigger] self.ptes@.value().contains_key(self.mem@[i].1@.value().ptes[k].pte_addr as int)
-                        }
-                        else {
-                            !self.ptes@.value().contains_key(self.mem@[i].1@.mem_contents().value().ptes[k].pte_addr as int)
-                        }
-                } else {
-                    // TODO: there could be leaking because we continously allocate frames
-                    !self.frames@.value().contains_key(frame_index_to_addr(i) as int)
-                    && forall |j: int| 0 <= j < NR_ENTRIES ==>
-                        ! #[trigger] self.ptes@.value().contains_key(frame_index_to_addr(i) as int + j * SIZEOF_PAGETABLEENTRY as int)
-                }
-        &&& forall |i: int| #[trigger] self.frames@.value().contains_key(i) ==>
-                self.mem@[frame_addr_to_index(i as usize)].1@.mem_contents().is_init()
-        &&& forall |i: int| #[trigger] self.ptes@.value().contains_key(i) ==> // TODO: why we need this? Isn't it preserved by page_wf?
-                self.ptes@.value()[i].frame_pa != 0
-                && self.ptes@.value()[i].frame_pa < u64::MAX
-                && self.ptes@.value()[i].frame_pa as u64 != 0 // TODO: this is so wired
-        &&& forall |i: int| #[trigger] self.ptes@.value().contains_key(i) ==> // TODO: why we need this? Isn't it preserved by page_wf?
-                self.frames@.value().contains_key(self.ptes@.value()[i].frame_pa as int)
-        &&& forall |i: int| #[trigger] self.frames@.value().contains_key(i) ==>
-                i < (PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int
+            &&& self.frames@.instance_id() == self.instance@.id()
+            &&& self.ptes@.instance_id() == self.instance@.id()
+            &&& self.perms@.dom().finite()
+            &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
+                &&& #[trigger] self.frames@.value().contains_key(i as int)
+                &&& i < PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM
+            }
+            &&& forall |i: usize| #[trigger] self.frames@.value().contains_key(i as int) ==> {
+                &&& #[trigger] self.perms@.dom().contains(i)
+                &&& i < PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM
+            }
+            &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
+                &&& (#[trigger] self.perms@[i]).1@.pptr() == self.perms@[i].0
+                &&& (#[trigger] self.perms@[i].0.addr() == PHYSICAL_BASE_ADDRESS() as usize + i * SIZEOF_FRAME)
+                &&& (#[trigger] self.perms@[i].1@.mem_contents().is_init())
+                &&& (#[trigger] self.frames@.value().contains_key(frame_index_to_addr(i) as int))
+                &&& forall |k: int| 0 <= k < NR_ENTRIES ==>
+                    if (self.perms@[i].1@.value().ptes[k].frame_pa != 0) {
+                        #[trigger] self.ptes@.value().contains_key(self.perms@[i].1@.value().ptes[k].pte_addr as int)
+                    } else {
+                        !self.ptes@.value().contains_key(self.perms@[i].1@.mem_contents().value().ptes[k].pte_addr as int)
+                    }
+            }
+            &&& forall |i: int| #[trigger] self.ptes@.value().contains_key(i) ==> {
+                &&& self.frames@.value().contains_key(self.ptes@.value()[i].frame_pa as int)
+                &&& self.ptes@.value()[i].frame_pa != 0
+                &&& self.ptes@.value()[i].frame_pa < u64::MAX
+                &&& self.ptes@.value()[i].frame_pa as u64 != 0
+            }
         }
     }
 }

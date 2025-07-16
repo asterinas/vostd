@@ -566,7 +566,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     let ghost_index = *cur_alloc_index + 1;
 
                     let paddr = pt.into_raw_paddr();
-                    assert(spt.mem@[exec::frame_addr_to_index(
+                    assert(spt.perms@[exec::frame_addr_to_index(
                         cur_entry.node.paddr(),
                     )].1@.mem_contents().is_init());
                     // SAFETY: It was forgotten at the above line.
@@ -831,7 +831,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
 
             assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
             assume(cur_entry.idx < nr_subpage_per_huge::<C>());
-            assume(spec_helpers::mpt_not_contains_not_allocated_frames(spt, exec::MAX_FRAME_NUM));
 
             let old = cur_entry.replace(Child::None, spt, cur_level, exec::MAX_FRAME_NUM);
             let item = match old {

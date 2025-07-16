@@ -98,14 +98,14 @@ requires
     assert(cursor.0.level == 4);
 
     let mut sub_page_table = SubPageTable {
-        mem: alloc_page_table_entries(),
+        perms: alloc_page_table_entries(),
         frames: Tracked(frames_token),
         ptes: Tracked(pte_token),
         instance: Tracked(instance.clone()),
     };
 
     let mut cur_alloc_index: usize = 0; // TODO: theoretically, this should be atomic
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem); // TODO: permission violation
+    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.perms); // TODO: permission violation
     let f = exec::create_new_frame(PHYSICAL_BASE_ADDRESS(), 4);
     assert(f.ptes[0].frame_pa == 0 as u64);
     p.write(Tracked(&mut pt), f);
@@ -117,18 +117,18 @@ requires
 
     assert(sub_page_table.wf());
 
-    assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
+    assert(sub_page_table.perms.len() == MAX_FRAME_NUM);
     assert(p.addr() == PHYSICAL_BASE_ADDRESS() as usize);
-    assert(sub_page_table.mem@.contains_key(cur_alloc_index));
+    assert(sub_page_table.perms@.contains_key(cur_alloc_index));
 
-    sub_page_table.mem.remove(&cur_alloc_index);
-    assert(sub_page_table.mem.len() == MAX_FRAME_NUM - 1);
-    sub_page_table.mem.insert(cur_alloc_index, (p, Tracked(pt)));
-    assert(sub_page_table.mem.len() == MAX_FRAME_NUM);
+    sub_page_table.perms.remove(&cur_alloc_index);
+    assert(sub_page_table.perms.len() == MAX_FRAME_NUM - 1);
+    sub_page_table.perms.insert(cur_alloc_index, (p, Tracked(pt)));
+    assert(sub_page_table.perms.len() == MAX_FRAME_NUM);
 
-    assert(sub_page_table.mem@[cur_alloc_index].1@.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
+    assert(sub_page_table.perms@[cur_alloc_index].1@.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
-    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem);
+    let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.perms);
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     assert(sub_page_table.wf());

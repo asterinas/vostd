@@ -76,8 +76,8 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         used_addr: usize,
     ) -> (res: Self) where Self: Sized
         requires
-            old(spt).mem@.contains_key(cur_alloc_index),
-            old(spt).mem@[cur_alloc_index].1@.mem_contents().is_uninit(),  // this means !spt.frames@.contains_key(used_addr) because spt is wf.
+            old(spt).perms@.contains_key(cur_alloc_index),
+            old(spt).perms@[cur_alloc_index].1@.mem_contents().is_uninit(),  // this means !spt.frames@.contains_key(used_addr) because spt is wf.
             forall|i: int|
                 old(spt).ptes@.value().contains_key(i) ==> (#[trigger] old(
                     spt,
@@ -103,12 +103,12 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
                     used_addr + i * exec::SIZEOF_PAGETABLEENTRY as int,
                 ),
             spt.frames@.value().contains_key(used_addr as int),
-            spt.mem@.contains_key(cur_alloc_index),
-            spt.mem@[cur_alloc_index].1@.mem_contents().is_init(),
+            spt.perms@.contains_key(cur_alloc_index),
+            spt.perms@[cur_alloc_index].1@.mem_contents().is_init(),
             // all frame_pa of allocated pte are 0
             forall|i: int|
                 0 <= i < NR_ENTRIES
-                    ==> #[trigger] spt.mem@[cur_alloc_index].1@.value().ptes[i].frame_pa == 0,
+                    ==> #[trigger] spt.perms@[cur_alloc_index].1@.value().ptes[i].frame_pa == 0,
             // spt still contains the old frames
             forall|i|
                 old(spt).frames@.value().contains_key(i) ==> spt.frames@.value().contains_key(i),
@@ -157,11 +157,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
     )
         requires
             idx < nr_subpage_per_huge::<C>(),
-            old(
-                spt,
-            ).wf(),
-    // old(spt).mem@[exec::frame_addr_to_index(self.paddr())].1@.mem_contents().is_init()
-
+            old(spt).wf(),
         ensures
             spt.wf(),
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
