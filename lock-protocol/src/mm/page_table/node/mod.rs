@@ -74,7 +74,6 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         spt: &mut exec::SubPageTable,
         cur_alloc_index: usize,
         used_addr: usize,
-        used_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_addrs>,
     ) -> (res: Self) where Self: Sized
         requires
             old(spt).mem@.contains_key(cur_alloc_index),
@@ -87,13 +86,10 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
                 0 <= i < NR_ENTRIES ==> !#[trigger] old(spt).ptes@.value().contains_key(
                     used_addr + i * exec::SIZEOF_PAGETABLEENTRY as int,
                 ),
-            used_addr_token@.element() == used_addr as int,
             old(spt).wf(),
             cur_alloc_index < exec::MAX_FRAME_NUM,
             cur_alloc_index < usize::MAX - 1,  // this is just for cur_alloc_index + 1 to be safe for the post condition
-            used_addr_token@.instance_id() == old(spt).instance@.id(),
             used_addr == exec::frame_index_to_addr(cur_alloc_index),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), cur_alloc_index),
             used_addr == exec::frame_index_to_addr(cur_alloc_index) as usize,
         ensures
             spt.instance@.id() == old(spt).instance@.id(),
@@ -116,11 +112,6 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
             // spt still contains the old frames
             forall|i|
                 old(spt).frames@.value().contains_key(i) ==> spt.frames@.value().contains_key(i),
-            spec_helpers::mpt_not_contains_not_allocated_frames(
-                spt,
-                #[verifier::truncate]
-                ((cur_alloc_index + 1) as usize),
-            ),
             spec_helpers::pte_keys_do_not_change(spt, old(spt)),
     ;
 
@@ -163,19 +154,12 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         spt: &mut exec::SubPageTable,
         level: PagingLevel,
         ghost_index: usize,
-        used_pte_addr_token: Option<
-            Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
-        >,
     )
         requires
             idx < nr_subpage_per_huge::<C>(),
-            old(spt).wf(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
-            used_pte_addr_token.is_some() ==> {
-                &&& used_pte_addr_token.unwrap()@.instance_id() == old(spt).instance@.id()
-                &&& used_pte_addr_token.unwrap()@.element() == self.paddr() + idx
-                    * exec::SIZEOF_PAGETABLEENTRY as int
-            },
+            old(
+                spt,
+            ).wf(),
     // old(spt).mem@[exec::frame_addr_to_index(self.paddr())].1@.mem_contents().is_init()
 
         ensures
@@ -183,7 +167,6 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
     ;
 
     // fn nr_children_mut(&mut self) -> &mut u16;

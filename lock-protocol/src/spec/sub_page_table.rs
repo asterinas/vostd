@@ -61,49 +61,19 @@ tokenized_state_machine! {
 SubPageTableStateMachine {
 
     fields {
+        /// Page table pages indexed by their physical address.
         #[sharding(variable)]
         pub frames: Map<int, FrameView>,
 
-        #[sharding(set)]
-        pub unused_addrs: Set<int>,
-
+        /// Page table entries indexed by their physical address.
         #[sharding(variable)]
         pub ptes: Map<int, PageTableEntryView>,
-
-        #[sharding(set)]
-        pub unused_pte_addrs: Set<int>,
     }
 
     init!{
         initialize() {
             init frames = Map::empty();
-            init unused_addrs = Set::full(); // TODO: P0 unused_addrs and unused_pte_addrs should be finite
-
             init ptes = Map::empty();
-            init unused_pte_addrs = Set::full();
-        }
-    }
-
-    transition! {
-        // create a pte at a given address
-        new_at(addr: int, newFrame: FrameView) {
-            require addr == newFrame.pa;
-            // require forall |i: int| 0 <= i < NR_ENTRIES ==> #[trigger] newFrame.ptes[i].frame_pa == 0;
-            require newFrame.pte_addrs.len() == 0;
-            // NOTE: wtf?! len() == 0 does not work and it does not mean empty
-            require newFrame.pte_addrs == Set::<int>::empty();
-
-            // no ptes for this frame
-            require forall |i: int| 0 <= i < NR_ENTRIES ==>
-                ! (#[trigger] pre.ptes.dom().contains(newFrame.pa + i * SIZEOF_PAGETABLEENTRY));
-
-            // no others point to addr
-            require forall |i: int| pre.ptes.contains_key(i) ==>
-                (#[trigger] pre.ptes[i]).frame_pa != addr;
-
-            remove unused_addrs -= set { addr };
-
-            update frames = pre.frames.insert(addr, newFrame);
         }
     }
 
@@ -146,8 +116,6 @@ SubPageTableStateMachine {
             let pte_addr = parent + index * SIZEOF_PAGETABLEENTRY;
             // require !pre.frames[parent].pte_addrs.contains(pte_addr);
             // require !pre.ptes.dom().contains(pte_addr);
-
-            remove unused_pte_addrs -= set { pte_addr };
 
             update frames = pre.frames.insert(parent, FrameView {
                 pa: pre.frames[parent].pa,
@@ -203,8 +171,6 @@ SubPageTableStateMachine {
             // pre.frames.insert().remove(); TODO: this is not supported by verus
 
             update ptes = pre.ptes.remove(pte_addr);
-            // add unused_addrs += set { child_addr };
-            add unused_pte_addrs += set { pte_addr };
         }
     }
 
@@ -222,8 +188,6 @@ SubPageTableStateMachine {
         assert(!post.frames[parent].pte_addrs.contains(pte_addr));
         assert(!post.ptes.dom().contains(pte_addr));
 
-        // assert(post.unused_addrs.contains(child_addr));
-        assert(post.unused_pte_addrs.contains(pte_addr));
         assert(forall |i: int| #[trigger] post.frames[parent].pte_addrs.contains(i) ==>
             post.ptes.dom().contains(i));
         assert(forall |i: int| #[trigger] post.frames[child_addr].pte_addrs.contains(i) ==>
@@ -238,7 +202,6 @@ SubPageTableStateMachine {
         assert(pre.frames[parent].pa == parent);
         assert(pre.frames[child].pa == child);
         assert(!pre.frames[parent].pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY));
-        assert(pre.unused_pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY));
         assert(forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
             pre.ptes.dom().contains(i));
         assert(forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
@@ -258,23 +221,6 @@ SubPageTableStateMachine {
                 (#[trigger] post.ptes[i]).frame_pa == parent ==> post.ptes[i].level == level + 1);
         assert(forall |i: int| #[trigger] pre.ptes.contains_key(i) ==>
                 (#[trigger] post.ptes[i]).frame_pa == child ==> post.ptes[i].level == level);
-    }
-
-    #[inductive(new_at)]
-    pub fn tr_new_at_invariant(pre: Self, post: Self, addr: int, newFrame: FrameView) {
-        assert(!pre.frames.contains_key(addr));
-        assert(pre.unused_addrs.contains(addr));
-
-        assert(post.frames.contains_key(addr));
-        assert(post.frames[addr] == newFrame);
-        assert(!post.unused_addrs.contains(addr));
-        assert(post.frames[addr].pte_addrs.len() == 0);
-        assert(pre.ptes == post.ptes);
-
-        broadcast use vstd::set::group_set_axioms;
-        assert(post.frames[addr].pte_addrs.len() == 0);
-        assert(forall |pte_addr:int| #[trigger] post.frames[addr].pte_addrs.contains(pte_addr) ==>
-            post.ptes.dom().contains(pte_addr));
     }
 
     #[inductive(initialize)]
@@ -309,20 +255,6 @@ SubPageTableStateMachine {
                 &&& self.ptes[pte_addr].frame_pa != 0
                 &&& self.ptes[pte_addr].frame_pa as u64 != 0
             }
-    }
-
-    #[invariant]
-    pub closed spec fn unused_addrs_are_not_in_frames(&self) -> bool {
-        &&& forall |addr: int|
-            #![trigger self.unused_addrs.contains(addr)]
-            #![trigger self.frames.dom().contains(addr)]
-            self.unused_addrs.contains(addr)
-              <==> !self.frames.dom().contains(addr)
-        &&& forall |addr: int|
-            #![trigger self.ptes.dom().contains(addr)]
-            #![trigger self.unused_pte_addrs.contains(addr)]
-            self.unused_pte_addrs.contains(addr)
-              <==> !self.ptes.dom().contains(addr)
     }
 
 }

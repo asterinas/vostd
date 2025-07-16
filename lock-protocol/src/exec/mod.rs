@@ -255,7 +255,6 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut exec::SubPageTable,
         cur_alloc_index: usize,
         used_addr: usize,
-        used_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_addrs>,
     ) -> (res: Self) where Self: Sized {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
         broadcast use vstd::hash_map::group_hash_map_axioms;
@@ -274,13 +273,6 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
 
         proof {
             assert(!spt.frames@.value().contains_key(used_addr as int));
-            spt.instance.get().new_at(
-                p.addr() as int,
-                sub_page_table::FrameView { pa: p.addr() as int, pte_addrs: Set::empty() },
-                spt.frames.borrow_mut(),
-                used_addr_token.get(),
-                spt.ptes.borrow_mut(),
-            );
         }
 
         assert(0 <= frame_addr_to_index(used_addr) < MAX_FRAME_NUM as usize);
@@ -368,9 +360,6 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut SubPageTable,
         level: crate::mm::PagingLevel,
         ghost_index: usize,
-        used_pte_addr_token: Option<
-            Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
-        >,
     )
         ensures
             spt.wf(),
@@ -393,8 +382,6 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         // between spt.mem and spt.frames
         p.write(Tracked(&mut pt), frame);
 
-        assume(used_pte_addr_token.is_some());
-        let used_pte_addr_token = used_pte_addr_token.unwrap();
         // TODO: it seems we should not allocate here
         proof {
             // TODO: P0 assumes, need more wf specs
@@ -435,12 +422,10 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
                 level as usize,
                 spt.frames.borrow_mut(),
                 spt.ptes.borrow_mut(),
-                used_pte_addr_token.get(),
             );
         }
         assume(spt.wf());  // TODO: P0
         assume(spec_helpers::frame_keys_do_not_change(spt, old(spt)));  // TODO: P0
-        assume(spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index));
     }
 
     #[verifier::external_body]
@@ -524,14 +509,6 @@ struct_with_invariants!{
                 i < (PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM) as int
         }
     }
-}
-
-pub tracked struct Tokens {
-    pub tracked unused_addrs: Map<int, sub_page_table::SubPageTableStateMachine::unused_addrs>,
-    pub tracked unused_pte_addrs: Map<
-        int,
-        sub_page_table::SubPageTableStateMachine::unused_pte_addrs,
-    >,
 }
 
 pub fn main_test() {

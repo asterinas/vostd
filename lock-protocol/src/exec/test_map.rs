@@ -79,14 +79,8 @@ requires
     let tracked (
         Tracked(instance),
         Tracked(frames_token),
-        Tracked(unused_addrs),
         Tracked(pte_token),
-        Tracked(unused_pte_addrs),
     ) = sub_page_table::SubPageTableStateMachine::Instance::initialize();
-    let tracked tokens = Tokens {
-        unused_addrs: unused_addrs.into_map(),
-        unused_pte_addrs: unused_pte_addrs.into_map(),
-    };
 
     // TODO: use Cursor::new
     let mut cursor =
@@ -137,16 +131,6 @@ requires
     let (p, Tracked(pt)) = get_frame_from_index(cur_alloc_index, &sub_page_table.mem);
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
-    // assert(sub_page_table.wf()); this should fail
-    proof{
-        let tracked used_addr = tokens.unused_addrs.tracked_remove(p.addr()as int);
-        assert(used_addr.element() == p.addr() as int);
-
-        instance.new_at(p.addr() as int, sub_page_table::FrameView {
-            pa: p.addr() as int,
-            pte_addrs: Set::empty(),
-        }, sub_page_table.frames.borrow_mut(), used_addr, sub_page_table.ptes.borrow_mut());
-    }
     assert(sub_page_table.wf());
 
     cur_alloc_index = cur_alloc_index + 1;
@@ -162,7 +146,6 @@ requires
     )); // root
 
     cursor.map(frame, page_prop,
-        Tracked(tokens),
         &mut sub_page_table,
         &mut cur_alloc_index
     );
