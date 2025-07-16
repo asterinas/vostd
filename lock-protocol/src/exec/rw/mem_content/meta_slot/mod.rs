@@ -3,9 +3,13 @@ pub mod mapping;
 use builtin::*;
 use builtin_macros::*;
 use vstd::prelude::*;
-use vstd::raw_ptr::{PointsTo};
+use vstd::{
+    raw_ptr::{PointsTo},
+    cell::{self, PCell},
+};
 
 use crate::spec::{common::*, utils::*};
+use crate::exec::PageTableConfig;
 use super::super::{common::*, types::*};
 use super::super::node::rwlock::PageTablePageRwLock;
 
@@ -38,101 +42,123 @@ struct_with_invariants! {
     }
 }
 
+/// The maximum number of bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE - 24;
+
+/// The maximum alignment in bytes of the metadata of a frame.
+pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
+
+pub const META_SLOT_SIZE: usize = 96;
+
 pub enum MetaSlotType {
     PageTablePageMeta,
     Others,
 }
 
-struct_with_invariants! {
-    pub struct MetaSlot {
-        pub usage: MetaSlotType,
-        pub inner: Option<PageTablePageMeta>,
-    }
-
-    pub open spec fn wf(&self) -> bool {
-        predicate {
-            &&& self.usage is PageTablePageMeta <==> self.inner is Some
-            &&& self.inner is Some ==> self.inner->Some_0.wf()
-        }
-    }
+pub struct MetaSlot {
+    /// The metadata of a frame.
+    ///
+    /// It is placed at the beginning of a slot because:
+    ///  - the implementation can simply cast a `*const MetaSlot`
+    ///    to a `*const AnyFrameMeta` for manipulation;
+    ///  - if the metadata need special alignment, we can provide
+    ///    at most `PAGE_METADATA_ALIGN` bytes of alignment;
+    ///  - the subsequent fields can utilize the padding of the
+    ///    reference count to save space.
+    ///
+    /// Don't interpret this field as an array of bytes. It is a
+    /// placeholder for the metadata of a frame.
+    pub storage: PCell<[u8; FRAME_METADATA_MAX_SIZE]>,
 }
 
 impl MetaSlot {
-    pub open spec fn is_pt(&self) -> bool {
-        self.usage is PageTablePageMeta
-    }
-
-    pub open spec fn get_inner_pt_spec(&self) -> PageTablePageMeta
-        recommends
-            self.is_pt(),
-    {
-        self.inner->Some_0
-    }
-
-    pub fn get_inner_pt(&self) -> (res: &PageTablePageMeta)
+    #[verifier::external_body]
+    pub fn get_inner_pt(&self, Tracked(perm): Tracked<&MetaSlotPerm>) -> (res: &PageTablePageMeta)
         requires
-            self.wf(),
-            self.is_pt(),
+            perm.is_pt(),
+            perm.wf(),
+            perm.metadata_perm()@.pcell == self.storage.id(),
         ensures
-            *res =~= self.get_inner_pt_spec(),
+            *res =~= perm.get_pt(),
+            res.wf(),
     {
-        self.inner.as_ref().unwrap()
+        unimplemented!()
     }
 }
 
 pub tracked struct MetaSlotPerm {
-    pub inner: PointsTo<MetaSlot>,
-    pub slot_idx: nat,
+    pub ghost usage: MetaSlotType,
+    pub ptr_perm: PointsTo<MetaSlot>,
+    pub metadata_perm: cell::PointsTo<[u8; FRAME_METADATA_MAX_SIZE]>,
 }
 
 impl MetaSlotPerm {
+    #[verifier::inline]
+    pub open spec fn ptr(&self) -> *const MetaSlot {
+        self.ptr_perm.ptr()
+    }
+
+    #[verifier::inline]
+    pub open spec fn ptr_perm(&self) -> PointsTo<MetaSlot> {
+        self.ptr_perm
+    }
+
+    #[verifier::inline]
+    pub open spec fn metadata_perm(&self) -> cell::PointsTo<[u8; FRAME_METADATA_MAX_SIZE]> {
+        self.metadata_perm
+    }
+
+    #[verifier::inline]
+    pub open spec fn usage(&self) -> MetaSlotType {
+        self.usage
+    }
+
+    #[verifier::inline]
+    pub open spec fn is_pt(&self) -> bool {
+        self.usage() is PageTablePageMeta
+    }
+
+    #[verifier::inline]
     pub open spec fn relate(&self, ptr: *const MetaSlot) -> bool {
-        &&& self.inner.ptr() == ptr
+        &&& self.ptr() == ptr
+    }
+
+    pub uninterp spec fn interp_storage_as_pt(
+        metadata: [u8; FRAME_METADATA_MAX_SIZE],
+    ) -> PageTablePageMeta;
+
+    pub open spec fn get_pt(&self) -> PageTablePageMeta
+        recommends
+            self.is_pt(),
+    {
+        Self::interp_storage_as_pt(self.metadata_perm().value())
     }
 
     pub open spec fn wf(&self) -> bool {
-        //&&& 0 <= self.slot_idx < meta_slot_array.len()
-        //&&& self.relate(meta_slot_array.vec[self.slot_idx as int])
-        &&& self.inner.is_init()
-        &&& self.inner.value().wf()
-        &&& self.inner.value().is_pt() ==> {
+        &&& self.ptr_perm().is_init()
+        &&& self.metadata_perm().is_init()
+        &&& self.metadata_perm()@.pcell == self.value().storage.id()
+        &&& self.is_pt() ==> {
             &&& self.frame_paddr() == meta_to_frame(self.meta_vaddr())
             &&& frame_to_meta(self.frame_paddr()) == self.meta_vaddr()
         }
     }
 
-    pub open spec fn is_pt(&self) -> bool {
-        self.inner.value().is_pt()
+    pub open spec fn frame_paddr(&self) -> Paddr
+        recommends
+            self.is_pt(),
+    {
+        self.get_pt().frame_paddr
     }
 
-    pub open spec fn frame_paddr(&self) -> Paddr {
-        self.inner.value().get_inner_pt_spec().frame_paddr
-    }
-
+    #[verifier::inline]
     pub open spec fn meta_vaddr(&self) -> Vaddr {
-        self.inner.ptr() as usize
+        self.ptr() as usize
     }
 
+    #[verifier::inline]
     pub open spec fn value(&self) -> MetaSlot {
-        self.inner.value()
-    }
-}
-
-struct_with_invariants! {
-    pub struct MetaSlotArray {
-        pub vec: Vec<* const MetaSlot>,
-    }
-
-    pub open spec fn wf(&self) -> bool {
-        predicate {
-            &&& self.vec@.len() == GLOBAL_FRAME_NUM
-        }
-    }
-}
-
-impl MetaSlotArray {
-    pub open spec fn len(&self) -> nat {
-        self.vec@.len()
+        self.ptr_perm().value()
     }
 }
 

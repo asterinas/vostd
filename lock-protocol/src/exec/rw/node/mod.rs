@@ -28,7 +28,7 @@ pub struct PageTableNode {
 // Functions defined in struct 'Frame'.
 impl PageTableNode {
     pub open spec fn meta_spec(&self) -> PageTablePageMeta {
-        self.perm@.value().get_inner_pt_spec()
+        self.perm@.get_pt()
     }
 
     pub fn meta(&self) -> (res: &PageTablePageMeta)
@@ -37,9 +37,9 @@ impl PageTableNode {
         ensures
             *res =~= self.meta_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(perm)));
-        &meta_slot.get_inner_pt()
+        let tracked perm = self.perm.borrow();
+        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(&perm.ptr_perm)));
+        &meta_slot.get_inner_pt(Tracked(perm))
     }
 
     pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
@@ -86,6 +86,7 @@ impl PageTableNode {
         &&& self.perm@.wf()
         &&& self.perm@.relate(self.ptr)
         &&& self.perm@.is_pt()
+        &&& self.meta_spec().wf()
         &&& NodeHelper::valid_nid(self.nid@)
         &&& self.nid@ == self.meta_spec().nid@
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -102,9 +103,9 @@ impl PageTableNode {
         ensures
             res == self.level_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
-        meta_slot.get_inner_pt().level
+        let tracked perm = self.perm.borrow();
+        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(&perm.ptr_perm)));
+        meta_slot.get_inner_pt(Tracked(&perm)).level
     }
 
     pub fn lock_write(self, m: Tracked<LockProtocolModel>) -> (res: (
