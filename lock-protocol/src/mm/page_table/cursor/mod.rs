@@ -762,14 +762,14 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         // non ghost, but it should be
         spt: &mut exec::SubPageTable,
     ) -> PageTableItem
-    requires
-        old(spt).wf(),
-        old(self).0.va + len < MAX_USERSPACE_VADDR,
-        level_is_greate_than_one(old(self).0.level),
-        old(self).0.level <= C::NR_LEVELS(),
-        len % page_size::<C>(1) == 0,
-        old(self).path_valid_before_map(),
-        old(self).0.va + page_size::<C>(old(self).0.level) < old(self).0.va + len,
+        requires
+            old(spt).wf(),
+            old(self).0.va + len < MAX_USERSPACE_VADDR,
+            level_is_greate_than_one(old(self).0.level),
+            old(self).0.level <= C::NR_LEVELS(),
+            len % page_size::<C>(1) == 0,
+            old(self).path_valid_before_map(),
+            old(self).0.va + page_size::<C>(old(self).0.level) < old(self).0.va + len,
     {
         let start = self.0.va;
         assert(len % page_size::<C>(1) == 0);
@@ -782,14 +782,14 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         } = tokens.get();  // TODO: can we just use the tokens inside the loop?
 
         while self.0.va < end
-        invariant
-            spt.wf(),
-            self.0.level > 1,
-            self.0.level <= PagingConsts::NR_LEVELS(), // TODO: change to C::NR_LEVELS()
-            self.0.level <= C::NR_LEVELS(),
-            self.0.va + page_size::<C>(self.0.level) < end,
-            self.0.va + len < MAX_USERSPACE_VADDR,
-        decreases end - self.0.va,
+            invariant
+                spt.wf(),
+                self.0.level > 1,
+                self.0.level <= PagingConsts::NR_LEVELS(),  // TODO: change to C::NR_LEVELS()
+                self.0.level <= C::NR_LEVELS(),
+                self.0.va + page_size::<C>(self.0.level) < end,
+                self.0.va + len < MAX_USERSPACE_VADDR,
+            decreases end - self.0.va,
         {
             let cur_va = self.0.va;
             let cur_level = self.0.level;
@@ -806,7 +806,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     break ;
                 }
                 self.0.move_forward();
-                self.0.va = self.0.va + 1; // TODO: realize move_forward
+                self.0.va = self.0.va + 1;  // TODO: realize move_forward
 
                 assume(self.0.va + page_size::<C>(self.0.level) < end);
                 assume(self.0.va + len < MAX_USERSPACE_VADDR);
@@ -838,7 +838,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                                 break ;
                             }
                             self.0.move_forward();
-                            self.0.va = self.0.va + 1; // TODO: realize move_forward
+                            self.0.va = self.0.va + 1;  // TODO: realize move_forward
                         }
                     },
                     Child::PageTable(_) => {
@@ -867,7 +867,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     },
                 }
 
-                self.0.va = self.0.va + 1; // TODO: realize move_forward
+                self.0.va = self.0.va + 1;  // TODO: realize move_forward
                 assume(self.0.va + page_size::<C>(self.0.level) < end);
                 assume(1 < self.0.level <= PagingConsts::NR_LEVELS_SPEC());
                 assume(self.0.va + len < MAX_USERSPACE_VADDR);
@@ -881,7 +881,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 unused_pte_addrs.tracked_remove(unused_pte_addrs.dom().choose());
             }
             // Unmap the current page and return it.
-
 
             assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
             assume(cur_entry.idx < nr_subpage_per_huge::<C>());
@@ -936,8 +935,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         len: page_size::<C>(self.0.level),
                     }
                 },
-                Child::None | Child::PageTableRef(_) => {
-                    PageTableItem::NotMapped { va: 0, len: 0 }
+                Child::None | Child::PageTableRef(_) => { PageTableItem::NotMapped { va: 0, len: 0 }
                 },
             };
 
