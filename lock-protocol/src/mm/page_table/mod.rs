@@ -209,6 +209,7 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
+    #[verifier::when_used_as_spec(is_present_spec)]
     fn is_present(&self, spt: &exec::SubPageTable) -> (res: bool)
         requires
             spt.wf(),
@@ -222,6 +223,8 @@ Sized {
             !res ==> !spt.ptes@.value().contains_key(self.pte_paddr() as int),
             spt.wf(),
     ;
+
+    spec fn is_present_spec(&self, spt: &exec::SubPageTable) -> bool;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self);

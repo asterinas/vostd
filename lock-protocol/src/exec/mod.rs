@@ -107,6 +107,10 @@ impl PageTableEntryTrait for MockPageTableEntry {
         self.frame_pa != 0
     }
 
+    open spec fn is_present_spec(&self, spt: &SubPageTable) -> bool {
+        self.frame_pa != 0
+    }
+
     fn frame_paddr(&self) -> (res: usize) {
         self.frame_pa as usize
     }

@@ -95,7 +95,7 @@ impl MockGlobalAllocator {
             res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
             forall|i: usize|
                 0 <= i < MAX_FRAME_NUM ==> {
-                    if self.frames[i as int].is_some() {
+                    if #[trigger] self.frames[i as int].is_some() {
                         self.frames[i as int].unwrap().1@.pptr() == self.frames[i as int].unwrap().0
                     } else {
                         true

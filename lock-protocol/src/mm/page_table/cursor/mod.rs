@@ -551,54 +551,44 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     assert(false);
                 },
                 Child::None => {
-                    let preempt_guard = crate::task::disable_preempt();  // TODO: currently nothing happens, we may need a machine model
+                    assert(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
 
-                    let pt = PTL::alloc(
-                        cur_level - 1,
+                    let pt = cur_entry.alloc_if_none(
+                        self.0.level,
                         MapTrackingStatus::Tracked,
+                        spt,
                         Tracked(alloc_model),
-                    );
+                    ).unwrap();
 
-                    let paddr = pt.into_raw_paddr();
-                    assert(spt.perms@[exec::frame_addr_to_index(
-                        cur_entry.node.paddr(),
-                    )].1@.mem_contents().is_init());
-                    // SAFETY: It was forgotten at the above line.
-                    let _ = cur_entry.replace(
-                        Child::<C>::PageTable(
-                        // unsafe { PageTableNode::from_raw(paddr) }
-                        PageTableNode::from_raw(paddr)),
+                    assert(spt.frames@.value().contains_key(pt as int));
+
+                    let child_pt = PTL::from_raw_paddr(pt);
+
+                    assume(self.0.points_to(
                         self.0.level,
                         spt,
-                        Tracked(alloc_model),
-                    );  // alloc pte here
-                    // SAFETY: `pt` points to a PT that is attached to a node
-                    // in the locked sub-tree, so that it is locked and alive.
+                        self.0.path[self.0.level as usize - 1].unwrap(),
+                        child_pt,
+                    ));
                     assume(self.0.path_wf(spt));
-                    assume(exec::get_pte_from_addr(
-                        #[verifier::truncate]
-                        ((self.0.path[self.0.level - 1].unwrap().paddr() + pte_index::<C>(
-                            self.0.va,
-                            (self.0.level) as u8,
-                        ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
-                        spt,
-                    ).frame_paddr() == paddr);  // TODO: set pte.frame_paddr
 
-                    self.0.push_level(PTL::from_raw_paddr(paddr), root_level, spt);
+                    self.0.push_level(child_pt, root_level, spt);
 
-                    // TODO: P0 see @path_matchs_page_table
+                    // the post condition
                     assume(self.0.sub_page_table_valid_before_map_level(
                         spt,
                         &frame,
-                        old(self).0.level,
-                        self.0.path[old(self).0.level as usize - 1].unwrap().paddr() as int,
+                        root_level@,
+                        /* root */
+                        root_addr as int,
+                        /* last level */
                         self.0.level,
                     ));
                     assume(self.0.path_matchs_page_table(
                         spt,
-                        old(self).0.level,
+                        root_level@,
                         /* root */
-                        self.0.path[old(self).0.level as usize - 1].unwrap().paddr() as int,
+                        root_addr as int,
                         /* last level */
                         self.0.level,
                     ));

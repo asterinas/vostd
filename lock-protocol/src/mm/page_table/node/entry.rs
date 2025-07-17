@@ -98,8 +98,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    // TODO: Implement replace
-    // #[verifier::external_body]
     pub(in crate::mm) fn replace(
         self,
         new_child: Child<C>,
@@ -159,6 +157,50 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         old_child
         // unimplemented!()
 
+    }
+
+    #[verifier::external_body]
+    pub(in crate::mm) fn alloc_if_none(
+        self,
+        level: PagingLevel,
+        is_tracked: MapTrackingStatus,
+        spt: &mut exec::SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
+    ) -> (res: Option<usize>)
+        requires
+            old(spt).wf(),
+            old(alloc_model).invariants(),
+            self.idx < nr_subpage_per_huge::<C>(),
+            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
+        ensures
+            spt.wf(),
+            alloc_model.invariants(),
+            spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
+            spt.instance@.id() == old(spt).instance@.id(),
+            frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
+            if old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int) {
+                res is None
+            } else {
+                res is Some && spt.frames@.value().contains_key(res.unwrap() as int)
+            },
+    {
+        if !self.pte.is_present(spt) {
+            // The entry is already present.
+            return None;
+        }
+        let pt = PTL::alloc(level - 1, MapTrackingStatus::Tracked, Tracked(alloc_model));
+        let paddr = pt.into_raw_paddr();
+
+        self.node.write_pte(
+            self.idx,
+            Child::<C>::PageTable(PageTableNode::from_raw(paddr)).into_pte(),
+            level,
+            spt,
+            Tracked(alloc_model),
+        );
+
+        Some(paddr)
     }
 
     /// Create a new entry at the node.
