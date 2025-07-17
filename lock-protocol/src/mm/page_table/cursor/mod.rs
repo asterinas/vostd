@@ -444,11 +444,11 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         prop: PageProperty,
         // non ghost
         spt: &mut exec::SubPageTable,
-        alloc_model: &mut AllocatorModel,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Option<Frame>)
         requires
-            old(alloc_model).wf(),
-            // cursor validation
+    // cursor validation
+
             old(spt).wf(),
             old(self).va_valid(frame, None),
             level_is_greate_than_one(old(self).0.level),
@@ -456,7 +456,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             old(self).0.path_wf(old(spt)),
             // page table validation
             old(self).0.sub_page_table_valid_before_map(old(spt)),
-            spt_contains_no_unallocated_frames(old(spt), *old(alloc_model)),
+            spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
             // path
             old(self).0.path_matchs_page_table(
                 old(spt),
@@ -467,7 +467,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         ensures
             self.path_valid_after_map(old(self)),
             spt.wf(),
-            alloc_model.wf(),
             // the post condition
             self.0.sub_page_table_valid_after_map(
                 spt,
@@ -501,7 +500,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 ).0.path[path_index_at_level(root_level@)],
                 root_level@ >= self.0.level,
                 spt.wf(),
-                alloc_model.wf(),
                 forall|i: int|
                     path_index_at_level(self.0.level) <= i <= path_index_at_level(old(self).0.level)
                         ==> #[trigger] spt.frames@.value().contains_key(
@@ -553,8 +551,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     let pt = PTL::alloc(
                         cur_level - 1,
                         MapTrackingStatus::Tracked,
-                        spt,
-                        alloc_model,
+                        Tracked(alloc_model),
                     );
 
                     let paddr = pt.into_raw_paddr();
@@ -566,9 +563,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         Child::<C>::PageTable(
                         // unsafe { PageTableNode::from_raw(paddr) }
                         PageTableNode::from_raw(paddr)),
-                        spt,
                         self.0.level,
-                        alloc_model,
+                        spt,
+                        Tracked(alloc_model),
                     );  // alloc pte here
                     // SAFETY: `pt` points to a PT that is attached to a node
                     // in the locked sub-tree, so that it is locked and alive.
@@ -635,9 +632,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         // Map the current page.
         let old_entry = cur_entry.replace(
             Child::Frame(frame, prop),
-            spt,
             self.0.level,
-            alloc_model,
+            spt,
+            Tracked(alloc_model),
         );
         self.0.move_forward();
 
@@ -707,8 +704,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
     pub unsafe fn take_next(
         &mut self,
         len: usize,
-        // non ghost, but it should be
         spt: &mut exec::SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> PageTableItem
         requires
             old(spt).wf(),
@@ -821,7 +818,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
             assume(cur_entry.idx < nr_subpage_per_huge::<C>());
 
-            let old = cur_entry.replace(Child::None, spt, cur_level, exec::MAX_FRAME_NUM);
+            let old = cur_entry.replace(Child::None, cur_level, spt, Tracked(alloc_model));
             let item = match old {
                 Child::Frame(page, prop) => PageTableItem::Mapped { va: self.0.va, page, prop },
                 Child::Untracked(pa, level, prop) => {

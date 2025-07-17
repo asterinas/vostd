@@ -103,20 +103,15 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     pub(in crate::mm) fn replace(
         self,
         new_child: Child<C>,
-        spt: &mut exec::SubPageTable,
         level: PagingLevel,
-        alloc_model: &AllocatorModel,
+        spt: &mut exec::SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Child<C>)
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
-            spec_helpers::spt_contains_no_unallocated_frames(
-                old(spt),
-                alloc_model,
-            ),
-    // old(spt).mem@[exec::frame_addr_to_index(self.node.paddr())].1@.mem_contents().is_init()
-
+            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
         ensures
             spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance@.id() == old(spt).instance@.id(),
@@ -152,12 +147,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         //  2. The new PTE is compatible with the page table node, as asserted above.
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
 
-        self.node.write_pte(
-            self.idx,
-            new_child.into_pte(spt, alloc_model),
-            spt,
-            level,
-        );
+        self.node.write_pte(self.idx, new_child.into_pte(), level, spt, Tracked(alloc_model));
 
         // TODO: P0
         assume(spt.ptes@.value().contains_key(self.pte.pte_paddr() as int));

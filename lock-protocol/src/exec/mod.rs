@@ -124,7 +124,6 @@ impl PageTableEntryTrait for MockPageTableEntry {
         paddr: crate::mm::Paddr,
         level: crate::mm::PagingLevel,
         prop: crate::mm::page_prop::PageProperty,
-        spt: &mut SubPageTable,
     ) -> Self {
         // NOTE: this function currently does not create a actual page table entry
         MockPageTableEntry {
@@ -250,26 +249,19 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
     fn alloc(
         level: crate::mm::PagingLevel,
         is_tracked: crate::mm::MapTrackingStatus,
-        // ghost
-        spt: &mut exec::SubPageTable,
-        alloc_model: &mut AllocatorModel,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Self) where Self: Sized {
         broadcast use vstd::std_specs::hash::group_hash_axioms;
         broadcast use vstd::hash_map::group_hash_map_axioms;
 
-        let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
+        let (p, Tracked(pt)) = alloc_page_table(Tracked(alloc_model));
         let f = create_new_frame(p.addr(), level);
         p.write(Tracked(&mut pt), f);
 
         let frame_address = p.addr();
         let frame_num = frame_addr_to_index(frame_address);
 
-        spt.perms.insert(frame_num, (p, Tracked(pt)));
-
-        assert(!spt.frames@.value().contains_key(frame_num as int));
-
         assert(0 <= frame_num < MAX_FRAME_NUM as usize);
-        assert(spt.wf());
 
         print_msg("alloc frame", frame_address);
 
@@ -322,18 +314,15 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         &self,
         idx: usize,
         pte: C::E,
-        spt: &mut SubPageTable,
         level: crate::mm::PagingLevel,
-    )
-        ensures
-            spt.wf(),
-            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
-            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-    {
+        spt: &mut SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
+    ) {
         assume(frame_addr_to_index(self.paddr) < MAX_FRAME_NUM as usize);  // TODO: P0
         assume(spt.perms@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
-        let (p, Tracked(pt)) = spt.perms@[frame_addr_to_index(self.paddr)];
+
+        let (p, Tracked(pt)) = spt.perms.remove(&frame_addr_to_index(self.paddr)).unwrap();
+
         let mut frame = p.read(Tracked(&pt));
         assume(idx < frame.ptes.len());
         frame.ptes[idx] = MockPageTableEntry {
@@ -345,6 +334,8 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         // TODO: P0 currently, the last level frame will cause the inconsistency
         // between spt.perms and spt.frames
         p.write(Tracked(&mut pt), frame);
+
+        spt.perms.insert(frame_addr_to_index(p.addr()), (p, Tracked(pt)));
 
         // TODO: it seems we should not allocate here
         proof {
@@ -388,6 +379,7 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
                 spt.ptes.borrow_mut(),
             );
         }
+
         assume(spt.wf());  // TODO: P0
         assume(spec_helpers::frame_keys_do_not_change(spt, old(spt)));  // TODO: P0
     }

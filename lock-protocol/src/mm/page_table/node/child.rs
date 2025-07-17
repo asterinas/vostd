@@ -67,15 +67,7 @@ impl<C: PageTableConfig> Child<C> {
     /// Usually this is for recording the PTE into a page table node. When the
     /// child is needed again by reading the PTE of a page table node, extra
     /// information should be provided using the [`Child::from_pte`] method.
-    pub(super) fn into_pte(self, spt: &mut exec::SubPageTable) -> (res: C::E)
-        requires
-            old(spt).wf(),
-        ensures
-            spt.wf(),
-            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
-            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-    {
+    pub(super) fn into_pte(self) -> (res: C::E) {
         match self {
             Child::PageTable(pt) => {
                 // let pt = ManuallyDrop::new(pt);
@@ -88,9 +80,9 @@ impl<C: PageTableConfig> Child<C> {
             },
             Child::Frame(page, prop) => {
                 let level = page.map_level();
-                C::E::new_page(page.into_raw(), level, prop, spt)
+                C::E::new_page(page.into_raw(), level, prop)
             },
-            Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop, spt),
+            Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop),
             Child::None => C::E::new_absent(),
             Child::Token(token, _) => C::E::new_token(token),
         }

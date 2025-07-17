@@ -105,9 +105,9 @@ requires
         instance: Tracked(instance.clone()),
     };
 
-    let mut alloc_model = AllocatorModel::new();
+    let tracked mut alloc_model = AllocatorModel { allocated_addrs: Set::empty() };
 
-    let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
+    let (p, Tracked(pt)) = alloc_page_table(Tracked(&mut alloc_model));
     let f = exec::create_new_frame(PHYSICAL_BASE_ADDRESS(), 4);
     assert(f.ptes[0].frame_pa == 0 as u64);
     p.write(Tracked(&mut pt), f);
@@ -124,7 +124,7 @@ requires
 
     sub_page_table.perms.insert(frame_addr_to_index(p.addr()), (p, Tracked(pt)));
 
-    let (p, Tracked(pt)) = alloc_page_table(&mut alloc_model);
+    let (p, Tracked(pt)) = alloc_page_table(Tracked(&mut alloc_model));
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     assert(sub_page_table.wf());
@@ -141,7 +141,7 @@ requires
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,
-        &mut alloc_model
+        Tracked(&mut alloc_model)
     );
 
     assert(cursor.0.path.len() == NR_LEVELS as usize);

@@ -15,10 +15,17 @@ use vstd::tokens::SetToken;
 use crate::{
     helpers::align_ext::align_down,
     mm::{
-        child::Child, entry::Entry, frame::{self, allocator::AllocatorModel}, meta::AnyFrameMeta, node::PageTableNode,
-        nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token, Frame,
-        MapTrackingStatus, Paddr, PageTableLockTrait, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES,
-        PAGE_SIZE,
+        child::Child,
+        entry::Entry,
+        frame::{self, allocator::AllocatorModel},
+        meta::AnyFrameMeta,
+        node::PageTableNode,
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
+        vm_space::Token,
+        Frame, MapTrackingStatus, Paddr, PageTableLockTrait, Vaddr, MAX_USERSPACE_VADDR,
+        NR_ENTRIES, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     x86_64::VMALLOC_VADDR_RANGE,
@@ -51,15 +58,12 @@ pub open spec fn spt_contains_no_unallocated_frames(
     spt: &exec::SubPageTable,
     alloc_model: &AllocatorModel,
 ) -> bool {
-    &&& forall|i: usize| #[trigger] spt.frames@.value().contains_key(
-            exec::frame_index_to_addr(i) as int,
-        ) ==> alloc_model.allocated_addrs.contains(
-            exec::frame_index_to_addr(i) as int,
-        )
-    &&& forall|i: usize| #[trigger] spt.ptes@.value().contains_key(
-            i as int,
-        ) ==> alloc_model.allocated_addrs.contains(
-            spt.ptes@[i].frame_pa as int,
+    &&& forall|i: usize| #[trigger]
+        spt.frames@.value().contains_key(exec::frame_index_to_addr(i) as int)
+            ==> alloc_model.allocated_addrs.contains(exec::frame_index_to_addr(i) as int)
+    &&& forall|i: usize| #[trigger]
+        spt.ptes@.value().contains_key(i as int) ==> alloc_model.allocated_addrs.contains(
+            spt.ptes@.value()[i as int].frame_pa as int,
         )
 }
 

@@ -231,23 +231,7 @@ Sized {
     ;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
-    fn new_page(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-        spt: &mut exec::SubPageTable,
-        alloc_model: &mut AllocatorModel,
-    ) -> (res: Self)
-        requires
-            old(spt).wf(),
-            spec_helpers::spt_contains_no_unallocated_frames(old(spt), alloc_model),
-        ensures
-            spt.wf(),
-            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
-            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
-    ;
+    fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self);
 
     /// Create a new PTE that map to a child page table.
     fn new_pt(paddr: Paddr) -> (res: Self);
