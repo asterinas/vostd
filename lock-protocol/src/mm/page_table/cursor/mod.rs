@@ -208,6 +208,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
     pub open spec fn path_wf(&self, sub_page_table: &exec::SubPageTable) -> bool {
         &&& self.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& forall|i: int| 0 <= i < self.level - 1 ==> self.path[i].is_none()
+        &&& forall|i: int| self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> self.path[i].is_some()
         &&& forall|i: int, j: int|
             0 <= i < j < self.path.len() ==> 0 < (j - 1) < PagingConsts::NR_LEVELS_SPEC()
                 && #[trigger] self.path[i].is_some() ==> #[trigger] self.path[j].is_some()
@@ -306,9 +307,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         requires
             old(self).level > 1,
             old(self).level <= PagingConsts::NR_LEVELS_SPEC(),
-            old(self).path.len() >= old(self).level as usize,
-            old(self).path[old(self).level as usize - 1].is_some(),
-            old_level@ >= old(self).level,
             old(self).path_wf(spt),
             child_pt.paddr() < exec::PHYSICAL_BASE_ADDRESS_SPEC() + exec::SIZEOF_FRAME
                 * exec::MAX_FRAME_NUM,
@@ -324,27 +322,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             ).frame_paddr() == child_pt.paddr(),
         ensures
             self.level == old(self).level - 1,
-            self.path.len() == old(self).path.len(),
-            self.path[old(self).level as usize - 1].is_some(),
-            self.path[old(self).level as usize - 2].is_some(),
             old(self).va == self.va,
             old(self).barrier_va == self.barrier_va,
-            old(self).path.len() == self.path.len(),
-            old(self).path@.len() == self.path@.len(),
-            old(self).path[old(self).level as usize - 1] == self.path[old(self).level as usize - 1],
             forall|i: int|
                 0 <= i < old(self).path.len() && i != old(self).level as usize
                     - 2
                 // path remains unchanged except the one being set
                  ==> self.path[i] == old(self).path[i],
-            self.path[old(self).level as usize - 1] == old(self).path[old(self).level as usize - 1],
-            self.path@[old(self).level as usize - 1] == old(self).path@[old(self).level as usize
-                - 1],
-            self.path[old(self).level as usize - 2] == Some(child_pt),
-            self.path.len() >= old_level@ ==> self.path[old_level@ as usize - 1] == old(
-                self,
-            ).path[old_level@ as usize - 1],
-            self.path[self.level as usize - 1] == Some(child_pt),
             self.path[self.level as usize - 1].unwrap().paddr() as int == child_pt.paddr() as int,
             self.path[path_index_at_level(self.level)].unwrap().paddr() as int
                 == child_pt.paddr() as int,
