@@ -105,16 +105,24 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         spt: &mut exec::SubPageTable,
         level: PagingLevel,
         ghost_index: usize,  // TODO: make it ghost
-        used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+        used_pte_addr_token: Option<
+            Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+        >,
     ) -> (res: Child<C>)
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
             spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
-            used_pte_addr_token@.instance_id() == old(spt).instance@.id(),
-            used_pte_addr_token@.element() == self.node.paddr() + self.idx
-                * exec::SIZEOF_PAGETABLEENTRY as int,
+            match new_child {
+                Child::None => used_pte_addr_token.is_none(),
+                _ => used_pte_addr_token.is_some(),
+            },
+            used_pte_addr_token.is_some() ==> {
+                &&& used_pte_addr_token.unwrap()@.instance_id() == old(spt).instance@.id()
+                &&& used_pte_addr_token.unwrap()@.element() == self.node.paddr() + self.idx
+                    * exec::SIZEOF_PAGETABLEENTRY as int
+            },
     // old(spt).mem@[exec::frame_addr_to_index(self.node.paddr())].1@.mem_contents().is_init()
 
         ensures

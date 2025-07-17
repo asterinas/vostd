@@ -201,7 +201,14 @@ Sized {
     ///
     /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
     // TODO: Implement
-    fn new_absent() -> Self;
+    fn new_absent(spt: &exec::SubPageTable) -> (res: Self)
+        requires
+            spt.wf(),
+        ensures
+            spt.wf(),
+            !spt.frames@.value().contains_key(res.frame_paddr() as int),
+            !spt.ptes@.value().contains_key(res.pte_paddr() as int),
+    ;
 
     /// If the flags are present with valid mappings.
     ///

@@ -171,7 +171,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
     }
 
     #[verifier::external_body]
-    fn new_absent() -> Self {
+    fn new_absent(spt: &SubPageTable) -> Self {
         // Self::default()
         std::unimplemented!()
     }
@@ -368,7 +368,9 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut SubPageTable,
         level: crate::mm::PagingLevel,
         ghost_index: usize,
-        used_pte_addr_token: Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+        used_pte_addr_token: Option<
+            Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
+        >,
     )
         ensures
             spt.wf(),
@@ -391,6 +393,8 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         // between spt.mem and spt.frames
         p.write(Tracked(&mut pt), frame);
 
+        assume(used_pte_addr_token.is_some());
+        let used_pte_addr_token = used_pte_addr_token.unwrap();
         // TODO: it seems we should not allocate here
         proof {
             // TODO: P0 assumes, need more wf specs

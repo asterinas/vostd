@@ -208,21 +208,21 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
     pub open spec fn path_wf(&self, sub_page_table: &exec::SubPageTable) -> bool {
         &&& self.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& forall|i: int| 0 <= i < self.level - 1 ==> self.path[i].is_none()
-        &&& forall|i: int| self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> self.path[i].is_some()
+        &&& forall|i: int| self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> (#[trigger] self.path[i]).is_some()
         &&& forall|i: int, j: int|
             0 <= i < j < self.path.len() ==> 0 < (j - 1) < PagingConsts::NR_LEVELS_SPEC()
-                && #[trigger] self.path[i].is_some() ==> #[trigger] self.path[j].is_some()
+                && (#[trigger] self.path[i]).is_some() ==> (#[trigger] self.path[j]).is_some()
         &&& forall|i: int|
             1 <= i < self.path.len() && self.path[i].is_some() ==> self.path[i - 1].is_some()
                 ==> exec::get_pte_from_addr(
-                (#[trigger] self.path[i].unwrap().paddr() + pte_index::<C>(self.va, (i + 1) as u8)
+                ((#[trigger] self.path[i]).unwrap().paddr() + pte_index::<C>(self.va, (i + 1) as u8)
                     * exec::SIZEOF_PAGETABLEENTRY) as usize,
                 sub_page_table,
             ).frame_paddr() == self.path[i - 1].unwrap().paddr()
         &&& forall|i: int|
             1 <= i < self.path.len() && self.path[i].is_some()
                 ==> sub_page_table.frames@.value().contains_key(
-                (#[trigger] self.path[i].unwrap().paddr() as int),
+                ((#[trigger] self.path[i].unwrap().paddr()) as int),
             )
         &&& forall|i: int|
             1 <= i < self.path.len() && self.path[i].is_some() ==> (
@@ -334,10 +334,14 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
                 == child_pt.paddr() as int,
             self.path_wf(spt),
     {
+        assert(self.path_wf(spt));
         self.level = self.level - 1;
 
         // let old = self.path[self.level as usize - 1].replace(child_pt);
         let old = self.path.set(self.level as usize - 1, Some(child_pt));
+        assert(self.path_wf(spt)) by {
+            assert(self.path[self.level as usize - 1].unwrap().paddr() == child_pt.paddr());
+        }
     }
 
     // fn cur_entry(&mut self) -> Entry<'_, C> {
@@ -592,7 +596,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         spt,
                         self.0.level,
                         ghost_index,
-                        Tracked(used_pte_addr_token),
+                        Some(Tracked(used_pte_addr_token)),
                     );  // alloc pte here
                     // SAFETY: `pt` points to a PT that is attached to a node
                     // in the locked sub-tree, so that it is locked and alive.
@@ -671,7 +675,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             spt,
             self.0.level,
             *cur_alloc_index,
-            Tracked(used_pte_addr_token),
+            Some(Tracked(used_pte_addr_token)),
         );
         self.0.move_forward();
 
@@ -741,8 +745,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
     pub unsafe fn take_next(
         &mut self,
         len: usize,
-        // ghost
-        tokens: Tracked<exec::Tokens>,
         // non ghost, but it should be
         spt: &mut exec::SubPageTable,
     ) -> PageTableItem
@@ -759,11 +761,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         assert(len % page_size::<C>(1) == 0);
         let end = start + len;
         // assert!(end <= self.0.barrier_va.end); // TODO
-
-        let tracked exec::Tokens {
-            unused_addrs: mut unused_addrs,
-            unused_pte_addrs: mut unused_pte_addrs,
-        } = tokens.get();  // TODO: can we just use the tokens inside the loop?
 
         while self.0.va < end
             invariant
@@ -857,26 +854,13 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 assume(self.0.va + len < MAX_USERSPACE_VADDR);
                 continue ;
             }
-            let tracked used_pte_addr_token:
-                sub_page_table::SubPageTableStateMachine::unused_pte_addrs;
-            proof {
-                assume(unused_pte_addrs.contains_key(unused_pte_addrs.dom().choose()));
-                used_pte_addr_token =
-                unused_pte_addrs.tracked_remove(unused_pte_addrs.dom().choose());
-            }
             // Unmap the current page and return it.
 
             assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
             assume(cur_entry.idx < nr_subpage_per_huge::<C>());
             assume(spec_helpers::mpt_not_contains_not_allocated_frames(spt, exec::MAX_FRAME_NUM));
 
-            let old = cur_entry.replace(
-                Child::None,
-                spt,
-                cur_level,
-                exec::MAX_FRAME_NUM,
-                Tracked(used_pte_addr_token),
-            );
+            let old = cur_entry.replace(Child::None, spt, cur_level, exec::MAX_FRAME_NUM, None);
             let item = match old {
                 Child::Frame(page, prop) => PageTableItem::Mapped { va: self.0.va, page, prop },
                 Child::Untracked(pa, level, prop) => {

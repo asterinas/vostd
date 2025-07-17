@@ -80,10 +80,14 @@ impl<C: PageTableConfig> Child<C> {
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(
-                spt,
-                ghost_index,
-            ),  // TODO: can we remove this?
+            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),  // TODO: can we remove this?
+            match self {
+                Child::PageTableRef(_) | Child::None => {
+                    &&& !spt.frames@.value().contains_key(res.frame_paddr() as int)
+                    &&& !spt.ptes@.value().contains_key(res.pte_paddr() as int)
+                },
+                _ => { true },
+            },
     {
         match self {
             Child::PageTable(pt) => {
@@ -93,14 +97,14 @@ impl<C: PageTableConfig> Child<C> {
             Child::PageTableRef(_) => {
                 // panic!("`PageTableRef` should not be converted to PTE");
                 // TODO
-                C::E::new_absent()
+                C::E::new_absent(spt)
             },
             Child::Frame(page, prop) => {
                 let level = page.map_level();
                 C::E::new_page(page.into_raw(), level, prop, spt, ghost_index)
             },
             Child::Untracked(pa, level, prop) => C::E::new_page(pa, level, prop, spt, ghost_index),
-            Child::None => C::E::new_absent(),
+            Child::None => C::E::new_absent(spt),
             Child::Token(token, _) => C::E::new_token(token),
         }
     }
