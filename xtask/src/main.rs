@@ -280,6 +280,10 @@ struct UpdateArgs {
     #[arg(long = "rust-version", help = "The rust version to use",
         default_value = "1.88.0", action = ArgAction::Set)]
     rust_version: String,
+
+    #[arg(long = "test", help = "Use the test branch of Verus",
+        default_value = "false", action = ArgAction::SetTrue)]
+    test: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -961,12 +965,23 @@ fn exec_update(args: &UpdateArgs) -> Result<(), DynError> {
             verus_dir.display()
         );
         let repo = Repository::open(&verus_dir)?;
+        let branch = if args.test {
+            println!("Using the test branch of Verus");
+            "update-test"
+        } else {
+            &args.rust_version
+        };
         repo.find_remote("origin")?
-            .fetch(&[args.rust_version.clone()], None, None)?;
+            .fetch(&[branch.to_string()], None, None)?;
         let mut checkout_builder = CheckoutBuilder::new();
         checkout_builder.force();
-        let obj = repo.revparse_single(&format!("origin/{}", args.rust_version))?;
+
+        let obj = repo.revparse_single(&format!("origin/{}", branch))?;
+        println!("Resolved origin/{} to commit {}", branch, obj.id());
         repo.reset(&obj, ResetType::Hard, Some(&mut checkout_builder))?;
+
+        let head = repo.head().ok().and_then(|h| h.target());
+        println!("Current HEAD: {:?}", head);
 
         compile_verus()?;
 

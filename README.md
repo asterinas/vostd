@@ -59,7 +59,7 @@ We will release the code for more verification targets.
 
 ## Contributing to VOSTD
 
-We welcome contributions!
+We welcome your contributions!
 
 #### Common Conventions
 
@@ -68,5 +68,6 @@ We welcome contributions!
 
 #### Tips
 
-- During your development process, please frequently run `cargo xtask update` to update to the [latest supported version](https://github.com/asterinas/verus) of Verus.
-- Before submitting the code, please always run `cargo xtask fmt`.
+- During your development process, please frequently run `cargo xtask update` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
+- Before submitting your code, please always run `cargo xtask fmt`.
+- If you are contributing to Verus, we recommend submitting pull requests to [the official repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
