@@ -244,6 +244,7 @@ SubPageTableStateMachine {
         assert(post.frames.contains_key(parent));
         assert(post.frames[parent].pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY));
         assert(post.ptes[parent + index * SIZEOF_PAGETABLEENTRY].frame_pa == child);
+        assert(post.ptes[parent + index * SIZEOF_PAGETABLEENTRY].level == level);
         assert(forall |i: int| #[trigger] post.frames[parent].pte_addrs.contains(i) ==>
             post.ptes.dom().contains(i));
         assert(post.frames[child].pte_addrs.len() == 0);
@@ -254,6 +255,18 @@ SubPageTableStateMachine {
                 (#[trigger] post.ptes[i]).frame_pa == parent ==> post.ptes[i].level == level + 1);
         assert(forall |i: int| #[trigger] pre.ptes.contains_key(i) ==>
                 (#[trigger] post.ptes[i]).frame_pa == child ==> post.ptes[i].level == level);
+
+        // FIXME: Doesn't make sense?
+        assume(forall |addr: int| post.frames.dom().contains(addr) ==>
+            forall |pte_addr: int| post.frames[addr].pte_addrs.contains(pte_addr) ==> {
+                let pte = post.ptes[pte_addr];
+                pte.level > 1 ==> // let's only care about ptes at level 2 or higher
+                    forall |child_pte_addr: int| post.frames[pte.frame_pa].pte_addrs.contains(child_pte_addr) ==> {
+                        let child_pte = post.ptes[child_pte_addr];
+                        &&& post.ptes[child_pte_addr].level == pte.level - 1 // child level relation
+                    }
+            }
+        )
     }
 
     #[inductive(initialize)]
