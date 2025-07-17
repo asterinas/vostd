@@ -44,6 +44,12 @@ pub type PageTableNode = Frame;
 // Originally, it is just a struct that holds a frame.
 // TODO: Can we also change the source code?
 pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
+    #[verifier::inline]
+    open spec fn wf(&self) -> bool {
+        &&& self.paddr() < exec::PHYSICAL_BASE_ADDRESS_SPEC() + exec::SIZEOF_FRAME
+            * exec::MAX_FRAME_NUM
+    }
+
     // fn entry(&self, idx: usize) -> Entry<'_, E, C, Self>
     // requires
     //     idx < nr_subpage_per_huge();
@@ -128,6 +134,7 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
     fn from_raw_paddr(paddr: Paddr) -> (res: Self) where Self: Sized
         ensures
             res.paddr() == paddr,
+            res.wf(),
     ;
 
     fn nr_children(&self) -> u16;

@@ -62,8 +62,11 @@ pub open spec fn instance_match_addrs(
 }
 
 pub open spec fn path_index_at_level(level: PagingLevel) -> int {
-    // level - 1
     level - 1
+}
+
+pub open spec fn level_at_path_index(index: int) -> PagingLevel {
+    (index + 1) as PagingLevel
 }
 
 // TODO: this should be in spt.wf()?

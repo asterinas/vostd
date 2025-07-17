@@ -200,28 +200,38 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         }
     }
 
+    pub open spec fn points_to(&self, level: u8, spt: &exec::SubPageTable, a: PTL, b: PTL) -> bool {
+        &&& 1 <= self.level <= PagingConsts::NR_LEVELS_SPEC() as u8
+        &&& 1 <= level <= PagingConsts::NR_LEVELS_SPEC() as u8
+        &&& exec::get_pte_from_addr(
+            (a.paddr() + pte_index::<C>(self.va, level) * exec::SIZEOF_PAGETABLEENTRY) as usize,
+            spt,
+        ).frame_paddr() == b.paddr()
+    }
+
     // Path is well-formed if:
     ///  - if path[i] is not None, then path[j] is not None for all j < i
     ///  - if path[i - 1] is not None, then the PTE of path[i] points to path[i - 1]
     ///  - all path that are less than the current level, are None
     ///  - all frames in the path are allocated in the sub page table model
-    pub open spec fn path_wf(&self, sub_page_table: &exec::SubPageTable) -> bool {
+    pub open spec fn path_wf(&self, spt: &exec::SubPageTable) -> bool {
         &&& self.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& forall|i: int| 0 <= i < self.level - 1 ==> self.path[i].is_none()
-        &&& forall|i: int| self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> (#[trigger] self.path[i]).is_some()
+        &&& forall|i: int|
+            self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> (
+            #[trigger] self.path[i]).is_some()
         &&& forall|i: int, j: int|
-            0 <= i < j < self.path.len() ==> 0 < (j - 1) < PagingConsts::NR_LEVELS_SPEC()
-                && (#[trigger] self.path[i]).is_some() ==> (#[trigger] self.path[j]).is_some()
+            0 <= i < j < self.path.len() ==> 0 < (j - 1) < PagingConsts::NR_LEVELS_SPEC() && (
+            #[trigger] self.path[i]).is_some() ==> (#[trigger] self.path[j]).is_some()
+        &&& forall|i: int, j: int|
+            1 <= i < j < self.path.len() && self.path[i].is_some() && i + 1 == j ==> self.points_to(
+                level_at_path_index(j),
+                spt,
+                #[trigger] self.path[j].unwrap(),
+                #[trigger] self.path[i].unwrap(),
+            )
         &&& forall|i: int|
-            1 <= i < self.path.len() && self.path[i].is_some() ==> self.path[i - 1].is_some()
-                ==> exec::get_pte_from_addr(
-                ((#[trigger] self.path[i]).unwrap().paddr() + pte_index::<C>(self.va, (i + 1) as u8)
-                    * exec::SIZEOF_PAGETABLEENTRY) as usize,
-                sub_page_table,
-            ).frame_paddr() == self.path[i - 1].unwrap().paddr()
-        &&& forall|i: int|
-            1 <= i < self.path.len() && self.path[i].is_some()
-                ==> sub_page_table.frames@.value().contains_key(
+            1 <= i < self.path.len() && self.path[i].is_some() ==> spt.frames@.value().contains_key(
                 ((#[trigger] self.path[i].unwrap().paddr()) as int),
             )
         &&& forall|i: int|
@@ -308,18 +318,15 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             old(self).level > 1,
             old(self).level <= PagingConsts::NR_LEVELS_SPEC(),
             old(self).path_wf(spt),
-            child_pt.paddr() < exec::PHYSICAL_BASE_ADDRESS_SPEC() + exec::SIZEOF_FRAME
-                * exec::MAX_FRAME_NUM,
+            child_pt.wf(),
             spt.frames@.value().contains_key(child_pt.paddr() as int),
             spt.wf(),
-            exec::get_pte_from_addr(
-                #[verifier::truncate]
-                ((old(self).path[old(self).level - 1].unwrap().paddr() + pte_index::<C>(
-                    old(self).va,
-                    (old(self).level) as u8,
-                ) * exec::SIZEOF_PAGETABLEENTRY) as usize),
+            old(self).points_to(
+                old(self).level,
                 spt,
-            ).frame_paddr() == child_pt.paddr(),
+                old(self).path[old(self).level as usize - 1].unwrap(),
+                child_pt,
+            ),
         ensures
             self.level == old(self).level - 1,
             old(self).va == self.va,
@@ -334,14 +341,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
                 == child_pt.paddr() as int,
             self.path_wf(spt),
     {
-        assert(self.path_wf(spt));
         self.level = self.level - 1;
 
         // let old = self.path[self.level as usize - 1].replace(child_pt);
-        let old = self.path.set(self.level as usize - 1, Some(child_pt));
-        assert(self.path_wf(spt)) by {
-            assert(self.path[self.level as usize - 1].unwrap().paddr() == child_pt.paddr());
-        }
+        let _ = self.path.set(self.level as usize - 1, Some(child_pt));
     }
 
     // fn cur_entry(&mut self) -> Entry<'_, C> {
