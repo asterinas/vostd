@@ -407,7 +407,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
     }
 
     pub open spec fn path_valid_before_map(&self) -> bool {
-        &&& self.0.path.len() >= self.0.level
         &&& self.0.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& self.0.path[self.0.level - 1].is_some()
     }
@@ -765,11 +764,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         let end = start + len;
         // assert!(end <= self.0.barrier_va.end); // TODO
 
-        while self.0.va < end
+        while self.0.va < end && self.0.level > 1
             invariant
                 spt.wf(),
-                self.0.level > 1,
-                self.0.level <= PagingConsts::NR_LEVELS(),  // TODO: change to C::NR_LEVELS()
+                self.0.level >= 1,
                 self.0.level <= C::NR_LEVELS(),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,
@@ -805,7 +803,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         // SAFETY: `pt` points to a PT that is attached to a node
                         // in the locked sub-tree, so that it is locked and alive.
                         // let pt = unsafe { PageTableLock::<C>::from_raw_paddr(pt) };
-                        let pt = unsafe { PTL::from_raw_paddr(pt) };
+                        let pt = PTL::from_raw_paddr(pt);
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
@@ -853,15 +851,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
 
                 self.0.va = self.0.va + 1;  // TODO: realize move_forward
                 assume(self.0.va + page_size::<C>(self.0.level) < end);
-                assume(1 < self.0.level <= PagingConsts::NR_LEVELS_SPEC());
                 assume(self.0.va + len < MAX_USERSPACE_VADDR);
                 continue ;
             }
             // Unmap the current page and return it.
-
-            assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
-            assume(cur_entry.idx < nr_subpage_per_huge::<C>());
-            assume(spec_helpers::mpt_not_contains_not_allocated_frames(spt, exec::MAX_FRAME_NUM));
 
             let old = cur_entry.replace(Child::None, spt, cur_level, exec::MAX_FRAME_NUM, None);
             let item = match old {

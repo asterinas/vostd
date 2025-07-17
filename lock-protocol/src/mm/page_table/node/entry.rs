@@ -110,7 +110,6 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         >,
     ) -> (res: Child<C>)
         requires
-            !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
             spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
