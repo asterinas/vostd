@@ -149,17 +149,71 @@ fn get_rustfilt() -> PathBuf {
     .expect("Failed to find or install rustfilt")
 }
 
+fn get_host_triple_from_sysroot(sysroot_path: &Path) -> Option<String> {
+    sysroot_path
+        .file_name()
+        .and_then(|os_str| os_str.to_str())
+        .map(|toolchain_name| {
+            let mut parts = toolchain_name.splitn(2, '-');
+            parts.next();
+            parts.next().unwrap_or("").to_string()
+        })
+}
+
 #[memoize]
 fn get_objdump() -> PathBuf {
-    if std::env::var("LLVM_OBJDUMP").is_ok() {
-        return PathBuf::from(std::env::var("LLVM_OBJDUMP").unwrap());
+    // Check if the environment variable is set
+    if let Ok(path) = std::env::var("LLVM_OBJDUMP") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return path;
+        }
     }
-    let objdump = locate("llvm-objdump", None, Vec::<PathBuf>::new());
-    if objdump.is_none() {
-        cargo_install("cargo-binutils");
+
+    let llvm_objdump_name = get_platform_specific_binary_name("llvm-objdump");
+
+    // Try to find llvm-objdump in the toolchain
+    if let Ok(sysroot) = std::process::Command::new("rustc")
+        .arg("--print")
+        .arg("sysroot")
+        .output()
+    {
+        if sysroot.status.success() {
+            let sysroot_path =
+                PathBuf::from(String::from_utf8_lossy(&sysroot.stdout).trim().to_string());
+
+            if let Some(host_triple) = get_host_triple_from_sysroot(&sysroot_path) {
+                let bin_path = sysroot_path
+                    .join("lib")
+                    .join("rustlib")
+                    .join(&host_triple)
+                    .join("bin")
+                    .join(&llvm_objdump_name);
+
+                if bin_path.is_file() {
+                    return bin_path;
+                }
+            }
+        }
     }
-    locate("llvm-objdump", None, Vec::<PathBuf>::new())
-    .expect("Failed to find or install llvm-objdump, please specify `LLVM_OBJDUMP` as the path to the executable")
+
+    // Try to find llvm-objdump in the PATH
+    if let Some(path) = locate(&llvm_objdump_name, None, Vec::<PathBuf>::new()) {
+        if path.is_file() {
+            return path;
+        }
+    }
+
+    // If llvm-objdump is not found, install it using cargo
+    cargo_install("cargo-binutils");
+
+    if let Some(path) = locate(&llvm_objdump_name, None, Vec::<PathBuf>::new()) {
+        if path.is_file() {
+            return path;
+        }
+    }
+
+    panic!("Failed to find or install llvm-objdump, please specify `LLVM_OBJDUMP` as the path to the executable")
 }
 
 #[memoize]

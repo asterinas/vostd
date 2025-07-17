@@ -12,38 +12,6 @@ This work is ongoing. Our current focus is on verifying OSTD’s _memory managem
 
 If you have not installed Rust yet, follow the [official instructions](https://www.rust-lang.org/tools/install).
 
-#### Install LLVM
-
-##### On Windows
-
-Download the [LLVM binary installer](https://github.com/llvm/llvm-project/releases). Then create an environment variable named `LLVM_OBJDUMP` and set it to point to `llvm-objdump.exe`.
-
-##### On Debian/Ubuntu
-
-Run
-
-```
-sudo apt update
-sudo apt install build-essential unzip pkg-config libssl-dev llvm
-```
-
-##### On Mac OS
-
-Obtain the `binutils` package if you don't already have it. It comes bundled with `xcode`, but you can also obtain it through an external source such as homebrew:
-```
-brew install binutils
-```
-
-Make sure that the `llvm-objdump` binary is in your path, e.g. if installed via `xcode`:
-```
-export PATH=$PATH:/Library/Developer/CommandLineTools/usr/bin/
-```
-
-Or via homebrew:
-```
-export PATH=$PATH:/usr/local/opt/binutils/bin/
-```
-
 #### Build Verus
 
 You can build Verus with the following command:
