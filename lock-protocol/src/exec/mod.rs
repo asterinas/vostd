@@ -1,3 +1,4 @@
+mod rcu;
 mod rw;
 mod test_map;
 // mod test_map2;

@@ -2,6 +2,7 @@ use builtin::*;
 use builtin_macros::*;
 use vstd::{prelude::*, seq::*};
 
+use crate::spec::{common::*, utils::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 verus! {
@@ -29,7 +30,7 @@ impl PteState {
             self.wf(),
             0 <= idx < 512,
     {
-        self.inner[idx] is None
+        self.inner[idx as int] is None
     }
 
     pub open spec fn is_alive(&self, idx: nat) -> bool
@@ -37,7 +38,7 @@ impl PteState {
             self.wf(),
             0 <= idx < 512,
     {
-        self.inner[idx] is Some
+        self.inner[idx as int] is Some
     }
 
     pub open spec fn update(self, idx: nat, v: Option<()>) -> Self
@@ -45,7 +46,7 @@ impl PteState {
             self.wf(),
             0 <= idx < 512,
     {
-        Self { inner: self.inner.update(idx, v) }
+        Self { inner: self.inner.update(idx as int, v) }
     }
 }
 
@@ -54,6 +55,23 @@ pub enum CursorState {
     Locking(NodeId, NodeId),
     Locked(NodeId),
     UnLocking(NodeId, NodeId),
+}
+
+impl CursorState {
+    pub open spec fn wf(&self) -> bool {
+        match *self {
+            Self::Void => true,
+            Self::Locking(rt, nid) => {
+                &&& NodeHelper::valid_nid(rt)
+                &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
+            },
+            Self::Locked(rt) => NodeHelper::valid_nid(rt),
+            Self::UnLocking(rt, nid) => {
+                &&& NodeHelper::valid_nid(rt)
+                &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
+            },
+        }
+    }
 }
 
 } // verus!

@@ -12,6 +12,7 @@ pub open spec fn manually_drop_unwrap<T>(v: ManuallyDrop<T>) -> T {
     *manually_drop_deref_spec(&v)
 }
 
+#[verifier::when_used_as_spec(manually_drop_new_spec)]
 pub assume_specification<T>[ ManuallyDrop::new ](v: T) -> (res: ManuallyDrop<T>)
     ensures
         manually_drop_deref_spec(&res) == &v,

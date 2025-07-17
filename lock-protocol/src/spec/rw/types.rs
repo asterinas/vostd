@@ -3,6 +3,7 @@ use builtin_macros::*;
 use vstd::{prelude::*, seq::*};
 
 use crate::spec::{common::*, utils::*};
+use super::wf_tree_path::*;
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 verus! {
