@@ -76,7 +76,7 @@ impl<C: PageTableConfig> Child<C> {
             Child::PageTableRef(_) => {
                 // panic!("`PageTableRef` should not be converted to PTE");
                 // TODO
-                C::E::new_absent(spt)
+                C::E::new_absent()
             },
             Child::Frame(page, prop) => {
                 let level = page.map_level();

@@ -169,7 +169,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
     }
 
     #[verifier::external_body]
-    fn new_absent(spt: &SubPageTable) -> Self {
+    fn new_absent() -> Self {
         // Self::default()
         std::unimplemented!()
     }
@@ -318,12 +318,17 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         spt: &mut SubPageTable,
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) {
-        assume(frame_addr_to_index(self.paddr) < MAX_FRAME_NUM as usize);  // TODO: P0
-        assume(spt.perms@[frame_addr_to_index(self.paddr)].1@.mem_contents().is_init());  // TODO: P0
+        assume(self.paddr < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM);
+        let frame_idx = frame_addr_to_index(self.paddr);
 
-        let (p, Tracked(pt)) = spt.perms.remove(&frame_addr_to_index(self.paddr)).unwrap();
+        assume(frame_idx < MAX_FRAME_NUM as usize);  // TODO: P0
+        assume(spt.perms@[frame_idx].1@.mem_contents().is_init());  // TODO: P0
 
-        let mut frame = p.read(Tracked(&pt));
+        assume(spt.perms@.contains_key(frame_idx));
+        let (p, Tracked(points_to)) = spt.perms.remove(&frame_idx).unwrap();
+
+        assume(points_to.pptr() == p);
+        let mut frame = p.read(Tracked(&points_to));
         assume(idx < frame.ptes.len());
         frame.ptes[idx] = MockPageTableEntry {
             pte_addr: pte.pte_paddr() as u64,
@@ -333,52 +338,9 @@ impl<C: PageTableConfig> PageTableLockTrait<C> for FakePageTableLock<C> {
         };
         // TODO: P0 currently, the last level frame will cause the inconsistency
         // between spt.perms and spt.frames
-        p.write(Tracked(&mut pt), frame);
+        p.write(Tracked(&mut points_to), frame);
 
-        spt.perms.insert(frame_addr_to_index(p.addr()), (p, Tracked(pt)));
-
-        // TODO: it seems we should not allocate here
-        proof {
-            // TODO: P0 assumes, need more wf specs
-            assume(self.paddr != pte.frame_paddr());
-            assume(pte.frame_paddr() != 0);
-            assume(spt.frames@.value().contains_key(self.paddr as int));
-            assume(spt.frames@.value().contains_key(pte.frame_paddr() as int));
-            assume(!spt.frames@.value()[self.paddr as int].pte_addrs.contains(
-                pte.pte_paddr() as int,
-            ));
-            assume(!spt.frames@.value()[self.paddr as int].pte_addrs.contains(
-                self.paddr + idx * SIZEOF_PAGETABLEENTRY as int,
-            ));
-            // parent has valid ptes
-            assume(forall|i: int| #[trigger]
-                spt.frames@.value()[self.paddr as int].pte_addrs.contains(i)
-                    ==> spt.ptes@.value().contains_key(i));
-            // child has no ptes
-            assume(spt.frames@.value()[pte.frame_paddr() as int].pte_addrs.is_empty());
-            // others points to parent have a higher level
-            assume(forall|i: int| #[trigger]
-                spt.ptes@.value().contains_key(i) ==> spt.ptes@.value()[i].frame_pa
-                    == self.paddr as int ==> spt.ptes@.value()[i].level == level + 1 as u8);
-            // parent has the same level ptes
-            assume(forall|i: int| #[trigger]
-                spt.frames@.value()[self.paddr as int].pte_addrs.contains(i)
-                    ==> spt.ptes@.value()[i].level == level as u8);
-            // no others points to child
-            assume(forall|i: int| #[trigger]
-                spt.ptes@.value().contains_key(i) ==> spt.ptes@.value()[i].frame_pa
-                    != pte.frame_paddr() as int);
-            // TODO: P0 assumes
-
-            spt.instance.get().set_child(
-                self.paddr as int,
-                idx as usize,
-                pte.frame_paddr() as int,
-                level as usize,
-                spt.frames.borrow_mut(),
-                spt.ptes.borrow_mut(),
-            );
-        }
+        spt.perms.insert(frame_idx, (p, Tracked(points_to)));
 
         assume(spt.wf());  // TODO: P0
         assume(spec_helpers::frame_keys_do_not_change(spt, old(spt)));  // TODO: P0

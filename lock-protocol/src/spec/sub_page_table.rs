@@ -78,6 +78,24 @@ SubPageTableStateMachine {
     }
 
     transition! {
+        // acquire a sub-page-table at a given root node.
+        new_at(root_frame: FrameView) {
+            require root_frame.pte_addrs.len() == 0;
+            require root_frame.pte_addrs == Set::<int>::empty();
+
+            // no ptes for this frame
+            require forall |i: int| 0 <= i < NR_ENTRIES ==>
+                !(#[trigger] pre.ptes.dom().contains(root_frame.pa + i * SIZEOF_PAGETABLEENTRY));
+
+            // the sub page table is empty
+            require pre.frames.is_empty();
+            require pre.ptes.is_empty();
+
+            update frames = pre.frames.insert(root_frame.pa, root_frame);
+        }
+    }
+
+    transition! {
         // set child relationship
         set_child(parent: int, index: usize, child: int, level: usize) {
             require parent != child;
@@ -174,6 +192,21 @@ SubPageTableStateMachine {
         }
     }
 
+    #[inductive(new_at)]
+    pub fn tr_new_at_invariant(pre: Self, post: Self, root_frame: FrameView) {
+        assert(!pre.frames.contains_key(root_frame.pa));
+
+        assert(post.frames.contains_key(root_frame.pa));
+        assert(post.frames[root_frame.pa] == root_frame);
+        assert(post.frames[root_frame.pa].pte_addrs.len() == 0);
+        assert(pre.ptes == post.ptes);
+
+        broadcast use vstd::set::group_set_axioms;
+        assert(post.frames[root_frame.pa].pte_addrs.len() == 0);
+        assert(forall |pte_addr:int| #[trigger] post.frames[root_frame.pa].pte_addrs.contains(pte_addr) ==>
+            post.ptes.dom().contains(pte_addr));
+    }
+
     #[inductive(remove_at)]
     pub fn tr_remove_at_invariant(pre: Self, post: Self, parent: int, pte_addr: int, child_addr: int) {
         assert(pre.frames.contains_key(parent));
@@ -227,7 +260,7 @@ SubPageTableStateMachine {
     pub fn initialize_inductive(post: Self) { }
 
     #[invariant]
-    pub spec fn page_wf(self) -> bool {
+    pub spec fn sub_pt_wf(self) -> bool {
         &&& forall |addr: int| self.frames.dom().contains(addr) ==> {
             let frame = #[trigger] self.frames[addr];
             &&& frame.pa == addr

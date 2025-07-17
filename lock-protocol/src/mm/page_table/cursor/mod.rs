@@ -450,6 +450,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
     // cursor validation
 
             old(spt).wf(),
+            old(alloc_model).invariants(),
             old(self).va_valid(frame, None),
             level_is_greate_than_one(old(self).0.level),
             old(self).path_valid_before_map(),
@@ -467,6 +468,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         ensures
             self.path_valid_after_map(old(self)),
             spt.wf(),
+            alloc_model.invariants(),
             // the post condition
             self.0.sub_page_table_valid_after_map(
                 spt,
@@ -475,6 +477,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 old(self).0.path[old(self).0.level as usize - 1].unwrap().paddr() as int,
                 frame.map_level(),
             ),
+            spt_contains_no_unallocated_frames(spt, alloc_model),
     {
         let end = self.0.va + frame.size();
         let root_level = Tracked(self.0.level);
@@ -500,6 +503,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 ).0.path[path_index_at_level(root_level@)],
                 root_level@ >= self.0.level,
                 spt.wf(),
+                alloc_model.invariants(),
+                spt_contains_no_unallocated_frames(spt, alloc_model),
                 forall|i: int|
                     path_index_at_level(self.0.level) <= i <= path_index_at_level(old(self).0.level)
                         ==> #[trigger] spt.frames@.value().contains_key(
@@ -579,9 +584,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                         spt,
                     ).frame_paddr() == paddr);  // TODO: set pte.frame_paddr
 
-                    self.0.push_level(
-                    // unsafe { PageTableLock::from_raw_paddr(paddr) }
-                    PTL::from_raw_paddr(paddr), root_level, spt);
+                    self.0.push_level(PTL::from_raw_paddr(paddr), root_level, spt);
 
                     // TODO: P0 see @path_matchs_page_table
                     assume(self.0.sub_page_table_valid_before_map_level(

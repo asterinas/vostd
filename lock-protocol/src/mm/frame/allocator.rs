@@ -6,12 +6,11 @@ use vstd::vpanic;
 use vstd::rwlock::RwLock;
 use vstd::simple_pptr::{PPtr, PointsTo};
 
-use crate::mm::PAGE_SIZE;
-use crate::exec::{MockPageTablePage, MockPageTableEntry};
+use crate::exec::{MockPageTablePage, MockPageTableEntry, PHYSICAL_BASE_ADDRESS_SPEC, SIZEOF_FRAME};
 
 verus! {
 
-/// We assume that the available physical memory is 1 to MAX_FRAME_NUM - 1.
+/// We assume that the available physical memory is 0 to MAX_FRAME_NUM - 1.
 pub const MAX_FRAME_NUM: usize = 10000;
 
 /// Each user of the global allocator can instantiate such a model for reasoning.
@@ -25,8 +24,9 @@ pub tracked struct AllocatorModel {
 impl AllocatorModel {
     pub open spec fn invariants(&self) -> bool {
         forall|addr: int| #[trigger]
-            self.allocated_addrs.contains(addr) ==> 1 <= addr < MAX_FRAME_NUM as int && addr
-                % PAGE_SIZE() as int == 0
+            self.allocated_addrs.contains(addr) ==> PHYSICAL_BASE_ADDRESS_SPEC() <= addr
+                < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM as int && addr
+                % SIZEOF_FRAME as int == 0
     }
 }
 
@@ -39,7 +39,8 @@ pub fn alloc_page_table(Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
         old(model).invariants(),
     ensures
         res.1@.pptr() == res.0,
-        res.0.addr() < MAX_FRAME_NUM * PAGE_SIZE(),
+        res.1@.mem_contents().is_init(),
+        res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
         model.invariants(),
         !old(model).allocated_addrs.contains(res.0.addr() as int),
         model.allocated_addrs.contains(res.0.addr() as int),
@@ -61,15 +62,13 @@ pub struct MockGlobalAllocator {
 impl MockGlobalAllocator {
     pub closed spec fn invariants(&self) -> bool {
         forall|i: usize|
-            1 <= i < MAX_FRAME_NUM ==> {
-                if let Some((p, _)) = self.frames[i as int] {
-                    p.addr() == i * PAGE_SIZE()
+            0 <= i < MAX_FRAME_NUM ==> {
+                if let Some((p, _)) = #[trigger] self.frames[i as int] {
+                    p.addr() == PHYSICAL_BASE_ADDRESS_SPEC() + i * SIZEOF_FRAME
                 } else {
                     true
                 }
             }
-            // The zero frame is reserved for the kernel.
-             && self.frames[0].unwrap().0.addr() == 0
     }
 
     #[verifier::external_body]
@@ -77,7 +76,7 @@ impl MockGlobalAllocator {
         let mut frames = [const { None };MAX_FRAME_NUM];
 
         for i in 0..MAX_FRAME_NUM {
-            let pptr = PPtr::<MockPageTablePage>::from_addr(i * PAGE_SIZE());
+            let pptr = PPtr::<MockPageTablePage>::from_addr(i * SIZEOF_FRAME);
             frames[i] = Some((pptr, Tracked::assume_new()));
         }
 
@@ -90,10 +89,10 @@ impl MockGlobalAllocator {
         Tracked<PointsTo<MockPageTablePage>>,
     ))
         requires
-            exists|i: usize| 1 <= i < MAX_FRAME_NUM && old(self).frames[i as int].is_some(),
+            exists|i: usize| 0 <= i < MAX_FRAME_NUM && old(self).frames[i as int].is_some(),
         ensures
             res.1@.pptr() == res.0,
-            res.0.addr() < MAX_FRAME_NUM,
+            res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
             forall|i: usize|
                 0 <= i < MAX_FRAME_NUM ==> {
                     if self.frames[i as int].is_some() {
@@ -103,7 +102,7 @@ impl MockGlobalAllocator {
                     }
                 },
     {
-        for i in 1..MAX_FRAME_NUM {
+        for i in 0..MAX_FRAME_NUM {
             if !self.frames[i].is_none() {
                 let (p, pt) = self.frames[i].take().unwrap();
                 return (p, pt);

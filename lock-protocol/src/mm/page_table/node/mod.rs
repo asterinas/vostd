@@ -72,7 +72,12 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         level: PagingLevel,
         is_tracked: MapTrackingStatus,
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
-    ) -> (res: Self) where Self: Sized;
+    ) -> (res: Self) where Self: Sized
+        requires
+            old(alloc_model).invariants(),
+        ensures
+            alloc_model.invariants(),
+    ;
 
     fn unlock(&mut self) -> PageTableNode;
 
@@ -117,8 +122,10 @@ pub trait PageTableLockTrait<C: PageTableConfig>: Sized {
         requires
             idx < nr_subpage_per_huge::<C>(),
             old(spt).wf(),
+            old(alloc_model).invariants(),
         ensures
             spt.wf(),
+            alloc_model.invariants(),
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
             spec_helpers::frame_keys_do_not_change(spt, old(spt)),

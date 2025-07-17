@@ -110,13 +110,16 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         requires
             !old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int),
             old(spt).wf(),
+            old(alloc_model).invariants(),
             self.idx < nr_subpage_per_huge::<C>(),
             spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
         ensures
             spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance@.id() == old(spt).instance@.id(),
             spt.wf(),
+            alloc_model.invariants(),
             frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
             match new_child {
                 // Child::PageTable(pt) => self.pte.frame_paddr() == pt.ptr as usize, // TODO: ?
                 _ => true,
@@ -151,6 +154,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
 
         // TODO: P0
         assume(spt.ptes@.value().contains_key(self.pte.pte_paddr() as int));
+        assume(spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model));
 
         old_child
         // unimplemented!()

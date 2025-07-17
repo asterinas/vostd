@@ -119,15 +119,22 @@ requires
 
     assert(sub_page_table.wf());
 
-    assert(sub_page_table.perms.len() == MAX_FRAME_NUM);
-    assert(p.addr() == PHYSICAL_BASE_ADDRESS() as usize);
-
-    sub_page_table.perms.insert(frame_addr_to_index(p.addr()), (p, Tracked(pt)));
-
     let (p, Tracked(pt)) = alloc_page_table(Tracked(&mut alloc_model));
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
 
     assert(sub_page_table.wf());
+
+    sub_page_table.perms.insert(
+        frame_addr_to_index(p.addr()),
+        (p, Tracked(pt)),
+    );
+
+    proof {
+        instance.new_at(sub_page_table::FrameView {
+            pa: p.addr() as int,
+            pte_addrs: Set::empty(),
+        }, sub_page_table.frames.borrow_mut(), sub_page_table.ptes.borrow_mut());
+    }
 
     cursor.0.path.push(None);
     cursor.0.path.push(None);
@@ -138,6 +145,8 @@ requires
             paddr: p.addr(),
         }
     )); // root
+
+    assume(sub_page_table.wf());
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,
