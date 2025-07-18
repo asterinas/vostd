@@ -263,7 +263,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
     /// If reached the end of a page table node, it leads itself up to the next page of the parent
     /// page if possible.
     pub(in crate::mm) fn move_forward(&mut self, spt: &exec::SubPageTable)
-        requires// old(self).va + page_size::<C>(old(self).level) < MAX_USERSPACE_VADDR,
+        requires  // old(self).va + page_size::<C>(old(self).level) < MAX_USERSPACE_VADDR,
     // TODO
 
             old(self).path_wf(spt),
