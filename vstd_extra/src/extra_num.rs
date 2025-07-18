@@ -774,7 +774,7 @@ pub broadcast proof fn lemma_usize_pow2_shl_is_pow2(x: usize, shift: usize)
 {
     // Since x is a power of 2, there exists n such that x = pow2(n)
     lemma_is_power2_exists_pow2(x as nat);
-    let n = choose |n: nat| pow2(n) == x as nat;
+    let n = choose|n: nat| pow2(n) == x as nat;
     // x << shift == x * pow2(shift)
     lemma_usize_shl_is_mul(x, shift);
     assert(x << shift == x * pow2(shift as nat));

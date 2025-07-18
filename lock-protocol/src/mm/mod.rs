@@ -17,7 +17,9 @@ use vstd::{
     layout::is_power_2,
 };
 use vstd_extra::extra_num::{
-    lemma_pow2_increases, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered, lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2, lemma_usize_pow2_shl_is_pow2, lemma_usize_shl_is_mul
+    lemma_pow2_increases, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered,
+    lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2, lemma_usize_pow2_shl_is_pow2,
+    lemma_usize_shl_is_mul,
 };
 use crate::helpers::math::lemma_page_shl;
 

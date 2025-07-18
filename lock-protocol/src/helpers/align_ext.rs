@@ -21,7 +21,7 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
         (x & !((align_ - 1) as u64)) % align_ == 0,
 {
     lemma_is_power2_exists_pow2(align_ as nat);
-    let n = choose |n: nat| pow2(n) == align_ as nat;
+    let n = choose|n: nat| pow2(n) == align_ as nat;
     assert(n < u64::BITS) by {
         assert(pow2(n) < u64::MAX as nat);
         assert(pow2(64) > u64::MAX) by {
@@ -67,9 +67,11 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
     assert((x as int - (x as int % align_ as int)) == (x as int / align_ as int) * align_ as int);
     assert(((x as int / align_ as int) * align_ as int) % align_ as int == 0) by {
         lemma_mod_multiples_vanish(x as int / align_ as int, 0int, align_ as int);
-        assert((align_ as int * (x as int / align_ as int) + 0int) % align_ as int == 0int % align_ as int);
+        assert((align_ as int * (x as int / align_ as int) + 0int) % align_ as int == 0int
+            % align_ as int);
         assert((align_ as int * (x as int / align_ as int)) % align_ as int == 0);
-        assert((x as int / align_ as int) * align_ as int == align_ as int * (x as int / align_ as int)) by {
+        assert((x as int / align_ as int) * align_ as int == align_ as int * (x as int
+            / align_ as int)) by {
             lemma_mul_is_commutative(x as int / align_ as int, align_ as int);
         };
     };
