@@ -21,6 +21,8 @@ use walkdir::WalkDir;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 
+static VERUS_REPO: &str = "https://github.com/asterinas/verus.git";
+
 fn get_platform_specific_binary_name(base_name: &str) -> String {
     #[cfg(target_os = "windows")]
     return format!("{}.exe", base_name);
@@ -115,7 +117,8 @@ fn get_verus() -> PathBuf {
 }
 
 fn get_z3() -> PathBuf {
-    let hints = vec![PathBuf::from("tools/verus/source")];
+    let verus_root = get_verus_root();
+    let hints = vec![verus_root];
     locate(get_platform_specific_binary_name("z3"), Some("VERUS_Z3_PATH"), hints)
     .unwrap_or_else(|| {
       eprintln!("Cannot find the Z3 binary, please set the VERUS_Z3_PATH environment variable or add it to your PATH");
@@ -542,7 +545,8 @@ fn exec_verify(args: &VerifyArgs) -> Result<(), DynError> {
 
         if args.count_line {
             let dependency_file = env::current_dir()?.join("lib.d");
-            let line_count_dir = PathBuf::from("tools/verus/source/tools/line_count");
+            let verus_root = get_verus_root();
+            let line_count_dir = verus_root.join("tools/line_count");
             env::set_current_dir(&line_count_dir)?;
             let mut cargo_cmd = Command::new("cargo");
             cargo_cmd
@@ -651,18 +655,19 @@ fn exec_compile(args: &CompileArgs) -> Result<(), DynError> {
 }
 
 fn get_verus_doc() -> PathBuf {
-    let verus_doc = PathBuf::from("tools/verus/source/target/release/verusdoc");
+    let verus_root = get_verus_root();
+    let verus_doc = verus_root.join("target/release/verusdoc");
     if !verus_doc.is_file() {
         println!("Build verusdoc ...");
         Command::new("bash")
-            .current_dir(PathBuf::from("tools/verus/source"))
+            .current_dir(&verus_root)
             .arg("-c")
             .arg("source ../tools/activate && vargo build --package verusdoc")
             .status()
             .expect("Failed to build verusdoc");
 
         Command::new("bash")
-            .current_dir(PathBuf::from("tools/verus/source"))
+            .current_dir(&verus_root)
             .arg("-c")
             .arg("source ../tools/activate && vargo build --vstd-no-verify")
             .status()
@@ -673,15 +678,25 @@ fn get_verus_doc() -> PathBuf {
     absolutize(&verus_doc)
 }
 
+#[memoize]
 fn get_verus_root() -> PathBuf {
-    let verus_root = PathBuf::from("tools/verus/source");
-    if !verus_root.is_dir() {
-        eprintln!(
-            "Cannot find the Verus source code, please clone the Verus repository to tools/verus"
-        );
-        std::process::exit(1);
+    let verus_bin = get_verus();
+    let verus_root = verus_bin
+        .parent() // release/
+        .and_then(|p| p.parent()) // target-verus/
+        .and_then(|p| p.parent()) // source/
+        .map(|p| p.to_path_buf());
+    match verus_root {
+        Some(root) if root.is_dir() => absolutize(&root),
+        _ => {
+            eprintln!(
+                "Cannot determine the Verus source root directory based on the verus binary path.\n
+                Please clone the Verus repository to tools/verus. It is available at: {}",
+                VERUS_REPO
+            );
+            std::process::exit(1);
+        }
     }
-    absolutize(&verus_root)
 }
 
 fn exec_doc(args: &DocArgs) -> Result<(), DynError> {
@@ -867,7 +882,6 @@ fn compile_verus() -> Result<(), DynError> {
 }
 
 fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
-    let verus_repo = "https://github.com/asterinas/verus.git";
     let verus_dir = Path::new("tools").join("verus");
 
     // Not required if the project includes fixed Verus code
@@ -883,7 +897,7 @@ fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
         let mut builder = RepoBuilder::new();
         if let Err(e) = builder
             .branch(&args.rust_version)
-            .clone(verus_repo, &verus_dir)
+            .clone(VERUS_REPO, &verus_dir)
         {
             eprintln!(
                 "Failed to clone the Verus repository, caused by {}.\r 
@@ -891,7 +905,7 @@ fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
                 The Verus repository is available at {}.",
                 e,
                 verus_dir.display(),
-                verus_repo
+                VERUS_REPO
             );
             std::process::exit(1);
         }
