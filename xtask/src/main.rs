@@ -229,13 +229,13 @@ fn get_all_targets() -> HashSet<String> {
         .workspace_members
         .into_iter()
         .map(|id| {
-            metadata
+            let package_name = &metadata
                 .packages
                 .iter()
                 .find(|pkg| pkg.id == id)
                 .expect("Failed to find package")
-                .name
-                .clone()
+                .name;
+            package_name.to_string()
         })
         .collect()
 }
