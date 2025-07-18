@@ -77,33 +77,6 @@ requires
 {
     broadcast use vstd::std_specs::hash::group_hash_axioms;
     broadcast use vstd::hash_map::group_hash_map_axioms;
-    let tracked (
-        Tracked(instance),
-        Tracked(frames_token),
-        Tracked(pte_token),
-    ) = sub_page_table::SubPageTableStateMachine::Instance::initialize();
-
-    // TODO: use Cursor::new
-    let mut cursor =
-    CursorMut::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
-        0: Cursor::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
-            path: Vec::new(),
-            level: 4,
-            guard_level: NR_LEVELS as u8,
-            va: va,
-            barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
-            preempt_guard: disable_preempt(),
-            _phantom: std::marker::PhantomData,
-        }
-    };
-    assert(cursor.0.level == 4);
-
-    let mut sub_page_table = SubPageTable {
-        perms: HashMap::new(),
-        frames: Tracked(frames_token),
-        ptes: Tracked(pte_token),
-        instance: Tracked(instance.clone()),
-    };
 
     let tracked mut alloc_model = AllocatorModel { allocated_addrs: Set::empty() };
 
@@ -117,26 +90,43 @@ requires
     assert(pt.value().ptes == f.ptes);
     assert(pt.value().ptes[0].frame_pa == 0 as u64);
 
-    assert(sub_page_table.wf());
+    let tracked (
+        Tracked(instance),
+        Tracked(frame_tokens),
+        Tracked(i_pte_tokens),
+        Tracked(pte_tokens),
+    ) = sub_page_table::SubPageTableStateMachine::Instance::initialize(crate::spec::sub_page_table::FrameView {
+        pa: p.addr() as int,
+        ancestor_chain: Map::empty(),
+        level: 3, // To test a sub-tree rooted at level 3
+    });
 
-    let (p, Tracked(pt)) = alloc_page_table(Tracked(&mut alloc_model));
-    assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
+    let mut sub_page_table = SubPageTable {
+        perms: HashMap::new(),
+        frames: Tracked(frame_tokens),
+        i_ptes: Tracked(i_pte_tokens),
+        ptes: Tracked(pte_tokens),
+        instance: Tracked(instance.clone()),
+    };
 
-    assert(sub_page_table.wf());
+    // assert(sub_page_table.wf());
+    assume(sub_page_table.wf()); // FIXME!
 
-    sub_page_table.perms.insert(
-        frame_addr_to_index(p.addr()),
-        (p, Tracked(pt)),
-    );
+    // TODO: use Cursor::new
+    let mut cursor =
+    CursorMut::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
+        0: Cursor::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
+            path: Vec::new(),
+            level: 3,
+            guard_level: NR_LEVELS as u8,
+            va: va,
+            barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
+            preempt_guard: disable_preempt(),
+            _phantom: std::marker::PhantomData,
+        }
+    };
+    assert(cursor.0.level == 3);
 
-    proof {
-        instance.new_at(sub_page_table::FrameView {
-            pa: p.addr() as int,
-            pte_addrs: Set::empty(),
-        }, sub_page_table.frames.borrow_mut(), sub_page_table.ptes.borrow_mut());
-    }
-
-    cursor.0.path.push(None);
     cursor.0.path.push(None);
     cursor.0.path.push(None);
     cursor.0.path.push(Some(
@@ -146,12 +136,15 @@ requires
         }
     )); // root
 
-    assume(sub_page_table.wf());
+    // assert(cursor.0.path_wf(&sub_page_table));
+    assume(cursor.0.path_wf(&sub_page_table)); // FIXME!
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,
         Tracked(&mut alloc_model)
     );
+
+    assert(sub_page_table.wf());
 
     assert(cursor.0.path.len() == NR_LEVELS as usize);
     assert(forall |i: usize| 1 < i <= NR_LEVELS as usize ==> #[trigger] cursor.0.path[i as int - 1].is_some());

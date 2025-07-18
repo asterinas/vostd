@@ -16,6 +16,7 @@ use vstd::raw_ptr::*;
 use vstd::simple_pptr::*;
 use vstd::simple_pptr::PointsTo;
 
+use crate::mm::allocator::pa_is_valid_kernel_address;
 use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
 
 verus! {
@@ -25,283 +26,325 @@ type Paddr = usize;
 type Vaddr = usize;
 
 use crate::mm::NR_ENTRIES;
+use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::exec::SIZEOF_PAGETABLEENTRY;
 use crate::exec::SIZEOF_FRAME;
 
-#[derive(Clone, Copy)]
-pub struct Frame {
-    // pub pa: Paddr,
-    pub ptes: [PageTableEntry; 512],
-    // pub has_ptes: bool,
+pub open spec fn level_is_in_range(level: int) -> bool {
+    1 <= level <= MAX_NR_LEVELS
 }
 
-#[derive(Clone, Copy)]
-pub struct PageTableEntry {
-    pub frame_pa: Paddr,
-    pub level: usize,
-    pub prop: PageProperty,
+pub open spec fn index_is_in_range(index: int) -> bool {
+    0 <= index < NR_ENTRIES
 }
 
-pub ghost struct PageTableEntryView {
+pub open spec fn pa_is_valid_pt_address(pa: int) -> bool {
+    &&& pa_is_valid_kernel_address(pa)
+    &&& pa % SIZEOF_FRAME as int == 0
+}
+
+pub open spec fn index_to_paddr(frame_pa: int, index: int) -> int {
+    frame_pa + index * SIZEOF_PAGETABLEENTRY as int
+}
+
+pub ghost struct LeafPageTableEntryView {
     pub frame_pa: int,
-    pub level: usize,
+    pub in_frame_index: int,
+    pub map_to_pa: int,
+    pub level: int,
     pub prop: PageProperty,
+}
+
+impl LeafPageTableEntryView {
+    pub open spec fn wf(&self) -> bool {
+        &&& pa_is_valid_pt_address(self.frame_pa)
+        &&& index_is_in_range(self.in_frame_index)
+        &&& pa_is_valid_kernel_address(
+            self.map_to_pa,
+        )
+        // We assume that all level PTEs can be leaf. Thus they can map to huge pages.
+        &&& level_is_in_range(self.level)
+    }
+
+    pub open spec fn entry_pa(&self) -> int {
+        index_to_paddr(self.frame_pa, self.in_frame_index)
+    }
+}
+
+pub ghost struct IntermediatePageTableEntryView {
+    pub frame_pa: int,
+    pub in_frame_index: int,
+    pub map_to_pa: int,
+    pub level: int,
+}
+
+impl IntermediatePageTableEntryView {
+    pub open spec fn wf(&self) -> bool {
+        &&& pa_is_valid_pt_address(self.frame_pa)
+        &&& index_is_in_range(self.in_frame_index)
+        &&& pa_is_valid_pt_address(self.map_to_pa)
+        &&& level_is_in_range(self.level)
+        // No self-loop.
+        &&& self.map_to_pa != self.frame_pa
+    }
+
+    pub open spec fn entry_pa(&self) -> int {
+        index_to_paddr(self.frame_pa, self.in_frame_index)
+    }
 }
 
 pub ghost struct FrameView {
     pub pa: int,
-    // pub ptes: [PageTableEntry; 512],
-    pub pte_addrs: Set<int>,
+    /// A map from the ancestor frame level to the PTE that the ancestor maps to its child.
+    pub ancestor_chain: Map<int, IntermediatePageTableEntryView>,
+    pub level: int,
 }
 
-} // verus!
-tokenized_state_machine! {
+impl FrameView {
+    pub open spec fn wf(&self) -> bool {
+        &&& pa_is_valid_pt_address(self.pa)
+        &&& level_is_in_range(self.level)
+        &&& forall|ancestor_level: int| #[trigger]
+            self.ancestor_chain.contains_key(ancestor_level) ==> {
+                &&& level_is_in_range(ancestor_level)
+                &&& self.level < ancestor_level
+                &&& self.ancestor_chain[ancestor_level].wf()
+                &&& self.ancestor_chain[ancestor_level].level
+                    == ancestor_level
+                // No loops.
+                &&& self.ancestor_chain[ancestor_level].frame_pa
+                    != self.pa
+                // The map-to-addresses actually forms a chain.
+                &&& if ancestor_level == self.level + 1 {
+                    self.ancestor_chain[ancestor_level].map_to_pa == self.pa
+                } else {
+                    &&& self.ancestor_chain.contains_key(ancestor_level - 1)
+                    &&& self.ancestor_chain[ancestor_level].map_to_pa
+                        == self.ancestor_chain[ancestor_level - 1].frame_pa
+                }
+                &&& if self.ancestor_chain.contains_key(ancestor_level + 1) {
+                    self.ancestor_chain[ancestor_level + 1].map_to_pa
+                        == self.ancestor_chain[ancestor_level].frame_pa
+                } else {
+                    true
+                }
+                // The ancestor is not duplicate.
+                &&& forall|other_ancestor_level: int| #[trigger]
+                    self.ancestor_chain.contains_key(other_ancestor_level) ==> {
+                        ||| other_ancestor_level == ancestor_level
+                        ||| self.ancestor_chain[other_ancestor_level]
+                            != self.ancestor_chain[ancestor_level]
+                    }
+            }
+    }
+}
 
+tokenized_state_machine! {
 // A state machine for a sub-tree of a page table.
 SubPageTableStateMachine {
-
     fields {
+        /// The root of the sub-page-table.
+        #[sharding(constant)]
+        pub root: FrameView,
+
         /// Page table pages indexed by their physical address.
         #[sharding(variable)]
         pub frames: Map<int, FrameView>,
 
-        /// Page table entries indexed by their physical address.
+        /// Intermediate page table entries indexed by their physical address.
         #[sharding(variable)]
-        pub ptes: Map<int, PageTableEntryView>,
+        pub i_ptes: Map<int, IntermediatePageTableEntryView>,
+
+        /// Leaf page table entries indexed by their physical address.
+        #[sharding(variable)]
+        pub ptes: Map<int, LeafPageTableEntryView>,
+    }
+
+    #[invariant]
+    pub spec fn sub_pt_wf(self) -> bool {
+        &&& self.root.ancestor_chain.is_empty()
+        &&& self.root.wf()
+        // Frame invariants.
+        &&& forall |addr: int| self.frames.dom().contains(addr) ==> {
+            let frame = #[trigger] self.frames[addr];
+            &&& frame.wf()
+            &&& frame.pa == addr
+            // There must be ancestors all the way till the root.
+            &&& forall |ancestor_level: int| frame.level < ancestor_level <= self.root.level ==>
+                #[trigger] frame.ancestor_chain.contains_key(ancestor_level)
+            // The ultimate ancestor must be the root.
+            &&& if addr != self.root.pa {
+                &&& frame.level < self.root.level
+                &&& frame.ancestor_chain[self.root.level].frame_pa == self.root.pa
+            } else {
+                true
+            }
+            // The ancestor chain of the frame conforms to the map.
+            &&& forall |ancestor_level: int| #[trigger] frame.ancestor_chain.contains_key(ancestor_level) ==> {
+                let ancestor = #[trigger] frame.ancestor_chain[ancestor_level];
+                &&& ancestor_level <= self.root.level
+                &&& self.frames.contains_key(ancestor.frame_pa)
+                &&& self.frames[ancestor.frame_pa].level == ancestor_level
+                &&& {
+                    &&& self.i_ptes.contains_key(ancestor.entry_pa())
+                    &&& self.i_ptes[ancestor.entry_pa()] == ancestor
+                    &&& if ancestor_level == frame.level + 1 {
+                        self.i_ptes[ancestor.entry_pa()].map_to_pa == frame.pa
+                    } else {
+                        self.i_ptes[ancestor.entry_pa()].map_to_pa == frame.ancestor_chain[ancestor_level - 1].frame_pa
+                    }
+                }
+            }
+        }
+        // Intermediate PTE invariants.
+        &&& forall |addr: int| self.i_ptes.dom().contains(addr) ==> {
+            let i_pte = #[trigger] self.i_ptes[addr];
+            &&& i_pte.wf()
+            &&& i_pte.entry_pa() == addr
+            &&& self.frames.contains_key(i_pte.frame_pa)
+            &&& self.frames.contains_key(i_pte.map_to_pa)
+            // PTEs must map to a lower level child frame.
+            &&& self.frames[i_pte.map_to_pa].level == i_pte.level - 1
+            // The ancestor chains of the child frame must be set correctly.
+            &&& {
+                let child_frame = self.frames[i_pte.map_to_pa];
+                &&& child_frame.ancestor_chain.contains_key(i_pte.level)
+                &&& child_frame.ancestor_chain[i_pte.level] == i_pte
+            }
+            // Intermediate PTEs can't overlap with leaf PTEs.
+            &&& !self.ptes.contains_key(addr)
+        }
+        // Leaf PTE invariants.
+        &&& forall |addr: int| self.ptes.dom().contains(addr) ==> {
+            let pte = #[trigger] self.ptes[addr];
+            &&& pte.wf()
+            &&& pte.entry_pa() == addr
+            // Leaf PTEs can't overlap with intermediate PTEs.
+            &&& !self.i_ptes.contains_key(addr)
+        }
     }
 
     init!{
-        initialize() {
-            init frames = Map::empty();
+        initialize(root_frame: FrameView) {
+            require root_frame.wf();
+
+            // The new frame has no ancestors.
+            require root_frame.ancestor_chain.is_empty();
+
+            init root = root_frame;
+            init frames = Map::empty().insert(root_frame.pa, root_frame);
+            init i_ptes = Map::empty();
             init ptes = Map::empty();
         }
     }
 
-    transition! {
-        // acquire a sub-page-table at a given root node.
-        new_at(root_frame: FrameView) {
-            require root_frame.pte_addrs.len() == 0;
-            require root_frame.pte_addrs == Set::<int>::empty();
-
-            // no ptes for this frame
-            require forall |i: int| 0 <= i < NR_ENTRIES ==>
-                !(#[trigger] pre.ptes.dom().contains(root_frame.pa + i * SIZEOF_PAGETABLEENTRY));
-
-            // the sub page table is empty
-            require pre.frames.is_empty();
-            require pre.ptes.is_empty();
-
-            update frames = pre.frames.insert(root_frame.pa, root_frame);
-        }
-    }
+    #[inductive(initialize)]
+    pub fn initialize_inductive(post: Self, root_frame: FrameView) {}
 
     transition! {
-        // set child relationship
-        set_child(parent: int, index: usize, child: int, level: usize) {
-            require parent != child;
-            require child != 0;
-            require child as u64 != 0; // TODO: maybe add an axiom
-            require pre.frames.contains_key(parent);
-            require pre.frames.contains_key(child);
-            // require pre.frames[parent].pa != pre.frames[child].pa;
-            // require pre.frames[parent].pa == parent;
+        // Sets a new child to the sub-page-table.
+        set_child(i_pte: IntermediatePageTableEntryView) {
+            let IntermediatePageTableEntryView {
+                frame_pa,
+                in_frame_index,
+                map_to_pa,
+                level,
+            } = i_pte;
 
-            // TODO: consider remapping? currently this is correct
-            require !pre.frames[parent].pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY);
+            require i_pte.wf();
+            require level > 1;
+            require level <= pre.root.level;
+            require if level == pre.root.level {
+                &&& frame_pa == pre.root.pa
+            } else {
+                &&& frame_pa != pre.root.pa
+            };
+            require if frame_pa == pre.root.pa {
+                &&& level == pre.root.level
+            } else {
+                true
+            };
 
-            // parent has valid ptes
-            require forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
-                pre.ptes.dom().contains(i);
+            require pre.frames.contains_key(frame_pa);
+            require !pre.frames.contains_key(map_to_pa);
 
-            // child has no ptes
-            require pre.frames[child].pte_addrs.len() == 0;
-            // NOTE: wtf?! len() == 0 does not work and it does not mean empty
-            require pre.frames[child].pte_addrs == Set::<int>::empty();
+            let parent_frame = pre.frames[frame_pa];
 
-            // others points to parent have a higher level
-            require forall |i: int| #[trigger] pre.ptes.contains_key(i) ==>
-                (#[trigger] pre.ptes[i]).frame_pa == parent ==> pre.ptes[i].level == level + 1;
+            require parent_frame.level == level;
 
-            // parent has the same level ptes
-            require forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
-                (#[trigger] pre.ptes[i]).frame_pa == parent ==> pre.ptes[i].level == level;
+            // No remapping for this transition.
+            require !pre.i_ptes.contains_key(i_pte.entry_pa());
+            require !pre.ptes.contains_key(i_pte.entry_pa());
 
-            // no others points to child
-            require forall |i: int| pre.ptes.contains_key(i) ==>
-                (#[trigger] pre.ptes[i]).frame_pa != child;
+            // Construct a child frame with proper ancestor chain.
+            let ancestor_chain = parent_frame.ancestor_chain.insert(
+                level,
+                i_pte,
+            );
+            let child = FrameView {
+                pa: map_to_pa,
+                ancestor_chain,
+                level: level - 1,
+            };
 
-            // require pre.frames[child].pa == child;
-            let pte_addr = parent + index * SIZEOF_PAGETABLEENTRY;
-            // require !pre.frames[parent].pte_addrs.contains(pte_addr);
-            // require !pre.ptes.dom().contains(pte_addr);
+            update frames = pre.frames.insert(child.pa, child);
 
-            update frames = pre.frames.insert(parent, FrameView {
-                pa: pre.frames[parent].pa,
-                pte_addrs: pre.frames[parent].pte_addrs.insert(pte_addr),
-            });
-
-            update ptes = pre.ptes.insert(
-                pte_addr,
-                PageTableEntryView {
-                    frame_pa: child,
-                    level: level,
-                    prop: PageProperty {
-                        flags: PageFlags::R(),
-                        cache: CachePolicy::Writeback,
-                        priv_flags: PrivilegedPageFlags::empty(),
-                    },
-                }
+            update i_ptes = pre.i_ptes.insert(
+                i_pte.entry_pa(),
+                i_pte,
             );
         }
     }
 
+    #[inductive(set_child)]
+    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView) {}
+
     transition! {
         // remove a pte at a given address
-        remove_at(parent: int, pte_addr: int, child_addr: int) {
-            require pre.frames.contains_key(parent); // TODO: weak?
-            require pre.frames.contains_key(child_addr);
+        remove_at(parent: int, index: int) {
+            let pte_addr = index_to_paddr(parent, index);
 
-            // TODO: this could be incorrect
-            // require pre.frames[child_addr].pte_addrs.len() == 0; // child has no ptes
+            require pre.i_ptes.contains_key(pte_addr);
 
-            require pre.frames[parent].pte_addrs.contains(pte_addr); // parent has the pte
+            let child_frame_addr = pre.i_ptes[pte_addr].map_to_pa;
+            let child_frame_level = pre.frames[child_frame_addr].level;
 
-            // no others has the same pte
-            require forall |i: int| pre.frames.contains_key(i) && i != parent ==>
-                ! #[trigger] pre.frames[i].pte_addrs.contains(pte_addr);
+            require pre.frames.contains_key(parent);
+            require pre.frames.contains_key(child_frame_addr);
 
-            // pte is valid
-            require pre.ptes.dom().contains(pte_addr);
-            require pre.ptes[pte_addr].frame_pa == child_addr;
+            // The child is not an ancestor of any other frame.
+            // TODO: this restriction may be uplifted in the future to allow child PTEs
+            // to be cleared in the background after the PTE is overwritten.
+            require forall |i: int| #[trigger] pre.frames.contains_key(i) ==> {
+                ||| !pre.frames[i].ancestor_chain.contains_key(child_frame_level)
+                ||| pre.frames[i].ancestor_chain[child_frame_level].frame_pa != child_frame_addr
+            };
 
-            // no others points to child
-            require forall |i: int| pre.ptes.contains_key(i) && i != parent ==>
-                (#[trigger] pre.ptes[i]).frame_pa != child_addr;
+            update frames = pre.frames.remove(child_frame_addr);
 
-            // TODO: if child has ptes, we need to remove all of them, which in real world is done after unmapping
-            update frames = pre.frames.insert(parent, FrameView {
-                pa: pre.frames[parent].pa,
-                pte_addrs: pre.frames[parent].pte_addrs.remove(pte_addr),
-            });
-
-            // TODO: remove child
-            // TODO: this could cause memory leak
-            // pre.frames.insert().remove(); TODO: this is not supported by verus
-
-            update ptes = pre.ptes.remove(pte_addr);
+            update i_ptes = pre.i_ptes.remove(pte_addr);
         }
-    }
-
-    #[inductive(new_at)]
-    pub fn tr_new_at_invariant(pre: Self, post: Self, root_frame: FrameView) {
-        assert(!pre.frames.contains_key(root_frame.pa));
-
-        assert(post.frames.contains_key(root_frame.pa));
-        assert(post.frames[root_frame.pa] == root_frame);
-        assert(post.frames[root_frame.pa].pte_addrs.len() == 0);
-        assert(pre.ptes == post.ptes);
-
-        broadcast use vstd::set::group_set_axioms;
-        assert(post.frames[root_frame.pa].pte_addrs.len() == 0);
-        assert(forall |pte_addr:int| #[trigger] post.frames[root_frame.pa].pte_addrs.contains(pte_addr) ==>
-            post.ptes.dom().contains(pte_addr));
     }
 
     #[inductive(remove_at)]
-    pub fn tr_remove_at_invariant(pre: Self, post: Self, parent: int, pte_addr: int, child_addr: int) {
-        assert(pre.frames.contains_key(parent));
-        assert(pre.frames.contains_key(child_addr));
-        // assert(pre.frames[child_addr].pte_addrs.len() == 0);
-        assert(pre.frames[parent].pte_addrs.contains(pte_addr));
-        assert(pre.ptes.dom().contains(pte_addr));
-        assert(pre.ptes[pte_addr].frame_pa == child_addr);
-
-        assert(post.frames.contains_key(parent));
-        // assert(!post.frames.contains_key(child_addr)); // TODO
-        assert(!post.frames[parent].pte_addrs.contains(pte_addr));
-        assert(!post.ptes.dom().contains(pte_addr));
-
-        assert(forall |i: int| #[trigger] post.frames[parent].pte_addrs.contains(i) ==>
-            post.ptes.dom().contains(i));
-        assert(forall |i: int| #[trigger] post.frames[child_addr].pte_addrs.contains(i) ==>
-            post.ptes.dom().contains(i));
-    }
-
-    #[inductive(set_child)]
-    pub fn tr_set_child_invariant(pre: Self, post: Self, parent: int, index: usize, child: int, level: usize) {
-        assert(pre.frames.contains_key(parent));
-        assert(pre.frames.contains_key(child));
-        assert(pre.frames[parent].pa != pre.frames[child].pa);
-        assert(pre.frames[parent].pa == parent);
-        assert(pre.frames[child].pa == child);
-        assert(!pre.frames[parent].pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY));
-        assert(forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
-            pre.ptes.dom().contains(i));
-        assert(forall |i: int| #[trigger] pre.frames[parent].pte_addrs.contains(i) ==>
-            pre.frames[parent].pte_addrs.contains(i));
-
-        assert(post.ptes.dom().contains(parent + index * SIZEOF_PAGETABLEENTRY));
-        assert(post.frames.contains_key(parent));
-        assert(post.frames[parent].pte_addrs.contains(parent + index * SIZEOF_PAGETABLEENTRY));
-        assert(post.ptes[parent + index * SIZEOF_PAGETABLEENTRY].frame_pa == child);
-        assert(post.ptes[parent + index * SIZEOF_PAGETABLEENTRY].level == level);
-        assert(forall |i: int| #[trigger] post.frames[parent].pte_addrs.contains(i) ==>
-            post.ptes.dom().contains(i));
-        assert(post.frames[child].pte_addrs.len() == 0);
-
-        assert(forall |i: int| #[trigger] post.frames[parent].pte_addrs.contains(i) && i != (parent + index * SIZEOF_PAGETABLEENTRY) ==>
-            pre.frames[parent].pte_addrs.contains(i));
-        assert(forall |i: int| #[trigger] post.ptes.contains_key(i) ==>
-                (#[trigger] post.ptes[i]).frame_pa == parent ==> post.ptes[i].level == level + 1);
-        assert(forall |i: int| #[trigger] pre.ptes.contains_key(i) ==>
-                (#[trigger] post.ptes[i]).frame_pa == child ==> post.ptes[i].level == level);
-
-        // FIXME: Doesn't make sense?
-        assume(forall |addr: int| post.frames.dom().contains(addr) ==>
-            forall |pte_addr: int| post.frames[addr].pte_addrs.contains(pte_addr) ==> {
-                let pte = post.ptes[pte_addr];
-                pte.level > 1 ==> // let's only care about ptes at level 2 or higher
-                    forall |child_pte_addr: int| post.frames[pte.frame_pa].pte_addrs.contains(child_pte_addr) ==> {
-                        let child_pte = post.ptes[child_pte_addr];
-                        &&& post.ptes[child_pte_addr].level == pte.level - 1 // child level relation
-                    }
+    pub fn tr_remove_at_invariant(pre: Self, post: Self, parent: int, index: int) {
+        // We need to show that, if the frame is not an ancestor of any other
+        // frame, then the parent PTE pointing to it shouldn't appear in any
+        // ancestor chain.
+        assert(forall |i: int| #[trigger] pre.frames.contains_key(i) ==> {
+            let any_frame = #[trigger] pre.frames[i];
+            // We write the contrapositive here.
+            forall |frame_level: int, frame_addr: int| #[trigger] pa_is_valid_pt_address(frame_addr) && frame_level < any_frame.level ==> {
+                (any_frame.ancestor_chain.contains_key(frame_level + 1)
+                    && frame_addr == any_frame.ancestor_chain[frame_level + 1].map_to_pa)
+                ==>
+                (#[trigger] any_frame.ancestor_chain.contains_key(frame_level)
+                    && frame_addr == any_frame.ancestor_chain[frame_level].frame_pa)
             }
-        )
+        });
     }
+} // SubPageTableStateMachine
+}  // tokenized_state_machine!
 
-    #[inductive(initialize)]
-    pub fn initialize_inductive(post: Self) { }
 
-    #[invariant]
-    pub spec fn sub_pt_wf(self) -> bool {
-        &&& forall |addr: int| self.frames.dom().contains(addr) ==> {
-            let frame = #[trigger] self.frames[addr];
-            &&& frame.pa == addr
-            &&& forall |pte_addr: int| frame.pte_addrs.contains(pte_addr) ==> {
-                let pte = self.ptes[pte_addr];
-                &&& self.ptes.dom().contains(pte_addr) // pte_addr is a valid pte address
-                &&& pte.level > 1 ==> { // let's only care about ptes at level 2 or higher
-                    &&& self.frames.dom().contains(pte.frame_pa) // pte points to a valid frame address
-                    &&& self.frames[pte.frame_pa].pa == pte.frame_pa // pte points to a valid frame
-                    &&& pte.frame_pa != addr // pte points to a different frame
-                    &&& forall |child_pte_addr: int| self.frames[pte.frame_pa].pte_addrs.contains(child_pte_addr) ==> {
-                        let child_pte = self.ptes[child_pte_addr];
-                        &&& self.ptes.dom().contains(child_pte_addr) // pte_addr is a valid pte address
-                        &&& self.frames.dom().contains(child_pte.frame_pa) // pte points to a valid frame address
-                        &&& self.frames[child_pte.frame_pa].pa == child_pte.frame_pa // pte points to a valid frame
-                        &&& self.ptes[child_pte_addr].level == pte.level - 1 // child level relation
-                    }
-                }
-            }
-        }
-        &&& forall |pte_addr: int|
-            #![trigger self.ptes[pte_addr]]
-            self.ptes.dom().contains(pte_addr) ==> {
-                &&& self.frames.dom().contains(self.ptes[pte_addr].frame_pa)
-                &&& self.ptes[pte_addr].frame_pa != 0
-                &&& self.ptes[pte_addr].frame_pa as u64 != 0
-            }
-    }
-
-}
-} // tokenized_state_machine
+} // verus!

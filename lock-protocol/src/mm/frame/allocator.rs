@@ -13,6 +13,11 @@ verus! {
 /// We assume that the available physical memory is 0 to MAX_FRAME_NUM - 1.
 pub const MAX_FRAME_NUM: usize = 10000;
 
+pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME
+        * MAX_FRAME_NUM as int
+}
+
 /// Each user of the global allocator can instantiate such a model for reasoning.
 ///
 /// So that the user can know that, each new allocation must be a new address,
@@ -24,9 +29,10 @@ pub tracked struct AllocatorModel {
 impl AllocatorModel {
     pub open spec fn invariants(&self) -> bool {
         forall|addr: int| #[trigger]
-            self.allocated_addrs.contains(addr) ==> PHYSICAL_BASE_ADDRESS_SPEC() <= addr
-                < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM as int && addr
-                % SIZEOF_FRAME as int == 0
+            self.allocated_addrs.contains(addr) ==> {
+                &&& pa_is_valid_kernel_address(addr)
+                &&& addr % SIZEOF_FRAME as int == 0
+            }
     }
 }
 

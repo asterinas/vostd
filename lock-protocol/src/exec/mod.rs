@@ -386,6 +386,7 @@ struct_with_invariants!{
         pub perms: HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
         // State machine.
         pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>,
+        pub i_ptes: Tracked<sub_page_table::SubPageTableStateMachine::i_ptes>,
         pub ptes: Tracked<sub_page_table::SubPageTableStateMachine::ptes>,
         pub instance: Tracked<sub_page_table::SubPageTableStateMachine::Instance>,
     }
