@@ -11,12 +11,7 @@ use vstd::arithmetic::mul::lemma_mul_is_commutative;
 
 verus! {
 
-// Fundamental axiom: Power-of-2 bitwise alignment produces modular alignment
-// This is a mathematically sound property that forms the foundation of
-// computer memory alignment, but proving it from first principles requires
-// specialized bit-vector decision procedures that connect bitwise operations
-// to modular arithmetic. This property is well-established in computer science
-// literature and is safe to assume as an axiom.
+// Power-of-2 bitwise alignment produces modular alignment
 proof fn lemma_power2_and_alignment(x: u64, align_: u64)
     requires
         align_ > 0,
@@ -33,7 +28,7 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
             lemma2_to64();
         };
         assert(pow2(n) < pow2(64));
-        // Convert pow2 to pow and use the strict monotonicity of pow
+        // monotonicity
         lemma_pow2(n);
         lemma_pow2(64);
         assert(pow(2, n) < pow(2, 64)) by {
@@ -45,14 +40,13 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
         assert(u64::BITS == 64);
     };
 
-    // Now use the fundamental lemma about masks and modulo
     lemma_u64_low_bits_mask_is_mod(x, n);
 
     // Establish the relationships
     assert(align_ == pow2(n) as u64);
     assert(align_ - 1 == low_bits_mask(n) as u64) by {
         lemma_low_bits_mask_values();
-        // For power of 2 values, n-1 equals the low bits mask
+        // low bits mask
         assert(pow2(n) - 1 == low_bits_mask(n));
     };
 
