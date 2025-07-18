@@ -707,6 +707,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
             len % page_size::<C>(1) == 0,
             old(self).path_valid_before_map(),
             old(self).0.va + page_size::<C>(old(self).0.level) < old(self).0.va + len,
+            old(alloc_model).invariants(),
+            spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
     {
         let start = self.0.va;
         assert(len % page_size::<C>(1) == 0);
@@ -720,6 +722,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 self.0.level <= C::NR_LEVELS(),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,
+                alloc_model.invariants(),
+                spt_contains_no_unallocated_frames(spt, alloc_model),
             decreases end - self.0.va,
         {
             let cur_va = self.0.va;
