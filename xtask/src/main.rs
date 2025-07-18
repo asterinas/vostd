@@ -98,9 +98,8 @@ where
     PB: AsRef<Path>,
     PH: AsRef<Path>,
 {
-    let path = env_var
-        .and_then(|env_var| locate_from_env(&binary, env_var))
-        .or_else(|| locate_from_hints(&binary, &hints))
+    let path = locate_from_hints(&binary, &hints)
+        .or_else(|| env_var.and_then(|env_var| locate_from_env(&binary, env_var)))
         .or_else(|| locate_from_path(&binary));
 
     path.and_then(|path| Some(absolutize(&path)))
