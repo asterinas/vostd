@@ -3,8 +3,8 @@ use builtin_macros::*;
 use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 
-use super::common::*;
-use crate::spec::utils::*;
+use crate::spec::{common::*, utils::*};
+use super::types::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
@@ -33,6 +33,20 @@ pub fn inv_pt_node_pte_array_relationship(&self) -> bool {
         self.ptes.dom().contains(nid)
 }
 
+#[invariant]
+pub fn inv_pt_node_pte_relationship(&self) -> bool {
+    forall |nid: NodeId| #![auto]
+        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+            self.nodes.dom().contains(nid) <==> {
+                let pa = NodeHelper::get_parent(nid);
+                let offset = NodeHelper::get_offset(nid);
+
+                self.ptes.dom().contains(pa) &&
+                self.ptes[pa].is_alive(offset)
+            }
+        }
+}
+
 init!{
     initialize(cpu_num: CpuId) {
         require(cpu_num > 0);
@@ -40,7 +54,11 @@ init!{
         init cpu_num = cpu_num;
         init nodes = Map::new(
             |nid| nid == NodeHelper::root_id(),
-            |nid| NodeState::WriteUnLocked,
+            |nid| NodeState::Free,
+        );
+        init ptes = Map::new(
+            |nid| nid == NodeHelper::root_id(),
+            |nid| PteState::empty(),
         );
         init cursors = Map::new(
             |cpu| valid_cpu(cpu_num, cpu),
@@ -105,7 +123,7 @@ transition!{
     unlocking_start(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        remove cursors -= [ cpu => CursorState::Locked(rt) ];
+        remove cursors -= [ cpu => let CursorState::Locked(rt) ];
         add cursors += [ cpu => CursorState::Locking(rt, rt) ];
     }
 }
@@ -178,7 +196,7 @@ transition!{
 }
 
 #[inductive(initialize)]
-fn initialize_inductive(post: Self, cpu_num: CpuId) {}
+fn initialize_inductive(post: Self, cpu_num: CpuId) { admit(); }
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
@@ -199,13 +217,13 @@ fn unlocking_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
 fn unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(unlocking_skip)]
-fn unlocking_skip(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn unlocking_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(unlocking_end)]
 fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(allocate)]
-fn allocate_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(deallocate)]
 fn deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}

@@ -8,6 +8,7 @@ use crate::mm::{
     page_size,
     vm_space::Token,
     PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
+    frame::allocator::AllocatorModel,
 };
 
 use super::{Child, MapTrackingStatus, PageTableLockTrait, PageTableNode};
@@ -97,39 +98,25 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    // TODO: Implement replace
-    // #[verifier::external_body]
     pub(in crate::mm) fn replace(
         self,
         new_child: Child<C>,
-        spt: &mut exec::SubPageTable,
         level: PagingLevel,
-        ghost_index: usize,  // TODO: make it ghost
-        used_pte_addr_token: Option<
-            Tracked<sub_page_table::SubPageTableStateMachine::unused_pte_addrs>,
-        >,
+        spt: &mut exec::SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Child<C>)
         requires
             old(spt).wf(),
+            old(alloc_model).invariants(),
             self.idx < nr_subpage_per_huge::<C>(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
-            match new_child {
-                Child::None => used_pte_addr_token.is_none(),
-                _ => used_pte_addr_token.is_some(),
-            },
-            used_pte_addr_token.is_some() ==> {
-                &&& used_pte_addr_token.unwrap()@.instance_id() == old(spt).instance@.id()
-                &&& used_pte_addr_token.unwrap()@.element() == self.node.paddr() + self.idx
-                    * exec::SIZEOF_PAGETABLEENTRY as int
-            },
-    // old(spt).mem@[exec::frame_addr_to_index(self.node.paddr())].1@.mem_contents().is_init()
-
+            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
         ensures
             spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance@.id() == old(spt).instance@.id(),
             spt.wf(),
+            alloc_model.invariants(),
             frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
+            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
             match new_child {
                 // Child::PageTable(pt) => self.pte.frame_paddr() == pt.ptr as usize, // TODO: ?
                 _ => true,
@@ -155,26 +142,64 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
             // *self.node.nr_children_mut() -= 1;
             self.node.change_children(-1);
         }
-        assert(spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index));
         // SAFETY:
         //  1. The index is within the bounds.
         //  2. The new PTE is compatible with the page table node, as asserted above.
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
-        self.node.write_pte(
-            self.idx,
-            new_child.into_pte(spt, ghost_index),
-            spt,
-            level,
-            ghost_index,
-            used_pte_addr_token,
-        );
+
+        self.node.write_pte(self.idx, new_child.into_pte(), level, spt, Tracked(alloc_model));
 
         // TODO: P0
         assume(spt.ptes@.value().contains_key(self.pte.pte_paddr() as int));
+        assume(spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model));
 
         old_child
         // unimplemented!()
 
+    }
+
+    #[verifier::external_body]
+    pub(in crate::mm) fn alloc_if_none(
+        self,
+        level: PagingLevel,
+        is_tracked: MapTrackingStatus,
+        spt: &mut exec::SubPageTable,
+        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
+    ) -> (res: Option<usize>)
+        requires
+            old(spt).wf(),
+            old(alloc_model).invariants(),
+            self.idx < nr_subpage_per_huge::<C>(),
+            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
+        ensures
+            spt.wf(),
+            alloc_model.invariants(),
+            spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
+            spt.instance@.id() == old(spt).instance@.id(),
+            frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
+            if old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int) {
+                res is None
+            } else {
+                res is Some && spt.frames@.value().contains_key(res.unwrap() as int)
+            },
+    {
+        if !self.pte.is_present(spt) {
+            // The entry is already present.
+            return None;
+        }
+        let pt = PTL::alloc(level - 1, MapTrackingStatus::Tracked, Tracked(alloc_model));
+        let paddr = pt.into_raw_paddr();
+
+        self.node.write_pte(
+            self.idx,
+            Child::<C>::PageTable(PageTableNode::from_raw(paddr)).into_pte(),
+            level,
+            spt,
+            Tracked(alloc_model),
+        );
+
+        Some(paddr)
     }
 
     /// Create a new entry at the node.

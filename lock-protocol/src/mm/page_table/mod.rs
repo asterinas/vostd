@@ -9,7 +9,7 @@ use std::{marker::PhantomData, ops::Range};
 
 use crate::{
     helpers::math::lemma_u64_and_less_than,
-    mm::{BASE_PAGE_SIZE, PTE_SIZE},
+    mm::{BASE_PAGE_SIZE, PTE_SIZE, frame::allocator::AllocatorModel},
 };
 
 use vstd::prelude::*;
@@ -201,14 +201,7 @@ Sized {
     ///
     /// Note that currently the implementation requires an all zero PTE to be an absent PTE.
     // TODO: Implement
-    fn new_absent(spt: &exec::SubPageTable) -> (res: Self)
-        requires
-            spt.wf(),
-        ensures
-            spt.wf(),
-            !spt.frames@.value().contains_key(res.frame_paddr() as int),
-            !spt.ptes@.value().contains_key(res.pte_paddr() as int),
-    ;
+    fn new_absent() -> (res: Self);
 
     /// If the flags are present with valid mappings.
     ///
@@ -216,6 +209,7 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
+    #[verifier::when_used_as_spec(is_present_spec)]
     fn is_present(&self, spt: &exec::SubPageTable) -> (res: bool)
         requires
             spt.wf(),
@@ -230,24 +224,10 @@ Sized {
             spt.wf(),
     ;
 
+    spec fn is_present_spec(&self, spt: &exec::SubPageTable) -> bool;
+
     /// Create a new PTE with the given physical address and flags that map to a page.
-    fn new_page(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-        spt: &mut exec::SubPageTable,
-        ghost_index: usize,
-    ) -> (res: Self)
-        requires
-            old(spt).wf(),
-            spec_helpers::mpt_not_contains_not_allocated_frames(old(spt), ghost_index),
-        ensures
-            spt.wf(),
-            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
-            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
-            spec_helpers::mpt_not_contains_not_allocated_frames(spt, ghost_index),
-    ;
+    fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self);
 
     /// Create a new PTE that map to a child page table.
     fn new_pt(paddr: Paddr) -> (res: Self);

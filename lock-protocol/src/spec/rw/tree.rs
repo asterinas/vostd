@@ -4,7 +4,7 @@ use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};
-use super::types::*;
+use super::{types::*, wf_tree_path::*};
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
