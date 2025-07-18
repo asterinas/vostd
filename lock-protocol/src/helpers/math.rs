@@ -4,18 +4,6 @@ use vstd::bits::*;
 
 verus! {
 
-pub open spec fn is_power_2(n: int) -> bool
-    decreases n,
-{
-    if n <= 0 {
-        false
-    } else if n == 1 {
-        true
-    } else {
-        n % 2 == 0 && is_power_2(n / 2)
-    }
-}
-
 pub proof fn lemma_page_shl()
     ensures
         (4096 as u64) << 0 == 0x1000,

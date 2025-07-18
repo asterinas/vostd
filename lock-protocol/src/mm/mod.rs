@@ -17,8 +17,7 @@ use vstd::{
     layout::is_power_2,
 };
 use vstd_extra::extra_num::{
-    lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered, lemma_usize_is_power_2_is_ilog2_pow2,
-    lemma_usize_pow2_ilog2, lemma_usize_shl_is_mul, lemma_pow2_increases,
+    lemma_pow2_increases, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered, lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2, lemma_usize_pow2_shl_is_pow2, lemma_usize_shl_is_mul
 };
 use crate::helpers::math::lemma_page_shl;
 
@@ -76,6 +75,7 @@ pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
         1 <= level <= C::NR_LEVELS(),
     ensures
         res > 0,
+        is_power_2(res as int),
     returns
         page_size_spec::<C>(level),
 {
@@ -126,6 +126,10 @@ pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
         );
         lemma_pow2_pos(
             (C::BASE_PAGE_SIZE().ilog2() + (subpage_bits * (level as usize - 1))) as nat,
+        );
+        lemma_usize_pow2_shl_is_pow2(
+            C::BASE_PAGE_SIZE(),
+            (subpage_bits * (level as usize - 1)) as usize,
         );
     }
     C::BASE_PAGE_SIZE() << (nr_subpage_per_huge::<C>().ilog2() as usize * (level as usize - 1))

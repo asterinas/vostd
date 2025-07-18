@@ -41,7 +41,7 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn level_is_greate_than_one(level: PagingLevel) -> bool {
+pub open spec fn level_is_greater_than_one(level: PagingLevel) -> bool {
     &&& level > 1
     &&& level <= PagingConsts::NR_LEVELS_SPEC()
 }
