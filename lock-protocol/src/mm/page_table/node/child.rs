@@ -102,12 +102,7 @@ impl<C: PageTableConfig> Child<C> {
     /// been converted from a child using the [`Child::into_pte`] method.
     // TODO: Implement the conversion from PTE.
     #[verifier::external_body]
-    pub(super) fn from_pte(
-        pte: C::E,
-        // level: PagingLevel,
-        is_tracked: MapTrackingStatus,
-        spt: &exec::SubPageTable,
-    ) -> Self {
+    pub(super) fn from_pte(pte: C::E, level: PagingLevel, spt: &exec::SubPageTable) -> Self {
         if !pte.is_present(spt) {
             // let paddr = pte.paddr();
             // if paddr == 0 {
@@ -171,8 +166,7 @@ impl<C: PageTableConfig> Child<C> {
     // #[verifier::external_body]
     pub(super) fn ref_from_pte(
         pte: &C::E,
-        // level: PagingLevel, // TODO: node.level is not supported for now
-        is_tracked: MapTrackingStatus,
+        level: PagingLevel,
         clone_raw: bool,
         spt: &exec::SubPageTable,
     ) -> (res: Self)

@@ -1,8 +1,8 @@
 use vstd::prelude::verus;
 
 use crate::mm::{
-    meta::AnyFrameMeta, MapTrackingStatus, PageTable, PageTableEntryTrait, PageTableLockTrait,
-    PageTableConfig, PagingConstsTrait, Vaddr,
+    meta::AnyFrameMeta, MapTrackingStatus, PageTable, PageTableConfig, PageTableEntryTrait,
+    PageTableGuard, PagingConstsTrait, Vaddr,
 };
 use std::ops::Range;
 
@@ -11,16 +11,14 @@ use super::Cursor;
 verus! {
 
 #[verifier::external_body]
-pub fn lock_range<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>>(
-    pt: &PageTable<C>,
-    va: &Range<Vaddr>,
-) -> Cursor<'a, C, PTL> {
+pub fn lock_range<'a, C: PageTableConfig>(pt: &PageTable<C>, va: &Range<Vaddr>) -> Cursor<'a, C> {
     // Placeholder implementation
     unimplemented!()
 }
 
-pub fn dfs_mark_astray<C: PageTableConfig, PTL: PageTableLockTrait<C>>(mut sub_tree: PTL) -> (res:
-    PTL)
+pub fn dfs_mark_astray<C: PageTableConfig>(mut sub_tree: PageTableGuard<C>) -> (res: PageTableGuard<
+    C,
+>)
     ensures
         res == sub_tree,
 {

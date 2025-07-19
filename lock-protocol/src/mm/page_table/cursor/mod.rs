@@ -29,7 +29,7 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Frame, MapTrackingStatus, Paddr, PageTableLockTrait, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
+        Frame, MapTrackingStatus, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     x86_64::VMALLOC_VADDR_RANGE,
@@ -55,13 +55,13 @@ verus! {
 /// A cursor is able to move to the next slot, to read page properties,
 /// and even to jump to a virtual address directly.
 // #[derive(Debug)] // TODO: Implement `Debug` for `Cursor`.
-pub struct Cursor<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> {
+pub struct Cursor<'a, C: PageTableConfig> {
     /// The current path of the cursor.
     ///
     /// The level 1 page table lock guard is at index 0, and the level N page
     /// table lock guard is at index N - 1.
     // path: [Option<PageTableLock<C, T>>; MAX_NR_LEVELS],
-    pub path: Vec<Option<PTL>>,
+    pub path: Vec<Option<PageTableGuard<C>>>,
     /// The level of the page table that the cursor currently points to.
     pub level: PagingLevel,
     /// The top-most level that the cursor is allowed to access.
@@ -100,7 +100,7 @@ pub enum PageTableItem {
     },
 }
 
-impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub open spec fn sub_page_table_valid_before_map(
         &self,
         sub_page_table: &exec::SubPageTable,
@@ -204,8 +204,8 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &self,
         level: u8,
         spt: &exec::SubPageTable,
-        a: PTL,
-        b: PTL,
+        a: PageTableGuard<C>,
+        b: PageTableGuard<C>,
     ) -> bool {
         &&& 1 <= self.level <= PagingConsts::NR_LEVELS_SPEC() as u8
         &&& 1 <= level <= PagingConsts::NR_LEVELS_SPEC() as u8
@@ -223,8 +223,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
         &&& self.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& forall|i: int| 0 <= i < self.level - 1 ==> self.path[i].is_none()
         &&& forall|i: int|
-            self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> (
-            #[trigger] self.path[i]).is_some()
+            self.level - 1 <= i < PagingConsts::NR_LEVELS_SPEC() ==> {
+                &&& (#[trigger] self.path[i]).is_some()
+                &&& self.path[i].unwrap().wf()
+            }
         &&& forall|i: int, j: int|
             0 <= i < j < self.path.len() && self.path[i].is_some() && i + 1 == j
                 ==> self.path_item_points_to(
@@ -325,7 +327,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
     /// Goes down a level to a child page table.
     fn push_level(
         &mut self,
-        child_pt: PTL,
+        child_pt: PageTableGuard<C>,
         old_level: Tracked<PagingLevel>,
         // ghost
         spt: &exec::SubPageTable,
@@ -364,7 +366,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
     }
 
     // fn cur_entry(&mut self) -> Entry<'_, C> {
-    fn cur_entry(&self, spt: &exec::SubPageTable) -> (res: Entry<'_, C, PTL>)
+    fn cur_entry(&self, spt: &exec::SubPageTable) -> (res: Entry<'_, C>)
         requires
             self.level > 0,
             self.level <= PagingConsts::NR_LEVELS_SPEC() as usize,
@@ -373,6 +375,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
             spt.wf(),
             self.path_wf(spt),
         ensures
+            res.node.wf(),
             res.pte.pte_paddr() == self.path[self.level as usize - 1].unwrap().paddr() as usize
                 + pte_index::<C>(self.va, self.level) * exec::SIZEOF_PAGETABLEENTRY,
             res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
@@ -405,9 +408,9 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Cursor<'a, C, PTL> {
 /// in a page table can only be accessed by one cursor, regardless of the
 /// mutability of the cursor.
 // #[derive(Debug)] // TODO: Implement `Debug` for `CursorMut`.
-pub struct CursorMut<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>>(pub Cursor<'a, C, PTL>);
+pub struct CursorMut<'a, C: PageTableConfig>(pub Cursor<'a, C>);
 
-impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
+impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     /// Creates a cursor claiming exclusive access over the given range.
     ///
     /// The cursor created will only be able to map, query or jump within the given
@@ -422,7 +425,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         self.0.virt_addr()
     }
 
-    pub open spec fn path_valid_after_map(&self, old: &CursorMut<'a, C, PTL>) -> bool {
+    pub open spec fn path_valid_after_map(&self, old: &CursorMut<'a, C>) -> bool {
         &&& self.0.path.len() == old.0.path.len()
         &&& self.0.path.len() == PagingConsts::NR_LEVELS_SPEC()
         &&& self.0.path[0].is_some()  // frame.map_level?
@@ -430,7 +433,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
         &&& forall|i: int| 1 < i <= old.0.level ==> #[trigger] self.0.path[i - 1].is_some()
     }
 
-    pub open spec fn va_valid(&self, old: Option<&CursorMut<'a, C, PTL>>) -> bool {
+    pub open spec fn va_valid(&self, old: Option<&CursorMut<'a, C>>) -> bool {
         &&& self.0.va < MAX_USERSPACE_VADDR
         &&& self.0.va >= self.0.barrier_va.start
         &&& self.0.va + PAGE_SIZE() <= self.0.barrier_va.end
@@ -548,14 +551,10 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 Child::PageTableRef(pt) => {
                     reveal_with_fuel(Cursor::sub_page_table_valid_before_map_level, 4);
                     reveal_with_fuel(Cursor::path_matchs_page_table, 4);
+                    let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
                     // SAFETY: `pt` points to a PT that is attached to a node
                     // in the locked sub-tree, so that it is locked and alive.
-                    self.0.push_level(
-                        PTL::from_raw_paddr(pt),
-                        root_level,
-                        // ghost
-                        spt,
-                    );
+                    self.0.push_level(child_pt, root_level, spt);
                 },
                 Child::PageTable(_) => {
                     // unreachable!();
@@ -573,7 +572,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
 
                     assert(spt.frames@.value().contains_key(pt as int));
 
-                    let child_pt = PTL::from_raw_paddr(pt);
+                    let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
 
                     assume(self.0.path_item_points_to(
                         self.0.level,
@@ -773,7 +772,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                     Child::PageTableRef(pt) => {
                         // SAFETY: `pt` points to a PT that is attached to a node
                         // in the locked sub-tree, so that it is locked and alive.
-                        let pt = PTL::from_raw_paddr(pt);
+                        let pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
@@ -843,7 +842,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> CursorMut<'a, C, PTL> {
                 Child::PageTable(pt) => {
                     let paddr = pt.into_raw();
                     // SAFETY: We must have locked this node.
-                    let locked_pt = PTL::from_raw_paddr(paddr);
+                    let locked_pt = PageTableGuard::<C>::from_raw_paddr(paddr, cur_level);
                     // assert!(
                     //     !(TypeId::of::<M>() == TypeId::of::<KernelMode>()
                     //         && self.0.level == C::NR_LEVELS()),

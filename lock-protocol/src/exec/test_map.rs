@@ -8,14 +8,13 @@ use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{pte_index, Paddr, NR_ENTRIES};
+use crate::mm::{pte_index, Paddr, PageTableGuard, NR_ENTRIES};
 use crate::{
     mm::{
         cursor::{Cursor, CursorMut},
         meta::{AnyFrameMeta, MetaSlot},
-        page_prop, Frame, PageTableEntryTrait, PageTableLockTrait, PageTablePageMeta, PagingConsts,
-        PagingConstsTrait, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig,
-        PagingLevel,
+        page_prop, Frame, PageTableEntryTrait, PageTablePageMeta, PagingConsts, PagingConstsTrait,
+        Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig, PagingLevel,
         frame::allocator::{alloc_page_table, AllocatorModel},
     },
     spec::sub_page_table,
@@ -114,8 +113,8 @@ requires
 
     // TODO: use Cursor::new
     let mut cursor =
-    CursorMut::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
-        0: Cursor::<TestPtConfig, FakePageTableLock<TestPtConfig>> {
+    CursorMut::<TestPtConfig> {
+        0: Cursor::<TestPtConfig> {
             path: Vec::new(),
             level: 3,
             guard_level: NR_LEVELS as u8,
@@ -130,8 +129,9 @@ requires
     cursor.0.path.push(None);
     cursor.0.path.push(None);
     cursor.0.path.push(Some(
-        FakePageTableLock {
+        PageTableGuard::<TestPtConfig> {
             phantom: std::marker::PhantomData,
+            level: 3,
             paddr: p.addr(),
         }
     )); // root

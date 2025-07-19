@@ -11,11 +11,11 @@ use crate::mm::{
     frame::allocator::AllocatorModel,
 };
 
-use super::{Child, MapTrackingStatus, PageTableLockTrait, PageTableNode};
+use super::{Child, MapTrackingStatus, PageTableGuard, PageTableNode};
 
 use crate::exec;
 
-use crate::spec::sub_page_table;
+use crate::spec::sub_page_table::{self, index_to_paddr};
 
 verus! {
 
@@ -26,7 +26,7 @@ verus! {
 /// This is a static reference to an entry in a node that does not account for
 /// a dynamic reference count to the child. It can be used to create a owned
 /// handle, which is a [`Child`].
-pub struct Entry<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> {
+pub struct Entry<'a, C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -38,12 +38,11 @@ pub struct Entry<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> {
     /// The index of the entry in the node.
     pub idx: usize,
     /// The node that contains the entry.
-    // node: &'a mut PageTableLock<C>,
-    pub node: &'a PTL,
+    pub node: &'a PageTableGuard<C>,
     pub phantom: std::marker::PhantomData<(C)>,
 }
 
-impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
+impl<'a, C: PageTableConfig> Entry<'a, C> {
     /// Gets a reference to the child.
     pub(in crate::mm) fn to_ref(&self, spt: &exec::SubPageTable) -> (res: Child<C>)
         requires
@@ -67,13 +66,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
-        let c = Child::ref_from_pte(
-            &self.pte,
-            // self.node.level(),
-            self.node.is_tracked(),
-            false,
-            spt,
-        );
+        let c = Child::ref_from_pte(&self.pte, self.node.level(), false, spt);
         c
     }
 
@@ -106,6 +99,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Child<C>)
         requires
+            self.node.wf(),
             old(spt).wf(),
             old(alloc_model).invariants(),
             self.idx < nr_subpage_per_huge::<C>(),
@@ -128,12 +122,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         // so that it is not used anymore.
         let old_child =
             // unsafe { Child::from_pte(self.pte, self.node.level(), self.node.is_tracked()) };
-        Child::from_pte(
-            self.pte,
-            // self.node.level(),
-            self.node.is_tracked(),
-            spt,
-        );
+        Child::from_pte(self.pte, self.node.level(), spt);
 
         if old_child.is_none() && !new_child.is_none() {
             // *self.node.nr_children_mut() += 1;
@@ -147,6 +136,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
         //  2. The new PTE is compatible with the page table node, as asserted above.
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
 
+        assume(spt.perms@.contains_key(exec::frame_addr_to_index_spec(self.node.paddr())));  // FIXME: Add this to entry well-formedness
         self.node.write_pte(self.idx, new_child.into_pte(), level, spt, Tracked(alloc_model));
 
         // TODO: P0
@@ -188,7 +178,7 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
             // The entry is already present.
             return None;
         }
-        let pt = PTL::alloc(level - 1, MapTrackingStatus::Tracked, Tracked(alloc_model));
+        let pt = PageTableGuard::<C>::alloc(level - 1, Tracked(alloc_model));
         let paddr = pt.into_raw_paddr();
 
         self.node.write_pte(
@@ -208,12 +198,12 @@ impl<'a, C: PageTableConfig, PTL: PageTableLockTrait<C>> Entry<'a, C, PTL> {
     ///
     /// The caller must ensure that the index is within the bounds of the node.
     // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
-    pub fn new_at(node: &'a PTL, idx: usize, spt: &exec::SubPageTable) -> (res: Self)
+    pub fn new_at(node: &'a PageTableGuard<C>, idx: usize, spt: &exec::SubPageTable) -> (res: Self)
         requires
             idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
         ensures
-            res.pte.pte_paddr() == node.paddr() as usize + idx * exec::SIZEOF_PAGETABLEENTRY,
+            res.pte.pte_paddr() == index_to_paddr(node.paddr() as int, idx as int),
             res.pte.pte_paddr() == exec::get_pte_from_addr_spec(res.pte.pte_paddr(), spt).pte_addr,
             res.pte.frame_paddr() == exec::get_pte_from_addr_spec(
                 res.pte.pte_paddr(),
