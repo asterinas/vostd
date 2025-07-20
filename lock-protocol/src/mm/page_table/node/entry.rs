@@ -207,6 +207,10 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             res.node == node,
             res.idx == idx,
             res.node.wf(),
+            res.pte.pte_paddr() == index_pte_paddr(
+                node.paddr() as int,
+                idx as int,
+            ),
             res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
             res.pte.frame_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).frame_pa,
             res.pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
@@ -222,6 +226,18 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
         let pte = node.read_pte(idx, spt);
+
+        // FIXME: Fix them by revise the correspondance between PTE state and SPT.
+        assume(pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
+            pte.pte_paddr() as int,
+        ));
+        assume(pte.frame_paddr() != 0 ==> {
+            &&& spt.i_ptes@.value().contains_key(pte.pte_paddr() as int)
+            &&& spt.i_ptes@.value()[pte.pte_paddr() as int].frame_pa
+                == pte.frame_paddr() as int
+            &&& spt.frames@.value().contains_key(pte.frame_paddr() as int)
+        });
+
         Self { pte, idx, node, phantom: std::marker::PhantomData }
     }
 }

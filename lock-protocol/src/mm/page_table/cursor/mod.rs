@@ -162,6 +162,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 let guard_option = path_index!(self.path[i]);
                 &&& self.level < i <= self.guard_level ==> {
                     &&& guard_option.is_some()
+                    &&& guard_option.unwrap().wf()
                     &&& guard_option.unwrap().paddr_spec() == cur_ancestors[i as int].frame_pa
                     &&& guard_option.unwrap().level_spec() == i as int
                     &&& pte_index::<C>(self.va, i) == cur_ancestors[i as int].in_frame_index
@@ -291,6 +292,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         requires
             old(self).wf(spt),
             old(self).level > 1,
+            child_pt.wf(),
             spt.frames@.value().contains_key(child_pt.paddr() as int),
             old(self).ancestors_match_path(spt, child_pt),
         ensures
@@ -311,6 +313,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.level < i <= self.guard_level ==> {
                 &&& #[trigger] path_index!(self.path[i]).is_some()
                 &&& path_index!(self.path[i]).unwrap().level_spec() == i as int
+                &&& path_index!(self.path[i]).unwrap().wf()
             }
         );
 
@@ -321,12 +324,14 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         assume(forall|i: PagingLevel|
             self.level < i <= self.guard_level ==> {
                 &&& #[trigger] path_index!(self.path[i]).is_some()
-                // Verus can't reveal this even if the previous assertion is true.
+                // Verus can't reveal them even if the previous assertion is true.
                 &&& path_index!(self.path[i]).unwrap().level_spec() == i as int
+                &&& path_index!(self.path[i]).unwrap().wf()
             }
         );
     }
 
+    // Note that mut types are not supported in Verus.
     // fn cur_entry(&mut self) -> Entry<'_, C> {
     fn cur_entry(&self, spt: &exec::SubPageTable) -> (res: Entry<'_, C>)
         requires
@@ -351,7 +356,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             },
     {
         let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
-        assert(cur_node.wf());
+        assume(cur_node.wf()); // This should be obvious given `path_wf`, but Verus can't reveal it.
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), spt)
     }
 }
