@@ -61,6 +61,7 @@ pub open spec fn spt_do_not_change_above_level(
     &&& spt.wf()
     &&& old_spt.wf()
     &&& spt.instance@.id() == old_spt.instance@.id()
+    &&& spt.instance@.root() == old_spt.instance@.root()
     &&& spt_do_not_remove_above_level(spt, old_spt, level)
     &&& spt_do_not_remove_above_level(old_spt, spt, level)
 }

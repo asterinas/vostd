@@ -179,9 +179,16 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     /// Guard level and barrier virtual address should not change.
-    pub open spec fn constant_fields_unchanged(&self, old: &Cursor<'a, C>) -> bool {
+    pub open spec fn constant_fields_unchanged(
+        &self,
+        old: &Cursor<'a, C>,
+        spt: &exec::SubPageTable,
+        old_spt: &exec::SubPageTable,
+    ) -> bool {
         &&& self.guard_level == old.guard_level
         &&& self.barrier_va == old.barrier_va
+        &&& spt.instance@.id() == old_spt.instance@.id()
+        &&& spt.instance@.root() == old_spt.instance@.root()
     }
 
     /// Tells if the provided guard's ancestors is the same as the current path.
@@ -238,7 +245,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).va + page_size::<C>(old(self).level) <= old(self).barrier_va.end,
         ensures
             self.wf(spt),
-            self.constant_fields_unchanged(old(self)),
+            self.constant_fields_unchanged(old(self), spt, spt),
             self.va > old(self).va,
             self.level >= old(self).level,
     {
@@ -268,7 +275,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).level < old(self).guard_level,
         ensures
             old(self).wf(spt),
-            self.constant_fields_unchanged(old(self)),
+            self.constant_fields_unchanged(old(self), spt, spt),
             self.level == old(self).level + 1,
             // Other fields remain unchanged.
             self.va == old(self).va,
@@ -297,7 +304,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).ancestors_match_path(spt, child_pt),
         ensures
             self.wf(spt),
-            self.constant_fields_unchanged(old(self)),
+            self.constant_fields_unchanged(old(self), spt, spt),
             self.level == old(self).level - 1,
             path_index!(self.path[self.level]) == Some(child_pt),
             // Other fields remain unchanged.
@@ -415,7 +422,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             spt.wf(),
             self.0.wf(spt),
             alloc_model.invariants(),
-            self.0.constant_fields_unchanged(&old(self).0),
+            self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
             spt_contains_no_unallocated_frames(spt, alloc_model),
             self.0.va > old(
                 self,
@@ -438,7 +445,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 spt.wf(),
                 self.0.wf(spt),
                 alloc_model.invariants(),
-                self.0.constant_fields_unchanged(&old(self).0),
+                self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
                 // VA should be unchanged in the loop.
                 self.0.va == old_va@,
@@ -558,7 +565,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             spt.wf(),
             self.0.wf(spt),
             alloc_model.invariants(),
-            self.0.constant_fields_unchanged(&old(self).0),
+            self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
             spt_contains_no_unallocated_frames(spt, alloc_model),
     {
         let start = self.0.va;
@@ -571,7 +578,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 spt.wf(),
                 self.0.wf(spt),
                 alloc_model.invariants(),
-                self.0.constant_fields_unchanged(&old(self).0),
+                self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,
