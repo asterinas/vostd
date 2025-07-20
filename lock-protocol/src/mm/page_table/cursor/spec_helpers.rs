@@ -53,32 +53,44 @@ pub open spec fn spt_contains_no_unallocated_frames(
         )
 }
 
-pub open spec fn frame_keys_do_not_change(
+pub open spec fn spt_do_not_change_above_level(
     spt: &exec::SubPageTable,
-    old_mpt: &exec::SubPageTable,
+    old_spt: &exec::SubPageTable,
+    level: PagingLevel,
 ) -> bool {
-    &&& forall|i|
-        old_mpt.frames@.value().contains_key(i) ==> #[trigger] spt.frames@.value().contains_key(i)
-    &&& forall|i|
-        spt.frames@.value().contains_key(i) ==> #[trigger] old_mpt.frames@.value().contains_key(i)
-    &&& forall|i|
-        !old_mpt.frames@.value().contains_key(i) ==> !#[trigger] spt.frames@.value().contains_key(i)
-    &&& forall|i|
-        !old_mpt.frames@.value().contains_key(i) ==> !#[trigger] spt.frames@.value().contains_key(i)
+    &&& spt.wf()
+    &&& old_spt.wf()
+    &&& spt.instance@.id() == old_spt.instance@.id()
+    &&& spt_do_not_remove_above_level(spt, old_spt, level)
+    &&& spt_do_not_remove_above_level(old_spt, spt, level)
 }
 
-pub open spec fn pte_keys_do_not_change(
+pub open spec fn spt_do_not_remove_above_level(
     spt: &exec::SubPageTable,
-    old_mpt: &exec::SubPageTable,
+    old_spt: &exec::SubPageTable,
+    level: PagingLevel,
 ) -> bool {
-    &&& forall|i|
-        old_mpt.ptes@.value().contains_key(i) ==> #[trigger] spt.ptes@.value().contains_key(i)
-    &&& forall|i|
-        spt.ptes@.value().contains_key(i) ==> #[trigger] old_mpt.ptes@.value().contains_key(i)
-    &&& forall|i|
-        !old_mpt.ptes@.value().contains_key(i) ==> !#[trigger] spt.ptes@.value().contains_key(i)
-    &&& forall|i|
-        !old_mpt.ptes@.value().contains_key(i) ==> !#[trigger] spt.ptes@.value().contains_key(i)
+    &&& forall|i: int| #[trigger]
+        spt.frames@.value().contains_key(i) ==> {
+            spt.frames@.value()[i].level >= level ==> {
+                &&& #[trigger] old_spt.frames@.value().contains_key(i)
+                &&& spt.frames@.value()[i] == old_spt.frames@.value()[i]
+            }
+        }
+    &&& forall|i: int| #[trigger]
+        spt.ptes@.value().contains_key(i) ==> {
+            spt.ptes@.value()[i].level > level ==> {
+                &&& #[trigger] old_spt.ptes@.value().contains_key(i)
+                &&& spt.ptes@.value()[i] == old_spt.ptes@.value()[i]
+            }
+        }
+    &&& forall|i: int| #[trigger]
+        spt.i_ptes@.value().contains_key(i) ==> {
+            spt.i_ptes@.value()[i].level > level ==> {
+                &&& #[trigger] old_spt.i_ptes@.value().contains_key(i)
+                &&& spt.i_ptes@.value()[i] == old_spt.i_ptes@.value()[i]
+            }
+        }
 }
 
 } // verus!

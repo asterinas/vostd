@@ -314,8 +314,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 &&& #[trigger] path_index!(self.path[i]).is_some()
                 &&& path_index!(self.path[i]).unwrap().level_spec() == i as int
                 &&& path_index!(self.path[i]).unwrap().wf()
-            }
-        );
+            });
 
         self.level = self.level - 1;
 
@@ -327,8 +326,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 // Verus can't reveal them even if the previous assertion is true.
                 &&& path_index!(self.path[i]).unwrap().level_spec() == i as int
                 &&& path_index!(self.path[i]).unwrap().wf()
-            }
-        );
+            });
     }
 
     // Note that mut types are not supported in Verus.
@@ -339,7 +337,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ensures
             res.node.wf(),
             res.idx == pte_index::<C>(self.va, self.level),
-            res.idx < nr_subpage_per_huge::<C>(), // This is the post condition of `pte_index`. Why we have to specify here?
+            res.idx < nr_subpage_per_huge::<C>(),  // This is the post condition of `pte_index`. Why we have to specify here?
             res.pte.pte_paddr() == index_pte_paddr(
                 path_index!(self.path[self.level]).unwrap().paddr() as int,
                 pte_index::<C>(self.va, self.level) as int,
@@ -357,7 +355,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             },
     {
         let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
-        assume(cur_node.wf()); // This should be obvious given `path_wf`, but Verus can't reveal it.
+        assume(cur_node.wf());  // This should be obvious given `path_wf`, but Verus can't reveal it.
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), spt)
     }
 }
@@ -419,7 +417,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             alloc_model.invariants(),
             self.0.constant_fields_unchanged(&old(self).0),
             spt_contains_no_unallocated_frames(spt, alloc_model),
-            self.0.va > old(self).0.va,
+            self.0.va > old(
+                self,
+            ).0.va,
     // TODO: Add the mapping model and ensure the mapping is built.
 
     {
@@ -458,12 +458,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 },
                 Child::None => {
                     assert(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
-                    let pt = cur_entry.alloc_if_none(
-                        self.0.level,
-                        MapTrackingStatus::Tracked,
-                        spt,
-                        Tracked(alloc_model),
-                    ).unwrap();
+                    let pt = cur_entry.alloc_if_none(spt, Tracked(alloc_model)).unwrap();
 
                     assert(spt.frames@.value().contains_key(pt as int));
 
@@ -492,15 +487,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         // TODO: P0 Fix the last level frame in SubPageTableStateMachine and SubPageTable.
         // Map the current page.
-        let old_entry = cur_entry.replace(
-            Child::Frame(frame, prop),
-            self.0.level,
-            spt,
-            Tracked(alloc_model),
-        );
+        let old_entry = cur_entry.replace(Child::Frame(frame, prop), spt, Tracked(alloc_model));
 
-        assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
-        assume(self.0.path_wf(spt)); // TODO: P0
+        assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
+        assume(self.0.path_wf(spt));  // TODO: P0
         self.0.move_forward(spt);
 
         match old_entry {
@@ -601,7 +591,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     self.0.va = end;
                     break ;
                 }
-                assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
+                assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
                 self.0.move_forward(spt);
                 assert(self.0.path_wf(spt));
 
@@ -631,7 +621,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 self.0.va = end;
                                 break ;
                             }
-                            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
+                            assume(self.0.va + page_size::<C>(self.0.level)
+                                <= self.0.barrier_va.end);  // TODO: P1
                             self.0.move_forward(spt);
                         }
                     },
@@ -665,7 +656,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             }
             // Unmap the current page and return it.
 
-            let old = cur_entry.replace(Child::None, cur_level, spt, Tracked(alloc_model));
+            let old = cur_entry.replace(Child::None, spt, Tracked(alloc_model));
             let item = match old {
                 Child::Frame(page, prop) => PageTableItem::Mapped { va: self.0.va, page, prop },
                 Child::Untracked(pa, level, prop) => {
@@ -712,8 +703,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 },
             };
 
-            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
-            assume(self.0.path_wf(spt)); // TODO: P0
+            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
+            assume(self.0.path_wf(spt));  // TODO: P0
             self.0.move_forward(spt);
 
             return item;

@@ -165,7 +165,7 @@ impl<C: PageTableConfig> PageTableGuard<C> {
             alloc_model.invariants(),
             spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
             spt.frames@.instance_id() == old(spt).frames@.instance_id(),
-            spec_helpers::frame_keys_do_not_change(spt, old(spt)),
+            spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()),
     {
         let frame_idx = frame_addr_to_index(self.paddr);
 
@@ -190,7 +190,7 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         spt.perms.insert(frame_idx, (p, Tracked(points_to)));
 
         assume(spt.wf());  // TODO: P0
-        assume(spec_helpers::frame_keys_do_not_change(spt, old(spt)));  // TODO: P0
+        assume(spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()));  // TODO: P0
     }
 
     #[verifier::external_body]

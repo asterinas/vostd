@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::mm::{
-    cursor::spec_helpers::{self, frame_keys_do_not_change},
+    cursor::spec_helpers::{self, spt_do_not_change_above_level},
     meta::AnyFrameMeta,
     nr_subpage_per_huge,
     page_prop::PageProperty,
@@ -94,7 +94,6 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     pub(in crate::mm) fn replace(
         self,
         new_child: Child<C>,
-        level: PagingLevel,
         spt: &mut exec::SubPageTable,
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Child<C>)
@@ -109,7 +108,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             spt.instance@.id() == old(spt).instance@.id(),
             spt.wf(),
             alloc_model.invariants(),
-            frame_keys_do_not_change(spt, old(spt)),
+            spt_do_not_change_above_level(spt, old(spt), self.node.level()),
             spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
             match new_child {
                 // Child::PageTable(pt) => self.pte.frame_paddr() == pt.ptr as usize, // TODO: ?
@@ -137,7 +136,13 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
 
         assume(spt.perms@.contains_key(exec::frame_addr_to_index_spec(self.node.paddr())));  // FIXME: Add this to entry well-formedness
-        self.node.write_pte(self.idx, new_child.into_pte(), level, spt, Tracked(alloc_model));
+        self.node.write_pte(
+            self.idx,
+            new_child.into_pte(),
+            self.node.level(),
+            spt,
+            Tracked(alloc_model),
+        );
 
         // TODO: P0
         assume(spt.ptes@.value().contains_key(self.pte.pte_paddr() as int));
@@ -151,8 +156,6 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     #[verifier::external_body]
     pub(in crate::mm) fn alloc_if_none(
         self,
-        level: PagingLevel,
-        is_tracked: MapTrackingStatus,
         spt: &mut exec::SubPageTable,
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
     ) -> (res: Option<usize>)
@@ -166,7 +169,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             alloc_model.invariants(),
             spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance@.id() == old(spt).instance@.id(),
-            frame_keys_do_not_change(spt, old(spt)),
+            spt_do_not_change_above_level(spt, old(spt), self.node.level()),
             spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
             if old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int) {
                 res is None
@@ -178,6 +181,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             // The entry is already present.
             return None;
         }
+        let level = self.node.level();
         let pt = PageTableGuard::<C>::alloc(level - 1, Tracked(alloc_model));
         let paddr = pt.into_raw_paddr();
 
@@ -207,10 +211,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             res.node == node,
             res.idx == idx,
             res.node.wf(),
-            res.pte.pte_paddr() == index_pte_paddr(
-                node.paddr() as int,
-                idx as int,
-            ),
+            res.pte.pte_paddr() == index_pte_paddr(node.paddr() as int, idx as int),
             res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
             res.pte.frame_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).frame_pa,
             res.pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
@@ -233,8 +234,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         ));
         assume(pte.frame_paddr() != 0 ==> {
             &&& spt.i_ptes@.value().contains_key(pte.pte_paddr() as int)
-            &&& spt.i_ptes@.value()[pte.pte_paddr() as int].frame_pa
-                == pte.frame_paddr() as int
+            &&& spt.i_ptes@.value()[pte.pte_paddr() as int].frame_pa == pte.frame_paddr() as int
             &&& spt.frames@.value().contains_key(pte.frame_paddr() as int)
         });
 
