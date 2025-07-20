@@ -32,7 +32,7 @@ use crate::exec::{
     self, SubPageTable, create_new_frame, MAX_FRAME_NUM, get_pte_from_addr_spec,
     SIZEOF_PAGETABLEENTRY, frame_addr_to_index, frame_addr_to_index_spec, MockPageTableEntry,
 };
-use crate::spec::sub_page_table::{pa_is_valid_pt_address, level_is_in_range, index_to_paddr};
+use crate::spec::sub_page_table::{pa_is_valid_pt_address, level_is_in_range, index_pte_paddr};
 
 use crate::mm::NR_ENTRIES;
 
@@ -127,12 +127,12 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         ensures
             spt.wf(),
             res.frame_paddr() == get_pte_from_addr_spec(
-                index_to_paddr(self.paddr as int, idx as int) as usize,
+                index_pte_paddr(self.paddr as int, idx as int) as usize,
                 spt,
             ).frame_pa,
-            res.pte_paddr() == index_to_paddr(self.paddr as int, idx as int),
+            res.pte_paddr() == index_pte_paddr(self.paddr as int, idx as int),
             res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(
-                index_to_paddr(self.paddr as int, idx as int),
+                index_pte_paddr(self.paddr as int, idx as int),
             ),
             res.frame_paddr() != 0 ==> {
                 &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)

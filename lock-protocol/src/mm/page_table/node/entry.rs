@@ -15,7 +15,7 @@ use super::{Child, MapTrackingStatus, PageTableGuard, PageTableNode};
 
 use crate::exec;
 
-use crate::spec::sub_page_table::{self, index_to_paddr};
+use crate::spec::sub_page_table::{self, index_pte_paddr};
 
 verus! {
 
@@ -202,24 +202,22 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         requires
             idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
+            node.wf(),
         ensures
-            res.pte.pte_paddr() == index_to_paddr(node.paddr() as int, idx as int),
-            res.pte.pte_paddr() == exec::get_pte_from_addr_spec(res.pte.pte_paddr(), spt).pte_addr,
-            res.pte.frame_paddr() == exec::get_pte_from_addr_spec(
-                res.pte.pte_paddr(),
-                spt,
-            ).frame_pa,
+            res.node == node,
             res.idx == idx,
-            res.pte.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(
+            res.node.wf(),
+            res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
+            res.pte.frame_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).frame_pa,
+            res.pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
                 res.pte.pte_paddr() as int,
             ),
             res.pte.frame_paddr() != 0 ==> {
-                &&& spt.ptes@.value().contains_key(res.pte.pte_paddr() as int)
-                &&& spt.ptes@.value()[res.pte.pte_paddr() as int].frame_pa
+                &&& spt.i_ptes@.value().contains_key(res.pte.pte_paddr() as int)
+                &&& spt.i_ptes@.value()[res.pte.pte_paddr() as int].frame_pa
                     == res.pte.frame_paddr() as int
                 &&& spt.frames@.value().contains_key(res.pte.frame_paddr() as int)
             },
-            res.node == node,
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };

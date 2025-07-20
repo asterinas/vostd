@@ -43,7 +43,7 @@ pub open spec fn pa_is_valid_pt_address(pa: int) -> bool {
     &&& pa % SIZEOF_FRAME as int == 0
 }
 
-pub open spec fn index_to_paddr(frame_pa: int, index: int) -> int {
+pub open spec fn index_pte_paddr(frame_pa: int, index: int) -> int {
     frame_pa + index * SIZEOF_PAGETABLEENTRY as int
 }
 
@@ -67,7 +67,7 @@ impl LeafPageTableEntryView {
     }
 
     pub open spec fn entry_pa(&self) -> int {
-        index_to_paddr(self.frame_pa, self.in_frame_index)
+        index_pte_paddr(self.frame_pa, self.in_frame_index)
     }
 }
 
@@ -89,7 +89,7 @@ impl IntermediatePageTableEntryView {
     }
 
     pub open spec fn entry_pa(&self) -> int {
-        index_to_paddr(self.frame_pa, self.in_frame_index)
+        index_pte_paddr(self.frame_pa, self.in_frame_index)
     }
 }
 
@@ -302,7 +302,7 @@ SubPageTableStateMachine {
     transition! {
         // remove a pte at a given address
         remove_at(parent: int, index: int) {
-            let pte_addr = index_to_paddr(parent, index);
+            let pte_addr = index_pte_paddr(parent, index);
 
             require pre.i_ptes.contains_key(pte_addr);
 

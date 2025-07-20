@@ -40,11 +40,6 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn level_is_greater_than_one(level: PagingLevel) -> bool {
-    &&& level > 1
-    &&& level <= PagingConsts::NR_LEVELS_SPEC()
-}
-
 pub open spec fn path_index_at_level(level: PagingLevel) -> int {
     level - 1
 }
