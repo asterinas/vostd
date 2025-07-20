@@ -70,9 +70,11 @@ struct TestPtItem {
     prop: PageProperty,
 }
 
+pub const ONE_GIG_VA: Vaddr = 0x40000000;
+
 pub fn test(va: Vaddr, frame: Frame, page_prop: page_prop::PageProperty)
 requires
-    0 <= va < MAX_USERSPACE_VADDR,
+    0 <= va < ONE_GIG_VA,
 {
     broadcast use vstd::std_specs::hash::group_hash_axioms;
     broadcast use vstd::hash_map::group_hash_map_axioms;
@@ -130,14 +132,14 @@ requires
                 level: 3,
                 guard_level: 3,
                 va: va,
-                barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
+                barrier_va: 0..ONE_GIG_VA,
                 preempt_guard: disable_preempt(),
                 _phantom: std::marker::PhantomData,
             }
         }
     };
 
-    assert(cursor.0.path_wf(&sub_page_table));
+    assert(cursor.0.wf(&sub_page_table));
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,

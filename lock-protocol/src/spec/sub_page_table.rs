@@ -161,7 +161,7 @@ SubPageTableStateMachine {
     }
 
     #[invariant]
-    pub spec fn sub_pt_wf(self) -> bool {
+    pub open spec fn sub_pt_wf(self) -> bool {
         &&& self.root.ancestor_chain.is_empty()
         &&& self.root.wf()
         // Frame invariants.
@@ -170,8 +170,12 @@ SubPageTableStateMachine {
             &&& frame.wf()
             &&& frame.pa == addr
             // There must be ancestors all the way till the root.
-            &&& forall |ancestor_level: int| frame.level < ancestor_level <= self.root.level ==>
-                #[trigger] frame.ancestor_chain.contains_key(ancestor_level)
+            &&& forall |ancestor_level: int| {
+                &&& frame.level < ancestor_level <= self.root.level ==>
+                    #[trigger] frame.ancestor_chain.contains_key(ancestor_level)
+                &&& ancestor_level <= frame.level || self.root.level < ancestor_level ==>
+                    !(#[trigger] frame.ancestor_chain.contains_key(ancestor_level))
+            }
             // The ultimate ancestor must be the root.
             &&& if addr != self.root.pa {
                 &&& frame.level < self.root.level
@@ -179,7 +183,7 @@ SubPageTableStateMachine {
             } else {
                 true
             }
-            // The ancestor chain of the frame conforms to the map.
+            // Properties for each ancestor. They must contain intermediate PTEs in the map.
             &&& forall |ancestor_level: int| #[trigger] frame.ancestor_chain.contains_key(ancestor_level) ==> {
                 let ancestor = #[trigger] frame.ancestor_chain[ancestor_level];
                 &&& ancestor_level <= self.root.level

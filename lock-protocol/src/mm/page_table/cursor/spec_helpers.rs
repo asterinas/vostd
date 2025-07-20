@@ -40,14 +40,6 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn path_index_at_level(level: PagingLevel) -> int {
-    level - 1
-}
-
-pub open spec fn level_at_path_index(index: int) -> PagingLevel {
-    (index + 1) as PagingLevel
-}
-
 pub open spec fn spt_contains_no_unallocated_frames(
     spt: &exec::SubPageTable,
     alloc_model: &AllocatorModel,
