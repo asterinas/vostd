@@ -145,38 +145,34 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
     /// The path should match the ancestors of the current node in the path.
     pub open spec fn path_wf(&self, spt: &exec::SubPageTable) -> bool {
-        let Some(cur_frame) = path_index!(self.path[self.level]) else {
-            return false;
-        };
+        let cur_frame = path_index!(self.path[self.level]).unwrap();
         let cur_frame_pa = cur_frame.paddr() as int;
-        let Some(cur_frame_view) = spt.frames@.value().get(cur_frame_pa) else {
-            return false;
-        };
+        let cur_frame_view = spt.frames@.value()[cur_frame_pa];
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
-        forall|i: PagingLevel|
+        &&& path_index!(self.path[self.level]).is_some()
+        &&& spt.frames@.value().contains_key(cur_frame_pa)
+        &&& forall|i: PagingLevel|
             #![trigger self.path.view().index(path_index_at_level(i))]
             {
                 let guard_option = path_index!(self.path[i]);
                 if self.level < i <= self.guard_level {
-                    let Some(guard) = guard_option else {
-                        return false;
-                    };
-                    &&& guard.paddr_spec() == cur_ancestors[i as int].pa
-                    &&& guard.level_spec() == i as int
+                    &&& guard_option.is_some()
+                    &&& guard_option.unwrap().paddr_spec() == cur_ancestors[i as int].frame_pa
+                    &&& guard_option.unwrap().level_spec() == i as int
                     &&& pte_index::<C>(self.va, i) == cur_ancestors[i as int].in_frame_index
                 } else if i == self.level {
-                    assert(!cur_ancestors.contains_key(i as int));
-                    guard_option.is_some()
+                    &&& !cur_ancestors.contains_key(i as int)
+                    &&& guard_option.is_some()
                 } else {
-                    assert(!cur_ancestors.contains_key(i as int));
-                    guard_option.is_none()
+                    &&& !cur_ancestors.contains_key(i as int)
+                    &&& guard_option.is_none()
                 }
             }
     }
 
     /// Guard level and barrier virtual address should not change.
-    pub open spec fn constant_fields_unchanged(&self, old: Cursor<'a, C>) -> bool {
+    pub open spec fn constant_fields_unchanged(&self, old: &Cursor<'a, C>) -> bool {
         &&& self.guard_level == old.guard_level
         &&& self.barrier_va == old.barrier_va
     }
@@ -222,7 +218,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub(in crate::mm) fn move_forward(&mut self, spt: &exec::SubPageTable)
         requires
             old(self).wf(spt),
-            old(self).va + page_size::<C>(self.level) <= self.barrier_va.end,
+            old(self).va + page_size::<C>(old(self).level) <= old(self).barrier_va.end,
         ensures
             self.wf(spt),
             self.constant_fields_unchanged(old(self)),
@@ -387,19 +383,16 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             spt.wf(),
             self.0.wf(spt),
             alloc_model.invariants(),
-            self.0.constant_fields_unchanged(old(self).0),
+            self.0.constant_fields_unchanged(&old(self).0),
             spt_contains_no_unallocated_frames(spt, alloc_model),
             // Other fields remain unchanged.
-            self.0.va == old(self).0.va,
-            self.0.level == old(
+            self.0.va == old(
                 self,
-            ).0.level,
+            ).0.va,
     // TODO: Add the mapping model and ensure the mapping is built.
 
     {
         let end = self.0.va + frame.size();
-        let root_level = Tracked(self.0.level);
-        let root_addr = self.0.path[self.0.level as usize - 1].as_ref().unwrap().paddr();
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
@@ -408,60 +401,24 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         // TODO || self.0.va % page_size::<C>(self.0.level) != 0 || self.0.va + page_size::<C>(self.0.level) > end
 
             invariant
-        // self.0.va + page_size::<C>(self.0.level) <= end,
-
-                self.0.level >= frame.map_level(),
-                self.0.path.len() == old(self).0.path.len(),
-                self.va_valid(Some(old(self))),
-                forall|i: PagingLevel|
-                    self.0.level <= i <= old(self).0.level
-                        ==> path_index!(self.0.path[i]).is_some(),
-                self.0.path[path_index_at_level(root_level@)] == old(
-                    self,
-                ).0.path[path_index_at_level(root_level@)],
-                root_level@ >= self.0.level,
                 spt.wf(),
+                self.0.wf(spt),
                 alloc_model.invariants(),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
-                forall|i: PagingLevel|
-                    self.0.level <= i <= old(self).0.level
-                        ==> #[trigger] spt.frames@.value().contains_key(
-                        path_index!(self.0.path[i]).unwrap().paddr() as int,
-                    ),
-                // the post condition
-                self.0.sub_page_table_valid_before_map_level(
-                    spt,
-                    &frame,
-                    root_level@,
-                    /* root */
-                    root_addr as int,
-                    /* last level */
-                    self.0.level,
-                ),
-                self.0.path_match_spt(
-                    spt,
-                    root_level@,
-                    /* root */
-                    root_addr as int,
-                    /* last level */
-                    self.0.level,
-                ),
-                self.0.path_wf(spt),
+                // Constant fields are unchanged.
+                self.0.va == old(self).0.va,
+                self.0.guard_level == old(self).0.guard_level,
+                self.0.barrier_va == old(self).0.barrier_va,
             decreases self.0.level - frame.map_level(),
         {
             let cur_level = self.0.level;
             let cur_entry = self.0.cur_entry(spt);
             match cur_entry.to_ref(spt) {
                 Child::PageTableRef(pt) => {
-                    reveal_with_fuel(Cursor::sub_page_table_valid_before_map_level, 4);
-                    reveal_with_fuel(Cursor::path_match_spt, 4);
                     let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
-                    // SAFETY: `pt` points to a PT that is attached to a node
-                    // in the locked sub-tree, so that it is locked and alive.
                     self.0.push_level(child_pt, spt);
                 },
                 Child::PageTable(_) => {
-                    // unreachable!();
                     assert(false);
                 },
                 Child::None => {
@@ -483,56 +440,25 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         self.0.path[self.0.level as usize - 1].unwrap(),
                         child_pt,
                     ));
-                    assume(self.0.path_wf(spt));
 
                     self.0.push_level(child_pt, spt);
-
-                    // the post condition
-                    assume(self.0.sub_page_table_valid_before_map_level(
-                        spt,
-                        &frame,
-                        root_level@,
-                        /* root */
-                        root_addr as int,
-                        /* last level */
-                        self.0.level,
-                    ));
-                    assume(self.0.path_match_spt(
-                        spt,
-                        root_level@,
-                        /* root */
-                        root_addr as int,
-                        /* last level */
-                        self.0.level,
-                    ));
                 },
                 Child::Frame(_, _) => {
-                    // panic!("Mapping a smaller frame in an already mapped huge page");
                     assert(false);
                 },
                 Child::Untracked(_, _, _) => {
-                    // panic!("Mapping a tracked page in an untracked range");
                     assert(false);
                 },
                 Child::Token(_, _) => {
-                    // let split_child = cur_entry.split_if_huge_token().unwrap();
-                    // self.0.push_level(split_child);
                     assert(false);  // TODO: Token
                 },
             }
             continue ;
         }
-        assert(forall|i: int|
-            1 < i <= old(self).0.level ==> #[trigger] self.0.path[i - 1].is_some());
+
         assert(self.0.level == frame.map_level());
 
         let cur_entry = self.0.cur_entry(spt);
-        assume(cur_entry.idx < nr_subpage_per_huge::<C>() as usize);  // TODO
-        assume(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));  // TODO
-        assume(cur_entry.pte.pte_paddr() == cur_entry.node.paddr() as int + pte_index::<C>(
-            self.0.va,
-            self.0.level,
-        ) * exec::SIZEOF_PAGETABLEENTRY);
 
         // TODO: P0 Fix the last level frame in SubPageTableStateMachine and SubPageTable.
         // Map the current page.
@@ -542,24 +468,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             spt,
             Tracked(alloc_model),
         );
-        assume(self.0.path_wf(spt));  // TODO: P0
-        assume(self.0.level <= C::NR_LEVELS());
+
         self.0.move_forward(spt);
-
-        // TODO: P0
-        assume(self.0.sub_page_table_valid_after_map(
-            spt,
-            &frame,
-            old(self).0.level,
-            self.0.path[old(self).0.level as usize - 1].unwrap().paddr() as int,
-            frame.map_level(),
-        ));
-
-        // TODO: P0
-        assume(forall|i: PagingLevel|
-            self.0.level <= i <= old(self).0.level ==> #[trigger] spt.frames@.value().contains_key(
-                path_index!(self.0.path[i]).unwrap().paddr() as int,
-            ));
 
         match old_entry {
             Child::Frame(old_page, _) => Some(old_page),
@@ -613,7 +523,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         len: usize,
         spt: &mut exec::SubPageTable,
         Tracked(alloc_model): Tracked<&mut AllocatorModel>,
-    ) -> PageTableItem
+    ) -> (res: PageTableItem)
         requires
             old(spt).wf(),
             old(self).0.wf(old(spt)),
@@ -625,7 +535,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             spt.wf(),
             self.0.wf(spt),
             alloc_model.invariants(),
-            self.0.constant_fields_unchanged(old(self).0),
+            self.0.constant_fields_unchanged(&old(self).0),
             spt_contains_no_unallocated_frames(spt, alloc_model),
     {
         let start = self.0.va;
@@ -636,14 +546,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         while self.0.va < end && self.0.level > 1
             invariant
                 spt.wf(),
-                self.0.level >= 1,
-                self.0.level <= C::NR_LEVELS(),
-                self.0.level <= PagingConsts::NR_LEVELS(),
-                self.0.va + page_size::<C>(self.0.level) < end,
-                self.0.va + len < MAX_USERSPACE_VADDR,
+                self.0.wf(spt),
                 alloc_model.invariants(),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
-                self.0.path_wf(spt),
+                self.0.va + page_size::<C>(self.0.level) < end,
+                self.0.va + len < MAX_USERSPACE_VADDR,
             decreases
                     end - self.0.va,
                     self.0.level,  // for push_level, only level decreases
