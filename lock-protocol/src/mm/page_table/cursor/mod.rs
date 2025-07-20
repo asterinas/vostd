@@ -249,7 +249,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va > old(self).va,
             self.level >= old(self).level,
     {
-        assume(self.va + page_size::<C>(self.level) < MAX_USERSPACE_VADDR);
         let page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, page_size) + page_size;
         // while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
@@ -609,7 +608,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             // Go down if not applicable.
 
             if cur_va % page_size::<C>(cur_level) != 0 || cur_va + page_size::<C>(cur_level) > end {
-                assume(self.0.level > 1);  // TODO
                 let child = cur_entry.to_ref(spt);
                 match child {
                     Child::PageTableRef(pt) => {
