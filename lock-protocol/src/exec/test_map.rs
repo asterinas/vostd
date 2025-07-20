@@ -113,42 +113,36 @@ requires
     assert(sub_page_table.wf());
 
     // TODO: use Cursor::new
-    let mut cursor =
-    CursorMut::<TestPtConfig> {
-        0: Cursor::<TestPtConfig> {
-            path: Vec::new(),
-            level: 3,
-            guard_level: NR_LEVELS as u8,
-            va: va,
-            barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
-            preempt_guard: disable_preempt(),
-            _phantom: std::marker::PhantomData,
+    let mut cursor = {
+        let path = [
+            None, // level 1
+            None, // level 2
+            Some(PageTableGuard::<TestPtConfig> {
+                phantom: std::marker::PhantomData,
+                level: 3,
+                paddr: p.addr(),
+            }), // root
+            None, // level 4
+        ];
+        CursorMut::<TestPtConfig> {
+            0: Cursor::<TestPtConfig> {
+                path,
+                level: 3,
+                guard_level: 3,
+                va: va,
+                barrier_va: 0..MAX_USERSPACE_VADDR + PAGE_SIZE(), // TODO: maybe cursor::new can solve this
+                preempt_guard: disable_preempt(),
+                _phantom: std::marker::PhantomData,
+            }
         }
     };
-    assert(cursor.0.level == 3);
 
-    cursor.0.path.push(None);
-    cursor.0.path.push(None);
-    cursor.0.path.push(Some(
-        PageTableGuard::<TestPtConfig> {
-            phantom: std::marker::PhantomData,
-            level: 3,
-            paddr: p.addr(),
-        }
-    )); // root
-
-    // assert(cursor.0.path_wf(&sub_page_table));
-    assume(cursor.0.path_wf(&sub_page_table)); // FIXME!
+    assert(cursor.0.path_wf(&sub_page_table));
 
     cursor.map(frame, page_prop,
         &mut sub_page_table,
         Tracked(&mut alloc_model)
     );
-
-    assert(sub_page_table.wf());
-
-    assert(cursor.0.path.len() == NR_LEVELS as usize);
-    assert(forall |i: usize| 1 < i <= NR_LEVELS as usize ==> #[trigger] cursor.0.path[i as int - 1].is_some());
 
     let level4_index = pte_index::<PagingConsts>(va, NR_LEVELS as u8);
     let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
