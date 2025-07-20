@@ -46,7 +46,7 @@ pub fn alloc_page_table(Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
     ensures
         res.1@.pptr() == res.0,
         res.1@.mem_contents().is_init(),
-        res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
+        pa_is_valid_kernel_address(res.0.addr() as int),
         model.invariants(),
         !old(model).allocated_addrs.contains(res.0.addr() as int),
         model.allocated_addrs.contains(res.0.addr() as int),

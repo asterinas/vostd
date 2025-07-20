@@ -30,6 +30,7 @@ use crate::{
 use vstd::simple_pptr::*;
 
 use crate::exec;
+use crate::spec::sub_page_table::pa_is_valid_pt_address;
 
 verus! {
 
@@ -233,7 +234,7 @@ struct_with_invariants!{
     /// A sub-tree in a page table.
     pub struct SubPageTable {
         /// Only frames in the sub-page-table are stored in this map.
-        pub perms: HashMap<usize, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
+        pub perms: HashMap<Paddr, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
         // State machine.
         pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>,
         pub i_ptes: Tracked<sub_page_table::SubPageTableStateMachine::i_ptes>,
@@ -248,17 +249,17 @@ struct_with_invariants!{
             &&& self.perms@.dom().finite()
             &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
                 &&& #[trigger] self.frames@.value().contains_key(i as int)
-                &&& i < PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM
+                &&& pa_is_valid_pt_address(i as int)
             }
             &&& forall |i: usize| #[trigger] self.frames@.value().contains_key(i as int) ==> {
                 &&& #[trigger] self.perms@.dom().contains(i)
-                &&& i < PHYSICAL_BASE_ADDRESS() + SIZEOF_FRAME * MAX_FRAME_NUM
+                &&& pa_is_valid_pt_address(i as int)
             }
             &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
                 &&& (#[trigger] self.perms@[i]).1@.pptr() == self.perms@[i].0
-                &&& (#[trigger] self.perms@[i].0.addr() == PHYSICAL_BASE_ADDRESS() as usize + i * SIZEOF_FRAME)
+                &&& (#[trigger] self.perms@[i].0.addr() == i)
                 &&& (#[trigger] self.perms@[i].1@.mem_contents().is_init())
-                &&& (#[trigger] self.frames@.value().contains_key(frame_index_to_addr(i) as int))
+                &&& (#[trigger] self.frames@.value().contains_key(i as int))
                 &&& forall |k: int| 0 <= k < NR_ENTRIES ==>
                     if (self.perms@[i].1@.value().ptes[k].frame_pa != 0) {
                         #[trigger] self.ptes@.value().contains_key(self.perms@[i].1@.value().ptes[k].pte_addr as int)

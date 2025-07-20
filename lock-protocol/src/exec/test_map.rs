@@ -99,17 +99,18 @@ requires
         ancestor_chain: Map::empty(),
         level: 3, // To test a sub-tree rooted at level 3
     });
+    let mut perms = HashMap::new();
+    perms.insert(p.addr(), (p, Tracked(pt)));
 
     let mut sub_page_table = SubPageTable {
-        perms: HashMap::new(),
+        perms,
         frames: Tracked(frame_tokens),
         i_ptes: Tracked(i_pte_tokens),
         ptes: Tracked(pte_tokens),
         instance: Tracked(instance.clone()),
     };
 
-    // assert(sub_page_table.wf());
-    assume(sub_page_table.wf()); // FIXME!
+    assert(sub_page_table.wf());
 
     // TODO: use Cursor::new
     let mut cursor =
