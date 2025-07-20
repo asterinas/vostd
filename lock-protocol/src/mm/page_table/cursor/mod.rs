@@ -339,6 +339,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ensures
             res.node.wf(),
             res.idx == pte_index::<C>(self.va, self.level),
+            res.idx < nr_subpage_per_huge::<C>(), // This is the post condition of `pte_index`. Why we have to specify here?
             res.pte.pte_paddr() == index_pte_paddr(
                 path_index!(self.path[self.level]).unwrap().paddr() as int,
                 pte_index::<C>(self.va, self.level) as int,
@@ -418,14 +419,14 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             alloc_model.invariants(),
             self.0.constant_fields_unchanged(&old(self).0),
             spt_contains_no_unallocated_frames(spt, alloc_model),
-            // Other fields remain unchanged.
-            self.0.va == old(
-                self,
-            ).0.va,
+            self.0.va > old(self).0.va,
     // TODO: Add the mapping model and ensure the mapping is built.
 
     {
         let end = self.0.va + frame.size();
+
+        // To track that VA does not change in loop;
+        let old_va = Tracked(self.0.va);
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
@@ -437,11 +438,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 spt.wf(),
                 self.0.wf(spt),
                 alloc_model.invariants(),
+                self.0.constant_fields_unchanged(&old(self).0),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
-                // Constant fields are unchanged.
-                self.0.va == old(self).0.va,
-                self.0.guard_level == old(self).0.guard_level,
-                self.0.barrier_va == old(self).0.barrier_va,
+                // VA should be unchanged in the loop.
+                self.0.va == old_va@,
             decreases self.0.level - frame.map_level(),
         {
             let cur_level = self.0.level;
@@ -449,6 +449,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             match cur_entry.to_ref(spt) {
                 Child::PageTableRef(pt) => {
                     let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
+                    // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
+                    assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, spt);
                 },
                 Child::PageTable(_) => {
@@ -456,7 +458,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 },
                 Child::None => {
                     assert(!spt.ptes@.value().contains_key(cur_entry.pte.pte_paddr() as int));
-
                     let pt = cur_entry.alloc_if_none(
                         self.0.level,
                         MapTrackingStatus::Tracked,
@@ -468,6 +469,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
                     let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
 
+                    // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
+                    assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, spt);
                 },
                 Child::Frame(_, _) => {
@@ -496,6 +499,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             Tracked(alloc_model),
         );
 
+        assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
+        assume(self.0.path_wf(spt)); // TODO: P0
         self.0.move_forward(spt);
 
         match old_entry {
@@ -556,6 +561,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             old(self).0.wf(old(spt)),
             old(alloc_model).invariants(),
             spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
+            old(self).0.va as int + len as int <= old(self).0.barrier_va.end as int,
             len % page_size::<C>(1) == 0,
             len > page_size::<C>(old(self).0.level),
         ensures
@@ -575,6 +581,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 spt.wf(),
                 self.0.wf(spt),
                 alloc_model.invariants(),
+                self.0.constant_fields_unchanged(&old(self).0),
                 spt_contains_no_unallocated_frames(spt, alloc_model),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,
@@ -594,6 +601,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     self.0.va = end;
                     break ;
                 }
+                assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
                 self.0.move_forward(spt);
                 assert(self.0.path_wf(spt));
 
@@ -614,6 +622,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
+                            // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
+                            assume(self.0.ancestors_match_path(spt, pt));
                             self.0.push_level(pt, spt);
                         } else {
                             let _ = pt.into_raw_paddr();
@@ -621,6 +631,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 self.0.va = end;
                                 break ;
                             }
+                            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
                             self.0.move_forward(spt);
                         }
                     },
@@ -701,8 +712,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 },
             };
 
-            assume(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR);
-            assume(self.0.path_wf(spt));  // TODO: P0
+            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end); // TODO: P1
+            assume(self.0.path_wf(spt)); // TODO: P0
             self.0.move_forward(spt);
 
             return item;
