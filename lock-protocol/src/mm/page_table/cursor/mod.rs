@@ -385,7 +385,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             },
     {
         let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
-        assume(cur_node.wf());  // This should be obvious given `path_wf`, but Verus can't reveal it.
+        assert(cur_node.wf());
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), Tracked(spt))
     }
 }
@@ -702,7 +702,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     //  - We checked that we are not unmapping shared kernel page table nodes.
                     //  - We must have locked the entire sub-tree since the range is locked.
                     let unlocked_pt = locking::dfs_mark_astray(locked_pt);
-                    // See `locking.rs` for why we need this. // TODO: I don't have time to see, so if you see this, please see.
+                    // See `locking.rs` for why we need this. // TODO
                     // let drop_after_grace = unlocked_pt.clone();
                     // crate::sync::after_grace_period(|| {
                     //     drop(drop_after_grace);

@@ -151,6 +151,8 @@ requires
         Tracked(&mut sub_page_table),
     );
 
+    assert(cursor.0.wf(&sub_page_table));
+
     let level4_index = pte_index::<PagingConsts>(va, NR_LEVELS as u8);
     let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
     let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, Tracked(&sub_page_table));
