@@ -1657,6 +1657,45 @@ impl NodeHelper {
         Self::lemma_level_dep_relation(pa);
         Self::lemma_level_dep_relation(ch);
     }
+
+    pub proof fn lemma_parent_child_algebraic_relation(nid: NodeId, offset: nat)
+        requires
+            Self::valid_nid(nid),
+            Self::is_not_leaf(nid),
+            0 <= offset < 512,
+        ensures
+            Self::get_child(nid, offset) == nid + offset * Self::tree_size_spec(
+                2 - Self::nid_to_dep(nid),
+            ) + 1,
+    {
+        admit();
+    }
+
+    pub proof fn lemma_brother_algebraic_relation(nid: NodeId, offset: nat)
+        requires
+            Self::valid_nid(nid),
+            Self::is_not_leaf(nid),
+            0 <= offset && offset + 1 < 512,
+        ensures
+            Self::next_outside_subtree(NodeHelper::get_child(nid, offset)) == NodeHelper::get_child(
+                nid,
+                offset + 1,
+            ),
+    {
+        admit();
+    }
+
+    pub proof fn lemma_last_child_next_outside_subtree(nid: NodeId)
+        requires
+            Self::valid_nid(nid),
+            Self::is_not_leaf(nid),
+        ensures
+            Self::next_outside_subtree(Self::get_child(nid, 511)) == Self::next_outside_subtree(
+                nid,
+            ),
+    {
+        admit();
+    }
 }
 
 } // verus!

@@ -54,7 +54,7 @@ pub enum CursorState {
     Void,
     Locking(NodeId, NodeId),
     Locked(NodeId),
-    UnLocking(NodeId, NodeId),
+    // UnLocking(NodeId, NodeId),
 }
 
 impl CursorState {
@@ -66,10 +66,10 @@ impl CursorState {
                 &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
             },
             Self::Locked(rt) => NodeHelper::valid_nid(rt),
-            Self::UnLocking(rt, nid) => {
-                &&& NodeHelper::valid_nid(rt)
-                &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
-            },
+            // Self::UnLocking(rt, nid) => {
+            //     &&& NodeHelper::valid_nid(rt)
+            //     &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
+            // },
         }
     }
 }

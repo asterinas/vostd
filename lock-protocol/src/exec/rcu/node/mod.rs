@@ -49,13 +49,20 @@ impl PageTableNode {
     pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
 
     #[verifier::external_body]
-    pub fn from_raw(paddr: Paddr, nid: Ghost<NodeId>, inst_id: Ghost<InstanceId>) -> (res: Self)
+    pub fn from_raw(
+        paddr: Paddr,
+        nid: Ghost<NodeId>,
+        inst_id: Ghost<InstanceId>,
+        level: Ghost<PagingLevel>,
+    ) -> (res: Self)
         ensures
             res =~= Self::from_raw_spec(paddr),
             res.wf(),
             paddr == res.perm@.frame_paddr(),
             res.nid@ == nid@,
             res.inst@.id() == inst_id@,
+            res.inst@.cpu_num() == GLOBAL_CPU_NUM,
+            res.level_spec() == level@,
     {
         unimplemented!();
     }
@@ -123,7 +130,12 @@ impl PageTableNodeRef<'_> {
         Self { inner: ManuallyDrop::new(PageTableNode::from_raw_spec(raw)), _marker: PhantomData }
     }
 
-    pub fn borrow_paddr(raw: Paddr, nid: Ghost<NodeId>, inst_id: Ghost<InstanceId>) -> (res: Self)
+    pub fn borrow_paddr(
+        raw: Paddr,
+        nid: Ghost<NodeId>,
+        inst_id: Ghost<InstanceId>,
+        level: Ghost<PagingLevel>,
+    ) -> (res: Self)
         requires  // TODO
 
         ensures
@@ -132,10 +144,12 @@ impl PageTableNodeRef<'_> {
             raw == res.perm@.frame_paddr(),
             res.nid@ == nid@,
             res.inst@.id() == inst_id@,
+            res.inst@.cpu_num() == GLOBAL_CPU_NUM,
+            res.deref().level_spec() == level@,
     {
         Self {
             // SAFETY: The caller ensures the safety.
-            inner: ManuallyDrop::new(PageTableNode::from_raw(raw, nid, inst_id)),
+            inner: ManuallyDrop::new(PageTableNode::from_raw(raw, nid, inst_id, level)),
             _marker: PhantomData,
         }
     }
@@ -165,6 +179,21 @@ impl<'a> PageTableNodeRef<'a> {
         self.deref().wf()
     }
 
+    pub fn normal_lock<'rcu>(
+        self,
+        guard: &'rcu (),  // TODO
+    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+        requires
+            self.wf(),
+        ensures
+            res.wf(),
+            res.inner =~= self,
+            res.guard->Some_0.in_protocol@ == false,
+    {
+        let guard = self.meta().lock.normal_lock();
+        PageTableGuard { inner: self, guard: Some(guard) }
+    }
+
     pub fn lock<'rcu>(
         self,
         guard: &'rcu (),  // TODO
@@ -179,9 +208,11 @@ impl<'a> PageTableNodeRef<'a> {
         ensures
             res.0.wf(),
             res.0.inner =~= self,
+            res.0.guard->Some_0.in_protocol@ == true,
             res.1@.inv(),
             res.1@.inst_id() == res.0.inst_id(),
             res.1@.state() is Locking,
+            res.1@.sub_tree_rt() == m@.sub_tree_rt(),
             res.1@.cur_node() == self.nid@ + 1,
     {
         let tracked mut m = m.get();
@@ -241,10 +272,26 @@ impl<'rcu> PageTableGuard<'rcu> {
         Entry::new_at(idx, self)
     }
 
-    // TODO
-    // pub fn stray_mut(&mut self) -> &mut bool {
-    //     &mut *self.meta().stray.get()
-    // }
+    pub fn read_stray(&self) -> (res: bool)
+        requires
+            self.wf(),
+        ensures
+            res == self.guard->Some_0.stray_perm@.value(),
+    {
+        let stray_cell: &PCell<bool> = &self.deref().deref().meta().stray;
+        let guard: &SpinGuard = self.guard.as_ref().unwrap();
+        let tracked stray_perm = guard.stray_perm.borrow();
+        let b = *stray_cell.borrow(Tracked(stray_perm));
+        b
+    }
+
+    // pub fn write_stray(&mut self, b: Bool)
+    //     requires
+    //         old(self).wf(),
+    //     ensures
+    //         self.wf(),
+    //         self.guard->Some_0.stray_perm@.value() == b,
+    // {}
     pub fn read_pte(&self, idx: usize) -> (res: Pte)
         requires
             self.wf(),
@@ -311,6 +358,38 @@ impl<'rcu> PageTableGuard<'rcu> {
             admit();
         }  // TODO
     }
+
+    pub fn trans_lock_protocol(&mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
+        requires
+            old(self).wf(),
+            old(self).guard->Some_0.in_protocol@ == false,
+            m@.inv(),
+            m@.inst_id() == old(self).inst_id(),
+            m@.state() is Locking,
+            m@.cur_node() == old(self).nid(),
+        ensures
+            self.wf(),
+            self.guard->Some_0.in_protocol@ == true,
+            self.inner =~= old(self).inner,
+            self.guard->Some_0.wf_trans_lock_protocol(&old(self).guard->Some_0),
+            res@.inv(),
+            res@.inst_id() == self.inst_id(),
+            res@.state() is Locking,
+            res@.sub_tree_rt() == m@.sub_tree_rt(),
+            res@.cur_node() == self.nid() + 1,
+    {
+        let tracked mut m = m.get();
+        let guard = self.guard.take().unwrap();
+        let res = guard.trans_lock_protocol(&self.inner.deref().meta().lock, Tracked(m));
+        let trans_guard = res.0;
+        proof {
+            m = res.1.get();
+        }
+        self.guard = Some(trans_guard);
+        Tracked(m)
+    }
 }
 
 pub open spec fn pt_guard_deref_spec<'a, 'rcu>(
@@ -331,9 +410,47 @@ impl<'rcu> Deref for PageTableGuard<'rcu> {
     }
 }
 
-// impl Drop for PageTableNodeRef<'_> {
-//     fn drop(&mut self) {}
-// }
+// impl Drop for PageTableGuard<'_>
+impl PageTableGuard<'_> {
+    pub fn normal_drop<'a>(&'a mut self)
+        requires
+            old(self).wf(),
+            old(self).guard->Some_0.in_protocol@ == false,
+        ensures
+            self.guard is None,
+    {
+        let guard = self.guard.take().unwrap();
+        self.inner.deref().meta().lock.normal_unlock(guard);
+    }
+
+    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
+        requires
+            old(self).wf(),
+            old(self).guard->Some_0.in_protocol@ == true,
+            m@.inv(),
+            m@.inst_id() == old(self).inst_id(),
+            m@.state() is Locking,
+            m@.cur_node() == old(self).nid() + 1,
+        ensures
+            self.guard is None,
+            res@.inv(),
+            res@.inst_id() == old(self).inst_id(),
+            res@.state() is Locking,
+            res@.sub_tree_rt() == m@.sub_tree_rt(),
+            res@.cur_node() == old(self).nid(),
+    {
+        let tracked mut m = m.get();
+        let guard = self.guard.take().unwrap();
+        let res = self.inner.deref().meta().lock.unlock(guard, Tracked(m));
+        proof {
+            m = res.get();
+        }
+        Tracked(m)
+    }
+}
+
 struct_with_invariants! {
     pub struct PageTablePageMeta {
         pub lock: PageTablePageSpinLock,
@@ -357,6 +474,7 @@ struct_with_invariants! {
             &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& self.inst@.id() == self.lock.pt_inst_id()
             &&& self.level as nat == NodeHelper::nid_to_level(self.nid@)
+            &&& self.stray.id() == self.lock.stray_cell_id@
         }
     }
 }

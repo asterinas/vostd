@@ -28,7 +28,7 @@ impl LockProtocolModel {
             CursorState::Void => arbitrary(),
             CursorState::Locking(rt, _) => rt,
             CursorState::Locked(rt) => rt,
-            CursorState::UnLocking(rt, _) => rt,
+            // CursorState::UnLocking(rt, _) => rt,
         }
     }
 
@@ -41,7 +41,7 @@ impl LockProtocolModel {
             CursorState::Void => arbitrary(),
             CursorState::Locking(_, nid) => nid,
             CursorState::Locked(_) => arbitrary(),
-            CursorState::UnLocking(_, nid) => nid,
+            // CursorState::UnLocking(_, nid) => nid,
         }
     }
 

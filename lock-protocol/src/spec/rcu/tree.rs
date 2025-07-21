@@ -99,7 +99,6 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
-        require(NodeHelper::in_subtree_range(rt, _nid));
         require(_nid == nid);
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
@@ -133,10 +132,10 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
-        remove cursors -= [ cpu => let CursorState::UnLocking(rt, _nid) ];
+        remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
         require(_nid > rt);
         require(_nid == nid + 1);
-        add cursors += [ cpu => CursorState::UnLocking(rt, nid) ];
+        add cursors += [ cpu => CursorState::Locking(rt, nid) ];
 
         remove nodes -= [ nid => NodeState::Locked ];
         add nodes += [ nid => NodeState::Free ];
@@ -149,14 +148,14 @@ transition!{
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
 
-        remove cursors -= [ cpu => let CursorState::UnLocking(rt, _nid) ];
+        remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
         require(_nid > rt);
         require(_nid == NodeHelper::next_outside_subtree(nid));
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have ptes >= [ pa => let pte ];
         require(pte.is_void(offset));
-        add cursors += [ cpu => CursorState::UnLocking(rt, nid) ];
+        add cursors += [ cpu => CursorState::Locking(rt, nid) ];
     }
 }
 
@@ -164,7 +163,7 @@ transition!{
     unlocking_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
-        remove cursors -= [ cpu => let CursorState::UnLocking(rt, nid) ];
+        remove cursors -= [ cpu => let CursorState::Locking(rt, nid) ];
         require(rt == nid);
         add cursors += [ cpu => CursorState::Void ];
     }

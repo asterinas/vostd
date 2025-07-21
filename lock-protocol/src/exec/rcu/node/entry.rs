@@ -4,10 +4,10 @@ use builtin_macros::*;
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};
-use super::super::types::*;
+use super::super::{common::*, types::*, cpu::*};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use super::child::*;
-use super::super::pte::Pte;
+use super::super::pte::{Pte, page_table_entry_trait::*};
 
 verus! {
 
@@ -41,14 +41,37 @@ impl Entry {
         )
     }
 
-    // /// Returns if the entry does not map to anything.
-    // pub fn is_none(&self) -> bool {
-    //     !self.pte.is_present() && self.pte.paddr() == 0
-    // }
-    // /// Returns if the entry maps to a page table node.
-    // pub fn is_node(&self) -> bool {
-    //     self.pte.is_present() && !self.pte.is_last(self.node.level())
-    // }
+    pub open spec fn is_none_spec(&self) -> bool {
+        !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
+    }
+
+    /// Returns if the entry does not map to anything.
+    #[verifier::when_used_as_spec(is_none_spec)]
+    pub fn is_none(&self) -> bool
+        requires
+            self.wf(),
+        returns
+            self.is_none_spec(),
+    {
+        !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
+    }
+
+    pub open spec fn is_node_spec(&self, node: &PageTableGuard) -> bool {
+        self.pte.inner.is_present() && !self.pte.inner.is_last(node.deref().deref().level_spec())
+    }
+
+    /// Returns if the entry maps to a page table node.
+    #[verifier::when_used_as_spec(is_node_spec)]
+    pub fn is_node(&self, node: &PageTableGuard) -> bool
+        requires
+            self.wf(),
+            node.wf(),
+        returns
+            self.is_node(node),
+    {
+        self.pte.inner.is_present() && !self.pte.inner.is_last(node.deref().deref().level())
+    }
+
     /// Gets a reference to the child.
     pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu>) -> (res: ChildRef<'rcu>)
         requires
@@ -57,7 +80,7 @@ impl Entry {
             node.wf(),
         ensures
             res.wf(),
-            res is Frame ==> res->Frame_1 == node.deref().deref().level_spec(),
+            res.wf_from_pte(self.pte, node.deref().deref().level_spec()),
     {
         ChildRef::from_pte(&self.pte, node.deref().deref().level())
     }
@@ -80,6 +103,7 @@ impl Entry {
             node.wf(),
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
             res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
@@ -90,6 +114,60 @@ impl Entry {
         self.pte = pte;
 
         old_child
+    }
+
+    /// Allocates a new child page table node and replaces the entry with it.
+    ///
+    /// If the old entry is not none, the operation will fail and return `None`.
+    /// Otherwise, the lock guard of the new child page table node is returned.
+    #[verifier::external_body]
+    pub fn alloc_if_none<'rcu>(
+        &mut self,
+        guard: &'rcu (),  // TODO
+        node: &mut PageTableGuard<'rcu>,
+    ) -> (res: Option<PageTableGuard<'rcu>>)
+        requires
+            old(self).wf(),
+            old(self).wf_with_node(*old(node)),
+            old(node).wf(),
+        ensures
+            self.wf(),
+            self.wf_with_node(*node),
+            self.idx == old(self).idx,
+            node.wf(),
+            node.inst_id() == old(node).inst_id(),
+            node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
+            res is Some ==> {
+                &&& res->Some_0.wf()
+                &&& res->Some_0.inst_id() == node.inst_id()
+                &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
+                &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                &&& res->Some_0.guard->Some_0.in_protocol@ == false
+            },
+    {
+        // if !(self.is_none() && node.deref().deref().level() > 1) {
+        //     return None;
+        // }
+        // let level = self.node.level();
+        // let new_page = RcuDrop::new(PageTableNode::<C>::alloc(level - 1));
+        // let paddr = new_page.start_paddr();
+        // // SAFETY: The page table won't be dropped before the RCU grace period
+        // // ends, so it outlives `'rcu`.
+        // let pt_ref = PageTableNodeRef::borrow_paddr(
+        //     paddr
+        // );
+        // // Lock before writing the PTE, so no one else can operate on it.
+        // let pt_lock_guard = pt_ref.lock(guard);
+        // // SAFETY:
+        // //  1. The index is within the bounds.
+        // //  2. The new PTE is a child in `C` and at the correct paging level.
+        // //  3. The ownership of the child is passed to the page table node.
+        // self.node
+        //     .write_pte(self.idx, Child::PageTable(new_page).into_pte());
+        // Some(pt_lock_guard)
+        unimplemented!()
     }
 
     /// Create a new entry at the node with guard.
