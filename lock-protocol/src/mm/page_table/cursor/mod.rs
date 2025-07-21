@@ -168,12 +168,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& pte_index::<C>(self.va, i) == cur_ancestors[i as int].in_frame_index
                 }
                 &&& i == self.level ==> {
-                    !cur_ancestors.contains_key(i as int)
-                    && guard_option.is_some()
+                    !cur_ancestors.contains_key(i as int) && guard_option.is_some()
                 }
                 &&& 1 <= i < self.level || self.guard_level < i <= MAX_NR_LEVELS ==> {
-                    !cur_ancestors.contains_key(i as int)
-                    && guard_option.is_none()
+                    !cur_ancestors.contains_key(i as int) && guard_option.is_none()
                 }
             }
     }
@@ -209,21 +207,22 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 #![trigger self.path.view().index(path_index_at_level(i))]
                 #![trigger ancestors.contains_key(i as int)]
                 {
-                let guard_option = path_index!(self.path[i]);
-                &&& self.level <= i <= self.guard_level ==> {
-                    &&& guard_option.is_some()
-                    &&& guard_option.unwrap().paddr_spec() == ancestors[i as int].frame_pa
-                    &&& pte_index::<C>(self.va, i) == ancestors[i as int].in_frame_index
+                    let guard_option = path_index!(self.path[i]);
+                    &&& self.level <= i <= self.guard_level ==> {
+                        &&& guard_option.is_some()
+                        &&& guard_option.unwrap().paddr_spec() == ancestors[i as int].frame_pa
+                        &&& pte_index::<C>(self.va, i) == ancestors[i as int].in_frame_index
+                    }
+                    &&& i == guard.level_spec() ==> {
+                        !ancestors.contains_key(
+                            i as int,
+                        )
+                        // && guard_option.is_some()
+
+                    }&&& 1 <= i < guard.level_spec() || self.guard_level < i <= MAX_NR_LEVELS ==> {
+                        !ancestors.contains_key(i as int) && guard_option.is_none()
+                    }
                 }
-                &&& i == guard.level_spec() ==> {
-                    !ancestors.contains_key(i as int)
-                    // && guard_option.is_some()
-                }
-                &&& 1 <= i < guard.level_spec() || self.guard_level < i <= MAX_NR_LEVELS ==> {
-                    !ancestors.contains_key(i as int)
-                    && guard_option.is_none()
-                }
-            }
         }
     }
 
