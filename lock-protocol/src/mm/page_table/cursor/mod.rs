@@ -159,6 +159,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& spt.frames.value().contains_key(cur_frame_pa)
         &&& forall|j: PagingLevel|
             #![trigger self.path[path_index_at_level(j)]]
+            #![trigger cur_ancestors.contains_key(j as int)]
             {
                 let guard_option_ = path_index!(self.path[j]);
                 &&& cur_frame.level_spec() < j <= self.guard_level ==> {
@@ -169,9 +170,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& pte_index::<C>(self.va, j) == cur_ancestors[j as int].in_frame_index
                 }
                 &&& j == cur_frame.level_spec() ==> {
-&&& !cur_ancestors.contains_key(j as int)
+                    &&& !cur_ancestors.contains_key(j as int)
                     &&& guard_option_.is_some()
-&&& guard_option_.unwrap().level_spec() == j as int
+                    &&& guard_option_.unwrap().level_spec() == j as int
                 }
                 &&& 1 <= j < cur_frame.level_spec() || self.guard_level < j <= MAX_NR_LEVELS ==> {
                     !cur_ancestors.contains_key(j as int)
@@ -313,6 +314,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     panic!("Popping a level without a lock");
         // };
         let taken = &self.path[self.level as usize - 1];
+        proof {
+            assert(taken == path_index!(self.path[self.level]));
+        }
         assert(taken.is_some());
         // TODO
         // let _taken = taken.unwrap().into_raw_paddr();
