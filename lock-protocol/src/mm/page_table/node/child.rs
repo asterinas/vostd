@@ -20,6 +20,7 @@ use super::MapTrackingStatus;
 use super::PageTableNode;
 
 use crate::exec;
+use crate::spec::sub_pt::SubPageTable;
 
 // use crate::prelude::{RawPageTableNode, PageProperty, Paddr, PagingLevel, DynPage};
 
@@ -102,8 +103,12 @@ impl<C: PageTableConfig> Child<C> {
     /// been converted from a child using the [`Child::into_pte`] method.
     // TODO: Implement the conversion from PTE.
     #[verifier::external_body]
-    pub(super) fn from_pte(pte: C::E, level: PagingLevel, spt: &exec::SubPageTable) -> Self {
-        if !pte.is_present(spt) {
+    pub(super) fn from_pte(
+        pte: C::E,
+        level: PagingLevel,
+        Tracked(spt): Tracked<&SubPageTable>,
+    ) -> Self {
+        if !pte.is_present(Tracked(spt)) {
             // let paddr = pte.paddr();
             // if paddr == 0 {
             //     return Child::None;
@@ -168,14 +173,14 @@ impl<C: PageTableConfig> Child<C> {
         pte: &C::E,
         level: PagingLevel,
         clone_raw: bool,
-        spt: &exec::SubPageTable,
+        Tracked(spt): Tracked<&SubPageTable>,
     ) -> (res: Self)
         requires
             spt.wf(),
             pte.pte_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), spt).pte_addr,
             pte.frame_paddr() == exec::get_pte_from_addr_spec(pte.pte_paddr(), spt).frame_pa,
         ensures
-            if (spt.ptes@.value().contains_key(pte.pte_paddr() as int)) {
+            if (spt.ptes.value().contains_key(pte.pte_paddr() as int)) {
                 if (clone_raw) {
                     match res {
                         Child::PageTable(_) => true,
@@ -184,7 +189,7 @@ impl<C: PageTableConfig> Child<C> {
                 } else {
                     match res {
                         Child::PageTableRef(pt) => pt == pte.frame_paddr() as usize
-                            && spt.frames@.value().contains_key(pt as int),
+                            && spt.frames.value().contains_key(pt as int),
                         _ => false,
                     }
                 }
@@ -195,7 +200,7 @@ impl<C: PageTableConfig> Child<C> {
                 }
             },
     {
-        if !pte.is_present(spt) {
+        if !pte.is_present(Tracked(spt)) {
             // let paddr = pte.paddr();
             // if paddr == 0 {
             //     return Child::None;

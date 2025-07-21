@@ -15,7 +15,7 @@ use super::{Child, MapTrackingStatus, PageTableGuard, PageTableNode};
 
 use crate::exec;
 
-use crate::spec::sub_page_table::{self, index_pte_paddr};
+use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
 
 verus! {
 
@@ -44,16 +44,22 @@ pub struct Entry<'a, C: PageTableConfig> {
 
 impl<'a, C: PageTableConfig> Entry<'a, C> {
     /// Gets a reference to the child.
-    pub(in crate::mm) fn to_ref(&self, spt: &exec::SubPageTable) -> (res: Child<C>)
+    pub(in crate::mm) fn to_ref(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: Child<C>)
         requires
             spt.wf(),
-            self.pte.pte_paddr() == exec::get_pte_from_addr(self.pte.pte_paddr(), spt).pte_addr,
-            self.pte.frame_paddr() == exec::get_pte_from_addr(self.pte.pte_paddr(), spt).frame_pa,
+            self.pte.pte_paddr() == exec::get_pte_from_addr_spec(
+                self.pte.pte_paddr(),
+                spt,
+            ).pte_addr,
+            self.pte.frame_paddr() == exec::get_pte_from_addr_spec(
+                self.pte.pte_paddr(),
+                spt,
+            ).frame_pa,
         ensures
-            if (spt.ptes@.value().contains_key(self.pte.pte_paddr() as int)) {
+            if (spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
                 match res {
                     Child::PageTableRef(pt) => pt == self.pte.frame_paddr() as usize
-                        && spt.frames@.value().contains_key(pt as int),
+                        && spt.frames.value().contains_key(pt as int),
                     _ => false,
                 }
             } else {
@@ -66,7 +72,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
-        let c = Child::ref_from_pte(&self.pte, self.node.level(), false, spt);
+        let c = Child::ref_from_pte(&self.pte, self.node.level(), false, Tracked(spt));
         c
     }
 
@@ -94,22 +100,17 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     pub(in crate::mm) fn replace(
         self,
         new_child: Child<C>,
-        spt: &mut exec::SubPageTable,
-        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
+        Tracked(spt): Tracked<&mut SubPageTable>,
     ) -> (res: Child<C>)
         requires
             self.node.wf(),
             old(spt).wf(),
-            old(alloc_model).invariants(),
             self.idx < nr_subpage_per_huge::<C>(),
-            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
         ensures
-            spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
-            spt.instance@.id() == old(spt).instance@.id(),
+            spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
+            spt.instance.id() == old(spt).instance.id(),
             spt.wf(),
-            alloc_model.invariants(),
             spt_do_not_change_above_level(spt, old(spt), self.node.level()),
-            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
             match new_child {
                 // Child::PageTable(pt) => self.pte.frame_paddr() == pt.ptr as usize, // TODO: ?
                 _ => true,
@@ -121,7 +122,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         // so that it is not used anymore.
         let old_child =
             // unsafe { Child::from_pte(self.pte, self.node.level(), self.node.is_tracked()) };
-        Child::from_pte(self.pte, self.node.level(), spt);
+        Child::from_pte(self.pte, self.node.level(), Tracked(spt));
 
         if old_child.is_none() && !new_child.is_none() {
             // *self.node.nr_children_mut() += 1;
@@ -135,18 +136,11 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         //  2. The new PTE is compatible with the page table node, as asserted above.
         // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
 
-        assume(spt.perms@.contains_key(exec::frame_addr_to_index_spec(self.node.paddr())));  // FIXME: Add this to entry well-formedness
-        self.node.write_pte(
-            self.idx,
-            new_child.into_pte(),
-            self.node.level(),
-            spt,
-            Tracked(alloc_model),
-        );
+        assume(spt.perms.contains_key(self.node.paddr()));  // FIXME: Add this to entry well-formedness
+        self.node.write_pte(self.idx, new_child.into_pte(), self.node.level(), Tracked(spt));
 
         // TODO: P0
-        assume(spt.ptes@.value().contains_key(self.pte.pte_paddr() as int));
-        assume(spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model));
+        assume(spt.ptes.value().contains_key(self.pte.pte_paddr() as int));
 
         old_child
         // unimplemented!()
@@ -154,43 +148,35 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     }
 
     #[verifier::external_body]
-    pub(in crate::mm) fn alloc_if_none(
-        self,
-        spt: &mut exec::SubPageTable,
-        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
-    ) -> (res: Option<usize>)
+    pub(in crate::mm) fn alloc_if_none(self, Tracked(spt): Tracked<&mut SubPageTable>) -> (res:
+        Option<usize>)
         requires
             old(spt).wf(),
-            old(alloc_model).invariants(),
             self.idx < nr_subpage_per_huge::<C>(),
-            spec_helpers::spt_contains_no_unallocated_frames(old(spt), old(alloc_model)),
         ensures
             spt.wf(),
-            alloc_model.invariants(),
-            spt.ptes@.value().contains_key(self.pte.pte_paddr() as int),
-            spt.instance@.id() == old(spt).instance@.id(),
+            spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
+            spt.instance.id() == old(spt).instance.id(),
             spt_do_not_change_above_level(spt, old(spt), self.node.level()),
-            spec_helpers::spt_contains_no_unallocated_frames(spt, alloc_model),
-            if old(spt).ptes@.value().contains_key(self.pte.pte_paddr() as int) {
+            if old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int) {
                 res is None
             } else {
-                res is Some && spt.frames@.value().contains_key(res.unwrap() as int)
+                res is Some && spt.frames.value().contains_key(res.unwrap() as int)
             },
     {
-        if !self.pte.is_present(spt) {
+        if !self.pte.is_present(Tracked(&*spt)) {
             // The entry is already present.
             return None;
         }
         let level = self.node.level();
-        let pt = PageTableGuard::<C>::alloc(level - 1, Tracked(alloc_model));
+        let pt = PageTableGuard::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
         let paddr = pt.into_raw_paddr();
 
         self.node.write_pte(
             self.idx,
             Child::<C>::PageTable(PageTableNode::from_raw(paddr)).into_pte(),
             level,
-            spt,
-            Tracked(alloc_model),
+            Tracked(spt),
         );
 
         Some(paddr)
@@ -202,7 +188,11 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     ///
     /// The caller must ensure that the index is within the bounds of the node.
     // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
-    pub fn new_at(node: &'a PageTableGuard<C>, idx: usize, spt: &exec::SubPageTable) -> (res: Self)
+    pub fn new_at(
+        node: &'a PageTableGuard<C>,
+        idx: usize,
+        Tracked(spt): Tracked<&SubPageTable>,
+    ) -> (res: Self)
         requires
             idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
@@ -212,30 +202,31 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             res.idx == idx,
             res.node.wf(),
             res.pte.pte_paddr() == index_pte_paddr(node.paddr() as int, idx as int),
-            res.pte.pte_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).pte_addr,
-            res.pte.frame_paddr() == exec::get_pte_from_addr(res.pte.pte_paddr(), spt).frame_pa,
-            res.pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
+            res.pte.pte_paddr() == exec::get_pte_from_addr_spec(res.pte.pte_paddr(), spt).pte_addr,
+            res.pte.frame_paddr() == exec::get_pte_from_addr_spec(
+                res.pte.pte_paddr(),
+                spt,
+            ).frame_pa,
+            res.pte.frame_paddr() == 0 ==> !spt.i_ptes.value().contains_key(
                 res.pte.pte_paddr() as int,
             ),
             res.pte.frame_paddr() != 0 ==> {
-                &&& spt.i_ptes@.value().contains_key(res.pte.pte_paddr() as int)
-                &&& spt.i_ptes@.value()[res.pte.pte_paddr() as int].frame_pa
+                &&& spt.i_ptes.value().contains_key(res.pte.pte_paddr() as int)
+                &&& spt.i_ptes.value()[res.pte.pte_paddr() as int].frame_pa
                     == res.pte.frame_paddr() as int
-                &&& spt.frames@.value().contains_key(res.pte.frame_paddr() as int)
+                &&& spt.frames.value().contains_key(res.pte.frame_paddr() as int)
             },
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
-        let pte = node.read_pte(idx, spt);
+        let pte = node.read_pte(idx, Tracked(spt));
 
         // FIXME: Fix them by revise the correspondance between PTE state and SPT.
-        assume(pte.frame_paddr() == 0 ==> !spt.i_ptes@.value().contains_key(
-            pte.pte_paddr() as int,
-        ));
+        assume(pte.frame_paddr() == 0 ==> !spt.i_ptes.value().contains_key(pte.pte_paddr() as int));
         assume(pte.frame_paddr() != 0 ==> {
-            &&& spt.i_ptes@.value().contains_key(pte.pte_paddr() as int)
-            &&& spt.i_ptes@.value()[pte.pte_paddr() as int].frame_pa == pte.frame_paddr() as int
-            &&& spt.frames@.value().contains_key(pte.frame_paddr() as int)
+            &&& spt.i_ptes.value().contains_key(pte.pte_paddr() as int)
+            &&& spt.i_ptes.value()[pte.pte_paddr() as int].frame_pa == pte.frame_paddr() as int
+            &&& spt.frames.value().contains_key(pte.frame_paddr() as int)
         });
 
         Self { pte, idx, node, phantom: std::marker::PhantomData }

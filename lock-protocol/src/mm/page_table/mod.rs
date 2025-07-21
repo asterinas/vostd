@@ -29,6 +29,7 @@ use super::{
 };
 
 use crate::exec;
+use crate::spec::sub_pt::SubPageTable;
 
 verus! {
 
@@ -209,22 +210,20 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
-    #[verifier::when_used_as_spec(is_present_spec)]
-    fn is_present(&self, spt: &exec::SubPageTable) -> (res: bool)
+    fn is_present(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: bool)
         requires
             spt.wf(),
-            self.pte_paddr() == exec::get_pte_from_addr(self.pte_paddr(), spt).pte_addr,
-            self.frame_paddr() == exec::get_pte_from_addr(self.pte_paddr(), spt).frame_pa,
+            self.pte_paddr() == exec::get_pte_from_addr_spec(self.pte_paddr(), spt).pte_addr,
+            self.frame_paddr() == exec::get_pte_from_addr_spec(self.pte_paddr(), spt).frame_pa,
         ensures
-    // spt.ptes@.value().contains_key(self.pte_paddr() as int) == res,
-
-            res ==> spt.ptes@.value().contains_key(self.pte_paddr() as int)
-                && spt.frames@.value().contains_key(self.frame_paddr() as int),
-            !res ==> !spt.ptes@.value().contains_key(self.pte_paddr() as int),
+            res == self.is_present_spec(spt),
+            res ==> spt.ptes.value().contains_key(self.pte_paddr() as int)
+                && spt.frames.value().contains_key(self.frame_paddr() as int),
+            !res ==> !spt.ptes.value().contains_key(self.pte_paddr() as int),
             spt.wf(),
     ;
 
-    spec fn is_present_spec(&self, spt: &exec::SubPageTable) -> bool;
+    spec fn is_present_spec(&self, spt: &SubPageTable) -> bool;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self);
@@ -274,26 +273,6 @@ Sized {
     /// The level of the page table the entry resides is given since architectures
     /// like amd64 only uses a huge bit in intermediate levels.
     fn is_last(&self, level: PagingLevel) -> bool;
-
-    /// Converts the PTE into its corresponding `usize` value.
-    // TODO: Implement as_usize and from_usize
-    fn as_usize(self) -> usize;
-
-    /// Converts a usize `pte_raw` into a PTE.
-    // TODO: Implement as_usize and from_usize
-    fn from_usize(pte_raw: usize, spt: &exec::SubPageTable) -> (res: Self)
-        requires
-            spt.wf(),
-        ensures
-            res.pte_paddr() == pte_raw as Paddr,
-            res.frame_paddr() == exec::get_pte_from_addr_spec(pte_raw, spt).frame_pa,
-            res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(pte_raw as int),
-            res.frame_paddr() != 0 ==> {
-                &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
-                &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& spt.frames@.value().contains_key(res.frame_paddr() as int)
-            },
-    ;
 }
 
 /// A minimal set of constants that determines the paging system.

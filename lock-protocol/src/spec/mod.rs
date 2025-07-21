@@ -1,4 +1,4 @@
-pub mod sub_page_table;
+pub mod sub_pt;
 
 pub mod common;
 pub mod rcu;

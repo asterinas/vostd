@@ -35,61 +35,48 @@ use super::{
     PagingLevel,
 };
 
-use crate::spec::sub_page_table;
+use crate::spec::sub_pt::SubPageTable;
 use crate::exec;
 
 verus! {
 
-pub open spec fn spt_contains_no_unallocated_frames(
-    spt: &exec::SubPageTable,
-    alloc_model: &AllocatorModel,
-) -> bool {
-    &&& forall|i: usize| #[trigger]
-        spt.frames@.value().contains_key(exec::frame_index_to_addr(i) as int)
-            ==> alloc_model.allocated_addrs.contains(exec::frame_index_to_addr(i) as int)
-    &&& forall|i: usize| #[trigger]
-        spt.ptes@.value().contains_key(i as int) ==> alloc_model.allocated_addrs.contains(
-            spt.ptes@.value()[i as int].frame_pa as int,
-        )
-}
-
 pub open spec fn spt_do_not_change_above_level(
-    spt: &exec::SubPageTable,
-    old_spt: &exec::SubPageTable,
+    spt: &SubPageTable,
+    old_spt: &SubPageTable,
     level: PagingLevel,
 ) -> bool {
     &&& spt.wf()
     &&& old_spt.wf()
-    &&& spt.instance@.id() == old_spt.instance@.id()
-    &&& spt.instance@.root() == old_spt.instance@.root()
+    &&& spt.instance.id() == old_spt.instance.id()
+    &&& spt.instance.root() == old_spt.instance.root()
     &&& spt_do_not_remove_above_level(spt, old_spt, level)
     &&& spt_do_not_remove_above_level(old_spt, spt, level)
 }
 
 pub open spec fn spt_do_not_remove_above_level(
-    spt: &exec::SubPageTable,
-    old_spt: &exec::SubPageTable,
+    spt: &SubPageTable,
+    old_spt: &SubPageTable,
     level: PagingLevel,
 ) -> bool {
     &&& forall|i: int| #[trigger]
-        spt.frames@.value().contains_key(i) ==> {
-            spt.frames@.value()[i].level >= level ==> {
-                &&& #[trigger] old_spt.frames@.value().contains_key(i)
-                &&& spt.frames@.value()[i] == old_spt.frames@.value()[i]
+        spt.frames.value().contains_key(i) ==> {
+            spt.frames.value()[i].level >= level ==> {
+                &&& #[trigger] old_spt.frames.value().contains_key(i)
+                &&& spt.frames.value()[i] == old_spt.frames.value()[i]
             }
         }
     &&& forall|i: int| #[trigger]
-        spt.ptes@.value().contains_key(i) ==> {
-            spt.ptes@.value()[i].level > level ==> {
-                &&& #[trigger] old_spt.ptes@.value().contains_key(i)
-                &&& spt.ptes@.value()[i] == old_spt.ptes@.value()[i]
+        spt.ptes.value().contains_key(i) ==> {
+            spt.ptes.value()[i].level > level ==> {
+                &&& #[trigger] old_spt.ptes.value().contains_key(i)
+                &&& spt.ptes.value()[i] == old_spt.ptes.value()[i]
             }
         }
     &&& forall|i: int| #[trigger]
-        spt.i_ptes@.value().contains_key(i) ==> {
-            spt.i_ptes@.value()[i].level > level ==> {
-                &&& #[trigger] old_spt.i_ptes@.value().contains_key(i)
-                &&& spt.i_ptes@.value()[i] == old_spt.i_ptes@.value()[i]
+        spt.i_ptes.value().contains_key(i) ==> {
+            spt.i_ptes.value()[i].level > level ==> {
+                &&& #[trigger] old_spt.i_ptes.value().contains_key(i)
+                &&& spt.i_ptes.value()[i] == old_spt.i_ptes.value()[i]
             }
         }
 }

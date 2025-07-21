@@ -13,6 +13,7 @@ use vstd::prelude::*;
 #[allow(unused_imports)]
 use child::*;
 use vstd::simple_pptr::MemContents;
+use vstd::simple_pptr::PPtr;
 use crate::mm::allocator::alloc_page_table;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
@@ -29,10 +30,10 @@ use crate::sync::spin;
 use crate::x86_64::paddr_to_vaddr;
 
 use crate::exec::{
-    self, SubPageTable, create_new_frame, MAX_FRAME_NUM, get_pte_from_addr_spec,
-    SIZEOF_PAGETABLEENTRY, frame_addr_to_index, frame_addr_to_index_spec, MockPageTableEntry,
+    self, create_new_frame, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY,
+    frame_addr_to_index, frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
 };
-use crate::spec::sub_page_table::{pa_is_valid_pt_address, level_is_in_range, index_pte_paddr};
+use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
 
 use crate::mm::NR_ENTRIES;
 
@@ -120,7 +121,8 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         Self { paddr, level, phantom: std::marker::PhantomData }
     }
 
-    fn read_pte(&self, idx: usize, spt: &exec::SubPageTable) -> (res: C::E)
+    #[verifier::external_body]
+    fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable>) -> (res: C::E)
         requires
             idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
@@ -131,19 +133,16 @@ impl<C: PageTableConfig> PageTableGuard<C> {
                 spt,
             ).frame_pa,
             res.pte_paddr() == index_pte_paddr(self.paddr as int, idx as int),
-            res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(
+            res.frame_paddr() == 0 ==> !spt.ptes.value().contains_key(
                 index_pte_paddr(self.paddr as int, idx as int),
             ),
             res.frame_paddr() != 0 ==> {
-                &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
-                &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& spt.frames@.value().contains_key(res.frame_paddr() as int)
+                &&& spt.ptes.value().contains_key(res.pte_paddr() as int)
+                &&& spt.ptes.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
+                &&& spt.frames.value().contains_key(res.frame_paddr() as int)
             },
     {
-        assert(self.paddr + idx * SIZEOF_PAGETABLEENTRY < usize::MAX) by {
-            admit();
-        }  // TODO
-        C::E::from_usize(self.paddr + idx * SIZEOF_PAGETABLEENTRY, spt)
+        unimplemented!();  // FIXME! use the pptr to read the pte
     }
 
     fn write_pte(
@@ -151,31 +150,29 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         idx: usize,
         pte: C::E,
         level: PagingLevel,
-        spt: &mut SubPageTable,
-        Tracked(alloc_model): Tracked<&mut AllocatorModel>,
+        Tracked(spt): Tracked<&mut SubPageTable>,
     )
         requires
             idx < nr_subpage_per_huge::<C>(),
             old(spt).wf(),
-            old(alloc_model).invariants(),
-            old(spt).perms@.contains_key(frame_addr_to_index_spec(self.paddr)),
+            old(spt).perms.contains_key(self.paddr),
             self.wf(),
         ensures
             spt.wf(),
-            alloc_model.invariants(),
-            spt.ptes@.instance_id() == old(spt).ptes@.instance_id(),
-            spt.frames@.instance_id() == old(spt).frames@.instance_id(),
+            spt.ptes.instance_id() == old(spt).ptes.instance_id(),
+            spt.frames.instance_id() == old(spt).frames.instance_id(),
             spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()),
     {
-        let frame_idx = frame_addr_to_index(self.paddr);
+        assert(spt.perms.contains_key(self.paddr));
 
-        assert(frame_idx < MAX_FRAME_NUM as usize);
-        assume(spt.perms@[frame_idx].1@.mem_contents().is_init());
+        let p = PPtr::from_addr(self.paddr);
+        let tracked points_to = spt.perms.tracked_remove(self.paddr);
 
-        let (p, Tracked(points_to)) = spt.perms.remove(&frame_idx).unwrap();
-
+        // FIXME: Should be correct since spt.wf()?
+        assume(points_to.mem_contents().is_init());
         assume(points_to.pptr() == p);
-        let mut frame = p.read(Tracked(&points_to));
+
+        let mut frame: MockPageTablePage = p.read(Tracked(&points_to));
         assume(idx < frame.ptes.len());
         frame.ptes[idx] = MockPageTableEntry {
             pte_addr: pte.pte_paddr() as u64,
@@ -187,7 +184,9 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         // between spt.perms and spt.frames
         p.write(Tracked(&mut points_to), frame);
 
-        spt.perms.insert(frame_idx, (p, Tracked(points_to)));
+        proof {
+            spt.perms.tracked_insert(self.paddr, points_to);
+        }
 
         assume(spt.wf());  // TODO: P0
         assume(spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()));  // TODO: P0

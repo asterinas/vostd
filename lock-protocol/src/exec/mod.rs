@@ -24,21 +24,20 @@ use crate::{
         Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
         frame::allocator::{alloc_page_table, AllocatorModel},
     },
-    spec::sub_page_table,
     task::{disable_preempt, DisabledPreemptGuard},
 };
 use vstd::simple_pptr::*;
 
 use crate::exec;
-use crate::spec::sub_page_table::pa_is_valid_pt_address;
+use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable};
 
 verus! {
 
-pub const SIZEOF_PAGETABLEENTRY: usize = 24;
+pub const SIZEOF_PAGETABLEENTRY: usize = 20;
 
 global layout MockPageTableEntry is size == 24, align == 8;
 
-pub const SIZEOF_FRAME: usize = 24 * 512;
+pub const SIZEOF_FRAME: usize = 20 * 512;
 
 global layout MockPageTablePage is size == 12288, align == 8;
 
@@ -97,20 +96,22 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage
 }
 
 impl PageTableEntryTrait for MockPageTableEntry {
-    fn is_present(&self, spt: &SubPageTable) -> bool {
+    fn is_present(&self, Tracked(spt): Tracked<&SubPageTable>) -> bool {
         assert(self.frame_pa == self.frame_paddr());
-        assert(self.frame_pa != 0 ==> spt.ptes@.value().contains_key(self.pte_addr as int));
-        assert(self.frame_pa != 0 ==> spt.frames@.value().contains_key(self.frame_pa as int)) by {
+        assert(self.frame_pa != 0 ==> spt.ptes.value().contains_key(self.pte_addr as int));
+        assert(self.frame_pa != 0 ==> spt.frames.value().contains_key(self.frame_pa as int)) by {
             admit();
         }  // TODO: P0
-        assert(self.frame_pa == 0 ==> !spt.ptes@.value().contains_key(self.pte_addr as int)) by {
+        assert(self.frame_pa == 0 ==> !spt.ptes.value().contains_key(self.pte_addr as int)) by {
             admit();
         }  // TODO: P0
-        self.frame_pa != 0
+        let res = (self.frame_pa != 0);
+        assume(res == self.is_present_spec(spt));  // FIXME: Is present is not well-desinged right now.
+        res
     }
 
     open spec fn is_present_spec(&self, spt: &SubPageTable) -> bool {
-        self.frame_pa != 0
+        spt.ptes.value().contains_key(self.pte_paddr() as int)
     }
 
     fn frame_paddr(&self) -> (res: usize) {
@@ -180,100 +181,12 @@ impl PageTableEntryTrait for MockPageTableEntry {
         std::unimplemented!()
     }
 
-    #[verifier::external_body]
-    fn as_usize(self) -> usize {
-        // SAFETY: `Self` is `Pod` and has the same memory representation as `usize`.
-        // unsafe { transmute_unchecked(self) }
-        // TODO: Implement this function
-        std::unimplemented!()
-    }
-
-    fn from_usize(pte_raw: usize, spt: &SubPageTable) -> (res: Self)
-        ensures
-            res == get_pte_from_addr(pte_raw, spt),
-            res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(pte_raw as int),
-            res.frame_paddr() != 0 ==> {
-                &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
-                &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& spt.frames@.value().contains_key(res.frame_paddr() as int)
-            },
-    {
-        assert(0 <= pte_raw < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_PAGETABLEENTRY * NR_ENTRIES)
-            by {
-            admit();
-        }  // TODO
-        assert((pte_raw - PHYSICAL_BASE_ADDRESS_SPEC()) % SIZEOF_PAGETABLEENTRY as int == 0) by {
-            admit();
-        }  // TODO
-        assert(spt.wf());
-        let res = get_pte_from_addr(pte_raw, spt);
-        assert(spt.ptes@.value().contains_key(pte_raw as int) ==> res.frame_pa != 0) by {
-            // NOTE: this seems not true if we do not add the invariant (convert the frame_pa to u64) in spt.wf() @see spt.wf()
-            // assert(spt.ptes@.value()[res.pte_addr as int].frame_pa != 0 ==> spt.ptes@.value()[res.pte_addr as int].frame_pa as u64 != 0);
-        }
-        assert(res.frame_pa == 0 ==> !spt.ptes@.value().contains_key(res.pte_addr as int));
-        if (res.frame_pa != 0) {
-            assert(spt.frames@.value().contains_key(res.frame_pa as int)) by {
-                assert(spt.ptes@.value().contains_key(res.pte_addr as int));
-                assert(spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_pa as int);
-            }
-        }
-        res
-    }
-
     fn pte_paddr(&self) -> (res: Paddr) {
         self.pte_addr as Paddr
     }
 
     open spec fn pte_addr_spec(&self) -> Paddr {
         self.pte_addr as Paddr
-    }
-}
-
-struct_with_invariants!{
-    /// A sub-tree in a page table.
-    pub struct SubPageTable {
-        /// Only frames in the sub-page-table are stored in this map.
-        pub perms: HashMap<Paddr, (PPtr<MockPageTablePage>, Tracked<PointsTo<MockPageTablePage>>)>,
-        // State machine.
-        pub frames: Tracked<sub_page_table::SubPageTableStateMachine::frames>,
-        pub i_ptes: Tracked<sub_page_table::SubPageTableStateMachine::i_ptes>,
-        pub ptes: Tracked<sub_page_table::SubPageTableStateMachine::ptes>,
-        pub instance: Tracked<sub_page_table::SubPageTableStateMachine::Instance>,
-    }
-
-    pub open spec fn wf(&self) -> bool {
-        predicate {
-            &&& self.frames@.instance_id() == self.instance@.id()
-            &&& self.ptes@.instance_id() == self.instance@.id()
-            &&& self.perms@.dom().finite()
-            &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
-                &&& #[trigger] self.frames@.value().contains_key(i as int)
-                &&& pa_is_valid_pt_address(i as int)
-            }
-            &&& forall |i: usize| #[trigger] self.frames@.value().contains_key(i as int) ==> {
-                &&& #[trigger] self.perms@.dom().contains(i)
-                &&& pa_is_valid_pt_address(i as int)
-            }
-            &&& forall |i: usize| #[trigger] self.perms@.dom().contains(i) ==> {
-                &&& (#[trigger] self.perms@[i]).1@.pptr() == self.perms@[i].0
-                &&& (#[trigger] self.perms@[i].0.addr() == i)
-                &&& (#[trigger] self.perms@[i].1@.mem_contents().is_init())
-                &&& (#[trigger] self.frames@.value().contains_key(i as int))
-                &&& forall |k: int| 0 <= k < NR_ENTRIES ==>
-                    if (self.perms@[i].1@.value().ptes[k].frame_pa != 0) {
-                        #[trigger] self.ptes@.value().contains_key(self.perms@[i].1@.value().ptes[k].pte_addr as int)
-                    } else {
-                        !self.ptes@.value().contains_key(self.perms@[i].1@.mem_contents().value().ptes[k].pte_addr as int)
-                    }
-            }
-            &&& forall |i: int| #[trigger] self.ptes@.value().contains_key(i) ==> {
-                &&& self.frames@.value().contains_key(self.ptes@.value()[i].frame_pa as int)
-                &&& self.ptes@.value()[i].frame_pa != 0
-                &&& self.ptes@.value()[i].frame_pa < u64::MAX
-                &&& self.ptes@.value()[i].frame_pa as u64 != 0
-            }
-        }
     }
 }
 
@@ -305,12 +218,12 @@ pub open spec fn get_pte_from_addr_spec(addr: usize, spt: &SubPageTable) -> (res
     recommends
         spt.wf(),
 {
-    if (spt.ptes@.value().contains_key(addr as int)) {
+    if (spt.ptes.value().contains_key(addr as int)) {
         MockPageTableEntry {
             pte_addr: addr as u64,
-            frame_pa: spt.ptes@.value()[addr as int].frame_pa as u64,
-            level: spt.ptes@.value()[addr as int].level as u8,
-            prop: spt.ptes@.value()[addr as int].prop,
+            frame_pa: spt.ptes.value()[addr as int].frame_pa as u64,
+            level: spt.ptes.value()[addr as int].level as u8,
+            prop: spt.ptes.value()[addr as int].prop,
         }
     } else {
         MockPageTableEntry {
@@ -323,18 +236,18 @@ pub open spec fn get_pte_from_addr_spec(addr: usize, spt: &SubPageTable) -> (res
 }
 
 #[verifier::external_body]
-#[verifier::when_used_as_spec(get_pte_from_addr_spec)]
-pub fn get_pte_from_addr(addr: usize, spt: &SubPageTable) -> (res: MockPageTableEntry)
+pub fn get_pte_from_addr(addr: usize, Tracked(spt): Tracked<&SubPageTable>) -> (res:
+    MockPageTableEntry)
     requires
         0 <= addr < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * NR_ENTRIES,
         (addr - PHYSICAL_BASE_ADDRESS_SPEC()) % SIZEOF_PAGETABLEENTRY as int == 0,
         spt.wf(),
     ensures
         res == get_pte_from_addr_spec(addr, spt),
-        res.frame_paddr() == 0 ==> !spt.ptes@.value().contains_key(addr as int),
+        res.frame_paddr() == 0 ==> !spt.ptes.value().contains_key(addr as int),
         res.frame_paddr() != 0 ==> {
-            &&& spt.ptes@.value().contains_key(res.pte_paddr() as int)
-            &&& spt.ptes@.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
+            &&& spt.ptes.value().contains_key(res.pte_paddr() as int)
+            &&& spt.ptes.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
         },
 {
     let pte = PPtr::<MockPageTableEntry>::from_addr(addr).read(Tracked::assume_new());  // TODO: permission violation

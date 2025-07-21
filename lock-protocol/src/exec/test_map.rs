@@ -17,7 +17,10 @@ use crate::{
         Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig, PagingLevel,
         frame::allocator::{alloc_page_table, AllocatorModel},
     },
-    spec::sub_page_table,
+    spec::sub_pt::{
+        state_machine::{SubPageTableStateMachine, FrameView},
+        SubPageTable,
+    },
     task::{disable_preempt, DisabledPreemptGuard},
 };
 use vstd::simple_pptr::*;
@@ -96,20 +99,23 @@ requires
         Tracked(frame_tokens),
         Tracked(i_pte_tokens),
         Tracked(pte_tokens),
-    ) = sub_page_table::SubPageTableStateMachine::Instance::initialize(crate::spec::sub_page_table::FrameView {
+    ) = SubPageTableStateMachine::Instance::initialize(FrameView {
         pa: p.addr() as int,
         ancestor_chain: Map::empty(),
         level: 3, // To test a sub-tree rooted at level 3
     });
-    let mut perms = HashMap::new();
-    perms.insert(p.addr(), (p, Tracked(pt)));
 
-    let mut sub_page_table = SubPageTable {
-        perms,
-        frames: Tracked(frame_tokens),
-        i_ptes: Tracked(i_pte_tokens),
-        ptes: Tracked(pte_tokens),
-        instance: Tracked(instance.clone()),
+    let tracked mut sub_page_table = SubPageTable {
+        alloc_model,
+        perms: {
+            let tracked mut map = Map::tracked_empty();
+            map.tracked_insert(p.addr(), pt);
+            map
+        },
+        frames: frame_tokens,
+        i_ptes: i_pte_tokens,
+        ptes: pte_tokens,
+        instance: instance.clone(),
     };
 
     assert(sub_page_table.wf());
@@ -142,13 +148,12 @@ requires
     assert(cursor.0.wf(&sub_page_table));
 
     cursor.map(frame, page_prop,
-        &mut sub_page_table,
-        Tracked(&mut alloc_model)
+        Tracked(&mut sub_page_table),
     );
 
     let level4_index = pte_index::<PagingConsts>(va, NR_LEVELS as u8);
     let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
-    let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, &sub_page_table);
+    let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, Tracked(&sub_page_table));
 
     // let level3_frame_addr = cursor.0.path[(NR_LEVELS as usize) - 2].as_ref().unwrap().paddr() as usize;
     // assert(level4_pte.frame_pa == level3_frame_addr as u64);

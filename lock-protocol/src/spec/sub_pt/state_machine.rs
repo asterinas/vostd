@@ -1,20 +1,5 @@
-#[allow(unused_imports)]
-#[allow(unused)]
-use builtin::*;
-use builtin_macros::*;
-use std::collections::HashMap;
-
 use state_machines_macros::*;
 use vstd::prelude::*;
-use vstd::cell::*;
-#[allow(unused_imports)]
-use vstd::hash_map::*;
-#[allow(unused_imports)]
-use vstd::tokens::MapToken;
-#[allow(unused_imports)]
-use vstd::raw_ptr::*;
-use vstd::simple_pptr::*;
-use vstd::simple_pptr::PointsTo;
 
 use crate::mm::allocator::pa_is_valid_kernel_address;
 use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
@@ -25,27 +10,7 @@ type Paddr = usize;
 
 type Vaddr = usize;
 
-use crate::mm::NR_ENTRIES;
-use crate::mm::page_table::cursor::MAX_NR_LEVELS;
-use crate::exec::SIZEOF_PAGETABLEENTRY;
-use crate::exec::SIZEOF_FRAME;
-
-pub open spec fn level_is_in_range(level: int) -> bool {
-    1 <= level <= MAX_NR_LEVELS
-}
-
-pub open spec fn index_is_in_range(index: int) -> bool {
-    0 <= index < NR_ENTRIES
-}
-
-pub open spec fn pa_is_valid_pt_address(pa: int) -> bool {
-    &&& pa_is_valid_kernel_address(pa)
-    &&& pa % SIZEOF_FRAME as int == 0
-}
-
-pub open spec fn index_pte_paddr(frame_pa: int, index: int) -> int {
-    frame_pa + index * SIZEOF_PAGETABLEENTRY as int
-}
+use super::{pa_is_valid_pt_address, index_is_in_range, level_is_in_range, index_pte_paddr};
 
 pub ghost struct LeafPageTableEntryView {
     pub frame_pa: int,

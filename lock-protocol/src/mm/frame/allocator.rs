@@ -56,7 +56,13 @@ pub fn alloc_page_table(Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
     let allocator_lock = GLOBAL_ALLOCATOR.get_or_init(|| Mutex::new(MockGlobalAllocator::init()));
     let mut allocator = allocator_lock.lock().unwrap();
 
-    allocator.alloc()
+    let (pptr, perm) = allocator.alloc();
+
+    proof {
+        model.allocated_addrs.insert(pptr.addr() as int);
+    }
+
+    (pptr, perm)
 }
 
 pub struct MockGlobalAllocator {
