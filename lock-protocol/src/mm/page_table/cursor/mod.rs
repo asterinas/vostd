@@ -282,16 +282,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         let page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, page_size) + page_size;
-        // while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
-        // decreases self.guard_level - self.level
-        // {
-        //     self.pop_level();
-        // }
+        while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
+            invariant
+                self.wf(spt),
+                self.constant_fields_unchanged(old(self), spt, spt),
+                self.level >= old(self).level,
+                self.va == old(self).va,
+            decreases self.guard_level - self.level,
+        {
+            self.pop_level(Tracked(&spt));
+        }
         self.va = next_va;
         // TODO: P0 self.va changed, but the higher bits of va does not change.
         assume(forall|i: u8|
-            self.level <= i <= PagingConsts::NR_LEVELS() ==> pte_index::<C>(self.va, i)
-                == pte_index::<C>(old(self).va, i));
+            self.level <= i <= self.guard_level ==> pte_index::<C>(self.va, i) == pte_index::<C>(
+                old(self).va,
+                i,
+            ));
     }
 
     pub fn virt_addr(&self) -> Vaddr {
@@ -304,22 +311,19 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).wf(spt),
             old(self).level < old(self).guard_level,
         ensures
-            old(self).wf(spt),
+            self.wf(spt),
             self.constant_fields_unchanged(old(self), spt, spt),
             self.level == old(self).level + 1,
             // Other fields remain unchanged.
             self.va == old(self).va,
     {
-        // let Some(taken) = self.path[self.level as usize - 1].take() else {
-        //     panic!("Popping a level without a lock");
-        // };
         let taken = &self.path[self.level as usize - 1];
         proof {
             assert(taken == path_index!(self.path[self.level]));
         }
         assert(taken.is_some());
-        // TODO
         // let _taken = taken.unwrap().into_raw_paddr();
+        self.path[self.level as usize - 1] = None;
 
         self.level = self.level + 1;
     }
