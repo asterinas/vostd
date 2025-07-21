@@ -157,7 +157,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& path_index!(self.path[self.level]).is_some()
         &&& spt.frames.value().contains_key(cur_frame_pa)
         &&& forall|i: PagingLevel|
-            #![trigger self.path.view().index(path_index_at_level(i))]
+            #![trigger self.path[path_index_at_level(i)]]
             {
                 let guard_option = path_index!(self.path[i]);
                 &&& self.level < i <= self.guard_level ==> {
@@ -168,12 +168,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& pte_index::<C>(self.va, i) == cur_ancestors[i as int].in_frame_index
                 }
                 &&& i == self.level ==> {
-                    // !cur_ancestors.contains_key(i as int) This should be sub_pt_wf but Verus can't reveal this.
-                    guard_option.is_some()
+                    !cur_ancestors.contains_key(i as int)
+                    && guard_option.is_some()
                 }
                 &&& 1 <= i < self.level || self.guard_level < i <= MAX_NR_LEVELS ==> {
-                    // !cur_ancestors.contains_key(i as int) This should be sub_pt_wf but Verus can't reveal this.
-                    guard_option.is_none()
+                    !cur_ancestors.contains_key(i as int)
+                    && guard_option.is_none()
                 }
             }
     }
@@ -207,12 +207,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             &&& frame_view.is_some()
             &&& forall|i: PagingLevel|
                 #![trigger self.path.view().index(path_index_at_level(i))]
-                self.level <= i <= self.guard_level ==> {
-                    let guard_option = path_index!(self.path[i]);
+                #![trigger ancestors.contains_key(i as int)]
+                {
+                let guard_option = path_index!(self.path[i]);
+                &&& self.level <= i <= self.guard_level ==> {
                     &&& guard_option.is_some()
                     &&& guard_option.unwrap().paddr_spec() == ancestors[i as int].frame_pa
                     &&& pte_index::<C>(self.va, i) == ancestors[i as int].in_frame_index
                 }
+                &&& i == guard.level_spec() ==> {
+                    !ancestors.contains_key(i as int)
+                    // && guard_option.is_some()
+                }
+                &&& 1 <= i < guard.level_spec() || self.guard_level < i <= MAX_NR_LEVELS ==> {
+                    !ancestors.contains_key(i as int)
+                    && guard_option.is_none()
+                }
+            }
         }
     }
 
@@ -283,10 +294,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     panic!("Popping a level without a lock");
         // };
         let taken = &self.path[self.level as usize - 1];
-        if (taken.is_none()) {
-            // panic!("Popping a level without a lock");
-            // assert(false); // TODO
-        }
+        assert(taken.is_some());
         // TODO
         // let _taken = taken.unwrap().into_raw_paddr();
 

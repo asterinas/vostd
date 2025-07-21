@@ -34,7 +34,7 @@ pub open spec fn index_pte_paddr(frame_pa: int, index: int) -> int {
 }
 
 /// The sub-page-table ghost state.
-pub struct SubPageTable {
+pub tracked struct SubPageTable {
     // The allocator model will be provided by the lock protocol. And it will
     // be finally submitted to the lock protocol, so that we can reason about
     // allocations in the entire page table.
