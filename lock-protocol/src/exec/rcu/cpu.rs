@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use crate::spec::{common::*, rcu::*};
+use crate::spec::{common::*, utils::*, rcu::*};
 use super::{common::*, types::*};
 
 verus! {
@@ -51,6 +51,17 @@ impl LockProtocolModel {
         &&& self.token.key() == self.cpu
         &&& self.inst.cpu_num() == GLOBAL_CPU_NUM
         &&& self.state().wf()
+    }
+
+    pub open spec fn node_is_locked(&self, nid: NodeId) -> bool
+        recommends
+            !(self.state() is Void),
+    {
+        match self.state() {
+            CursorState::Void => arbitrary(),
+            CursorState::Locking(rt, _nid) => rt <= nid < _nid,
+            CursorState::Locked(rt) => NodeHelper::in_subtree(rt, nid),
+        }
     }
 }
 

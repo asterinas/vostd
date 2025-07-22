@@ -123,7 +123,7 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
 
         remove cursors -= [ cpu => let CursorState::Locked(rt) ];
-        add cursors += [ cpu => CursorState::Locking(rt, rt) ];
+        add cursors += [ cpu => CursorState::Locking(rt, NodeHelper::next_outside_subtree(rt)) ];
     }
 }
 
@@ -149,7 +149,6 @@ transition!{
         require(nid != NodeHelper::root_id());
 
         remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
-        require(_nid > rt);
         require(_nid == NodeHelper::next_outside_subtree(nid));
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);

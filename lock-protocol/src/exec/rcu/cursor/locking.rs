@@ -139,14 +139,10 @@ pub(super) fn lock_range<'rcu>(
         m@.inv(),
         m@.inst_id() == pt.inst@.id(),
         m@.state() is Void,
-    ensures// res.0@.wf()
-// TODO
-
+    ensures
         res.1@.inv(),
         res.1@.inst_id() == pt.inst@.id(),
-        res.1@.state() is Locked,// res.1@.sub_tree_rt() == ?,
-// TODO
-
+        res.1@.state() is Locked,
 {
     let tracked mut m = m.get();
 
@@ -217,6 +213,72 @@ pub(super) fn lock_range<'rcu>(
         },
         Tracked(m),
     )
+}
+
+pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+    LockProtocolModel,
+>)
+    requires
+        old(cursor).wf(),
+        m@.inv(),
+        m@.inst_id() == old(cursor).inst@.id(),
+        m@.state() is Locked,
+        m@.sub_tree_rt() == old(cursor).path[old(cursor).guard_level - 1]->Some_0.nid(),
+    ensures
+        cursor.path.len() == old(cursor).path.len(),
+        forall|i| 0 <= i < cursor.path.len() ==> cursor.path[i] is None,
+        res@.inv(),
+        res@.inst_id() == old(cursor).inst@.id(),
+        res@.state() is Void,
+{
+    let tracked mut m = m.get();
+    proof {
+        let tracked res = cursor.inst.borrow().unlocking_start(m.cpu, m.token);
+        m.token = res;
+    }
+
+    let mut i = cursor.guard_level - 1;
+    while i > 0
+        invariant
+            0 <= i <= cursor.guard_level - 1,
+            cursor.wf(),
+            m.inst_id() == cursor.inst@.id(),
+            m.sub_tree_rt() == cursor.path[cursor.guard_level - 1]->Some_0.nid(),
+            forall|level: PagingLevel|
+                #![trigger cursor.path[level - 1]]
+                i < level <= cursor.guard_level - 1 ==> cursor.path[level - 1] is None,
+        decreases i,
+    {
+        i -= 1;
+        if let Some(guard) = cursor.take(i as usize) {
+            let _ = ManuallyDrop::new(guard);
+        }
+    }
+    let guard_level = cursor.guard_level;
+    let guard_node = cursor.take(guard_level as usize - 1).unwrap();
+    assert forall|i| 0 <= i < cursor.path@.len() implies { cursor.path[i] is None } by {
+        assert(cursor.path[(i + 1) - 1] is None);
+    }
+    // let cur_node_va = cursor
+    //     .barrier_va
+    //     .start
+    //     .align_down(page_size(cursor.guard_level + 1));
+
+    assert(m.sub_tree_rt() == guard_node.nid());
+    let res = dfs_release_lock(
+        cursor.rcu_guard,
+        guard_node,
+        // cur_node_va,
+        // cursor.barrier_va.clone(),
+        Tracked(m),
+    );
+    proof {
+        m = res.get();
+        let tracked res = cursor.inst.borrow().unlocking_end(m.cpu, m.token);
+        m.token = res;
+    }
+
+    Tracked(m)
 }
 
 /// Finds and locks an intermediate page table node that covers the range.
@@ -309,9 +371,12 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         }
         let va = paddr_to_vaddr(cur_pt_addr);
         // let ptr = (va + start_idx * 64) as *const Pte;
-        let cur_pte = rcu_load_pte(// va + start_idx * 64,
-        // TODO
-        va, start_idx, Ghost(PageTableNode::from_raw_spec(cur_pt_addr)), Ghost(start_idx as nat));
+        let cur_pte = rcu_load_pte(
+            va,
+            start_idx,
+            Ghost(PageTableNode::from_raw_spec(cur_pt_addr)),
+            Ghost(start_idx as nat),
+        );
 
         if cur_pte.inner.is_present() {
             if cur_pte.inner.is_last(cur_level) {
@@ -552,6 +617,152 @@ fn dfs_acquire_lock(
         }
 
         i += 1;
+    }
+
+    Tracked(m)
+}
+
+/// Releases the locks for the given range in the sub-tree rooted at the node.
+///
+/// # Safety
+///
+/// The caller must ensure that the nodes in the specified sub-tree are locked
+/// and all guards are forgotten.
+#[verifier::loop_isolation(false)]
+fn dfs_release_lock<'rcu>(
+    guard: &'rcu (),  // TODO
+    mut cur_node: PageTableGuard<'rcu>,
+    // cur_node_va: Vaddr,
+    // va_range: Range<Vaddr>,
+    m: Tracked<LockProtocolModel>,
+) -> (res: Tracked<LockProtocolModel>)
+    requires
+        cur_node.wf(),
+        cur_node.guard->Some_0.stray_perm@.value() == false,
+        cur_node.guard->Some_0.in_protocol@ == true,
+        m@.inv(),
+        m@.inst_id() == cur_node.inst_id(),
+        m@.state() is Locking,
+        m@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
+    ensures
+        res@.inv(),
+        res@.inst_id() == cur_node.inst_id(),
+        res@.state() is Locking,
+        res@.sub_tree_rt() == m@.sub_tree_rt(),
+        res@.cur_node() == cur_node.nid(),
+    decreases cur_node.deref().deref().level_spec(),
+{
+    let tracked mut m = m.get();
+
+    let cur_level = cur_node.deref().deref().level();
+    if cur_level == 1 {
+        assert(m.cur_node() == cur_node.nid() + 1) by {
+            assert(NodeHelper::nid_to_level(cur_node.nid()) == 1);
+            assert(NodeHelper::next_outside_subtree(cur_node.nid()) == cur_node.nid() + 1) by {
+                NodeHelper::lemma_tree_size_spec_table();
+            };
+        };
+
+        // Manually drop the guard
+        let res = cur_node.drop(Tracked(m));
+        proof {
+            m = res.get();
+        }
+        return Tracked(m);
+    }
+    let ghost sub_tree_rt = m.sub_tree_rt();
+
+    assert(NodeHelper::is_not_leaf(cur_node.nid())) by {
+        assert(NodeHelper::nid_to_level(cur_node.nid()) > 1);
+        NodeHelper::lemma_level_dep_relation(cur_node.nid());
+    }
+
+    // let idx_range = dfs_get_idx_range::<C>(cur_level, cur_node_va, &va_range);
+    let mut i = 512;
+    while i >= 1
+        invariant
+            0 <= i <= 512,
+            cur_node.wf(),
+            cur_node.guard->Some_0.stray_perm@.value() == false,
+            cur_node.guard->Some_0.in_protocol@ == true,
+            m.inv(),
+            m.inst_id() == cur_node.inst_id(),
+            m.state() is Locking,
+            m.sub_tree_rt() == sub_tree_rt,
+            m.cur_node() == if i < 512 {
+                NodeHelper::get_child(cur_node.nid(), i as nat)
+            } else {
+                NodeHelper::next_outside_subtree(cur_node.nid())
+            },
+        decreases i,
+    {
+        i -= 1;
+        let entry = cur_node.entry(i);
+        let child = entry.to_ref(&cur_node);
+        match child {
+            ChildRef::PageTable(pt) => {
+                assert(m.node_is_locked(pt.deref().nid@)) by {
+                    assert(pt.deref().nid@ == NodeHelper::get_child(cur_node.nid(), i as nat));
+                    admit();
+                };
+                let child_node = pt.make_guard_unchecked(guard, Tracked(&m));
+                // let child_node_va = cur_node_va + i * page_size::<C>(cur_level);
+                // let child_node_va_end = child_node_va + page_size::<C>(cur_level);
+                // let va_start = va_range.start.max(child_node_va);
+                // let va_end = va_range.end.min(child_node_va_end);
+                // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
+                // guards are forgotten.
+                // unsafe { dfs_release_lock(guard, child_node, child_node_va, va_start..va_end) };
+                assert(m.cur_node() == NodeHelper::next_outside_subtree(child_node.nid())) by {
+                    admit();
+                };
+                let res = dfs_release_lock(guard, child_node, Tracked(m));
+                proof {
+                    m = res.get();
+                }
+            },
+            ChildRef::Frame(_, _, _) => unreached(),
+            ChildRef::None => {
+                proof {
+                    let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+                    let tracked pte_token: &PteToken =
+                        cur_node.guard.tracked_borrow().pte_token.tracked_borrow().borrow();
+                    assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
+                        admit();
+                    };
+                    assert(pte_token.value().is_void(i as nat)) by {
+                        admit();
+                    };
+                    let tracked res = cur_node.tracked_pt_inst().clone().unlocking_skip(
+                        m.cpu,
+                        nid,
+                        pte_token,
+                        m.token,
+                    );
+                    m.token = res;
+
+                    assert(m.cur_node() == nid);
+                    assert(m.sub_tree_rt() <= m.cur_node() <= NodeHelper::next_outside_subtree(
+                        m.sub_tree_rt(),
+                    )) by {
+                        admit();  // TODO
+                    };
+                }
+            },
+        }
+    }
+
+    // Manually drop the guard
+    assert(m.cur_node() == cur_node.nid() + 1) by {
+        assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), 0));
+        assert(NodeHelper::get_child(cur_node.nid(), 0) == cur_node.nid() + 1) by {
+            NodeHelper::lemma_parent_child_algebraic_relation(cur_node.nid(), 0);
+        };
+    }
+    let res = cur_node.drop(Tracked(m));
+    proof {
+        m = res.get();
     }
 
     Tracked(m)

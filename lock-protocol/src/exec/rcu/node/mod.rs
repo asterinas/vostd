@@ -223,6 +223,28 @@ impl<'a> PageTableNodeRef<'a> {
         let guard = PageTableGuard { inner: self, guard: Some(res.0) };
         (guard, Tracked(m))
     }
+
+    #[verifier::external_body]
+    pub fn make_guard_unchecked<'rcu>(
+        self,
+        _guard: &'rcu (),
+        m: Tracked<&LockProtocolModel>,
+    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+        requires
+            self.wf(),
+            m@.inv(),
+            m@.inst_id() == self.deref().inst@.id(),
+            !(m@.state() is Void),
+            m@.node_is_locked(self.deref().nid@),
+        ensures
+            res.wf(),
+            res.inner =~= self,
+            res.guard->Some_0.stray_perm@.value() == false,
+            res.guard->Some_0.in_protocol@ == true,
+    {
+        // PageTableGuard { inner: self }
+        unimplemented!()
+    }
 }
 
 pub struct PageTableGuard<'rcu> {
