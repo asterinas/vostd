@@ -19,6 +19,7 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
         align_ < u64::MAX as usize,
     ensures
         (x & !((align_ - 1) as u64)) % align_ == 0,
+        (x & !((align_ - 1) as u64)) == x - (x % align_),
 {
     lemma_is_power2_exists_pow2(align_ as nat);
     let n = choose|n: nat| pow2(n) == align_ as nat;
@@ -139,6 +140,7 @@ proof fn lemma_aligned_identity(x: u64, align_: u64)
     assert(x & !((align_ - 1) as u64) == x);
 }
 
+#[verifier::allow_in_spec]
 pub fn align_down(x: usize, align: usize) -> (res: usize)
     requires
         is_power_2(align as int),
@@ -149,6 +151,8 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
         res <= x,
         res % align == 0,
         x % align == 0 ==> res == x,
+    returns
+        (x - (x % align)) as usize,
 {
     let x_ = x as u64;
     let align_ = align as u64;
@@ -183,6 +187,27 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
             assert(x_ & !((align_ - 1) as u64) == x_);
             assert(res_ == x_);
         }
+    };
+
+    assert(res_ as usize == (x - (x % align)) as usize) by {
+        lemma_power2_and_alignment(x_, align_);
+
+        // res_ = x_ & !align_minus_1
+        // align_minus_1 = align_ - 1
+        assert(align_minus_1 == (align_ - 1) as u64);
+        assert(res_ == x_ & !align_minus_1);
+        assert(x_ & !align_minus_1 == x_ & !((align_ - 1) as u64));
+
+        // From the lemma, x_ & !((align_ - 1) as u64) == x_ - (x_ % align_)
+        assert(res_ == x_ - (x_ % align_));
+
+        // Now we need to show the casting preserves equality
+        // x_ % align_ == (x % align) as u64
+        assert(x_ % align_ == (x % align) as u64);
+        assert(x_ - (x_ % align_) == (x as u64) - ((x % align) as u64));
+        assert((x as u64) - ((x % align) as u64) == (x - (x % align)) as u64);
+        assert(res_ == (x - (x % align)) as u64);
+        assert(res_ as usize == (x - (x % align)) as usize);
     };
 
     res_ as usize

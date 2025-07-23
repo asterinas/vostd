@@ -79,4 +79,15 @@ pub proof fn lemma_u64_and_less_than(a: u64, b: u64)
     assert(a & b <= max);
 }
 
+pub proof fn lemma_u64_mod_0_maintain_after_add(x: u64, m: u64)
+    requires
+        x % m == 0,
+        m > 0,
+    ensures
+        (x + m) % m as int == 0,
+{
+    use vstd::arithmetic::div_mod::*;
+
+    lemma_mod_adds(x as int, m as int, m as int);
+}
 } // verus!
