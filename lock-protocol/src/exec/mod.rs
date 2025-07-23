@@ -2,7 +2,7 @@ mod rcu;
 mod rw;
 mod test_map;
 
-use vstd::prelude::*;
+use vstd::{invariant, prelude::*};
 use core::num;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -10,6 +10,7 @@ use std::sync::{Mutex, OnceLock};
 
 use vstd::tokens::*;
 
+use crate::mm::allocator::pa_is_valid_kernel_address;
 use crate::mm::cursor::spec_helpers;
 use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
@@ -59,11 +60,13 @@ pub struct MockPageTablePage {
 }
 
 pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage)
+    requires
+        pa_is_valid_kernel_address(frame_addr as int),
     ensures
         res.ptes.len() == NR_ENTRIES,
         forall|i: int|
-            0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].pte_addr == frame_addr + i
-                * SIZEOF_PAGETABLEENTRY as u64,
+            0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].pte_addr == (frame_addr + i
+                * SIZEOF_PAGETABLEENTRY) as u64,
         forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].frame_pa == 0,
         forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].level == level as u8,
 {
@@ -73,8 +76,21 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage
         level: 0,
         prop: PageProperty::new_absent(),
     };NR_ENTRIES];
-    for i in 0..NR_ENTRIES {
-        assume(frame_addr + i * SIZEOF_PAGETABLEENTRY < usize::MAX as u64);
+
+    for i in 0..NR_ENTRIES
+        invariant
+            0 <= i <= NR_ENTRIES,
+            forall|j: int|
+                #![trigger ptes[j]]
+                0 <= j < i ==> {
+                    &&& ptes[j].pte_addr == (frame_addr + j * SIZEOF_PAGETABLEENTRY) as u64
+                    &&& ptes[j].frame_pa == 0
+                    &&& ptes[j].level == level
+                    &&& ptes[j].prop == PageProperty::new_absent()
+                },
+        decreases NR_ENTRIES - i,
+    {
+        assume(frame_addr + i * SIZEOF_PAGETABLEENTRY < usize::MAX);
         ptes[i] = MockPageTableEntry {
             pte_addr: (frame_addr + i * SIZEOF_PAGETABLEENTRY) as u64,
             frame_pa: 0,
@@ -83,16 +99,7 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage
         };
     }
 
-    let f = MockPageTablePage { ptes };
-
-    // assert(ptes[0].frame_pa == 0); // TODO: don't know why this fails
-    assume(forall|i: int|
-        0 <= i < NR_ENTRIES ==> (#[trigger] ptes[i]).pte_addr == frame_addr as u64 + i as u64
-            * SIZEOF_PAGETABLEENTRY as u64);
-    assume(forall|i: int| 0 <= i < NR_ENTRIES ==> (#[trigger] ptes[i]).frame_pa == 0);
-    assume(forall|i: int| 0 <= i < NR_ENTRIES ==> (#[trigger] ptes[i]).level == level);
-
-    f
+    MockPageTablePage { ptes }
 }
 
 impl PageTableEntryTrait for MockPageTableEntry {
