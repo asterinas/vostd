@@ -24,7 +24,7 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Frame, MapTrackingStatus, Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
+        Frame, Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     x86_64::VMALLOC_VADDR_RANGE,

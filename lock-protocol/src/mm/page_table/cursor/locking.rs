@@ -1,8 +1,8 @@
 use vstd::prelude::verus;
 
 use crate::mm::{
-    meta::AnyFrameMeta, MapTrackingStatus, PageTable, PageTableConfig, PageTableEntryTrait,
-    PageTableGuard, PagingConstsTrait, Vaddr,
+    meta::AnyFrameMeta, PageTable, PageTableConfig, PageTableEntryTrait, PageTableGuard,
+    PagingConstsTrait, Vaddr,
 };
 use std::ops::Range;
 

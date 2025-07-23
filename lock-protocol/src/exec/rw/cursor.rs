@@ -233,12 +233,10 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
 // )
 // TODO: Notice that we don't support huge pages yet.
 #[verifier::exec_allows_no_decreases_clause]
-pub fn lock_range(
-    pt: &PageTable,
-    va: &Range<Vaddr>,
-    // new_pt_is_tracked: MapTrackingStatus,
-    m: Tracked<LockProtocolModel>,
-) -> (res: (Cursor, Tracked<LockProtocolModel>))
+pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolModel>) -> (res: (
+    Cursor,
+    Tracked<LockProtocolModel>,
+))
     requires
         pt.wf(),
         va_range_wf(*va),

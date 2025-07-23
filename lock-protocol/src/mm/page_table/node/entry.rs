@@ -11,7 +11,7 @@ use crate::mm::{
     frame::allocator::AllocatorModel,
 };
 
-use super::{Child, MapTrackingStatus, PageTableGuard, PageTableNode};
+use super::{Child, PageTableGuard, PageTableNode};
 
 use crate::exec;
 

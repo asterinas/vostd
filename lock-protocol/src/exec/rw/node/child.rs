@@ -176,11 +176,7 @@ impl Child {
     ///
     /// This method should be only used no more than once for a PTE that has
     /// been converted from a child using the [`Child::into_pte`] method.
-    pub fn from_pte(
-        pte: Pte,
-        level: PagingLevel,
-        // is_tracked: MapTrackingStatus,
-    ) -> (res: Self)
+    pub fn from_pte(pte: Pte, level: PagingLevel) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
@@ -211,16 +207,6 @@ impl Child {
             let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
             return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
         }
-        // match is_tracked {
-        //     MapTrackingStatus::Tracked => {
-        //         // SAFETY: The physical address points to a valid page.
-        //         let page = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
-        //         Child::Frame(page, pte.prop())
-        //     }
-        //     MapTrackingStatus::Untracked => Child::Untracked(paddr, level, pte.prop()),
-        //     MapTrackingStatus::NotApplicable => panic!("Invalid tracking status"),
-        // }
-
         Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
     }
 
@@ -271,12 +257,7 @@ impl Child {
     ///
     /// This method must not be used with a PTE that has been restored to a
     /// child using the [`Child::from_pte`] method.
-    pub fn ref_from_pte(
-        pte: &Pte,
-        level: PagingLevel,
-        // is_tracked: MapTrackingStatus,
-        clone_raw: bool,
-    ) -> (res: Self)
+    pub fn ref_from_pte(pte: &Pte, level: PagingLevel, clone_raw: bool) -> (res: Self)
         requires
             pte.wf(),
             pte.wf_with_node_level(level),
@@ -318,23 +299,6 @@ impl Child {
                 return Child::PageTableRef(paddr, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
             }
         }
-        // match is_tracked {
-        //     MapTrackingStatus::Tracked => {
-        //         // SAFETY: The physical address is valid and the PTE already owns
-        //         // the reference to the page.
-        //         // unsafe { inc_frame_ref_count(paddr) };
-        //         // SAFETY: The physical address points to a valid page.
-        //         // let page = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
-        //         // Child::Frame(page, pte.prop())
-        //         Child::Frame;
-        //     }
-        //     MapTrackingStatus::Untracked => {
-        //         // Child::Untracked(paddr, level, pte.prop())
-        //         Child::Unimplemented
-        //     },
-        //     MapTrackingStatus::NotApplicable => panic!("Invalid tracking status"),
-        // }
-
         Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
     }
 }

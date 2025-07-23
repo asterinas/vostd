@@ -16,7 +16,6 @@ use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
 use crate::mm::PagingLevel;
 
-use super::MapTrackingStatus;
 use super::PageTableNode;
 
 use crate::exec;
@@ -136,17 +135,6 @@ impl<C: PageTableConfig> Child<C> {
         // debug_assert_eq!(pt.level(), level - 1);
         return Child::PageTable(pt);
         // }
-
-        // TODO: model is_tracked
-        // match is_tracked {
-        //     MapTrackingStatus::Tracked => {
-        //         // SAFETY: The physical address points to a valid page.
-        //         let page = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
-        //         Child::Frame(page, pte.prop())
-        //     }
-        //     MapTrackingStatus::Untracked => Child::Untracked(paddr, level, pte.prop()),
-        //     MapTrackingStatus::NotApplicable => panic!("Invalid tracking status"),
-        // }
     }
 
     /// Gains an extra reference to the child.
@@ -232,21 +220,6 @@ impl<C: PageTableConfig> Child<C> {
             return Child::PageTableRef(paddr);
         }
         // }
-
-        // TODO: model is_tracked
-        // match is_tracked {
-        //     MapTrackingStatus::Tracked => {
-        //         // SAFETY: The physical address is valid and the PTE already owns
-        //         // the reference to the page.
-        //         // unsafe { inc_frame_ref_count(paddr) }; // TODO
-        //         // SAFETY: The physical address points to a valid page.
-        //         let page = unsafe { Frame::<T>::from_raw(paddr) };
-        //         Child::Frame(page, pte.prop())
-        //     }
-        //     MapTrackingStatus::Untracked => Child::Untracked(paddr, level, pte.prop()),
-        //     MapTrackingStatus::NotApplicable =>
-        //         // panic!("Invalid tracking status"),
-        //         Child::None, // TODO
 
         // }
     }

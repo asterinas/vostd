@@ -231,29 +231,11 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
     /// The level of the page table page. A page table page cannot be
     /// referenced by page tables of different levels.
     pub level: PagingLevel,
-    /// Whether the pages mapped by the node is tracked.
-    pub is_tracked: MapTrackingStatus,
     pub _phantom: core::marker::PhantomData<C>,
 }
 
-/// Describe if the physical address recorded in this page table refers to a
-/// page tracked by metadata.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum MapTrackingStatus {
-    /// The page table node cannot contain references to any pages. It can only
-    /// contain references to child page table nodes.
-    NotApplicable,
-    /// The mapped pages are not tracked by metadata. If any child page table
-    /// nodes exist, they should also be tracked.
-    Untracked,
-    /// The mapped pages are tracked by metadata. If any child page table nodes
-    /// exist, they should also be tracked.
-    Tracked,
-}
-
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-    pub fn new_locked(level: PagingLevel, is_tracked: MapTrackingStatus) -> Self {
+    pub fn new_locked(level: PagingLevel) -> Self {
         Self {
             // nr_children: SyncUnsafeCell::new(0),
             // astray: SyncUnsafeCell::new(false),
@@ -261,7 +243,6 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
             astray: PCell::new(false).0,
             level,
             lock: spin::queued::LockBody::new_locked(),
-            is_tracked,
             _phantom: PhantomData,
         }
     }

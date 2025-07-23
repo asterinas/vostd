@@ -152,13 +152,4 @@ extern_const!(
         Range<Vaddr> = CONST_VMALLOC_BASE_VADDR..CONST_TRACKED_MAPPED_PAGES_BASE_VADDR
 );
 
-/// Returns whether the given address should be mapped as tracked.
-///
-/// About what is tracked mapping, see [`crate::mm::frame::meta::MapTrackingStatus`].
-pub fn should_map_as_tracked(addr: Vaddr) -> bool {
-    // !(LINEAR_MAPPING_VADDR_RANGE().contains(&addr) || VMALLOC_VADDR_RANGE().contains(&addr))
-    !(LINEAR_MAPPING_VADDR_RANGE().start <= addr && addr < LINEAR_MAPPING_VADDR_RANGE().end) || !(
-    VMALLOC_VADDR_RANGE().start <= addr && addr < VMALLOC_VADDR_RANGE().end)
-}
-
 } // verus!
