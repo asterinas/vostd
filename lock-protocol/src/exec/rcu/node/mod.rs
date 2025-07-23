@@ -287,8 +287,7 @@ impl<'rcu> PageTableGuard<'rcu> {
             self.wf(),
             0 <= idx < 512,
         ensures
-            res.wf(),
-            res.wf_with_node(*self),
+            res.wf(*self),
             res.idx == idx,
     {
         Entry::new_at(idx, self)
@@ -307,32 +306,23 @@ impl<'rcu> PageTableGuard<'rcu> {
         b
     }
 
-    // pub fn write_stray(&mut self, b: Bool)
-    //     requires
-    //         old(self).wf(),
-    //     ensures
-    //         self.wf(),
-    //         self.guard->Some_0.stray_perm@.value() == b,
-    // {}
     pub fn read_pte(&self, idx: usize) -> (res: Pte)
         requires
             self.wf(),
             0 <= idx < 512,
         ensures
-            res.wf(),
-            res.wf_with_node_info(
-                self.deref().deref().level_spec(),
-                self.inst_id(),
-                self.nid(),
-                idx as nat,
-            ),
+            res.wf_with_node(*self.deref().deref(), idx as nat),
+            self.guard->Some_0.perms@.relate_pte(res, idx as nat),
     {
         let va = paddr_to_vaddr(self.deref().deref().start_paddr());
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
         let guard: &SpinGuard = self.guard.as_ref().unwrap();
         let tracked perms = guard.perms.borrow();
-        assert(perms.inner.value()[idx as int].wf());
+        // assert(perms.inner.value()[idx as int].wf());
         let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
+        assert(self.guard->Some_0.perms@.relate_pte(pte, idx as nat)) by {
+            assert(pte =~= guard.perms@.inner.opt_value()[idx as int]->Init_0);
+        };
         pte
     }
 
@@ -340,17 +330,11 @@ impl<'rcu> PageTableGuard<'rcu> {
         requires
             old(self).wf(),
             0 <= idx < 512,
-            pte.wf(),
-            pte.wf_with_node_info(
-                old(self).inner.deref().level_spec(),
-                old(self).inst_id(),
-                old(self).nid(),
-                idx as nat,
-            ),
+            pte.wf_with_node(*(old(self).inner.deref()), idx as nat),
         ensures
             self.wf(),
-            self.inst_id() == old(self).inst_id(),
-            self.nid() == old(self).nid(),
+            self.inner =~= old(self).inner,
+            self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);
@@ -358,21 +342,12 @@ impl<'rcu> PageTableGuard<'rcu> {
         assert forall|i: int|
             #![trigger guard.perms@.inner.opt_value()[i]]
             0 <= i < 512 && i != idx implies {
-            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf()
-            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node_info(
-                self.inner.deref().meta_spec().lock.level@,
-                self.inner.deref().meta_spec().lock.pt_inst@.id(),
-                self.inner.deref().meta_spec().lock.nid@,
+            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node(
+                *self.inner.deref(),
                 i as nat,
             )
         } by {
-            assert(guard.perms@.inner.value()[i].wf());
-            assert(guard.perms@.inner.value()[i].wf_with_node_info(
-                self.inner.deref().meta_spec().lock.level@,
-                self.inner.deref().meta_spec().lock.pt_inst@.id(),
-                self.inner.deref().meta_spec().lock.nid@,
-                i as nat,
-            ));
+            assert(guard.perms@.inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
         };
         ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
         self.guard = Some(guard);

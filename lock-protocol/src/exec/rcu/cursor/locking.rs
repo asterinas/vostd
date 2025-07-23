@@ -578,9 +578,7 @@ fn dfs_acquire_lock(
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     let tracked pte_token: &PteToken =
                         cur_node.guard.tracked_borrow().pte_token.tracked_borrow().borrow();
-                    assert(pte_token.value().is_void(i as nat)) by {
-                        admit();
-                    };
+                    assert(pte_token.value().is_void(i as nat));
                     let tracked res = cur_node.tracked_pt_inst().clone().locking_skip(
                         m.cpu,
                         nid,

@@ -119,7 +119,6 @@ impl PageTableEntryPerms {
         &&& forall|i: int|
             #![trigger self.inner.value()[i]]
             0 <= i < 512 ==> {
-                &&& self.inner.value()[i].wf()
                 &&& self.inner.value()[i].wf_with_node_info(level, instance_id, nid, i as nat)
             }
     }
@@ -134,6 +133,10 @@ impl PageTableEntryPerms {
             0 <= i < 512 ==> {
                 self.inner.value()[i].inner.is_present() <==> state.is_alive(i as nat)
             }
+    }
+
+    pub open spec fn relate_pte(&self, pte: Pte, idx: nat) -> bool {
+        pte =~= self.inner.value()[idx as int]
     }
 }
 

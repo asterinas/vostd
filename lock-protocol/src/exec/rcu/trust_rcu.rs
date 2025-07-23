@@ -18,8 +18,7 @@ pub fn rcu_load_pte(
     offset: Ghost<nat>,
 ) -> (res: Pte)
     ensures
-        res.wf(),
-        res.wf_with_node_info(node@.level_spec(), node@.inst@.id(), node@.nid@, offset@),
+        res.wf_with_node(node@, offset@),
 {
     unimplemented!()
 }

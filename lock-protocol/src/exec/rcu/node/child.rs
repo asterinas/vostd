@@ -34,7 +34,7 @@ impl Child {
 
     pub open spec fn wf(&self) -> bool {
         match *self {
-            Self::PageTable(node) => { &&& node.wf() },
+            Self::PageTable(node) => { node.wf() },
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
@@ -60,17 +60,15 @@ impl Child {
         match *self {
             Child::PageTable(node) => {
                 &&& pte.wf_new_pt(node.start_paddr(), node.inst@, node.nid@)
-                &&& pte.inner.is_present()
-                &&& !pte.inner.is_last((node.level_spec() + 1) as PagingLevel)
+                &&& pte.is_pt((node.level_spec() + 1) as PagingLevel)
             },
             Child::Frame(paddr, level, prop) => {
                 &&& pte.wf_new_page(paddr, level, prop)
-                &&& pte.inner.is_present()
-                &&& pte.inner.is_last(level)
+                &&& pte.is_frame(level) || pte.is_marked()
             },
             Child::None => {
                 &&& pte.wf_new_absent()
-                &&& !pte.inner.is_present()
+                &&& pte.is_none()
             },
         }
     }
@@ -80,7 +78,6 @@ impl Child {
             self.wf(),
         ensures
             self.wf_into_pte(res),
-            res.wf(),
     {
         match self {
             Child::PageTable(node) => {
@@ -96,11 +93,14 @@ impl Child {
     }
 
     pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
-        if !pte.inner.is_present() && pte.inner.paddr() == 0 {
+        if pte.is_none() {
             *self is None
-        } else if pte.inner.is_present() && !pte.inner.is_last(level) {
+        } else if pte.is_pt(level) {
             &&& *self is PageTable
-            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
+            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(
+                pte.inner.paddr(),
+            )
+            // TODO
             &&& self->PageTable_0.nid@ == pte.nid()
             &&& self->PageTable_0.inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& self->PageTable_0.inst@.id() == pte.inst_id()
@@ -115,13 +115,11 @@ impl Child {
 
     pub fn from_pte(pte: Pte, level: PagingLevel) -> (res: Self)
         requires
-            pte.wf(),
-            pte.wf_with_node_level(level),
+            pte.wf(level),
             1 <= level <= 4,
         ensures
             res.wf(),
             res.wf_from_pte(pte, level),
-            res is Frame ==> res->Frame_1 == level,
     {
         let paddr = pte.inner.paddr();
         if !pte.inner.is_present() && paddr == 0 {
@@ -165,7 +163,7 @@ impl ChildRef<'_> {
 
     pub open spec fn wf(&self) -> bool {
         match *self {
-            Self::PageTable(node_ref) => { &&& node_ref.wf() },
+            Self::PageTable(node_ref) => { node_ref.wf() },
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
@@ -176,9 +174,9 @@ impl ChildRef<'_> {
     }
 
     pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
-        if !pte.inner.is_present() && pte.inner.paddr() == 0 {
+        if pte.is_none() {
             *self is None
-        } else if pte.inner.is_present() && !pte.inner.is_last(level) {
+        } else if pte.is_pt(level) {
             &&& *self is PageTable
             &&& self->PageTable_0 == PageTableNodeRef::borrow_paddr_spec(pte.inner.paddr())
             &&& self->PageTable_0.deref().nid@ == pte.nid()
@@ -195,8 +193,7 @@ impl ChildRef<'_> {
 
     pub fn from_pte<'a>(pte: &'a Pte, level: PagingLevel) -> (res: ChildRef<'a>)
         requires
-            pte.wf(),
-            pte.wf_with_node_level(level),
+            pte.wf(level),
             1 <= level <= 4,
         ensures
             res.wf(),

@@ -25,58 +25,46 @@ pub struct Entry {
 }
 
 impl Entry {
-    pub open spec fn wf(&self) -> bool {
-        &&& self.pte.wf()
+    pub open spec fn wf(&self, node: PageTableGuard) -> bool {
+        &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
         &&& 0 <= self.idx < 512
-    }
-
-    pub open spec fn wf_with_node(&self, node: PageTableGuard) -> bool {
-        let _node: &PageTableNode = &node.deref().deref();
-
-        self.pte.wf_with_node_info(
-            _node.level_spec(),
-            _node.inst@.id(),
-            _node.nid@,
-            self.idx as nat,
-        )
+        &&& node.guard is Some ==> node.guard->Some_0.perms@.relate_pte(self.pte, self.idx as nat)
     }
 
     pub open spec fn is_none_spec(&self) -> bool {
-        !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
+        self.pte.is_none()
     }
 
     /// Returns if the entry does not map to anything.
     #[verifier::when_used_as_spec(is_none_spec)]
     pub fn is_none(&self) -> bool
-        requires
-            self.wf(),
         returns
-            self.is_none_spec(),
+            self.pte.is_none(),
     {
         !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
     }
 
     pub open spec fn is_node_spec(&self, node: &PageTableGuard) -> bool {
-        self.pte.inner.is_present() && !self.pte.inner.is_last(node.deref().deref().level_spec())
+        self.pte.is_pt(node.deref().deref().level_spec())
     }
 
     /// Returns if the entry maps to a page table node.
     #[verifier::when_used_as_spec(is_node_spec)]
     pub fn is_node(&self, node: &PageTableGuard) -> bool
         requires
-            self.wf(),
+            self.wf(*node),
             node.wf(),
         returns
-            self.is_node(node),
+            self.is_node_spec(node),
     {
-        self.pte.inner.is_present() && !self.pte.inner.is_last(node.deref().deref().level())
+        &&& self.pte.inner.is_present()
+        &&& !self.pte.inner.is_last(node.deref().deref().level())
     }
 
     /// Gets a reference to the child.
     pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu>) -> (res: ChildRef<'rcu>)
         requires
-            self.wf(),
-            self.wf_with_node(*node),
+            self.wf(*node),
             node.wf(),
         ensures
             res.wf(),
@@ -90,14 +78,12 @@ impl Entry {
     /// The old child is returned.
     pub fn replace(&mut self, new_child: Child, node: &mut PageTableGuard) -> (res: Child)
         requires
-            old(self).wf(),
-            old(self).wf_with_node(*old(node)),
+            old(self).wf(*old(node)),
             new_child.wf(),
             new_child.wf_with_node(old(self).idx as nat, *old(node)),
             old(node).wf(),
         ensures
-            self.wf(),
-            self.wf_with_node(*node),
+            self.wf(*node),
             new_child.wf_into_pte(self.pte),
             self.idx == old(self).idx,
             node.wf(),
@@ -127,12 +113,10 @@ impl Entry {
         node: &mut PageTableGuard<'rcu>,
     ) -> (res: Option<PageTableGuard<'rcu>>)
         requires
-            old(self).wf(),
-            old(self).wf_with_node(*old(node)),
+            old(self).wf(*old(node)),
             old(node).wf(),
         ensures
-            self.wf(),
-            self.wf_with_node(*node),
+            self.wf(*node),
             self.idx == old(self).idx,
             node.wf(),
             node.inst_id() == old(node).inst_id(),
@@ -176,8 +160,7 @@ impl Entry {
             0 <= idx < 512,
             node.wf(),
         ensures
-            res.wf(),
-            res.wf_with_node(*node),
+            res.wf(*node),
             res.idx == idx,
     {
         let pte = node.read_pte(idx);
