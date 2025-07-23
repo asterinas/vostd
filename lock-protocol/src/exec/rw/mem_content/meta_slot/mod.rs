@@ -26,7 +26,6 @@ struct_with_invariants! {
         pub level: PagingLevel,
         /// The lock for the page table page.
         pub lock: PageTablePageRwLock,
-        pub frame_paddr: Ghost<Paddr>,
         pub nid: Ghost<NodeId>,
         pub inst: Tracked<SpecInstance>,
     }
@@ -34,9 +33,7 @@ struct_with_invariants! {
     pub open spec fn wf(&self) -> bool {
         predicate {
             &&& self.lock.wf()
-            &&& self.frame_paddr == self.lock.paddr_spec()
             &&& self.level == self.lock.level_spec()
-            &&& valid_paddr(self.frame_paddr@)
             &&& 1 <= self.level <= 4
             &&& NodeHelper::valid_nid(self.nid@)
             &&& self.nid@ == self.lock.nid@
@@ -95,6 +92,7 @@ pub tracked struct MetaSlotPerm {
     pub ghost usage: MetaSlotType,
     pub ptr_perm: PointsTo<MetaSlot>,
     pub metadata_perm: cell::PointsTo<[u8; FRAME_METADATA_MAX_SIZE]>,
+    pub ghost frame_paddr: Paddr,
 }
 
 impl MetaSlotPerm {
@@ -143,18 +141,17 @@ impl MetaSlotPerm {
         &&& self.ptr_perm().is_init()
         &&& self.metadata_perm().is_init()
         &&& self.metadata_perm()@.pcell == self.value().storage.id()
+        &&& valid_paddr(self.frame_paddr)
+        &&& self.frame_paddr() == meta_to_frame(self.meta_vaddr())
+        &&& frame_to_meta(self.frame_paddr()) == self.meta_vaddr()
         &&& self.is_pt() ==> {
-            &&& self.frame_paddr() == meta_to_frame(self.meta_vaddr())
-            &&& frame_to_meta(self.frame_paddr()) == self.meta_vaddr()
+            &&& self.frame_paddr == self.get_pt().lock.paddr_spec()
             &&& self.get_pt().wf()
         }
     }
 
-    pub open spec fn frame_paddr(&self) -> Paddr
-        recommends
-            self.is_pt(),
-    {
-        self.get_pt().frame_paddr@
+    pub open spec fn frame_paddr(&self) -> Paddr {
+        self.frame_paddr
     }
 
     #[verifier::inline]
