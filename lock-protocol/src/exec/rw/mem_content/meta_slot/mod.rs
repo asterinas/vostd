@@ -19,9 +19,14 @@ verus! {
 
 struct_with_invariants! {
     pub struct PageTablePageMeta {
-        pub lock: PageTablePageRwLock,
-        pub frame_paddr: Paddr,
+        /// The number of valid PTEs. It is mutable if the lock is held.
+        pub nr_children:PCell<u16>,
+        /// The level of the page table page. A page table page cannot be
+        /// referenced by page tables of different levels.
         pub level: PagingLevel,
+        /// The lock for the page table page.
+        pub lock: PageTablePageRwLock,
+        pub frame_paddr: Ghost<Paddr>,
         pub nid: Ghost<NodeId>,
         pub inst: Tracked<SpecInstance>,
     }
@@ -31,7 +36,7 @@ struct_with_invariants! {
             &&& self.lock.wf()
             &&& self.frame_paddr == self.lock.paddr_spec()
             &&& self.level == self.lock.level_spec()
-            &&& valid_paddr(self.frame_paddr)
+            &&& valid_paddr(self.frame_paddr@)
             &&& 1 <= self.level <= 4
             &&& NodeHelper::valid_nid(self.nid@)
             &&& self.nid@ == self.lock.nid@
@@ -141,6 +146,7 @@ impl MetaSlotPerm {
         &&& self.is_pt() ==> {
             &&& self.frame_paddr() == meta_to_frame(self.meta_vaddr())
             &&& frame_to_meta(self.frame_paddr()) == self.meta_vaddr()
+            &&& self.get_pt().wf()
         }
     }
 
@@ -148,7 +154,7 @@ impl MetaSlotPerm {
         recommends
             self.is_pt(),
     {
-        self.get_pt().frame_paddr
+        self.get_pt().frame_paddr@
     }
 
     #[verifier::inline]

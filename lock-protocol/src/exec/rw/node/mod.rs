@@ -86,7 +86,6 @@ impl PageTableNode {
         &&& self.perm@.wf()
         &&& self.perm@.relate(self.ptr)
         &&& self.perm@.is_pt()
-        &&& self.meta_spec().wf()
         &&& NodeHelper::valid_nid(self.nid@)
         &&& self.nid@ == self.meta_spec().nid@
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
