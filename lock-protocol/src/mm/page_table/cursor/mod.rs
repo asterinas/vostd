@@ -316,9 +316,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     );
 
                     assert(forall|i: PagingLevel|
+                        #![auto]
                         self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
                             == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
                     assert(forall|i: PagingLevel|
+                        #![auto]
                         self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
                             aligned_va,
                             old_level,
@@ -327,13 +329,16 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         admit();
                     }
                     assert(forall|i: PagingLevel|
+                        #![auto]
                         self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
                             == pte_index::<C>(aligned_va, i)) by {
                         // Use the transitivity: self.va -> pte_index_add_with_carry -> aligned_va
                         assert(forall|i: PagingLevel|
+                            #![auto]
                             self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
                                 == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
                         assert(forall|i: PagingLevel|
+                            #![auto]
                             self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
                                 aligned_va,
                                 old_level,
