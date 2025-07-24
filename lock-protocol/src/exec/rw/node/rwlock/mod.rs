@@ -728,10 +728,6 @@ impl PageTablePageRwLock {
         atomic_with_ghost!(
             &self.exc => store(false);
             ghost g => {
-                assert(RwInternalPred::inv(
-                    self.inst@.k(),
-                    (token, perms),
-                )) by { admit(); };
                 self.inst.borrow().release_exc(
                     (token, perms), &mut g, (token, perms), handle
                 );

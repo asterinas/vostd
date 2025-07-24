@@ -466,8 +466,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         assert(level != va_range_get_guard_level(*va)) by {
             lemma_va_range_get_guard_level_implies_offsets_equal(*va);
         };
-        assert(level > 1);
-
         // SAFETY: It's OK to get a reference to the page table node since
         // the PT is alive. We will forget the reference later.
         let cur_pt: PageTableNode = PageTableNode::from_raw(
