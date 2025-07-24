@@ -8,3 +8,4 @@ pub mod page_table;
 pub mod pte;
 pub mod trust_rcu;
 pub mod types;
+pub mod zeroed_pt_pool;

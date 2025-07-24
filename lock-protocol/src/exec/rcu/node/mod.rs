@@ -15,6 +15,7 @@ use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use super::{common::*, types::*, cpu::*, frame::meta::*};
+use super::zeroed_pt_pool;
 use super::pte::Pte;
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
@@ -116,6 +117,15 @@ impl PageTableNode {
         let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
         let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
         meta_slot.get_inner_pt().level
+    }
+
+    pub fn alloc(
+        level: PagingLevel
+    ) -> (res: Self)
+        requires
+        ensures
+    {
+        zeroed_pt_pool::alloc(level)
     }
 }
 

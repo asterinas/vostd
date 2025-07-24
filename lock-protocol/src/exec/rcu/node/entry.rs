@@ -94,10 +94,8 @@ impl Entry {
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
 
-        let pte = new_child.into_pte();
-        node.write_pte(self.idx, pte);
-
-        self.pte = pte;
+        self.pte = new_child.into_pte();
+        node.write_pte(self.idx, self.pte);
 
         old_child
     }
@@ -131,27 +129,30 @@ impl Entry {
                 &&& res->Some_0.guard->Some_0.in_protocol@ == false
             },
     {
-        // if !(self.is_none() && node.deref().deref().level() > 1) {
-        //     return None;
-        // }
-        // let level = self.node.level();
-        // let new_page = RcuDrop::new(PageTableNode::<C>::alloc(level - 1));
-        // let paddr = new_page.start_paddr();
-        // // SAFETY: The page table won't be dropped before the RCU grace period
-        // // ends, so it outlives `'rcu`.
-        // let pt_ref = PageTableNodeRef::borrow_paddr(
-        //     paddr
-        // );
-        // // Lock before writing the PTE, so no one else can operate on it.
-        // let pt_lock_guard = pt_ref.lock(guard);
-        // // SAFETY:
-        // //  1. The index is within the bounds.
-        // //  2. The new PTE is a child in `C` and at the correct paging level.
-        // //  3. The ownership of the child is passed to the page table node.
-        // self.node
-        //     .write_pte(self.idx, Child::PageTable(new_page).into_pte());
-        // Some(pt_lock_guard)
-        unimplemented!()
+        if !(self.is_none() && node.level() > 1) {
+            return None;
+        }
+        let level = node.level();
+        // let new_page = RcuDrop::new(PageTableNode::alloc(level - 1));
+        let new_page = PageTableNode::alloc(level - 1);
+        let paddr = new_page.start_paddr();
+
+        let pt_ref = PageTableNodeRef::borrow_paddr(
+            paddr,
+            Ghost(new_page.nid@),
+            Ghost(new_page.inst@.id()),
+            Ghost(new_page.level_spec()),
+        );
+        // Lock before writing the PTE, so no one else can operate on it.
+        let pt_lock_guard = pt_ref.normal_lock(guard);
+
+        self.pte = Child::PageTable(new_page).into_pte();
+
+        node.write_pte(self.idx, self.pte);
+
+        // *self.node.nr_children_mut() += 1;
+
+        Some(pt_lock_guard)
     }
 
     /// Create a new entry at the node with guard.
