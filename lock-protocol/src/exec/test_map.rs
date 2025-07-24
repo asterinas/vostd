@@ -83,7 +83,7 @@ requires
     broadcast use vstd::std_specs::hash::group_hash_axioms;
     broadcast use vstd::hash_map::group_hash_map_axioms;
 
-    let tracked mut alloc_model = AllocatorModel { allocated_addrs: Set::empty() };
+    let tracked mut alloc_model = AllocatorModel { meta_map: Map::tracked_empty() };
 
     let (p, Tracked(pt)) = alloc_page_table(3, Tracked(&mut alloc_model));
 
@@ -124,7 +124,7 @@ requires
         let path = [
             None, // level 1
             None, // level 2
-            Some(p.borrow().make_guard_unchecked(&preempt_guard)), // root
+            Some(p.borrow(Tracked(&sub_page_table.alloc_model)).make_guard_unchecked(&preempt_guard)), // root
             None, // level 4
         ];
         CursorMut::<TestPtConfig> {
@@ -147,13 +147,6 @@ requires
     );
 
     assert(cursor.0.wf(&sub_page_table));
-
-    let level4_index = pte_index::<PagingConsts>(va, NR_LEVELS as u8);
-    let level4_frame_addr = PHYSICAL_BASE_ADDRESS();
-    let level4_pte = get_pte_from_addr(level4_frame_addr + level4_index * SIZEOF_PAGETABLEENTRY, Tracked(&sub_page_table));
-
-    // let level3_frame_addr = cursor.0.path[(NR_LEVELS as usize) - 2].as_ref().unwrap().paddr() as usize;
-    // assert(level4_pte.frame_pa == level3_frame_addr as u64);
 }
 
 }

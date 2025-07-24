@@ -18,6 +18,7 @@ use vstd::simple_pptr::PointsTo;
 use crate::mm::frame;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
+use crate::mm::page_prop::PageProperty;
 use crate::mm::Paddr;
 use crate::mm::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
@@ -58,30 +59,54 @@ impl<C: PageTableConfig> PageTableNode<C> {
         self.start_paddr()
     }
 
-    #[verifier::allow_in_spec]
-    pub fn level(&self) -> PagingLevel
+    pub fn level(
+        &self,
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> PagingLevel
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.start_paddr() as int),
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
         returns
-            self.meta().level,
+            self.level_spec(alloc_model),
     {
-        self.meta().level
+        self.meta(Tracked(alloc_model)).level
     }
 
-    pub fn alloc(level: PagingLevel, Tracked(alloc_model): Tracked<&mut AllocatorModel>) -> (res: (
-        Frame<PageTablePageMeta<C>>,
-        Tracked<PointsTo<MockPageTablePage>>,
-    )) where C: PageTableConfig
+    pub open spec fn level_spec(
+        &self,
+        alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
+    ) -> PagingLevel {
+        self.meta_spec(alloc_model).level
+    }
+
+    pub fn alloc(
+        level: PagingLevel,
+        Tracked(model): Tracked<&mut AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: (Self, Tracked<PointsTo<MockPageTablePage>>))
         requires
-            old(alloc_model).invariants(),
+            old(model).invariants(),
             crate::spec::sub_pt::level_is_in_range(level as int),
         ensures
             res.1@.pptr() == res.0.ptr,
             res.1@.mem_contents().is_init(),
             pa_is_valid_kernel_address(res.0.start_paddr() as int),
-            alloc_model.invariants(),
-            !old(alloc_model).allocated_addrs.contains(res.0.start_paddr() as int),
-            alloc_model.allocated_addrs.contains(res.0.start_paddr() as int),
+            model.invariants(),
+            !old(model).meta_map.contains_key(res.0.start_paddr() as int),
+            model.meta_map.contains_key(res.0.start_paddr() as int),
+            model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr,
+            model.meta_map[res.0.start_paddr() as int].value().level == level,
+            forall|i: int|
+                #![trigger res.1@.value().ptes[i]]
+                0 <= i < NR_ENTRIES ==> {
+                    &&& res.1@.value().ptes[i].pte_addr == (res.0.start_paddr() + i
+                        * SIZEOF_PAGETABLEENTRY) as u64
+                    &&& res.1@.value().ptes[i].frame_pa == 0
+                    &&& res.1@.value().ptes[i].level == level
+                    &&& res.1@.value().ptes[i].prop == PageProperty::new_absent()
+                },
     {
-        crate::exec::alloc_page_table(level, Tracked(alloc_model))
+        crate::exec::alloc_page_table(level, Tracked(model))
     }
 }
 
@@ -89,11 +114,13 @@ pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMe
 
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     // Actually should be checked after verification. Just can't be checked in pure Rust.
-    #[verifier::external_body]
     pub fn make_guard_unchecked<'rcu>(
         self,
         _guard: &'rcu crate::task::DisabledPreemptGuard,
-    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu {
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
+        ensures
+            res.inner == self,
+    {
         PageTableGuard { inner: self }
     }
 }
@@ -103,9 +130,12 @@ pub struct PageTableGuard<'a, C: PageTableConfig> {
 }
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
-    pub open spec fn wf(&self) -> bool {
+    pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         &&& pa_is_valid_pt_address(self.paddr() as int)
-        &&& level_is_in_range(self.level() as int)
+        &&& level_is_in_range(self.level_spec(alloc_model) as int)
+        &&& alloc_model.meta_map.contains_key(self.paddr() as int)
+        &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.inner.meta_ptr
+        &&& alloc_model.meta_map[self.paddr() as int].value().level == self.level_spec(alloc_model)
     }
 
     #[verifier::allow_in_spec]
@@ -116,12 +146,25 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         self.inner.start_paddr()
     }
 
-    #[verifier::allow_in_spec]
-    pub fn level(&self) -> PagingLevel
+    pub fn level(
+        &self,
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: PagingLevel)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.inner.start_paddr() as int),
+            alloc_model.meta_map[self.inner.start_paddr() as int].pptr() == self.inner.meta_ptr,
         returns
-            self.inner.meta().level,
+            self.level_spec(alloc_model),
     {
-        self.inner.meta().level
+        self.inner.meta(Tracked(alloc_model)).level
+    }
+
+    pub open spec fn level_spec(
+        &self,
+        alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
+    ) -> PagingLevel {
+        self.inner.meta_spec(alloc_model).level
     }
 
     #[verifier::external_body]
@@ -134,7 +177,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     }
 
     #[verifier::external_body]
-    fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable>) -> (res: C::E)
+    fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E)
         requires
             idx < nr_subpage_per_huge::<C>(),
             spt.wf(),
@@ -162,18 +205,22 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         idx: usize,
         pte: C::E,
         level: PagingLevel,
-        Tracked(spt): Tracked<&mut SubPageTable>,
+        Tracked(spt): Tracked<&mut SubPageTable<C>>,
     )
         requires
             idx < nr_subpage_per_huge::<C>(),
             old(spt).wf(),
             old(spt).perms.contains_key(self.paddr()),
-            self.wf(),
+            self.wf(&old(spt).alloc_model),
         ensures
             spt.wf(),
             spt.ptes.instance_id() == old(spt).ptes.instance_id(),
             spt.frames.instance_id() == old(spt).frames.instance_id(),
-            spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()),
+            spec_helpers::spt_do_not_change_above_level(
+                spt,
+                old(spt),
+                self.level_spec(&spt.alloc_model),
+            ),
     {
         assert(spt.perms.contains_key(self.paddr()));
 
@@ -201,7 +248,11 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         }
 
         assume(spt.wf());  // TODO: P0
-        assume(spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()));  // TODO: P0
+        assume(spec_helpers::spt_do_not_change_above_level(
+            spt,
+            old(spt),
+            self.level_spec(&spt.alloc_model),
+        ));  // TODO: P0
     }
 
     #[verifier::external_body]
@@ -247,12 +298,12 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-    pub fn new_locked(level: PagingLevel) -> Self {
+    pub fn new(level: PagingLevel) -> Self {
         Self {
             nr_children: PCell::new(0u16).0,
             astray: PCell::new(false).0,
             level,
-            lock: spin::queued::LockBody::new_locked(),
+            lock: spin::queued::LockBody::new(),
             _phantom: PhantomData,
         }
     }

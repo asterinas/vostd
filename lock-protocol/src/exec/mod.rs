@@ -61,7 +61,7 @@ pub struct MockPageTablePage {
 #[verifier::external_body]
 pub fn alloc_page_table<C: PageTableConfig>(
     level: PagingLevel,
-    Tracked(model): Tracked<&mut AllocatorModel>,
+    Tracked(model): Tracked<&mut AllocatorModel<PageTablePageMeta<C>>>,
 ) -> (res: (Frame<PageTablePageMeta<C>>, Tracked<PointsTo<MockPageTablePage>>))
     requires
         old(model).invariants(),
@@ -71,8 +71,10 @@ pub fn alloc_page_table<C: PageTableConfig>(
         res.1@.mem_contents().is_init(),
         pa_is_valid_kernel_address(res.0.start_paddr() as int),
         model.invariants(),
-        !old(model).allocated_addrs.contains(res.0.start_paddr() as int),
-        model.allocated_addrs.contains(res.0.start_paddr() as int),
+        !old(model).meta_map.contains_key(res.0.start_paddr() as int),
+        model.meta_map.contains_key(res.0.start_paddr() as int),
+        model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr,
+        model.meta_map[res.0.start_paddr() as int].value().level == level,
         forall|i: int|
             #![trigger res.1@.value().ptes[i]]
             0 <= i < NR_ENTRIES ==> {
@@ -83,13 +85,13 @@ pub fn alloc_page_table<C: PageTableConfig>(
                 &&& res.1@.value().ptes[i].prop == PageProperty::new_absent()
             },
 {
-    let (pptr, mut perm) = allocator::alloc(|a| a.alloc(Tracked(model)));
-
-    let frame_addr = pptr.addr();
+    let (frame, perm) = allocator::alloc(
+        |a| a.alloc(PageTablePageMeta::<C>::new(level), Tracked(model)),
+    );
 
     let mut ptes = [MockPageTableEntry {
         pte_addr: 0,
-        frame_pa: frame_addr as u64,
+        frame_pa: frame.start_paddr() as u64,
         level,
         prop: PageProperty::new_absent(),
     };NR_ENTRIES];
@@ -100,38 +102,28 @@ pub fn alloc_page_table<C: PageTableConfig>(
             forall|j: int|
                 #![trigger ptes[j]]
                 0 <= j < i ==> {
-                    &&& ptes[j].pte_addr == (frame_addr + j * SIZEOF_PAGETABLEENTRY) as u64
+                    &&& ptes[j].pte_addr == (frame.start_paddr() + j * SIZEOF_PAGETABLEENTRY) as u64
                     &&& ptes[j].frame_pa == 0
                     &&& ptes[j].level == level
                     &&& ptes[j].prop == PageProperty::new_absent()
                 },
         decreases NR_ENTRIES - i,
     {
-        ptes[i].pte_addr = (frame_addr + i * SIZEOF_PAGETABLEENTRY) as u64;
+        ptes[i].pte_addr = (frame.start_paddr() + i * SIZEOF_PAGETABLEENTRY) as u64;
     }
 
-    pptr.write(Tracked(perm.borrow_mut()), MockPageTablePage { ptes });
+    frame.ptr.write(Tracked(perm.borrow_mut()), MockPageTablePage { ptes });
 
-    (Frame::from_raw(pptr.addr()), perm)
+    (frame, perm)
 }
 
 impl PageTableEntryTrait for MockPageTableEntry {
-    fn is_present(&self, Tracked(spt): Tracked<&SubPageTable>) -> bool {
-        assert(self.frame_pa == self.frame_paddr());
-        assert(self.frame_pa != 0 ==> spt.ptes.value().contains_key(self.pte_addr as int));
-        assert(self.frame_pa != 0 ==> spt.frames.value().contains_key(self.frame_pa as int)) by {
-            admit();
-        }  // TODO: P0
-        assert(self.frame_pa == 0 ==> !spt.ptes.value().contains_key(self.pte_addr as int)) by {
-            admit();
-        }  // TODO: P0
-        let res = (self.frame_pa != 0);
-        assume(res == self.is_present_spec(spt));  // FIXME: Is present is not well-desinged right now.
-        res
+    fn is_present(&self) -> bool {
+        self.frame_pa != 0
     }
 
-    open spec fn is_present_spec(&self, spt: &SubPageTable) -> bool {
-        spt.ptes.value().contains_key(self.pte_paddr() as int)
+    open spec fn is_present_spec(&self) -> bool {
+        self.frame_pa != 0
     }
 
     fn frame_paddr(&self) -> (res: usize) {
@@ -223,8 +215,10 @@ pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsT
     pte_addr
 }
 
-pub open spec fn get_pte_from_addr_spec(addr: usize, spt: &SubPageTable) -> (res:
-    MockPageTableEntry)
+pub open spec fn get_pte_from_addr_spec<C: PageTableConfig>(
+    addr: usize,
+    spt: &SubPageTable<C>,
+) -> (res: MockPageTableEntry)
     recommends
         spt.wf(),
 {
@@ -243,43 +237,6 @@ pub open spec fn get_pte_from_addr_spec(addr: usize, spt: &SubPageTable) -> (res
             prop: PageProperty::new_absent(),
         }
     }
-}
-
-#[verifier::external_body]
-pub fn get_pte_from_addr(addr: usize, Tracked(spt): Tracked<&SubPageTable>) -> (res:
-    MockPageTableEntry)
-    requires
-        0 <= addr < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * NR_ENTRIES,
-        (addr - PHYSICAL_BASE_ADDRESS_SPEC()) % SIZEOF_PAGETABLEENTRY as int == 0,
-        spt.wf(),
-    ensures
-        res == get_pte_from_addr_spec(addr, spt),
-        res.frame_paddr() == 0 ==> !spt.ptes.value().contains_key(addr as int),
-        res.frame_paddr() != 0 ==> {
-            &&& spt.ptes.value().contains_key(res.pte_paddr() as int)
-            &&& spt.ptes.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-        },
-{
-    let pte = PPtr::<MockPageTableEntry>::from_addr(addr).read(Tracked::assume_new());  // TODO: permission violation
-    println!("read_pte_from_addr pte_addr: {:#x}, frame_pa: {:#x}, level: {}", pte.pte_addr, pte.frame_pa, pte.level);
-    pte
-}
-
-// TODO: is this useful?
-pub proof fn number_cast(x: usize)
-    ensures
-        x == x as int as usize,
-        x == x as u64 as usize,
-{
-}
-
-// TODO: is this useful?
-pub broadcast proof fn addr_translation(addr: usize)
-    requires
-        (addr - PHYSICAL_BASE_ADDRESS()) % SIZEOF_FRAME as int == 0,
-    ensures
-        addr == #[trigger] frame_index_to_addr_spec(#[trigger] frame_addr_to_index_spec(addr)),
-{
 }
 
 pub open spec fn frame_index_to_addr_spec(index: usize) -> usize {

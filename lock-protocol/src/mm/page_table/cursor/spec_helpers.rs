@@ -24,7 +24,7 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Frame, Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
+        Frame, Paddr, PageTableConfig, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     x86_64::VMALLOC_VADDR_RANGE,
@@ -40,9 +40,9 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn spt_do_not_change_above_level(
-    spt: &SubPageTable,
-    old_spt: &SubPageTable,
+pub open spec fn spt_do_not_change_above_level<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
     level: PagingLevel,
 ) -> bool {
     &&& spt.wf()
@@ -53,9 +53,9 @@ pub open spec fn spt_do_not_change_above_level(
     &&& spt_do_not_remove_above_level(old_spt, spt, level)
 }
 
-pub open spec fn spt_do_not_remove_above_level(
-    spt: &SubPageTable,
-    old_spt: &SubPageTable,
+pub open spec fn spt_do_not_remove_above_level<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
     level: PagingLevel,
 ) -> bool {
     &&& forall|i: int| #[trigger]

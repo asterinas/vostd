@@ -8,6 +8,9 @@ use vstd::simple_pptr::{PPtr, PointsTo};
 
 use crate::exec::{MockPageTablePage, MockPageTableEntry, PHYSICAL_BASE_ADDRESS_SPEC, SIZEOF_FRAME};
 
+use super::meta::AnyFrameMeta;
+use super::Frame;
+
 verus! {
 
 /// We assume that the available physical memory is 0 to MAX_FRAME_NUM - 1.
@@ -22,16 +25,18 @@ pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
 ///
 /// So that the user can know that, each new allocation must be a new address,
 /// different from any previous allocations.
-pub tracked struct AllocatorModel {
-    pub ghost allocated_addrs: Set<int>,
+pub tracked struct AllocatorModel<M: AnyFrameMeta> {
+    /// Maps from the allocated frame address to the metadata.
+    pub meta_map: Map<int, PointsTo<M>>,
 }
 
-impl AllocatorModel {
+impl<M: AnyFrameMeta> AllocatorModel<M> {
     pub open spec fn invariants(&self) -> bool {
         forall|addr: int| #[trigger]
-            self.allocated_addrs.contains(addr) ==> {
+            self.meta_map.contains_key(addr) ==> {
                 &&& pa_is_valid_kernel_address(addr)
                 &&& addr % SIZEOF_FRAME as int == 0
+                &&& self.meta_map[addr].mem_contents().is_init()
             }
     }
 }
@@ -57,10 +62,10 @@ impl MockGlobalAllocator {
         exists|i: usize| 0 <= i < MAX_FRAME_NUM && self.frames[i as int].is_some()
     }
 
-    pub open spec fn invariants(&self, model: &AllocatorModel) -> bool {
+    pub open spec fn invariants<M: AnyFrameMeta>(&self, model: &AllocatorModel<M>) -> bool {
         &&& forall|i: usize|
             0 <= i < MAX_FRAME_NUM ==> {
-                #[trigger] model.allocated_addrs.contains(
+                #[trigger] model.meta_map.contains_key(
                     (PHYSICAL_BASE_ADDRESS_SPEC() + i * SIZEOF_FRAME) as int,
                 ) ==> self.frames[i as int].is_some()
             }
@@ -77,7 +82,6 @@ impl MockGlobalAllocator {
     #[verifier::external_body]
     pub fn init() -> (res: MockGlobalAllocator)
         ensures
-            res.invariants(&AllocatorModel { allocated_addrs: Set::empty() }),
             res.has_available_frames(),
     {
         let mut frames = [const { None };MAX_FRAME_NUM];
@@ -91,10 +95,11 @@ impl MockGlobalAllocator {
     }
 
     #[verifier::external_body]
-    pub fn alloc(&mut self, Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
-        PPtr<MockPageTablePage>,
-        Tracked<PointsTo<MockPageTablePage>>,
-    ))
+    pub fn alloc<M: AnyFrameMeta>(
+        &mut self,
+        meta: M,
+        Tracked(model): Tracked<&mut AllocatorModel<M>>,
+    ) -> (res: (Frame<M>, Tracked<PointsTo<MockPageTablePage>>))
         requires
             old(self).invariants(old(model)),
             old(self).has_available_frames(),
@@ -102,10 +107,11 @@ impl MockGlobalAllocator {
         ensures
             self.invariants(model),
             model.invariants(),
-            !old(model).allocated_addrs.contains(res.0.addr() as int),
-            model.allocated_addrs.contains(res.0.addr() as int),
-            res.1@.pptr() == res.0,
-            res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
+            !old(model).meta_map.contains_key(res.0.start_paddr() as int),
+            model.meta_map.contains_key(res.0.start_paddr() as int),
+            model.meta_map[res.0.start_paddr() as int].value() == meta,
+            res.1@.pptr() == res.0.ptr,
+            res.0.start_paddr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
             forall|i: usize|
                 0 <= i < MAX_FRAME_NUM ==> {
                     if #[trigger] self.frames[i as int].is_some() {
@@ -117,13 +123,15 @@ impl MockGlobalAllocator {
     {
         for i in 0..MAX_FRAME_NUM {
             if !self.frames[i].is_none() {
-                let (p, pt) = self.frames[i].take().unwrap();
+                let (ptr, pt_perm) = self.frames[i].take().unwrap();
+
+                let (meta_ptr, Tracked(meta_perm)) = PPtr::new(meta);
 
                 proof {
-                    model.allocated_addrs.insert(p.addr() as int);
+                    model.meta_map.insert(ptr.addr() as int, meta_perm);
                 }
 
-                return (p, pt);
+                return (Frame { meta_ptr, ptr }, pt_perm);
             }
         }
         vpanic!("No available frames");

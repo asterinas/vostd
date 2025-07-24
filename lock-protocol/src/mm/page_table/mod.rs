@@ -191,8 +191,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     }
 }
 
-pub trait PageTableEntryTrait:
-// Clone + Copy +
+pub trait PageTableEntryTrait: Clone +
+// Copy +
 // Default +
 // Sized + Send + Sync + 'static
 // Debug // TODO: Implement Debug for PageTableEntryTrait
@@ -210,20 +210,9 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
-    fn is_present(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: bool)
-        requires
-            spt.wf(),
-            self.pte_paddr() == exec::get_pte_from_addr_spec(self.pte_paddr(), spt).pte_addr,
-            self.frame_paddr() == exec::get_pte_from_addr_spec(self.pte_paddr(), spt).frame_pa,
-        ensures
-            res == self.is_present_spec(spt),
-            res ==> spt.ptes.value().contains_key(self.pte_paddr() as int)
-                && spt.frames.value().contains_key(self.frame_paddr() as int),
-            !res ==> !spt.ptes.value().contains_key(self.pte_paddr() as int),
-            spt.wf(),
-    ;
+    fn is_present(&self) -> (res: bool);
 
-    spec fn is_present_spec(&self, spt: &SubPageTable) -> bool;
+    spec fn is_present_spec(&self) -> bool;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self);

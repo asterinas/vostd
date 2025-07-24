@@ -8,7 +8,7 @@ use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 
 use crate::mm::allocator::{AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::Paddr;
+use crate::mm::{Paddr, PageTableConfig, PageTablePageMeta};
 use crate::mm::NR_ENTRIES;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::exec::SIZEOF_PAGETABLEENTRY;
@@ -34,11 +34,11 @@ pub open spec fn index_pte_paddr(frame_pa: int, index: int) -> int {
 }
 
 /// The sub-page-table ghost state.
-pub tracked struct SubPageTable {
+pub tracked struct SubPageTable<C: PageTableConfig> {
     // The allocator model will be provided by the lock protocol. And it will
     // be finally submitted to the lock protocol, so that we can reason about
     // allocations in the entire page table.
-    pub alloc_model: AllocatorModel,
+    pub alloc_model: AllocatorModel<PageTablePageMeta<C>>,
     /// Permissions of frames in the sub-page-table are stored in this map.
     pub perms: Map<Paddr, PointsTo<crate::exec::MockPageTablePage>>,
     // State machine.
@@ -48,7 +48,7 @@ pub tracked struct SubPageTable {
     pub ptes: SubPageTableStateMachine::ptes,
 }
 
-impl SubPageTable {
+impl<C: PageTableConfig> SubPageTable<C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.alloc_model.invariants()
         // The instance matches the fields.
@@ -60,7 +60,7 @@ impl SubPageTable {
                 &&& #[trigger] self.frames.value().contains_key(pa as int)
                     <==> self.perms.contains_key(pa as Paddr)
                 &&& self.frames.value().contains_key(pa as int)
-                    ==> #[trigger] self.alloc_model.allocated_addrs.contains(pa as int)
+                    ==> #[trigger] self.alloc_model.meta_map.contains_key(pa as int)
                 &&& self.frames.value().contains_key(pa as int) ==> {
                     let frame = self.frames.value().get(pa as int).unwrap();
                     let perm = self.perms.get(pa as Paddr).unwrap();

@@ -2,10 +2,12 @@ pub mod allocator;
 mod frame_ref;
 pub mod meta;
 
+use allocator::AllocatorModel;
 pub use frame_ref::FrameRef;
 
-use std::marker::PhantomData;
-use std::mem::ManuallyDrop;
+use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
+use core::ops::Deref;
 
 use meta::AnyFrameMeta;
 use meta::GetFrameError;
@@ -26,19 +28,26 @@ verus! {
 // pub struct Frame<M: AnyFrameMeta + ?Sized> { // NOTE: Verus does not support dyn type, so we remove it currently
 pub struct Frame<M: AnyFrameMeta> {
     pub meta_ptr: PPtr<M>,
-    pub meta_perm: Tracked<PointsTo<M>>,
     pub ptr: PPtr<MockPageTablePage>,
 }
 
 impl<M: AnyFrameMeta> Frame<M> {
     /// Gets the metadata of this page.
-    #[verifier::external_body]
-    #[verifier::allow_in_spec]
-    pub fn meta(&self) -> &M
+    pub fn meta<'a>(&'a self, Tracked(alloc_model): Tracked<&'a AllocatorModel<M>>) -> &'a M
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.start_paddr() as int),
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
         returns
-            self.meta_perm@.value(),
+            self.meta_spec(alloc_model),
     {
-        self.meta_ptr.borrow(Tracked(self.meta_perm.borrow()))
+        self.meta_ptr.borrow(
+            Tracked(alloc_model.meta_map.tracked_borrow(self.start_paddr() as int)),
+        )
+    }
+
+    pub open spec fn meta_spec(&self, alloc_model: &AllocatorModel<M>) -> &M {
+        &alloc_model.meta_map[self.start_paddr() as int].value()
     }
 }
 
@@ -79,8 +88,19 @@ impl<M: AnyFrameMeta> Frame<M> {
     }
 
     /// Borrows a reference from the given frame.
-    pub fn borrow(&self) -> FrameRef<'_, M> {
-        FrameRef::borrow_paddr(self.start_paddr())
+    pub fn borrow(&self, Tracked(alloc_model): Tracked<&AllocatorModel<M>>) -> (res: FrameRef<
+        '_,
+        M,
+    >)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.start_paddr() as int),
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+            alloc_model.meta_map[self.start_paddr() as int].value() == self.meta_spec(alloc_model),
+        ensures
+            res.deref() == self,
+    {
+        FrameRef::borrow_paddr(self.start_paddr(), Tracked(alloc_model))
     }
 
     /// Forgets the handle to the frame.
@@ -110,17 +130,22 @@ impl<M: AnyFrameMeta> Frame<M> {
     /// Also, the caller ensures that the usage of the frame is correct. There's
     /// no checking of the usage in this function.
     #[verifier::external_body]
-    pub(crate) fn from_raw(paddr: Paddr) -> (res: Self)
+    pub(crate) fn from_raw(paddr: Paddr, Tracked(alloc_model): Tracked<&AllocatorModel<M>>) -> (res:
+        Self)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(paddr as int),
         ensures
             res.ptr.addr() == paddr,
+            res.meta_ptr == alloc_model.meta_map[paddr as int].pptr(),
     {
         // let vaddr = mapping::frame_to_meta::<PagingConsts>(paddr);
         // let ptr = vaddr as *const MetaSlot;
-        // FIXME: Need to allocate and use metadata, currently this is just a placeholder.
         Self {
             ptr: PPtr::from_addr(paddr),
-            meta_ptr: PPtr::from_addr(paddr),
-            meta_perm: Tracked::assume_new(),
+            meta_ptr: PPtr::from_addr(
+                paddr,
+            ),  // FIXME: This is wrong, we need to use the meta_map.
         }
     }
 }

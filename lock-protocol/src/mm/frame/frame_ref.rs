@@ -6,7 +6,7 @@ use core::ops::Deref;
 
 use crate::mm::Paddr;
 
-use super::{Frame, meta::AnyFrameMeta};
+use super::{allocator::AllocatorModel, meta::AnyFrameMeta, Frame};
 
 verus! {
 
@@ -17,7 +17,7 @@ pub struct FrameRef<'a, M: AnyFrameMeta> {
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
-impl<M: AnyFrameMeta> FrameRef<'_, M> {
+impl<'a, M: AnyFrameMeta> FrameRef<'a, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
     /// # Safety
@@ -26,9 +26,22 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     ///  - the frame outlives the created reference, so that the reference can
     ///    be seen as borrowed from that frame.
     ///  - the type of the [`FrameRef`] (`M`) matches the borrowed frame.
-    #[verifier::external_body]
-    pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
-        Self { inner: ManuallyDrop::new(Frame::from_raw(raw)), _marker: PhantomData }
+    pub(in crate::mm) fn borrow_paddr(
+        raw: Paddr,
+        Tracked(alloc_model): Tracked<&AllocatorModel<M>>,
+    ) -> (res: Self)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(raw as int),
+            alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(),
+        ensures
+            res.deref().start_paddr() == raw,
+            res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+    {
+        Self {
+            inner: ManuallyDrop::new(Frame::from_raw(raw, Tracked(alloc_model))),
+            _marker: PhantomData,
+        }
     }
 }
 

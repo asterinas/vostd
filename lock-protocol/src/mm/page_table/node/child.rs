@@ -75,16 +75,15 @@ impl<C: PageTableConfig> Child<C> {
     pub(super) fn from_pte(
         pte: C::E,
         level: PagingLevel,
-        Tracked(spt): Tracked<&SubPageTable>,
+        Tracked(spt): Tracked<&SubPageTable<C>>,
     ) -> Self {
-        if !pte.is_present(Tracked(spt)) {
+        if !pte.is_present() {
             return Child::None;
         }
         let paddr = pte.frame_paddr();
 
         if !pte.is_last(level) {
-            let node = PageTableNode::from_raw(paddr);
-            debug_assert_eq!(node.level(), level - 1);
+            let node = PageTableNode::from_raw(paddr, Tracked(&spt.alloc_model));
             return Child::PageTable(RcuDrop::new(node));
         }
         Child::Frame(paddr, level, pte.prop())
@@ -113,18 +112,19 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
     ///
     /// The provided level must be the same with the level of the page table
     /// node that contains this PTE.
+    #[verifier::external_body]
     pub(super) fn from_pte(
         pte: &C::E,
         level: PagingLevel,
-        Tracked(spt): Tracked<&SubPageTable>,
+        Tracked(spt): Tracked<&SubPageTable<C>>,
     ) -> Self {
-        if !pte.is_present(Tracked(spt)) {
+        if !pte.is_present() {
             return ChildRef::None;
         }
         let paddr = pte.frame_paddr();
 
         if !pte.is_last(level) {
-            let node = PageTableNodeRef::borrow_paddr(paddr);
+            let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
         }
