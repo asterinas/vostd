@@ -74,6 +74,7 @@ pub open spec fn va_level_to_offset(va: Vaddr, level: PagingLevel) -> nat
     ((va >> (12 + (level - 1) * 9)) & low_bits_mask(9) as usize) as nat
 }
 
+#[verifier::allow_in_spec]
 pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
         valid_vaddr(va),

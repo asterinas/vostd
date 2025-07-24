@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use builtin::*;
 use builtin_macros::*;
+use vstd::invariant;
 use vstd::prelude::*;
 use vstd::atomic_with_ghost;
 use vstd::bits::*;
@@ -163,6 +164,112 @@ pub open spec fn va_range_get_guard_level(va: Range<Vaddr>) -> PagingLevel
     va_range_get_guard_level_rec(va, 4)
 }
 
+pub proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal(
+    va: Range<Vaddr>,
+    level: PagingLevel,
+)
+    requires
+        va_range_wf(va),
+        1 <= level <= 4,
+        forall|l|
+            level < l <= 4 ==> va_level_to_offset(va.start, l) == va_level_to_offset(
+                (va.end - 1) as usize,
+                l,
+            ),
+        level == 1 || va_level_to_offset(va.start, level) != va_level_to_offset(
+            (va.end - 1) as usize,
+            level,
+        ),
+    ensures
+        level == va_range_get_guard_level(va),
+{
+    lemma_va_range_get_guard_level_implied_by_offsets_equal_induction(va, level, 4);
+}
+
+proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal_induction(
+    va: Range<Vaddr>,
+    level: PagingLevel,
+    top_level: PagingLevel,
+)
+    requires
+        va_range_wf(va),
+        1 <= level <= top_level <= 4,
+        forall|l|
+            level < l <= top_level ==> va_level_to_offset(va.start, l) == va_level_to_offset(
+                (va.end - 1) as usize,
+                l,
+            ),
+        level == 1 || va_level_to_offset(va.start, level) != va_level_to_offset(
+            (va.end - 1) as usize,
+            level,
+        ),
+    ensures
+        level == va_range_get_guard_level_rec(va, top_level),
+    decreases top_level,
+{
+    if (top_level == 1) {
+    } else {
+        if va_level_to_offset(va.start, top_level) == va_level_to_offset(
+            (va.end - 1) as usize,
+            top_level,
+        ) {
+            lemma_va_range_get_guard_level_implied_by_offsets_equal_induction(
+                va,
+                level,
+                (top_level - 1) as PagingLevel,
+            );
+        }
+    }
+}
+
+pub proof fn lemma_va_range_get_guard_level_implies_offsets_equal(va: Range<Vaddr>)
+    requires
+        va_range_wf(va),
+    ensures
+        forall|l: PagingLevel| #[trigger]
+            va_range_get_guard_level(va) < l <= 4 ==> va_level_to_offset(va.start, l)
+                == va_level_to_offset((va.end - 1) as usize, l),
+        va_range_get_guard_level(va) == 1 || va_level_to_offset(
+            va.start,
+            va_range_get_guard_level(va),
+        ) != va_level_to_offset((va.end - 1) as usize, va_range_get_guard_level(va)),
+{
+    lemma_va_range_get_guard_level_implies_offsets_equal_induction(va, 4);
+}
+
+proof fn lemma_va_range_get_guard_level_implies_offsets_equal_induction(
+    va: Range<Vaddr>,
+    top_level: PagingLevel,
+)
+    requires
+        va_range_wf(va),
+        1 <= top_level <= 4,
+    ensures
+        forall|l: PagingLevel| #[trigger]
+            va_range_get_guard_level_rec(va, top_level) < l <= top_level ==> va_level_to_offset(
+                va.start,
+                l,
+            ) == va_level_to_offset((va.end - 1) as usize, l),
+        va_range_get_guard_level_rec(va, top_level) == 1 || va_level_to_offset(
+            va.start,
+            va_range_get_guard_level_rec(va, top_level),
+        ) != va_level_to_offset((va.end - 1) as usize, va_range_get_guard_level_rec(va, top_level)),
+    decreases top_level,
+{
+    if top_level == 1 {
+    } else {
+        if va_level_to_offset(va.start, top_level) == va_level_to_offset(
+            (va.end - 1) as usize,
+            top_level,
+        ) {
+            lemma_va_range_get_guard_level_implies_offsets_equal_induction(
+                va,
+                (top_level - 1) as PagingLevel,
+            );
+        }
+    }
+}
+
 pub proof fn lemma_va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel)
     requires
         va_range_wf(va),
@@ -288,7 +395,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
     let mut cur_wlock_opt: Option<PageTableWriteLock> = None;
     while level > 1
         invariant_except_break
-            valid_paddr(cur_pt_paddr),
             pt.wf(),
             va_range_wf(*va),
             m.inv(),
@@ -298,8 +404,14 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
             1 <= level <= 4,
             level as nat == NodeHelper::nid_to_level(cur_nid),
             level >= va_range_get_guard_level(*va),
+            forall|l: PagingLevel|
+                level < l <= 4 ==> {
+                    #[trigger] va_level_to_offset(va.start, l) == va_level_to_offset(
+                        (va.end - 1) as usize,
+                        l,
+                    )
+                },
             1 <= va_range_get_guard_level(*va) <= 4,
-            path.len() == 4,
             forall|i: int|
                 #![trigger path@[i - 1]]
                 level < i <= 4 ==> {
@@ -347,12 +459,12 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         };
         if !level_too_high {
             assert(level == va_range_get_guard_level(*va)) by {
-                admit();
+                lemma_va_range_get_guard_level_implied_by_offsets_equal(*va, level);
             };
             break ;
         }
         assert(level != va_range_get_guard_level(*va)) by {
-            admit();
+            lemma_va_range_get_guard_level_implies_offsets_equal(*va);
         };
         assert(level > 1);
 
