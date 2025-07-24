@@ -422,7 +422,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                 },
             forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
             m.path().len() == 4 - level,
-            m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
@@ -446,7 +445,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                 },
             forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
             m.path().len() == 4 - level,
-            m.path().is_prefix_of(va_range_get_tree_path(*va)),
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
@@ -491,6 +489,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         };
         let ghost nxt_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
         proof {
+            NodeHelper::lemma_nid_to_dep_le_3(cur_nid);
             NodeHelper::lemma_get_child_sound(cur_nid, start_idx as nat);
             lemma_va_level_to_nid_inc(
                 va.start,
@@ -566,6 +565,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                         cur_pt_paddr = pt.start_paddr();
                         let new_child = Child::PageTable(pt, Tracked(pt_inst), Ghost(nxt_nid));
                         assert(new_child.wf()) by {
+                            NodeHelper::lemma_nid_to_dep_le_3(cur_nid);
                             NodeHelper::lemma_get_child_sound(cur_nid, start_idx as nat);
                         };
                         entry.replace(new_child, &mut cur_pt_wlockguard);
@@ -603,9 +603,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                 unreached::<()>()
             },
         }
-        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
-            admit();
-        }  // TODO
     };
 
     assert(cur_wlock_opt is None);

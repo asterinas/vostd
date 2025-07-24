@@ -135,12 +135,6 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
 
     // Show that trace_level = trace_level_plus_1.push(idx)
     assert(trace_level == trace_level_plus_1.push(idx)) by {
-        // By definition: va_level_to_trace(va, level) = va_level_to_trace_rec(va >> 12, level)
-        // And: va_level_to_trace_rec(va >> 12, level) = va_level_to_trace_rec(va >> 12, level + 1).push(((va >> 12 >> (level * 9)) & mask) as nat)
-        // We need to show that ((va >> 12 >> (level * 9)) & mask) as nat == idx
-        // Since idx = va_level_to_offset(va, level + 1) = ((va >> (12 + level * 9)) & mask) as nat
-        // And (va >> 12 >> (level * 9)) = (va >> (12 + level * 9)) by bit shift properties
-        // reveal(va_level_to_trace_rec);
         assert(va_level_to_trace_rec(va >> 12, level) == va_level_to_trace_rec(
             va >> 12,
             (level + 1) as PagingLevel,
@@ -149,10 +143,6 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
         // Show the bit extraction equivalence
         let offset = (va >> 12 >> (level * 9)) & low_bits_mask(9) as usize;
         assert(offset as nat == idx) by {
-            // va_level_to_offset(va, level + 1) = ((va >> (12 + ((level + 1) - 1) * 9)) & mask) as nat
-            //                                   = ((va >> (12 + level * 9)) & mask) as nat
-            // We need to show: (va >> 12 >> (level * 9)) & mask == (va >> (12 + level * 9)) & mask
-            // This follows from bit shift associativity: a >> b >> c == a >> (b + c)
             assert(low_bits_mask(9) == 511) by {
                 lemma_low_bits_mask_values();
             };
@@ -167,18 +157,12 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
     assert(NodeHelper::nid_to_trace(nid) == trace_level_plus_1) by {
         // First establish that trace_level_plus_1 is a valid trace
         assert(NodeHelper::valid_trace(trace_level_plus_1)) by {
-            // trace_level_plus_1 = va_level_to_trace(va, level + 1)
-            // Use the lemma that directly proves va_level_to_trace produces valid traces
             lemma_va_level_to_trace_valid(va, (level + 1) as PagingLevel);
         };
 
         // Since nid = trace_to_nid(trace_level_plus_1) and trace_to_nid is bijective
         NodeHelper::lemma_nid_to_trace_sound(nid);
         NodeHelper::lemma_trace_to_nid_sound(trace_level_plus_1);
-        // From the precondition: nid == va_level_to_nid(va, level + 1)
-        // And va_level_to_nid(va, level + 1) == trace_to_nid(trace_level_plus_1)
-        // So nid == trace_to_nid(trace_level_plus_1)
-        // Since trace_to_nid is bijective, nid_to_trace(nid) == trace_level_plus_1
         assert(NodeHelper::trace_to_nid(NodeHelper::nid_to_trace(nid)) == NodeHelper::trace_to_nid(
             trace_level_plus_1,
         ));
