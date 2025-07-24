@@ -7,6 +7,8 @@
 #![feature(sync_unsafe_cell)]
 #![allow(type_alias_bounds)]
 
+extern crate alloc;
+
 pub mod mm;
 pub mod prelude;
 pub mod spec;

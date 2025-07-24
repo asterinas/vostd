@@ -9,13 +9,14 @@ use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
 use crate::mm::{pte_index, Paddr, PageTableGuard, NR_ENTRIES};
+use crate::task::preempt;
 use crate::{
     mm::{
         cursor::{Cursor, CursorMut},
         meta::{AnyFrameMeta, MetaSlot},
         page_prop, Frame, PageTableEntryTrait, PageTablePageMeta, PagingConsts, PagingConstsTrait,
         Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE, PageTableConfig, PagingLevel,
-        frame::allocator::{alloc_page_table, AllocatorModel},
+        frame::allocator::AllocatorModel,
     },
     spec::sub_pt::{
         state_machine::{SubPageTableStateMachine, FrameView},
@@ -75,7 +76,7 @@ struct TestPtItem {
 
 pub const ONE_GIG_VA: Vaddr = 0x40000000;
 
-pub fn test(va: Vaddr, frame: Frame, page_prop: page_prop::PageProperty)
+pub fn test(va: Vaddr, page_prop: page_prop::PageProperty)
 requires
     0 <= va < ONE_GIG_VA,
 {
@@ -84,15 +85,13 @@ requires
 
     let tracked mut alloc_model = AllocatorModel { allocated_addrs: Set::empty() };
 
-    let (p, Tracked(pt)) = alloc_page_table(Tracked(&mut alloc_model));
-    let f = exec::create_new_frame(PHYSICAL_BASE_ADDRESS(), 4);
-    assert(f.ptes[0].frame_pa == 0 as u64);
-    p.write(Tracked(&mut pt), f);
+    let (p, Tracked(pt)) = alloc_page_table(3, Tracked(&mut alloc_model));
 
     assert(pt.mem_contents() != MemContents::<MockPageTablePage>::Uninit);
     assert(pt.value().ptes.len() == NR_ENTRIES);
-    assert(pt.value().ptes == f.ptes);
     assert(pt.value().ptes[0].frame_pa == 0 as u64);
+
+    let preempt_guard = disable_preempt();
 
     let tracked (
         Tracked(instance),
@@ -100,7 +99,7 @@ requires
         Tracked(i_pte_tokens),
         Tracked(pte_tokens),
     ) = SubPageTableStateMachine::Instance::initialize(FrameView {
-        pa: p.addr() as int,
+        pa: p.start_paddr() as int,
         ancestor_chain: Map::empty(),
         level: 3, // To test a sub-tree rooted at level 3
     });
@@ -109,7 +108,7 @@ requires
         alloc_model,
         perms: {
             let tracked mut map = Map::tracked_empty();
-            map.tracked_insert(p.addr(), pt);
+            map.tracked_insert(p.start_paddr(), pt);
             map
         },
         frames: frame_tokens,
@@ -125,11 +124,7 @@ requires
         let path = [
             None, // level 1
             None, // level 2
-            Some(PageTableGuard::<TestPtConfig> {
-                phantom: std::marker::PhantomData,
-                level: 3,
-                paddr: p.addr(),
-            }), // root
+            Some(p.borrow().make_guard_unchecked(&preempt_guard)), // root
             None, // level 4
         ];
         CursorMut::<TestPtConfig> {
@@ -139,7 +134,7 @@ requires
                 guard_level: 3,
                 va: va,
                 barrier_va: 0..ONE_GIG_VA,
-                preempt_guard: disable_preempt(),
+                preempt_guard: &preempt_guard,
                 _phantom: std::marker::PhantomData,
             }
         }
@@ -147,7 +142,7 @@ requires
 
     assert(cursor.0.wf(&sub_page_table));
 
-    cursor.map(frame, page_prop,
+    cursor.map(0, PAGE_SIZE(), page_prop,
         Tracked(&mut sub_page_table),
     );
 

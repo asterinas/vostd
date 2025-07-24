@@ -1,3 +1,4 @@
+pub mod rcu;
 pub(crate) mod spin;
 
 /// Registers a callback to be invoked after the current grace period.

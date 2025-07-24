@@ -8,6 +8,10 @@ pub trait AnyFrameMeta {
 
 }
 
+impl AnyFrameMeta for () {
+
+}
+
 // TODO: MetaSlot
 pub struct MetaSlot {}
 

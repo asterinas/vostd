@@ -1,5 +1,8 @@
 pub mod allocator;
+mod frame_ref;
 pub mod meta;
+
+pub use frame_ref::FrameRef;
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -13,39 +16,42 @@ use vstd::simple_pptr::*;
 use crate::mm::Paddr;
 use crate::mm::PagingLevel;
 use crate::mm::PAGE_SIZE;
+use crate::exec::MockPageTablePage;
+
+use super::PageTableConfig;
 
 verus! {
 
 // #[repr(transparent)] TODO: repr(transparent)
 // pub struct Frame<M: AnyFrameMeta + ?Sized> { // NOTE: Verus does not support dyn type, so we remove it currently
-pub struct Frame {
-    // pub ptr: PPtr<MetaSlot>,
-    // pub ptr: *const MetaSlot,
-    pub ptr: usize,  // TODO: MetaSlot is currently ignored
-    // pub _marker: PhantomData<M>,
+pub struct Frame<M: AnyFrameMeta> {
+    pub meta_ptr: PPtr<M>,
+    pub meta_perm: Tracked<PointsTo<M>>,
+    pub ptr: PPtr<MockPageTablePage>,
 }
 
-// impl<M: AnyFrameMeta> Frame<M> {
-//     /// Gets the metadata of this page.
-//     // TODO: Implement Frame::meta
-//     #[verifier::external_body]
-//     pub fn meta(&self) -> &M {
-//         // SAFETY: The type is tracked by the type system.
-//         // unsafe { &*self.slot().as_meta_ptr::<M>() }
-//         unimplemented!("Frame::meta")
-//     }
-// }
-// impl<M: AnyFrameMeta + ?Sized> Frame<M> {
-impl Frame {
+impl<M: AnyFrameMeta> Frame<M> {
+    /// Gets the metadata of this page.
+    #[verifier::external_body]
+    #[verifier::allow_in_spec]
+    pub fn meta(&self) -> &M
+        returns
+            self.meta_perm@.value(),
+    {
+        self.meta_ptr.borrow(Tracked(self.meta_perm.borrow()))
+    }
+}
+
+impl<M: AnyFrameMeta> Frame<M> {
     /// Gets the physical address of the start of the frame.
     // TODO: Implement
     #[verifier::allow_in_spec]
     pub fn start_paddr(&self) -> Paddr
         returns
-            self.ptr as Paddr,
+            self.ptr.addr() as Paddr,
     {
         // self.slot().frame_paddr() // TODO
-        self.ptr as Paddr
+        self.ptr.addr() as Paddr
     }
 
     /// Gets the paging level of this page.
@@ -70,6 +76,11 @@ impl Frame {
             PAGE_SIZE(),
     {
         PAGE_SIZE()
+    }
+
+    /// Borrows a reference from the given frame.
+    pub fn borrow(&self) -> FrameRef<'_, M> {
+        FrameRef::borrow_paddr(self.start_paddr())
     }
 
     /// Forgets the handle to the frame.
@@ -98,22 +109,19 @@ impl Frame {
     ///
     /// Also, the caller ensures that the usage of the frame is correct. There's
     /// no checking of the usage in this function.
-    /// TODO: Implement Frame::from_raw
-    pub(in crate::mm) fn from_raw(paddr: Paddr) -> (res: Self)
+    #[verifier::external_body]
+    pub(crate) fn from_raw(paddr: Paddr) -> (res: Self)
         ensures
-            res.ptr == paddr,
+            res.ptr.addr() == paddr,
     {
         // let vaddr = mapping::frame_to_meta::<PagingConsts>(paddr);
         // let ptr = vaddr as *const MetaSlot;
+        // FIXME: Need to allocate and use metadata, currently this is just a placeholder.
         Self {
-            ptr: paddr,
-            // _marker: PhantomData,
+            ptr: PPtr::from_addr(paddr),
+            meta_ptr: PPtr::from_addr(paddr),
+            meta_perm: Tracked::assume_new(),
         }
-        // Self {
-        //     ptr: PPtr::<MetaSlot>::from_addr(paddr),
-        //      _marker: PhantomData
-        // }
-
     }
 }
 

@@ -14,7 +14,8 @@ use vstd::prelude::*;
 use child::*;
 use vstd::simple_pptr::MemContents;
 use vstd::simple_pptr::PPtr;
-use crate::mm::allocator::alloc_page_table;
+use vstd::simple_pptr::PointsTo;
+use crate::mm::frame;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::Paddr;
@@ -22,7 +23,10 @@ use crate::mm::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
 
-use crate::mm::frame::{Frame, allocator::AllocatorModel};
+use crate::mm::frame::{
+    Frame, FrameRef,
+    allocator::{AllocatorModel, pa_is_valid_kernel_address},
+};
 use crate::mm::PagingLevel;
 
 use crate::sync::spin;
@@ -30,8 +34,8 @@ use crate::sync::spin;
 use crate::x86_64::paddr_to_vaddr;
 
 use crate::exec::{
-    self, create_new_frame, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY,
-    frame_addr_to_index, frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
+    self, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY, frame_addr_to_index,
+    frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
 };
 use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
 
@@ -43,82 +47,90 @@ use super::PageTableConfig;
 verus! {
 
 // #[derive(Debug)] // TODO: Debug for PageTableNode
-pub type PageTableNode = Frame;
+pub type PageTableNode<C: PageTableConfig> = Frame<PageTablePageMeta<C>>;
 
-pub struct PageTableGuard<C: PageTableConfig> {
-    pub paddr: Paddr,
-    pub level: PagingLevel,
-    pub phantom: core::marker::PhantomData<C>,
-}
-
-impl<C: PageTableConfig> PageTableGuard<C> {
-    pub open spec fn wf(&self) -> bool {
-        &&& pa_is_valid_pt_address(self.paddr as int)
-        &&& level_is_in_range(self.level as int)
-    }
-
-    #[verifier::when_used_as_spec(paddr_spec)]
+impl<C: PageTableConfig> PageTableNode<C> {
+    #[verifier::allow_in_spec]
     pub fn paddr(&self) -> Paddr
         returns
-            self.paddr_spec(),
+            self.start_paddr(),
     {
-        self.paddr
+        self.start_paddr()
     }
 
-    pub open spec fn paddr_spec(&self) -> Paddr {
-        self.paddr
-    }
-
-    #[verifier::when_used_as_spec(level_spec)]
+    #[verifier::allow_in_spec]
     pub fn level(&self) -> PagingLevel
         returns
-            self.level_spec(),
+            self.meta().level,
     {
-        self.level
+        self.meta().level
     }
 
-    pub open spec fn level_spec(&self) -> PagingLevel {
-        self.level
-    }
-
-    pub fn alloc(level: PagingLevel, Tracked(alloc_model): Tracked<&mut AllocatorModel>) -> (res:
-        Self) where Self: Sized
+    pub fn alloc(level: PagingLevel, Tracked(alloc_model): Tracked<&mut AllocatorModel>) -> (res: (
+        Frame<PageTablePageMeta<C>>,
+        Tracked<PointsTo<MockPageTablePage>>,
+    )) where C: PageTableConfig
         requires
             old(alloc_model).invariants(),
-            level_is_in_range(level as int),
+            crate::spec::sub_pt::level_is_in_range(level as int),
         ensures
+            res.1@.pptr() == res.0.ptr,
+            res.1@.mem_contents().is_init(),
+            pa_is_valid_kernel_address(res.0.start_paddr() as int),
             alloc_model.invariants(),
-            res.wf(),
+            !old(alloc_model).allocated_addrs.contains(res.0.start_paddr() as int),
+            alloc_model.allocated_addrs.contains(res.0.start_paddr() as int),
     {
-        broadcast use vstd::std_specs::hash::group_hash_axioms;
-        broadcast use vstd::hash_map::group_hash_map_axioms;
+        crate::exec::alloc_page_table(level, Tracked(alloc_model))
+    }
+}
 
-        let (p, Tracked(pt)) = alloc_page_table(Tracked(alloc_model));
-        let f = create_new_frame(p.addr(), level);
-        p.write(Tracked(&mut pt), f);
+pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMeta<C>>;
 
-        let frame_address = p.addr();
+impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
+    // Actually should be checked after verification. Just can't be checked in pure Rust.
+    #[verifier::external_body]
+    pub fn make_guard_unchecked<'rcu>(
+        self,
+        _guard: &'rcu crate::task::DisabledPreemptGuard,
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu {
+        PageTableGuard { inner: self }
+    }
+}
 
-        Self { paddr: frame_address as Paddr, level, phantom: std::marker::PhantomData }
+pub struct PageTableGuard<'a, C: PageTableConfig> {
+    pub inner: PageTableNodeRef<'a, C>,
+}
+
+impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
+    pub open spec fn wf(&self) -> bool {
+        &&& pa_is_valid_pt_address(self.paddr() as int)
+        &&& level_is_in_range(self.level() as int)
+    }
+
+    #[verifier::allow_in_spec]
+    pub fn paddr(&self) -> Paddr
+        returns
+            self.inner.start_paddr(),
+    {
+        self.inner.start_paddr()
+    }
+
+    #[verifier::allow_in_spec]
+    pub fn level(&self) -> PagingLevel
+        returns
+            self.inner.meta().level,
+    {
+        self.inner.meta().level
     }
 
     #[verifier::external_body]
-    fn unlock(&mut self) -> PageTableNode {
+    fn unlock(self) {
         todo!()
     }
 
     pub fn into_raw_paddr(self: Self) -> Paddr where Self: Sized {
-        self.paddr
-    }
-
-    #[verifier::external_body]
-    pub fn from_raw_paddr(paddr: Paddr, level: PagingLevel) -> (res: Self) where Self: Sized
-        ensures
-            res.wf(),
-            res.paddr_spec() == paddr,
-            res.level_spec() == level,
-    {
-        Self { paddr, level, phantom: std::marker::PhantomData }
+        self.paddr()
     }
 
     #[verifier::external_body]
@@ -129,12 +141,12 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         ensures
             spt.wf(),
             res.frame_paddr() == get_pte_from_addr_spec(
-                index_pte_paddr(self.paddr as int, idx as int) as usize,
+                index_pte_paddr(self.paddr() as int, idx as int) as usize,
                 spt,
             ).frame_pa,
-            res.pte_paddr() == index_pte_paddr(self.paddr as int, idx as int),
+            res.pte_paddr() == index_pte_paddr(self.paddr() as int, idx as int),
             res.frame_paddr() == 0 ==> !spt.ptes.value().contains_key(
-                index_pte_paddr(self.paddr as int, idx as int),
+                index_pte_paddr(self.paddr() as int, idx as int),
             ),
             res.frame_paddr() != 0 ==> {
                 &&& spt.ptes.value().contains_key(res.pte_paddr() as int)
@@ -155,7 +167,7 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         requires
             idx < nr_subpage_per_huge::<C>(),
             old(spt).wf(),
-            old(spt).perms.contains_key(self.paddr),
+            old(spt).perms.contains_key(self.paddr()),
             self.wf(),
         ensures
             spt.wf(),
@@ -163,10 +175,10 @@ impl<C: PageTableConfig> PageTableGuard<C> {
             spt.frames.instance_id() == old(spt).frames.instance_id(),
             spec_helpers::spt_do_not_change_above_level(spt, old(spt), self.level()),
     {
-        assert(spt.perms.contains_key(self.paddr));
+        assert(spt.perms.contains_key(self.paddr()));
 
-        let p = PPtr::from_addr(self.paddr);
-        let tracked points_to = spt.perms.tracked_remove(self.paddr);
+        let p = PPtr::from_addr(self.paddr());
+        let tracked points_to = spt.perms.tracked_remove(self.paddr());
 
         // FIXME: Should be correct since spt.wf()?
         assume(points_to.mem_contents().is_init());
@@ -185,7 +197,7 @@ impl<C: PageTableConfig> PageTableGuard<C> {
         p.write(Tracked(&mut points_to), frame);
 
         proof {
-            spt.perms.tracked_insert(self.paddr, points_to);
+            spt.perms.tracked_insert(self.paddr(), points_to);
         }
 
         assume(spt.wf());  // TODO: P0
@@ -237,8 +249,6 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub fn new_locked(level: PagingLevel) -> Self {
         Self {
-            // nr_children: SyncUnsafeCell::new(0),
-            // astray: SyncUnsafeCell::new(false),
             nr_children: PCell::new(0u16).0,
             astray: PCell::new(false).0,
             level,

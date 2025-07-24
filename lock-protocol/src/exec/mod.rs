@@ -2,7 +2,7 @@ mod rcu;
 mod rw;
 mod test_map;
 
-use vstd::prelude::*;
+use vstd::{invariant, prelude::*};
 use core::num;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -10,20 +10,19 @@ use std::sync::{Mutex, OnceLock};
 
 use vstd::tokens::*;
 
-use crate::mm::allocator::pa_is_valid_kernel_address;
+use crate::mm::allocator::{self, AllocatorModel, pa_is_valid_kernel_address};
 use crate::mm::cursor::spec_helpers;
 use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{pte_index, Paddr, PageTableConfig, NR_ENTRIES};
+use crate::mm::{pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
 use crate::{
     mm::{
         cursor::{Cursor, CursorMut},
         meta::{AnyFrameMeta, MetaSlot},
         page_prop, Frame, PageTableEntryTrait, PageTablePageMeta, PagingConsts, PagingConstsTrait,
         Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
-        frame::allocator::{alloc_page_table, AllocatorModel},
     },
     task::{disable_preempt, DisabledPreemptGuard},
 };
@@ -59,21 +58,39 @@ pub struct MockPageTablePage {
     pub ptes: [MockPageTableEntry; NR_ENTRIES],
 }
 
-pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage)
+#[verifier::external_body]
+pub fn alloc_page_table<C: PageTableConfig>(
+    level: PagingLevel,
+    Tracked(model): Tracked<&mut AllocatorModel>,
+) -> (res: (Frame<PageTablePageMeta<C>>, Tracked<PointsTo<MockPageTablePage>>))
     requires
-        pa_is_valid_kernel_address(frame_addr as int),
+        old(model).invariants(),
+        crate::spec::sub_pt::level_is_in_range(level as int),
     ensures
-        res.ptes.len() == NR_ENTRIES,
+        res.1@.pptr() == res.0.ptr,
+        res.1@.mem_contents().is_init(),
+        pa_is_valid_kernel_address(res.0.start_paddr() as int),
+        model.invariants(),
+        !old(model).allocated_addrs.contains(res.0.start_paddr() as int),
+        model.allocated_addrs.contains(res.0.start_paddr() as int),
         forall|i: int|
-            0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].pte_addr == (frame_addr + i
-                * SIZEOF_PAGETABLEENTRY) as u64,
-        forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].frame_pa == 0,
-        forall|i: int| 0 <= i < NR_ENTRIES ==> #[trigger] res.ptes[i].level == level as u8,
+            #![trigger res.1@.value().ptes[i]]
+            0 <= i < NR_ENTRIES ==> {
+                &&& res.1@.value().ptes[i].pte_addr == (res.0.start_paddr() + i
+                    * SIZEOF_PAGETABLEENTRY) as u64
+                &&& res.1@.value().ptes[i].frame_pa == 0
+                &&& res.1@.value().ptes[i].level == level
+                &&& res.1@.value().ptes[i].prop == PageProperty::new_absent()
+            },
 {
+    let (pptr, mut perm) = allocator::alloc(|a| a.alloc(Tracked(model)));
+
+    let frame_addr = pptr.addr();
+
     let mut ptes = [MockPageTableEntry {
         pte_addr: 0,
-        frame_pa: 0,
-        level: 0,
+        frame_pa: frame_addr as u64,
+        level,
         prop: PageProperty::new_absent(),
     };NR_ENTRIES];
 
@@ -90,16 +107,12 @@ pub fn create_new_frame(frame_addr: Paddr, level: u8) -> (res: MockPageTablePage
                 },
         decreases NR_ENTRIES - i,
     {
-        assume(frame_addr + i * SIZEOF_PAGETABLEENTRY < usize::MAX);
-        ptes[i] = MockPageTableEntry {
-            pte_addr: (frame_addr + i * SIZEOF_PAGETABLEENTRY) as u64,
-            frame_pa: 0,
-            level: level,
-            prop: PageProperty::new_absent(),
-        };
+        ptes[i].pte_addr = (frame_addr + i * SIZEOF_PAGETABLEENTRY) as u64;
     }
 
-    MockPageTablePage { ptes }
+    pptr.write(Tracked(perm.borrow_mut()), MockPageTablePage { ptes });
+
+    (Frame::from_raw(pptr.addr()), perm)
 }
 
 impl PageTableEntryTrait for MockPageTableEntry {
@@ -198,16 +211,6 @@ impl PageTableEntryTrait for MockPageTableEntry {
 }
 
 pub fn main_test() {
-    let va = 0;
-    let frame = Frame { ptr: 0 };
-    let page_prop = PageProperty {
-        flags: PageFlags { bits: 0 },
-        cache: page_prop::CachePolicy::Uncacheable,
-        priv_flags: PrivilegedPageFlags { bits: 0 },
-    };
-
-    // test_map::test(va, frame, page_prop);
-    // test_map2::test(va, frame, page_prop);
 }
 
 pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsTrait>(

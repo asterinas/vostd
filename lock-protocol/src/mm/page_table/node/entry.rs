@@ -1,17 +1,23 @@
 use vstd::prelude::*;
 
-use crate::mm::{
-    cursor::spec_helpers::{self, spt_do_not_change_above_level},
-    meta::AnyFrameMeta,
-    nr_subpage_per_huge,
-    page_prop::PageProperty,
-    page_size,
-    vm_space::Token,
-    PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
-    frame::allocator::AllocatorModel,
+use core::ops::Deref;
+
+use crate::{
+    mm::{
+        cursor::spec_helpers::{self, spt_do_not_change_above_level},
+        frame::allocator::AllocatorModel,
+        meta::AnyFrameMeta,
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
+        vm_space::Token,
+        PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
+    },
+    sync::rcu::RcuDrop,
+    task::DisabledPreemptGuard,
 };
 
-use super::{Child, PageTableGuard, PageTableNode};
+use super::{Child, ChildRef, PageTableGuard, PageTableNode, PageTableNodeRef};
 
 use crate::exec;
 
@@ -26,7 +32,7 @@ verus! {
 /// This is a static reference to an entry in a node that does not account for
 /// a dynamic reference count to the child. It can be used to create a owned
 /// handle, which is a [`Child`].
-pub struct Entry<'a, C: PageTableConfig> {
+pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -38,13 +44,16 @@ pub struct Entry<'a, C: PageTableConfig> {
     /// The index of the entry in the node.
     pub idx: usize,
     /// The node that contains the entry.
-    pub node: &'a PageTableGuard<C>,
-    pub phantom: std::marker::PhantomData<(C)>,
+    pub node: &'a PageTableGuard<'rcu, C>,
+    pub phantom: std::marker::PhantomData<C>,
 }
 
-impl<'a, C: PageTableConfig> Entry<'a, C> {
+impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// Gets a reference to the child.
-    pub(in crate::mm) fn to_ref(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: Child<C>)
+    pub(in crate::mm) fn to_ref(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: ChildRef<
+        'rcu,
+        C,
+    >)
         requires
             spt.wf(),
             self.pte.pte_paddr() == exec::get_pte_from_addr_spec(
@@ -58,13 +67,15 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         ensures
             if (spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
                 match res {
-                    Child::PageTableRef(pt) => pt == self.pte.frame_paddr() as usize
-                        && spt.frames.value().contains_key(pt as int),
+                    ChildRef::PageTable(pt) => pt.deref().start_paddr()
+                        == self.pte.frame_paddr() as usize && spt.frames.value().contains_key(
+                        pt.start_paddr() as int,
+                    ),
                     _ => false,
                 }
             } else {
                 match res {
-                    Child::None => true,
+                    ChildRef::None => true,
                     _ => false,
                 }
             },
@@ -72,8 +83,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
-        let c = Child::ref_from_pte(&self.pte, self.node.level(), false, Tracked(spt));
-        c
+        ChildRef::from_pte(&self.pte, self.node.level(), Tracked(spt))
     }
 
     /// Operates on the mapping properties of the entry.
@@ -148,8 +158,11 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     }
 
     #[verifier::external_body]
-    pub(in crate::mm) fn alloc_if_none(self, Tracked(spt): Tracked<&mut SubPageTable>) -> (res:
-        Option<usize>)
+    pub(in crate::mm) fn alloc_if_none(
+        self,
+        guard: &'rcu DisabledPreemptGuard,
+        Tracked(spt): Tracked<&mut SubPageTable>,
+    ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
@@ -161,7 +174,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             if old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int) {
                 res is None
             } else {
-                res is Some && spt.frames.value().contains_key(res.unwrap() as int)
+                res is Some && spt.frames.value().contains_key(res.unwrap().paddr() as int)
             },
     {
         if !self.pte.is_present(Tracked(&*spt)) {
@@ -169,17 +182,25 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
             return None;
         }
         let level = self.node.level();
-        let pt = PageTableGuard::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
-        let paddr = pt.into_raw_paddr();
+        let (pt, perm) = PageTableNode::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
+
+        let pa = pt.start_paddr();
+
+        proof {
+            spt.perms.insert(pt.start_paddr(), perm@);
+        }
+        ;
 
         self.node.write_pte(
             self.idx,
-            Child::<C>::PageTable(PageTableNode::from_raw(paddr)).into_pte(),
+            Child::<C>::PageTable(RcuDrop::new(pt)).into_pte(),
             level,
             Tracked(spt),
         );
 
-        Some(paddr)
+        let node_ref = PageTableNodeRef::borrow_paddr(pa);
+
+        Some(node_ref.make_guard_unchecked(guard))
     }
 
     /// Create a new entry at the node.
@@ -189,7 +210,7 @@ impl<'a, C: PageTableConfig> Entry<'a, C> {
     /// The caller must ensure that the index is within the bounds of the node.
     // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
     pub fn new_at(
-        node: &'a PageTableGuard<C>,
+        node: &'a PageTableGuard<'rcu, C>,
         idx: usize,
         Tracked(spt): Tracked<&SubPageTable>,
     ) -> (res: Self)

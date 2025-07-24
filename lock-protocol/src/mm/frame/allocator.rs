@@ -37,32 +37,13 @@ impl AllocatorModel {
 }
 
 #[verifier::external_body]
-pub fn alloc_page_table(Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
-    PPtr<MockPageTablePage>,
-    Tracked<PointsTo<MockPageTablePage>>,
-))
-    requires
-        old(model).invariants(),
-    ensures
-        res.1@.pptr() == res.0,
-        res.1@.mem_contents().is_init(),
-        pa_is_valid_kernel_address(res.0.addr() as int),
-        model.invariants(),
-        !old(model).allocated_addrs.contains(res.0.addr() as int),
-        model.allocated_addrs.contains(res.0.addr() as int),
-{
+pub fn alloc<F, R>(mut alloc_fn: F) -> R where F: FnMut(&mut MockGlobalAllocator) -> R {
     static GLOBAL_ALLOCATOR: OnceLock<Mutex<MockGlobalAllocator>> = OnceLock::new();
 
     let allocator_lock = GLOBAL_ALLOCATOR.get_or_init(|| Mutex::new(MockGlobalAllocator::init()));
     let mut allocator = allocator_lock.lock().unwrap();
 
-    let (pptr, perm) = allocator.alloc();
-
-    proof {
-        model.allocated_addrs.insert(pptr.addr() as int);
-    }
-
-    (pptr, perm)
+    alloc_fn(&mut allocator)
 }
 
 pub struct MockGlobalAllocator {
@@ -72,11 +53,21 @@ pub struct MockGlobalAllocator {
 }
 
 impl MockGlobalAllocator {
-    pub closed spec fn invariants(&self) -> bool {
-        forall|i: usize|
+    pub open spec fn has_available_frames(&self) -> bool {
+        exists|i: usize| 0 <= i < MAX_FRAME_NUM && self.frames[i as int].is_some()
+    }
+
+    pub open spec fn invariants(&self, model: &AllocatorModel) -> bool {
+        &&& forall|i: usize|
+            0 <= i < MAX_FRAME_NUM ==> {
+                #[trigger] model.allocated_addrs.contains(
+                    (PHYSICAL_BASE_ADDRESS_SPEC() + i * SIZEOF_FRAME) as int,
+                ) ==> self.frames[i as int].is_some()
+            }
+        &&& forall|i: usize|
             0 <= i < MAX_FRAME_NUM ==> {
                 if let Some((p, _)) = #[trigger] self.frames[i as int] {
-                    p.addr() == PHYSICAL_BASE_ADDRESS_SPEC() + i * SIZEOF_FRAME
+                    p.addr() == (PHYSICAL_BASE_ADDRESS_SPEC() + i * SIZEOF_FRAME) as int
                 } else {
                     true
                 }
@@ -84,7 +75,11 @@ impl MockGlobalAllocator {
     }
 
     #[verifier::external_body]
-    pub fn init() -> MockGlobalAllocator {
+    pub fn init() -> (res: MockGlobalAllocator)
+        ensures
+            res.invariants(&AllocatorModel { allocated_addrs: Set::empty() }),
+            res.has_available_frames(),
+    {
         let mut frames = [const { None };MAX_FRAME_NUM];
 
         for i in 0..MAX_FRAME_NUM {
@@ -96,13 +91,19 @@ impl MockGlobalAllocator {
     }
 
     #[verifier::external_body]
-    pub fn alloc(&mut self) -> (res: (
+    pub fn alloc(&mut self, Tracked(model): Tracked<&mut AllocatorModel>) -> (res: (
         PPtr<MockPageTablePage>,
         Tracked<PointsTo<MockPageTablePage>>,
     ))
         requires
-            exists|i: usize| 0 <= i < MAX_FRAME_NUM && old(self).frames[i as int].is_some(),
+            old(self).invariants(old(model)),
+            old(self).has_available_frames(),
+            old(model).invariants(),
         ensures
+            self.invariants(model),
+            model.invariants(),
+            !old(model).allocated_addrs.contains(res.0.addr() as int),
+            model.allocated_addrs.contains(res.0.addr() as int),
             res.1@.pptr() == res.0,
             res.0.addr() < PHYSICAL_BASE_ADDRESS_SPEC() + SIZEOF_FRAME * MAX_FRAME_NUM,
             forall|i: usize|
@@ -117,6 +118,11 @@ impl MockGlobalAllocator {
         for i in 0..MAX_FRAME_NUM {
             if !self.frames[i].is_none() {
                 let (p, pt) = self.frames[i].take().unwrap();
+
+                proof {
+                    model.allocated_addrs.insert(p.addr() as int);
+                }
+
                 return (p, pt);
             }
         }

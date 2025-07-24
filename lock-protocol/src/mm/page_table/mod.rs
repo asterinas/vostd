@@ -641,7 +641,7 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
 // TODO: Debug for PageTable
 // #[derive(Debug)]
 pub struct PageTable<C: PageTableConfig> {
-    root: PageTableNode,
+    root: PageTableNode<C>,
     _phantom: PhantomData<C>,
 }
 

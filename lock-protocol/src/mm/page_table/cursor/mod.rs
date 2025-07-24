@@ -20,7 +20,7 @@ use vstd::tokens::SetToken;
 use crate::{
     helpers::{align_ext::align_down, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
-        child::{self, Child},
+        child::{self, Child, ChildRef},
         entry::Entry,
         frame::{self, allocator::AllocatorModel},
         meta::AnyFrameMeta,
@@ -32,6 +32,7 @@ use crate::{
         Frame, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
+    sync::rcu::RcuDrop,
 };
 
 use super::{
@@ -75,12 +76,12 @@ pub open spec fn path_index_at_level(level: PagingLevel) -> int {
 /// A cursor is able to move to the next slot, to read page properties,
 /// and even to jump to a virtual address directly.
 // #[derive(Debug)] // TODO: Implement `Debug` for `Cursor`.
-pub struct Cursor<'a, C: PageTableConfig> {
+pub struct Cursor<'rcu, C: PageTableConfig> {
     /// The current path of the cursor.
     ///
     /// The level 1 page table lock guard is at index 0, and the level N page
     /// table lock guard is at index N - 1.
-    pub path: [Option<PageTableGuard<C>>; MAX_NR_LEVELS],
+    pub path: [Option<PageTableGuard<'rcu, C>>; MAX_NR_LEVELS],
     /// The level of the page table that the cursor currently points to.
     pub level: PagingLevel,
     /// The top-most level that the cursor is allowed to access.
@@ -94,29 +95,18 @@ pub struct Cursor<'a, C: PageTableConfig> {
     /// This also make all the operation in the `Cursor::new` performed in a
     /// RCU read-side critical section.
     // #[expect(dead_code)]
-    pub preempt_guard: DisabledPreemptGuard,
-    // _phantom: PhantomData<&'a PageTable<C>>,
-    pub _phantom: PhantomData<&'a PageTable<C>>,
+    pub preempt_guard: &'rcu DisabledPreemptGuard,
+    pub _phantom: PhantomData<&'rcu PageTable<C>>,
 }
 
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
 pub const MAX_NR_LEVELS: usize = 4;
 
 // #[derive(Clone, Debug)] // TODO: Implement Debug and Clone for PageTableItem
-pub enum PageTableItem {
+pub enum PageTableItem<C: PageTableConfig> {
     NotMapped { va: Vaddr, len: usize },
-    Mapped { va: Vaddr, page: Frame, prop: PageProperty },
-    MappedUntracked { va: Vaddr, pa: Paddr, len: usize, prop: PageProperty },
-    StrayPageTable { pt: Frame, va: Vaddr, len: usize },
-    /// The current slot is marked to be reserved.
-    Marked {
-        /// The virtual address of the slot.
-        va: Vaddr,
-        /// The length of the slot.
-        len: usize,
-        /// A user-provided token.
-        token: Token,
-    },
+    Mapped { va: Vaddr, page: Paddr, prop: PageProperty },
+    StrayPageTable { pt: RcuDrop<PageTableNode<C>>, va: Vaddr, len: usize },
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
@@ -155,26 +145,26 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
         &&& cur_frame.wf()
-        &&& cur_frame == self.path[path_index_at_level(cur_frame.level_spec())].unwrap()
+        &&& cur_frame == self.path[path_index_at_level(cur_frame.level())].unwrap()
         &&& spt.frames.value().contains_key(cur_frame_pa)
         &&& forall|j: PagingLevel|
             #![trigger self.path[path_index_at_level(j)]]
             #![trigger cur_ancestors.contains_key(j as int)]
             {
                 let guard_option_ = path_index!(self.path[j]);
-                &&& cur_frame.level_spec() < j <= self.guard_level ==> {
+                &&& cur_frame.level() < j <= self.guard_level ==> {
                     &&& guard_option_.is_some()
                     &&& guard_option_.unwrap().wf()
-                    &&& guard_option_.unwrap().paddr_spec() == cur_ancestors[j as int].frame_pa
-                    &&& guard_option_.unwrap().level_spec() == j as int
+                    &&& guard_option_.unwrap().paddr() == cur_ancestors[j as int].frame_pa
+                    &&& guard_option_.unwrap().level() == j as int
                     &&& pte_index::<C>(self.va, j) == cur_ancestors[j as int].in_frame_index
                 }
-                &&& j == cur_frame.level_spec() ==> {
+                &&& j == cur_frame.level() ==> {
                     &&& !cur_ancestors.contains_key(j as int)
                     &&& guard_option_.is_some()
-                    &&& guard_option_.unwrap().level_spec() == j as int
+                    &&& guard_option_.unwrap().level() == j as int
                 }
-                &&& 1 <= j < cur_frame.level_spec() || self.guard_level < j <= MAX_NR_LEVELS ==> {
+                &&& 1 <= j < cur_frame.level() || self.guard_level < j <= MAX_NR_LEVELS ==> {
                     !cur_ancestors.contains_key(j as int)
                 }
             }
@@ -218,9 +208,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         guard: PageTableGuard<C>,
     ) -> bool {
         &&& guard.wf()
-        &&& guard.level_spec() == self.level - 1
+        &&& guard.level() == self.level - 1
         &&& {
-            let frame_view = spt.frames.value().get(guard.paddr_spec() as int);
+            let frame_view = spt.frames.value().get(guard.paddr() as int);
             let ancestors = frame_view.unwrap().ancestor_chain;
             &&& frame_view.is_some()
             &&& forall|i: PagingLevel|
@@ -230,17 +220,17 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     let guard_option = path_index!(self.path[i]);
                     &&& self.level <= i <= self.guard_level ==> {
                         &&& guard_option.is_some()
-                        &&& guard_option.unwrap().paddr_spec() == ancestors[i as int].frame_pa
-                        &&& guard_option.unwrap().level_spec() == i as int
+                        &&& guard_option.unwrap().paddr() == ancestors[i as int].frame_pa
+                        &&& guard_option.unwrap().level() == i as int
                         &&& pte_index::<C>(self.va, i) == ancestors[i as int].in_frame_index
                     }
-                    &&& i == guard.level_spec() ==> {
+                    &&& i == guard.level() ==> {
                         !ancestors.contains_key(
                             i as int,
                         )
                         // && guard_option.is_some()
 
-                    }&&& 1 <= i < guard.level_spec() || self.guard_level < i <= MAX_NR_LEVELS ==> {
+                    }&&& 1 <= i < guard.level() || self.guard_level < i <= MAX_NR_LEVELS ==> {
                         !ancestors.contains_key(i as int) && guard_option.is_none()
                     }
                 }
@@ -386,12 +376,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     /// Goes down a level to a child page table.
-    fn push_level(&mut self, child_pt: PageTableGuard<C>, Tracked(spt): Tracked<&SubPageTable>)
+    fn push_level(&mut self, child_pt: PageTableGuard<'a, C>, Tracked(spt): Tracked<&SubPageTable>)
         requires
             old(self).wf(spt),
             old(self).level > 1,
             child_pt.wf(),
-            child_pt.level_spec() == old(self).level - 1,
+            child_pt.level() == old(self).level - 1,
             spt.frames.value().contains_key(child_pt.paddr() as int),
             old(self).ancestors_match_path(spt, child_pt),
         ensures
@@ -415,7 +405,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
     // Note that mut types are not supported in Verus.
     // fn cur_entry(&mut self) -> Entry<'_, C> {
-    fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: Entry<'_, C>)
+    fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable>) -> (res: Entry<'_, 'a, C>)
         requires
             self.wf(spt),
         ensures
@@ -487,10 +477,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     /// not affect kernel's memory safety.
     pub fn map(
         &mut self,
-        frame: Frame,
+        pa: Paddr,
+        len: usize,
         prop: PageProperty,
         Tracked(spt): Tracked<&mut SubPageTable>,
-    ) -> (res: Option<Frame>)
+    ) -> (res: PageTableItem<C>)
         requires
             old(spt).wf(),
             old(self).0.wf(old(spt)),
@@ -504,90 +495,74 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     // TODO: Add the mapping model and ensure the mapping is built.
 
     {
-        let end = self.0.va + frame.size();
+        let preempt_guard = self.0.preempt_guard;
+
+        let end = self.0.va + len;
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
         while self.0.level
-            > frame.map_level()
+            > 1
         // TODO || self.0.va % page_size::<C>(self.0.level) != 0 || self.0.va + page_size::<C>(self.0.level) > end
 
             invariant
                 spt.wf(),
                 self.0.wf(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
+                // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
-            decreases self.0.level - frame.map_level(),
+            decreases self.0.level,
         {
             let cur_level = self.0.level;
             let cur_entry = self.0.cur_entry(Tracked(spt));
             match cur_entry.to_ref(Tracked(spt)) {
-                Child::PageTableRef(pt) => {
-                    let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
+                ChildRef::PageTable(pt) => {
+                    let child_pt = pt.make_guard_unchecked(preempt_guard);
                     // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
-                Child::PageTable(_) => {
-                    assert(false);
-                },
-                Child::None => {
+                ChildRef::None => {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
-                    let pt = cur_entry.alloc_if_none(Tracked(spt)).unwrap();
+                    let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
 
-                    assert(spt.frames.value().contains_key(pt as int));
-
-                    let child_pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
+                    assert(spt.frames.value().contains_key(child_pt.paddr() as int));
 
                     // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
-                Child::Frame(_, _) => {
+                ChildRef::Frame(_, _, _) => {
                     assert(false);
-                },
-                Child::Untracked(_, _, _) => {
-                    assert(false);
-                },
-                Child::Token(_, _) => {
-                    assert(false);  // TODO: Token
                 },
             }
             continue ;
         }
 
-        assert(self.0.level == frame.map_level());
+        assert(self.0.level == 1);
 
         let cur_entry = self.0.cur_entry(Tracked(spt));
 
         // TODO: P0 Fix the last level frame in SubPageTableStateMachine and SubPageTable.
         // Map the current page.
-        let old_entry = cur_entry.replace(Child::Frame(frame, prop), Tracked(spt));
+        let old_entry = cur_entry.replace(Child::Frame(pa, 1, prop), Tracked(spt));
 
         assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
         assume(self.0.path_wf(spt));  // TODO: P0
+
+        let old_va = self.0.va;
+        let old_len = page_size::<C>(self.0.level);
+
         self.0.move_forward(Tracked(spt));
 
         match old_entry {
-            Child::Frame(old_page, _) => Some(old_page),
-            Child::None | Child::Token(_, _) => None,
-            Child::PageTable(_) => {
-                // todo!("Dropping page table nodes while mapping requires TLB flush")
-                // assert(false); // TODO
-                None
+            Child::Frame(pa, level, prop) => PageTableItem::Mapped {
+                va: old_va,
+                page: pa,
+                prop: prop,
             },
-            Child::Untracked(_, _, _) => {
-                // panic!("Mapping a tracked page in an untracked range"),
-                // assert(false); // TODO
-                None
-            }
-            // Child::PageTableRef(_) => unreachable!(),
-            ,
-            Child::PageTableRef(_) => {
-                // panic!("Mapping a page in a page table reference")
-                // assert(false); // TODO
-                None
-            },
+            Child::None => PageTableItem::NotMapped { va: old_va, len: old_len },
+            Child::PageTable(pt) => PageTableItem::StrayPageTable { pt, va: old_va, len: old_len },
         }
     }
 
@@ -619,7 +594,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         &mut self,
         len: usize,
         Tracked(spt): Tracked<&mut SubPageTable>,
-    ) -> (res: PageTableItem)
+    ) -> (res: PageTableItem<C>)
         requires
             old(spt).wf(),
             old(self).0.wf(old(spt)),
@@ -631,6 +606,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             self.0.wf(spt),
             self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
     {
+        let preempt_guard = self.0.preempt_guard;
+
         let start = self.0.va;
         assert(len % page_size::<C>(1) == 0);
         let end = start + len;
@@ -672,10 +649,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             if cur_va % page_size::<C>(cur_level) != 0 || cur_va + page_size::<C>(cur_level) > end {
                 let child = cur_entry.to_ref(Tracked(spt));
                 match child {
-                    Child::PageTableRef(pt) => {
-                        // SAFETY: `pt` points to a PT that is attached to a node
-                        // in the locked sub-tree, so that it is locked and alive.
-                        let pt = PageTableGuard::<C>::from_raw_paddr(pt, cur_level);
+                    ChildRef::PageTable(pt) => {
+                        let pt = pt.make_guard_unchecked(preempt_guard);
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
@@ -693,26 +668,12 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             self.0.move_forward(Tracked(spt));
                         }
                     },
-                    Child::PageTable(_) => {
-                        // unreachable!();
-                        assert(false);
-                    },
-                    Child::None => {
+                    ChildRef::None => {
                         // unreachable!("Already checked");
                         assert(false);
                     },
-                    Child::Frame(_, _) => {
+                    ChildRef::Frame(_, _, _) => {
                         // panic!("Removing part of a huge page");
-                        assert(false);
-                    },
-                    Child::Untracked(_, _, _) => {
-                        // let split_child = cur_entry.split_if_untracked_huge().unwrap();
-                        // self.0.push_level(split_child, cur_level, Tracked(spt));
-                        assert(false);
-                    },
-                    Child::Token(_, _) => {
-                        // let split_child = cur_entry.split_if_huge_status().unwrap();
-                        // self.0.push_level(split_child, cur_level, Tracked(spt));
                         assert(false);
                     },
                 }
@@ -725,26 +686,14 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
             let old = cur_entry.replace(Child::None, Tracked(spt));
             let item = match old {
-                Child::Frame(page, prop) => PageTableItem::Mapped { va: self.0.va, page, prop },
-                Child::Untracked(pa, level, prop) => {
-                    // debug_assert_eq!(level, self.0.level); // TODO
-                    assume(level == self.0.level);
-                    PageTableItem::MappedUntracked {
-                        va: self.0.va,
-                        pa,
-                        len: page_size::<C>(level),
-                        prop,
-                    }
-                },
-                Child::Token(status, _) => PageTableItem::Marked {
+                Child::Frame(page, level, prop) => PageTableItem::Mapped {
                     va: self.0.va,
-                    len: page_size::<C>(self.0.level),
-                    token: status,
+                    page,
+                    prop,
                 },
                 Child::PageTable(pt) => {
-                    let paddr = pt.into_raw();
                     // SAFETY: We must have locked this node.
-                    let locked_pt = PageTableGuard::<C>::from_raw_paddr(paddr, cur_level);
+                    let locked_pt = (*pt).borrow().make_guard_unchecked(preempt_guard);
                     // assert!(
                     //     !(TypeId::of::<M>() == TypeId::of::<KernelMode>()
                     //         && self.0.level == C::NR_LEVELS()),
@@ -760,14 +709,12 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     //     drop(drop_after_grace);
                     // });
                     PageTableItem::StrayPageTable {
-                        // pt: unlocked_pt.into(),
-                        pt: Frame { ptr: unlocked_pt.paddr() },
+                        pt,
                         va: self.0.va,
                         len: page_size::<C>(self.0.level),
                     }
                 },
-                Child::None | Child::PageTableRef(_) => { PageTableItem::NotMapped { va: 0, len: 0 }
-                },
+                Child::None => { PageTableItem::NotMapped { va: 0, len: 0 } },
             };
 
             assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
