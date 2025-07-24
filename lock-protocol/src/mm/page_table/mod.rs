@@ -8,8 +8,8 @@ use core::fmt::Debug;
 use std::{marker::PhantomData, ops::Range};
 
 use crate::{
-    helpers::math::lemma_u64_and_less_than,
-    mm::{BASE_PAGE_SIZE, PTE_SIZE, frame::allocator::AllocatorModel},
+    helpers::{align_ext::align_down, math::lemma_u64_and_less_than},
+    mm::{frame::allocator::AllocatorModel, BASE_PAGE_SIZE, PTE_SIZE},
 };
 
 use vstd::prelude::*;
@@ -24,8 +24,8 @@ use vstd_extra::extra_num::{
 };
 
 use super::{
-    meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, vm_space::Token, Paddr,
-    PagingLevel, Vaddr, NR_ENTRIES,
+    meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token,
+    Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
 
 use crate::exec;
@@ -560,6 +560,80 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
         C::lemma_consts_properties_derived();
     }
     res as usize
+}
+
+// PTE index increment recursively
+pub open spec fn pte_index_add_with_carry<C: PagingConstsTrait>(
+    va: Vaddr,
+    add_level: PagingLevel,
+    cur_level: PagingLevel,
+) -> usize
+    recommends
+        1 <= add_level <= cur_level <= C::NR_LEVELS_SPEC(),
+    decreases cur_level,
+{
+    if cur_level <= add_level {
+        if pte_index_spec::<C>(va, cur_level) == pte_index_mask::<C>() {
+            0  // Overflow
+
+        } else {
+            (pte_index_spec::<C>(va, cur_level) + 1) as usize
+        }
+    } else {
+        // if there's carry from the lower level
+        let lower_level_has_carry = pte_index_add_with_carry::<C>(
+            va,
+            add_level,
+            (cur_level - 1) as PagingLevel,
+        ) == 0 && pte_index_spec::<C>(va, (cur_level - 1) as PagingLevel) == pte_index_mask::<C>();
+
+        if lower_level_has_carry {
+            // Carry propagates up: increment this level (or overflow to 0)
+            if pte_index_spec::<C>(va, cur_level) == pte_index_mask::<C>() {
+                0  // This level also overflows
+
+            } else {
+                (pte_index_spec::<C>(va, cur_level) + 1) as usize
+            }
+        } else {
+            // No carry: this level remains unchanged
+            pte_index_spec::<C>(va, cur_level)
+        }
+    }
+}
+
+// Adding a page size to an aligned address increments the PTE index
+proof fn lemma_add_page_size_change_pte_index<C: PagingConstsTrait>(
+    aligned_va: Vaddr,
+    page_sz: usize,
+    level: PagingLevel,
+)
+    requires
+        1 <= level <= C::NR_LEVELS(),
+        aligned_va % page_sz == 0,
+        page_sz == page_size::<C>(level),
+        aligned_va + page_sz < usize::MAX,
+    ensures
+// The result at any level >= the target level follows the carry propagation
+
+        forall|l: PagingLevel|
+            level <= l <= C::NR_LEVELS() ==> #[trigger] pte_index::<C>(
+                (aligned_va + page_sz) as usize,
+                l,
+            ) == #[trigger] pte_index_add_with_carry::<C>(aligned_va, level, l),
+{
+    admit();
+}
+
+proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level: PagingLevel)
+    ensures
+        forall|l: PagingLevel|
+            level <= l <= C::NR_LEVELS_SPEC() ==> #[trigger] pte_index::<C>(x, l) == pte_index::<C>(
+                align_down(x, page_size::<C>(l)),
+                l,
+            ),
+{
+    admit();
 }
 
 /// A handle to a page table.

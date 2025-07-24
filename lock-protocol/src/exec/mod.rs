@@ -2,7 +2,7 @@ mod rcu;
 mod rw;
 mod test_map;
 
-use vstd::{invariant, prelude::*};
+use vstd::prelude::*;
 use core::num;
 use std::collections::HashMap;
 use std::rc::Rc;

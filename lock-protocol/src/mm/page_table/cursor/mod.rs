@@ -18,7 +18,7 @@ use vstd::bits::*;
 use vstd::tokens::SetToken;
 
 use crate::{
-    helpers::align_ext::align_down,
+    helpers::{align_ext::align_down, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
         child::{self, Child},
         entry::Entry,
@@ -32,12 +32,12 @@ use crate::{
         Frame, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
-    x86_64::VMALLOC_VADDR_RANGE,
 };
 
 use super::{
-    pte_index, PageTable, PageTableConfig, PageTableEntryTrait, PageTableError, PagingConsts,
-    PagingConstsTrait, PagingLevel,
+    lemma_add_page_size_change_pte_index, lemma_aligned_pte_index_unchanged, pte_index,
+    pte_index_add_with_carry, pte_index_mask, PageTable, PageTableConfig, PageTableEntryTrait,
+    PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
 use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
@@ -280,25 +280,77 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va > old(self).va,
             self.level >= old(self).level,
     {
-        let page_size = page_size::<C>(self.level);
-        let next_va = align_down(self.va, page_size) + page_size;
+        let cur_page_size = page_size::<C>(self.level);
+        let next_va = align_down(self.va, cur_page_size) + cur_page_size;
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
+                old(self).wf(spt),
                 self.wf(spt),
                 self.constant_fields_unchanged(old(self), spt, spt),
                 self.level >= old(self).level,
                 self.va == old(self).va,
+                forall|i: PagingLevel|
+                    old(self).level <= i < self.level ==> pte_index::<C>(next_va, i) == 0,
             decreases self.guard_level - self.level,
         {
             self.pop_level(Tracked(&spt));
         }
         self.va = next_va;
-        // TODO: P0 self.va changed, but the higher bits of va does not change.
-        assume(forall|i: u8|
-            self.level <= i <= self.guard_level ==> pte_index::<C>(self.va, i) == pte_index::<C>(
-                old(self).va,
-                i,
-            ));
+        proof {
+            if (self.level == self.guard_level) {
+                assume(self.wf(spt));  // TODO: Handle the case where the cursor is at the guard level.
+            } else {
+                assert(self.level < self.guard_level);
+                assert(forall|i: u8|
+                    self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(self.va, i)
+                        == #[trigger] pte_index::<C>(old(self).va, i)) by {
+                    let old_level = old(self).level;
+                    let aligned_va = align_down(old(self).va, cur_page_size);
+                    assume(aligned_va + cur_page_size < usize::MAX);
+
+                    lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
+                    lemma_add_page_size_change_pte_index::<C>(
+                        aligned_va,
+                        page_size::<C>(old_level),
+                        old_level,
+                    );
+
+                    assert(forall|i: PagingLevel|
+                        self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
+                            == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
+                    assert(forall|i: PagingLevel|
+                        self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
+                            aligned_va,
+                            old_level,
+                            i,
+                        ) == pte_index::<C>(aligned_va, i)) by {
+                        admit();
+                    }
+                    assert(forall|i: PagingLevel|
+                        self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
+                            == pte_index::<C>(aligned_va, i)) by {
+                        // Use the transitivity: self.va -> pte_index_add_with_carry -> aligned_va
+                        assert(forall|i: PagingLevel|
+                            self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
+                                == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
+                        assert(forall|i: PagingLevel|
+                            self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
+                                aligned_va,
+                                old_level,
+                                i,
+                            ) == pte_index::<C>(aligned_va, i));
+                    }
+                    assert(forall|i: PagingLevel|
+                        self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(
+                            aligned_va,
+                            i,
+                        ) == #[trigger] pte_index::<C>(old(self).va, i)) by {
+                        admit();
+                    }
+                }
+                assert(self.wf(spt));
+            }
+        }
     }
 
     pub fn virt_addr(&self) -> Vaddr {
@@ -317,12 +369,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             // Other fields remain unchanged.
             self.va == old(self).va,
     {
-        let taken = &self.path[self.level as usize - 1];
         proof {
+            let taken = &self.path[self.level as usize - 1];
+            // self.path[self.level as usize - 1].take() // Verus does not support this currently
             assert(taken == path_index!(self.path[self.level]));
+            assert(taken.is_some());
         }
-        assert(taken.is_some());
-        // let _taken = taken.unwrap().into_raw_paddr();
         self.path[self.level as usize - 1] = None;
 
         self.level = self.level + 1;
@@ -385,7 +437,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             },
     {
         let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
-        assert(cur_node.wf());
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), Tracked(spt))
     }
 }
@@ -450,9 +501,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     {
         let end = self.0.va + frame.size();
 
-        // To track that VA does not change in loop;
-        let old_va = Tracked(self.0.va);
-
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
         while self.0.level
@@ -463,8 +511,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 spt.wf(),
                 self.0.wf(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
-                // VA should be unchanged in the loop.
-                self.0.va == old_va@,
+                self.0.va == old(self).0.va,
             decreases self.0.level - frame.map_level(),
         {
             let cur_level = self.0.level;
