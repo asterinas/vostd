@@ -205,11 +205,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             spt.wf(),
             spt.ptes.instance_id() == old(spt).ptes.instance_id(),
             spt.frames.instance_id() == old(spt).frames.instance_id(),
-            spec_helpers::spt_do_not_change_except(
-                spt,
-                old(spt),
-                index_pte_paddr(self.paddr() as int, idx as int),
-            ),
+            spt.frames == old(spt).frames,
+            spt.i_ptes == old(spt).i_ptes,
+            spt.ptes == old(spt).ptes,
     {
         assert(spt.perms.contains_key(self.paddr()));
         assert(old(spt).i_ptes.value().contains_key(
