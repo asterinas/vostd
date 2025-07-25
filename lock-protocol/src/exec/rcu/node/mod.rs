@@ -381,6 +381,7 @@ impl<'rcu> PageTableGuard<'rcu> {
             self.inner =~= old(self).inner,
             self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
             self.guard->Some_0.pte_token =~= old(self).guard->Some_0.pte_token,
+            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);

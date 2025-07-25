@@ -383,6 +383,10 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
                 unreached::<()>();
             }
             cur_pt_addr = cur_pte.inner.paddr();
+            if cur_node_guard.is_some() {
+                let mut pt_guard = cur_node_guard.take().unwrap();
+                pt_guard.normal_drop(); 
+            }
             cur_node_guard = None;
         } else {
             let cur_node_guard_inner = cur_node_guard.take();
@@ -416,6 +420,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
                 cur_pt_addr = pt_guard.deref().deref().start_paddr();
                 cur_node_guard = None;
             }
+            pt_guard.normal_drop();
         }
 
         cur_level -= 1;

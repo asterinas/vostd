@@ -132,6 +132,7 @@ impl Entry {
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
             node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.in_protocol == old(node).guard->Some_0.in_protocol,
             !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
             res is Some ==> {
                 &&& res->Some_0.wf()
