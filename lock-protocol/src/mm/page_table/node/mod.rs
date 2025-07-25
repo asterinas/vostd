@@ -202,10 +202,10 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             spt.wf(),
             spt.ptes.instance_id() == old(spt).ptes.instance_id(),
             spt.frames.instance_id() == old(spt).frames.instance_id(),
-            spec_helpers::spt_do_not_change_above_level(
+            spec_helpers::spt_do_not_change_except(
                 spt,
                 old(spt),
-                self.level_spec(&spt.alloc_model),
+                index_pte_paddr(self.paddr() as int, idx as int),
             ),
     {
         assert(spt.perms.contains_key(self.paddr()));
@@ -234,10 +234,10 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         }
 
         assume(spt.wf());  // TODO: P0
-        assume(spec_helpers::spt_do_not_change_above_level(
+        assume(spec_helpers::spt_do_not_change_except(
             spt,
             old(spt),
-            self.level_spec(&spt.alloc_model),
+            index_pte_paddr(self.paddr() as int, idx as int),
         ));  // TODO: P0
     }
 

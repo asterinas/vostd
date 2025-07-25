@@ -532,9 +532,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
-                    assert(spt.frames.value().contains_key(child_pt.paddr() as int));
-                    assume(child_pt.level_spec(&spt.alloc_model) == cur_level - 1);
-                    assume(self.0.path_wf(spt));  // Maybe we didn't assert that `alloc_if_none` hasn't changed the path.
+                    assume(self.0.path_wf(spt));
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },

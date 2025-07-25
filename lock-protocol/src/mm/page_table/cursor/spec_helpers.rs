@@ -40,41 +40,45 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn spt_do_not_change_above_level<C: PageTableConfig>(
+pub open spec fn spt_do_not_change_except<C: PageTableConfig>(
     spt: &SubPageTable<C>,
     old_spt: &SubPageTable<C>,
-    level: PagingLevel,
+    pte_addr: int,
 ) -> bool {
     &&& spt.wf()
     &&& old_spt.wf()
     &&& spt.instance.id() == old_spt.instance.id()
     &&& spt.instance.root() == old_spt.instance.root()
-    &&& spt_do_not_remove_above_level(spt, old_spt, level)
-    &&& spt_do_not_remove_above_level(old_spt, spt, level)
+    &&& forward_spt_do_not_change_except(spt, old_spt, pte_addr)
+    &&& forward_spt_do_not_change_except(old_spt, spt, pte_addr)
 }
 
-pub open spec fn spt_do_not_remove_above_level<C: PageTableConfig>(
+#[verifier::inline]
+pub open spec fn forward_spt_do_not_change_except<C: PageTableConfig>(
     spt: &SubPageTable<C>,
     old_spt: &SubPageTable<C>,
-    level: PagingLevel,
+    pte_addr: int,
 ) -> bool {
     &&& forall|i: int| #[trigger]
         spt.frames.value().contains_key(i) ==> {
-            spt.frames.value()[i].level >= level ==> {
+            !(exists|l: int| #[trigger]
+                spt.frames.value()[i].ancestor_chain.contains_key(l)
+                    && #[trigger] spt.frames.value()[i].ancestor_chain[l].entry_pa() != pte_addr)
+                ==> {
                 &&& #[trigger] old_spt.frames.value().contains_key(i)
                 &&& spt.frames.value()[i] == old_spt.frames.value()[i]
             }
         }
     &&& forall|i: int| #[trigger]
         spt.ptes.value().contains_key(i) ==> {
-            spt.ptes.value()[i].level > level ==> {
+            i != pte_addr ==> {
                 &&& #[trigger] old_spt.ptes.value().contains_key(i)
                 &&& spt.ptes.value()[i] == old_spt.ptes.value()[i]
             }
         }
     &&& forall|i: int| #[trigger]
         spt.i_ptes.value().contains_key(i) ==> {
-            spt.i_ptes.value()[i].level > level ==> {
+            i != pte_addr ==> {
                 &&& #[trigger] old_spt.i_ptes.value().contains_key(i)
                 &&& spt.i_ptes.value()[i] == old_spt.i_ptes.value()[i]
             }

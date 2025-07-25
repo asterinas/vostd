@@ -4,7 +4,7 @@ use core::ops::Deref;
 
 use crate::{
     mm::{
-        cursor::spec_helpers::{self, spt_do_not_change_above_level},
+        cursor::spec_helpers::{self, spt_do_not_change_except},
         frame::allocator::AllocatorModel,
         meta::AnyFrameMeta,
         nr_subpage_per_huge,
@@ -21,7 +21,9 @@ use super::{Child, ChildRef, PageTableGuard, PageTableNode, PageTableNodeRef};
 
 use crate::exec;
 
-use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
+use crate::spec::sub_pt::{
+    SubPageTable, index_pte_paddr, state_machine::IntermediatePageTableEntryView,
+};
 
 verus! {
 
@@ -154,7 +156,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance.id() == old(spt).instance.id(),
             spt.wf(),
-            spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
+            spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
             if (old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
                 match res {
                     Child::PageTable(pt) => {
@@ -230,13 +232,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         ensures
             spt.wf(),
             spt.instance.id() == old(spt).instance.id(),
-            spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
             if old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int) || old(
                 spt,
             ).ptes.value().contains_key(self.pte.pte_paddr() as int) {
-                res is None
+                &&& spt == old(spt)
+                &&& res is None
             } else {
                 &&& res is Some
+                &&& spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int)
                 &&& res.unwrap().wf(&spt.alloc_model)
                 &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
                 &&& !old(spt).frames.value().contains_key(res.unwrap().paddr() as int)
@@ -258,9 +261,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let pa = pt.start_paddr();
 
         proof {
+            spt.instance.set_child(
+                IntermediatePageTableEntryView {
+                    frame_pa: self.node.paddr() as int,
+                    in_frame_index: self.idx as int,
+                    map_to_pa: pt.start_paddr() as int,
+                    level: level as int,
+                },
+                &mut spt.frames,
+                &mut spt.i_ptes,
+                &spt.ptes,
+            );
             spt.perms.insert(pt.start_paddr(), perm@);
         }
-        ;
 
         self.node.write_pte(
             self.idx,
