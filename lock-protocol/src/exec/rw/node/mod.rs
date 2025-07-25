@@ -31,15 +31,17 @@ impl PageTableNode {
         self.perm@.get_pt()
     }
 
+    #[verus_spec]
     pub fn meta(&self) -> (res: &PageTablePageMeta)
         requires
             self.wf(),
         ensures
             *res =~= self.meta_spec(),
     {
-        let tracked perm = self.perm.borrow();
+        proof_decl!{let tracked perm = self.perm.borrow();}
         let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(&perm.ptr_perm)));
-        &meta_slot.get_inner_pt(Tracked(perm))
+        proof_with!{Tracked(perm)}
+        meta_slot.get_inner_pt()
     }
 
     pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
@@ -102,9 +104,7 @@ impl PageTableNode {
         ensures
             res == self.level_spec(),
     {
-        let tracked perm = self.perm.borrow();
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(&perm.ptr_perm)));
-        meta_slot.get_inner_pt(Tracked(&perm)).level
+        self.meta().level
     }
 
     pub fn lock_write(self, m: Tracked<LockProtocolModel>) -> (res: (

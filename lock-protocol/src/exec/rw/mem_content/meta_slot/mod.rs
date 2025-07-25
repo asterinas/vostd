@@ -74,8 +74,10 @@ pub struct MetaSlot {
 }
 
 impl MetaSlot {
-    #[verifier::external_body]
-    pub fn get_inner_pt(&self, Tracked(perm): Tracked<&MetaSlotPerm>) -> (res: &PageTablePageMeta)
+    #[verus_verify(external_body)]
+    #[verus_spec( res =>
+        with
+            Tracked(perm): Tracked<&MetaSlotPerm>
         requires
             perm.is_pt(),
             perm.wf(),
@@ -83,7 +85,8 @@ impl MetaSlot {
         ensures
             *res =~= perm.get_pt(),
             res.wf(),
-    {
+    )]
+    pub fn get_inner_pt(&self) -> (res: &PageTablePageMeta) {
         unimplemented!()
     }
 }
