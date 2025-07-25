@@ -49,6 +49,17 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
 }
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
+    pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
+        &&& self.node.wf(&spt.alloc_model)
+        &&& self.idx < nr_subpage_per_huge::<C>()
+        &&& self.pte.pte_paddr_spec() == index_pte_paddr(self.node.paddr() as int, self.idx as int)
+        &&& spt.frames.value().contains_key(self.node.paddr() as int)
+        &&& self.pte.is_present_spec() ==> {
+            ||| spt.i_ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
+            ||| spt.ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
+        }
+    }
+
     #[verifier::external_body]
     pub(in crate::mm) fn is_none(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: bool)
         requires
@@ -72,22 +83,20 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     >)
         requires
             spt.wf(),
-            self.pte.pte_paddr() == exec::get_pte_from_addr_spec(
-                self.pte.pte_paddr(),
-                spt,
-            ).pte_addr,
-            self.pte.frame_paddr() == exec::get_pte_from_addr_spec(
-                self.pte.pte_paddr(),
-                spt,
-            ).frame_pa,
+            self.wf(spt),
         ensures
             if (spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
                 match res {
                     ChildRef::PageTable(pt) => {
+                        &&& pt.wf(&spt.alloc_model)
                         &&& pt.deref().start_paddr() == self.pte.frame_paddr() as usize
+                        &&& pt.level_spec(&spt.alloc_model) == self.node.level_spec(
+                            &spt.alloc_model,
+                        ) - 1
                         &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
-                        &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].value().level
-                            == self.node.level_spec(&spt.alloc_model) - 1
+                        &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
+                            == pt.meta_ptr
+                        &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
                     },
                     _ => false,
                 }
@@ -222,12 +231,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             spt.instance.id() == old(spt).instance.id(),
             spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
-            if old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int) {
+            if old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int) || old(
+                spt,
+            ).ptes.value().contains_key(self.pte.pte_paddr() as int) {
                 res is None
             } else {
                 &&& res is Some
-                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& res.unwrap().wf(&spt.alloc_model)
+                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& !old(spt).frames.value().contains_key(res.unwrap().paddr() as int)
                 &&& spt.frames.value().contains_key(res.unwrap().paddr() as int)
+                &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
                 &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
                 &&& res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(
                     &spt.alloc_model,
@@ -266,6 +280,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ///
     /// The caller must ensure that the index is within the bounds of the node.
     // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
+    #[verifier::external_body]
     pub fn new_at(
         node: &'a PageTableGuard<'rcu, C>,
         idx: usize,
@@ -276,36 +291,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             node.wf(&spt.alloc_model),
         ensures
+            res.wf(spt),
             res.node == node,
             res.idx == idx,
-            res.node.wf(&spt.alloc_model),
-            res.pte.pte_paddr() == index_pte_paddr(node.paddr() as int, idx as int),
-            res.pte.pte_paddr() == exec::get_pte_from_addr_spec(res.pte.pte_paddr(), spt).pte_addr,
-            res.pte.frame_paddr() == exec::get_pte_from_addr_spec(
-                res.pte.pte_paddr(),
-                spt,
-            ).frame_pa,
-            res.pte.frame_paddr() == 0 ==> !spt.i_ptes.value().contains_key(
-                res.pte.pte_paddr() as int,
-            ),
-            res.pte.frame_paddr() != 0 ==> {
-                &&& spt.i_ptes.value().contains_key(res.pte.pte_paddr() as int)
-                &&& spt.i_ptes.value()[res.pte.pte_paddr() as int].frame_pa
-                    == res.pte.frame_paddr() as int
-                &&& spt.frames.value().contains_key(res.pte.frame_paddr() as int)
-            },
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
         let pte = node.read_pte(idx, Tracked(spt));
-
-        // FIXME: Fix them by revise the correspondance between PTE state and SPT.
-        assume(pte.frame_paddr() == 0 ==> !spt.i_ptes.value().contains_key(pte.pte_paddr() as int));
-        assume(pte.frame_paddr() != 0 ==> {
-            &&& spt.i_ptes.value().contains_key(pte.pte_paddr() as int)
-            &&& spt.i_ptes.value()[pte.pte_paddr() as int].frame_pa == pte.frame_paddr() as int
-            &&& spt.frames.value().contains_key(pte.frame_paddr() as int)
-        });
 
         Self { pte, idx, node, phantom: std::marker::PhantomData }
     }

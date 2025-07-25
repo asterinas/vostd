@@ -51,6 +51,14 @@ verus! {
 pub type PageTableNode<C: PageTableConfig> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> PageTableNode<C> {
+    pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
+        &&& pa_is_valid_pt_address(self.paddr() as int)
+        &&& level_is_in_range(self.level_spec(alloc_model) as int)
+        &&& alloc_model.meta_map.contains_key(self.paddr() as int)
+        &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.meta_ptr
+        &&& alloc_model.meta_map[self.paddr() as int].value().level == self.level_spec(alloc_model)
+    }
+
     #[verifier::allow_in_spec]
     pub fn paddr(&self) -> Paddr
         returns
@@ -131,11 +139,7 @@ pub struct PageTableGuard<'a, C: PageTableConfig> {
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
-        &&& pa_is_valid_pt_address(self.paddr() as int)
-        &&& level_is_in_range(self.level_spec(alloc_model) as int)
-        &&& alloc_model.meta_map.contains_key(self.paddr() as int)
-        &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.inner.meta_ptr
-        &&& alloc_model.meta_map[self.paddr() as int].value().level == self.level_spec(alloc_model)
+        &&& self.inner.wf(alloc_model)
     }
 
     #[verifier::allow_in_spec]
@@ -177,27 +181,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     }
 
     #[verifier::external_body]
-    fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E)
-        requires
-            idx < nr_subpage_per_huge::<C>(),
-            spt.wf(),
-        ensures
-            spt.wf(),
-            res.frame_paddr() == get_pte_from_addr_spec(
-                index_pte_paddr(self.paddr() as int, idx as int) as usize,
-                spt,
-            ).frame_pa,
-            res.pte_paddr() == index_pte_paddr(self.paddr() as int, idx as int),
-            res.frame_paddr() == 0 ==> !spt.ptes.value().contains_key(
-                index_pte_paddr(self.paddr() as int, idx as int),
-            ),
-            res.frame_paddr() != 0 ==> {
-                &&& spt.ptes.value().contains_key(res.pte_paddr() as int)
-                &&& spt.ptes.value()[res.pte_paddr() as int].frame_pa == res.frame_paddr() as int
-                &&& spt.frames.value().contains_key(res.frame_paddr() as int)
-            },
-    {
-        unimplemented!();  // FIXME! use the pptr to read the pte
+    fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E) {
+        let e = self.inner.ptr.read(Tracked(spt.perms.tracked_borrow(self.paddr()))).ptes[idx];
+        todo!("e -> usize -> C::E");
     }
 
     fn write_pte(

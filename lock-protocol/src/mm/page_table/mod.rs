@@ -236,13 +236,13 @@ Sized {
 
     spec fn frame_paddr_spec(&self) -> Paddr;
 
-    #[verifier::when_used_as_spec(pte_addr_spec)]
+    #[verifier::when_used_as_spec(pte_paddr_spec)]
     fn pte_paddr(&self) -> Paddr
         returns
-            self.pte_addr_spec(),
+            self.pte_paddr_spec(),
     ;
 
-    spec fn pte_addr_spec(&self) -> Paddr;
+    spec fn pte_paddr_spec(&self) -> Paddr;
 
     fn prop(&self) -> PageProperty;
 

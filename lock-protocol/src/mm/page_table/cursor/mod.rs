@@ -50,23 +50,32 @@ use crate::mm::NR_ENTRIES;
 /// A handy ghost mode macro to get the guard at a certain level in the path.
 macro_rules! path_index {
     ($self: ident . path [$i:expr]) => {
-        $self.path.view().index(path_index_at_level($i))
+        $self.path.view().index(path_index_at_level_spec($i))
     };
     ($self: ident . 0 . path [$i:expr]) => {
-        $self.0.path.view().index(path_index_at_level($i))
+        $self.0.path.view().index(path_index_at_level_spec($i))
     };
     (old($self: ident) . path [$i:expr]) => {
-        old($self).path.view().index(path_index_at_level($i))
+        old($self).path.view().index(path_index_at_level_spec($i))
     };
     (old($self: ident) . 0 . path [$i:expr]) => {
-        old($self).0.path.view().index(path_index_at_level($i))
+        old($self).0.path.view().index(path_index_at_level_spec($i))
     };
 }
 
 verus! {
 
-pub open spec fn path_index_at_level(level: PagingLevel) -> int {
+pub open spec fn path_index_at_level_spec(level: PagingLevel) -> int {
     level - 1
+}
+
+fn path_index_at_level(level: PagingLevel) -> (res: usize)
+    requires
+        1 <= level <= MAX_NR_LEVELS as int,
+    ensures
+        res as int == path_index_at_level_spec(level),
+{
+    (level - 1) as usize
 }
 
 /// The cursor for traversal over the page table.
@@ -150,12 +159,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
         &&& cur_frame.wf(&spt.alloc_model)
-        &&& cur_frame == self.path[path_index_at_level(
+        &&& cur_frame == self.path[path_index_at_level_spec(
             cur_frame.level_spec(&spt.alloc_model),
         )].unwrap()
         &&& spt.frames.value().contains_key(cur_frame_pa)
         &&& forall|j: PagingLevel|
-            #![trigger self.path[path_index_at_level(j)]]
+            #![trigger self.path[path_index_at_level_spec(j)]]
             #![trigger cur_ancestors.contains_key(j as int)]
             {
                 let guard_option_ = path_index!(self.path[j]);
@@ -179,7 +188,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// The path above the current node should match the ancestors of the current node.
     pub open spec fn path_wf(&self, spt: &SubPageTable<C>) -> bool {
         forall|i: PagingLevel|
-            #![trigger self.path[path_index_at_level(i)]]
+            #![trigger self.path[path_index_at_level_spec(i)]]
             {
                 let guard_option = path_index!(self.path[i]);
                 &&& self.level <= i <= self.guard_level ==> {
@@ -220,7 +229,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             let ancestors = frame_view.unwrap().ancestor_chain;
             &&& frame_view.is_some()
             &&& forall|i: PagingLevel|
-                #![trigger self.path.view().index(path_index_at_level(i))]
+                #![trigger self.path.view().index(path_index_at_level_spec(i))]
                 #![trigger ancestors.contains_key(i as int)]
                 {
                     let guard_option = path_index!(self.path[i]);
@@ -372,12 +381,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va == old(self).va,
     {
         proof {
-            let taken = &self.path[self.level as usize - 1];
-            // self.path[self.level as usize - 1].take() // Verus does not support this currently
+            let taken = &path_index!(self.path[self.level]);
+            // self.path[path_index_at_level(self.level)].take() // Verus does not support this currently
             assert(taken == path_index!(self.path[self.level]));
             assert(taken.is_some());
         }
-        self.path[self.level as usize - 1] = None;
+        self.path[path_index_at_level(self.level)] = None;
 
         self.level = self.level + 1;
     }
@@ -404,14 +413,14 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va == old(self).va,
             // Path remains unchanged except the one being set
             forall|i: PagingLevel|
-                #![trigger self.path.view().index(path_index_at_level(i))]
+                #![trigger self.path.view().index(path_index_at_level_spec(i))]
                 old(self).level <= i <= old(self).guard_level ==> {
                     #[trigger] path_index!(self.path[i]) == path_index!(old(self).path[i])
                 },
     {
         self.level = self.level - 1;
 
-        self.path[self.level as usize - 1] = Some(child_pt);
+        self.path[path_index_at_level(self.level)] = Some(child_pt);
     }
 
     // Note that mut types are not supported in Verus.
@@ -420,29 +429,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         requires
             self.wf(spt),
         ensures
-            res.node.wf(&spt.alloc_model),
+            res.wf(spt),
+            res.node == path_index!(self.path[self.level]).unwrap(),
+            res.node.level_spec(&spt.alloc_model) == self.level,
             res.idx == pte_index::<C>(self.va, self.level),
-            res.idx < nr_subpage_per_huge::<C>(),  // This is the post condition of `pte_index`. Why we have to specify here?
-            res.pte.pte_paddr() == index_pte_paddr(
-                path_index!(self.path[self.level]).unwrap().paddr() as int,
-                pte_index::<C>(self.va, self.level) as int,
-            ),
-            res.pte.pte_paddr() == exec::get_pte_from_addr_spec(res.pte.pte_paddr(), spt).pte_addr,
-            res.pte.frame_paddr() == exec::get_pte_from_addr_spec(
-                res.pte.pte_paddr(),
-                spt,
-            ).frame_pa,
-            res.pte.frame_paddr() == 0 ==> !spt.i_ptes.value().contains_key(
-                res.pte.pte_paddr() as int,
-            ),
-            res.pte.frame_paddr() != 0 ==> {
-                &&& spt.i_ptes.value().contains_key(res.pte.pte_paddr() as int)
-                &&& spt.i_ptes.value()[res.pte.pte_paddr() as int].frame_pa
-                    == res.pte.frame_paddr() as int
-                &&& spt.frames.value().contains_key(res.pte.frame_paddr() as int)
-            },
     {
-        let cur_node = self.path[self.level as usize - 1].as_ref().unwrap();
+        let cur_node = self.path[path_index_at_level(self.level)].as_ref().unwrap();
+        assume(cur_node.level_spec(&spt.alloc_model) == self.level);  // Seems true given self.wf()?
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), Tracked(spt))
     }
 }
@@ -530,19 +523,19 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             match cur_entry.to_ref(Tracked(spt)) {
                 ChildRef::PageTable(pt) => {
                     let child_pt = pt.make_guard_unchecked(preempt_guard);
-                    // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
+                    assert(cur_level == cur_entry.node.level_spec(&spt.alloc_model));
+                    assert(cur_level - 1 == child_pt.level_spec(&spt.alloc_model));
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::None => {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
+                    assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
-
                     assert(spt.frames.value().contains_key(child_pt.paddr() as int));
-
-                    // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
+                    assume(child_pt.level_spec(&spt.alloc_model) == cur_level - 1);
+                    assume(self.0.path_wf(spt));  // Maybe we didn't assert that `alloc_if_none` hasn't changed the path.
                     assume(self.0.ancestors_match_path(spt, child_pt));
-                    assume(self.0.path_wf(spt));  // FIXME: giveup today. try hard tomorrow.
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {

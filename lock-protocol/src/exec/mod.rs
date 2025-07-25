@@ -197,7 +197,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
         self.pte_addr as Paddr
     }
 
-    open spec fn pte_addr_spec(&self) -> Paddr {
+    open spec fn pte_paddr_spec(&self) -> Paddr {
         self.pte_addr as Paddr
     }
 }
