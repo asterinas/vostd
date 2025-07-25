@@ -177,6 +177,10 @@ impl PageTableEntryTrait for MockPageTableEntry {
         todo!()
     }
 
+    open spec fn prop_spec(&self) -> PageProperty {
+        self.prop
+    }
+
     #[verifier::external_body]
     fn set_prop(&mut self, prop: crate::mm::page_prop::PageProperty) {
         todo!()

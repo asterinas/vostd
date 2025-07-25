@@ -210,6 +210,7 @@ Sized {
     /// method should return false. And for PTEs created by [`Self::new_page`]
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
+    #[verifier::when_used_as_spec(is_present_spec)]
     fn is_present(&self) -> (res: bool);
 
     spec fn is_present_spec(&self) -> bool;
@@ -244,7 +245,10 @@ Sized {
 
     spec fn pte_paddr_spec(&self) -> Paddr;
 
+    #[verifier::when_used_as_spec(prop_spec)]
     fn prop(&self) -> PageProperty;
+
+    spec fn prop_spec(&self) -> PageProperty;
 
     /// Set the page property of the PTE.
     ///
@@ -267,8 +271,8 @@ Sized {
     fn clone_pte(&self) -> (res: Self)
         ensures
             self.pte_paddr() == res.pte_paddr(),
-            self.is_present_spec() == res.is_present_spec(),
-            // self.prop() == res.prop(),
+            self.is_present() == res.is_present(),
+            self.prop() == res.prop(),
             self.frame_paddr() == res.frame_paddr(),
     ;
 }

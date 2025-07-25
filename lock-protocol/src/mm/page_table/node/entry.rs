@@ -230,7 +230,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(spt).wf(),
             old(self).idx < nr_subpage_per_huge::<C>(),
             old(spt).perms.contains_key(old(self).node.paddr()),
-            // TODO: we assume it's an i_pte concurrently
+            // TODO: we assume it's an i_pte currently
             // old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             match new_child {
