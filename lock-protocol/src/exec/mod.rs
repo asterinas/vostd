@@ -200,6 +200,15 @@ impl PageTableEntryTrait for MockPageTableEntry {
     open spec fn pte_paddr_spec(&self) -> Paddr {
         self.pte_addr as Paddr
     }
+
+    fn clone_pte(&self) -> (res: Self) {
+        MockPageTableEntry {
+            pte_addr: self.pte_addr,
+            frame_pa: self.frame_pa,
+            level: self.level,
+            prop: self.prop,
+        }
+    }
 }
 
 pub fn main_test() {

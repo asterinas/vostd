@@ -85,4 +85,37 @@ pub open spec fn forward_spt_do_not_change_except<C: PageTableConfig>(
         }
 }
 
+pub open spec fn spt_do_not_change<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
+) -> bool {
+    &&& spt.wf()
+    &&& old_spt.wf()
+    &&& spt.instance.id() == old_spt.instance.id()
+    &&& spt.instance.root() == old_spt.instance.root()
+    &&& spt_do_not_remove(spt, old_spt)
+    &&& spt_do_not_remove(old_spt, spt)
+}
+
+pub open spec fn spt_do_not_remove<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
+) -> bool {
+    &&& forall|i: int| #[trigger]
+        spt.frames.value().contains_key(i) ==> {
+            &&& #[trigger] old_spt.frames.value().contains_key(i)
+            &&& spt.frames.value()[i] == old_spt.frames.value()[i]
+        }
+    &&& forall|i: int| #[trigger]
+        spt.ptes.value().contains_key(i) ==> {
+            &&& #[trigger] old_spt.ptes.value().contains_key(i)
+            &&& spt.ptes.value()[i] == old_spt.ptes.value()[i]
+        }
+    &&& forall|i: int| #[trigger]
+        spt.i_ptes.value().contains_key(i) ==> {
+            &&& #[trigger] old_spt.i_ptes.value().contains_key(i)
+            &&& spt.i_ptes.value()[i] == old_spt.i_ptes.value()[i]
+        }
+}
+
 } // verus!

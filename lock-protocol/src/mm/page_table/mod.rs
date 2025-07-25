@@ -262,6 +262,15 @@ Sized {
     /// The level of the page table the entry resides is given since architectures
     /// like amd64 only uses a huge bit in intermediate levels.
     fn is_last(&self, level: PagingLevel) -> bool;
+
+    // It seems we cannot specify a clone spec for a trait in Verus.
+    fn clone_pte(&self) -> (res: Self)
+        ensures
+            self.pte_paddr() == res.pte_paddr(),
+            self.is_present_spec() == res.is_present_spec(),
+            // self.prop() == res.prop(),
+            self.frame_paddr() == res.frame_paddr(),
+    ;
 }
 
 /// A minimal set of constants that determines the paging system.

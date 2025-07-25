@@ -220,6 +220,125 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         old_child
     }
 
+    pub(in crate::mm) fn replace_with_none(
+        &mut self,
+        new_child: Child<C>,
+        Tracked(spt): Tracked<&mut SubPageTable<C>>,
+    ) -> (res: Child<C>)
+        requires
+            old(self).wf(&old(spt)),
+            old(spt).wf(),
+            old(self).idx < nr_subpage_per_huge::<C>(),
+            old(spt).perms.contains_key(old(self).node.paddr()),
+            // TODO: we assume it's an i_pte concurrently
+            // old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            match new_child {
+                Child::None => true,
+                _ => false,
+            },
+        ensures
+            self.node.wf(&old(spt).alloc_model),
+            // !spt.ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            !spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            spt.instance.id() == old(spt).instance.id(),
+            spt.wf(),
+            spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
+            self.remove_old_child(res, old(self).pte, old(spt), spt),
+    {
+        let old_pte = self.pte.clone_pte();
+        assert(old_pte.pte_paddr() == self.pte.pte_paddr());
+        let old_child = Child::from_pte(
+            old_pte,
+            self.node.level(Tracked(&spt.alloc_model)),
+            Tracked(spt),
+        );
+
+        if old_child.is_none() && !new_child.is_none() {
+            assert(false);
+        } else if !old_child.is_none() && new_child.is_none() {
+            // *self.node.nr_children_mut() -= 1;
+            self.node.change_children(-1);
+        }
+        self.pte = new_child.into_pte();
+
+        self.node.write_pte(
+            self.idx,
+            self.pte.clone_pte(),
+            self.node.level(Tracked(&spt.alloc_model)),
+            Tracked(spt),
+        );
+
+        proof {
+            assert(spt.i_ptes.value().contains_key(
+                index_pte_paddr(self.node.paddr() as int, self.idx as int) as int,
+            ));
+            let child_frame_addr = spt.i_ptes.value()[index_pte_paddr(
+                self.node.paddr() as int,
+                self.idx as int,
+            ) as int].map_to_pa;
+            let child_frame_level = spt.frames.value()[child_frame_addr].level;
+            assume(spt.frames.value().contains_key(child_frame_addr));  // TODO: Isn't this in spt wf?
+            assume(forall|i: int| #[trigger]
+                spt.frames.value().contains_key(i) ==> {
+                    ||| !spt.frames.value()[i].ancestor_chain.contains_key(child_frame_level)
+                    ||| spt.frames.value()[i].ancestor_chain[child_frame_level].frame_pa
+                        != child_frame_addr
+                });  // TODO: Where should we enforce this?
+            spt.instance.remove_at(
+                self.node.paddr() as int,
+                self.idx as int,
+                &mut spt.frames,
+                &mut spt.i_ptes,
+            );
+            assume(spt.wf());  // TODO: fix spt.perms when write_pte
+        }
+
+        assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
+        assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
+        assume(spt_do_not_change_above_level(
+            spt,
+            old(spt),
+            self.node.level_spec(&spt.alloc_model),
+        ));
+
+        old_child
+    }
+
+    #[verifier::inline]
+    pub(in crate::mm) open spec fn remove_old_child(
+        &self,
+        old_child: Child<C>,
+        old_pte: C::E,
+        old_spt: &SubPageTable<C>,
+        spt: &SubPageTable<C>,
+    ) -> (res: bool) {
+        if (old_spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
+            match old_child {
+                Child::PageTable(pt) => {
+                    &&& pt.deref().start_paddr() == old_pte.frame_paddr() as usize
+                    &&& spt.i_ptes.value().contains_key(old_pte.pte_paddr() as int)
+                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr() as int)
+                    &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
+                        == self.node.level_spec(&spt.alloc_model) - 1
+                    &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
+                        == pt.deref().meta_ptr
+                },
+                _ => false,
+            }
+        } else if (old_spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
+            match old_child {
+                Child::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
+                _ => false,
+            }
+        } else {
+            match old_child {
+                Child::None => true,
+                _ => false,
+            }
+        }
+    }
+
     #[verifier::external_body]
     pub(in crate::mm) fn alloc_if_none(
         self,

@@ -198,6 +198,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             old(spt).wf(),
             old(spt).perms.contains_key(self.paddr()),
             self.wf(&old(spt).alloc_model),
+            old(spt).i_ptes.value().contains_key(
+                index_pte_paddr(self.paddr() as int, idx as int) as int,
+            ),
         ensures
             spt.wf(),
             spt.ptes.instance_id() == old(spt).ptes.instance_id(),
@@ -209,6 +212,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             ),
     {
         assert(spt.perms.contains_key(self.paddr()));
+        assert(old(spt).i_ptes.value().contains_key(
+            index_pte_paddr(self.paddr() as int, idx as int) as int,
+        ));
 
         let p = PPtr::from_addr(self.paddr());
         let tracked points_to = spt.perms.tracked_remove(self.paddr());
