@@ -243,7 +243,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             !spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             spt.instance.id() == old(spt).instance.id(),
             spt.wf(),
-            spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
+            spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int),
             self.remove_old_child(res, old(self).pte, old(spt), spt),
     {
         let old_pte = self.pte.clone_pte();
@@ -296,7 +296,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
         assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
-        assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
+        assume(spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int));
 
         old_child
     }
