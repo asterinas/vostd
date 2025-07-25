@@ -86,7 +86,7 @@ impl MetaSlot {
             *res =~= perm.get_pt(),
             res.wf(),
     )]
-    pub fn get_inner_pt(&self) -> (res: &PageTablePageMeta) {
+    pub fn get_inner_pt(&self) -> &PageTablePageMeta {
         unimplemented!()
     }
 }
