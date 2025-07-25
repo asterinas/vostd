@@ -734,7 +734,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             };
 
             assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
-            assert(self.0.path_wf(spt));  // TODO: P0
+            assume(self.0.path_wf(spt));  // TODO: P0
             self.0.move_forward(Tracked(spt));
 
             return item;
