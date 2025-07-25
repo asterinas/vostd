@@ -68,7 +68,7 @@ init!{
 }
 
 transition!{
-    locking_start(cpu: CpuId, nid: NodeId) {
+    protocol_lock_start(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
@@ -78,7 +78,7 @@ transition!{
 }
 
 transition!{
-    lock(cpu: CpuId, nid: NodeId) {
+    protocol_lock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
@@ -93,7 +93,7 @@ transition!{
 }
 
 transition!{
-    locking_skip(cpu: CpuId, nid: NodeId) {
+    protocol_lock_skip(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
@@ -109,7 +109,7 @@ transition!{
 }
 
 transition!{
-    locking_end(cpu: CpuId) {
+    protocol_lock_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
         remove cursors -= [ cpu => let CursorState::Locking(rt, nid) ];
@@ -119,7 +119,7 @@ transition!{
 }
 
 transition!{
-    unlocking_start(cpu: CpuId) {
+    protocol_unlock_start(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
         remove cursors -= [ cpu => let CursorState::Locked(rt) ];
@@ -128,7 +128,7 @@ transition!{
 }
 
 transition!{
-    unlock(cpu: CpuId, nid: NodeId) {
+    protocol_unlock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
@@ -143,7 +143,7 @@ transition!{
 }
 
 transition!{
-    unlocking_skip(cpu: CpuId, nid: NodeId) {
+    protocol_unlock_skip(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
@@ -159,7 +159,7 @@ transition!{
 }
 
 transition!{
-    unlocking_end(cpu: CpuId) {
+    protocol_unlock_end(cpu: CpuId) {
         require(valid_cpu(pre.cpu_num, cpu));
 
         remove cursors -= [ cpu => let CursorState::Locking(rt, nid) ];
@@ -169,7 +169,7 @@ transition!{
 }
 
 transition!{
-    allocate(nid: NodeId) {
+    protocol_allocate(nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
 
@@ -180,51 +180,103 @@ transition!{
         require(pte.is_void(offset));
         add ptes += [ pa => pte.update(offset, Some(())) ];
         add nodes += [ nid => NodeState::Free ];
-        add ptes += [ nid => PteState::empty() ]; // TODO
+        add ptes += [ nid => PteState::empty() ];
     }
 }
 
 transition!{
-    deallocate(nid: NodeId) {
+    // TODO
+    protocol_deallocate(nid: NodeId) {
+        require(NodeHelper::valid_nid(nid));
+        require(nid != NodeHelper::root_id());
+    }
+}
+
+/// Lock a node outside the lock protocol.
+/// Necessary for rcu version.
+transition!{
+    normal_lock(nid: NodeId) {
+        require(NodeHelper::valid_nid(nid));
+
+        remove nodes -= [ nid => NodeState::Free ];
+        add nodes += [ nid => NodeState::LockedOutside ];
+    }
+}
+
+transition!{
+    normal_unlock(nid: NodeId) {
+        require(NodeHelper::valid_nid(nid));
+
+        remove nodes -= [ nid => NodeState::Locked ];
+        add nodes += [ nid => NodeState::Free ];
+    }
+}
+
+transition!{
+    normal_allocate(nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
 
-        // TODO
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        have nodes >= [ pa => NodeState::LockedOutside ];
+        remove ptes -= [ pa => let pte ];
+        require(pte.is_void(offset));
+        add ptes += [ pa => pte.update(offset, Some(())) ];
+        add nodes += [ nid => NodeState::Free ];
+        add ptes += [ nid => PteState::empty() ];
     }
+}
+
+transition!{
+    // TODO
+    normal_deallocate(nid: NodeId) {}
 }
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId) { admit(); }
 
-#[inductive(locking_start)]
-fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+#[inductive(protocol_lock_start)]
+fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
-#[inductive(lock)]
-fn lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+#[inductive(protocol_lock)]
+fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
-#[inductive(locking_skip)]
-fn locking_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+#[inductive(protocol_lock_skip)]
+fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
-#[inductive(locking_end)]
-fn locking_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
+#[inductive(protocol_lock_end)]
+fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
-#[inductive(unlocking_start)]
-fn unlocking_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
+#[inductive(protocol_unlock_start)]
+fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
-#[inductive(unlock)]
-fn unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+#[inductive(protocol_unlock)]
+fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
-#[inductive(unlocking_skip)]
-fn unlocking_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+#[inductive(protocol_unlock_skip)]
+fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
-#[inductive(unlocking_end)]
-fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
+#[inductive(protocol_unlock_end)]
+fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
-#[inductive(allocate)]
-fn allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
+#[inductive(protocol_allocate)]
+fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
-#[inductive(deallocate)]
-fn deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
+#[inductive(protocol_deallocate)]
+fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
+
+#[inductive(normal_lock)]
+fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
+
+#[inductive(normal_unlock)]
+fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
+
+#[inductive(normal_allocate)]
+fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
+
+#[inductive(normal_deallocate)]
+fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 }
 

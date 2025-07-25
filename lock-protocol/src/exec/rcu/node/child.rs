@@ -97,10 +97,7 @@ impl Child {
             *self is None
         } else if pte.is_pt(level) {
             &&& *self is PageTable
-            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(
-                pte.inner.paddr(),
-            )
-            // TODO
+            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
             &&& self->PageTable_0.nid@ == pte.nid()
             &&& self->PageTable_0.inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& self->PageTable_0.inst@.id() == pte.inst_id()

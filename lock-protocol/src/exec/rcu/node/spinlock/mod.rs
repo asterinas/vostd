@@ -108,10 +108,7 @@ impl PageTableEntryPerms {
         level: PagingLevel,
         instance_id: InstanceId,
         nid: NodeId,
-    ) -> bool
-        recommends
-            NodeHelper::is_not_leaf(nid),
-    {
+    ) -> bool {
         &&& self.inner.wf()
         &&& self.inner.is_init_all()
         &&& self.inner.value().len() == 512
@@ -127,11 +124,22 @@ impl PageTableEntryPerms {
         self.inner.addr()
     }
 
-    pub open spec fn relate_pte_state(&self, state: PteState) -> bool {
+    pub open spec fn relate_pte_state(&self, level: PagingLevel, state: PteState) -> bool {
         forall|i: int|
-            #![trigger self.inner.value()[i]]
-            0 <= i < 512 ==> {
-                self.inner.value()[i].inner.is_present() <==> state.is_alive(i as nat)
+            #![trigger self.inner.value()[i].is_pt(level)]
+            0 <= i < 512 ==> { self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat) }
+    }
+
+    pub open spec fn relate_pte_state_except(
+        &self,
+        level: PagingLevel,
+        state: PteState,
+        idx: nat,
+    ) -> bool {
+        forall|i: int|
+            #![trigger self.inner.value()[i].is_pt(level)]
+            0 <= i < 512 && i != idx ==> {
+                self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat)
             }
     }
 
@@ -162,7 +170,7 @@ impl InvariantPredicate<
             &&& v.1->Some_0.instance_id() == k.0
             &&& v.1->Some_0.key() == k.1
             &&& v.1->Some_0.value().wf()
-            &&& v.3.relate_pte_state(v.1->Some_0.value())
+            &&& v.3.relate_pte_state(k.3, v.1->Some_0.value())
         }
         &&& v.2.id() == k.4
         &&& v.2.is_init()
@@ -226,8 +234,8 @@ struct_with_invariants! {
 
 pub struct SpinGuard {
     pub handle: Tracked<SpinGuardToken>,
-    pub node_token: Option<Tracked<NodeToken>>,
-    pub pte_token: Option<Tracked<PteToken>>,
+    pub node_token: Tracked<Option<NodeToken>>,
+    pub pte_token: Tracked<Option<PteToken>>,
     pub stray_perm: Tracked<CellPointsTo<bool>>,
     pub perms: Tracked<PageTableEntryPerms>,
     pub in_protocol: Ghost<bool>,
@@ -236,18 +244,48 @@ pub struct SpinGuard {
 impl SpinGuard {
     pub open spec fn wf(self, spinlock: &PageTablePageSpinLock) -> bool {
         &&& self.handle@.instance_id() == spinlock.inst@.id()
-        &&& self.node_token is Some <==> self.pte_token is Some
-        &&& self.stray_perm@.value() == false <==> self.node_token is Some
-        &&& self.node_token is Some ==> {
-            &&& self.node_token->Some_0@.instance_id() == spinlock.pt_inst@.id()
-            &&& self.node_token->Some_0@.key() == spinlock.nid@
-            &&& self.in_protocol@ == true <==> self.node_token->Some_0@.value() is Locked
+        &&& self.node_token@ is Some <==> self.pte_token@ is Some
+        &&& self.stray_perm@.value() == false <==> self.node_token@ is Some
+        &&& self.node_token@ is Some ==> {
+            &&& self.node_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.node_token@->Some_0.key() == spinlock.nid@
+            &&& !(self.node_token@->Some_0.value() is Free)
+            &&& self.in_protocol@ == true ==> self.node_token@->Some_0.value() is Locked
+            &&& self.in_protocol@ == false ==> self.node_token@->Some_0.value() is LockedOutside
         }
-        &&& self.pte_token is Some ==> {
-            &&& self.pte_token->Some_0@.instance_id() == spinlock.pt_inst@.id()
-            &&& self.pte_token->Some_0@.key() == spinlock.nid@
-            &&& self.pte_token->Some_0@.value().wf()
-            &&& self.perms@.relate_pte_state(self.pte_token->Some_0@.value())
+        &&& self.pte_token@ is Some ==> {
+            &&& self.pte_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.pte_token@->Some_0.key() == spinlock.nid@
+            &&& self.pte_token@->Some_0.value().wf()
+            &&& self.perms@.relate_pte_state(spinlock.level@, self.pte_token@->Some_0.value())
+        }
+        &&& self.stray_perm@.id() == spinlock.stray_cell_id@
+        &&& self.stray_perm@.is_init()
+        &&& self.perms@.wf(spinlock.paddr@, spinlock.level@, spinlock.pt_inst@.id(), spinlock.nid@)
+        &&& self.perms@.addr() == paddr_to_vaddr(spinlock.paddr@)
+    }
+
+    /// Used in PageTableGuard::write_pte
+    pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock, idx: nat) -> bool {
+        &&& self.handle@.instance_id() == spinlock.inst@.id()
+        &&& self.node_token@ is Some <==> self.pte_token@ is Some
+        &&& self.stray_perm@.value() == false <==> self.node_token@ is Some
+        &&& self.node_token@ is Some ==> {
+            &&& self.node_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.node_token@->Some_0.key() == spinlock.nid@
+            &&& !(self.node_token@->Some_0.value() is Free)
+            &&& self.in_protocol@ == true ==> self.node_token@->Some_0.value() is Locked
+            &&& self.in_protocol@ == false ==> self.node_token@->Some_0.value() is LockedOutside
+        }
+        &&& self.pte_token@ is Some ==> {
+            &&& self.pte_token@->Some_0.instance_id() == spinlock.pt_inst@.id()
+            &&& self.pte_token@->Some_0.key() == spinlock.nid@
+            &&& self.pte_token@->Some_0.value().wf()
+            &&& self.perms@.relate_pte_state_except(
+                spinlock.level@,
+                self.pte_token@->Some_0.value(),
+                idx,
+            )
         }
         &&& self.stray_perm@.id() == spinlock.stray_cell_id@
         &&& self.stray_perm@.is_init()
@@ -257,16 +295,16 @@ impl SpinGuard {
 
     pub open spec fn view_node_token(&self) -> NodeToken
         recommends
-            self.node_token is Some,
+            self.node_token@ is Some,
     {
-        self.node_token->Some_0@
+        self.node_token@->Some_0
     }
 
     pub open spec fn view_pte_token(&self) -> PteToken
         recommends
-            self.pte_token is Some,
+            self.pte_token@ is Some,
     {
-        self.pte_token->Some_0@
+        self.pte_token@->Some_0
     }
 
     pub open spec fn view_stary_perm(&self) -> CellPointsTo<bool> {

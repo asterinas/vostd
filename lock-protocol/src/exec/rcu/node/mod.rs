@@ -15,7 +15,6 @@ use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use super::{common::*, types::*, cpu::*, frame::meta::*};
-use super::zeroed_pt_pool;
 use super::pte::Pte;
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
@@ -49,6 +48,7 @@ impl PageTableNode {
 
     pub uninterp spec fn from_raw_spec(paddr: Paddr) -> Self;
 
+    // Trusted
     #[verifier::external_body]
     pub fn from_raw(
         paddr: Paddr,
@@ -70,6 +70,7 @@ impl PageTableNode {
 
     pub uninterp spec fn into_raw_spec(self) -> Paddr;
 
+    // Trusted
     #[verifier::external_body]
     pub fn into_raw(self) -> (res: Paddr)
         requires
@@ -119,13 +120,30 @@ impl PageTableNode {
         meta_slot.get_inner_pt().level
     }
 
+    // Trusted
+    #[verifier::external_body]
     pub fn alloc(
-        level: PagingLevel
+        level: PagingLevel,
+        nid: Ghost<NodeId>,
+        inst_id: Ghost<InstanceId>,
+        node_token: Tracked<NodeToken>,
+        pte_token: Tracked<PteToken>,
     ) -> (res: Self)
         requires
+            level as nat == NodeHelper::nid_to_level(nid@),
+            node_token@.instance_id() == inst_id@,
+            node_token@.key() == nid@,
+            node_token@.value() is Free,
+            pte_token@.instance_id() == inst_id@,
+            pte_token@.key() == nid@,
+            pte_token@.value() =~= PteState::empty(),
         ensures
+            res.wf(),
+            res.nid@ == nid@,
+            res.inst@.id() == inst_id@,
+            res.level_spec() == level,
     {
-        zeroed_pt_pool::alloc(level)
+        unimplemented!()
     }
 }
 
@@ -269,6 +287,12 @@ impl<'rcu> PageTableGuard<'rcu> {
         &&& self.guard->Some_0.wf(&self.deref().deref().meta_spec().lock)
     }
 
+    pub open spec fn wf_except(&self, idx: nat) -> bool {
+        &&& self.inner.wf()
+        &&& self.guard is Some
+        &&& self.guard->Some_0.wf_except(&self.deref().deref().meta_spec().lock, idx)
+    }
+
     pub open spec fn inst(&self) -> SpecInstance {
         self.deref().deref().inst@
     }
@@ -284,7 +308,7 @@ impl<'rcu> PageTableGuard<'rcu> {
     #[verifier::external_body]  // TODO
     pub proof fn tracked_pt_inst(tracked &self) -> (tracked res: SpecInstance)
         requires
-            self.wf(),
+            self.inner.wf(),
         ensures
             res =~= self.inst(),
     {
@@ -338,13 +362,25 @@ impl<'rcu> PageTableGuard<'rcu> {
 
     pub fn write_pte(&mut self, idx: usize, pte: Pte)
         requires
-            old(self).wf(),
+            if pte.is_pt(old(self).inner.deref().level_spec()) {
+                // Called in Entry::alloc_if_none
+                &&& old(self).wf_except(idx as nat)
+                &&& old(self).guard->Some_0.pte_token@->Some_0.value().is_alive(idx as nat)
+            } else {
+                // Called in Entry::replace
+                old(self).wf()
+            },
             0 <= idx < 512,
             pte.wf_with_node(*(old(self).inner.deref()), idx as nat),
         ensures
-            self.wf(),
+            if pte.is_pt(old(self).inner.deref().level_spec()) {
+                self.wf()
+            } else {
+                self.wf_except(idx as nat)
+            },
             self.inner =~= old(self).inner,
             self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
+            self.guard->Some_0.pte_token =~= old(self).guard->Some_0.pte_token,
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
         let ptr: ArrayPtr<Pte, PTE_NUM> = ArrayPtr::from_addr(va);

@@ -194,7 +194,7 @@ pub(super) fn lock_range<'rcu>(
     let res = dfs_acquire_lock(guard, &subtree_root, Tracked(m));
     proof {
         m = res.get();
-        let tracked res = pt.inst.borrow().locking_end(m.cpu, m.token);
+        let tracked res = pt.inst.borrow().protocol_lock_end(m.cpu, m.token);
         m.token = res;
     }
 
@@ -233,7 +233,7 @@ pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (
 {
     let tracked mut m = m.get();
     proof {
-        let tracked res = cursor.inst.borrow().unlocking_start(m.cpu, m.token);
+        let tracked res = cursor.inst.borrow().protocol_unlock_start(m.cpu, m.token);
         m.token = res;
     }
 
@@ -274,7 +274,7 @@ pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (
     );
     proof {
         m = res.get();
-        let tracked res = cursor.inst.borrow().unlocking_end(m.cpu, m.token);
+        let tracked res = cursor.inst.borrow().protocol_unlock_end(m.cpu, m.token);
         m.token = res;
     }
 
@@ -404,7 +404,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             }
             let mut cur_entry = pt_guard.entry(start_idx);
             if cur_entry.is_none() {
-                let allocated_guard = cur_entry.alloc_if_none(guard, &mut pt_guard).unwrap();
+                let allocated_guard = cur_entry.normal_alloc_if_none(guard, &mut pt_guard).unwrap();
                 cur_pt_addr = allocated_guard.deref().deref().start_paddr();
                 cur_node_guard = Some(allocated_guard);
             } else if cur_entry.is_node(&pt_guard) {
@@ -431,7 +431,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
     let mut pt_guard = if cur_node_guard.is_some() {
         let mut pt_guard = cur_node_guard.unwrap();
         proof {
-            m.token = pt.inst.borrow().locking_start(m.cpu, pt_guard.nid(), m.token);
+            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), m.token);
             assert(m.state() is Locking);
         }
         let res = pt_guard.trans_lock_protocol(Tracked(m));
@@ -447,7 +447,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             Ghost(cur_level),
         );
         proof {
-            m.token = pt.inst.borrow().locking_start(m.cpu, node_ref.deref().nid@, m.token);
+            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, node_ref.deref().nid@, m.token);
             assert(m.state() is Locking);
         }
         let res = node_ref.lock(guard, Tracked(m));
@@ -463,7 +463,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             m = res.get();
         }
         proof {
-            m.token = pt.inst.borrow().unlocking_end(m.cpu, m.token);
+            m.token = pt.inst.borrow().protocol_unlock_end(m.cpu, m.token);
             assert(m.state() is Void);
         }
         return (None, Tracked(m));
@@ -577,9 +577,9 @@ fn dfs_acquire_lock(
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     let tracked pte_token: &PteToken =
-                        cur_node.guard.tracked_borrow().pte_token.tracked_borrow().borrow();
+                        cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(pte_token.value().is_void(i as nat));
-                    let tracked res = cur_node.tracked_pt_inst().clone().locking_skip(
+                    let tracked res = cur_node.tracked_pt_inst().clone().protocol_lock_skip(
                         m.cpu,
                         nid,
                         pte_token,
@@ -725,14 +725,14 @@ fn dfs_release_lock<'rcu>(
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     let tracked pte_token: &PteToken =
-                        cur_node.guard.tracked_borrow().pte_token.tracked_borrow().borrow();
+                        cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
                         admit();
                     };
                     assert(pte_token.value().is_void(i as nat)) by {
                         admit();
                     };
-                    let tracked res = cur_node.tracked_pt_inst().clone().unlocking_skip(
+                    let tracked res = cur_node.tracked_pt_inst().clone().protocol_unlock_skip(
                         m.cpu,
                         nid,
                         pte_token,

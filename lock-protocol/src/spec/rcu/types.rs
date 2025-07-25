@@ -10,6 +10,9 @@ verus! {
 pub enum NodeState {
     Free,
     Locked,
+    /// The node is locked outside lock protocols.
+    /// It's unnecessary, but it can make the state machine clearer.
+    LockedOutside,
 }
 
 pub ghost struct PteState {
