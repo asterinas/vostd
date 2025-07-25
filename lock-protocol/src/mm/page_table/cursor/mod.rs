@@ -151,6 +151,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     #[verifier::inline]
     pub open spec fn path_item_wf(
         &self,
+        level: PagingLevel,
         cur_frame: PageTableGuard<C>,
         spt: &SubPageTable<C>,
     ) -> bool {
@@ -159,29 +160,29 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
         &&& cur_frame.wf(&spt.alloc_model)
-        &&& cur_frame == self.path[path_index_at_level_spec(
-            cur_frame.level_spec(&spt.alloc_model),
-        )].unwrap()
+        &&& cur_frame.level_spec(&spt.alloc_model) == level
+        &&& cur_frame == self.path[path_index_at_level_spec(level)].unwrap()
         &&& spt.frames.value().contains_key(cur_frame_pa)
         &&& forall|j: PagingLevel|
             #![trigger self.path[path_index_at_level_spec(j)]]
             #![trigger cur_ancestors.contains_key(j as int)]
             {
                 let guard_option_ = path_index!(self.path[j]);
-                &&& cur_frame.level_spec(&spt.alloc_model) < j <= self.guard_level ==> {
+                &&& level < j <= self.guard_level ==> {
                     &&& guard_option_.is_some()
                     &&& guard_option_.unwrap().wf(&spt.alloc_model)
                     &&& guard_option_.unwrap().paddr() == cur_ancestors[j as int].frame_pa
                     &&& guard_option_.unwrap().level_spec(&spt.alloc_model) == j as int
                     &&& pte_index::<C>(self.va, j) == cur_ancestors[j as int].in_frame_index
                 }
-                &&& j == cur_frame.level_spec(&spt.alloc_model) ==> {
+                &&& j == level ==> {
                     &&& !cur_ancestors.contains_key(j as int)
                     &&& guard_option_.is_some()
                     &&& guard_option_.unwrap().level_spec(&spt.alloc_model) == j as int
                 }
-                &&& 1 <= j < cur_frame.level_spec(&spt.alloc_model) || self.guard_level < j
-                    <= MAX_NR_LEVELS ==> { !cur_ancestors.contains_key(j as int) }
+                &&& 1 <= j < level || self.guard_level < j <= MAX_NR_LEVELS ==> {
+                    !cur_ancestors.contains_key(j as int)
+                }
             }
     }
 
@@ -193,7 +194,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 let guard_option = path_index!(self.path[i]);
                 &&& self.level <= i <= self.guard_level ==> {
                     &&& guard_option.is_some()
-                    &&& self.path_item_wf(guard_option.unwrap(), spt)
+                    &&& self.path_item_wf(i, guard_option.unwrap(), spt)
                 }
                 &&& 1 <= i < self.level || self.guard_level < i <= MAX_NR_LEVELS ==> {
                     guard_option.is_none()
@@ -435,7 +436,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             res.idx == pte_index::<C>(self.va, self.level),
     {
         let cur_node = self.path[path_index_at_level(self.level)].as_ref().unwrap();
-        assume(cur_node.level_spec(&spt.alloc_model) == self.level);  // Seems true given self.wf()?
         Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), Tracked(spt))
     }
 }
@@ -522,9 +522,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let cur_entry = self.0.cur_entry(Tracked(spt));
             match cur_entry.to_ref(Tracked(spt)) {
                 ChildRef::PageTable(pt) => {
-                    let child_pt = pt.make_guard_unchecked(preempt_guard);
+                    assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_level == cur_entry.node.level_spec(&spt.alloc_model));
-                    assert(cur_level - 1 == child_pt.level_spec(&spt.alloc_model));
+                    assert(cur_level - 1 == pt.level_spec(&spt.alloc_model));
+                    let child_pt = pt.make_guard_unchecked(preempt_guard);
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
@@ -532,7 +533,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
-                    assume(self.0.path_wf(spt));
                     assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },

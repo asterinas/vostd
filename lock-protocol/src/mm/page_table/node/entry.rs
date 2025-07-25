@@ -87,31 +87,32 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             self.wf(spt),
         ensures
-            if (spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-                match res {
-                    ChildRef::PageTable(pt) => {
-                        &&& pt.wf(&spt.alloc_model)
-                        &&& pt.deref().start_paddr() == self.pte.frame_paddr() as usize
-                        &&& pt.level_spec(&spt.alloc_model) == self.node.level_spec(
-                            &spt.alloc_model,
-                        ) - 1
-                        &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
-                        &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
-                            == pt.meta_ptr
-                        &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
-                    },
-                    _ => false,
-                }
-            } else if (spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-                match res {
-                    ChildRef::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
-                    _ => false,
-                }
-            } else {
-                match res {
-                    ChildRef::None => true,
-                    _ => false,
-                }
+            res is PageTable <==> spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
+            res is PageTable <==> match res {
+                ChildRef::PageTable(pt) => {
+                    &&& pt.wf(&spt.alloc_model)
+                    &&& pt.deref().start_paddr() == self.pte.frame_paddr() as usize
+                    &&& pt.level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model)
+                        - 1
+                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
+                    &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
+                        == pt.meta_ptr
+                    &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
+                },
+                _ => false,
+            },
+            res is Frame <==> spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
+            res is Frame <==> match res {
+                ChildRef::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
+                _ => false,
+            },
+            res is None <==> {
+                &&& !spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+            },
+            res is None <==> match res {
+                ChildRef::None => true,
+                _ => false,
             },
     {
         // SAFETY: The entry structure represents an existent entry with the
@@ -344,27 +345,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         requires
             old(spt).wf(),
             self.idx < nr_subpage_per_huge::<C>(),
+            old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int),
+            old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int),
         ensures
             spt.wf(),
-            spt.instance.id() == old(spt).instance.id(),
-            if old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int) || old(
-                spt,
-            ).ptes.value().contains_key(self.pte.pte_paddr() as int) {
-                &&& spt == old(spt)
-                &&& res is None
-            } else {
-                &&& res is Some
-                &&& spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int)
-                &&& res.unwrap().wf(&spt.alloc_model)
-                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& !old(spt).frames.value().contains_key(res.unwrap().paddr() as int)
-                &&& spt.frames.value().contains_key(res.unwrap().paddr() as int)
-                &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
-                &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
-                &&& res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(
-                    &spt.alloc_model,
-                ) - 1
-            },
+            res is Some,
+            spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
+            res.unwrap().wf(&spt.alloc_model),
+            spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
+            !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
+            spt.frames.value().contains_key(res.unwrap().paddr() as int),
+            !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
+            spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
+            res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1,
     {
         if !self.pte.is_present() {
             // The entry is already present.

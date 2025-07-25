@@ -67,6 +67,9 @@ pub open spec fn forward_spt_do_not_change_except<C: PageTableConfig>(
                 ==> {
                 &&& #[trigger] old_spt.frames.value().contains_key(i)
                 &&& spt.frames.value()[i] == old_spt.frames.value()[i]
+                &&& #[trigger] spt.alloc_model.meta_map.contains_key(i)
+                &&& #[trigger] old_spt.alloc_model.meta_map.contains_key(i)
+                &&& spt.alloc_model.meta_map[i] == old_spt.alloc_model.meta_map[i]
             }
         }
     &&& forall|i: int| #[trigger]
