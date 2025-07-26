@@ -240,12 +240,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             spt.perms.tracked_insert(self.paddr(), points_to);
         }
 
-        assume(spt.wf());  // TODO: P0
-        assume(spec_helpers::spt_do_not_change_except(
-            spt,
-            old(spt),
-            index_pte_paddr(self.paddr() as int, idx as int),
-        ));  // TODO: P0
+        assert(spt.wf());
     }
 
     #[verifier::external_body]

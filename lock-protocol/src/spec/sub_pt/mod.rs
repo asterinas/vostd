@@ -55,11 +55,11 @@ impl<C: PageTableConfig> SubPageTable<C> {
         &&& self.frames.instance_id() == self.instance.id()
         &&& self.ptes.instance_id() == self.instance.id()
         &&& self.i_ptes.instance_id() == self.instance.id()
+        &&& forall|pa: Paddr| #![auto] self.frames.value().contains_key(pa as int)
+                <==> self.perms.contains_key(pa)
         &&& forall|pa: Paddr|
             #![trigger self.perms.get(pa)]
             {
-                &&& #[trigger] self.frames.value().contains_key(pa as int)
-                    <==> #[trigger] self.perms.contains_key(pa)
                 &&& #[trigger] self.frames.value().contains_key(pa as int)
                     ==> #[trigger] self.alloc_model.meta_map.contains_key(pa as int)
                 &&& self.frames.value().contains_key(pa as int) ==> {
