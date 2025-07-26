@@ -56,7 +56,7 @@ fn get_powershell_command() -> io::Result<Command> {
 
     Err(io::Error::new(
         io::ErrorKind::NotFound,
-        "No working PowerShell version found"
+        "No working PowerShell version found",
     ))
 }
 
