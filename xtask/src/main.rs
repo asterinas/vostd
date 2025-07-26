@@ -8,7 +8,7 @@ use std::{
     collections::HashSet,
     env,
     fs::{self, File},
-    io::{Read, Write},
+    io::{self, Read, Write},
     path::{self, Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -29,6 +29,35 @@ fn get_platform_specific_binary_name(base_name: &str) -> String {
 
     #[cfg(not(target_os = "windows"))]
     return base_name.to_string();
+}
+
+// On Windows, prefer pwsh if available, otherwise fall back to powershell.
+#[cfg(target_os = "windows")]
+fn get_powershell_command() -> io::Result<Command> {
+    let check_pwsh = Command::new("pwsh")
+        .arg("/?")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if matches!(check_pwsh, Ok(status) if status.success()) {
+        return Ok(Command::new("pwsh"));
+    }
+
+    let check_ps = Command::new("powershell")
+        .arg("/?")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    if matches!(check_ps, Ok(status) if status.success()) {
+        return Ok(Command::new("powershell"));
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        "No working PowerShell version found"
+    ))
 }
 
 fn locate_from_path<P>(binary: &P) -> Option<PathBuf>
@@ -830,7 +859,7 @@ fn install_verusfmt() -> Result<(), DynError> {
         #[cfg(target_os = "windows")]
         {
             // pwsh -ExecutionPolicy Bypass -c "irm https://github.com/verus-lang/verusfmt/releases/latest/download/verusfmt-installer.ps1 | iex"
-            let mut cmd = Command::new("pwsh");
+            let mut cmd = get_powershell_command()?;
             cmd
             .arg("-ExecutionPolicy")
             .arg("Bypass")
@@ -861,7 +890,7 @@ fn compile_verus() -> Result<(), DynError> {
     println!("Start to build the Verus compiler");
     #[cfg(target_os = "windows")]
     {
-        let cmd = &mut Command::new("pwsh");
+        let cmd = &mut get_powershell_command()?;
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("/c")
             .arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
@@ -918,7 +947,7 @@ fn exec_bootstrap(args: &BootstrapArgs) -> Result<(), DynError> {
             .join("z3.exe");
         if !z3_path.exists() {
             println!("Start to download the Z3 solver");
-            Command::new("pwsh")
+            get_powershell_command()?
                 .current_dir(Path::new("tools").join("verus").join("source"))
                 .arg("/c")
                 .arg(".\\tools\\get-z3.ps1")
