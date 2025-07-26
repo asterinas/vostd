@@ -236,19 +236,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     let guard_option = path_index!(self.path[i]);
                     &&& self.level <= i <= self.guard_level ==> {
                         &&& guard_option.is_some()
-                        &&& guard_option.unwrap().paddr() == ancestors[i as int].frame_pa
                         &&& guard_option.unwrap().level_spec(&spt.alloc_model) == i as int
+                        &&& guard_option.unwrap().paddr() == ancestors[i as int].frame_pa
                         &&& pte_index::<C>(self.va, i) == ancestors[i as int].in_frame_index
                     }
-                    &&& i == guard.level_spec(&spt.alloc_model) ==> {
-                        !ancestors.contains_key(
-                            i as int,
-                        )
-                        // && guard_option.is_some()
-
-                    }&&& 1 <= i < guard.level_spec(&spt.alloc_model) || self.guard_level < i
-                        <= MAX_NR_LEVELS ==> {
-                        !ancestors.contains_key(i as int) && guard_option.is_none()
+                    &&& 1 <= i < self.level || self.guard_level < i <= MAX_NR_LEVELS ==> {
+                        &&& !ancestors.contains_key(i as int)
+                        &&& guard_option.is_none()
                     }
                 }
         }
@@ -526,7 +520,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(cur_level == cur_entry.node.level_spec(&spt.alloc_model));
                     assert(cur_level - 1 == pt.level_spec(&spt.alloc_model));
                     let child_pt = pt.make_guard_unchecked(preempt_guard);
-                    assume(self.0.ancestors_match_path(spt, child_pt));
+                    assert(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::None => {
@@ -658,8 +652,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
-                            // FIXME: Fix by letting `cur_entry.to_ref` generate PT guard, like how we do in exec code.
-                            assume(self.0.ancestors_match_path(spt, pt));
                             self.0.push_level(pt, Tracked(spt));
                         } else {
                             let _ = pt.into_raw_paddr();

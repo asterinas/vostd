@@ -98,6 +98,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
                         == pt.meta_ptr
                     &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
+                    &&& spt.frames.value()[pt.deref().start_paddr() as int].ancestor_chain
+                        == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
+                        self.node.level_spec(&spt.alloc_model) as int,
+                        IntermediatePageTableEntryView {
+                            frame_pa: self.node.paddr() as int,
+                            in_frame_index: self.idx as int,
+                            map_to_pa: pt.deref().start_paddr() as int,
+                            level: self.node.level_spec(&spt.alloc_model) as int,
+                        },
+                    )
                 },
                 _ => false,
             },
