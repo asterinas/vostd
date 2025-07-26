@@ -215,11 +215,13 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         ));
 
         let p = PPtr::from_addr(self.paddr());
+
+        assert(spt.perms.get(self.paddr()).unwrap().mem_contents().is_init());
         let tracked points_to = spt.perms.tracked_remove(self.paddr());
 
-        // FIXME: Should be correct since spt.wf()?
-        assume(points_to.mem_contents().is_init());
-        assume(points_to.pptr() == p);
+        assert(points_to.mem_contents().is_init());
+        assert(points_to.pptr().addr() as int == self.paddr() as int);
+        assert(points_to.pptr() == p);
 
         let mut frame: MockPageTablePage = p.read(Tracked(&points_to));
         assume(idx < frame.ptes.len());
