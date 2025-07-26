@@ -11,7 +11,7 @@ verus! {
 /// Trusted properties of stray flag.
 /// We can't prove this by Verus since the logical complexity.
 /// This is correct by following reasons:
-/// 1. The stray flag will be changed from false to true 
+/// 1. The stray flag will be changed from false to true
 ///     iff. the node is deleted from the page table.
 /// 2. The delete operation should be done through a Cursor.
 /// 3. The sub tree root of a Cursor cannot be deleted.
@@ -35,7 +35,8 @@ pub proof fn lemma_in_protocol_guarded_parent_implies_child_is_pt_node(
         m.node_is_locked(child_guard.nid()),
     ensures
         child_guard.guard->Some_0.stray_perm@.value() == false,
-{}
+{
+}
 
 /// Trusted properties of stray flag.
 /// We can't prove this by Verus since the logical complexity.
@@ -53,6 +54,7 @@ pub proof fn lemma_guarded_parent_implies_allocated_child_is_pt_node(
         NodeHelper::is_child(parent_guard.nid(), new_allocated_child_guard.nid()),
     ensures
         new_allocated_child_guard.guard->Some_0.stray_perm@.value() == false,
-{}
-
+{
 }
+
+} // verus!

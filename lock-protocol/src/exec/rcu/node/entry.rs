@@ -215,9 +215,7 @@ impl Entry {
                 assert(pt_lock_guard.nid() == NodeHelper::get_child(node.nid(), self.idx as nat));
                 NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
             };
-            lemma_guarded_parent_implies_allocated_child_is_pt_node(
-                *node, pt_lock_guard,
-            );
+            lemma_guarded_parent_implies_allocated_child_is_pt_node(*node, pt_lock_guard);
         };
 
         Some(pt_lock_guard)

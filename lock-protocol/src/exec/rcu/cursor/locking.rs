@@ -386,7 +386,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             cur_pt_addr = cur_pte.inner.paddr();
             if cur_node_guard.is_some() {
                 let mut pt_guard = cur_node_guard.take().unwrap();
-                pt_guard.normal_drop(); 
+                pt_guard.normal_drop();
             }
             cur_node_guard = None;
         } else {
@@ -576,7 +576,9 @@ fn dfs_acquire_lock(
                         NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     };
                     lemma_in_protocol_guarded_parent_implies_child_is_pt_node(
-                        *cur_node, pt_guard, m,
+                        *cur_node,
+                        pt_guard,
+                        m,
                     );
                 };
                 let res = dfs_acquire_lock(guard, &pt_guard, Tracked(m));
