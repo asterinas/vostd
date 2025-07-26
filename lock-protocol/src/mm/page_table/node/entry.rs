@@ -348,16 +348,22 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
     #[verifier::external_body]
     pub(in crate::mm) fn alloc_if_none(
-        self,
+        &mut self,
         guard: &'rcu DisabledPreemptGuard,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
     ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires
+            old(self).wf(&old(spt)),
             old(spt).wf(),
-            self.idx < nr_subpage_per_huge::<C>(),
-            old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int),
-            old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int),
+            old(self).idx < nr_subpage_per_huge::<C>(),
+            old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            old(self).node.level_spec(&old(spt).alloc_model) > 1,
         ensures
+            self.wf(spt),
+            self.pte.pte_paddr() == old(self).pte.pte_paddr(),
+            self.node == old(self).node,
+            self.idx == old(self).idx,
             spt.wf(),
             res is Some,
             spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
@@ -368,8 +374,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1,
+            spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
+                == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
+                self.node.level_spec(&spt.alloc_model) as int,
+                IntermediatePageTableEntryView {
+                    frame_pa: self.node.paddr() as int,
+                    in_frame_index: self.idx as int,
+                    map_to_pa: res.unwrap().paddr() as int,
+                    level: self.node.level_spec(&spt.alloc_model) as int,
+                },
+            ),
     {
         if !self.pte.is_present() {
+            assume(false);
             // The entry is already present.
             return None;
         }
@@ -377,6 +394,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let (pt, perm) = PageTableNode::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
 
         let pa = pt.start_paddr();
+
+        assert(spt.alloc_model.meta_map.contains_key(pa as int));
 
         proof {
             spt.instance.set_child(
@@ -399,8 +418,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             level,
             Tracked(spt),
         );
+        assert(spt.alloc_model.meta_map.contains_key(pa as int));
 
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
+
+        assume(self.wf(spt));
+        assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
+        assume(node_ref.level_spec(&spt.alloc_model) == level - 1);
 
         Some(node_ref.make_guard_unchecked(guard))
     }

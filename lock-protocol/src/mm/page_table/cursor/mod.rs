@@ -513,7 +513,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             decreases self.0.level,
         {
             let cur_level = self.0.level;
-            let cur_entry = self.0.cur_entry(Tracked(spt));
+            let mut cur_entry = self.0.cur_entry(Tracked(spt));
             match cur_entry.to_ref(Tracked(spt)) {
                 ChildRef::PageTable(pt) => {
                     assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
@@ -527,7 +527,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
-                    assume(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {
