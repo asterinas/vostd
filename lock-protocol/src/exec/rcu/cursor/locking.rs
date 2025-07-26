@@ -15,6 +15,7 @@ use super::super::node::{
     child::{Child, ChildRef},
     entry::Entry,
     spinlock::*,
+    stray::*,
 };
 use super::super::pte::{Pte, page_table_entry_trait::*};
 use super::super::trust_rcu::*;
@@ -408,6 +409,9 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             }
             let mut cur_entry = pt_guard.entry(start_idx);
             if cur_entry.is_none() {
+                assert(NodeHelper::is_not_leaf(pt_guard.nid())) by {
+                    NodeHelper::lemma_level_dep_relation(pt_guard.nid());
+                };
                 let allocated_guard = cur_entry.normal_alloc_if_none(guard, &mut pt_guard).unwrap();
                 cur_pt_addr = allocated_guard.deref().deref().start_paddr();
                 cur_node_guard = Some(allocated_guard);
@@ -567,7 +571,13 @@ fn dfs_acquire_lock(
                 // let va_end = va_range.end.min(child_node_va_end);
                 // dfs_acquire_lock(guard, &mut pt_guard, child_node_va, va_start..va_end);
                 assert(pt_guard.guard->Some_0.stray_perm@.value() == false) by {
-                    admit();
+                    assert(NodeHelper::is_child(cur_node.nid(), pt_guard.nid())) by {
+                        assert(pt_guard.nid() == NodeHelper::get_child(cur_node.nid(), i as nat));
+                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+                    };
+                    lemma_in_protocol_guarded_parent_implies_child_is_pt_node(
+                        *cur_node, pt_guard, m,
+                    );
                 };
                 let res = dfs_acquire_lock(guard, &pt_guard, Tracked(m));
                 proof {

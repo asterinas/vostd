@@ -1,6 +1,7 @@
 pub mod child;
 pub mod entry;
 pub mod spinlock;
+pub mod stray;
 
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
@@ -498,6 +499,7 @@ impl PageTableGuard<'_> {
 struct_with_invariants! {
     pub struct PageTablePageMeta {
         pub lock: PageTablePageSpinLock,
+        // The stray flag indicates whether this frame is a page table node.
         pub stray: PCell<bool>, // TODO
         pub level: PagingLevel,
         pub frame_paddr: Paddr,

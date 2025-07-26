@@ -7,6 +7,7 @@ use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*, cpu::*};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use super::child::*;
+use super::stray::*;
 use super::super::pte::{Pte, page_table_entry_trait::*};
 
 verus! {
@@ -123,6 +124,7 @@ impl Entry {
         requires
             old(self).wf(*old(node)),
             old(node).wf(),
+            NodeHelper::is_not_leaf(old(node).nid()),
             old(node).guard->Some_0.stray_perm@.value() == false,
             old(node).guard->Some_0.in_protocol@ == false,
         ensures
@@ -208,9 +210,14 @@ impl Entry {
 
         // *self.node.nr_children_mut() += 1;
 
-        // TODO
         assert(pt_lock_guard.guard->Some_0.stray_perm@.value() == false) by {
-            admit();
+            assert(NodeHelper::is_child(node.nid(), pt_lock_guard.nid())) by {
+                assert(pt_lock_guard.nid() == NodeHelper::get_child(node.nid(), self.idx as nat));
+                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            };
+            lemma_guarded_parent_implies_allocated_child_is_pt_node(
+                *node, pt_lock_guard,
+            );
         };
 
         Some(pt_lock_guard)
