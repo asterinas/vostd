@@ -9,6 +9,7 @@ use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*};
 use super::super::pte::{Pte, page_prop::PageProperty, page_table_entry_trait::*};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
+use crate::sync::rcu::RcuDrop;
 
 verus! {
 
@@ -16,8 +17,7 @@ verus! {
 // #[derive(Debug)]
 pub enum Child {
     /// A child page table node.
-    // PageTable(RcuDrop<PageTableNode>),
-    PageTable(PageTableNode),
+    PageTable(RcuDrop<PageTableNode>),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -82,7 +82,8 @@ impl Child {
         match self {
             Child::PageTable(node) => {
                 let paddr = node.start_paddr();
-                let tracked inst = node.inst.borrow().clone();
+                let tracked_inst = node.deref().inst;
+                let tracked inst = tracked_inst.borrow().clone();
                 let ghost nid = node.nid@;
                 let _ = ManuallyDrop::new(node);
                 Pte::new_pt(paddr, Tracked(inst), Ghost(nid))
@@ -97,11 +98,11 @@ impl Child {
             *self is None
         } else if pte.is_pt(level) {
             &&& *self is PageTable
-            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
-            &&& self->PageTable_0.nid@ == pte.nid()
-            &&& self->PageTable_0.inst@.cpu_num() == GLOBAL_CPU_NUM
-            &&& self->PageTable_0.inst@.id() == pte.inst_id()
-            &&& self->PageTable_0.level_spec() == (level - 1) as PagingLevel
+            &&& *self->PageTable_0.deref() =~= PageTableNode::from_raw_spec(pte.inner.paddr())
+            &&& self->PageTable_0.deref().nid@ == pte.nid()
+            &&& self->PageTable_0.deref().inst@.cpu_num() == GLOBAL_CPU_NUM
+            &&& self->PageTable_0.deref().inst@.id() == pte.inst_id()
+            &&& self->PageTable_0.deref().level_spec() == (level - 1) as PagingLevel
         } else {
             &&& *self is Frame
             &&& self->Frame_0 == pte.inner.paddr()
@@ -123,11 +124,13 @@ impl Child {
             return Child::None;
         }
         if pte.inner.is_present() && !pte.inner.is_last(level) {
-            let node = PageTableNode::from_raw(
-                paddr,
-                Ghost(pte.nid()),
-                Ghost(pte.inst_id()),
-                Ghost((level - 1) as PagingLevel),
+            let node = RcuDrop::new(
+                PageTableNode::from_raw(
+                    paddr,
+                    Ghost(pte.nid()),
+                    Ghost(pte.inst_id()),
+                    Ghost((level - 1) as PagingLevel),
+                ),
             );
             return Child::PageTable(node);
         }

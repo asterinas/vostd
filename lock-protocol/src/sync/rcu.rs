@@ -10,7 +10,10 @@ pub struct RcuDrop<T> {
 }
 
 impl<T> RcuDrop<T> {
-    pub fn new(inner: T) -> Self {
+    pub fn new(inner: T) -> (res: Self)
+        ensures
+            *res.inner.deref() =~= inner,
+    {
         RcuDrop { inner: ManuallyDrop::new(inner) }
     }
 }

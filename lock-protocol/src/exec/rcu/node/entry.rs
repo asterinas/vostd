@@ -9,6 +9,7 @@ use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use super::child::*;
 use super::stray::*;
 use super::super::pte::{Pte, page_table_entry_trait::*};
+use crate::sync::rcu::RcuDrop;
 
 verus! {
 
@@ -185,13 +186,14 @@ impl Entry {
         assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
             admit();
         }
-        // let new_page = RcuDrop::new(PageTableNode::alloc(level - 1));
-        let new_page = PageTableNode::alloc(
-            level - 1,
-            Ghost(cur_nid),
-            Ghost(node.inst_id()),
-            Tracked(new_node_token),
-            Tracked(new_pte_token),
+        let new_page = RcuDrop::new(
+            PageTableNode::alloc(
+                level - 1,
+                Ghost(cur_nid),
+                Ghost(node.inst_id()),
+                Tracked(new_node_token),
+                Tracked(new_pte_token),
+            ),
         );
         let paddr = new_page.start_paddr();
 
