@@ -266,6 +266,9 @@ pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (
     //     .align_down(page_size(cursor.guard_level + 1));
 
     assert(m.sub_tree_rt() == guard_node.nid());
+    assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), guard_node.nid())) by {
+        NodeHelper::lemma_tree_size_spec_table();
+    };
     let res = dfs_release_lock(
         cursor.rcu_guard,
         guard_node,
@@ -502,6 +505,7 @@ fn dfs_acquire_lock(
         m@.inst_id() == cur_node.inst_id(),
         m@.state() is Locking,
         m@.cur_node() == cur_node.nid() + 1,
+        m@.node_is_locked(cur_node.nid()),
     ensures
         res@.inv(),
         res@.inst_id() == cur_node.inst_id(),
@@ -604,15 +608,47 @@ fn dfs_acquire_lock(
                     );
                     m.token = res;
 
-                    assert(m.cur_node() == NodeHelper::next_outside_subtree(nid));
                     assert(m.cur_node() <= NodeHelper::next_outside_subtree(m.sub_tree_rt())) by {
                         assert(NodeHelper::in_subtree(m.sub_tree_rt(), cur_node.nid())) by {
-                            admit();
-                        };
-                        assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), i as nat)) by {
-                            admit();
-                        };
-                        admit();  // TODO
+                            assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), cur_node.nid()));
+                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                                m.sub_tree_rt(),
+                                cur_node.nid(),
+                            );
+                        }
+                        if i + 1 < 512 {
+                            assert(m.cur_node() == NodeHelper::get_child(
+                                cur_node.nid(),
+                                (i + 1) as nat,
+                            )) by {
+                                assert(m.cur_node() == NodeHelper::next_outside_subtree(nid));
+                                NodeHelper::lemma_brother_algebraic_relation(
+                                    cur_node.nid(),
+                                    i as nat,
+                                );
+                            };
+                            NodeHelper::lemma_get_child_sound(cur_node.nid(), (i + 1) as nat);
+                            NodeHelper::lemma_in_subtree_is_child_in_subtree(
+                                m.sub_tree_rt(),
+                                cur_node.nid(),
+                                m.cur_node(),
+                            );
+                            assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), m.cur_node())) by {
+                                assert(NodeHelper::in_subtree(m.sub_tree_rt(), m.cur_node()));
+                                NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                                    m.sub_tree_rt(),
+                                    m.cur_node(),
+                                );
+                            };
+                        } else {
+                            assert(i + 1 == 512);
+                            assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()))
+                                by {
+                                assert(m.cur_node() == NodeHelper::next_outside_subtree(nid));
+                                NodeHelper::lemma_last_child_next_outside_subtree(cur_node.nid())
+                            };
+                            NodeHelper::lemma_in_subtree_bounded(m.sub_tree_rt(), cur_node.nid());
+                        }
                     };
                 }
             },
@@ -659,6 +695,7 @@ fn dfs_release_lock<'rcu>(
         m@.inst_id() == cur_node.inst_id(),
         m@.state() is Locking,
         m@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
+        m@.node_is_locked(cur_node.nid()),
     ensures
         res@.inv(),
         res@.inst_id() == cur_node.inst_id(),
@@ -718,7 +755,34 @@ fn dfs_release_lock<'rcu>(
             ChildRef::PageTable(pt) => {
                 assert(m.node_is_locked(pt.deref().nid@)) by {
                     assert(pt.deref().nid@ == NodeHelper::get_child(cur_node.nid(), i as nat));
-                    admit();
+                    assert(m.sub_tree_rt() <= pt.deref().nid@) by {
+                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+                        NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), pt.deref().nid@);
+                    };
+                    if i + 1 < 512 {
+                        assert(m.cur_node() == NodeHelper::get_child(
+                            cur_node.nid(),
+                            (i + 1) as nat,
+                        ));
+                        NodeHelper::lemma_brother_nid_increasing(
+                            cur_node.nid(),
+                            i as nat,
+                            (i + 1) as nat,
+                        );
+                    } else {
+                        assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()));
+                        assert(NodeHelper::in_subtree_range(cur_node.nid(), pt.deref().nid@)) by {
+                            NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+                            NodeHelper::lemma_is_child_implies_in_subtree(
+                                cur_node.nid(),
+                                pt.deref().nid@,
+                            );
+                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                                cur_node.nid(),
+                                pt.deref().nid@,
+                            );
+                        };
+                    }
                 };
                 let child_node = pt.make_guard_unchecked(guard, Tracked(&m));
                 // let child_node_va = cur_node_va + i * page_size::<C>(cur_level);
@@ -729,7 +793,16 @@ fn dfs_release_lock<'rcu>(
                 // guards are forgotten.
                 // unsafe { dfs_release_lock(guard, child_node, child_node_va, va_start..va_end) };
                 assert(m.cur_node() == NodeHelper::next_outside_subtree(child_node.nid())) by {
-                    admit();
+                    if i + 1 < 512 {
+                        assert(m.cur_node() == NodeHelper::get_child(
+                            cur_node.nid(),
+                            (i + 1) as nat,
+                        ));
+                        NodeHelper::lemma_brother_algebraic_relation(cur_node.nid(), i as nat);
+                    } else {
+                        assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()));
+                        NodeHelper::lemma_last_child_next_outside_subtree(cur_node.nid());
+                    }
                 };
                 let res = dfs_release_lock(guard, child_node, Tracked(m));
                 proof {
@@ -744,11 +817,20 @@ fn dfs_release_lock<'rcu>(
                     let tracked pte_token: &PteToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
-                        admit();
+                        if i + 1 < 512 {
+                            assert(m.cur_node() == NodeHelper::get_child(
+                                cur_node.nid(),
+                                (i + 1) as nat,
+                            ));
+                            NodeHelper::lemma_brother_algebraic_relation(cur_node.nid(), i as nat);
+                        } else {
+                            assert(m.cur_node() == NodeHelper::next_outside_subtree(
+                                cur_node.nid(),
+                            ));
+                            NodeHelper::lemma_last_child_next_outside_subtree(cur_node.nid());
+                        }
                     };
-                    assert(pte_token.value().is_void(i as nat)) by {
-                        admit();
-                    };
+                    assert(pte_token.value().is_void(i as nat));
                     let tracked res = cur_node.tracked_pt_inst().clone().protocol_unlock_skip(
                         m.cpu,
                         nid,
@@ -758,11 +840,12 @@ fn dfs_release_lock<'rcu>(
                     m.token = res;
 
                     assert(m.cur_node() == nid);
-                    assert(m.sub_tree_rt() <= m.cur_node() <= NodeHelper::next_outside_subtree(
-                        m.sub_tree_rt(),
-                    )) by {
-                        admit();  // TODO
+                    assert(m.sub_tree_rt() <= m.cur_node()) by {
+                        assert(m.sub_tree_rt() <= cur_node.nid());
+                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+                        NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), nid);
                     };
+                    assert(m.cur_node() <= NodeHelper::next_outside_subtree(m.sub_tree_rt()));
                 }
             },
         }

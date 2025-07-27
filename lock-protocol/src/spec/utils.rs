@@ -1645,6 +1645,17 @@ impl NodeHelper {
         Self::lemma_in_subtree_iff_in_subtree_range(pa, ch);
     }
 
+    pub proof fn lemma_brother_nid_increasing(pa: NodeId, offset1: nat, offset2: nat)
+        requires
+            Self::valid_nid(pa),
+            Self::is_not_leaf(pa),
+            0 <= offset1 < offset2 < 512,
+        ensures
+            Self::get_child(pa, offset1) < Self::get_child(pa, offset2),
+    {
+        admit();
+    }
+
     pub proof fn lemma_is_child_level_relation(pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(pa),

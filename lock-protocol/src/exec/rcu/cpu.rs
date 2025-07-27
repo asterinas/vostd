@@ -60,7 +60,7 @@ impl LockProtocolModel {
         match self.state() {
             CursorState::Void => arbitrary(),
             CursorState::Locking(rt, _nid) => rt <= nid < _nid,
-            CursorState::Locked(rt) => NodeHelper::in_subtree(rt, nid),
+            CursorState::Locked(rt) => NodeHelper::in_subtree_range(rt, nid),
         }
     }
 }
