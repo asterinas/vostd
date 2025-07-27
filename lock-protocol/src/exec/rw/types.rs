@@ -1,6 +1,4 @@
-use builtin::*;
-use builtin_macros::*;
-
+use vstd::prelude::*;
 use crate::spec::rw::*;
 
 verus! {

@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use state_machines_macros::state_machine;
 use vstd::prelude::*;
 use vstd::map::*;

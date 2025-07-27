@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use vstd::{prelude::*, atomic_ghost::AtomicBool, atomic_with_ghost};
 use super::spec::AtomicCpuSetSpec;
 use super::super::CpuSet;

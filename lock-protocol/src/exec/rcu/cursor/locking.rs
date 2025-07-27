@@ -1,8 +1,7 @@
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use std::ops::Range;
-use builtin::*;
-use builtin_macros::*;
+
 use vstd::prelude::*;
 
 use vstd_extra::manually_drop::*;

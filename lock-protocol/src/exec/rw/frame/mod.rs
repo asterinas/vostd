@@ -1,7 +1,5 @@
 // mod common;
 // mod allocator;
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::rwlock::*;
 use vstd::vstd::arithmetic::power2::*;

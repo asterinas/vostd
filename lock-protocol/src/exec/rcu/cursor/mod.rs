@@ -1,8 +1,7 @@
 pub mod locking;
 
 use std::ops::Range;
-use builtin::*;
-use builtin_macros::*;
+
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};

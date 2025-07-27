@@ -2,8 +2,6 @@ mod cpu_local_queue;
 // pub mod local_queue;
 // pub mod model;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use aster_common::x86_64::mm::{PAGE_SIZE, MAX_NR_PAGES};
 use aster_common::cpu::PinCurrentCpu;

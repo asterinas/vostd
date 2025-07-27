@@ -1,7 +1,5 @@
 use std::ops::Range;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::vstd::arithmetic::power2::*;
 use vstd::arithmetic::div_mod::*;

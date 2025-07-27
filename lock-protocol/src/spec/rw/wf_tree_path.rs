@@ -1,7 +1,5 @@
 use std::{io::Write, path, result};
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 

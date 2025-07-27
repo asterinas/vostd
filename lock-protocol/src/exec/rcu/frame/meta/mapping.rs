@@ -1,8 +1,6 @@
 use core::ops::Range;
 use core::mem::size_of;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use super::super::super::common::*;

@@ -1,6 +1,5 @@
 use core::mem::ManuallyDrop;
-use builtin::*;
-use builtin_macros::*;
+
 use vstd::prelude::*;
 use vstd::vpanic;
 

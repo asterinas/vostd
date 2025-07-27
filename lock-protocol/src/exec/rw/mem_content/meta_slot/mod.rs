@@ -1,7 +1,5 @@
 pub mod mapping;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::{
     raw_ptr::{PointsTo},

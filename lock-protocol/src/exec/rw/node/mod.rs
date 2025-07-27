@@ -2,8 +2,6 @@ pub mod child;
 pub mod entry;
 pub mod rwlock;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::raw_ptr::{PointsTo, ptr_ref};
 

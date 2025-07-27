@@ -1,8 +1,5 @@
-use builtin::*;
-use builtin_macros::*;
-use vstd::*;
+use vstd::prelude::*;
 use vstd::map::*;
-// use vstd::
 
 use state_machines_macros::case_on_init;
 use state_machines_macros::case_on_next;

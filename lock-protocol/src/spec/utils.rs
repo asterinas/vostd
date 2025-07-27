@@ -1,7 +1,5 @@
 use std::intrinsics::offset;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::bytes;
 use vstd::prelude::*;
 use vstd::arithmetic::power::*;

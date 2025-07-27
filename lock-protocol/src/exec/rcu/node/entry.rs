@@ -1,6 +1,5 @@
 use core::ops::Deref;
-use builtin::*;
-use builtin_macros::*;
+
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};

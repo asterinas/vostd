@@ -1,7 +1,5 @@
 #![allow(non_snake_case)]
 
-use builtin::*;
-use builtin_macros::*;
 use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 

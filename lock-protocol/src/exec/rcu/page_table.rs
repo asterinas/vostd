@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 use vstd::tokens::*;
 use vstd::atomic_ghost::*;

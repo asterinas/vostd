@@ -1,6 +1,4 @@
 #[allow(unused_imports)]
-use builtin::*;
-use builtin_macros::*;
 use vstd::{
     atomic_ghost::AtomicBool,
     atomic_with_ghost,

@@ -2,8 +2,6 @@ use std::mem::ManuallyDrop;
 use core::ops::Deref;
 use std::ops::Range;
 
-use builtin::*;
-use builtin_macros::*;
 use vstd::invariant;
 use vstd::prelude::*;
 use vstd::atomic_with_ghost;

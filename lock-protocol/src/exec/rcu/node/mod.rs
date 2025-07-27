@@ -6,8 +6,7 @@ pub mod stray;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::marker::PhantomData;
-use builtin::*;
-use builtin_macros::*;
+
 use vstd::prelude::*;
 use vstd::raw_ptr::{PointsTo, ptr_ref};
 use vstd::cell::{PCell, PointsTo as CellPointsTo};
