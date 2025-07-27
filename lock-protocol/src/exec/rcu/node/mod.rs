@@ -306,15 +306,14 @@ impl<'rcu> PageTableGuard<'rcu> {
         self.deref().deref().nid@
     }
 
-    #[verifier::external_body]  // TODO
-    pub proof fn tracked_pt_inst(tracked &self) -> (tracked res: SpecInstance)
+    pub fn tracked_pt_inst(&self) -> (res: Tracked<SpecInstance>)
         requires
             self.inner.wf(),
         ensures
-            res =~= self.inst(),
+            res@ =~= self.inst(),
     {
-        // self.inner.inner.inst.borrow().clone()
-        unimplemented!()
+        let tracked_inst = self.deref().deref().inst;
+        Tracked(tracked_inst.borrow().clone())
     }
 
     pub fn entry(&self, idx: usize) -> (res: Entry)

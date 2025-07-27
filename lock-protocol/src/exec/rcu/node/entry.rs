@@ -164,6 +164,8 @@ impl Entry {
         };
         let tracked new_node_token;
         let tracked new_pte_token;
+        let tracked_inst = node.tracked_pt_inst();
+        let tracked inst = tracked_inst.get();
         proof {
             assert(cur_nid != NodeHelper::root_id()) by {
                 admit();
@@ -171,7 +173,7 @@ impl Entry {
             assert(NodeHelper::valid_nid(cur_nid)) by {
                 admit();
             }  // TODO
-            let tracked res = node.tracked_pt_inst().normal_allocate(
+            let tracked res = inst.normal_allocate(
                 cur_nid,
                 &node_token,
                 pte_token,
