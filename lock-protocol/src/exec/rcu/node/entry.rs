@@ -163,6 +163,8 @@ impl Entry {
         };
         let tracked new_node_token;
         let tracked new_pte_token;
+        let tracked_inst = node.tracked_pt_inst();
+        let tracked inst = tracked_inst.get();
         proof {
             assert(cur_nid != NodeHelper::root_id()) by {
                 assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
