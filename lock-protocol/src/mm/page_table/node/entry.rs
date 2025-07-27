@@ -244,10 +244,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             // TODO: we assume it's an i_pte currently
             // old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            match new_child {
-                Child::None => true,
-                _ => false,
-            },
+            new_child is None,
         ensures
             self.node.wf(&old(spt).alloc_model),
             // !spt.ptes.value().contains_key(old(self).pte.pte_paddr() as int),
@@ -256,6 +253,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int),
             self.remove_old_child(res, old(self).pte, old(spt), spt),
+            old(spt).alloc_model == spt.alloc_model,
     {
         let old_pte = self.pte.clone_pte();
         assert(old_pte.pte_paddr() == self.pte.pte_paddr());
@@ -303,11 +301,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &mut spt.i_ptes,
             );
             assume(spt.wf());  // TODO: fix spt.perms when write_pte
-        }
 
-        assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
-        assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
-        assume(spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int));
+            assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
+            assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
+            assume(spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int));
+        }
 
         old_child
     }

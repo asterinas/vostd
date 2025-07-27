@@ -724,8 +724,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 Child::None => { PageTableItem::NotMapped { va: 0, len: 0 } },
             };
 
-            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
-            assume(self.0.path_wf(spt));  // TODO: P0
+            assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO
+            assert(self.0.path_wf(spt));
             self.0.move_forward(Tracked(spt));
 
             return item;
