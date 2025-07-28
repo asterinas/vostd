@@ -212,6 +212,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             spt.i_ptes == old(spt).i_ptes,
             spt.ptes == old(spt).ptes,
             old(spt).alloc_model == spt.alloc_model,
+            old(spt).perms.dom() == spt.perms.dom(),
     {
         assert(spt.perms.contains_key(self.paddr()));
         assert(old(spt).i_ptes.value().contains_key(

@@ -700,8 +700,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             assert(!cur_entry.is_none_spec(spt));
             let old_pte_paddr = cur_entry.pte.pte_paddr();
             assert(old_pte_paddr == cur_entry.pte.pte_paddr());
-            // TODO: If cur_entry is not none, the node containing the entry should be valid
-            assume(spt.perms.contains_key(cur_entry.node.paddr()));
+
+            // TODO: prove the last level entry...
             assume(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
             let old = cur_entry.replace_with_none(Child::None, Tracked(spt));
 

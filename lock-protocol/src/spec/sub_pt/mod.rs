@@ -2,7 +2,7 @@ pub mod state_machine;
 
 use std::ops::Sub;
 
-use state_machine::SubPageTableStateMachine;
+use state_machine::{frames_valid, FrameView, SubPageTableStateMachine};
 
 use vstd::prelude::*;
 use vstd::simple_pptr::{PPtr, PointsTo};
@@ -13,6 +13,7 @@ use crate::mm::NR_ENTRIES;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::exec::SIZEOF_PAGETABLEENTRY;
 use crate::exec::SIZEOF_FRAME;
+use crate::spec::sub_pt::state_machine::ptes_frames_matches;
 
 verus! {
 
@@ -42,6 +43,7 @@ pub tracked struct SubPageTable<C: PageTableConfig> {
     /// Permissions of frames in the sub-page-table are stored in this map.
     pub perms: Map<Paddr, PointsTo<crate::exec::MockPageTablePage>>,
     // State machine.
+    pub root: Ghost<FrameView<C>>,
     pub instance: SubPageTableStateMachine::Instance<C>,
     pub frames: SubPageTableStateMachine::frames<C>,
     pub i_ptes: SubPageTableStateMachine::i_ptes<C>,
@@ -55,9 +57,8 @@ impl<C: PageTableConfig> SubPageTable<C> {
         &&& self.frames.instance_id() == self.instance.id()
         &&& self.ptes.instance_id() == self.instance.id()
         &&& self.i_ptes.instance_id() == self.instance.id()
-        &&& forall|pa: Paddr|
-            #![auto]
-            self.frames.value().contains_key(pa as int) <==> self.perms.contains_key(pa)
+        &&& forall|pa: Paddr| #[trigger]
+            self.frames.value().contains_key(pa as int) <==> #[trigger] self.perms.contains_key(pa)
         &&& forall|pa: Paddr|
             #![trigger self.perms.get(pa)]
             {
@@ -71,6 +72,9 @@ impl<C: PageTableConfig> SubPageTable<C> {
                     &&& perm.mem_contents().is_init()
                 }
             }
+        &&& self.root == self.instance.root()
+        &&& frames_valid(self.root@, &self.frames.value(), &self.i_ptes.value())
+        &&& ptes_frames_matches(&self.frames.value(), &self.i_ptes.value(), &self.ptes.value())
     }
 }
 

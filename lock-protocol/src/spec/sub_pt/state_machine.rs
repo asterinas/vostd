@@ -126,6 +126,93 @@ impl<C: PageTableConfig> FrameView<C> {
     }
 }
 
+pub open spec fn frames_valid<C: PageTableConfig>(
+    root: FrameView<C>,
+    frames: &Map<int, FrameView<C>>,
+    i_ptes: &Map<int, IntermediatePageTableEntryView<C>>,
+) -> bool {
+    // Frame invariants.
+    &&& forall|addr: int|
+        frames.dom().contains(addr) ==> {
+            let frame = #[trigger] frames[addr];
+            &&& frame.wf()
+            &&& frame.pa
+                == addr
+            // There must be ancestors all the way till the root.
+            &&& forall|ancestor_level: int|
+                {
+                    &&& frame.level < ancestor_level <= root.level
+                        ==> #[trigger] frame.ancestor_chain.contains_key(ancestor_level)
+                    &&& ancestor_level <= frame.level || root.level < ancestor_level ==> !(
+                    #[trigger] frame.ancestor_chain.contains_key(ancestor_level))
+                }
+                // The ultimate ancestor must be the root.
+            &&& if addr != root.pa {
+                &&& frame.level < root.level
+                &&& frame.ancestor_chain[root.level as int].frame_pa == root.pa
+            } else {
+                true
+            }
+            // Properties for each ancestor. They must contain intermediate PTEs in the map.
+            &&& forall|ancestor_level: int| #[trigger]
+                frame.ancestor_chain.contains_key(ancestor_level) ==> {
+                    let ancestor = #[trigger] frame.ancestor_chain[ancestor_level];
+                    &&& ancestor_level <= root.level
+                    &&& frames.contains_key(ancestor.frame_pa)
+                    &&& frames[ancestor.frame_pa].level == ancestor_level
+                    &&& {
+                        &&& i_ptes.contains_key(ancestor.entry_pa())
+                        &&& i_ptes[ancestor.entry_pa()] == ancestor
+                        &&& if ancestor_level == frame.level + 1 {
+                            i_ptes[ancestor.entry_pa()].map_to_pa == frame.pa
+                        } else {
+                            i_ptes[ancestor.entry_pa()].map_to_pa
+                                == frame.ancestor_chain[ancestor_level - 1].frame_pa
+                        }
+                    }
+                }
+        }
+}
+
+pub open spec fn ptes_frames_matches<C: PageTableConfig>(
+    frames: &Map<int, FrameView<C>>,
+    i_ptes: &Map<int, IntermediatePageTableEntryView<C>>,
+    ptes: &Map<int, LeafPageTableEntryView<C>>,
+) -> bool {
+    // Intermediate PTE invariants.
+    &&& forall|addr: int|
+        i_ptes.dom().contains(addr) ==> {
+            let i_pte = #[trigger] i_ptes[addr];
+            &&& i_pte.wf()
+            &&& i_pte.entry_pa() == addr
+            &&& frames.contains_key(i_pte.frame_pa)
+            &&& frames.contains_key(
+                i_pte.map_to_pa,
+            )
+            // PTEs must map to a lower level child frame.
+            &&& frames[i_pte.map_to_pa].level == i_pte.level
+                - 1
+            // The ancestor chains of the child frame must be set correctly.
+            &&& {
+                let child_frame = frames[i_pte.map_to_pa];
+                &&& child_frame.ancestor_chain.contains_key(i_pte.level as int)
+                &&& child_frame.ancestor_chain[i_pte.level as int] == i_pte
+            }
+            // Intermediate PTEs can't overlap with leaf PTEs.
+            &&& !ptes.contains_key(addr)
+        }
+        // Leaf PTE invariants.
+    &&& forall|addr: int|
+        ptes.dom().contains(addr) ==> {
+            let pte = #[trigger] ptes[addr];
+            &&& pte.wf()
+            &&& pte.entry_pa()
+                == addr
+            // Leaf PTEs can't overlap with intermediate PTEs.
+            &&& !i_ptes.contains_key(addr)
+        }
+}
+
 tokenized_state_machine! {
 // A state machine for a sub-tree of a page table.
 SubPageTableStateMachine<C: PageTableConfig> {
@@ -151,68 +238,8 @@ SubPageTableStateMachine<C: PageTableConfig> {
     pub open spec fn sub_pt_wf(self) -> bool {
         &&& self.root.ancestor_chain.is_empty()
         &&& self.root.wf()
-        // Frame invariants.
-        &&& forall |addr: int| self.frames.dom().contains(addr) ==> {
-            let frame = #[trigger] self.frames[addr];
-            &&& frame.wf()
-            &&& frame.pa == addr
-            // There must be ancestors all the way till the root.
-            &&& forall |ancestor_level: int| {
-                &&& frame.level < ancestor_level <= self.root.level ==>
-                    #[trigger] frame.ancestor_chain.contains_key(ancestor_level)
-                &&& ancestor_level <= frame.level || self.root.level < ancestor_level ==>
-                    !(#[trigger] frame.ancestor_chain.contains_key(ancestor_level))
-            }
-            // The ultimate ancestor must be the root.
-            &&& if addr != self.root.pa {
-                &&& frame.level < self.root.level
-                &&& frame.ancestor_chain[self.root.level as int].frame_pa == self.root.pa
-            } else {
-                true
-            }
-            // Properties for each ancestor. They must contain intermediate PTEs in the map.
-            &&& forall |ancestor_level: int| #[trigger] frame.ancestor_chain.contains_key(ancestor_level) ==> {
-                let ancestor = #[trigger] frame.ancestor_chain[ancestor_level];
-                &&& ancestor_level <= self.root.level
-                &&& self.frames.contains_key(ancestor.frame_pa)
-                &&& self.frames[ancestor.frame_pa].level == ancestor_level
-                &&& {
-                    &&& self.i_ptes.contains_key(ancestor.entry_pa())
-                    &&& self.i_ptes[ancestor.entry_pa()] == ancestor
-                    &&& if ancestor_level == frame.level + 1 {
-                        self.i_ptes[ancestor.entry_pa()].map_to_pa == frame.pa
-                    } else {
-                        self.i_ptes[ancestor.entry_pa()].map_to_pa == frame.ancestor_chain[ancestor_level - 1].frame_pa
-                    }
-                }
-            }
-        }
-        // Intermediate PTE invariants.
-        &&& forall |addr: int| self.i_ptes.dom().contains(addr) ==> {
-            let i_pte = #[trigger] self.i_ptes[addr];
-            &&& i_pte.wf()
-            &&& i_pte.entry_pa() == addr
-            &&& self.frames.contains_key(i_pte.frame_pa)
-            &&& self.frames.contains_key(i_pte.map_to_pa)
-            // PTEs must map to a lower level child frame.
-            &&& self.frames[i_pte.map_to_pa].level == i_pte.level - 1
-            // The ancestor chains of the child frame must be set correctly.
-            &&& {
-                let child_frame = self.frames[i_pte.map_to_pa];
-                &&& child_frame.ancestor_chain.contains_key(i_pte.level as int)
-                &&& child_frame.ancestor_chain[i_pte.level as int] == i_pte
-            }
-            // Intermediate PTEs can't overlap with leaf PTEs.
-            &&& !self.ptes.contains_key(addr)
-        }
-        // Leaf PTE invariants.
-        &&& forall |addr: int| self.ptes.dom().contains(addr) ==> {
-            let pte = #[trigger] self.ptes[addr];
-            &&& pte.wf()
-            &&& pte.entry_pa() == addr
-            // Leaf PTEs can't overlap with intermediate PTEs.
-            &&& !self.i_ptes.contains_key(addr)
-        }
+        &&& frames_valid(self.root, &self.frames, &self.i_ptes)
+        &&& ptes_frames_matches(&self.frames, &self.i_ptes, &self.ptes)
     }
 
     init!{

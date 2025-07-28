@@ -96,18 +96,20 @@ requires
 
     assert(0int % page_size_spec::<PagingConsts>(4) as int == 0) by { admit() };
 
-    let tracked (
-        Tracked(instance),
-        Tracked(frame_tokens),
-        Tracked(i_pte_tokens),
-        Tracked(pte_tokens),
-    ) = SubPageTableStateMachine::Instance::initialize(FrameView {
+    let ghost root = FrameView {
         map_va: 0,
         pa: p.start_paddr() as int,
         ancestor_chain: Map::empty(),
         level: 3, // To test a sub-tree rooted at level 3
         phantom: std::marker::PhantomData,
-    });
+    };
+
+    let tracked (
+        Tracked(instance),
+        Tracked(frame_tokens),
+        Tracked(i_pte_tokens),
+        Tracked(pte_tokens),
+    ) = SubPageTableStateMachine::Instance::initialize(root);
 
     let tracked mut sub_page_table = SubPageTable {
         alloc_model,
@@ -116,6 +118,7 @@ requires
             map.tracked_insert(p.start_paddr(), pt);
             map
         },
+        root: Ghost(root),
         frames: frame_tokens,
         i_ptes: i_pte_tokens,
         ptes: pte_tokens,

@@ -272,9 +272,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             Tracked(spt),
         );
 
-        if old_child.is_none() && !new_child.is_none() {
-            assert(false);
-        } else if !old_child.is_none() && new_child.is_none() {
+        if !old_child.is_none() {
             // *self.node.nr_children_mut() -= 1;
             self.node.change_children(-1);
         }
@@ -295,23 +293,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.node.paddr() as int,
                 self.idx as int,
             ) as int].map_to_pa;
+
+            assert(spt.frames.value().contains_key(child_frame_addr));
+            assert(spt.perms.contains_key(child_frame_addr as usize));
+
             let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
-            assume(spt.frames.value().contains_key(child_frame_addr));  // TODO: Isn't this in spt wf?
+            // TODO: The child is not an ancestor of any other frame. Where should we enforce this?
             assume(forall|i: int| #[trigger]
                 spt.frames.value().contains_key(i) ==> {
                     ||| !spt.frames.value()[i].ancestor_chain.contains_key(child_frame_level)
                     ||| spt.frames.value()[i].ancestor_chain[child_frame_level].frame_pa
                         != child_frame_addr
-                });  // TODO: Where should we enforce this?
+                });
             spt.instance.remove_at(
                 self.node.paddr() as int,
                 self.idx as int,
                 &mut spt.frames,
                 &mut spt.i_ptes,
             );
-            assume(spt.wf());  // TODO: fix spt.perms when write_pte
-
+            spt.perms.tracked_remove(child_frame_addr as usize);
+            assert(spt.wf());
             assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
+
             assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
             assume(spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int));
         }
