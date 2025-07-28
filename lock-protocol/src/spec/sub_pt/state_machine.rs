@@ -99,14 +99,14 @@ impl<C: PageTableConfig> FrameView<C> {
                 &&& self.ancestor_chain[ancestor_level].level
                     == ancestor_level
                 // No loops.
-                &&& self.ancestor_chain[ancestor_level].frame_pa
+                &&& #[trigger] self.ancestor_chain[ancestor_level].frame_pa
                     != self.pa
                 // The map-to-addresses actually forms a chain.
                 &&& if ancestor_level == self.level + 1 {
                     self.ancestor_chain[ancestor_level].map_to_pa == self.pa
                 } else {
                     &&& self.ancestor_chain.contains_key(ancestor_level - 1)
-                    &&& self.ancestor_chain[ancestor_level].map_to_pa
+                        ==> #[trigger] self.ancestor_chain[ancestor_level].map_to_pa
                         == self.ancestor_chain[ancestor_level - 1].frame_pa
                 }
                 &&& if self.ancestor_chain.contains_key(ancestor_level + 1) {

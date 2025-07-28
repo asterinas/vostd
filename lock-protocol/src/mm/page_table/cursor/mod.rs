@@ -701,8 +701,19 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let old_pte_paddr = cur_entry.pte.pte_paddr();
             assert(old_pte_paddr == cur_entry.pte.pte_paddr());
 
-            // TODO: prove the last level entry...
             assume(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
+            proof {
+                let child_frame_addr = spt.i_ptes.value()[index_pte_paddr(
+                    cur_entry.node.paddr() as int,
+                    cur_entry.idx as int,
+                ) as int].map_to_pa;
+                let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
+                // TODO: enhance path_wf or spt_wf
+                assume(forall|i: int| #[trigger]
+                    self.0.path[i].is_some() ==> self.0.path[i].unwrap().paddr()
+                        != child_frame_addr);
+            }
+            // TODO: prove the last level entry...
             let old = cur_entry.replace_with_none(Child::None, Tracked(spt));
 
             // the post condition

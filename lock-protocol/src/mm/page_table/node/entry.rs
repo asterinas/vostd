@@ -5,7 +5,9 @@ use std::marker::PhantomData;
 
 use crate::{
     mm::{
-        cursor::spec_helpers::{self, spt_do_not_change_except},
+        cursor::spec_helpers::{
+            self, spt_do_not_change_except, spt_do_not_change_except_frames_change,
+        },
         frame::allocator::AllocatorModel,
         meta::AnyFrameMeta,
         nr_subpage_per_huge,
@@ -258,11 +260,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.node.wf(&old(spt).alloc_model),
             // !spt.ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             !spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            spt.instance.id() == old(spt).instance.id(),
-            spt.wf(),
-            spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int),
+            spt_do_not_change_except_frames_change(spt, old(spt), old(self).pte.pte_paddr() as int),
             self.remove_old_child(res, old(self).pte, old(spt), spt),
             old(spt).alloc_model == spt.alloc_model,
+            forall|i: int|
+                old(spt).frames.value().contains_key(i) && i != old(spt).i_ptes.value()[old(
+                    self,
+                ).pte.pte_paddr() as int].map_to_pa ==> {
+                    #[trigger] spt.frames.value().contains_key(i) && spt.frames.value()[i] == old(
+                        spt,
+                    ).frames.value()[i]
+                },
     {
         let old_pte = self.pte.clone_pte();
         assert(old_pte.pte_paddr() == self.pte.pte_paddr());
@@ -315,8 +323,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             assert(spt.wf());
             assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
 
+            assert(spt_do_not_change_except_frames_change(
+                spt,
+                old(spt),
+                old(self).pte.pte_paddr() as int,
+            ));
             assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
-            assume(spt_do_not_change_except(spt, old(spt), old(self).pte.pte_paddr() as int));
         }
 
         old_child

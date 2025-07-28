@@ -206,8 +206,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
             ),
         ensures
             spt.wf(),
-            spt.ptes.instance_id() == old(spt).ptes.instance_id(),
-            spt.frames.instance_id() == old(spt).frames.instance_id(),
+            spt.root == old(spt).root,
             spt.frames == old(spt).frames,
             spt.i_ptes == old(spt).i_ptes,
             spt.ptes == old(spt).ptes,

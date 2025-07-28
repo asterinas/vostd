@@ -51,7 +51,18 @@ pub open spec fn spt_do_not_change_except<C: PageTableConfig>(
     &&& spt.instance.root() == old_spt.instance.root()
     &&& forward_spt_do_not_change_except(spt, old_spt, pte_addr)
     &&& forward_spt_do_not_change_except(old_spt, spt, pte_addr)
-    &&& spt.frames == old_spt.frames
+}
+
+pub open spec fn spt_do_not_change_except_frames_change<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
+    pte_addr: int,
+) -> bool {
+    &&& spt.wf()
+    &&& old_spt.wf()
+    &&& spt.instance.id() == old_spt.instance.id()
+    &&& spt.instance.root() == old_spt.instance.root()
+    &&& forward_spt_do_not_change_except(spt, old_spt, pte_addr)
 }
 
 #[verifier::inline]
