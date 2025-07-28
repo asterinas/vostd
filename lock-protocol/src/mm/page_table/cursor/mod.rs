@@ -428,9 +428,16 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             res.node == path_index!(self.path[self.level]).unwrap(),
             res.node.level_spec(&spt.alloc_model) == self.level,
             res.idx == pte_index::<C>(self.va, self.level),
+            res.va == align_down(self.va, page_size::<C>(self.level)),
     {
         let cur_node = self.path[path_index_at_level(self.level)].as_ref().unwrap();
-        Entry::new_at(cur_node, pte_index::<C>(self.va, self.level), Tracked(spt))
+        let idx = pte_index::<C>(self.va, self.level);
+        assert(self.level == cur_node.level_spec(&spt.alloc_model));
+        assume(cur_node.va@ + idx * page_size::<C>(self.level) == align_down(
+            self.va,
+            page_size::<C>(self.level),
+        ));
+        Entry::new_at(cur_node, idx, Tracked(spt))
     }
 }
 
@@ -484,15 +491,21 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             old(spt).wf(),
             old(self).0.wf(old(spt)),
             len == PAGE_SIZE(),
+            old(self).0.va % PAGE_SIZE() == 0,
         ensures
             spt.wf(),
             self.0.wf(spt),
             self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
-            self.0.va > old(
-                self,
-            ).0.va,
-    // TODO: Add the mapping model and ensure the mapping is built.
-
+            self.0.va > old(self).0.va,
+            // The map succeeds.
+            exists|pte_pa: Paddr|
+                {
+                    &&& #[trigger] spt.ptes.value().contains_key(
+                        pte_pa as int,
+                    )
+                    // &&& #[trigger] spt.ptes.value()[pte_pa as int].map_va == old(self).0.va
+                    &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == pa
+                },
     {
         let preempt_guard = self.0.preempt_guard;
 
@@ -544,8 +557,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         let mut cur_entry = self.0.cur_entry(Tracked(spt));
 
-        // TODO: P0 Fix the last level frame in SubPageTableStateMachine and SubPageTable.
-        // Map the current page.
         let old_entry = cur_entry.replace(Child::Frame(pa, 1, prop), Tracked(spt));
 
         assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1

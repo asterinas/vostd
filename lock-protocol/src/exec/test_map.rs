@@ -79,6 +79,7 @@ pub const ONE_GIG_VA: Vaddr = 0x40000000;
 pub fn test(va: Vaddr, page_prop: page_prop::PageProperty)
 requires
     0 <= va < ONE_GIG_VA,
+    va % PAGE_SIZE() == 0,
 {
     broadcast use vstd::std_specs::hash::group_hash_axioms;
     broadcast use vstd::hash_map::group_hash_map_axioms;

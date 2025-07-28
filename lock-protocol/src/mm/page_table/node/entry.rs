@@ -206,6 +206,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
                         == pt.deref().meta_ptr
                 },
+                Child::Frame(pa, level, prop) => {
+                    &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
+                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_va == self.va@ as int
+                },
                 _ => true,
             },
     {
