@@ -1,10 +1,12 @@
 use state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
+use vstd::multiset::*;
 
 use crate::spec::{common::*, utils::*};
 use super::types::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
+use crate::mm::Paddr;
 
 tokenized_state_machine! {
 
@@ -18,17 +20,20 @@ fields {
     pub nodes: Map<NodeId, NodeState>,
 
     #[sharding(map)]
-    pub ptes: Map<NodeId, PteState>,
+    pub pte_arrays: Map<NodeId, PteArrayState>,
 
     #[sharding(map)]
     pub cursors: Map<CpuId, CursorState>,
+
+    #[sharding(multiset)]
+    pub strays: Multiset<(NodeId, StrayState)>,
 }
 
 #[invariant]
 pub fn inv_pt_node_pte_array_relationship(&self) -> bool {
     forall |nid: NodeId| #![auto]
         self.nodes.dom().contains(nid) <==>
-        self.ptes.dom().contains(nid)
+        self.pte_arrays.dom().contains(nid)
 }
 
 #[invariant]
@@ -39,8 +44,42 @@ pub fn inv_pt_node_pte_relationship(&self) -> bool {
                 let pa = NodeHelper::get_parent(nid);
                 let offset = NodeHelper::get_offset(nid);
 
-                self.ptes.dom().contains(pa) &&
-                self.ptes[pa].is_alive(offset)
+                self.pte_arrays.dom().contains(pa) &&
+                self.pte_arrays[pa].is_alive(offset)
+            }
+        }
+}
+
+#[invariant]
+pub fn wf_strays(&self) -> bool {
+    forall |pair: (NodeId, StrayState)|
+        self.strays.contains(pair) ==> {
+            &&& NodeHelper::valid_nid(pair.0)
+            &&& pair.0 != NodeHelper::root_id()
+        }
+}
+
+#[invariant]
+pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
+    forall |nid: NodeId|
+        self.strays.filter(|pair: (NodeId, StrayState)| {
+            &&& pair.0 == nid
+            &&& pair.1 is False
+        }).len() <= 1
+}
+
+#[invariant]
+pub fn inv_pte_is_alive_iff_stray_has_false(&self) -> bool {
+    forall |nid: NodeId| 
+        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+            let pa = NodeHelper::get_parent(nid);
+            let offset = NodeHelper::get_offset(nid);
+            self.pte_arrays.dom().contains(pa) && self.pte_arrays[pa].is_alive(offset) <==>
+            exists |pair: (NodeId, StrayState)| {
+                &&& pair.0 == nid
+                &&& pair.1 is False
+                &&& pair.1->False_0 == self.pte_arrays[pa].get_paddr(offset)
+                &&& self.strays.contains(pair)
             }
         }
 }
@@ -54,14 +93,15 @@ init!{
             |nid| nid == NodeHelper::root_id(),
             |nid| NodeState::Free,
         );
-        init ptes = Map::new(
+        init pte_arrays = Map::new(
             |nid| nid == NodeHelper::root_id(),
-            |nid| PteState::empty(),
+            |nid| PteArrayState::empty(),
         );
         init cursors = Map::new(
             |cpu| valid_cpu(cpu_num, cpu),
             |cpu| CursorState::Void,
         );
+        init strays = Multiset::empty();
     }
 }
 
@@ -100,8 +140,8 @@ transition!{
         require(_nid == nid);
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        have ptes >= [ pa => let pte ];
-        require(pte.is_void(offset));
+        have pte_arrays >= [ pa => let pte_array ];
+        require(pte_array.is_void(offset));
         add cursors += [ cpu => CursorState::Locking(rt, NodeHelper::next_outside_subtree(nid)) ];
     }
 }
@@ -150,8 +190,8 @@ transition!{
         require(_nid == NodeHelper::next_outside_subtree(nid));
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        have ptes >= [ pa => let pte ];
-        require(pte.is_void(offset));
+        have pte_arrays >= [ pa => let pte_array ];
+        require(pte_array.is_void(offset));
         add cursors += [ cpu => CursorState::Locking(rt, nid) ];
     }
 }
@@ -167,26 +207,38 @@ transition!{
 }
 
 transition!{
-    protocol_allocate(nid: NodeId) {
+    protocol_allocate(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
 
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have nodes >= [ pa => NodeState::Locked ];
-        remove ptes -= [ pa => let pte ];
-        require(pte.is_void(offset));
-        add ptes += [ pa => pte.update(offset, Some(())) ];
+        remove pte_arrays -= [ pa => let pte_array ];
+        require(pte_array.is_void(offset));
+        add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
-        add ptes += [ nid => PteState::empty() ];
+        add pte_arrays += [ nid => PteArrayState::empty() ];
+        add strays += { (nid, StrayState::False(paddr)) };
     }
 }
 
 transition!{
-    // TODO
     protocol_deallocate(nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
+
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        remove nodes -= [ nid => NodeState::Locked ];
+        have nodes >= [ pa => NodeState::Locked ];
+        remove pte_arrays -= [ pa => let pte_array ];
+        require(pte_array.is_alive(offset));
+        let paddr = pte_array.get_paddr(offset);
+        remove pte_arrays -= [ nid => PteArrayState::empty() ];
+        add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
+        remove strays -= { (nid, StrayState::False(paddr)) };
+        add strays += { (nid, StrayState::True) };
     }
 }
 
@@ -211,24 +263,39 @@ transition!{
 }
 
 transition!{
-    normal_allocate(nid: NodeId) {
+    normal_allocate(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
 
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have nodes >= [ pa => NodeState::LockedOutside ];
-        remove ptes -= [ pa => let pte ];
-        require(pte.is_void(offset));
-        add ptes += [ pa => pte.update(offset, Some(())) ];
+        remove pte_arrays -= [ pa => let pte_array ];
+        require(pte_array.is_void(offset));
+        add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
-        add ptes += [ nid => PteState::empty() ];
+        add pte_arrays += [ nid => PteArrayState::empty() ];
+        add strays += { (nid, StrayState::False(paddr)) };
     }
 }
 
 transition!{
-    // TODO
-    normal_deallocate(nid: NodeId) {}
+    normal_deallocate(nid: NodeId) {
+        require(NodeHelper::valid_nid(nid));
+        require(nid != NodeHelper::root_id());
+
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        remove nodes -= [ nid => NodeState::LockedOutside ];
+        have nodes >= [ pa => NodeState::LockedOutside ];
+        remove pte_arrays -= [ pa => let pte_array ];
+        require(pte_array.is_alive(offset));
+        let paddr = pte_array.get_paddr(offset);
+        remove pte_arrays -= [ nid => PteArrayState::empty() ];
+        add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
+        remove strays -= { (nid, StrayState::False(paddr)) };
+        add strays += { (nid, StrayState::True) };
+    }
 }
 
 #[inductive(initialize)]
@@ -259,7 +326,7 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_allocate)]
-fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
+fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit(); }
 
 #[inductive(protocol_deallocate)]
 fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
@@ -271,7 +338,7 @@ fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
 fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_allocate)]
-fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
+fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit(); }
 
 #[inductive(normal_deallocate)]
 fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}

@@ -7,7 +7,7 @@ pub type SpecInstance = TreeSpec::Instance;
 
 pub type NodeToken = TreeSpec::nodes;
 
-pub type PteToken = TreeSpec::ptes;
+pub type PteArrayToken = TreeSpec::pte_arrays;
 
 pub type CursorToken = TreeSpec::cursors;
 

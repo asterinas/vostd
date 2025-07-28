@@ -152,11 +152,11 @@ pub ghost struct SpinInternalPred;
 
 impl InvariantPredicate<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteToken>, CellPointsTo<bool>, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, CellPointsTo<bool>, PageTableEntryPerms),
 > for SpinInternalPred {
     open spec fn inv(
         k: (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-        v: (Option<NodeToken>, Option<PteToken>, CellPointsTo<bool>, PageTableEntryPerms),
+        v: (Option<NodeToken>, Option<PteArrayToken>, CellPointsTo<bool>, PageTableEntryPerms),
     ) -> bool {
         &&& NodeHelper::valid_nid(k.1)
         &&& v.0 is Some <==> v.1 is Some
@@ -181,19 +181,19 @@ impl InvariantPredicate<
 
 type SpinInstance = SpinLockToks::Instance<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteToken>, CellPointsTo<bool>, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, CellPointsTo<bool>, PageTableEntryPerms),
     SpinInternalPred,
 >;
 
 type SpinFlagToken = SpinLockToks::flag<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteToken>, CellPointsTo<bool>, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, CellPointsTo<bool>, PageTableEntryPerms),
     SpinInternalPred,
 >;
 
 type SpinGuardToken = SpinLockToks::guard<
     (InstanceId, NodeId, Paddr, PagingLevel, CellId),
-    (Option<NodeToken>, Option<PteToken>, CellPointsTo<bool>, PageTableEntryPerms),
+    (Option<NodeToken>, Option<PteArrayToken>, CellPointsTo<bool>, PageTableEntryPerms),
     SpinInternalPred,
 >;
 
@@ -235,7 +235,7 @@ struct_with_invariants! {
 pub struct SpinGuard {
     pub handle: Tracked<SpinGuardToken>,
     pub node_token: Tracked<Option<NodeToken>>,
-    pub pte_token: Tracked<Option<PteToken>>,
+    pub pte_token: Tracked<Option<PteArrayToken>>,
     pub stray_perm: Tracked<CellPointsTo<bool>>,
     pub perms: Tracked<PageTableEntryPerms>,
     pub in_protocol: Ghost<bool>,
@@ -300,7 +300,7 @@ impl SpinGuard {
         self.node_token@->Some_0
     }
 
-    pub open spec fn view_pte_token(&self) -> PteToken
+    pub open spec fn view_pte_token(&self) -> PteArrayToken
         recommends
             self.pte_token@ is Some,
     {
@@ -414,7 +414,48 @@ impl PageTablePageSpinLock {
             res.1@.sub_tree_rt() == m@.sub_tree_rt(),
             res.1@.cur_node() == self.nid() + 1,
     {
-        unimplemented!()
+        // let tracked m = m.get();
+        // let mut guard_opt: Option<SpinGuard> = None;
+        // loop
+        //     invariant_except_break
+        //         self.wf(),
+        //         m.inv(),
+        //         m.inst_id() == self.pt_inst_id(),
+        //         m.state() is Locking,
+        //         m.cur_node() == self.nid(),
+        //         guard_opt is None,
+        //     ensures
+        //         m.inv(),
+        //         m.inst_id() == self.pt_inst_id(),
+        //         m.state() is Locking,
+        //         m.cur_node() == self.nid() + 1,
+        //         guard_opt is Some,
+        //         guard_opt->Some_0.wf(self),
+        //         guard_opt->Some_0.in_protocol@ == true,
+        // {
+        //     let tracked mut node_token_opt: Option<Option<NodeToken>> = None;
+        //     let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
+        //     let tracked mut stray_perm_opt: Option<CellPointsTo<bool>> = None;
+        //     let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
+        //     let result = atomic_with_ghost!(
+        //         &self.flag => compare_exchange(false, true);
+        //         returning res;
+        //         ghost g => {
+        //             if res is Ok {
+        //                 let tracked res = self.inst.borrow().acquire(&mut g);
+
+        //             }
+        //         }
+        //     )
+
+        //     match result {
+        //         Result::Ok(_) => {
+                    
+        //         },
+        //         _ => (),
+        //     };
+        // }
+        unimplemented!();
     }
 
     #[verifier::external_body]

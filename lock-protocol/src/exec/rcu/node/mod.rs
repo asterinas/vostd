@@ -127,7 +127,7 @@ impl PageTableNode {
         nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
         node_token: Tracked<NodeToken>,
-        pte_token: Tracked<PteToken>,
+        pte_token: Tracked<PteArrayToken>,
     ) -> (res: Self)
         requires
             level as nat == NodeHelper::nid_to_level(nid@),

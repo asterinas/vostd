@@ -598,7 +598,7 @@ fn dfs_acquire_lock(
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
-                    let tracked pte_token: &PteToken =
+                    let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(pte_token.value().is_void(i as nat));
                     let tracked res = inst.clone().protocol_lock_skip(
@@ -817,7 +817,7 @@ fn dfs_release_lock<'rcu>(
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
-                    let tracked pte_token: &PteToken =
+                    let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
                         if i + 1 < 512 {

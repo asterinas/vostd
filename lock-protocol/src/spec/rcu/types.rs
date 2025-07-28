@@ -2,6 +2,7 @@ use vstd::{prelude::*, seq::*};
 
 use crate::spec::{common::*, utils::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
+use crate::mm::Paddr;
 
 verus! {
 
@@ -13,17 +14,22 @@ pub enum NodeState {
     LockedOutside,
 }
 
-pub ghost struct PteState {
-    pub inner: Seq<Option<()>>,
+pub enum PteState {
+    Alive(Paddr),
+    None,
 }
 
-impl PteState {
+pub ghost struct PteArrayState {
+    pub inner: Seq<PteState>,
+}
+
+impl PteArrayState {
     pub open spec fn wf(&self) -> bool {
         self.inner.len() == 512
     }
 
     pub open spec fn empty() -> Self {
-        Self { inner: Seq::new(512, |i: int| None) }
+        Self { inner: Seq::new(512, |i: int| PteState::None) }
     }
 
     pub open spec fn is_void(&self, idx: nat) -> bool
@@ -39,10 +45,17 @@ impl PteState {
             self.wf(),
             0 <= idx < 512,
     {
-        self.inner[idx as int] is Some
+        self.inner[idx as int] is Alive
     }
 
-    pub open spec fn update(self, idx: nat, v: Option<()>) -> Self
+    pub open spec fn get_paddr(&self, idx: nat) -> Paddr
+        recommends
+            self.is_alive(idx),
+    {
+        self.inner[idx as int]->Alive_0
+    }
+
+    pub open spec fn update(self, idx: nat, v: PteState) -> Self
         recommends
             self.wf(),
             0 <= idx < 512,
@@ -73,6 +86,11 @@ impl CursorState {
             // },
         }
     }
+}
+
+pub enum StrayState {
+    True,
+    False(Paddr),
 }
 
 } // verus!
