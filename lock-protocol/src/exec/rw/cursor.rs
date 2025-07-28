@@ -14,6 +14,7 @@ use vstd::pervasive::unreached;
 use vstd_extra::manually_drop::*;
 
 use crate::spec::{common::*, utils::*, rw::*};
+use crate::task::guard;
 use super::{common::*, types::*, mem_content::*, cpu::*, frame::*, page_table::*};
 use super::node::{
     PageTableNode, PageTableReadLock, PageTableWriteLock, child::Child, entry::Entry, rwlock::*,
@@ -298,9 +299,10 @@ pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
     recommends
         va_range_wf(va),
 {
-    let guard_level = va_range_get_guard_level(va);
-    let trace = va_level_to_trace(va.start, guard_level);
-    NodeHelper::trace_to_tree_path(trace)
+    Seq::new(
+        (5 - va_range_get_guard_level(va)) as nat,
+        |i| va_level_to_nid(va.start, (4 - i) as PagingLevel),
+    )
 }
 
 pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
@@ -310,27 +312,15 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
         va_range_get_tree_path(va).all(|nid| NodeHelper::valid_nid(nid)),
         va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
 {
-    let guard_level = va_range_get_guard_level(va);
-    let trace = va_level_to_trace(va.start, guard_level);
     lemma_va_range_get_guard_level(va);
-    let path = va_range_get_tree_path(va);
-    assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
-        let nid = path[i];
-        if i == 0 {
-            assert(nid == NodeHelper::root_id());
-            NodeHelper::lemma_root_id();
-        } else {
-            let sub_trace = trace.subrange(0, i);
-            assert(nid == NodeHelper::trace_to_nid(sub_trace));
-            lemma_va_level_to_trace_valid(va.start, guard_level);
-            NodeHelper::lemma_trace_to_nid_sound(sub_trace);
-        }
+    assert forall|i: int|
+        0 <= i < va_range_get_tree_path(va).len() implies #[trigger] NodeHelper::valid_nid(
+        va_range_get_tree_path(va)[i],
+    ) by {
+        lemma_va_level_to_nid_valid(va.start, (4 - i) as PagingLevel);
     }
 }
 
-// pub proof fn lemma_va_range_get_tree_path_inc(
-//     va: Range<Vaddr>, path: Seq<NodeId>,
-// )
 // TODO: Notice that we don't support huge pages yet.
 #[verifier::exec_allows_no_decreases_clause]
 pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolModel>) -> (res: (
@@ -414,11 +404,13 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
             forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
-            m.path().len() == 4 - level,
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
-            m.path().is_prefix_of(va_range_get_tree_path(*va)),
+            m.path() == Seq::new(
+                (4 - level) as nat,
+                |i| va_level_to_nid(va.start, (4 - i) as PagingLevel),
+            ),
         ensures
             valid_paddr(cur_pt_paddr),
             m.inv(),
@@ -428,7 +420,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
             1 <= level <= 4,
             level as nat == NodeHelper::nid_to_level(cur_nid),
             level == va_range_get_guard_level(*va),
-            path.len() == 4,
             forall|i: int|
                 #![trigger path@[i - 1]]
                 level < i <= 4 ==> {
@@ -442,7 +433,10 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
-            m.path().is_prefix_of(va_range_get_tree_path(*va)),
+            m.path() == Seq::new(
+                (4 - level) as nat,
+                |i| va_level_to_nid(va.start, (4 - i) as PagingLevel),
+            ),
         decreases level,
     {
         let start_idx = pte_index(va.start, level);
@@ -503,9 +497,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                 proof {
                     cur_nid = nxt_nid;
                 }
-                assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
-                    admit();
-                };
+
             },
             Child::None | Child::Unimplemented => {
                 // Upgrade to write lock.
@@ -546,9 +538,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                         proof {
                             cur_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
                         }
-                        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
-                            admit();
-                        };
                     },
                     Child::None | Child::Unimplemented => {
                         // We need to allocate a new page table node.
@@ -586,9 +575,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                         proof {
                             cur_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
                         }
-                        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
-                            admit();
-                        };
                     },
                     _ => {
                         // cur_wlock_opt = Some(cur_pt_wlockguard);
@@ -622,9 +608,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         proof {
             m = res.1.get();
         }
-        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
-            admit();
-        };
+        assert(m.path().is_prefix_of(va_range_get_tree_path(*va)));
         res.0
     };
 

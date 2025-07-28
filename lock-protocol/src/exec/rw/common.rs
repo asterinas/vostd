@@ -120,6 +120,17 @@ pub open spec fn va_level_to_nid(va: Vaddr, level: PagingLevel) -> NodeId {
     NodeHelper::trace_to_nid(va_level_to_trace(va, level))
 }
 
+pub proof fn lemma_va_level_to_nid_valid(va: Vaddr, level: PagingLevel)
+    requires
+        valid_vaddr(va),
+        1 <= level <= 4,
+    ensures
+        NodeHelper::valid_nid(va_level_to_nid(va, level)),
+{
+    lemma_va_level_to_trace_valid(va, level);
+    NodeHelper::lemma_trace_to_nid_sound(va_level_to_trace(va, level));
+}
+
 pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeId, idx: nat)
     requires
         valid_vaddr(va),
