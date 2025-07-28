@@ -513,13 +513,17 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             decreases self.0.level,
         {
             let cur_level = self.0.level;
+            let ghost cur_va = self.0.va;
             let mut cur_entry = self.0.cur_entry(Tracked(spt));
             match cur_entry.to_ref(Tracked(spt)) {
                 ChildRef::PageTable(pt) => {
                     assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_level == cur_entry.node.level_spec(&spt.alloc_model));
                     assert(cur_level - 1 == pt.level_spec(&spt.alloc_model));
-                    let child_pt = pt.make_guard_unchecked(preempt_guard);
+                    let child_pt = pt.make_guard_unchecked(
+                        preempt_guard,
+                        Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                    );
                     assert(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
@@ -647,7 +651,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 let child = cur_entry.to_ref(Tracked(spt));
                 match child {
                     ChildRef::PageTable(pt) => {
-                        let pt = pt.make_guard_unchecked(preempt_guard);
+                        let pt = pt.make_guard_unchecked(
+                            preempt_guard,
+                            Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                        );
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
@@ -700,7 +707,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     // SAFETY: We must have locked this node.
                     let locked_pt = pt.deref().borrow(
                         Tracked(&spt.alloc_model),
-                    ).make_guard_unchecked(preempt_guard);
+                    ).make_guard_unchecked(
+                        preempt_guard,
+                        Ghost(align_down(self.0.va, page_size::<C>(self.0.level))),
+                    );
                     // assert!(
                     //     !(TypeId::of::<M>() == TypeId::of::<KernelMode>()
                     //         && self.0.level == C::NR_LEVELS()),

@@ -8,7 +8,7 @@ use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{pte_index, Paddr, PageTableGuard, NR_ENTRIES};
+use crate::mm::{page_size_spec, pte_index, Paddr, PageTableGuard, NR_ENTRIES};
 use crate::task::preempt;
 use crate::{
     mm::{
@@ -93,15 +93,19 @@ requires
 
     let preempt_guard = disable_preempt();
 
+    assert(0int % page_size_spec::<PagingConsts>(4) as int == 0) by { admit() };
+
     let tracked (
         Tracked(instance),
         Tracked(frame_tokens),
         Tracked(i_pte_tokens),
         Tracked(pte_tokens),
     ) = SubPageTableStateMachine::Instance::initialize(FrameView {
+        map_va: 0,
         pa: p.start_paddr() as int,
         ancestor_chain: Map::empty(),
         level: 3, // To test a sub-tree rooted at level 3
+        phantom: std::marker::PhantomData,
     });
 
     let tracked mut sub_page_table = SubPageTable {
@@ -124,7 +128,7 @@ requires
         let path = [
             None, // level 1
             None, // level 2
-            Some(p.borrow(Tracked(&sub_page_table.alloc_model)).make_guard_unchecked(&preempt_guard)), // root
+            Some(p.borrow(Tracked(&sub_page_table.alloc_model)).make_guard_unchecked(&preempt_guard, Ghost(0))), // root
             None, // level 4
         ];
         CursorMut::<TestPtConfig> {

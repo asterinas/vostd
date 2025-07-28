@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 
 use core::ops::Deref;
+use std::marker::PhantomData;
 
 use crate::{
     mm::{
@@ -11,7 +12,7 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel,
+        PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel, Vaddr,
     },
     sync::rcu::RcuDrop,
     task::DisabledPreemptGuard,
@@ -47,7 +48,8 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     pub idx: usize,
     /// The node that contains the entry.
     pub node: &'a PageTableGuard<'rcu, C>,
-    pub phantom: std::marker::PhantomData<C>,
+    /// The virtual address that the entry maps to.
+    pub va: Tracked<Vaddr>,
 }
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
@@ -102,10 +104,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
                         self.node.level_spec(&spt.alloc_model) as int,
                         IntermediatePageTableEntryView {
+                            map_va: self.va as int,
                             frame_pa: self.node.paddr() as int,
                             in_frame_index: self.idx as int,
                             map_to_pa: pt.deref().start_paddr() as int,
-                            level: self.node.level_spec(&spt.alloc_model) as int,
+                            level: self.node.level_spec(&spt.alloc_model),
+                            phantom: PhantomData,
                         },
                     )
                 },
@@ -286,7 +290,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 self.node.paddr() as int,
                 self.idx as int,
             ) as int].map_to_pa;
-            let child_frame_level = spt.frames.value()[child_frame_addr].level;
+            let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
             assume(spt.frames.value().contains_key(child_frame_addr));  // TODO: Isn't this in spt wf?
             assume(forall|i: int| #[trigger]
                 spt.frames.value().contains_key(i) ==> {
@@ -376,10 +380,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
                 self.node.level_spec(&spt.alloc_model) as int,
                 IntermediatePageTableEntryView {
+                    map_va: self.va as int,
                     frame_pa: self.node.paddr() as int,
                     in_frame_index: self.idx as int,
                     map_to_pa: res.unwrap().paddr() as int,
-                    level: self.node.level_spec(&spt.alloc_model) as int,
+                    level: self.node.level_spec(&spt.alloc_model),
+                    phantom: PhantomData,
                 },
             ),
     {
@@ -398,10 +404,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         proof {
             spt.instance.set_child(
                 IntermediatePageTableEntryView {
+                    map_va: self.va as int,
                     frame_pa: self.node.paddr() as int,
                     in_frame_index: self.idx as int,
                     map_to_pa: pt.start_paddr() as int,
-                    level: level as int,
+                    level,
+                    phantom: PhantomData,
                 },
                 &mut spt.frames,
                 &mut spt.i_ptes,
@@ -424,7 +432,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
         assume(node_ref.level_spec(&spt.alloc_model) == level - 1);
 
-        Some(node_ref.make_guard_unchecked(guard))
+        Some(node_ref.make_guard_unchecked(guard, Ghost(self.va@)))
     }
 
     /// Create a new entry at the node.
@@ -447,12 +455,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             res.wf(spt),
             res.node == node,
             res.idx == idx,
+            res.va == node.va@ + idx * page_size::<C>(node.level_spec(&spt.alloc_model)),
     {
         // SAFETY: The index is within the bound.
         // let pte = unsafe { node.read_pte(idx) };
         let pte = node.read_pte(idx, Tracked(spt));
+        let va = Tracked(
+            (node.va@ + idx * page_size::<C>(node.level_spec(&spt.alloc_model))) as Vaddr,
+        );
 
-        Self { pte, idx, node, phantom: std::marker::PhantomData }
+        Self { pte, idx, node, va }
     }
 }
 

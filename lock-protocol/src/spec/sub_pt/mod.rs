@@ -42,10 +42,10 @@ pub tracked struct SubPageTable<C: PageTableConfig> {
     /// Permissions of frames in the sub-page-table are stored in this map.
     pub perms: Map<Paddr, PointsTo<crate::exec::MockPageTablePage>>,
     // State machine.
-    pub instance: SubPageTableStateMachine::Instance,
-    pub frames: SubPageTableStateMachine::frames,
-    pub i_ptes: SubPageTableStateMachine::i_ptes,
-    pub ptes: SubPageTableStateMachine::ptes,
+    pub instance: SubPageTableStateMachine::Instance<C>,
+    pub frames: SubPageTableStateMachine::frames<C>,
+    pub i_ptes: SubPageTableStateMachine::i_ptes<C>,
+    pub ptes: SubPageTableStateMachine::ptes<C>,
 }
 
 impl<C: PageTableConfig> SubPageTable<C> {

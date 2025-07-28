@@ -30,6 +30,7 @@ use crate::mm::frame::{
 };
 use crate::mm::PagingLevel;
 
+use crate::mm::Vaddr;
 use crate::sync::spin;
 // TODO: Use a generic style?
 use crate::x86_64::paddr_to_vaddr;
@@ -125,16 +126,18 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub fn make_guard_unchecked<'rcu>(
         self,
         _guard: &'rcu crate::task::DisabledPreemptGuard,
+        Ghost(va): Ghost<Vaddr>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         ensures
             res.inner == self,
     {
-        PageTableGuard { inner: self }
+        PageTableGuard { inner: self, va: Ghost(va) }
     }
 }
 
 pub struct PageTableGuard<'a, C: PageTableConfig> {
     pub inner: PageTableNodeRef<'a, C>,
+    pub va: Ghost<Vaddr>,
 }
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {

@@ -1,8 +1,11 @@
+use std::marker::PhantomData;
+
 use state_machines_macros::*;
 use vstd::prelude::*;
 
 use crate::mm::allocator::pa_is_valid_kernel_address;
 use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
+use crate::mm::{page_size_spec, PageTableConfig, PagingLevel};
 
 verus! {
 
@@ -12,15 +15,17 @@ type Vaddr = usize;
 
 use super::{pa_is_valid_pt_address, index_is_in_range, level_is_in_range, index_pte_paddr};
 
-pub ghost struct LeafPageTableEntryView {
+pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
+    pub map_va: int,
     pub frame_pa: int,
     pub in_frame_index: int,
     pub map_to_pa: int,
-    pub level: int,
+    pub level: PagingLevel,
     pub prop: PageProperty,
+    pub phantom: PhantomData<C>,
 }
 
-impl LeafPageTableEntryView {
+impl<C: PageTableConfig> LeafPageTableEntryView<C> {
     pub open spec fn wf(&self) -> bool {
         &&& pa_is_valid_pt_address(self.frame_pa)
         &&& index_is_in_range(self.in_frame_index)
@@ -28,7 +33,11 @@ impl LeafPageTableEntryView {
             self.map_to_pa,
         )
         // We assume that all level PTEs can be leaf. Thus they can map to huge pages.
-        &&& level_is_in_range(self.level)
+        &&& level_is_in_range(
+            self.level as int,
+        )
+        // The corresponding virtual address must be aligned to the page size.
+        &&& self.map_va % (page_size_spec::<C>(self.level) as int) == 0
     }
 
     pub open spec fn entry_pa(&self) -> int {
@@ -36,21 +45,26 @@ impl LeafPageTableEntryView {
     }
 }
 
-pub ghost struct IntermediatePageTableEntryView {
+pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
+    pub map_va: int,
     pub frame_pa: int,
     pub in_frame_index: int,
     pub map_to_pa: int,
-    pub level: int,
+    pub level: PagingLevel,
+    pub phantom: PhantomData<C>,
 }
 
-impl IntermediatePageTableEntryView {
+impl<C: PageTableConfig> IntermediatePageTableEntryView<C> {
     pub open spec fn wf(&self) -> bool {
         &&& pa_is_valid_pt_address(self.frame_pa)
         &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_pt_address(self.map_to_pa)
-        &&& level_is_in_range(self.level)
+        &&& level_is_in_range(self.level as int)
         // No self-loop.
-        &&& self.map_to_pa != self.frame_pa
+        &&& self.map_to_pa
+            != self.frame_pa
+        // The corresponding virtual address must be aligned to the page size.
+        &&& self.map_va % (page_size_spec::<C>(self.level) as int) == 0
     }
 
     pub open spec fn entry_pa(&self) -> int {
@@ -58,17 +72,25 @@ impl IntermediatePageTableEntryView {
     }
 }
 
-pub ghost struct FrameView {
+pub ghost struct FrameView<C: PageTableConfig> {
+    pub map_va: int,
     pub pa: int,
     /// A map from the ancestor frame level to the PTE that the ancestor maps to its child.
-    pub ancestor_chain: Map<int, IntermediatePageTableEntryView>,
-    pub level: int,
+    pub ancestor_chain: Map<int, IntermediatePageTableEntryView<C>>,
+    pub level: PagingLevel,
+    pub phantom: PhantomData<C>,
 }
 
-impl FrameView {
+impl<C: PageTableConfig> FrameView<C> {
     pub open spec fn wf(&self) -> bool {
         &&& pa_is_valid_pt_address(self.pa)
-        &&& level_is_in_range(self.level)
+        &&& level_is_in_range(
+            self.level as int,
+        )
+        // The corresponding virtual address must be aligned to the upper-level page size.
+        &&& self.map_va % (page_size_spec::<C>((self.level + 1) as PagingLevel) as int)
+            == 0
+        // Ancestor properties.
         &&& forall|ancestor_level: int| #[trigger]
             self.ancestor_chain.contains_key(ancestor_level) ==> {
                 &&& level_is_in_range(ancestor_level)
@@ -106,23 +128,23 @@ impl FrameView {
 
 tokenized_state_machine! {
 // A state machine for a sub-tree of a page table.
-SubPageTableStateMachine {
+SubPageTableStateMachine<C: PageTableConfig> {
     fields {
         /// The root of the sub-page-table.
         #[sharding(constant)]
-        pub root: FrameView,
+        pub root: FrameView<C>,
 
         /// Page table pages indexed by their physical address.
         #[sharding(variable)]
-        pub frames: Map<int, FrameView>,
+        pub frames: Map<int, FrameView<C>>,
 
         /// Intermediate page table entries indexed by their physical address.
         #[sharding(variable)]
-        pub i_ptes: Map<int, IntermediatePageTableEntryView>,
+        pub i_ptes: Map<int, IntermediatePageTableEntryView<C>>,
 
         /// Leaf page table entries indexed by their physical address.
         #[sharding(variable)]
-        pub ptes: Map<int, LeafPageTableEntryView>,
+        pub ptes: Map<int, LeafPageTableEntryView<C>>,
     }
 
     #[invariant]
@@ -144,7 +166,7 @@ SubPageTableStateMachine {
             // The ultimate ancestor must be the root.
             &&& if addr != self.root.pa {
                 &&& frame.level < self.root.level
-                &&& frame.ancestor_chain[self.root.level].frame_pa == self.root.pa
+                &&& frame.ancestor_chain[self.root.level as int].frame_pa == self.root.pa
             } else {
                 true
             }
@@ -177,8 +199,8 @@ SubPageTableStateMachine {
             // The ancestor chains of the child frame must be set correctly.
             &&& {
                 let child_frame = self.frames[i_pte.map_to_pa];
-                &&& child_frame.ancestor_chain.contains_key(i_pte.level)
-                &&& child_frame.ancestor_chain[i_pte.level] == i_pte
+                &&& child_frame.ancestor_chain.contains_key(i_pte.level as int)
+                &&& child_frame.ancestor_chain[i_pte.level as int] == i_pte
             }
             // Intermediate PTEs can't overlap with leaf PTEs.
             &&& !self.ptes.contains_key(addr)
@@ -194,7 +216,7 @@ SubPageTableStateMachine {
     }
 
     init!{
-        initialize(root_frame: FrameView) {
+        initialize(root_frame: FrameView<C>) {
             require root_frame.wf();
 
             // The new frame has no ancestors.
@@ -208,16 +230,18 @@ SubPageTableStateMachine {
     }
 
     #[inductive(initialize)]
-    pub fn initialize_inductive(post: Self, root_frame: FrameView) {}
+    pub fn initialize_inductive(post: Self, root_frame: FrameView<C>) {}
 
     transition! {
         // Sets a new child to the sub-page-table.
-        set_child(i_pte: IntermediatePageTableEntryView) {
+        set_child(i_pte: IntermediatePageTableEntryView<C>) {
             let IntermediatePageTableEntryView {
+                map_va,
                 frame_pa,
                 in_frame_index,
                 map_to_pa,
                 level,
+                phantom: _,
             } = i_pte;
 
             require i_pte.wf();
@@ -247,13 +271,15 @@ SubPageTableStateMachine {
 
             // Construct a child frame with proper ancestor chain.
             let ancestor_chain = parent_frame.ancestor_chain.insert(
-                level,
+                level as int,
                 i_pte,
             );
-            let child = FrameView {
+            let child = FrameView::<C> {
+                map_va,
                 pa: map_to_pa,
                 ancestor_chain,
-                level: level - 1,
+                level: (level - 1) as PagingLevel,
+                phantom: PhantomData,
             };
 
             update frames = pre.frames.insert(child.pa, child);
@@ -266,7 +292,7 @@ SubPageTableStateMachine {
     }
 
     #[inductive(set_child)]
-    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView) {}
+    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView<C>) {}
 
     transition! {
         // remove a pte at a given address
@@ -276,7 +302,7 @@ SubPageTableStateMachine {
             require pre.i_ptes.contains_key(pte_addr);
 
             let child_frame_addr = pre.i_ptes[pte_addr].map_to_pa;
-            let child_frame_level = pre.frames[child_frame_addr].level;
+            let child_frame_level = pre.frames[child_frame_addr].level as int;
 
             require pre.frames.contains_key(parent);
             require pre.frames.contains_key(child_frame_addr);
