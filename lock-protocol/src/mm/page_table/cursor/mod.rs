@@ -148,7 +148,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.guard_level == spt.instance.root().level
     }
 
-    #[verifier::inline]
     pub open spec fn path_item_wf(
         &self,
         level: PagingLevel,
@@ -710,7 +709,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
                 // TODO: enhance path_wf or spt_wf
                 assume(forall|i: int| #[trigger]
-                    self.0.path[i].is_some() ==> self.0.path[i].unwrap().paddr()
+                    self.0.path[i].is_some() ==> #[trigger] self.0.path[i].unwrap().paddr()
                         != child_frame_addr);
             }
             // TODO: prove the last level entry...
