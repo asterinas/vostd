@@ -107,7 +107,6 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     let guard_level = va_range_get_guard_level(va);
     let trace = va_level_to_trace(va.start, guard_level);
     lemma_va_range_get_guard_level(va);
-    lemma_va_level_to_trace_rec_len(va.start >> 12, guard_level);
     let path = va_range_get_tree_path(va);
     assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
         let nid = path[i];

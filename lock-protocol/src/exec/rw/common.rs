@@ -5,6 +5,7 @@ use vstd::vstd::arithmetic::power2::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::power2::*;
 use vstd::bits::*;
+use vstd::seq::*;
 
 use crate::helpers::bits::*;
 use crate::helpers::extern_const::*;
@@ -72,6 +73,21 @@ pub open spec fn va_level_to_offset(va: Vaddr, level: PagingLevel) -> nat
     ((va >> (12 + (level - 1) * 9)) & low_bits_mask(9) as usize) as nat
 }
 
+pub proof fn lemma_va_level_to_offset_range(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= 4,
+    ensures
+        0 <= va_level_to_offset(va, level) < 512,
+{
+    let offset = va_level_to_offset(va, level);
+    assert(offset < 512) by {
+        assert(low_bits_mask(9) == 511) by {
+            lemma_low_bits_mask_values();
+        };
+        assert((va >> (12 + (level - 1) as usize * 9)) & 511 <= 511) by (bit_vector);
+    }
+}
+
 #[verifier::allow_in_spec]
 pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
@@ -93,23 +109,11 @@ pub fn pte_index(va: Vaddr, level: PagingLevel) -> (res: usize)
     offset
 }
 
-pub open spec fn va_level_to_trace_rec(va: Vaddr, level: PagingLevel) -> Seq<nat>
+pub open spec fn va_level_to_trace(va: Vaddr, level: PagingLevel) -> Seq<nat>
     recommends
         1 <= level <= 4,
-    decreases 4 - level,
-    when 1 <= level <= 4
 {
-    if level == 4 {
-        Seq::empty()
-    } else {
-        va_level_to_trace_rec(va, (level + 1) as PagingLevel).push(
-            ((va >> (level * 9)) & low_bits_mask(9) as usize) as nat,
-        )
-    }
-}
-
-pub open spec fn va_level_to_trace(va: Vaddr, level: PagingLevel) -> Seq<nat> {
-    va_level_to_trace_rec(va >> 12, level)
+    Seq::new((4 - level) as nat, |i| va_level_to_offset(va, (4 - i) as PagingLevel))
 }
 
 pub open spec fn va_level_to_nid(va: Vaddr, level: PagingLevel) -> NodeId {
@@ -132,23 +136,7 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
     let trace_level = va_level_to_trace(va, level);
 
     // Show that trace_level = trace_level_plus_1.push(idx)
-    assert(trace_level == trace_level_plus_1.push(idx)) by {
-        assert(va_level_to_trace_rec(va >> 12, level) == va_level_to_trace_rec(
-            va >> 12,
-            (level + 1) as PagingLevel,
-        ).push(((va >> 12 >> (level * 9)) & low_bits_mask(9) as usize) as nat));
-
-        // Show the bit extraction equivalence
-        let offset = (va >> 12 >> (level * 9)) & low_bits_mask(9) as usize;
-        assert(offset as nat == idx) by {
-            assert(low_bits_mask(9) == 511) by {
-                lemma_low_bits_mask_values();
-            };
-            assert((va >> 12 >> (level * 9)) == (va >> (12 + level * 9))) by (bit_vector);
-            assert(((va >> 12 >> (level * 9)) & 511 as usize) == ((va >> (12 + level * 9))
-                & 511 as usize)) by (bit_vector);
-        }
-    };
+    assert(trace_level == trace_level_plus_1.push(idx));
 
     // Now use the fact that nid = trace_to_nid(trace_level_plus_1)
     // and get_child(nid, idx) = trace_to_nid(nid_to_trace(nid).push(idx))
@@ -168,48 +156,20 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
     };
 }
 
-pub proof fn lemma_va_level_to_trace_rec_len(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= 4,
-    ensures
-        va_level_to_trace_rec(va, level).len() == 4 - level,
-    decreases 4 - level,
-{
-    if level < 4 {
-        lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
-    }
-}
-
 pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
     requires
         1 <= level <= 4,
     ensures
         NodeHelper::valid_trace(va_level_to_trace(va, level)),
-{
-    lemma_va_level_to_trace_rec_valid(va >> 12, level);
-}
-
-pub proof fn lemma_va_level_to_trace_rec_valid(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= 4,
-    ensures
-        NodeHelper::valid_trace(va_level_to_trace_rec(va, level)),
     decreases 4 - level,
 {
     if level < 4 {
-        lemma_va_level_to_trace_rec_valid(va, (level + 1) as PagingLevel);
-        let offset = (va >> (level * 9)) & low_bits_mask(9) as usize;
-        assert(offset < 512) by {
-            assert(low_bits_mask(9) == 511) by {
-                lemma_low_bits_mask_values();
-            };
-            assert((va >> (level * 9)) & 511 <= 511) by (bit_vector);
-        }
-        // By inductive hypothesis, the recursive trace is valid
-        assert(NodeHelper::valid_trace(va_level_to_trace_rec(va, (level + 1) as PagingLevel)));
-        assert(va_level_to_trace_rec(va, (level + 1) as PagingLevel).len() + 1 <= 3) by {
-            lemma_va_level_to_trace_rec_len(va, (level + 1) as PagingLevel);
-        };
+        lemma_va_level_to_trace_valid(va, (level + 1) as PagingLevel);
+        lemma_va_level_to_offset_range(va, (level + 1) as PagingLevel);
+        assert(va_level_to_trace(va, level) == va_level_to_trace(
+            va,
+            (level + 1) as PagingLevel,
+        ).push(va_level_to_offset(va, (level + 1) as PagingLevel)));
     }
 }
 

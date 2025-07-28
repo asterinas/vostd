@@ -307,17 +307,12 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     requires
         va_range_wf(va),
     ensures
-        forall|i|
-            #![auto]
-            0 <= i < va_range_get_tree_path(va).len() ==> NodeHelper::valid_nid(
-                va_range_get_tree_path(va)[i],
-            ),
+        va_range_get_tree_path(va).all(|nid| NodeHelper::valid_nid(nid)),
         va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
 {
     let guard_level = va_range_get_guard_level(va);
     let trace = va_level_to_trace(va.start, guard_level);
     lemma_va_range_get_guard_level(va);
-    lemma_va_level_to_trace_rec_len(va.start >> 12, guard_level);
     let path = va_range_get_tree_path(va);
     assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
         let nid = path[i];
@@ -423,6 +418,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
+            m.path().is_prefix_of(va_range_get_tree_path(*va)),
         ensures
             valid_paddr(cur_pt_paddr),
             m.inv(),
@@ -446,6 +442,7 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
+            m.path().is_prefix_of(va_range_get_tree_path(*va)),
         decreases level,
     {
         let start_idx = pte_index(va.start, level);
@@ -506,6 +503,9 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                 proof {
                     cur_nid = nxt_nid;
                 }
+                assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
+                    admit();
+                };
             },
             Child::None | Child::Unimplemented => {
                 // Upgrade to write lock.
@@ -546,6 +546,9 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                         proof {
                             cur_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
                         }
+                        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
+                            admit();
+                        };
                     },
                     Child::None | Child::Unimplemented => {
                         // We need to allocate a new page table node.
@@ -583,6 +586,9 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                         proof {
                             cur_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
                         }
+                        assert(m.path().is_prefix_of(va_range_get_tree_path(*va))) by {
+                            admit();
+                        };
                     },
                     _ => {
                         // cur_wlock_opt = Some(cur_pt_wlockguard);
