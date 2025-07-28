@@ -51,6 +51,12 @@ fn get_powershell_command() -> io::Result<Command> {
         .status();
 
     if matches!(check_ps, Ok(status) if status.success()) {
+        eprintln!("Warning: Using powershell.exe(Windows PowerShell 5.x).");
+        eprintln!(
+            "If you encounter errors related to `Get‑ExecutionPolicy` or \
+            failure loading the `Microsoft.PowerShell.Security` module, please \
+            try using `pwsh` (PowerShell 7 or later) instead."
+        );
         return Ok(Command::new("powershell"));
     }
 
