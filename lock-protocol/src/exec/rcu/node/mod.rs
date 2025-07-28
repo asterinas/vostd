@@ -370,6 +370,7 @@ impl<'rcu> PageTableGuard<'rcu> {
                 // Called in Entry::replace
                 old(self).wf()
             },
+            old(self).guard->Some_0.stray_perm@.value() == false,
             0 <= idx < 512,
             pte.wf_with_node(*(old(self).inner.deref()), idx as nat),
         ensures
@@ -381,6 +382,7 @@ impl<'rcu> PageTableGuard<'rcu> {
             self.inner =~= old(self).inner,
             self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
             self.guard->Some_0.pte_token =~= old(self).guard->Some_0.pte_token,
+            self.guard->Some_0.stray_perm@.value() == old(self).guard->Some_0.stray_perm@.value(),
             self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
@@ -398,9 +400,54 @@ impl<'rcu> PageTableGuard<'rcu> {
         };
         ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
         self.guard = Some(guard);
-        assert(self.wf()) by {
-            admit();
-        }  // TODO
+        proof {
+            let ghost level = self.inner.deref().level_spec();
+            if pte.is_pt(level) {
+                assert(self.wf()) by {
+                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert forall|i: int| #![auto] 0 <= i < 512 implies {
+                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                    } by {
+                        if i != idx as int {
+                            assert(old(self).wf_except(idx as nat));
+                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                                old(self).inner.deref().meta_spec().level,
+                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                idx as nat,
+                            ));
+                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                                self,
+                            ).guard->Some_0.pte_token@->Some_0.value());
+                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                                self,
+                            ).guard->Some_0.perms@.inner.value()[i]);
+                        }
+                    };
+                };
+            } else {
+                assert(self.wf_except(idx as nat)) by {
+                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert forall|i: int| #![auto] 0 <= i < 512 && i != idx as int implies {
+                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                    } by {
+                        assert(old(self).wf_except(idx as nat));
+                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            old(self).inner.deref().meta_spec().level,
+                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            idx as nat,
+                        ));
+                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            self,
+                        ).guard->Some_0.pte_token@->Some_0.value());
+                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            self,
+                        ).guard->Some_0.perms@.inner.value()[i]);
+                    };
+                };
+            }
+        }
     }
 
     pub fn trans_lock_protocol(&mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<

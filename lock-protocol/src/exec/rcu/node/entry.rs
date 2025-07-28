@@ -156,20 +156,23 @@ impl Entry {
         assert(node_token.value() is LockedOutside);
         assert(pte_token.value().is_void(self.idx as nat));
         assert(node.nid() == NodeHelper::get_parent(cur_nid)) by {
-            admit();
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
         assert(self.idx as nat == NodeHelper::get_offset(cur_nid)) by {
-            admit();
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
         let tracked new_node_token;
         let tracked new_pte_token;
         proof {
             assert(cur_nid != NodeHelper::root_id()) by {
-                admit();
-            }
+                assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+                NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
+            };
             assert(NodeHelper::valid_nid(cur_nid)) by {
-                admit();
-            }  // TODO
+                assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            };
             let tracked res = node.tracked_pt_inst().normal_allocate(
                 cur_nid,
                 &node_token,
@@ -183,8 +186,9 @@ impl Entry {
         lock_guard.pte_token = Tracked(Some(pte_token));
         node.guard = Some(lock_guard);
         assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
-            admit();
-        }
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
+        };
         let new_page = RcuDrop::new(
             PageTableNode::alloc(
                 level - 1,
