@@ -12,6 +12,7 @@ use std::{
     path::{self, Path, PathBuf},
     process::{Command, Stdio},
 };
+use owo_colors::{OwoColorize, Stream};
 use memoize::memoize;
 use git2::{
     Repository, ResetType,
@@ -51,11 +52,17 @@ fn get_powershell_command() -> io::Result<Command> {
         .status();
 
     if matches!(check_ps, Ok(status) if status.success()) {
-        eprintln!("Warning: Using powershell.exe(Windows PowerShell 5.x).");
         eprintln!(
+            "{}",
+            "Warning: Using powershell.exe (Windows PowerShell 5.x)."
+                .if_supports_color(Stream::Stderr, |text| text.yellow())
+        );
+        eprintln!(
+            "{}",
             "If you encounter errors related to `Get‑ExecutionPolicy` or \
             failure loading the `Microsoft.PowerShell.Security` module, please \
             try using `pwsh` (PowerShell 7 or later) instead."
+                .if_supports_color(Stream::Stderr, |text| text.yellow())
         );
         return Ok(Command::new("powershell"));
     }
