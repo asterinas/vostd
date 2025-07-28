@@ -305,9 +305,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         self.va = next_va;
         proof {
             if (self.level == self.guard_level) {
-                assume(self.wf(spt));  // TODO: Handle the case where the cursor is at the guard level.
+                // The proof automatically goes through in this case.
             } else {
                 assert(self.level < self.guard_level);
+                assert(pte_index::<C>(next_va, self.level) != 0);
                 assert(forall|i: u8|
                     self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(self.va, i)
                         == #[trigger] pte_index::<C>(old(self).va, i)) by {
