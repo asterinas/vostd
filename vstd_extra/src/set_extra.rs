@@ -12,21 +12,6 @@ pub proof fn lemma_filter_all_false<T>(s: Set<T>, f: spec_fn(T) -> bool)
 {
 }
 
-pub proof fn lemma_filter_all_true<T>(s: Set<T>, f: spec_fn(T) -> bool)
-    requires
-        s.all(f),
-    ensures
-        s.filter(f) =~= s,
-{
-}
-
-pub proof fn lemma_filter_commute<T>(s: Set<T>, f: spec_fn(T) -> bool, g: spec_fn(T) -> bool)
-    ensures
-        s.filter(f).filter(g) =~= s.filter(g).filter(f),
-    decreases s.len(),
-{
-}
-
 /// If 'x' satisfies the predicate 'f' and set `s` does not contain 'x', then first inserting 'x' into
 /// the set `s` and then applying the filter is equivalent to applying the filter first and then
 /// inserting 'x' into the result.

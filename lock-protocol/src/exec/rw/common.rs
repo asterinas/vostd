@@ -142,27 +142,16 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
     ensures
         NodeHelper::get_child(nid, idx) == va_level_to_nid(va, level),
 {
-    // Establish the relationship between traces at consecutive levels
     let trace_level_plus_1 = va_level_to_trace(va, (level + 1) as PagingLevel);
     let trace_level = va_level_to_trace(va, level);
 
-    // Show that trace_level = trace_level_plus_1.push(idx)
     assert(trace_level == trace_level_plus_1.push(idx));
-
-    // Now use the fact that nid = trace_to_nid(trace_level_plus_1)
-    // and get_child(nid, idx) = trace_to_nid(nid_to_trace(nid).push(idx))
     assert(NodeHelper::nid_to_trace(nid) == trace_level_plus_1) by {
-        // First establish that trace_level_plus_1 is a valid trace
         assert(NodeHelper::valid_trace(trace_level_plus_1)) by {
             lemma_va_level_to_trace_valid(va, (level + 1) as PagingLevel);
         };
-
-        // Since nid = trace_to_nid(trace_level_plus_1) and trace_to_nid is bijective
         NodeHelper::lemma_nid_to_trace_sound(nid);
         NodeHelper::lemma_trace_to_nid_sound(trace_level_plus_1);
-        assert(NodeHelper::trace_to_nid(NodeHelper::nid_to_trace(nid)) == NodeHelper::trace_to_nid(
-            trace_level_plus_1,
-        ));
         NodeHelper::lemma_trace_to_nid_bijective();
     };
 }

@@ -364,13 +364,8 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         m.token = pt.inst.borrow().locking_start(m.cpu, m.token);
         assert(m.state() is ReadLocking);
     }
-
-    // Prologue lemmas
     proof {
         reveal(NodeHelper::trace_to_nid_rec);
-        assert(va_level_to_nid(va.start, 4) == NodeHelper::root_id());
-        assert(NodeHelper::nid_to_level(NodeHelper::root_id()) == 4);
-
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
     }
@@ -679,7 +674,6 @@ pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res:
         match cursor.take_guard(i as usize - 1) {
             GuardInPath::Unlocked => unreached(),
             GuardInPath::Read(mut rguard) => {
-                assert(m.path()[4 - i] == rguard.nid());
                 let res = rguard.unlock(Tracked(m));
                 let pt = res.0;
                 proof {

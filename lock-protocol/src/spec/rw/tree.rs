@@ -658,8 +658,6 @@ ensures
         vstd_extra::seq_extra::group_forall_seq_lemmas,
     };
     let path = self.cursors[cpu].get_path();
-    assert(wf_tree_path(path));
-    assert(path.len() > 0);
     if(path.len() == 1){
         assert(self.cursors[cpu].get_write_lock_node() == NodeHelper::root_id());
         assert(self.nodes[NodeHelper::root_id()] is WriteLocked);

@@ -27,31 +27,6 @@ pub proof fn lemma_wf_tree_path_inc(path: Seq<NodeId>, nid: NodeId)
     ensures
         wf_tree_path(path.push(nid)),
 {
-    let new_path = path.push(nid);
-
-    assert forall|i: int| 1 <= i < new_path.len() implies NodeHelper::is_child(
-        new_path[i - 1],
-        #[trigger] new_path[i],
-    ) by {
-        if i < path.len() {
-            assert(wf_tree_path(path));
-        } else {
-            assert(i == path.len());
-            assert(new_path[i - 1] == path.last());
-            assert(new_path[i] == nid);
-        }
-    }
-    assert(new_path.all(|n| NodeHelper::valid_nid(n))) by {
-        assert forall|n: NodeId| #[trigger] new_path.contains(n) implies NodeHelper::valid_nid(
-            n,
-        ) by {
-            if path.contains(n) {
-                assert(path.all(|m| NodeHelper::valid_nid(m)));
-            } else {
-                assert(n == nid);
-            }
-        }
-    }
 }
 
 } // verus!
