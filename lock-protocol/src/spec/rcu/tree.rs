@@ -30,6 +30,40 @@ fields {
 }
 
 #[invariant]
+pub fn wf_nodes(&self) -> bool {
+    forall |nid: NodeId| #![auto]
+        self.nodes.dom().contains(nid) ==>
+            NodeHelper::valid_nid(nid)
+}
+
+#[invariant]
+pub fn wf_pte_arrays(&self) -> bool {
+    forall |nid: NodeId| #![auto]
+        self.pte_arrays.dom().contains(nid) ==> {
+            &&& NodeHelper::valid_nid(nid)
+            &&& self.pte_arrays[nid].wf()
+        }
+}
+
+#[invariant]
+pub fn wf_cursors(&self) -> bool {
+    forall |cpu: CpuId| #![auto]
+        self.cursors.dom().contains(cpu) ==> {
+            &&& valid_cpu(self.cpu_num, cpu)
+            &&& self.cursors[cpu].wf()
+        }
+}
+
+#[invariant]
+pub fn wf_strays(&self) -> bool {
+    forall |pair: (NodeId, Paddr)| #![auto]
+        self.strays.dom().contains(pair) ==> {
+            &&& NodeHelper::valid_nid(pair.0)
+            &&& pair.0 != NodeHelper::root_id()
+        }
+}
+
+#[invariant]
 pub fn inv_pt_node_pte_array_relationship(&self) -> bool {
     forall |nid: NodeId| #![auto]
         self.nodes.dom().contains(nid) <==>
@@ -50,21 +84,28 @@ pub fn inv_pt_node_pte_relationship(&self) -> bool {
         }
 }
 
+#[invariant]
+pub fn inv_non_overlapping(&self) -> bool {
+    forall |cpu1: CpuId, cpu2: CpuId| #![auto]
+        cpu1 != cpu2 &&
+        self.cursors.dom().contains(cpu1) &&
+        self.cursors.dom().contains(cpu2) &&
+        self.cursors[cpu1] is Locked &&
+        self.cursors[cpu2] is Locked ==>
+        {
+            let nid1 = self.cursors[cpu1]->Locked_0;
+            let nid2 = self.cursors[cpu2]->Locked_0;
+
+            !NodeHelper::in_subtree_range(nid1, nid2) &&
+            !NodeHelper::in_subtree_range(nid2, nid1)
+        }
+}
+
 pub open spec fn strays_filter(
     &self, 
     nid: NodeId
 ) -> Map<(NodeId, Paddr), bool> {
     self.strays.filter_keys(|pair: (NodeId, Paddr)| { pair.0 == nid })
-}
-
-#[invariant]
-pub fn wf_strays(&self) -> bool {
-    forall |pair: (NodeId, Paddr)|
-        #![auto] // TODO
-        self.strays.dom().contains(pair) ==> {
-            &&& NodeHelper::valid_nid(pair.0)
-            &&& pair.0 != NodeHelper::root_id()
-        }
 }
 
 #[invariant]
