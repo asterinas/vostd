@@ -558,7 +558,8 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
         requires
             1 <= level as u32 <= 10,
             index_bits as u32 <= 16,
-            base_bits < usize::BITS;
+            base_bits < usize::BITS,
+    ;
     let shift = base_bits + (level - 1) as u32 * index_bits as u32;
     // Proof idea: transitivity of < and <=, along with nonlinear_arith
     assert(shift < usize::BITS) by {
@@ -567,7 +568,8 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
         assert(base_bits + index_bits * (level - 1) <= base_bits + index_bits * C::NR_LEVELS())
             by (nonlinear_arith)
             requires
-                level - 1 < C::NR_LEVELS();
+                level - 1 < C::NR_LEVELS(),
+        ;
     }
     let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
     assert(res <= pte_index_mask::<C>()) by {
