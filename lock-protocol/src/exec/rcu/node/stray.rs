@@ -16,10 +16,7 @@ impl StrayFlag {
         self.inner.id()
     }
 
-    pub fn read(
-        &self,
-        perm: Tracked<&StrayPerm>,
-    ) -> (res: bool)
+    pub fn read(&self, perm: Tracked<&StrayPerm>) -> (res: bool)
         requires
             perm@.wf_with_cell_id(self.id()),
             perm@.perm.is_init(),
@@ -79,4 +76,4 @@ impl StrayPerm {
     }
 }
 
-}
+} // verus!

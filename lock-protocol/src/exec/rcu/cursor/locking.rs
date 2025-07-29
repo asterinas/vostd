@@ -561,14 +561,14 @@ fn dfs_acquire_lock(
                 assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                 };
-                assert(m.node_is_locked(cur_node.nid())) by { admit(); };
-                let tracked pa_pte_array_token = cur_node
-                    .tracked_borrow_guard()
-                    .tracked_borrow_pte_token();
+                assert(m.node_is_locked(cur_node.nid())) by {
+                    admit();
+                };
+                let tracked pa_pte_array_token =
+                    cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
                 assert(pa_pte_array_token.value().is_alive(entry.idx as nat));
-                assert(pa_pte_array_token.value().get_paddr(entry.idx as nat) == 
-                    cur_node.guard->Some_0.perms@.inner.value()[entry.idx as int].inner.paddr()
-                );
+                assert(pa_pte_array_token.value().get_paddr(entry.idx as nat)
+                    == cur_node.guard->Some_0.perms@.inner.value()[entry.idx as int].inner.paddr());
                 let res = pt.lock(guard, Tracked(m), Tracked(pa_pte_array_token));
                 let pt_guard = res.0;
                 proof {

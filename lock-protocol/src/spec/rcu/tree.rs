@@ -102,7 +102,7 @@ pub fn inv_non_overlapping(&self) -> bool {
 }
 
 pub open spec fn strays_filter(
-    &self, 
+    &self,
     nid: NodeId
 ) -> Map<(NodeId, Paddr), bool> {
     self.strays.filter_keys(|pair: (NodeId, Paddr)| { pair.0 == nid })
@@ -122,7 +122,7 @@ pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
 
 #[invariant]
 pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
-    forall |nid: NodeId| 
+    forall |nid: NodeId|
         #![auto] // TODO
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
             let pa = NodeHelper::get_parent(nid);
@@ -141,7 +141,7 @@ pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
 
 #[invariant]
 pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
-    forall |nid: NodeId| 
+    forall |nid: NodeId|
         #![auto] // TODO
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
             let pa = NodeHelper::get_parent(nid);

@@ -127,12 +127,10 @@ impl PageTableEntryPerms {
     }
 
     pub open spec fn relate_pte_state(&self, level: PagingLevel, state: PteArrayState) -> bool {
-        &&& forall |i: int|
+        &&& forall|i: int|
             #![trigger self.inner.value()[i].is_pt(level)]
-            0 <= i < 512 ==> { 
-                self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat) 
-            }
-        &&& forall |i: int|
+            0 <= i < 512 ==> { self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat) }
+        &&& forall|i: int|
             #![trigger self.inner.value()[i].is_pt(level)]
             0 <= i < 512 && self.inner.value()[i].is_pt(level) ==> {
                 self.inner.value()[i].inner.paddr() == state.get_paddr(i as nat)
@@ -145,12 +143,12 @@ impl PageTableEntryPerms {
         state: PteArrayState,
         idx: nat,
     ) -> bool {
-        &&& forall |i: int|
+        &&& forall|i: int|
             #![trigger self.inner.value()[i].is_pt(level)]
             0 <= i < 512 && i != idx ==> {
                 self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat)
             }
-        &&& forall |i: int|
+        &&& forall|i: int|
             #![trigger self.inner.value()[i].is_pt(level)]
             0 <= i < 512 && i != idx && self.inner.value()[i].is_pt(level) ==> {
                 self.inner.value()[i].inner.paddr() == state.get_paddr(i as nat)
@@ -390,10 +388,8 @@ impl SpinGuard {
         let tracked perms: PageTableEntryPerms = self.perms.get();
         proof {
             let tracked mut node_token_inner = node_token.tracked_unwrap();
-            node_token_inner = spinlock.pt_inst.borrow().normal_unlock(
-                spinlock.nid(),
-                node_token_inner,
-            );
+            node_token_inner =
+            spinlock.pt_inst.borrow().normal_unlock(spinlock.nid(), node_token_inner);
             let tracked res = spinlock.pt_inst.borrow().protocol_lock(
                 m.cpu,
                 spinlock.nid(),
@@ -464,7 +460,8 @@ impl PageTablePageSpinLock {
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
             let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
-            let result = atomic_with_ghost!(
+            let result =
+                atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
                 returning res;
                 ghost g => {
@@ -505,10 +502,8 @@ impl PageTablePageSpinLock {
                     proof {
                         if stray_perm.value() == false {
                             let tracked mut node_token_inner = node_token.tracked_unwrap();
-                            node_token_inner = self.pt_inst.borrow().normal_lock(
-                                self.nid@,
-                                node_token_inner,
-                            );
+                            node_token_inner =
+                            self.pt_inst.borrow().normal_lock(self.nid@, node_token_inner);
                             node_token = Some(node_token_inner);
                         }
                     }
@@ -522,7 +517,7 @@ impl PageTablePageSpinLock {
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
-                    break;
+                    break ;
                 },
                 _ => (),
             };
@@ -557,7 +552,8 @@ impl PageTablePageSpinLock {
                 pa_pte_array_token.instance_id() == self.pt_inst_id(),
                 pa_pte_array_token.key() == NodeHelper::get_parent(self.nid@),
                 pa_pte_array_token.value().is_alive(NodeHelper::get_offset(self.nid@)),
-                pa_pte_array_token.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
+                pa_pte_array_token.value().get_paddr(NodeHelper::get_offset(self.nid@))
+                    == self.paddr@,
                 guard_opt is None,
             ensures
                 guard_opt is Some,
@@ -570,7 +566,8 @@ impl PageTablePageSpinLock {
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
             let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
-            let result = atomic_with_ghost!(
+            let result =
+                atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
                 returning res;
                 ghost g => {
@@ -620,10 +617,7 @@ impl PageTablePageSpinLock {
                     let tracked mut node_token = node_token.tracked_unwrap();
                     let tracked mut pte_token = pte_token.tracked_unwrap();
                     proof {
-                        node_token = self.pt_inst.borrow().normal_lock(
-                            self.nid@,
-                            node_token,
-                        );
+                        node_token = self.pt_inst.borrow().normal_lock(self.nid@, node_token);
                     }
                     let guard = SpinGuard {
                         handle: Tracked(handle),
@@ -635,7 +629,7 @@ impl PageTablePageSpinLock {
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
-                    break;
+                    break ;
                 },
                 _ => (),
             };
@@ -660,7 +654,7 @@ impl PageTablePageSpinLock {
             ghost g => {
                 if stray_perm.value() == false {
                     let tracked mut node_token_inner = node_token.tracked_unwrap();
-                    node_token_inner = 
+                    node_token_inner =
                         self.pt_inst.borrow().normal_unlock(self.nid@, node_token_inner);
                     node_token = Some(node_token_inner);
                 }
@@ -677,7 +671,7 @@ impl PageTablePageSpinLock {
 
     #[verifier::exec_allows_no_decreases_clause]
     pub fn lock(
-        &self, 
+        &self,
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: (SpinGuard, Tracked<LockProtocolModel>))
@@ -718,7 +712,8 @@ impl PageTablePageSpinLock {
                 pa_pte_array_token.key() == NodeHelper::get_parent(self.nid@),
                 m.node_is_locked(pa_pte_array_token.key()),
                 pa_pte_array_token.value().is_alive(NodeHelper::get_offset(self.nid@)),
-                pa_pte_array_token.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
+                pa_pte_array_token.value().get_paddr(NodeHelper::get_offset(self.nid@))
+                    == self.paddr@,
                 guard_opt is None,
             ensures
                 m.inv(),
@@ -736,7 +731,8 @@ impl PageTablePageSpinLock {
             let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
             let tracked mut stray_perm_opt: Option<StrayPerm> = None;
             let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
-            let result = atomic_with_ghost!(
+            let result =
+                atomic_with_ghost!(
                 &self.flag => compare_exchange(false, true);
                 returning res;
                 ghost g => {
@@ -786,7 +782,9 @@ impl PageTablePageSpinLock {
                     let tracked mut node_token = node_token.tracked_unwrap();
                     let tracked mut pte_token = pte_token.tracked_unwrap();
                     proof {
-                        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid@)) by { admit(); };
+                        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid@)) by {
+                            admit();
+                        };
                         let tracked res = self.pt_inst.borrow().protocol_lock(
                             m.cpu,
                             self.nid@,
@@ -806,7 +804,7 @@ impl PageTablePageSpinLock {
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
-                    break;
+                    break ;
                 },
                 _ => (),
             };
@@ -815,11 +813,9 @@ impl PageTablePageSpinLock {
         (guard, Tracked(m))
     }
 
-    pub fn unlock(
-        &self, 
-        guard: SpinGuard, 
-        m: Tracked<LockProtocolModel>
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn unlock(&self, guard: SpinGuard, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             self.wf(),
             guard.wf(self),

@@ -164,7 +164,7 @@ impl Entry {
             assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
             NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
-        
+
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
         assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
@@ -194,9 +194,7 @@ impl Entry {
             Ghost(new_page.level_spec()),
         );
         // Lock before writing the PTE, so no one else can operate on it.
-        let tracked pa_pte_array_token = node
-            .tracked_borrow_guard()
-            .tracked_borrow_pte_token();
+        let tracked pa_pte_array_token = node.tracked_borrow_guard().tracked_borrow_pte_token();
         assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
         assert(NodeHelper::get_parent(pt_ref.nid@) == node.nid()) by {
             NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);

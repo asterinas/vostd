@@ -155,7 +155,7 @@ impl PageTableNode {
             res.1@.instance_id() == inst@.id(),
             res.1@.key() == pa_nid@,
             res.1@.value() =~= pte_token@.value().update(
-                offset@, 
+                offset@,
                 PteState::Alive(res.0.start_paddr()),
             ),
     {
@@ -174,12 +174,7 @@ impl PageTableNode {
         let tracked ch_pte_token;
         let tracked stray_token;
         proof {
-            let tracked res = inst.borrow().normal_allocate(
-                nid@,
-                paddr,
-                &node_token,
-                pte_token,
-            );
+            let tracked res = inst.borrow().normal_allocate(nid@, paddr, &node_token, pte_token);
             ch_node_token = res.0.get();
             pte_token = res.1.get();
             ch_pte_token = res.2.get();
@@ -276,7 +271,8 @@ impl<'a> PageTableNodeRef<'a> {
             pa_pte_array_token@.instance_id() == self.inst@.id(),
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
             pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.start_paddr(),
+            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
+                == self.start_paddr(),
         ensures
             res.wf(),
             res.inner =~= self,
@@ -303,7 +299,8 @@ impl<'a> PageTableNodeRef<'a> {
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
             m@.node_is_locked(pa_pte_array_token@.key()),
             pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.start_paddr(),
+            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
+                == self.start_paddr(),
         ensures
             res.0.wf(),
             res.0.inner =~= self,
@@ -598,10 +595,9 @@ impl PageTableGuard<'_> {
         self.inner.deref().meta().lock.normal_unlock(guard);
     }
 
-    pub fn drop<'a>(
-        &'a mut self, 
-        m: Tracked<LockProtocolModel>
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             old(self).wf(),
             old(self).guard->Some_0.stray_perm@.value() == false,
