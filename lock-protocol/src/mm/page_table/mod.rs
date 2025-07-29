@@ -524,10 +524,10 @@ pub fn pte_index_mask<C: PagingConstsTrait>() -> (res: usize)
 
 pub open spec fn pte_index_spec<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
     recommends
-        0 < level <= PagingConsts::NR_LEVELS_SPEC(),
+        0 < level <= C::NR_LEVELS_SPEC(),
 {
-    let base_bits = PagingConsts::BASE_PAGE_SIZE_SPEC().ilog2();
-    let index_bits = nr_pte_index_bits::<PagingConsts>();
+    let base_bits = C::BASE_PAGE_SIZE_SPEC().ilog2();
+    let index_bits = nr_pte_index_bits::<C>();
     let shift = base_bits + (level - 1) as u32 * index_bits as u32;
     (va >> shift) & pte_index_mask::<C>()
 }
@@ -538,29 +538,41 @@ pub open spec fn pte_index_spec<C: PagingConstsTrait>(va: Vaddr, level: PagingLe
 pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     usize)  // TODO: type, const
     requires
-        0 < level <= PagingConsts::NR_LEVELS_SPEC(),
+        0 < level <= C::NR_LEVELS_SPEC(),
     ensures
         res == pte_index_spec::<C>(va, level),
         res < nr_subpage_per_huge::<C>(),
 {
-    let base_bits = PagingConsts::BASE_PAGE_SIZE().ilog2();
-    assert(base_bits == 12) by {
-        bits_of_base_page_size();
-    };
-    let index_bits = nr_pte_index_bits::<PagingConsts>();
-    assert(index_bits == 9) by {
-        bits_of_nr_pte_index();
-    };
-    assert(0 <= (level - 1) * index_bits <= 36);
-    let shift = base_bits + (level - 1) as u32 * index_bits as u32;
-    let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
-    assert(res <= pte_index_mask::<C>()) by {
-        lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
-    };
+    let base_bits = C::BASE_PAGE_SIZE().ilog2();
+    let index_bits = nr_pte_index_bits::<C>();
+    assert(index_bits == (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as usize);
     proof {
         C::lemma_consts_properties();
         C::lemma_consts_properties_derived();
     }
+    assert(1 <= level as u32 <= 10);
+    assert(index_bits as u32 <= 16);
+    assert(base_bits < usize::BITS);
+    // 10000 is arbitrary, but it is enough to show the absence of overflow.
+    assert((level - 1) as u32 * index_bits as u32 <= 10000) by (nonlinear_arith)
+        requires
+            1 <= level as u32 <= 10,
+            index_bits as u32 <= 16,
+            base_bits < usize::BITS;
+    let shift = base_bits + (level - 1) as u32 * index_bits as u32;
+    // Proof idea: transitivity of < and <=, along with nonlinear_arith
+    assert(shift < usize::BITS) by {
+        assert(level - 1 < C::NR_LEVELS());
+        assert(base_bits + index_bits * C::NR_LEVELS() < usize::BITS);
+        assert(base_bits + index_bits * (level - 1) <= base_bits + index_bits * C::NR_LEVELS())
+            by (nonlinear_arith)
+            requires
+                level - 1 < C::NR_LEVELS();
+    }
+    let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
+    assert(res <= pte_index_mask::<C>()) by {
+        lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
+    };
     res as usize
 }
 
