@@ -80,26 +80,3 @@ impl StrayPerm {
 }
 
 }
-
-verus! {
-
-/// Trusted properties of stray flag.
-/// We can't prove this by Verus since the logical complexity.
-/// This is correct by following reasons:
-/// The child is exclusively owned, since the parent is guarded.
-#[verifier::external_body]
-pub proof fn lemma_guarded_parent_implies_allocated_child_is_pt_node(
-    parent_guard: PageTableGuard,
-    new_allocated_child_guard: PageTableGuard,
-)
-    requires
-        parent_guard.wf(),
-        parent_guard.guard->Some_0.stray_perm@.value() == false,
-        new_allocated_child_guard.wf(),
-        NodeHelper::is_child(parent_guard.nid(), new_allocated_child_guard.nid()),
-    ensures
-        new_allocated_child_guard.guard->Some_0.stray_perm@.value() == false,
-{
-}
-
-} // verus!

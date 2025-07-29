@@ -194,21 +194,26 @@ impl Entry {
             Ghost(new_page.level_spec()),
         );
         // Lock before writing the PTE, so no one else can operate on it.
-        let pt_lock_guard = pt_ref.normal_lock(guard);
+        let tracked pa_pte_array_token = node
+            .tracked_borrow_guard()
+            .tracked_borrow_pte_token();
+        assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
+        assert(NodeHelper::get_parent(pt_ref.nid@) == node.nid()) by {
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+        };
+        assert(NodeHelper::get_offset(pt_ref.nid@) == self.idx as nat) by {
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+        };
+        let pt_lock_guard = pt_ref.normal_lock_new_allocated_node(
+            guard,
+            Tracked(pa_pte_array_token),
+        );
 
         self.pte = Child::PageTable(new_page).into_pte();
 
         node.write_pte(self.idx, self.pte);
 
         // *self.node.nr_children_mut() += 1;
-
-        assert(pt_lock_guard.guard->Some_0.stray_perm@.value() == false) by {
-            assert(NodeHelper::is_child(node.nid(), pt_lock_guard.nid())) by {
-                assert(pt_lock_guard.nid() == NodeHelper::get_child(node.nid(), self.idx as nat));
-                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
-            };
-            lemma_guarded_parent_implies_allocated_child_is_pt_node(*node, pt_lock_guard);
-        };
 
         Some(pt_lock_guard)
     }

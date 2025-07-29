@@ -531,6 +531,119 @@ impl PageTablePageSpinLock {
         guard
     }
 
+    #[verifier::exec_allows_no_decreases_clause]
+    pub fn normal_lock_new_allocated_node(
+        &self,
+        pa_pte_array_token: Tracked<&PteArrayToken>,
+    ) -> (res: SpinGuard)
+        requires
+            self.wf(),
+            self.nid@ != NodeHelper::root_id(),
+            pa_pte_array_token@.instance_id() == self.pt_inst_id(),
+            pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
+            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
+        ensures
+            res.wf(self),
+            res.stray_perm@.value() == false,
+            res.in_protocol@ == false,
+    {
+        let tracked pa_pte_array_token = pa_pte_array_token.get();
+        let mut guard_opt: Option<SpinGuard> = None;
+        loop
+            invariant_except_break
+                self.wf(),
+                self.nid@ != NodeHelper::root_id(),
+                pa_pte_array_token.instance_id() == self.pt_inst_id(),
+                pa_pte_array_token.key() == NodeHelper::get_parent(self.nid@),
+                pa_pte_array_token.value().is_alive(NodeHelper::get_offset(self.nid@)),
+                pa_pte_array_token.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.paddr@,
+                guard_opt is None,
+            ensures
+                guard_opt is Some,
+                guard_opt->Some_0.wf(self),
+                guard_opt->Some_0.stray_perm@.value() == false,
+                guard_opt->Some_0.in_protocol@ == false,
+        {
+            let tracked mut handle_opt: Option<SpinGuardToken> = None;
+            let tracked mut node_token_opt: Option<Option<NodeToken>> = None;
+            let tracked mut pte_token_opt: Option<Option<PteArrayToken>> = None;
+            let tracked mut stray_perm_opt: Option<StrayPerm> = None;
+            let tracked mut perms_opt: Option<PageTableEntryPerms> = None;
+            let result = atomic_with_ghost!(
+                &self.flag => compare_exchange(false, true);
+                returning res;
+                ghost g => {
+                    if res is Ok {
+                        let tracked res = self.inst.borrow().acquire(&mut g);
+                        let tracked pair = res.1.get();
+                        handle_opt = Some(res.2.get());
+                        node_token_opt = Some(pair.0);
+                        pte_token_opt = Some(pair.1);
+                        stray_perm_opt = Some(pair.2);
+                        perms_opt = Some(pair.3);
+                    }
+                }
+            );
+
+            match result {
+                Result::Ok(_) => {
+                    let tracked handle = match handle_opt {
+                        Option::Some(t) => t,
+                        Option::None => proof_from_false(),
+                    };
+                    let tracked node_token = match node_token_opt {
+                        Option::Some(t) => t,
+                        Option::None => proof_from_false(),
+                    };
+                    let tracked pte_token = match pte_token_opt {
+                        Option::Some(t) => t,
+                        Option::None => proof_from_false(),
+                    };
+                    let tracked stray_perm = match stray_perm_opt {
+                        Option::Some(t) => t,
+                        Option::None => proof_from_false(),
+                    };
+                    let tracked perms = match perms_opt {
+                        Option::Some(t) => t,
+                        Option::None => proof_from_false(),
+                    };
+                    proof {
+                        self.pt_inst.borrow().stray_is_false(
+                            self.nid@,
+                            self.paddr@,
+                            &pa_pte_array_token,
+                            &stray_perm.token,
+                        );
+                        assert(stray_perm.value() == false);
+                    }
+                    let tracked mut node_token = node_token.tracked_unwrap();
+                    let tracked mut pte_token = pte_token.tracked_unwrap();
+                    proof {
+                        node_token = self.pt_inst.borrow().normal_lock(
+                            self.nid@,
+                            node_token,
+                        );
+                    }
+                    let guard = SpinGuard {
+                        handle: Tracked(handle),
+                        node_token: Tracked(Some(node_token)),
+                        pte_token: Tracked(Some(pte_token)),
+                        stray_perm: Tracked(stray_perm),
+                        perms: Tracked(perms),
+                        in_protocol: Ghost(false),
+                    };
+                    assert(guard.wf(self));
+                    guard_opt = Some(guard);
+                    break;
+                },
+                _ => (),
+            };
+        }
+        let guard = guard_opt.unwrap();
+        guard
+    }
+
     pub fn normal_unlock(&self, guard: SpinGuard)
         requires
             self.wf(),

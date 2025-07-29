@@ -265,6 +265,28 @@ impl<'a> PageTableNodeRef<'a> {
         PageTableGuard { inner: self, guard: Some(guard) }
     }
 
+    pub fn normal_lock_new_allocated_node<'rcu>(
+        self,
+        guard: &'rcu (),  // TODO
+        pa_pte_array_token: Tracked<&PteArrayToken>,
+    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+        requires
+            self.wf(),
+            self.nid@ != NodeHelper::root_id(),
+            pa_pte_array_token@.instance_id() == self.inst@.id(),
+            pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
+            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.start_paddr(),
+        ensures
+            res.wf(),
+            res.inner =~= self,
+            res.guard->Some_0.stray_perm@.value() == false,
+            res.guard->Some_0.in_protocol@ == false,
+    {
+        let guard = self.meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
+        PageTableGuard { inner: self, guard: Some(guard) }
+    }
+
     pub fn lock<'rcu>(
         self,
         guard: &'rcu (),  // TODO
