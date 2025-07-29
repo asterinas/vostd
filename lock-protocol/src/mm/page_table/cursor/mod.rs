@@ -314,7 +314,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         == #[trigger] pte_index::<C>(old(self).va, i)) by {
                     let old_level = old(self).level;
                     let aligned_va = align_down(old(self).va, cur_page_size);
-                    assume(aligned_va + cur_page_size < usize::MAX);
+                    assert(aligned_va + cur_page_size < usize::MAX) by {
+                        assert(aligned_va + cur_page_size <= old(self).barrier_va.end);
+                        assert(old(self).barrier_va.end < usize::MAX);
+                    }
 
                     lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
                     lemma_add_page_size_change_pte_index::<C>(
