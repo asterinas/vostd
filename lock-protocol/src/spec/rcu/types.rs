@@ -88,9 +88,4 @@ impl CursorState {
     }
 }
 
-pub enum StrayState {
-    True,
-    False(Paddr),
-}
-
 } // verus!

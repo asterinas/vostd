@@ -19,6 +19,7 @@ use super::pte::Pte;
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
 use entry::Entry;
+use stray::{StrayFlag, StrayPerm};
 
 verus! {
 
@@ -122,28 +123,70 @@ impl PageTableNode {
 
     // Trusted
     #[verifier::external_body]
-    pub fn alloc(
+    pub fn normal_alloc(
         level: PagingLevel,
         nid: Ghost<NodeId>,
-        inst_id: Ghost<InstanceId>,
-        node_token: Tracked<NodeToken>,
+        inst: Tracked<SpecInstance>,
+        pa_nid: Ghost<NodeId>,
+        offset: Ghost<nat>,
+        node_token: Tracked<&NodeToken>,
         pte_token: Tracked<PteArrayToken>,
-    ) -> (res: Self)
+    ) -> (res: (Self, Tracked<PteArrayToken>))
         requires
             level as nat == NodeHelper::nid_to_level(nid@),
-            node_token@.instance_id() == inst_id@,
-            node_token@.key() == nid@,
-            node_token@.value() is Free,
-            pte_token@.instance_id() == inst_id@,
-            pte_token@.key() == nid@,
-            pte_token@.value() =~= PteState::empty(),
+            NodeHelper::valid_nid(nid@),
+            nid@ != NodeHelper::root_id(),
+            inst@.cpu_num() == GLOBAL_CPU_NUM,
+            NodeHelper::valid_nid(pa_nid@),
+            NodeHelper::is_not_leaf(pa_nid@),
+            nid@ == NodeHelper::get_child(pa_nid@, offset@),
+            0 <= offset@ < 512,
+            node_token@.instance_id() == inst@.id(),
+            node_token@.key() == pa_nid@,
+            node_token@.value() is LockedOutside,
+            pte_token@.instance_id() == inst@.id(),
+            pte_token@.key() == pa_nid@,
+            pte_token@.value().is_void(offset@),
         ensures
-            res.wf(),
-            res.nid@ == nid@,
-            res.inst@.id() == inst_id@,
-            res.level_spec() == level,
+            res.0.wf(),
+            res.0.nid@ == nid@,
+            res.0.inst@ =~= inst@,
+            res.0.level_spec() == level,
+            res.1@.instance_id() == inst@.id(),
+            res.1@.key() == pa_nid@,
+            res.1@.value() =~= pte_token@.value().update(
+                offset@, 
+                PteState::Alive(res.0.start_paddr()),
+            ),
     {
-        unimplemented!()
+        let tracked node_token = node_token.get();
+        let tracked mut pte_token = pte_token.get();
+        let paddr: Paddr = 0;
+
+        assert(pa_nid@ == NodeHelper::get_parent(nid@)) by {
+            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
+        };
+        assert(offset@ == NodeHelper::get_offset(nid@)) by {
+            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
+        };
+
+        let tracked ch_node_token;
+        let tracked ch_pte_token;
+        let tracked stray_token;
+        proof {
+            let tracked res = inst.borrow().normal_allocate(
+                nid@,
+                paddr,
+                &node_token,
+                pte_token,
+            );
+            ch_node_token = res.0.get();
+            pte_token = res.1.get();
+            ch_pte_token = res.2.get();
+            stray_token = res.3.get();
+        }
+
+        unimplemented!();
     }
 }
 
@@ -226,6 +269,7 @@ impl<'a> PageTableNodeRef<'a> {
         self,
         guard: &'rcu (),  // TODO
         m: Tracked<LockProtocolModel>,
+        pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: (PageTableGuard<'rcu>, Tracked<LockProtocolModel>)) where 'a: 'rcu
         requires
             self.wf(),
@@ -233,9 +277,15 @@ impl<'a> PageTableNodeRef<'a> {
             m@.inst_id() == self.inst@.id(),
             m@.state() is Locking,
             m@.cur_node() == self.nid@,
+            pa_pte_array_token@.instance_id() == self.inst@.id(),
+            pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
+            m@.node_is_locked(pa_pte_array_token@.key()),
+            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@)) == self.start_paddr(),
         ensures
             res.0.wf(),
             res.0.inner =~= self,
+            res.0.guard->Some_0.stray_perm@.value() == false,
             res.0.guard->Some_0.in_protocol@ == true,
             res.1@.inv(),
             res.1@.inst_id() == res.0.inst_id(),
@@ -244,7 +294,7 @@ impl<'a> PageTableNodeRef<'a> {
             res.1@.cur_node() == self.nid@ + 1,
     {
         let tracked mut m = m.get();
-        let res = self.meta().lock.lock(Tracked(m));
+        let res = self.meta().lock.lock(Tracked(m), pa_pte_array_token);
         proof {
             m = res.1.get();
         }
@@ -332,11 +382,10 @@ impl<'rcu> PageTableGuard<'rcu> {
         ensures
             res == self.guard->Some_0.stray_perm@.value(),
     {
-        let stray_cell: &PCell<bool> = &self.deref().deref().meta().stray;
+        let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
         let guard: &SpinGuard = self.guard.as_ref().unwrap();
         let tracked stray_perm = guard.stray_perm.borrow();
-        let b = *stray_cell.borrow(Tracked(stray_perm));
-        b
+        stray_cell.read(Tracked(stray_perm))
     }
 
     pub fn read_pte(&self, idx: usize) -> (res: Pte)
@@ -423,6 +472,7 @@ impl<'rcu> PageTableGuard<'rcu> {
                             ).guard->Some_0.perms@.inner.value()[i]);
                         }
                     };
+                    admit();
                 };
             } else {
                 assert(self.wf_except(idx as nat)) by {
@@ -444,6 +494,7 @@ impl<'rcu> PageTableGuard<'rcu> {
                             self,
                         ).guard->Some_0.perms@.inner.value()[i]);
                     };
+                    admit();
                 };
             }
         }
@@ -454,13 +505,16 @@ impl<'rcu> PageTableGuard<'rcu> {
     >)
         requires
             old(self).wf(),
+            old(self).guard->Some_0.stray_perm@.value() == false,
             old(self).guard->Some_0.in_protocol@ == false,
             m@.inv(),
             m@.inst_id() == old(self).inst_id(),
             m@.state() is Locking,
             m@.cur_node() == old(self).nid(),
+            NodeHelper::in_subtree_range(m@.sub_tree_rt(), old(self).nid()),
         ensures
             self.wf(),
+            self.guard->Some_0.stray_perm@.value() == false,
             self.guard->Some_0.in_protocol@ == true,
             self.inner =~= old(self).inner,
             self.guard->Some_0.wf_trans_lock_protocol(&old(self).guard->Some_0),
@@ -479,6 +533,15 @@ impl<'rcu> PageTableGuard<'rcu> {
         }
         self.guard = Some(trans_guard);
         Tracked(m)
+    }
+
+    pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard)
+        requires
+            self.guard is Some,
+        ensures
+            *res =~= self.guard->Some_0,
+    {
+        self.guard.tracked_borrow()
     }
 }
 
@@ -513,16 +576,19 @@ impl PageTableGuard<'_> {
         self.inner.deref().meta().lock.normal_unlock(guard);
     }
 
-    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
-        LockProtocolModel,
-    >)
+    pub fn drop<'a>(
+        &'a mut self, 
+        m: Tracked<LockProtocolModel>
+    ) -> (res: Tracked<LockProtocolModel>)
         requires
             old(self).wf(),
+            old(self).guard->Some_0.stray_perm@.value() == false,
             old(self).guard->Some_0.in_protocol@ == true,
             m@.inv(),
             m@.inst_id() == old(self).inst_id(),
             m@.state() is Locking,
             m@.cur_node() == old(self).nid() + 1,
+            m@.node_is_locked(old(self).nid()),
         ensures
             self.guard is None,
             res@.inv(),
@@ -545,7 +611,7 @@ struct_with_invariants! {
     pub struct PageTablePageMeta {
         pub lock: PageTablePageSpinLock,
         // The stray flag indicates whether this frame is a page table node.
-        pub stray: PCell<bool>, // TODO
+        pub stray: StrayFlag,
         pub level: PagingLevel,
         pub frame_paddr: Paddr,
         // pub frame_paddr: Ghost<Paddr>, // TODO

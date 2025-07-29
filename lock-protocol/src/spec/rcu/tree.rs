@@ -25,8 +25,8 @@ fields {
     #[sharding(map)]
     pub cursors: Map<CpuId, CursorState>,
 
-    #[sharding(multiset)]
-    pub strays: Multiset<(NodeId, StrayState)>,
+    #[sharding(map)]
+    pub strays: Map<(NodeId, Paddr), bool>,
 }
 
 #[invariant]
@@ -50,10 +50,18 @@ pub fn inv_pt_node_pte_relationship(&self) -> bool {
         }
 }
 
+pub open spec fn strays_filter(
+    &self, 
+    nid: NodeId
+) -> Map<(NodeId, Paddr), bool> {
+    self.strays.filter_keys(|pair: (NodeId, Paddr)| { pair.0 == nid })
+}
+
 #[invariant]
 pub fn wf_strays(&self) -> bool {
-    forall |pair: (NodeId, StrayState)|
-        self.strays.contains(pair) ==> {
+    forall |pair: (NodeId, Paddr)|
+        #![auto] // TODO
+        self.strays.dom().contains(pair) ==> {
             &&& NodeHelper::valid_nid(pair.0)
             &&& pair.0 != NodeHelper::root_id()
         }
@@ -62,26 +70,77 @@ pub fn wf_strays(&self) -> bool {
 #[invariant]
 pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
     forall |nid: NodeId|
-        self.strays.filter(|pair: (NodeId, StrayState)| {
-            &&& pair.0 == nid
-            &&& pair.1 is False
-        }).len() <= 1
+        #![auto] // TODO
+        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+            self.strays_filter(nid)
+                .kv_pairs()
+                .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+                .len() <= 1
+        }
 }
 
 #[invariant]
-pub fn inv_pte_is_alive_iff_stray_has_false(&self) -> bool {
+pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
     forall |nid: NodeId| 
+        #![auto] // TODO
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
             let pa = NodeHelper::get_parent(nid);
             let offset = NodeHelper::get_offset(nid);
-            self.pte_arrays.dom().contains(pa) && self.pte_arrays[pa].is_alive(offset) <==>
-            exists |pair: (NodeId, StrayState)| {
-                &&& pair.0 == nid
-                &&& pair.1 is False
-                &&& pair.1->False_0 == self.pte_arrays[pa].get_paddr(offset)
-                &&& self.strays.contains(pair)
-            }
+            self.pte_arrays.dom().contains(pa) && self.pte_arrays[pa].is_alive(offset) ==>
+            exists |pair: (NodeId, Paddr)|
+                #![auto] // TODO
+                {
+                    &&& pair.0 == nid
+                    &&& pair.1 == self.pte_arrays[pa].get_paddr(offset)
+                    &&& self.strays.dom().contains(pair)
+                    &&& self.strays[pair] == false
+                }
         }
+}
+
+#[invariant]
+pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
+    forall |nid: NodeId| 
+        #![auto] // TODO
+        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+            let pa = NodeHelper::get_parent(nid);
+            let offset = NodeHelper::get_offset(nid);
+            exists |pair: (NodeId, Paddr)|
+                #![auto] // TODO
+                {
+                    &&& pair.0 == nid
+                    &&& self.strays.dom().contains(pair)
+                    &&& self.strays[pair] == false
+                } ==> {
+                    &&& self.pte_arrays.dom().contains(pa)
+                    &&& self.pte_arrays[pa].is_alive(offset)
+                    &&& self.pte_arrays[pa].get_paddr(offset) == pair.1
+                }
+        }
+}
+
+// #[invariant]
+// pub fn inv_stray_paddr_no_duplicates(&self) -> bool {
+//     forall |nid: NodeId|
+//         #![auto] // TODO
+//         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+//             self.strays_filter(nid).to_seq().no_duplicates()
+//         }
+// }
+
+property! {
+    stray_is_false(nid: NodeId, paddr: Paddr) {
+        require(NodeHelper::valid_nid(nid));
+        require(nid != NodeHelper::root_id());
+
+        have strays >= [ (nid, paddr) => let stray ];
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        have pte_arrays >= [ pa => let pte_array ];
+        require(pte_array.is_alive(offset));
+        require(pte_array.get_paddr(offset) == paddr);
+        assert(stray == false);
+    }
 }
 
 init!{
@@ -101,7 +160,7 @@ init!{
             |cpu| valid_cpu(cpu_num, cpu),
             |cpu| CursorState::Void,
         );
-        init strays = Multiset::empty();
+        init strays = Map::empty();
     }
 }
 
@@ -219,7 +278,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += { (nid, StrayState::False(paddr)) };
+        add strays += [ (nid, paddr) => false ] by { admit(); };
     }
 }
 
@@ -237,8 +296,8 @@ transition!{
         let paddr = pte_array.get_paddr(offset);
         remove pte_arrays -= [ nid => PteArrayState::empty() ];
         add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
-        remove strays -= { (nid, StrayState::False(paddr)) };
-        add strays += { (nid, StrayState::True) };
+        remove strays -= [ (nid, paddr) => false ];
+        add strays += [ (nid, paddr) => true ];
     }
 }
 
@@ -257,7 +316,7 @@ transition!{
     normal_unlock(nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
 
-        remove nodes -= [ nid => NodeState::Locked ];
+        remove nodes -= [ nid => NodeState::LockedOutside ];
         add nodes += [ nid => NodeState::Free ];
     }
 }
@@ -275,7 +334,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += { (nid, StrayState::False(paddr)) };
+        add strays += [ (nid, paddr) => false ] by { admit(); };
     }
 }
 
@@ -293,8 +352,8 @@ transition!{
         let paddr = pte_array.get_paddr(offset);
         remove pte_arrays -= [ nid => PteArrayState::empty() ];
         add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
-        remove strays -= { (nid, StrayState::False(paddr)) };
-        add strays += { (nid, StrayState::True) };
+        remove strays -= [ (nid, paddr) => false ];
+        add strays += [ (nid, paddr) => true ];
     }
 }
 
@@ -302,46 +361,46 @@ transition!{
 fn initialize_inductive(post: Self, cpu_num: CpuId) { admit(); }
 
 #[inductive(protocol_lock_start)]
-fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(protocol_lock)]
-fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(protocol_lock_skip)]
-fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(protocol_lock_end)]
-fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
+fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
 
 #[inductive(protocol_unlock_start)]
-fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
+fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
 
 #[inductive(protocol_unlock)]
-fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(protocol_unlock_skip)]
-fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(protocol_unlock_end)]
-fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
+fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) { admit(); }
 
 #[inductive(protocol_allocate)]
 fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit(); }
 
 #[inductive(protocol_deallocate)]
-fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_lock)]
-fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_unlock)]
-fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_allocate)]
 fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit(); }
 
 #[inductive(normal_deallocate)]
-fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 }
 

@@ -11,4 +11,6 @@ pub type PteArrayToken = TreeSpec::pte_arrays;
 
 pub type CursorToken = TreeSpec::cursors;
 
+pub type StrayToken = TreeSpec::strays;
+
 } // verus!

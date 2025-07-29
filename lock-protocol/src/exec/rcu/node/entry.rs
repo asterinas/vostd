@@ -152,54 +152,39 @@ impl Entry {
         let ghost cur_nid = self.nid(*node);
         let mut lock_guard = node.guard.take().unwrap();
         let tracked node_token = lock_guard.node_token.get().tracked_unwrap();
-        let tracked mut pte_token = lock_guard.pte_token.get().tracked_unwrap();
+        let tracked pte_token = lock_guard.pte_token.get().tracked_unwrap();
         assert(node_token.value() is LockedOutside);
         assert(pte_token.value().is_void(self.idx as nat));
-        assert(node.nid() == NodeHelper::get_parent(cur_nid)) by {
+        assert(cur_nid != NodeHelper::root_id()) by {
+            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
+        };
+        assert(NodeHelper::valid_nid(cur_nid)) by {
+            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
             NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
-        assert(self.idx as nat == NodeHelper::get_offset(cur_nid)) by {
-            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
-        };
-        let tracked new_node_token;
-        let tracked new_pte_token;
+        
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
-        proof {
-            assert(cur_nid != NodeHelper::root_id()) by {
-                assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
-                NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
-            };
-            assert(NodeHelper::valid_nid(cur_nid)) by {
-                assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-                NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
-            };
-            let tracked res = node.tracked_pt_inst().normal_allocate(
-                cur_nid,
-                &node_token,
-                pte_token,
-            );
-            new_node_token = res.0.get();
-            pte_token = res.1.get();
-            new_pte_token = res.2.get();
-        }
-        lock_guard.node_token = Tracked(Some(node_token));
-        lock_guard.pte_token = Tracked(Some(pte_token));
-        node.guard = Some(lock_guard);
         assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
             NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
             NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
         };
-        let new_page = RcuDrop::new(
-            PageTableNode::alloc(
-                level - 1,
-                Ghost(cur_nid),
-                Ghost(node.inst_id()),
-                Tracked(new_node_token),
-                Tracked(new_pte_token),
-            ),
+        let res = PageTableNode::normal_alloc(
+            level - 1,
+            Ghost(cur_nid),
+            Tracked(inst),
+            Ghost(node.nid()),
+            Ghost(self.idx as nat),
+            Tracked(&node_token),
+            Tracked(pte_token),
         );
+        let new_page = RcuDrop::new(res.0);
+        let tracked pte_token = res.1.get();
+        lock_guard.node_token = Tracked(Some(node_token));
+        lock_guard.pte_token = Tracked(Some(pte_token));
+        node.guard = Some(lock_guard);
         let paddr = new_page.start_paddr();
 
         let pt_ref = PageTableNodeRef::borrow_paddr(
