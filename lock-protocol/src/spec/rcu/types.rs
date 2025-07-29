@@ -88,4 +88,9 @@ impl CursorState {
     }
 }
 
+pub enum AtomicCursorState {
+    Void,
+    Locked(NodeId),
+}
+
 } // verus!

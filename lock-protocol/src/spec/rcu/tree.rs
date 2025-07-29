@@ -119,15 +119,6 @@ pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
         }
 }
 
-// #[invariant]
-// pub fn inv_stray_paddr_no_duplicates(&self) -> bool {
-//     forall |nid: NodeId|
-//         #![auto] // TODO
-//         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
-//             self.strays_filter(nid).to_seq().no_duplicates()
-//         }
-// }
-
 property! {
     stray_is_false(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
