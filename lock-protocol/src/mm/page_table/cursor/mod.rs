@@ -559,7 +559,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let old_entry = cur_entry.replace(Child::Frame(pa, 1, prop), Tracked(spt));
 
         assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
-        assume(self.0.path_wf(spt));  // TODO: P0
+        assert(self.0.path_wf(spt));
 
         let old_va = self.0.va;
         let old_len = page_size::<C>(self.0.level);

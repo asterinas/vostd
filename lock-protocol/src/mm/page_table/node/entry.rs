@@ -174,6 +174,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.instance.id() == old(spt).instance.id(),
             spt.wf(),
             spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
+            spt.frames == old(spt).frames,
+            spt.alloc_model == old(spt).alloc_model,
             if (old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
                 match res {
                     Child::PageTable(pt) => {
@@ -328,6 +330,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 old(spt),
                 old(self).pte.pte_paddr() as int,
             ));
+            // TODO: replaced ptes.
             assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
         }
 

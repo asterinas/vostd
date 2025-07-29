@@ -8,11 +8,10 @@ use std::{
     collections::HashSet,
     env,
     fs::{self, File},
-    io::{self, Read, Write},
+    io::{Read, Write},
     path::{self, Path, PathBuf},
     process::{Command, Stdio},
 };
-use owo_colors::{OwoColorize, Stream};
 use memoize::memoize;
 use git2::{
     Repository, ResetType,
