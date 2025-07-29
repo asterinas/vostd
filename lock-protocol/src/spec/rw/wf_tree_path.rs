@@ -133,7 +133,6 @@ pub proof fn lemma_wf_tree_path_in_subtree_range(path: Seq<NodeId>)
 {
     if path.len() == 0 {
     } else if path.len() == 1 {
-        NodeHelper::lemma_in_subtree_self(path[0]);
     } else {
         let last = path.last();
         let rest = path.drop_last();
@@ -148,7 +147,6 @@ pub proof fn lemma_wf_tree_path_in_subtree_range(path: Seq<NodeId>)
             } else {
                 assert(path[j] == last);
                 if (i == j) {
-                    NodeHelper::lemma_in_subtree_self(last);
                 } else {
                     assert(path[i] == rest[i]);
                     NodeHelper::lemma_in_subtree_is_child_in_subtree(path[i], rest_last, last);

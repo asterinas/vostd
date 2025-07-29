@@ -183,6 +183,24 @@ impl NodeHelper {
         Set::new(|trace: Seq<nat>| Self::valid_trace(trace))
     }
 
+    pub open spec fn trace_lt(t1: Seq<nat>, t2: Seq<nat>) -> bool
+        decreases t1.len(),
+    {
+        if t2.len() == 0 {
+            false
+        } else if t1.len() == 0 {
+            true
+        } else {
+            if t1[0] < t2[0] {
+                true
+            } else if t1[0] > t2[0] {
+                false
+            } else {
+                Self::trace_lt(t1.drop_first(), t2.drop_first())
+            }
+        }
+    }
+
     /// Returns the trace from cur_rt to the node with id `nid`.
     pub closed spec fn nid_to_trace_rec(nid: NodeId, cur_level: nat, cur_rt: NodeId) -> Seq<nat>
         decreases cur_level,
@@ -219,8 +237,7 @@ impl NodeHelper {
         recommends
             Self::valid_trace(trace),
             Self::valid_nid(cur_rt),
-            0 <= cur_level <= 3,
-            trace.len() <= cur_level,
+            trace.len() <= cur_level <= 3,
     {
         trace.fold_left_alt(
             (cur_rt, cur_level as int),
@@ -370,20 +387,13 @@ impl NodeHelper {
     }
 
     proof fn lemma_trace_to_nid_rec_inductive(trace: Seq<nat>, cur_rt: NodeId, cur_level: int)
-        requires
-            Self::valid_trace(trace),
-            Self::valid_nid(cur_rt),
-            0 <= cur_level <= 3,
         ensures
-            if trace.len() > 0 {
-                Self::trace_to_nid_rec(trace, cur_rt, cur_level) == Self::trace_to_nid_rec(
-                    trace.subrange(1, trace.len() as int),
-                    cur_rt + trace[0] * Self::tree_size_spec(cur_level - 1) + 1,
-                    cur_level - 1,
-                )
-            } else {
-                true
-            },
+            trace.len() > 0 ==> Self::trace_to_nid_rec(trace, cur_rt, cur_level)
+                == Self::trace_to_nid_rec(
+                trace.subrange(1, trace.len() as int),
+                cur_rt + trace[0] * Self::tree_size_spec(cur_level - 1) + 1,
+                cur_level - 1,
+            ),
     {
         reveal(NodeHelper::trace_to_nid_rec);
     }
@@ -413,9 +423,6 @@ impl NodeHelper {
         Self::lemma_tree_size_relation();
         if max_dep > 0 {
             Self::lemma_trace_to_nid_upperbound_spec((max_dep - 1) as nat);
-            assert(Self::trace_to_nid_upperbound_spec(max_dep)
-                == Self::trace_to_nid_upperbound_spec((max_dep - 1) as nat)
-                + Self::tree_size_weighted_spec(3 - max_dep));
         }
     }
 
@@ -455,7 +462,6 @@ impl NodeHelper {
 
         if trace.len() != 0 {
             let new_trace = trace.drop_last();
-            assert(new_trace.len() + 1 == trace.len());
             Self::lemma_trace_to_nid_inner(new_trace);
             lemma_mul_inequality(
                 trace.last() as int,
@@ -464,6 +470,135 @@ impl NodeHelper {
             );
             trace.lemma_fold_left_alt((0, 3), func);
             new_trace.lemma_fold_left_alt((0, 3), func);
+        }
+    }
+
+    proof fn lemma_trace_to_nid_rec_lower_bound(trace: Seq<nat>, root: NodeId, level: int)
+        ensures
+            trace.len() > 0 ==> Self::trace_to_nid_rec(trace, root, level) > root,
+            trace.len() == 0 ==> Self::trace_to_nid_rec(trace, root, level) == root,
+        decreases trace.len(),
+    {
+        reveal(NodeHelper::trace_to_nid_rec);
+        if trace.len() != 0 {
+            let new_trace = trace.subrange(1, trace.len() as int);
+            let new_rt = root + trace[0] * Self::tree_size_spec(level - 1) + 1;
+            if new_trace.len() > 0 {
+                Self::lemma_trace_to_nid_rec_lower_bound(new_trace, new_rt, level - 1);
+            }
+        }
+    }
+
+    proof fn lemma_trace_to_nid_rec_upper_bound(trace: Seq<nat>, root: NodeId, level: int)
+        requires
+            Self::valid_trace(trace),
+            trace.len() <= level,
+        ensures
+            Self::trace_to_nid_rec(trace, root, level) < root + Self::tree_size_spec(level),
+        decreases trace.len(),
+    {
+        reveal(NodeHelper::trace_to_nid_rec);
+        Self::lemma_tree_size_spec_table();
+        if trace.len() != 0 {
+            let new_trace = trace.subrange(1, trace.len() as int);
+            let new_rt = root + trace[0] * Self::tree_size_spec(level - 1) + 1;
+            assert(new_rt + Self::tree_size_spec(level - 1) <= root + Self::tree_size_spec(level))
+                by {
+                lemma_mul_is_distributive_add_other_way(
+                    Self::tree_size_spec(level - 1) as int,
+                    trace[0] as int,
+                    1,
+                );
+                lemma_mul_inequality(
+                    (trace[0] + 1) as int,
+                    512,
+                    Self::tree_size_spec(level - 1) as int,
+                );
+            };
+            Self::lemma_trace_to_nid_rec_upper_bound(new_trace, new_rt, level - 1);
+        }
+    }
+
+    pub proof fn lemma_push_lt_trace_lt(trace: Seq<nat>, v1: nat, v2: nat)
+        requires
+            v1 < v2,
+        ensures
+            Self::trace_lt(trace.push(v1), trace.push(v2)),
+        decreases trace.len(),
+    {
+        if trace.len() != 0 {
+            assert(trace.drop_first().push(v1) == trace.push(v1).drop_first());
+            assert(trace.drop_first().push(v2) == trace.push(v2).drop_first());
+            Self::lemma_push_lt_trace_lt(trace.drop_first(), v1, v2);
+        }
+    }
+
+    pub proof fn lemma_trace_to_nid_increasing(trace1: Seq<nat>, trace2: Seq<nat>)
+        requires
+            Self::trace_lt(trace1, trace2),
+            Self::valid_trace(trace1),
+            Self::valid_trace(trace2),
+        ensures
+            Self::trace_to_nid(trace1) < Self::trace_to_nid(trace2),
+    {
+        Self::lemma_trace_to_nid_rec_increasing(trace1, trace2, 0, 3);
+    }
+
+    proof fn lemma_trace_to_nid_rec_increasing(
+        trace1: Seq<nat>,
+        trace2: Seq<nat>,
+        root: NodeId,
+        level: int,
+    )
+        requires
+            Self::trace_lt(trace1, trace2),
+            Self::valid_trace(trace1),
+            Self::valid_trace(trace2),
+            trace2.len() <= level,
+            trace1.len() <= level,
+        ensures
+            Self::trace_to_nid_rec(trace1, root, level) < Self::trace_to_nid_rec(
+                trace2,
+                root,
+                level,
+            ),
+        decreases trace1.len(),
+    {
+        reveal(NodeHelper::trace_to_nid_rec);
+        if trace1.len() == 0 {
+            if trace2.len() != 0 {
+                Self::lemma_trace_to_nid_rec_lower_bound(trace2, root, level);
+            }
+        } else {
+            if trace2.len() != 0 {
+                let new_trace1 = trace1.subrange(1, trace1.len() as int);
+                let new_trace2 = trace2.subrange(1, trace2.len() as int);
+                if trace1[0] == trace2[0] {
+                    let new_rt = root + trace1[0] * Self::tree_size_spec(level - 1) + 1;
+                    Self::lemma_trace_to_nid_rec_increasing(
+                        new_trace1,
+                        new_trace2,
+                        new_rt,
+                        level - 1,
+                    );
+                } else if trace1[0] < trace2[0] {
+                    let new_rt1 = root + trace1[0] * Self::tree_size_spec(level - 1) + 1;
+                    let new_rt2 = root + trace2[0] * Self::tree_size_spec(level - 1) + 1;
+                    assert(Self::trace_to_nid_rec(trace1, root, level) < new_rt1
+                        + Self::tree_size_spec(level - 1)) by {
+                        Self::lemma_trace_to_nid_rec_upper_bound(new_trace1, new_rt1, level - 1);
+                    }
+                    assert(Self::trace_to_nid_rec(trace2, root, level) >= new_rt2) by {
+                        Self::lemma_trace_to_nid_rec_lower_bound(new_trace2, new_rt2, level - 1);
+                    }
+                    assert(trace1[0] * Self::tree_size_spec(level - 1) + Self::tree_size_spec(
+                        level - 1,
+                    ) <= trace2[0] * Self::tree_size_spec(level - 1)) by (nonlinear_arith)
+                        requires
+                            0 <= trace1[0] < trace2[0],
+                    ;
+                }
+            }
         }
     }
 
@@ -534,8 +669,6 @@ impl NodeHelper {
             assert(new_trace1.add(new_trace2) =~= trace1.add(trace2));
             let new_rt = cur_rt + trace2[0] * Self::tree_size_spec(cur_level - 1) + 1;
             assert(new_rt == Self::trace_to_nid(new_trace1)) by {
-                assert(trace1.is_prefix_of(trace1.add(trace2)));
-                assert(trace2.is_suffix_of(trace1.add(trace2)));
                 Self::lemma_child_nid_from_trace_offset_sound(trace1, trace2[0]);
             };
             Self::lemma_trace_to_nid_split(new_trace1, new_trace2, new_rt, cur_level - 1)
@@ -548,7 +681,7 @@ impl NodeHelper {
     pub proof fn lemma_nid_to_trace_rec_sound(nid: NodeId, cur_level: nat, cur_rt: NodeId)
         requires
             Self::valid_nid(nid),
-            0 <= cur_level <= 3,
+            cur_level <= 3,
             cur_rt < nid < cur_rt + Self::tree_size_spec(cur_level as int),
         ensures
             Self::nid_to_trace_rec(nid, cur_level, cur_rt).len() <= cur_level,
@@ -569,26 +702,17 @@ impl NodeHelper {
             ));
 
             let sz = Self::tree_size_spec(cur_level - 1);
-            // Prove offset < 512
             let offset = ((nid - cur_rt - 1) / sz as int) as nat;
-            // now offset < 512 follows
             assert(offset < 512) by {
-                // offset*sz <= nid - cur_rt - 1 < sz*512
-                assert(nid - cur_rt - 1 < sz * 512);
-                // Now use the actual quotient form:
                 lemma_multiply_divide_lt(nid - cur_rt - 1, sz as int, 512);
             };
 
             let new_rt = cur_rt + offset * sz + 1;
             assert(new_rt <= nid) by {
-                assert(offset * sz <= nid - cur_rt - 1) by {
-                    lemma_remainder_lower(nid - cur_rt - 1, sz as int);
-                };
+                lemma_remainder_lower(nid - cur_rt - 1, sz as int);
             };
             assert(nid < new_rt + sz) by {
-                assert(nid - cur_rt - 1 < offset * sz + sz) by {
-                    lemma_remainder(nid - cur_rt - 1, sz as int);
-                };
+                lemma_remainder(nid - cur_rt - 1, sz as int);
             };
 
             if new_rt == nid {
@@ -601,8 +725,6 @@ impl NodeHelper {
                 Self::lemma_nid_to_trace_rec_sound(nid, (cur_level - 1) as nat, new_rt);
                 let _trace = Self::nid_to_trace_rec(nid, (cur_level - 1) as nat, new_rt);
                 let trace = seq![offset].add(_trace);
-                assert(Self::trace_to_nid_rec(_trace, new_rt, cur_level - 1) == nid);
-                assert(new_rt == cur_rt + offset * sz + 1);
                 assert(Self::trace_to_nid_rec(trace, cur_rt, cur_level as int) == nid) by {
                     Self::lemma_trace_to_nid_rec_inductive(trace, cur_rt, cur_level as int);
                     assert(_trace =~= trace.subrange(1, trace.len() as int));
@@ -624,7 +746,6 @@ impl NodeHelper {
         reveal(NodeHelper::trace_to_nid_rec);
         if nid != Self::root_id() {
             Self::lemma_nid_to_trace_rec_sound(nid, 3, 0)
-        } else {
         }
     }
 
@@ -679,29 +800,12 @@ impl NodeHelper {
                 &&& Self::valid_nid(new_rt)
                 &&& new_rt + Self::tree_size_spec(cur_level - 1) <= Self::total_size()
             }) by {
-                assert(Self::tree_size_spec(cur_level - 1) * 512 + 1 == Self::tree_size_spec(
-                    cur_level,
-                ));
-                assert(Self::tree_size_spec(cur_level) - 1 - trace[0] * Self::tree_size_spec(
-                    cur_level - 1,
-                ) == (512 - trace[0]) * Self::tree_size_spec(cur_level - 1)) by {
-                    lemma_mul_is_distributive_sub_other_way(
-                        Self::tree_size_spec(cur_level - 1) as int,
-                        512,
-                        trace[0] as int,
-                    );
-                };
-                assert(512 - trace[0] >= 1);
-                assert(new_rt + (512 - trace[0]) * Self::tree_size_spec(cur_level - 1)
-                    <= Self::total_size());
-                assert(Self::tree_size_spec(cur_level - 1) <= (512 - trace[0])
-                    * Self::tree_size_spec(cur_level - 1)) by {
-                    lemma_mul_inequality(
-                        1,
-                        512 - trace[0],
-                        Self::tree_size_spec(cur_level - 1) as int,
-                    )
-                };
+                lemma_mul_is_distributive_sub_other_way(
+                    Self::tree_size_spec(cur_level - 1) as int,
+                    512,
+                    trace[0] as int,
+                );
+                lemma_mul_inequality(1, 512 - trace[0], Self::tree_size_spec(cur_level - 1) as int);
             };
 
             let new_level = cur_level - 1;
@@ -711,53 +815,24 @@ impl NodeHelper {
 
             let sz = Self::tree_size_spec(cur_level - 1);
             reveal(NodeHelper::trace_to_nid_rec);
-            assert(new_rt <= nid < new_rt + sz);
-            assert(cur_rt + trace[0] * sz + 1 <= nid < cur_rt + trace[0] * sz + sz + 1);
-            assert(cur_rt <= nid);
-            // first, we still know from earlier that nid < new_rt + sz
-            assert(nid < new_rt + sz);
-            // then prove that new_rt + sz <= cur_rt + tree_size_spec(cur_level)
             assert(new_rt + sz <= cur_rt + Self::tree_size_spec(cur_level)) by {
-                // tree_size_spec(cur_level) = 512*sz + 1
-                assert(Self::tree_size_spec(cur_level) == Self::tree_size_spec(cur_level - 1) * 512
-                    + 1);
-
-                // need: trace[0]*sz + sz <= 512*sz
-                assert(trace[0] < 512);
-                assert(trace[0] * sz + sz <= 512 * sz) by {
-                    lemma_mul_is_distributive_add_other_way(sz as int, trace[0] as int, 1);
-                    lemma_mul_inequality((trace[0] + 1) as int, 512, sz as int);
-                };
+                lemma_mul_is_distributive_add_other_way(sz as int, trace[0] as int, 1);
+                lemma_mul_inequality((trace[0] + 1) as int, 512, sz as int);
             };
-
-            // now re‑combine for the final bound
-            assert(nid < cur_rt + Self::tree_size_spec(cur_level));
 
             let offset = ((nid - cur_rt - 1) / sz as int) as nat;
             assert(trace[0] == offset) by {
-                assert(trace[0] * sz <= (nid - cur_rt - 1) < (trace[0] + 1) * sz) by {
-                    lemma_mul_is_distributive_add_other_way(sz as int, trace[0] as int, 1);
-                };
-                assert(trace[0] <= offset < trace[0] + 1) by {
-                    lemma_div_is_ordered(
-                        (trace[0] * sz) as int,
-                        (nid - cur_rt - 1) as int,
-                        sz as int,
-                    );
-                    lemma_div_by_multiple_is_strongly_ordered(
-                        (nid - cur_rt - 1) as int,
-                        ((trace[0] + 1) * sz) as int,
-                        (trace[0] + 1) as int,
-                        sz as int,
-                    );
-                    lemma_div_by_multiple(trace[0] as int, sz as int);
-                    lemma_div_by_multiple((trace[0] + 1) as int, sz as int);
-                };
+                lemma_mul_is_distributive_add_other_way(sz as int, trace[0] as int, 1);
+                lemma_div_is_ordered((trace[0] * sz) as int, (nid - cur_rt - 1) as int, sz as int);
+                lemma_div_by_multiple_is_strongly_ordered(
+                    (nid - cur_rt - 1) as int,
+                    ((trace[0] + 1) * sz) as int,
+                    (trace[0] + 1) as int,
+                    sz as int,
+                );
+                lemma_div_by_multiple(trace[0] as int, sz as int);
+                lemma_div_by_multiple((trace[0] + 1) as int, sz as int);
             }
-            assert(trace =~= seq![offset].add(new_trace));
-
-            let _trace = Self::nid_to_trace_rec(nid, cur_level as nat, cur_rt);
-            assert(_trace =~= seq![offset].add(new_trace));
         }
     }
 
@@ -839,11 +914,7 @@ impl NodeHelper {
             let new_rt = cur_rt + offset * sz + 1;
 
             if new_rt == nid {
-                // In this case, the returned sequence is seq![offset], with length 1
-                assert(Self::nid_to_trace_rec(nid, cur_level, cur_rt).len() == 1);
             } else {
-                // This is the recursive case
-                // The result length of the recursive call does not exceed (cur_level-1)
                 Self::lemma_trace_rec_len_le_level(nid, (cur_level - 1) as nat, new_rt);
             }
         }
@@ -857,12 +928,7 @@ impl NodeHelper {
         if nid == Self::root_id() {
             assert(Self::nid_to_trace(nid).len() == 0);
         } else {
-            // nid_to_trace(nid) = nid_to_trace_rec(nid, 3, root)
-            let trace = Self::nid_to_trace(nid);
-            // Each level adds 1 element to trace at most, cur_level starts from 3
-            assert(trace.len() <= 3) by {
-                Self::lemma_trace_rec_len_le_level(nid, 3, Self::root_id());
-            };
+            Self::lemma_trace_rec_len_le_level(nid, 3, Self::root_id());
         }
     }
 
@@ -871,9 +937,7 @@ impl NodeHelper {
         ensures
             Self::nid_to_level(nid) == 4 - Self::nid_to_dep(nid),
     {
-        assert(Self::nid_to_dep(nid) <= 3) by {
-            Self::lemma_nid_to_dep_le_3(nid);
-        };
+        Self::lemma_nid_to_dep_le_3(nid);
     }
 
     /// A valid node's descendant's id is less than or equal to the total size.
@@ -886,13 +950,8 @@ impl NodeHelper {
         let trace = Self::nid_to_trace(nid);
         Self::lemma_nid_to_trace_sound(nid);
         reveal(NodeHelper::trace_to_nid_rec);
-        assert(nid <= Self::trace_to_nid_upperbound_spec(trace.len())) by {
-            Self::lemma_trace_to_nid_inner(trace);
-        };
-        assert(Self::trace_to_nid_upperbound_spec(trace.len()) == Self::tree_size_spec(3)
-            - Self::tree_size_spec(3 - trace.len())) by {
-            Self::lemma_trace_to_nid_upperbound_spec(trace.len());
-        };
+        Self::lemma_trace_to_nid_inner(trace);
+        Self::lemma_trace_to_nid_upperbound_spec(trace.len());
     }
 
     /// A valid node's subtree size is at least 1.
@@ -947,7 +1006,6 @@ impl NodeHelper {
         let dep_ch = Self::nid_to_dep(ch);
         let sz_pa = Self::sub_tree_size(pa);
         let sz_ch = Self::sub_tree_size(ch);
-        // Verify trace properties.
         let trace_pa = Self::nid_to_trace(pa);
         let trace_ch = Self::nid_to_trace(ch);
         Self::lemma_nid_to_trace_sound(pa);
@@ -956,38 +1014,26 @@ impl NodeHelper {
 
         // Verify subtree containment.
         assert((ch as int) + (sz_ch as int) <= (pa as int) + (sz_pa as int)) by {
-            assert(sz_ch < sz_pa);
             // Break down into two cases:
             // 1. If ch == pa, then ch + sz_ch == pa + sz_ch < pa + sz_pa, because sz_ch < sz_pa
             // 2. If ch > pa, we need more detailed analysis
             if ch == pa {
             } else {
-                // Prepare for increment lemma.
-                let offset = trace_ch.last();  // Get last element as offset.
-                // Get parent level.
+                let offset = trace_ch.last();
                 let pa_level = Self::dep_to_level(dep_pa);
                 let sz = Self::tree_size_spec(pa_level - 2);
                 Self::lemma_child_nid_from_trace_offset_sound(trace_pa, offset);
-
-                // Final formula: ch = pa + offset * sz + 1, where sz = tree_size_spec(pa_level - 2).
                 assert(ch == pa + offset * sz + 1) by {
-                    // By definition, get_parent uses trace.drop_last()
                     assert(Self::get_parent(ch) == Self::trace_to_nid(
                         Self::nid_to_trace(ch).drop_last(),
                     ));
 
-                    // Direct proof that trace_ch's prefix must be trace_pa
                     assert(trace_ch.drop_last() =~= trace_pa) by {
-                        // Using uniqueness of trace to nid mapping
                         Self::lemma_trace_to_nid_sound(trace_ch.drop_last());
                     }
 
-                    // Now we prove that the last element of trace_ch is offset
                     assert(trace_ch.last() == offset) by {
-                        // Now we can derive the relationship between ch and trace_ch
-                        assert(trace_ch =~= trace_pa.push(offset)) by {};
-
-                        // Since trace_ch =~= trace_pa.push(offset), we know
+                        assert(trace_ch =~= trace_pa.push(offset));
                         assert(Self::trace_to_nid(trace_ch) == Self::trace_to_nid(
                             trace_pa.push(offset),
                         ));
@@ -995,27 +1041,9 @@ impl NodeHelper {
                     assert(ch == pa + offset * sz + 1);
                 };
 
-                // We have proven that ch == pa + offset * sz + 1
-                // Also, we have proven that sz_ch < sz_pa
-                // So ch + sz_ch <= pa + offset * sz + 1 + sz_ch
-                // In the maximum case, offset is close to 512, and sz_pa is at least 512 * sz_ch + 1
-                // So ch + sz_ch < pa + sz_pa always holds
-                // Finally prove that ch + sz_ch <= pa + sz_pa
                 assert(ch + sz_ch <= pa + sz_pa) by {
-                    // Now establish (offset+1) * sz <= 512 * sz using integer arithmetic
-                    // This holds because offset + 1 <= 512
-                    assert((offset + 1) * sz <= 512 * sz) by {
-                        // Since offset + 1 <= 512, we can use arithmetic inequality
-                        // (a * c <= b * c when a <= b and c >= 0)
-                        lemma_mul_inequality(offset as int + 1, 512, sz as int);
-                    };
-
-                    // Now we can derive offset*sz + sz <= 512*sz without explicit multiplication
-                    assert(offset * sz + sz == (offset + 1) * sz) by {
-                        // Use the distributive property: a*c + b*c = (a+b)*c
-                        // here with a=offset, b=1, c=sz
-                        lemma_mul_is_distributive_add_other_way(sz as int, offset as int, 1);
-                    };
+                    lemma_mul_inequality(offset as int + 1, 512, sz as int);
+                    lemma_mul_is_distributive_add_other_way(sz as int, offset as int, 1);
                 };
             }
         };
@@ -1356,35 +1384,17 @@ impl NodeHelper {
                     Self::lemma_nid_to_trace_sound(nd);
                 }
 
-                // Since in_subtree(rt, nd), we know rt_trace is a prefix of nd_trace
-                assert(rt_trace.is_prefix_of(nd_trace));
-
                 if rt_trace.len() == 0 {
-                    // rt is root (0), so 0 <= nd is trivially true
                 } else {
                     if rt == nd {
-                        // Trivial case: rt == nd implies rt <= nd
                     } else {
-                        // DIRECT APPROACH: use lemma_trace_to_nid_rec_sound directly
-                        // When one trace is a proper prefix of another, the corresponding node
-                        // is an ancestor in the tree and has a smaller node ID
-                        // Get the suffix part of nd_trace after rt_trace
                         let suffix = nd_trace.subrange(
                             rt_trace.len() as int,
                             nd_trace.len() as int,
                         );
 
-                        // Validate the level parameter for dep_to_level
-                        assert(0 <= rt_trace.len() < 4) by {
-                            // Valid trace has length < 4
-                        }
-
-                        // We know cur_level needs to be 3 - suffix.len()
                         let cur_level = 3 - rt_trace.len();
-
-                        // Prove that suffix is a valid trace
                         assert(Self::valid_trace(suffix)) by {
-                            assert(suffix.len() < 4);
                             assert(forall|i: int|
                                 #![trigger suffix[i]]
                                 0 <= i < suffix.len() ==> 0 <= suffix[i] < 512) by {
@@ -1401,76 +1411,43 @@ impl NodeHelper {
                         // 3. Using lemma_trace_to_nid_rec_sound, we know:
                         //    cur_rt <= trace_to_nid_rec(trace, cur_rt, level)
 
-                        assert(cur_level >= 0);
-                        assert(Self::valid_nid(rt));
-
-                        // Check if rt has enough space for the subtree
                         assert(rt + Self::tree_size_spec(cur_level) <= Self::total_size()) by {
                             Self::lemma_next_outside_subtree_bounded(rt);
                         }
 
-                        // Show nd = trace_to_nid_rec(suffix, rt, cur_level)
                         assert(nd == Self::trace_to_nid_rec(suffix, rt, cur_level)) by {
-                            // Show rt_trace.add(suffix) ~= nd_trace
                             assert(rt_trace.add(suffix) =~= nd_trace) by {
                                 assert(rt_trace.is_prefix_of(nd_trace));
                                 assert(rt_trace =~= nd_trace.subrange(0, rt_trace.len() as int));
                             }
 
-                            // First, prove that rt == trace_to_nid(rt_trace)
                             assert(rt == Self::trace_to_nid(rt_trace)) by {
                                 Self::lemma_nid_to_trace_sound(rt);
                             }
 
-                            // Instead of directly proving nd == trace_to_nid(rt_trace.add(suffix)),
-                            // we'll use a different approach that relies on the bijectivity of nid_to_trace and trace_to_nid
-
-                            // First establish that nid_to_trace(nd) =~= rt_trace.add(suffix)
                             assert(Self::nid_to_trace(nd) =~= rt_trace.add(suffix)) by {
-                                assert(Self::nid_to_trace(nd) =~= nd_trace);  // By definition of nd
-                                assert(nd_trace =~= rt_trace.add(suffix));  // Already proved above
+                                assert(Self::nid_to_trace(nd) =~= nd_trace);
+                                assert(nd_trace =~= rt_trace.add(suffix));
                             }
-
-                            // Now use the bijectivity property: if nid_to_trace(nd) == trace, then nd == trace_to_nid(trace)
                             Self::lemma_nid_to_trace_bijective();
 
-                            // Use the right inverse property: trace_to_nid(nid_to_trace(nd)) == nd
                             assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == nd) by {
                                 Self::lemma_nid_to_trace_sound(nd);
                             }
 
-                            // Since nid_to_trace(nd) =~= rt_trace.add(suffix), and we have
-                            // trace_to_nid(nid_to_trace(nd)) == nd
-                            // we need to show that trace_to_nid is preserved by the equivalence relation
                             assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == Self::trace_to_nid(
                                 rt_trace.add(suffix),
                             )) by {
-                                // We need to show that if t1 =~= t2, then trace_to_nid(t1) == trace_to_nid(t2)
-                                // We'll use lemma_trace_to_nid_sound to help with this
                                 let t1 = Self::nid_to_trace(nd);
                                 let t2 = rt_trace.add(suffix);
-                                assert(Self::valid_trace(t1));
-                                assert(Self::valid_trace(t2));
 
-                                // Apply sound lemma to both traces
                                 Self::lemma_trace_to_nid_sound(t1);
                                 Self::lemma_trace_to_nid_sound(t2);
-
-                                // Now we have:
-                                // t1 =~= nid_to_trace(trace_to_nid(t1))
-                                // t2 =~= nid_to_trace(trace_to_nid(t2))
-                                // And t1 =~= t2
-                                // Therefore nid_to_trace(trace_to_nid(t1)) =~= nid_to_trace(trace_to_nid(t2))
-                                // By injectivity of nid_to_trace, trace_to_nid(t1) == trace_to_nid(t2)
                                 assert(t1 =~= t2);
                                 assert(t1 =~= Self::nid_to_trace(Self::trace_to_nid(t1)));
                                 assert(t2 =~= Self::nid_to_trace(Self::trace_to_nid(t2)));
-
-                                // Now use bijectivity to conclude trace_to_nid(t1) == trace_to_nid(t2)
                                 Self::lemma_nid_to_trace_right_inverse();
                             }
-
-                            // Now we can conclude nd == trace_to_nid(rt_trace.add(suffix))
                             assert(nd == Self::trace_to_nid(rt_trace.add(suffix)));
 
                             // Now use lemma_trace_to_nid_split to complete the proof
@@ -1536,7 +1513,6 @@ impl NodeHelper {
             lemma_filter_len_unchanged_implies_equal(nid_set, |id| Self::in_subtree(rt, id));
         }
         assert(nid_set.contains(nd));
-        assert(Self::in_subtree(rt, nd));
     }
 
     /// 'in_subtree' is equivalent to 'in_subtree_range' (nd in [rt, next_outside_subtree(rt)))
@@ -1651,7 +1627,12 @@ impl NodeHelper {
         ensures
             Self::get_child(pa, offset1) < Self::get_child(pa, offset2),
     {
-        admit();
+        Self::lemma_nid_to_trace_sound(pa);
+        Self::lemma_push_lt_trace_lt(Self::nid_to_trace(pa), offset1, offset2);
+        Self::lemma_trace_to_nid_increasing(
+            Self::nid_to_trace(pa).push(offset1),
+            Self::nid_to_trace(pa).push(offset2),
+        );
     }
 
     pub proof fn lemma_is_child_level_relation(pa: NodeId, ch: NodeId)
