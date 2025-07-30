@@ -16,7 +16,7 @@ use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
+use crate::mm::{page_size_spec, pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
 use crate::{
     mm::{
         cursor::{Cursor, CursorMut},
@@ -65,7 +65,7 @@ pub fn alloc_page_table<C: PageTableConfig>(
 ) -> (res: (Frame<PageTablePageMeta<C>>, Tracked<PointsTo<MockPageTablePage>>))
     requires
         old(model).invariants(),
-        crate::spec::sub_pt::level_is_in_range(level as int),
+        crate::spec::sub_pt::level_is_in_range::<C>(level as int),
     ensures
         res.1@.pptr() == res.0.ptr,
         res.1@.mem_contents().is_init(),
@@ -83,6 +83,16 @@ pub fn alloc_page_table<C: PageTableConfig>(
                 &&& res.1@.value().ptes[i].frame_pa == 0
                 &&& res.1@.value().ptes[i].level == level
                 &&& res.1@.value().ptes[i].prop == PageProperty::new_absent()
+            },
+        res.0.start_paddr() % page_size_spec::<C>(level) == 0,
+        // old model does not change
+        forall|p: Paddr|
+            old(model).meta_map.contains_key(p as int) ==> {
+                &&& model.meta_map.contains_key(p as int)
+                &&& (#[trigger] model.meta_map[p as int]).pptr() == old(
+                    model,
+                ).meta_map[p as int].pptr()
+                &&& model.meta_map[p as int].value() == old(model).meta_map[p as int].value()
             },
 {
     let (frame, perm) = allocator::alloc(

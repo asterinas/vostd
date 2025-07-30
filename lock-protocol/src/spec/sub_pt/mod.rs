@@ -14,11 +14,11 @@ use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::exec::SIZEOF_PAGETABLEENTRY;
 use crate::exec::SIZEOF_FRAME;
 use crate::spec::sub_pt::state_machine::ptes_frames_matches;
-
+use crate::mm::page_table::PagingConstsTrait;
 verus! {
 
-pub open spec fn level_is_in_range(level: int) -> bool {
-    1 <= level <= MAX_NR_LEVELS
+pub open spec fn level_is_in_range<C: PageTableConfig>(level: int) -> bool {
+    1 <= level <= C::C::NR_LEVELS_SPEC() as int
 }
 
 pub open spec fn index_is_in_range(index: int) -> bool {

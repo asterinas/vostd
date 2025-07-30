@@ -33,7 +33,7 @@ impl<C: PageTableConfig> LeafPageTableEntryView<C> {
             self.map_to_pa,
         )
         // We assume that all level PTEs can be leaf. Thus they can map to huge pages.
-        &&& level_is_in_range(
+        &&& level_is_in_range::<C>(
             self.level as int,
         )
         // The corresponding virtual address must be aligned to the page size.
@@ -59,7 +59,7 @@ impl<C: PageTableConfig> IntermediatePageTableEntryView<C> {
         &&& pa_is_valid_pt_address(self.frame_pa)
         &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_pt_address(self.map_to_pa)
-        &&& level_is_in_range(self.level as int)
+        &&& level_is_in_range::<C>(self.level as int)
         // No self-loop.
         &&& self.map_to_pa
             != self.frame_pa
@@ -84,7 +84,7 @@ pub ghost struct FrameView<C: PageTableConfig> {
 impl<C: PageTableConfig> FrameView<C> {
     pub open spec fn wf(&self) -> bool {
         &&& pa_is_valid_pt_address(self.pa)
-        &&& level_is_in_range(
+        &&& level_is_in_range::<C>(
             self.level as int,
         )
         // The corresponding virtual address must be aligned to the upper-level page size.
@@ -93,7 +93,7 @@ impl<C: PageTableConfig> FrameView<C> {
         // Ancestor properties.
         &&& forall|ancestor_level: int| #[trigger]
             self.ancestor_chain.contains_key(ancestor_level) ==> {
-                &&& level_is_in_range(ancestor_level)
+                &&& level_is_in_range::<C>(ancestor_level)
                 &&& self.level < ancestor_level
                 &&& self.ancestor_chain[ancestor_level].wf()
                 &&& self.ancestor_chain[ancestor_level].level

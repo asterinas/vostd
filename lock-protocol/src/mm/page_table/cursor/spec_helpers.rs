@@ -40,6 +40,7 @@ use crate::exec;
 
 verus! {
 
+#[verifier::inline]
 pub open spec fn spt_do_not_change_except<C: PageTableConfig>(
     spt: &SubPageTable<C>,
     old_spt: &SubPageTable<C>,

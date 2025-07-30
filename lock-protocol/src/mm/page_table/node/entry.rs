@@ -4,6 +4,7 @@ use core::ops::Deref;
 use std::marker::PhantomData;
 
 use crate::{
+    helpers::conversion::usize_mod_is_int_mod,
     mm::{
         cursor::spec_helpers::{
             self, spt_do_not_change_except, spt_do_not_change_except_frames_change,
@@ -14,7 +15,8 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel, Vaddr,
+        Paddr, PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel, Vaddr,
+        NR_ENTRIES,
     },
     sync::rcu::RcuDrop,
     task::DisabledPreemptGuard,
@@ -64,6 +66,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             ||| spt.i_ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
             ||| spt.ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
         }
+        &&& self.idx < NR_ENTRIES
+        &&& self.va@ % page_size::<C>(self.node.level_spec(&spt.alloc_model))
+            == 0
+        // TODO: put node related spec to node wf
+        &&& self.node.level_spec(&spt.alloc_model) <= spt.root@.level
+        &&& if (self.node.level_spec(&spt.alloc_model) == spt.root@.level) {
+            self.node.paddr() == spt.root@.pa
+        } else {
+            self.node.paddr() != spt.root@.pa
+        }
+        &&& spt.frames.value()[self.node.paddr() as int].level as int == self.node.level_spec(
+            &spt.alloc_model,
+        )
     }
 
     #[verifier::external_body]
@@ -379,9 +394,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         requires
             old(self).wf(&old(spt)),
             old(spt).wf(),
-            old(self).idx < nr_subpage_per_huge::<C>(),
-            old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            !old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
+            !old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(self).node.level_spec(&old(spt).alloc_model) > 1,
             old(self).node.wf(&old(spt).alloc_model),
         ensures
@@ -394,9 +408,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
             res.unwrap().wf(&spt.alloc_model),
             spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
-            !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
+            // !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
             spt.frames.value().contains_key(res.unwrap().paddr() as int),
-            !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
+            // !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1,
             spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
@@ -420,29 +434,37 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let level = self.node.level(Tracked(&spt.alloc_model));
         let (pt, perm) = PageTableNode::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
 
+        // TODO: where should we enforce this?
+        assume(!spt.frames.value().contains_key(pt.start_paddr() as int));
+
         let pa = pt.start_paddr();
 
         assert(spt.alloc_model.meta_map.contains_key(pa as int));
 
         proof {
             let i_pte = IntermediatePageTableEntryView {
-                map_va: self.va as int,
+                map_va: self.va@ as int,
                 frame_pa: self.node.paddr() as int,
                 in_frame_index: self.idx as int,
                 map_to_pa: pt.start_paddr() as int,
                 level,
                 phantom: PhantomData::<C>,
             };
-            assume(i_pte.wf());
-            assume(level <= spt.root@.level);
-            if (level == spt.root@.level) {
-                assume(i_pte.frame_pa == spt.root@.pa);
-            } else {
-                assume(i_pte.frame_pa != spt.root@.pa);
+            assert(i_pte.wf()) by {
+                usize_mod_is_int_mod(
+                    self.va@,
+                    page_size::<C>(self.node.level_spec(&spt.alloc_model)),
+                    0,
+                );
             }
-            assume(self.node.level_spec(&spt.alloc_model) == level);
-            assume(spt.frames.value()[self.node.paddr() as int].level as int == level as int);
-            assume(!spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
+            assert(level <= spt.root@.level);
+            assert(self.node.level_spec(&spt.alloc_model) == level);
+            if (level == spt.root@.level) {
+                assert(i_pte.frame_pa == spt.root@.pa);
+            } else {
+                assert(i_pte.frame_pa != spt.root@.pa);
+            }
+            assert(spt.frames.value()[self.node.paddr() as int].level as int == level as int);
             spt.instance.set_child(
                 IntermediatePageTableEntryView {
                     map_va: self.va as int,
@@ -459,6 +481,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.perms.insert(pt.start_paddr(), perm@);
         }
 
+        assume(spt.wf());  // TODO
         self.node.write_pte(
             self.idx,
             Child::<C>::PageTable(RcuDrop::new(pt)).into_pte(),
@@ -469,9 +492,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
 
-        assume(self.wf(spt));
-        assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
-        assume(node_ref.level_spec(&spt.alloc_model) == level - 1);
+        assert(self.wf(spt));
+        assert(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
+        assert(node_ref.level_spec(&spt.alloc_model) == level - 1);
 
         Some(node_ref.make_guard_unchecked(guard, Ghost(self.va@)))
     }

@@ -19,6 +19,7 @@ use crate::mm::frame;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_prop::PageProperty;
+use crate::mm::page_size_spec;
 use crate::mm::Paddr;
 use crate::mm::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
@@ -54,7 +55,7 @@ pub type PageTableNode<C: PageTableConfig> = Frame<PageTablePageMeta<C>>;
 impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         &&& pa_is_valid_pt_address(self.paddr() as int)
-        &&& level_is_in_range(self.level_spec(alloc_model) as int)
+        &&& level_is_in_range::<C>(self.level_spec(alloc_model) as int)
         &&& alloc_model.meta_map.contains_key(self.paddr() as int)
         &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.meta_ptr
         &&& alloc_model.meta_map[self.paddr() as int].value().level == self.level_spec(alloc_model)
@@ -95,13 +96,13 @@ impl<C: PageTableConfig> PageTableNode<C> {
     ) -> (res: (Self, Tracked<PointsTo<MockPageTablePage>>))
         requires
             old(model).invariants(),
-            crate::spec::sub_pt::level_is_in_range(level as int),
+            crate::spec::sub_pt::level_is_in_range::<C>(level as int),
         ensures
             res.1@.pptr() == res.0.ptr,
             res.1@.mem_contents().is_init(),
             pa_is_valid_kernel_address(res.0.start_paddr() as int),
             model.invariants(),
-            !old(model).meta_map.contains_key(res.0.start_paddr() as int),
+            // !old(model).meta_map.contains_key(res.0.start_paddr() as int),
             model.meta_map.contains_key(res.0.start_paddr() as int),
             model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr,
             model.meta_map[res.0.start_paddr() as int].value().level == level,
@@ -113,6 +114,16 @@ impl<C: PageTableConfig> PageTableNode<C> {
                     &&& res.1@.value().ptes[i].frame_pa == 0
                     &&& res.1@.value().ptes[i].level == level
                     &&& res.1@.value().ptes[i].prop == PageProperty::new_absent()
+                },
+            res.0.start_paddr() % page_size_spec::<C>(level) == 0,
+            // old model does not change
+            forall|p: Paddr|
+                old(model).meta_map.contains_key(p as int) ==> {
+                    &&& model.meta_map.contains_key(p as int)
+                    &&& (#[trigger] model.meta_map[p as int]).pptr() == old(
+                        model,
+                    ).meta_map[p as int].pptr()
+                    &&& model.meta_map[p as int].value() == old(model).meta_map[p as int].value()
                 },
     {
         crate::exec::alloc_page_table(level, Tracked(model))
