@@ -58,7 +58,7 @@ unsafe impl PageTableConfig for TestPtConfig {
         (item.paddr, item.level, item.prop)
     }
 
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty, Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>) -> Self::Item{
         TestPtItem {
             paddr,
             level,

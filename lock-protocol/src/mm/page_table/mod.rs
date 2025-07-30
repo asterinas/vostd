@@ -101,8 +101,9 @@ pub  /*(crate)*/
     ///
     /// [`item_from_raw`]: PageTableConfig::item_from_raw
     /// [`item_into_raw`]: PageTableConfig::item_into_raw
-    type Item: Clone;
+    type Item;
 
+    // : Clone;
     /// Consumes the item and returns the physical address, the paging level,
     /// and the page property.
     ///
@@ -134,7 +135,15 @@ pub  /*(crate)*/
     /// A concrete trait implementation may require the caller to ensure that
     ///  - the [`super::PageFlags::AVAIL1`] flag is the same as that returned
     ///    from [`PageTableConfig::item_into_raw`].
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
+    unsafe fn item_from_raw(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>,
+    ) -> Self::Item
+        requires
+            alloc_model.invariants(),
+    ;
 }
 
 impl<C: PageTableConfig> PagingConstsTrait for C {

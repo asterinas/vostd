@@ -7,6 +7,11 @@ verus! {
 #[verifier::ext_equal]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PageProperty {
+    /// Whether the page has a mapping.
+    ///
+    /// If it is `false`. The page doesn't have a mapping, but may contain
+    /// metadata that is marked by the user.
+    pub has_map: bool,
     /// The flags associated with the page,
     pub flags: PageFlags,
     /// The cache policy for the page.
@@ -14,7 +19,7 @@ pub struct PageProperty {
     pub priv_flags: PrivilegedPageFlags,
 }
 
-global layout PageProperty is size == 3, align == 1;
+global layout PageProperty is size == 4, align == 1;
 
 }
 
@@ -25,6 +30,7 @@ pub broadcast proof fn lemma_page_property_equal_correctness(a: PageProperty,
     requires #[trigger] a.flags == #[trigger] b.flags,
         a.cache == b.cache,
         a.priv_flags == b.priv_flags,
+        a.has_map == b.has_map,
     ensures
         a == b
 { }
@@ -46,12 +52,14 @@ impl PageProperty {
     pub fn new(flags: PageFlags, cache: CachePolicy) -> Self
         returns
         (Self {
+            has_map: true,
             flags,
             cache,
             priv_flags: PrivilegedPageFlags::USER(),
         })
     {
         Self {
+            has_map: true,
             flags,
             cache,
             priv_flags: PrivilegedPageFlags::USER(),
@@ -62,12 +70,14 @@ impl PageProperty {
     pub fn new_absent() -> Self
         returns
         (Self {
+            has_map: false,
             flags: PageFlags::empty(),
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::empty(),
         })
     {
         Self {
+            has_map: false,
             flags: PageFlags::empty(),
             cache: CachePolicy::Writeback,
             priv_flags: PrivilegedPageFlags::empty(),

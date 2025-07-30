@@ -160,6 +160,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
             frame_pa: paddr as u64,
             level: 0,  // invalid
             prop: PageProperty {
+                has_map: true,
                 flags: PageFlags::R(),
                 cache: page_prop::CachePolicy::Uncacheable,
                 priv_flags: PrivilegedPageFlags::empty(),
