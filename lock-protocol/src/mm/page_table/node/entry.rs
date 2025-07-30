@@ -371,7 +371,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
     }
 
-    #[verifier::external_body]
     pub(in crate::mm) fn alloc_if_none(
         &mut self,
         guard: &'rcu DisabledPreemptGuard,
@@ -384,6 +383,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(self).node.level_spec(&old(spt).alloc_model) > 1,
+            old(self).node.wf(&old(spt).alloc_model),
         ensures
             self.wf(spt),
             self.pte.pte_paddr() == old(self).pte.pte_paddr(),
@@ -425,6 +425,24 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         assert(spt.alloc_model.meta_map.contains_key(pa as int));
 
         proof {
+            let i_pte = IntermediatePageTableEntryView {
+                map_va: self.va as int,
+                frame_pa: self.node.paddr() as int,
+                in_frame_index: self.idx as int,
+                map_to_pa: pt.start_paddr() as int,
+                level,
+                phantom: PhantomData::<C>,
+            };
+            assume(i_pte.wf());
+            assume(level <= spt.root@.level);
+            if (level == spt.root@.level) {
+                assume(i_pte.frame_pa == spt.root@.pa);
+            } else {
+                assume(i_pte.frame_pa != spt.root@.pa);
+            }
+            assume(self.node.level_spec(&spt.alloc_model) == level);
+            assume(spt.frames.value()[self.node.paddr() as int].level as int == level as int);
+            assume(!spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
             spt.instance.set_child(
                 IntermediatePageTableEntryView {
                     map_va: self.va as int,
