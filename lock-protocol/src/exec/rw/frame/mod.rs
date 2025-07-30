@@ -1,5 +1,3 @@
-// mod common;
-// mod allocator;
 use vstd::prelude::*;
 use vstd::rwlock::*;
 use vstd::vstd::arithmetic::power2::*;
