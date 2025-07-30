@@ -141,22 +141,17 @@ pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
 
 #[invariant]
 pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
-    forall |nid: NodeId|
+    forall |nid: NodeId, pa: Paddr|
         #![auto] // TODO
-        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
+        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() &&
+        self.strays.contains_key((nid, pa)) &&
+        self.strays[(nid, pa)] == false ==>
+        {
             let pa = NodeHelper::get_parent(nid);
             let offset = NodeHelper::get_offset(nid);
-            exists |pair: (NodeId, Paddr)|
-                #![auto] // TODO
-                {
-                    &&& pair.0 == nid
-                    &&& self.strays.dom().contains(pair)
-                    &&& self.strays[pair] == false
-                } ==> {
-                    &&& self.pte_arrays.dom().contains(pa)
-                    &&& self.pte_arrays[pa].is_alive(offset)
-                    &&& self.pte_arrays[pa].get_paddr(offset) == pair.1
-                }
+            &&& self.pte_arrays.contains_key(pa)
+            &&& self.pte_arrays[pa].is_alive(offset)
+            &&& self.pte_arrays[pa].get_paddr(offset) == pa
         }
 }
 
