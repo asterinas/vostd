@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd::vpanic;
 
 use crate::spec::{common::*, utils::*};
-use super::super::{common::*, types::*, mem_content::*};
+use super::super::{common::*, types::*, frame::*};
 use super::super::pte::{Pte, page_prop::PageProperty, page_table_entry_trait::*};
 use super::{PageTableNode, PageTableWriteLock};
 

@@ -3,7 +3,6 @@ pub mod configs;
 pub mod cpu;
 pub mod cursor;
 pub mod frame;
-pub mod mem_content;
 pub mod node;
 pub mod page_table;
 pub mod pte;
