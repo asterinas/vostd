@@ -93,13 +93,17 @@ impl From<Token> for usize {
 /// The status can be converted to and from a [`usize`] value. Available status
 /// are non-zero and capped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Status(usize);
+pub struct Status(pub usize);
 
 impl Status {
     /// The mask that marks the available bits in a status.
     const MASK: usize = 0x7ffffff;
 
-    pub(crate) fn into_raw_inner(self) -> usize {
+    #[verifier::allow_in_spec]
+    pub fn into_raw_inner(self) -> usize
+        returns
+            self.0,
+    {
         // debug_assert!(self.0 & !Self::MASK == 0);
         // debug_assert!(self.0 != 0);
         self.0
@@ -110,7 +114,11 @@ impl Status {
     /// # Safety
     ///
     /// The raw value must be a valid status created by [`Self::into_raw_inner`].
-    pub(crate) unsafe fn from_raw_inner(raw: usize) -> Self {
+    #[verifier::allow_in_spec]
+    pub unsafe fn from_raw_inner(raw: usize) -> Self
+        returns
+            Self(raw),
+    {
         // debug_assert!(raw & !Self::MASK == 0);
         // debug_assert!(raw != 0);
         Self(raw)
@@ -177,11 +185,28 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = VmItem;
 
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+        ensures
+            res == Self::item_into_raw_spec(item),
+    {
         match item {
             VmItem::Frame(frame, prop) => {
                 let level = frame.map_level();
                 let paddr = frame.into_raw();
+                (paddr, level, prop)
+            },
+            VmItem::Status(status, level) => {
+                let raw_inner = status.into_raw_inner();
+                (raw_inner as Paddr, level, PageProperty::new_absent())
+            },
+        }
+    }
+
+    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        match item {
+            VmItem::Frame(frame, prop) => {
+                let level = frame.map_level();
+                let paddr = frame.start_paddr();
                 (paddr, level, prop)
             },
             VmItem::Status(status, level) => {

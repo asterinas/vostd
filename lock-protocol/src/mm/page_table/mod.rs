@@ -109,7 +109,12 @@ pub  /*(crate)*/
     ///
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+        ensures
+            res == Self::item_into_raw_spec(item),
+    ;
+
+    spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
 
     /// Restores the item from the physical address and the paging level.
     ///

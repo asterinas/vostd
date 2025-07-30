@@ -468,9 +468,12 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         self.0.virt_addr()
     }
 
-    /// Maps the range starting from the current address to a [`Frame<dyn AnyFrameMeta>`].
+    /// Maps the range starting from the current address to an item.
     ///
-    /// It returns the previously mapped [`Frame<dyn AnyFrameMeta>`] if that exists.
+    /// It returns the previously mapped item if that exists.
+    ///
+    /// Note that the item `C::Item`, when converted to a raw item, if the page property
+    /// indicate that it is marked metadata, the function is essentially `mark`.
     ///
     /// # Panics
     ///
@@ -483,18 +486,16 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     ///
     /// The caller should ensure that the virtual range being mapped does
     /// not affect kernel's memory safety.
-    pub fn map(
-        &mut self,
-        pa: Paddr,
-        len: usize,
-        prop: PageProperty,
-        Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: PageTableItem<C>)
+    pub fn map(&mut self, item: C::Item, Tracked(spt): Tracked<&mut SubPageTable<C>>) -> (res:
+        PageTableItem<C>)
         requires
             old(spt).wf(),
             old(self).0.wf(old(spt)),
-            len == PAGE_SIZE(),
-            old(self).0.va % PAGE_SIZE() == 0,
+            old(self).0.va % page_size::<C>(1) == 0,
+            1 <= C::item_into_raw_spec(item).1 <= old(self).0.guard_level,
+            old(self).0.va + page_size::<C>(C::item_into_raw_spec(item).1) <= old(
+                self,
+            ).0.barrier_va.end,
         ensures
             spt.wf(),
             self.0.wf(spt),
@@ -507,19 +508,36 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         pte_pa as int,
                     )
                     // &&& #[trigger] spt.ptes.value()[pte_pa as int].map_va == old(self).0.va
-                    &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == pa
+                    &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa
+                        == C::item_into_raw_spec(item).0
                 },
     {
         let preempt_guard = self.0.preempt_guard;
 
-        let end = self.0.va + len;
+        let (pa, level, prop) = C::item_into_raw(item);
+        assert(1 <= level <= self.0.guard_level);
+
+        let end = self.0.va + page_size::<C>(level);
+
+        #[verifier::loop_isolation(false)]
+        // Go up if not applicable.
+        while self.0.level < level
+            invariant
+                spt.wf(),
+                self.0.wf(spt),
+                self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
+                // VA should be unchanged in the loop.
+                self.0.va == old(self).0.va,
+            decreases level - self.0.level,
+        {
+            self.0.pop_level(Tracked(spt));
+        }
+
+        assert(self.0.level >= level);
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
-        while self.0.level
-            > 1
-        // TODO || self.0.va % page_size::<C>(self.0.level) != 0 || self.0.va + page_size::<C>(self.0.level) > end
-
+        while self.0.level > level
             invariant
                 spt.wf(),
                 self.0.wf(spt),
@@ -556,11 +574,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             continue ;
         }
 
-        assert(self.0.level == 1);
-
         let mut cur_entry = self.0.cur_entry(Tracked(spt));
 
-        let old_entry = cur_entry.replace(Child::Frame(pa, 1, prop), Tracked(spt));
+        let old_entry = cur_entry.replace(Child::Frame(pa, level, prop), Tracked(spt));
 
         assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
         assert(self.0.path_wf(spt));

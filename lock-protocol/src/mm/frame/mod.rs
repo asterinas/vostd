@@ -112,7 +112,10 @@ impl<M: AnyFrameMeta> Frame<M> {
     /// data structures need to hold the frame handle such as the page table.
     /// TODO: Implement Frame::into_raw
     #[verifier::external_body]
-    pub(in crate::mm) fn into_raw(self) -> Paddr {
+    pub(in crate::mm) fn into_raw(self) -> (res: Paddr)
+        ensures
+            res == self.start_paddr(),
+    {
         let this = ManuallyDrop::new(self);
         this.start_paddr()
     }

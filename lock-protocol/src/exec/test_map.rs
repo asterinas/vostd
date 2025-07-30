@@ -8,7 +8,8 @@ use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::PageTableNode;
 
-use crate::mm::{page_size_spec, pte_index, Paddr, PageTableGuard, NR_ENTRIES};
+use crate::mm::vm_space::UntypedFrameMeta;
+use crate::mm::{page_size, page_size_spec, pte_index, Paddr, PageTableGuard, NR_ENTRIES};
 use crate::task::preempt;
 use crate::{
     mm::{
@@ -54,11 +55,21 @@ unsafe impl PageTableConfig for TestPtConfig {
 
     type Item = TestPtItem;
 
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+        ensures
+            res == (item.paddr, item.level, item.prop),
+    {
         (item.paddr, item.level, item.prop)
     }
 
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty, Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>) -> Self::Item{
+    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        (item.paddr, item.level, item.prop)
+    }
+
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty, Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>) -> (res: Self::Item)
+        ensures
+            Self::item_into_raw_spec(res) == (paddr, level, prop),
+    {
         TestPtItem {
             paddr,
             level,
@@ -68,18 +79,19 @@ unsafe impl PageTableConfig for TestPtConfig {
 }
 
 #[derive(Copy, Clone)]
-struct TestPtItem {
-    paddr: Paddr,
-    level: PagingLevel,
-    prop: PageProperty,
+pub struct TestPtItem {
+    pub paddr: Paddr,
+    pub level: PagingLevel,
+    pub prop: PageProperty,
 }
 
 pub const ONE_GIG_VA: Vaddr = 0x40000000;
 
 pub fn test(va: Vaddr, page_prop: page_prop::PageProperty)
 requires
-    0 <= va < ONE_GIG_VA,
-    va % PAGE_SIZE() == 0,
+    0 <= va,
+    va + page_size::<TestPtConfig>(1) <= ONE_GIG_VA,
+    va % page_size::<TestPtConfig>(1) == 0,
 {
     broadcast use vstd::std_specs::hash::group_hash_axioms;
     broadcast use vstd::hash_map::group_hash_map_axioms;
@@ -150,7 +162,17 @@ requires
 
     assert(cursor.0.wf(&sub_page_table));
 
-    cursor.map(0, PAGE_SIZE(), page_prop,
+    let (mapped_frame_meta_ptr, Tracked(points_to)) = PPtr::new(UntypedFrameMeta);
+    let tracked mut alloc_model = AllocatorModel::<UntypedFrameMeta> { meta_map:{
+            let tracked mut map = Map::tracked_empty();
+            map.tracked_insert(0, points_to);
+            map
+        }};
+    let item = unsafe { TestPtConfig::item_from_raw(0, 1, page_prop, Tracked(&alloc_model)) };
+    assert(TestPtConfig::item_into_raw_spec(item).1 == 1);
+    assert(va + page_size::<TestPtConfig>(1) <= ONE_GIG_VA);
+    cursor.map(
+        item,
         Tracked(&mut sub_page_table),
     );
 
