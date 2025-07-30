@@ -481,19 +481,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 assert(i_pte.frame_pa != spt.root@.pa);
             }
             assert(spt.frames.value()[self.node.paddr() as int].level as int == level as int);
-            spt.instance.set_child(
-                IntermediatePageTableEntryView {
-                    map_va: self.va as int,
-                    frame_pa: self.node.paddr() as int,
-                    in_frame_index: self.idx as int,
-                    map_to_pa: pt.start_paddr() as int,
-                    level,
-                    phantom: PhantomData,
-                },
-                &mut spt.frames,
-                &mut spt.i_ptes,
-                &spt.ptes,
-            );
+            spt.instance.set_child(i_pte, &mut spt.frames, &mut spt.i_ptes, &spt.ptes);
             spt.perms.tracked_insert(pt.start_paddr(), perm);
         }
 
