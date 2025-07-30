@@ -17,9 +17,9 @@ use vstd::{
     layout::is_power_2,
 };
 use vstd_extra::extra_num::{
-    lemma_pow2_increases, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered,
-    lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2, lemma_usize_pow2_shl_is_pow2,
-    lemma_usize_shl_is_mul,
+    lemma_pow2_increases, lemma_pow2_is_power2, lemma_pow2_is_power2_to64,
+    lemma_usize_ilog2_ordered, lemma_usize_is_power_2_is_ilog2_pow2, lemma_usize_pow2_ilog2,
+    lemma_usize_pow2_shl_is_pow2, lemma_usize_shl_is_mul,
 };
 use crate::helpers::math::lemma_page_shl;
 
@@ -51,6 +51,48 @@ pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usi
         (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
         level - 1)) as nat,
     ) as usize
+}
+
+pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: PagingLevel)
+    requires
+        1 <= level <= C::NR_LEVELS(),
+    ensures
+        page_size_spec::<C>(level) > 0,
+        is_power_2(page_size_spec::<C>(level) as int),
+{
+    C::lemma_consts_properties();
+    C::lemma_consts_properties_derived();
+
+    let subpage_bits = C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2();
+
+    assert(subpage_bits >= 0);
+    assert((C::BASE_PAGE_SIZE().ilog2() + subpage_bits * (level - 1)) <= (
+    C::BASE_PAGE_SIZE().ilog2() + subpage_bits * C::NR_LEVELS())) by (nonlinear_arith)
+        requires
+            level <= C::NR_LEVELS(),
+            subpage_bits >= 0,
+    ;
+    lemma_pow2_increases(
+        (C::BASE_PAGE_SIZE().ilog2() + subpage_bits * (level as usize - 1)) as nat,
+        (C::BASE_PAGE_SIZE().ilog2() + subpage_bits * C::NR_LEVELS()) as nat,
+    );
+    lemma_pow2_adds(
+        C::BASE_PAGE_SIZE().ilog2() as nat,
+        (subpage_bits * (level as usize - 1)) as nat,
+    );
+    assert(C::BASE_PAGE_SIZE() == pow2(C::BASE_PAGE_SIZE().ilog2() as nat));
+    assert(pow2(
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        level - 1)) as nat,
+    ) <= usize::MAX);
+    lemma_pow2_pos(
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        level - 1)) as nat,
+    );
+    lemma_pow2_is_power2(
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        level - 1)) as nat,
+    );
 }
 
 /// The page size
@@ -126,13 +168,10 @@ pub fn page_size<C: PagingConstsTrait>(level: PagingLevel) -> (res: usize)
             C::BASE_PAGE_SIZE().ilog2() as nat,
             (subpage_bits * (level as usize - 1)) as nat,
         );
-        lemma_pow2_pos(
-            (C::BASE_PAGE_SIZE().ilog2() + (subpage_bits * (level as usize - 1))) as nat,
-        );
-        lemma_usize_pow2_shl_is_pow2(
-            C::BASE_PAGE_SIZE(),
-            (subpage_bits * (level as usize - 1)) as usize,
-        );
+
+        assert(C::BASE_PAGE_SIZE() << (nr_subpage_per_huge::<C>().ilog2() as usize * (level as usize
+            - 1)) == page_size_spec::<C>(level));
+        lemma_page_size_spec_properties::<C>(level);
     }
     C::BASE_PAGE_SIZE() << (nr_subpage_per_huge::<C>().ilog2() as usize * (level as usize - 1))
 }
