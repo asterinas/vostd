@@ -173,16 +173,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     ///
     /// The method panics if the given child is not compatible with the node.
     /// The compatibility is specified by the [`Child::is_compatible`].
-    #[verifier::external_body]
     pub(in crate::mm) fn replace(
         &mut self,
         new_child: Child<C>,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
     ) -> (res: Child<C>)
         requires
+            old(self).wf(old(spt)),
             old(self).node.wf(&old(spt).alloc_model),
             old(spt).wf(),
             old(self).idx < nr_subpage_per_huge::<C>(),
+            old(spt).perms.contains_key(old(self).node.paddr()),
         ensures
             self.node.wf(&old(spt).alloc_model),
             spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
@@ -191,49 +192,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
             spt.frames == old(spt).frames,
             spt.alloc_model == old(spt).alloc_model,
-            if (old(spt).i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-                match res {
-                    Child::PageTable(pt) => {
-                        &&& pt.deref().start_paddr() == old(self).pte.frame_paddr() as usize
-                        &&& spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int)
-                        &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr() as int)
-                        &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
-                            == self.node.level_spec(&spt.alloc_model) - 1
-                        &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
-                            == pt.deref().meta_ptr
-                    },
-                    _ => false,
-                }
-            } else if (old(spt).ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-                match res {
-                    Child::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
-                    _ => false,
-                }
-            } else {
-                match res {
-                    Child::None => true,
-                    _ => false,
-                }
-            },
-            match new_child {
-                Child::PageTable(pt) => {
-                    &&& pt.deref().paddr() == self.pte.frame_paddr() as usize
-                    &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr() as int)
-                    &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
-                        == self.node.level_spec(&spt.alloc_model) - 1
-                    &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
-                        == pt.deref().meta_ptr
-                },
-                Child::Frame(pa, level, prop) => {
-                    &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
-                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
-                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_va == self.va@ as int
-                },
-                _ => true,
-            },
+            self.remove_old_child(res, old(self).pte, old(spt), spt),
+            self.add_new_child(new_child, spt),
     {
-        let old_pte = self.pte.clone();
+        let old_pte = self.pte.clone_pte();
         let old_child = Child::from_pte(
             old_pte,
             self.node.level(Tracked(&spt.alloc_model)),
@@ -249,12 +211,26 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
         self.pte = new_child.into_pte();
 
+        assert(spt.perms.contains_key(self.node.paddr()));
+
+        // TODO: should be trivial?
+        assume(self.pte.pte_paddr_spec() == index_pte_paddr(
+            self.node.paddr() as int,
+            self.idx as int,
+        ));
+        assume(spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
         self.node.write_pte(
             self.idx,
-            self.pte.clone(),
+            self.pte.clone_pte(),
             self.node.level(Tracked(&spt.alloc_model)),
             Tracked(spt),
         );
+
+        // TODO: replaced ptes.
+        assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
+        // TODO: added last level ptes.
+        assume(spt.ptes.value().contains_key(self.pte.pte_paddr() as int));
+        assume(self.add_new_child(new_child, spt));
 
         old_child
     }
@@ -383,6 +359,30 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 Child::None => true,
                 _ => false,
             }
+        }
+    }
+
+    pub(in crate::mm) open spec fn add_new_child(
+        &self,
+        new_child: Child<C>,
+        spt: &SubPageTable<C>,
+    ) -> (res: bool) {
+        match new_child {
+            Child::PageTable(pt) => {
+                &&& pt.deref().paddr() == self.pte.frame_paddr() as usize
+                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr() as int)
+                &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
+                    == self.node.level_spec(&spt.alloc_model) - 1
+                &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
+                    == pt.deref().meta_ptr
+            },
+            Child::Frame(pa, level, prop) => {
+                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
+                &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_va == self.va@ as int
+            },
+            _ => true,
         }
     }
 
