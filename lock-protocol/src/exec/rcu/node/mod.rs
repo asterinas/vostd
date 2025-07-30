@@ -338,8 +338,9 @@ impl<'a> PageTableNodeRef<'a> {
             pa_pte_array_token@.instance_id() == self.deref().inst@.id(),
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.deref().nid@),
             pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.deref().nid@)),
-            self.deref().start_paddr() ==
-                pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.deref().nid@)),
+            self.deref().start_paddr() == pa_pte_array_token@.value().get_paddr(
+                NodeHelper::get_offset(self.deref().nid@),
+            ),
             m@.node_is_locked(pa_pte_array_token@.key()),
         ensures
             res.wf(),
@@ -441,8 +442,9 @@ impl<'rcu> PageTableGuard<'rcu> {
                 // Called in Entry::alloc_if_none
                 &&& old(self).wf_except(idx as nat)
                 &&& old(self).guard->Some_0.pte_token@->Some_0.value().is_alive(idx as nat)
-                &&& pte.inner.paddr() ==
-                    old(self).guard->Some_0.pte_token@->Some_0.value().get_paddr(idx as nat)
+                &&& pte.inner.paddr() == old(
+                    self,
+                ).guard->Some_0.pte_token@->Some_0.value().get_paddr(idx as nat)
             } else {
                 // Called in Entry::replace
                 old(self).wf()
@@ -501,11 +503,13 @@ impl<'rcu> PageTableGuard<'rcu> {
                             ).guard->Some_0.perms@.inner.value()[i]);
                         }
                     };
-                    assert forall|i: int| #![auto] 
-                        0 <= i < 512 && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) 
-                    implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr() ==
-                            self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                    assert forall|i: int|
+                        #![auto]
+                        0 <= i < 512 && self.guard->Some_0.perms@.inner.value()[i].is_pt(
+                            level,
+                        ) implies {
+                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
                     } by {
                         if i != idx as int {
                             assert(old(self).wf_except(idx as nat));
@@ -514,12 +518,12 @@ impl<'rcu> PageTableGuard<'rcu> {
                                 old(self).guard->Some_0.pte_token@->Some_0.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= 
-                                old(self).guard->Some_0.pte_token@->Some_0.value()
-                            );
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
-                                old(self).guard->Some_0.perms@.inner.value()[i]
-                            );
+                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                                self,
+                            ).guard->Some_0.pte_token@->Some_0.value());
+                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                                self,
+                            ).guard->Some_0.perms@.inner.value()[i]);
                         }
                     };
                 };
@@ -543,11 +547,12 @@ impl<'rcu> PageTableGuard<'rcu> {
                             self,
                         ).guard->Some_0.perms@.inner.value()[i]);
                     };
-                    assert forall|i: int| #![auto] 
-                        0 <= i < 512 && i != idx && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) 
-                    implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr() ==
-                            self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                    assert forall|i: int|
+                        #![auto]
+                        0 <= i < 512 && i != idx
+                            && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) implies {
+                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
                     } by {
                         assert(old(self).wf_except(idx as nat));
                         assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
@@ -555,12 +560,12 @@ impl<'rcu> PageTableGuard<'rcu> {
                             old(self).guard->Some_0.pte_token@->Some_0.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= 
-                            old(self).guard->Some_0.pte_token@->Some_0.value()
-                        );
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
-                            old(self).guard->Some_0.perms@.inner.value()[i]
-                        );
+                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            self,
+                        ).guard->Some_0.pte_token@->Some_0.value());
+                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            self,
+                        ).guard->Some_0.perms@.inner.value()[i]);
                     };
                 };
             }

@@ -570,13 +570,10 @@ fn dfs_acquire_lock(
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                     assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), cur_node.nid()));
                     NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                        m.sub_tree_rt(), 
-                        cur_node.nid()
+                        m.sub_tree_rt(),
+                        cur_node.nid(),
                     );
-                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                        m.sub_tree_rt(), 
-                        pt.nid@
-                    );
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), pt.nid@);
                     NodeHelper::lemma_in_subtree_is_child_in_subtree(
                         m.sub_tree_rt(),
                         cur_node.nid(),
@@ -808,12 +805,11 @@ fn dfs_release_lock<'rcu>(
                 assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                 };
-                let tracked pa_pte_array_token = cur_node
-                    .tracked_borrow_guard()
-                    .tracked_borrow_pte_token();
+                let tracked pa_pte_array_token =
+                    cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
                 assert(pa_pte_array_token.value().is_alive(i as nat));
                 let child_node = pt.make_guard_unchecked(
-                    guard, 
+                    guard,
                     Tracked(&m),
                     Tracked(pa_pte_array_token),
                 );
