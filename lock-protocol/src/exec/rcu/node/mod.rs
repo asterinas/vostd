@@ -326,6 +326,7 @@ impl<'a> PageTableNodeRef<'a> {
         self,
         _guard: &'rcu (),
         m: Tracked<&LockProtocolModel>,
+        pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
         requires
             self.wf(),
@@ -333,6 +334,12 @@ impl<'a> PageTableNodeRef<'a> {
             m@.inst_id() == self.deref().inst@.id(),
             !(m@.state() is Void),
             m@.node_is_locked(self.deref().nid@),
+            pa_pte_array_token@.instance_id() == self.deref().inst@.id(),
+            pa_pte_array_token@.key() == NodeHelper::get_parent(self.deref().nid@),
+            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.deref().nid@)),
+            self.deref().start_paddr() ==
+                pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.deref().nid@)),
+            m@.node_is_locked(pa_pte_array_token@.key()),
         ensures
             res.wf(),
             res.inner =~= self,

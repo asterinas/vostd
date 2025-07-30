@@ -742,6 +742,7 @@ fn dfs_release_lock<'rcu>(
             } else {
                 NodeHelper::next_outside_subtree(cur_node.nid())
             },
+            m.node_is_locked(cur_node.nid()),
         decreases i,
     {
         i -= 1;
@@ -780,7 +781,22 @@ fn dfs_release_lock<'rcu>(
                         };
                     }
                 };
-                let child_node = pt.make_guard_unchecked(guard, Tracked(&m));
+                assert(pt.nid@ == NodeHelper::get_child(cur_node.nid(), entry.idx as nat));
+                assert(cur_node.nid() == NodeHelper::get_parent(pt.nid@)) by {
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
+                };
+                assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
+                };
+                let tracked pa_pte_array_token = cur_node
+                    .tracked_borrow_guard()
+                    .tracked_borrow_pte_token();
+                assert(pa_pte_array_token.value().is_alive(i as nat));
+                let child_node = pt.make_guard_unchecked(
+                    guard, 
+                    Tracked(&m),
+                    Tracked(pa_pte_array_token),
+                );
                 // let child_node_va = cur_node_va + i * page_size::<C>(cur_level);
                 // let child_node_va_end = child_node_va + page_size::<C>(cur_level);
                 // let va_start = va_range.start.max(child_node_va);
@@ -845,6 +861,11 @@ fn dfs_release_lock<'rcu>(
                     assert(m.cur_node() <= NodeHelper::next_outside_subtree(m.sub_tree_rt()));
                 }
             },
+        }
+        assert(m.node_is_locked(cur_node.nid())) by {
+            assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), i as nat));
+            NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
+            NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
         }
     }
 
