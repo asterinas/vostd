@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use vstd::cell::{CellId, PCell, PointsTo};
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use super::super::{common::*, types::*, cpu::*};
@@ -6,53 +7,73 @@ use super::PageTableGuard;
 
 verus! {
 
-/// Trusted properties of stray flag.
-/// We can't prove this by Verus since the logical complexity.
-/// This is correct by following reasons:
-/// 1. The stray flag will be changed from false to true
-///     iff. the node is deleted from the page table.
-/// 2. The delete operation should be done through a Cursor.
-/// 3. The sub tree root of a Cursor cannot be deleted.
-/// 4. Guarded nodes in a Cursor are exclusively owned.
-#[verifier::external_body]
-pub proof fn lemma_in_protocol_guarded_parent_implies_child_is_pt_node(
-    parent_guard: PageTableGuard,
-    child_guard: PageTableGuard,
-    m: LockProtocolModel,
-)
-    requires
-        parent_guard.wf(),
-        parent_guard.guard->Some_0.stray_perm@.value() == false,
-        child_guard.wf(),
-        NodeHelper::is_child(parent_guard.nid(), child_guard.nid()),
-        parent_guard.inst_id() == child_guard.inst_id(),
-        m.inv(),
-        m.inst_id() == parent_guard.inst_id(),
-        // The creation of the cursor has not been completed yet.
-        m.state() is Locking,
-        m.node_is_locked(child_guard.nid()),
-    ensures
-        child_guard.guard->Some_0.stray_perm@.value() == false,
-{
+pub struct StrayFlag {
+    pub inner: PCell<bool>,
 }
 
-/// Trusted properties of stray flag.
-/// We can't prove this by Verus since the logical complexity.
-/// This is correct by following reasons:
-/// The child is exclusively owned, since the parent is guarded.
-#[verifier::external_body]
-pub proof fn lemma_guarded_parent_implies_allocated_child_is_pt_node(
-    parent_guard: PageTableGuard,
-    new_allocated_child_guard: PageTableGuard,
-)
-    requires
-        parent_guard.wf(),
-        parent_guard.guard->Some_0.stray_perm@.value() == false,
-        new_allocated_child_guard.wf(),
-        NodeHelper::is_child(parent_guard.nid(), new_allocated_child_guard.nid()),
-    ensures
-        new_allocated_child_guard.guard->Some_0.stray_perm@.value() == false,
-{
+impl StrayFlag {
+    pub open spec fn id(&self) -> CellId {
+        self.inner.id()
+    }
+
+    pub fn read(&self, perm: Tracked<&StrayPerm>) -> (res: bool)
+        requires
+            perm@.wf_with_cell_id(self.id()),
+            perm@.perm.is_init(),
+        ensures
+            res == perm@.perm.value(),
+    {
+        let tracked perm = perm.get();
+        *self.inner.borrow(Tracked(&perm.perm))
+    }
+}
+
+pub tracked struct StrayPerm {
+    pub perm: PointsTo<bool>,
+    pub token: StrayToken,
+}
+
+impl StrayPerm {
+    pub open spec fn wf(&self) -> bool {
+        self.perm.value() == self.token.value()
+    }
+
+    pub open spec fn wf_with_cell_id(&self, id: CellId) -> bool {
+        &&& self.wf()
+        &&& self.perm.id() == id
+    }
+
+    pub open spec fn wf_with_node_info(
+        &self,
+        inst_id: InstanceId,
+        nid: NodeId,
+        paddr: Paddr,
+    ) -> bool {
+        &&& self.wf()
+        &&& self.inst_id() == inst_id
+        &&& self.nid() == nid
+        &&& self.paddr() == paddr
+    }
+
+    pub open spec fn inst_id(&self) -> InstanceId {
+        self.token.instance_id()
+    }
+
+    pub open spec fn nid(&self) -> NodeId {
+        self.token.key().0
+    }
+
+    pub open spec fn paddr(&self) -> Paddr {
+        self.token.key().1
+    }
+
+    pub open spec fn cell_id(&self) -> CellId {
+        self.perm.id()
+    }
+
+    pub open spec fn value(&self) -> bool {
+        self.perm.value()
+    }
 }
 
 } // verus!

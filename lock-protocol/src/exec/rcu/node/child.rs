@@ -98,6 +98,7 @@ impl Child {
         } else if pte.is_pt(level) {
             &&& *self is PageTable
             &&& *self->PageTable_0.deref() =~= PageTableNode::from_raw_spec(pte.inner.paddr())
+            &&& self->PageTable_0.deref().start_paddr() == pte.inner.paddr()
             &&& self->PageTable_0.deref().nid@ == pte.nid()
             &&& self->PageTable_0.deref().inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& self->PageTable_0.deref().inst@.id() == pte.inst_id()
@@ -178,6 +179,7 @@ impl ChildRef<'_> {
         } else if pte.is_pt(level) {
             &&& *self is PageTable
             &&& self->PageTable_0 == PageTableNodeRef::borrow_paddr_spec(pte.inner.paddr())
+            &&& self->PageTable_0.deref().start_paddr() == pte.inner.paddr()
             &&& self->PageTable_0.deref().nid@ == pte.nid()
             &&& self->PageTable_0.deref().inst@.cpu_num() == GLOBAL_CPU_NUM
             &&& self->PageTable_0.deref().inst@.id() == pte.inst_id()

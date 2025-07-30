@@ -298,15 +298,19 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         self.va = next_va;
         proof {
             if (self.level == self.guard_level) {
-                assume(self.wf(spt));  // TODO: Handle the case where the cursor is at the guard level.
+                // The proof automatically goes through in this case.
             } else {
                 assert(self.level < self.guard_level);
+                assert(pte_index::<C>(next_va, self.level) != 0);
                 assert(forall|i: u8|
                     self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(self.va, i)
                         == #[trigger] pte_index::<C>(old(self).va, i)) by {
                     let old_level = old(self).level;
                     let aligned_va = align_down(old(self).va, cur_page_size);
-                    assume(aligned_va + cur_page_size < usize::MAX);
+                    assert(aligned_va + cur_page_size < usize::MAX) by {
+                        assert(aligned_va + cur_page_size <= old(self).barrier_va.end);
+                        assert(old(self).barrier_va.end < usize::MAX);
+                    }
 
                     lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
                     lemma_add_page_size_change_pte_index::<C>(
@@ -559,7 +563,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let old_entry = cur_entry.replace(Child::Frame(pa, 1, prop), Tracked(spt));
 
         assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
-        assume(self.0.path_wf(spt));  // TODO: P0
+        assert(self.0.path_wf(spt));
 
         let old_va = self.0.va;
         let old_len = page_size::<C>(self.0.level);

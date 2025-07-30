@@ -439,16 +439,7 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
     }
 
     let mut pt_guard = if cur_node_guard.is_some() {
-        let mut pt_guard = cur_node_guard.unwrap();
-        proof {
-            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), m.token);
-            assert(m.state() is Locking);
-        }
-        let res = pt_guard.trans_lock_protocol(Tracked(m));
-        proof {
-            m = res.get();
-        }
-        pt_guard
+        cur_node_guard.unwrap()
     } else {
         let node_ref = PageTableNodeRef::<'rcu>::borrow_paddr(
             cur_pt_addr,
@@ -456,27 +447,27 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             Ghost(pt.inst@.id()),
             Ghost(cur_level),
         );
-        proof {
-            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, node_ref.deref().nid@, m.token);
-            assert(m.state() is Locking);
-        }
-        let res = node_ref.lock(guard, Tracked(m));
-        proof {
-            m = res.1.get();
-        }
-        res.0
+        node_ref.normal_lock(guard)
     };
     if pt_guard.read_stray() {
         // Manually drop the guard.
-        let res = pt_guard.drop(Tracked(m));
+        pt_guard.normal_drop();
+        return (None, Tracked(m));
+    } else {
+        proof {
+            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), m.token);
+            assert(m.state() is Locking);
+        }
+        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt_guard.nid())) by {
+            assert(m.sub_tree_rt() == pt_guard.nid());
+            assert(NodeHelper::next_outside_subtree(m.sub_tree_rt()) > m.sub_tree_rt()) by {
+                NodeHelper::lemma_tree_size_spec_table()
+            };
+        };
+        let res = pt_guard.trans_lock_protocol(Tracked(m));
         proof {
             m = res.get();
         }
-        proof {
-            m.token = pt.inst.borrow().protocol_unlock_end(m.cpu, m.token);
-            assert(m.state() is Void);
-        }
-        return (None, Tracked(m));
     }
     (Some(pt_guard), Tracked(m))
 }
@@ -562,7 +553,22 @@ fn dfs_acquire_lock(
         };
         match child {
             ChildRef::PageTable(pt) => {
-                let res = pt.lock(guard, Tracked(m));
+                assert(pt.nid@ == NodeHelper::get_child(cur_node.nid(), entry.idx as nat));
+                assert(cur_node.nid() == NodeHelper::get_parent(pt.nid@)) by {
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
+                };
+                assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
+                };
+                assert(m.node_is_locked(cur_node.nid())) by {
+                    admit();
+                };
+                let tracked pa_pte_array_token =
+                    cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
+                assert(pa_pte_array_token.value().is_alive(entry.idx as nat));
+                assert(pa_pte_array_token.value().get_paddr(entry.idx as nat)
+                    == cur_node.guard->Some_0.perms@.inner.value()[entry.idx as int].inner.paddr());
+                let res = pt.lock(guard, Tracked(m), Tracked(pa_pte_array_token));
                 let pt_guard = res.0;
                 proof {
                     m = res.1.get();
@@ -572,17 +578,7 @@ fn dfs_acquire_lock(
                 // let va_start = va_range.start.max(child_node_va);
                 // let va_end = va_range.end.min(child_node_va_end);
                 // dfs_acquire_lock(guard, &mut pt_guard, child_node_va, va_start..va_end);
-                assert(pt_guard.guard->Some_0.stray_perm@.value() == false) by {
-                    assert(NodeHelper::is_child(cur_node.nid(), pt_guard.nid())) by {
-                        assert(pt_guard.nid() == NodeHelper::get_child(cur_node.nid(), i as nat));
-                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
-                    };
-                    lemma_in_protocol_guarded_parent_implies_child_is_pt_node(
-                        *cur_node,
-                        pt_guard,
-                        m,
-                    );
-                };
+                assert(pt_guard.guard->Some_0.stray_perm@.value() == false);
                 let res = dfs_acquire_lock(guard, &pt_guard, Tracked(m));
                 proof {
                     m = res.get();
@@ -592,13 +588,15 @@ fn dfs_acquire_lock(
             },
             ChildRef::Frame(_, _, _) => unreached(),
             ChildRef::None => {
+                let tracked_inst = cur_node.tracked_pt_inst();
+                let tracked inst = tracked_inst.get();
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
-                    let tracked pte_token: &PteToken =
+                    let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(pte_token.value().is_void(i as nat));
-                    let tracked res = cur_node.tracked_pt_inst().clone().protocol_lock_skip(
+                    let tracked res = inst.clone().protocol_lock_skip(
                         m.cpu,
                         nid,
                         pte_token,
@@ -809,10 +807,12 @@ fn dfs_release_lock<'rcu>(
             },
             ChildRef::Frame(_, _, _) => unreached(),
             ChildRef::None => {
+                let tracked_inst = cur_node.tracked_pt_inst();
+                let tracked inst = tracked_inst.get();
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
-                    let tracked pte_token: &PteToken =
+                    let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
                         if i + 1 < 512 {
@@ -828,8 +828,7 @@ fn dfs_release_lock<'rcu>(
                             NodeHelper::lemma_last_child_next_outside_subtree(cur_node.nid());
                         }
                     };
-                    assert(pte_token.value().is_void(i as nat));
-                    let tracked res = cur_node.tracked_pt_inst().clone().protocol_unlock_skip(
+                    let tracked res = inst.clone().protocol_unlock_skip(
                         m.cpu,
                         nid,
                         pte_token,
