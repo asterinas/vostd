@@ -102,7 +102,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.1@.mem_contents().is_init(),
             pa_is_valid_kernel_address(res.0.start_paddr() as int),
             model.invariants(),
-            // !old(model).meta_map.contains_key(res.0.start_paddr() as int),
+            !old(model).meta_map.contains_key(res.0.start_paddr() as int),
             model.meta_map.contains_key(res.0.start_paddr() as int),
             model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr,
             model.meta_map[res.0.start_paddr() as int].value().level == level,
@@ -117,12 +117,15 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 },
             res.0.start_paddr() % page_size_spec::<C>(level) == 0,
             // old model does not change
-            forall|p: Paddr|
+            forall|pa: Paddr| #[trigger]
+                old(model).meta_map.contains_key(pa as int)
+                    ==> #[trigger] model.meta_map.contains_key(pa as int),
+            forall|p: Paddr| #[trigger]
                 old(model).meta_map.contains_key(p as int) ==> {
-                    &&& model.meta_map.contains_key(p as int)
-                    &&& (#[trigger] model.meta_map[p as int]).pptr() == old(
+                    &&& #[trigger] model.meta_map.contains_key(p as int)
+                    &&& (#[trigger] model.meta_map[p as int]).pptr() == (#[trigger] old(
                         model,
-                    ).meta_map[p as int].pptr()
+                    ).meta_map[p as int]).pptr()
                     &&& model.meta_map[p as int].value() == old(model).meta_map[p as int].value()
                 },
     {

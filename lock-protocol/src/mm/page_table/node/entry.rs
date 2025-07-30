@@ -408,9 +408,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
             res.unwrap().wf(&spt.alloc_model),
             spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
-            // !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
+            !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
             spt.frames.value().contains_key(res.unwrap().paddr() as int),
-            // !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
+            !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
             res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1,
             spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
@@ -432,10 +432,26 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             return None;
         }
         let level = self.node.level(Tracked(&spt.alloc_model));
-        let (pt, perm) = PageTableNode::<C>::alloc(level - 1, Tracked(&mut spt.alloc_model));
+        let (pt, Tracked(perm)) = PageTableNode::<C>::alloc(
+            level - 1,
+            Tracked(&mut spt.alloc_model),
+        );
+        assert(perm.mem_contents().is_init());
 
-        // TODO: where should we enforce this?
-        assume(!spt.frames.value().contains_key(pt.start_paddr() as int));
+        assert(!spt.frames.value().contains_key(pt.start_paddr() as int));
+        assert(spt.frames =~= old(spt).frames);
+        assert(forall|pa: Paddr| #[trigger]
+            spt.frames.value().contains_key(pa as int) ==> #[trigger] old(
+                spt,
+            ).alloc_model.meta_map.contains_key(pa as int));
+        // TODO: figure out what triggers we should use here.
+        assert(forall|pa: Paddr|
+            #![auto]
+            old(spt).alloc_model.meta_map.contains_key(pa as int)
+                ==> spt.alloc_model.meta_map.contains_key(pa as int));
+        assert(forall|pa: Paddr| #[trigger]
+            spt.frames.value().contains_key(pa as int)
+                ==> #[trigger] spt.alloc_model.meta_map.contains_key(pa as int));
 
         let pa = pt.start_paddr();
 
@@ -478,10 +494,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &mut spt.i_ptes,
                 &spt.ptes,
             );
-            spt.perms.insert(pt.start_paddr(), perm@);
+            spt.perms.tracked_insert(pt.start_paddr(), perm);
         }
 
-        assume(spt.wf());  // TODO
+        assert(spt.wf());
         self.node.write_pte(
             self.idx,
             Child::<C>::PageTable(RcuDrop::new(pt)).into_pte(),
@@ -493,7 +509,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
 
         assert(self.wf(spt));
-        assert(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
+        assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
         assert(node_ref.level_spec(&spt.alloc_model) == level - 1);
 
         Some(node_ref.make_guard_unchecked(guard, Ghost(self.va@)))

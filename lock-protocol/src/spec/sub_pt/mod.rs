@@ -4,7 +4,7 @@ use std::ops::Sub;
 
 use state_machine::{frames_valid, FrameView, SubPageTableStateMachine};
 
-use vstd::prelude::*;
+use vstd::{prelude::*};
 use vstd::simple_pptr::{PPtr, PointsTo};
 
 use crate::mm::allocator::{AllocatorModel, pa_is_valid_kernel_address};
@@ -59,18 +59,18 @@ impl<C: PageTableConfig> SubPageTable<C> {
         &&& self.i_ptes.instance_id() == self.instance.id()
         &&& forall|pa: Paddr| #[trigger]
             self.frames.value().contains_key(pa as int) <==> #[trigger] self.perms.contains_key(pa)
+        &&& forall|pa: Paddr| #[trigger]
+            self.frames.value().contains_key(pa as int)
+                ==> #[trigger] self.alloc_model.meta_map.contains_key(pa as int)
         &&& forall|pa: Paddr|
+            #![trigger self.frames.value().contains_key(pa as int)]
             #![trigger self.perms.get(pa)]
-            {
-                &&& #[trigger] self.frames.value().contains_key(pa as int)
-                    ==> #[trigger] self.alloc_model.meta_map.contains_key(pa as int)
-                &&& self.frames.value().contains_key(pa as int) ==> {
-                    let frame = self.frames.value().get(pa as int).unwrap();
-                    let perm = self.perms.get(pa).unwrap();
-                    &&& frame.pa == pa as int
-                    &&& frame.pa == perm.pptr().addr() as int
-                    &&& perm.mem_contents().is_init()
-                }
+            self.frames.value().contains_key(pa as int) ==> {
+                let frame = self.frames.value().get(pa as int).unwrap();
+                let perm = self.perms.get(pa).unwrap();
+                &&& frame.pa == pa as int
+                &&& frame.pa == perm.pptr().addr() as int
+                &&& perm.mem_contents().is_init()
             }
         &&& self.root == self.instance.root()
         &&& frames_valid(self.root@, &self.frames.value(), &self.i_ptes.value())

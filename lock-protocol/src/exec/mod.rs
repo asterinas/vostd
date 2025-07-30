@@ -86,6 +86,10 @@ pub fn alloc_page_table<C: PageTableConfig>(
             },
         res.0.start_paddr() % page_size_spec::<C>(level) == 0,
         // old model does not change
+        forall|pa: Paddr| #[trigger]
+            old(model).meta_map.contains_key(pa as int) ==> #[trigger] model.meta_map.contains_key(
+                pa as int,
+            ),
         forall|p: Paddr|
             old(model).meta_map.contains_key(p as int) ==> {
                 &&& model.meta_map.contains_key(p as int)
