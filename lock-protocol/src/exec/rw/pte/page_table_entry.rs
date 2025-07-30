@@ -23,7 +23,7 @@ impl Clone for PageTableEntry {
         ensures
             res === *self
     {
-        Self { 0: self.0 }
+        Self (self.0)
     }
 }
 

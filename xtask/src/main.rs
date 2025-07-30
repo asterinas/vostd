@@ -18,6 +18,8 @@ use git2::{
     build::{RepoBuilder, CheckoutBuilder},
 };
 use walkdir::WalkDir;
+#[cfg(target_os = "windows")]
+use owo_colors::{OwoColorize, Stream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 
@@ -33,7 +35,7 @@ fn get_platform_specific_binary_name(base_name: &str) -> String {
 
 // On Windows, prefer pwsh if available, otherwise fall back to powershell.
 #[cfg(target_os = "windows")]
-fn get_powershell_command() -> io::Result<Command> {
+fn get_powershell_command() -> std::io::Result<Command> {
     let check_pwsh = Command::new("pwsh")
         .arg("/?")
         .stdout(std::process::Stdio::null())
@@ -66,8 +68,8 @@ fn get_powershell_command() -> io::Result<Command> {
         return Ok(Command::new("powershell"));
     }
 
-    Err(io::Error::new(
-        io::ErrorKind::NotFound,
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
         "No working PowerShell version found",
     ))
 }
