@@ -166,6 +166,7 @@ impl Pte {
         ensures
             res.wf_new_pt(paddr, inst@, nid@),
             res.is_pt((PageTableNode::from_raw_spec(paddr).level_spec() + 1) as PagingLevel),
+            res.inner.paddr() == paddr,
     {
         Self {
             inner: PageTableEntry::new_pt(paddr),

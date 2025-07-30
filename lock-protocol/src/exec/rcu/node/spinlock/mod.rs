@@ -681,6 +681,7 @@ impl PageTablePageSpinLock {
             m@.inst_id() == self.pt_inst_id(),
             m@.state() is Locking,
             m@.cur_node() == self.nid(),
+            NodeHelper::in_subtree_range(m@.sub_tree_rt(), self.nid()),
             pa_pte_array_token@.instance_id() == self.pt_inst_id(),
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
             m@.node_is_locked(pa_pte_array_token@.key()),
@@ -708,6 +709,7 @@ impl PageTablePageSpinLock {
                 m.state() is Locking,
                 m.sub_tree_rt() == sub_tree_rt,
                 m.cur_node() == self.nid(),
+                NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid()),
                 pa_pte_array_token.instance_id() == self.pt_inst_id(),
                 pa_pte_array_token.key() == NodeHelper::get_parent(self.nid@),
                 m.node_is_locked(pa_pte_array_token.key()),
@@ -782,9 +784,7 @@ impl PageTablePageSpinLock {
                     let tracked mut node_token = node_token.tracked_unwrap();
                     let tracked mut pte_token = pte_token.tracked_unwrap();
                     proof {
-                        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid@)) by {
-                            admit();
-                        };
+                        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid@));
                         let tracked res = self.pt_inst.borrow().protocol_lock(
                             m.cpu,
                             self.nid@,

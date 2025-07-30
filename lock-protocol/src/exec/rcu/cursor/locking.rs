@@ -543,6 +543,7 @@ fn dfs_acquire_lock(
             } else {
                 NodeHelper::next_outside_subtree(cur_node.nid())
             },
+            m.node_is_locked(cur_node.nid()),
         decreases 512 - i,
     {
         assert(0 <= i < 512);
@@ -560,14 +561,28 @@ fn dfs_acquire_lock(
                 assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
                     NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                 };
-                assert(m.node_is_locked(cur_node.nid())) by {
-                    admit();
-                };
                 let tracked pa_pte_array_token =
                     cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
                 assert(pa_pte_array_token.value().is_alive(entry.idx as nat));
                 assert(pa_pte_array_token.value().get_paddr(entry.idx as nat)
                     == cur_node.guard->Some_0.perms@.inner.value()[entry.idx as int].inner.paddr());
+                assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt.nid@)) by {
+                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
+                    assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), cur_node.nid()));
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                        m.sub_tree_rt(), 
+                        cur_node.nid()
+                    );
+                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                        m.sub_tree_rt(), 
+                        pt.nid@
+                    );
+                    NodeHelper::lemma_in_subtree_is_child_in_subtree(
+                        m.sub_tree_rt(),
+                        cur_node.nid(),
+                        pt.nid@,
+                    );
+                }
                 let res = pt.lock(guard, Tracked(m), Tracked(pa_pte_array_token));
                 let pt_guard = res.0;
                 proof {
@@ -656,6 +671,11 @@ fn dfs_acquire_lock(
                     NodeHelper::get_child(cur_node.nid(), i as nat),
                 ));
                 NodeHelper::lemma_brother_algebraic_relation(cur_node.nid(), i as nat);
+            }
+            assert(m.node_is_locked(cur_node.nid())) by {
+                assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), (i + 1) as nat));
+                NodeHelper::lemma_get_child_sound(cur_node.nid(), (i + 1) as nat);
+                NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
             }
         } else {
             assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid())) by {

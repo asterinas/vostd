@@ -60,6 +60,7 @@ impl Child {
             Child::PageTable(node) => {
                 &&& pte.wf_new_pt(node.start_paddr(), node.inst@, node.nid@)
                 &&& pte.is_pt((node.level_spec() + 1) as PagingLevel)
+                &&& pte.inner.paddr() == node.deref().start_paddr()
             },
             Child::Frame(paddr, level, prop) => {
                 &&& pte.wf_new_page(paddr, level, prop)

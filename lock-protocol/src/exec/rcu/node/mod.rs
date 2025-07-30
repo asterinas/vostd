@@ -15,7 +15,7 @@ use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use super::{common::*, types::*, cpu::*, frame::meta::*};
-use super::pte::Pte;
+use super::pte::{Pte, page_table_entry_trait::*};
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
 use entry::Entry;
@@ -295,6 +295,7 @@ impl<'a> PageTableNodeRef<'a> {
             m@.inst_id() == self.inst@.id(),
             m@.state() is Locking,
             m@.cur_node() == self.nid@,
+            NodeHelper::in_subtree_range(m@.sub_tree_rt(), self.nid@),
             pa_pte_array_token@.instance_id() == self.inst@.id(),
             pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
             m@.node_is_locked(pa_pte_array_token@.key()),
@@ -440,6 +441,8 @@ impl<'rcu> PageTableGuard<'rcu> {
                 // Called in Entry::alloc_if_none
                 &&& old(self).wf_except(idx as nat)
                 &&& old(self).guard->Some_0.pte_token@->Some_0.value().is_alive(idx as nat)
+                &&& pte.inner.paddr() ==
+                    old(self).guard->Some_0.pte_token@->Some_0.value().get_paddr(idx as nat)
             } else {
                 // Called in Entry::replace
                 old(self).wf()
@@ -498,7 +501,27 @@ impl<'rcu> PageTableGuard<'rcu> {
                             ).guard->Some_0.perms@.inner.value()[i]);
                         }
                     };
-                    admit();
+                    assert forall|i: int| #![auto] 
+                        0 <= i < 512 && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) 
+                    implies {
+                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr() ==
+                            self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                    } by {
+                        if i != idx as int {
+                            assert(old(self).wf_except(idx as nat));
+                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                                old(self).inner.deref().meta_spec().level,
+                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                idx as nat,
+                            ));
+                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= 
+                                old(self).guard->Some_0.pte_token@->Some_0.value()
+                            );
+                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
+                                old(self).guard->Some_0.perms@.inner.value()[i]
+                            );
+                        }
+                    };
                 };
             } else {
                 assert(self.wf_except(idx as nat)) by {
@@ -520,7 +543,25 @@ impl<'rcu> PageTableGuard<'rcu> {
                             self,
                         ).guard->Some_0.perms@.inner.value()[i]);
                     };
-                    admit();
+                    assert forall|i: int| #![auto] 
+                        0 <= i < 512 && i != idx && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) 
+                    implies {
+                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr() ==
+                            self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                    } by {
+                        assert(old(self).wf_except(idx as nat));
+                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            old(self).inner.deref().meta_spec().level,
+                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            idx as nat,
+                        ));
+                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= 
+                            old(self).guard->Some_0.pte_token@->Some_0.value()
+                        );
+                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
+                            old(self).guard->Some_0.perms@.inner.value()[i]
+                        );
+                    };
                 };
             }
         }
