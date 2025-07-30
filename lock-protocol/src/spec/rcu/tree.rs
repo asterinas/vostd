@@ -72,7 +72,9 @@ pub fn inv_pt_node_pte_array_relationship(&self) -> bool {
 
 #[invariant]
 pub fn inv_pt_node_pte_relationship(&self) -> bool {
-    forall |nid: NodeId| #![auto]
+    forall |nid: NodeId|
+        #![trigger NodeHelper::valid_nid(nid)]
+        #![trigger self.nodes.dom().contains(nid)]
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
             self.nodes.dom().contains(nid) <==> {
                 let pa = NodeHelper::get_parent(nid);
@@ -142,10 +144,9 @@ pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
 #[invariant]
 pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
     forall |nid: NodeId, pa: Paddr|
-        #![auto] // TODO
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() &&
         self.strays.contains_key((nid, pa)) &&
-        self.strays[(nid, pa)] == false ==>
+        #[trigger] self.strays[(nid, pa)] == false ==>
         {
             let pa = NodeHelper::get_parent(nid);
             let offset = NodeHelper::get_offset(nid);
@@ -385,7 +386,44 @@ transition!{
 }
 
 #[inductive(initialize)]
-fn initialize_inductive(post: Self, cpu_num: CpuId) { admit(); }
+fn initialize_inductive(post: Self, cpu_num: CpuId) {
+    assert(post.wf_nodes()) by {
+        assert(forall |nid: NodeId| post.nodes.dom().contains(nid) ==> #[trigger] NodeHelper::valid_nid(nid)) by {
+            NodeHelper::lemma_root_id();
+        }
+    }
+
+    assert forall |nid: NodeId| NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
+    implies {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        !(post.pte_arrays.dom().contains(pa) && post.pte_arrays[pa].is_alive(offset))
+    } by {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        if pa == NodeHelper::root_id() {
+            NodeHelper::lemma_get_offset_sound(nid);
+        } else {
+            assert(!post.pte_arrays.dom().contains(pa));
+        }
+    }
+
+    assert forall |nid: NodeId|
+        #[trigger] NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
+    implies {
+        post.strays_filter(nid)
+            .kv_pairs()
+            .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+            .len() <= 1
+    } by {
+        assert(post.strays_filter(nid).dom() =~= Set::<(NodeId, Paddr)>::empty());
+        assert(post.strays_filter(nid).kv_pairs() =~= Set::<((NodeId, Paddr), bool)>::empty());
+        let filtered = post.strays_filter(nid)
+            .kv_pairs()
+            .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false);
+        assert(filtered =~= Set::<((NodeId, Paddr), bool)>::empty());
+    }
+}
 
 #[inductive(protocol_lock_start)]
 fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
