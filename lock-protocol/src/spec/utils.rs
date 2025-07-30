@@ -1,4 +1,5 @@
 use std::intrinsics::offset;
+use std::intrinsics::ptr_offset_from;
 
 use vstd::bytes;
 use vstd::prelude::*;
@@ -11,6 +12,7 @@ use vstd_extra::prelude::*;
 use crate::mm::child;
 
 use super::common::*;
+use super::rcu::tree;
 
 verus! {
 
@@ -390,7 +392,7 @@ impl NodeHelper {
         ensures
             trace.len() > 0 ==> Self::trace_to_nid_rec(trace, cur_rt, cur_level)
                 == Self::trace_to_nid_rec(
-                trace.subrange(1, trace.len() as int),
+                trace.drop_first(),
                 cur_rt + trace[0] * Self::tree_size_spec(cur_level - 1) + 1,
                 cur_level - 1,
             ),
@@ -516,20 +518,6 @@ impl NodeHelper {
                 );
             };
             Self::lemma_trace_to_nid_rec_upper_bound(new_trace, new_rt, level - 1);
-        }
-    }
-
-    pub proof fn lemma_push_lt_trace_lt(trace: Seq<nat>, v1: nat, v2: nat)
-        requires
-            v1 < v2,
-        ensures
-            Self::trace_lt(trace.push(v1), trace.push(v2)),
-        decreases trace.len(),
-    {
-        if trace.len() != 0 {
-            assert(trace.drop_first().push(v1) == trace.push(v1).drop_first());
-            assert(trace.drop_first().push(v2) == trace.push(v2).drop_first());
-            Self::lemma_push_lt_trace_lt(trace.drop_first(), v1, v2);
         }
     }
 
@@ -1450,15 +1438,12 @@ impl NodeHelper {
                             }
                             assert(nd == Self::trace_to_nid(rt_trace.add(suffix)));
 
-                            // Now use lemma_trace_to_nid_split to complete the proof
                             Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, cur_level);
 
                             // By the ensures clause of lemma_trace_to_nid_split, we have:
                             // trace_to_nid(rt_trace.add(suffix)) == trace_to_nid_rec(suffix, rt, cur_level)
                             // Therefore, nd == trace_to_nid_rec(suffix, rt, cur_level)
                         }
-
-                        // Now directly apply lemma_trace_to_nid_rec_sound
                         assert(rt <= Self::trace_to_nid_rec(suffix, rt, cur_level)) by {
                             Self::lemma_trace_to_nid_rec_sound(suffix, rt, cur_level);
                         }
@@ -1627,12 +1612,14 @@ impl NodeHelper {
         ensures
             Self::get_child(pa, offset1) < Self::get_child(pa, offset2),
     {
-        Self::lemma_nid_to_trace_sound(pa);
-        Self::lemma_push_lt_trace_lt(Self::nid_to_trace(pa), offset1, offset2);
-        Self::lemma_trace_to_nid_increasing(
-            Self::nid_to_trace(pa).push(offset1),
-            Self::nid_to_trace(pa).push(offset2),
-        );
+        Self::lemma_parent_child_algebraic_relation(pa, offset1);
+        Self::lemma_parent_child_algebraic_relation(pa, offset2);
+        let tree_size = Self::tree_size_spec(Self::nid_to_level(pa) - 2);
+        assert(offset1 * tree_size < offset2 * tree_size) by (nonlinear_arith)
+            requires
+                0 <= offset1 < offset2,
+                tree_size > 0,
+        ;
     }
 
     pub proof fn lemma_is_child_level_relation(pa: NodeId, ch: NodeId)
@@ -1648,6 +1635,41 @@ impl NodeHelper {
         Self::lemma_level_dep_relation(ch);
     }
 
+    proof fn lemma_trace_to_nid_rec_push(trace: Seq<nat>, offset: nat, rt: NodeId, level: int)
+        requires
+            Self::valid_trace(trace),
+            trace.len() < level,
+        ensures
+            Self::trace_to_nid_rec(trace.push(offset), rt, level) == Self::trace_to_nid_rec(
+                trace,
+                rt,
+                level,
+            ) + offset * Self::tree_size_spec(level - trace.len() - 1) + 1,
+        decreases trace.len(),
+    {
+        reveal(NodeHelper::trace_to_nid_rec);
+        let pushed_trace = trace.push(offset);
+        Self::lemma_trace_to_nid_rec_inductive(pushed_trace, rt, level);
+        if trace.len() == 0 {
+            assert(pushed_trace.drop_first() == Seq::<nat>::empty());
+        } else {
+            let new_rt = rt + trace[0] * Self::tree_size_spec(level - 1) + 1;
+            Self::lemma_trace_to_nid_rec_push(trace.drop_first(), offset, new_rt, level - 1);
+            assert(pushed_trace.drop_first() == trace.drop_first().push(offset));
+        }
+    }
+
+    pub proof fn lemma_trace_to_nid_push(trace: Seq<nat>, offset: nat)
+        requires
+            Self::valid_trace(trace),
+            trace.len() < 3,
+        ensures
+            Self::trace_to_nid(trace.push(offset)) == Self::trace_to_nid(trace) + offset
+                * Self::tree_size_spec(3 - trace.len() - 1) + 1,
+    {
+        Self::lemma_trace_to_nid_rec_push(trace, offset, 0, 3);
+    }
+
     pub proof fn lemma_parent_child_algebraic_relation(nid: NodeId, offset: nat)
         requires
             Self::valid_nid(nid),
@@ -1655,24 +1677,30 @@ impl NodeHelper {
             0 <= offset < 512,
         ensures
             Self::get_child(nid, offset) == nid + offset * Self::tree_size_spec(
-                2 - Self::nid_to_dep(nid),
+                Self::nid_to_level(nid) - 2,
             ) + 1,
     {
-        admit();
+        Self::lemma_nid_to_trace_sound(nid);
+        Self::lemma_trace_to_nid_push(Self::nid_to_trace(nid), offset);
     }
 
     pub proof fn lemma_brother_algebraic_relation(nid: NodeId, offset: nat)
         requires
             Self::valid_nid(nid),
             Self::is_not_leaf(nid),
-            0 <= offset && offset + 1 < 512,
+            0 <= offset < 511,
         ensures
             Self::next_outside_subtree(NodeHelper::get_child(nid, offset)) == NodeHelper::get_child(
                 nid,
                 offset + 1,
             ),
     {
-        admit();
+        Self::lemma_parent_child_algebraic_relation(nid, offset);
+        Self::lemma_parent_child_algebraic_relation(nid, offset + 1);
+        Self::lemma_get_child_sound(nid, offset);
+        Self::lemma_get_child_sound(nid, offset + 1);
+        let tree_size = Self::tree_size_spec(Self::nid_to_level(nid) - 2);
+        assert(offset * tree_size + tree_size == (offset + 1) * tree_size) by (nonlinear_arith);
     }
 
     pub proof fn lemma_last_child_next_outside_subtree(nid: NodeId)
@@ -1684,7 +1712,8 @@ impl NodeHelper {
                 nid,
             ),
     {
-        admit();
+        Self::lemma_parent_child_algebraic_relation(nid, 511);
+        Self::lemma_get_child_sound(nid, 511);
     }
 }
 
