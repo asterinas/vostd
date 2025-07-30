@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};
-use super::super::{types::*, mem_content::*};
+use super::super::{types::*, frame::*};
 use super::PageTableWriteLock;
 use super::child::*;
 use super::super::pte::Pte;
