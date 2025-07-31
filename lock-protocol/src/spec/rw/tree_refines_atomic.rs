@@ -88,6 +88,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                     AtomicCursorState::Locked(nid),
                 )
             );
+            admit();
             AtomicSpec::show::lock(interp(pre), interp(post), cpu, nid);
         }
 
@@ -100,6 +101,16 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 )
             );
             AtomicSpec::show::unlock(interp(pre), interp(post), cpu);
+        }
+
+        in_protocol_write_lock(cpu, nid) => {
+            assert_maps_equal!(interp(pre).cursors, interp(post).cursors);
+            AtomicSpec::show::no_op(interp(pre), interp(post));
+        }
+
+        in_protocol_write_unlock(cpu, nid) => {
+            assert_maps_equal!(interp(pre).cursors, interp(post).cursors);
+            AtomicSpec::show::no_op(interp(pre), interp(post));
         }
 
         allocate(cpu, nid) => {
