@@ -14,7 +14,7 @@ use crate::{
 
 use vstd::prelude::*;
 use vstd::{
-    arithmetic::{div_mod::lemma_div_non_zero, logarithm::*, power::pow, power2::*},
+    arithmetic::{div_mod::{lemma_div_non_zero, lemma_div_nonincreasing}, logarithm::*, power::pow, power2::*},
     bits::*,
     layout::is_power_2,
 };
@@ -680,7 +680,38 @@ proof fn lemma_usize_shr_is_div(x: usize, shift: int)
     let x_ = x as u64;
     let shift_ = shift as u64;
     lemma_u64_shr_is_div(x_, shift_);
-    admit();
+    // Then, we show that computation done in nat and usize agree by showing there's no overflow
+    assert(x >> shift == (x_ >> shift_) as usize) by {
+        // The next statement is true because x_ = x as u64 -> they are equal when cast to nat,
+        // and the result of lemma_u64_shr_is_div.
+        assert(x_ >> shift_ == x as nat / pow2(shift_ as nat));
+        lemma_pow2_pos(shift_ as nat);
+        lemma_div_nonincreasing(x as int, pow2(shift_ as nat) as int);
+        assert(x_ >> shift_ <= x <= usize::MAX);
+    };
+    assert(x as nat / pow2(shift_ as nat) == x / (pow2(shift as nat) as usize)) by {
+        // In this case, need to prove pow2(shift_ as nat) fits in usize.
+        lemma_pow2_pos(shift_ as nat);
+        assert(pow2((usize::BITS - 1) as nat) < usize::MAX) by {
+            assert(usize::BITS == 32 || usize::BITS == 64);
+            if usize::BITS == 32 {
+                assert(pow2(31) == 0x8000_0000 < usize::MAX) by {
+                    lemma2_to64();
+                }
+            } else if usize::BITS == 64 {
+                assert(pow2(63) == 0x8000000000000000 < usize::MAX) by {
+                    lemma2_to64_rest();
+                }
+            }
+        }
+        assert(shift_ as nat <= (usize::BITS - 1) as nat);
+        assert(pow2(shift_ as nat) <= pow2((usize::BITS - 1) as nat)) by {
+            if (shift_ as nat == (usize::BITS - 1) as nat) {
+            } else {
+                lemma_pow2_strictly_increases(shift_ as nat, (usize::BITS - 1) as nat);
+            }
+        }
+    }
 }
 
 proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level: PagingLevel)
