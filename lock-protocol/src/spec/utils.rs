@@ -1457,7 +1457,7 @@ impl NodeHelper {
     /// We prove this by showing that we can find exactly `sub_tree_size(rt)` node ids in the range
     /// `rt <= nd < next_outside_subtree(rt)` that is in the subtree, so every node id in the range
     /// is in the subtree.
-    proof fn lemma_in_subtree_range_implies_in_subtree(rt: NodeId, nd: NodeId)
+    pub proof fn lemma_in_subtree_range_implies_in_subtree(rt: NodeId, nd: NodeId)
         requires
             Self::valid_nid(rt),
             rt <= nd < Self::next_outside_subtree(rt),
