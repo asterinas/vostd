@@ -133,16 +133,16 @@ pub fn inv_pte_is_alive_implies_stray_has_false(&self) -> bool {
 
 #[invariant]
 pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
-    forall |nid: NodeId, pa: Paddr|
+    forall |nid: NodeId, paddr: Paddr|
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() &&
-        self.strays.contains_key((nid, pa)) &&
-        #[trigger] self.strays[(nid, pa)] == false ==>
+        self.strays.contains_key((nid, paddr)) &&
+        #[trigger] self.strays[(nid, paddr)] == false ==>
         {
             let pa = NodeHelper::get_parent(nid);
             let offset = NodeHelper::get_offset(nid);
             &&& self.pte_arrays.contains_key(pa)
             &&& self.pte_arrays[pa].is_alive(offset)
-            &&& self.pte_arrays[pa].get_paddr(offset) == pa
+            &&& self.pte_arrays[pa].get_paddr(offset) == paddr
         }
 }
 
@@ -1221,21 +1221,9 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             NodeHelper::lemma_get_offset_sound(node_id);
             assert(0 <= offset_node < 512);
 
-            if node_id == nid {
-                // pass
-            } else {
-                if pa_node == pa {
-                    if offset_node == offset {
-                        // uniqueness
-                        NodeHelper::lemma_parent_offset_uniqueness(node_id, nid);
-                    } else {
-                        // pass
-                    }
-                } else if pa_node == nid {
-                    // pass
-                } else {
-                    // pass
-                }
+            if node_id != nid && pa_node == pa && offset_node == offset {
+                NodeHelper::lemma_parent_offset_uniqueness(node_id, nid);
+                assert(false);
             }
         }
     };
@@ -1249,7 +1237,8 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
                     .len() <= 1
             } by {
             if node_id == nid {
-                assert(pre.strays_filter(node_id).dom() =~= Set::<(NodeId, Paddr)>::empty()) by {admit();}
+                // TODO: the two admits should be removed if we can remove the admit in the transition.
+                assert(pre.strays_filter(node_id).dom() =~= Set::<(NodeId, Paddr)>::empty()) by { admit(); }
                 assert(post.strays_filter(node_id).dom() =~= set![(nid, paddr)]);
                 assert(post.strays_filter(node_id)[(nid, paddr)] == false);
                 let filtered = post.strays_filter(node_id)
@@ -1294,8 +1283,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
                         assert(post.pte_arrays[pa_node] == pte_array.update(offset, PteState::Alive(paddr)));
                         assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
 
-                        assert(pre.strays.contains_key((node_id, paddr_other)));
-                        assert(pre.strays[(node_id, paddr_other)] == false);
                         assert(post.strays.contains_key((node_id, paddr_other)));
                         assert(post.strays[(node_id, paddr_other)] == false);
                     } else if pa_node != pa {
@@ -1303,8 +1290,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
                         assert(post.pte_arrays[pa_node] == pre.pte_arrays[pa_node]);
                         assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
 
-                        assert(pre.strays.contains_key((node_id, paddr_other)));
-                        assert(pre.strays[(node_id, paddr_other)] == false);
                         assert(post.strays.contains_key((node_id, paddr_other)));
                         assert(post.strays[(node_id, paddr_other)] == false);
                     }
@@ -1312,8 +1297,41 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             }
         }
     };
-    assume(post.inv_stray_has_false_implies_pte_is_alive());
-    assume(post.inv_pte_is_void_implies_no_false_strays());
+
+    assert(post.inv_stray_has_false_implies_pte_is_alive());
+
+    assert(post.inv_pte_is_void_implies_no_false_strays()) by {
+        assert forall |node_id: NodeId|
+            #[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()
+        implies {
+                let pa_node = NodeHelper::get_parent(node_id);
+                let offset_node = NodeHelper::get_offset(node_id);
+                post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_void(offset_node) ==>
+                        post.strays_filter(node_id)
+                                        .kv_pairs()
+                                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+                                        .len() == 0
+            } by {
+            let pa_node = NodeHelper::get_parent(node_id);
+            let offset_node = NodeHelper::get_offset(node_id);
+
+            if post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_void(offset_node) {
+                if node_id != nid {
+                    assert(pre.strays_filter(node_id)
+                        .kv_pairs()
+                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+                        .len() == 0) by { admit(); };
+
+                    assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
+                    // node_id != nid, show post.strays_filter(node_id) has no false values
+                    assert(post.strays_filter(node_id)
+                        .kv_pairs()
+                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+                        .len() == 0);
+                }
+            }
+        };
+    }
 }
 
 #[inductive(protocol_deallocate)]
