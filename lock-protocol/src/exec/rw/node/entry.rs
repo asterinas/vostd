@@ -45,86 +45,95 @@ impl Entry {
         )
     }
 
+    pub open spec fn nid(&self, node: PageTableWriteLock) -> NodeId {
+        NodeHelper::get_child(node.nid(), self.idx as nat)
+    }
+
+    pub open spec fn is_none_spec(&self) -> bool {
+        self.pte.is_none()
+    }
+
+    /// Returns if the entry does not map to anything.
+    #[verifier::when_used_as_spec(is_none_spec)]
+    pub fn is_none(&self) -> bool
+        returns
+            self.pte.is_none(),
+    {
+        !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
+    }
+
+    pub open spec fn is_node_spec(&self, node: &PageTableWriteLock) -> bool {
+        self.pte.is_pt(node.deref().deref().level_spec())
+    }
+
+    /// Returns if the entry maps to a page table node.
+    #[verifier::when_used_as_spec(is_node_spec)]
+    pub fn is_node(&self, node: &PageTableWriteLock) -> bool
+        requires
+            self.wf(*node),
+            node.wf(),
+        returns
+            self.is_node_spec(node),
+    {
+        &&& self.pte.inner.is_present()
+        &&& !self.pte.inner.is_last(node.deref().deref().level())
+    }
+
     /// Gets a reference to the child.
     pub fn to_ref(&self, node: &PageTableWriteLock) -> (res: Child)
         requires
-            self.wf(),
-            self.wf_with_node(*node),
+            self.wf(*node),
             node.wf(),
         ensures
             res.wf(),
-            !(res is PageTable),
-            res is Frame ==> res->Frame_1 == node.level_spec(),
+            res.wf_from_pte(self.pte, node.deref().deref().level_spec()),
     {
-        // SAFETY: The entry structure represents an existent entry with the
-        // right node information.
-        // unsafe { Child::ref_from_pte(&self.pte, self.node.level(), self.node.is_tracked(), false) }
-        Child::ref_from_pte(
-            &self.pte,
-            node.level(),  /*self.node.is_tracked(),*/
-            false,
-        )
+        ChildRef::from_pte(&self.pte, node.deref().deref().level())
     }
 
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the given child is not compatible with the node.
-    /// The compatibility is specified by the [`Child::is_compatible`].
-    pub fn replace(self, new_child: Child, node: &mut PageTableWriteLock)
+    pub fn replace(&mut self, new_child: Child, node: &mut PageTableWriteLock) -> (res: Child)
         requires
-            self.wf(),
-            self.wf_with_node(*old(node)),
+            old(self).wf(*old(node)),
             new_child.wf(),
-            !(new_child is PageTableRef),
-            new_child.wf_with_node(self.idx as nat, *old(node)),
+            new_child.wf_with_node(old(self).idx as nat, *old(node)),
+            !(new_child is PageTable),
             old(node).wf(),
+            old(node).guard->Some_0.stray_perm@.value() == false,
         ensures
-            node.wf(),
+            self.wf(*node),
+            new_child.wf_into_pte(self.pte),
+            self.idx == old(self).idx,
+            if res is PageTable {
+                &&& node.wf_except(self.idx as nat)
+                &&& node.guard->Some_0.pte_token@->Some_0.value().is_alive(self.idx as nat)
+            } else {
+                node.wf()
+            },
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
     {
-        // assert!(new_child.is_compatible(self.node.level(), self.node.is_tracked()));
-        // SAFETY: The entry structure represents an existent entry with the
-        // right node information. The old PTE is overwritten by the new child
-        // so that it is not used anymore.
-        // let old_child =
-        // unsafe { Child::from_pte(self.pte, self.node.level(), self.node.is_tracked()) };
-        // Child::from_pte(self.pte, self.node.level(), /*self.node.is_tracked()*/);
-        // if old_child.is_none() && !new_child.is_none() {
-        //     *self.node.nr_children_mut() += 1;
-        // } else if !old_child.is_none() && new_child.is_none() {
-        //     *self.node.nr_children_mut() -= 1;
-        // }
-        // SAFETY:
-        //  1. The index is within the bounds.
-        //  2. The new PTE is compatible with the page table node, as asserted above.
-        // unsafe { self.node.write_pte(self.idx, new_child.into_pte()) };
-        let pte = new_child.into_pte();
-        node.write_pte(self.idx, pte);
+        let old_child = Child::from_pte(self.pte, node.inner.deref().level());
 
-        // old_child
+        self.pte = new_child.into_pte();
+        node.write_pte(self.idx, self.pte);
+
+        old_child
     }
 
-    /// Create a new entry at the node.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the index is within the bounds of the node.
+    /// Create a new entry at the node with guard.
     pub fn new_at(idx: usize, node: &PageTableWriteLock) -> (res: Self)
         requires
             0 <= idx < 512,
             node.wf(),
         ensures
-            res.wf(),
-            res.wf_with_node(*node),
+            res.wf(*node),
             res.idx == idx,
     {
-        // SAFETY: The index is within the bound.
-        // let pte = unsafe { node.read_pte(idx) };
         let pte = node.read_pte(idx);
         Self { pte, idx }
     }
