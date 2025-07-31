@@ -748,9 +748,9 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
                 l,
             ),
 {
-    assert forall|l: PagingLevel| level <= l <= C::NR_LEVELS_SPEC() implies #[trigger]
-        pte_index::<C>(x, l) == pte_index::<C>(align_down(x, page_size::<C>(l)), l)
-    by {
+    assert forall|l: PagingLevel| level <= l <= C::NR_LEVELS_SPEC() implies #[trigger] pte_index::<
+        C,
+    >(x, l) == pte_index::<C>(align_down(x, page_size::<C>(l)), l) by {
         // The page size
         let pg_size = page_size_spec::<C>(l);
         lemma_page_size_spec_properties::<C>(l);
@@ -769,12 +769,13 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
             ;
             assert(base_bits + (l - 1) * index_bits < usize::BITS);
         }
-        assert(base_bits + (l - 1) as u32 * index_bits as u32 == base_bits + index_bits as u32 * (l - 1) as u32) by (nonlinear_arith);
+        assert(base_bits + (l - 1) as u32 * index_bits as u32 == base_bits + index_bits as u32 * (l
+            - 1) as u32) by (nonlinear_arith);
         // The shift local var in both pte_index calls
         let shift = base_bits + (l - 1) as u32 * index_bits as u32;
         assert(shift < usize::BITS);
-        assert(shift as nat == (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
-            l - 1)));
+        assert(shift as nat == (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
+            - C::PTE_SIZE().ilog2()) * (l - 1)));
         assert(pg_size == pow2(shift as nat) as usize);
         // Precondition for align_down
         assert(is_power_2(pg_size as int));
