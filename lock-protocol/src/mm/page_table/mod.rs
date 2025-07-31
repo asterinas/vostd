@@ -655,22 +655,38 @@ proof fn lemma_add_page_size_change_pte_index<C: PagingConstsTrait>(
     admit();
 }
 
-proof fn lemma_sub_mod_div_same(a: usize, d: usize)
+proof fn lemma_sub_mod_div_same(a: usize, b: usize)
     requires
         a >= 0,
-        d > 0,
+        b > 0,
     ensures
-        0 <= a / d == ((a - (a % d)) as usize) / d <= a,
+        0 <= a / b == ((a - (a % b)) as usize) / b <= a,
 {
-    // int versions of a and d
+    // int versions of a and b
     let ai = a as int;
-    let di = d as int;
+    let bi = b as int;
     // First, prove the two inequalities
-    assert(a / d == ai / di);
-    lemma_div_pos_is_pos(ai, di);
-    lemma_div_nonincreasing(ai, di);
-    assert(0 <= a / d <= a);
-    assume(a / d == ((a - (a % d)) as usize) / d);
+    assert(a / b == ai / bi);
+    lemma_div_pos_is_pos(ai, bi);
+    lemma_div_nonincreasing(ai, bi);
+    assert(0 <= a / b <= a);
+    // Then, tackle the equality in the middle
+    // First, prove a - (a % b) does fit in usize
+    assert(ai - (ai % bi) >= 0) by {
+        lemma_mod_decreases(ai as nat, bi as nat);
+    }
+    assert(0 <= ai - (ai % bi) <= ai <= usize::MAX);
+    assert(((a - (a % b)) as usize) == ai - (ai % bi));
+    // Now we can do all the reasoning with the int versions, without worrying about overflow
+    let di = ai / bi;
+    let mi = ai % bi;
+    assert(ai == bi * di + mi) by {
+        lemma_fundamental_div_mod(ai, bi);
+    }
+    assert(ai - (ai % bi) == bi * di);
+    assert(bi * di == di * bi) by (nonlinear_arith);
+    lemma_div_multiples_vanish(di, bi);
+    assert(ai / bi == di == (ai - (ai % bi)) / bi);
 }
 
 proof fn lemma_usize_shr_is_div(x: usize, shift: int)
