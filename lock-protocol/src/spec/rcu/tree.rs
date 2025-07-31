@@ -700,12 +700,7 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
                     // Since nid == _nid and _nid <= next_outside_subtree(rt), we have nid <= next_outside_subtree(rt)
                     // For the protocol to be valid, nid must be within the subtree of rt, so nid < next_outside_subtree(rt)
                     // This follows from the protocol invariant that ensures we only skip nodes within the current subtree range
-                    assert(nid <= NodeHelper::next_outside_subtree(rt));
-
-                    // In the lock_skip transition, we can only skip nid if it's within the subtree range [rt, next_outside_subtree(rt))
-                    // The transition precondition ensures the PTE for nid is void, which means nid is not allocated
-                    // and we're scanning through the subtree range. For this to be valid, nid < next_outside_subtree(rt).
-                    assume(nid < NodeHelper::next_outside_subtree(rt)); // Protocol invariant: skip only happens within subtree
+                    assert(nid < NodeHelper::next_outside_subtree(rt));
 
                     // Therefore next_outside_subtree(nid) <= next_outside_subtree(rt) by monotonicity
                     NodeHelper::lemma_in_subtree_range_implies_in_subtree(rt, nid);
