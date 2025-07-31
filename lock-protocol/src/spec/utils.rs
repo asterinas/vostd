@@ -1097,6 +1097,56 @@ impl NodeHelper {
         Self::lemma_nid_to_trace_sound(nid);
     }
 
+    pub proof fn lemma_parent_offset_uniqueness(nid1: NodeId, nid2: NodeId)
+        requires
+            Self::valid_nid(nid1),
+            Self::valid_nid(nid2),
+            nid1 != Self::root_id(),
+            nid2 != Self::root_id(),
+            nid1 != nid2,
+        ensures
+            !(Self::get_parent(nid1) == Self::get_parent(nid2) && Self::get_offset(nid1)
+                == Self::get_offset(nid2)),
+    {
+        if Self::get_parent(nid1) == Self::get_parent(nid2) && Self::get_offset(nid1)
+            == Self::get_offset(nid2) {
+            let trace1 = Self::nid_to_trace(nid1);
+            let trace2 = Self::nid_to_trace(nid2);
+
+            Self::lemma_nid_to_trace_sound(nid1);
+            Self::lemma_nid_to_trace_sound(nid2);
+            assert(trace1.len() > 0);
+            assert(trace2.len() > 0);
+
+            Self::lemma_nid_to_trace_left_inverse();
+            Self::lemma_trace_to_nid_sound(trace1.drop_last());
+            Self::lemma_trace_to_nid_sound(trace2.drop_last());
+            assert(Self::trace_to_nid(trace1.drop_last()) == Self::trace_to_nid(
+                trace2.drop_last(),
+            ));
+
+            assert(trace1 =~= trace2) by {
+                let common_prefix = trace1.drop_last();
+                let common_last = trace1.last();
+                assert(trace1 =~= common_prefix.push(common_last));
+                assert(trace2 =~= common_prefix.push(common_last));
+                assert(trace1 =~= trace2);
+            };
+
+            // But since nid_to_trace is bijective (left inverse to trace_to_nid)
+            // and trace1 == trace2, we must have nid1 == nid2
+            Self::lemma_nid_to_trace_right_inverse();
+            assert(Self::trace_to_nid(Self::nid_to_trace(nid1)) == nid1);
+            assert(Self::trace_to_nid(Self::nid_to_trace(nid2)) == nid2);
+            assert(Self::trace_to_nid(trace1) == nid1);
+            assert(Self::trace_to_nid(trace2) == nid2);
+            assert(trace1 =~= trace2);
+            assert(Self::trace_to_nid(trace1) == Self::trace_to_nid(trace2));
+            assert(nid1 == nid2);  // contradiction with nid1 != nid2
+            assert(false);
+        }
+    }
+
     /// `get_child` correctly returns the child of a node.
     /// The result indeed satisfies `is_child(nid, get_child(nid, offset))`.
     pub proof fn lemma_get_child_sound(nid: NodeId, offset: nat)

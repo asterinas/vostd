@@ -201,8 +201,7 @@ impl PageTableNodeRef<'_> {
         nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
         level: Ghost<PagingLevel>,
-    ) -> (res: Self)
-        requires  // TODO
+    ) -> (res: Self)  // requires// TODOFORMATTER_NOT_INLINE_MARKER
 
         ensures
             res =~= Self::borrow_paddr_spec(raw),
