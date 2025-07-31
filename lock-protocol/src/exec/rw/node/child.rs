@@ -1,4 +1,5 @@
 use core::mem::ManuallyDrop;
+use core::ops::Deref;
 
 use vstd::prelude::*;
 use vstd::vpanic;
@@ -6,7 +7,7 @@ use vstd::vpanic;
 use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*, frame::*};
 use super::super::pte::{Pte, page_prop::PageProperty, page_table_entry_trait::*};
-use super::{PageTableNode, PageTableWriteLock};
+use super::{PageTableNode, PageTableNodeRef, PageTableWriteLock};
 
 verus! {
 
@@ -40,22 +41,23 @@ impl Child {
         }
     }
 
-    pub open spec fn wf_with_node(&self, idx: nat, node: PageTableWriteLock) -> bool {
+    pub open spec fn wf_with_node(&self, idx: nat, node: PageTableNode) -> bool {
         match *self {
             Child::PageTable(pt) => {
-                &&& node.deref().deref().level_spec() == (pt.level_spec() + 1) as PagingLevel
-                &&& node.inst_id() == pt.inst@.id()
-                &&& NodeHelper::get_child(node.nid(), idx) == pt.nid@
+                &&& node.level_spec() == (pt.level_spec() + 1) as PagingLevel
+                &&& node.inst@.id() == pt.inst@.id()
+                &&& NodeHelper::get_child(node.nid@, idx) == pt.nid@
             },
-            Child::Frame(paddr, level, prop) => { &&& node.level_spec() == level },
+            Child::Frame(paddr, level, prop) => node.level_spec() == level,
             Child::None => true,
         }
     }
 
+    #[verifier::allow_in_spec]
     pub fn is_none(&self) -> bool
         requires
             self.wf(),
-        returns self is Child::None,
+        returns self is None,
     {
         if let Child::None = *self { true }
         else { false }
@@ -91,7 +93,7 @@ impl Child {
                 let tracked inst = pt.inst.borrow().clone();
                 let ghost nid = pt.nid@;
                 let _ = ManuallyDrop::new(pt);
-                Pte::new_pt(paddr, Tracked(inst), Tracked(nid))
+                Pte::new_pt(paddr, Tracked(inst), Ghost(nid))
             },
             Child::Frame(paddr, level, prop) => { Pte::new_page(paddr, level, prop) },
             Child::None => Pte::new_absent(),
@@ -103,7 +105,7 @@ impl Child {
             *self is None
         } else if pte.is_pt(level) {
             &&& *self is PageTable
-            &&& *self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
+            &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
             &&& self->PageTable_0.start_paddr() == pte.inner.paddr()
             &&& self->PageTable_0.nid@ == pte.nid()
             &&& self->PageTable_0.inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -159,7 +161,7 @@ pub enum ChildRef<'a> {
     None,
 }
 
-impl ChildRef<'_> {
+impl<'a> ChildRef<'a> {
     pub axiom fn axiom_no_huge_page(self)
         ensures
             self is Frame ==> self->Frame_1 == 1,
@@ -195,7 +197,10 @@ impl ChildRef<'_> {
         }
     }
 
-    pub fn from_pte<'a>(pte: &'a Pte, level: PagingLevel) -> (res: ChildRef<'a>)
+    pub fn from_pte<'b>(
+        pte: &'b Pte, 
+        level: PagingLevel,
+    ) -> (res: ChildRef<'a>)
         requires
             pte.wf(level),
             1 <= level <= 4,

@@ -27,16 +27,17 @@ use va_range::*;
 
 verus! {
 
-pub enum GuardInPath {
-    Read(PageTableReadLock),
-    Write(PageTableWriteLock),
-    ImplicitWrite(PageTableWriteLock),
+pub enum GuardInPath<'a> {
+    Read(PageTableReadLock<'a>),
+    Write(PageTableWriteLock<'a>),
+    ImplicitWrite(PageTableWriteLock<'a>),
     Unlocked,
 }
 
-impl GuardInPath {
-    #[verifier::external_body]  // Verus does not support replace.
-    pub fn take(&mut self) -> (res: Self)
+impl<'a> GuardInPath<'a> {
+    /// Verus does not support replace.
+    #[verifier::external_body]  
+    pub fn take(&mut self) -> (res: GuardInPath<'a>)
         ensures
             res =~= *old(self),
             *self is Unlocked,
@@ -45,17 +46,19 @@ impl GuardInPath {
     }
 }
 
-pub struct Cursor {
-    pub path: [GuardInPath; MAX_NR_LEVELS],
+pub struct Cursor<'a> {
+    pub path: [GuardInPath<'a>; MAX_NR_LEVELS],
+    pub rcu_guard: &'a (),
     pub level: PagingLevel,
     pub guard_level: PagingLevel,
     pub va: Vaddr,
+    pub barrier_va: Range<Vaddr>,
     pub inst: Tracked<SpecInstance>,
-    pub unlock_level: Ghost<PagingLevel>  // Used for 'unlock_range'.
-    ,
+    // Used for `unlock_range`
+    pub unlock_level: Ghost<PagingLevel>,
 }
 
-impl Cursor {
+impl Cursor<'_> {
     pub open spec fn wf(&self) -> bool {
         &&& self.path@.len() == 4
         &&& 1 <= self.level <= self.guard_level <= 4
@@ -63,19 +66,19 @@ impl Cursor {
             #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
                 if level < self.guard_level {
+                    // TODO
                     self.path[level - 1] is Unlocked
                 } else if level == self.guard_level {
                     &&& self.path[level - 1] is Write
                     &&& self.path[level - 1]->Write_0.wf()
                     &&& self.path[level - 1]->Write_0.inst_id() == self.inst@.id()
+                    &&& self.path[level - 1]->Write_0.guard->Some_0.in_protocol@ == false
                 } else {
                     &&& self.path[level - 1] is Read
                     &&& self.path[level - 1]->Read_0.wf()
                     &&& self.path[level - 1]->Read_0.inst_id() == self.inst@.id()
                 }
             }
-            // &&& valid_vaddr(self.va)
-            // &&& vaddr_is_aligned(self.va)
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
         &&& self.unlock_level@ == self.guard_level
     }
@@ -86,6 +89,7 @@ impl Cursor {
     {
         &&& self.level == self.guard_level
         &&& self.va == va.start
+        &&& self.barrier_va =~= (va.start..va.end)
         &&& self.level == va_range_get_guard_level(va)
     }
 
@@ -112,7 +116,8 @@ impl Cursor {
             }
     }
 
-    #[verifier::external_body]  // Verus does not support index for &mut.
+    /// Verus does not support index for &mut.
+    #[verifier::external_body]  
     pub fn take_guard(&mut self, idx: usize) -> (res: GuardInPath)
         requires
             0 <= idx < old(self).path@.len(),
