@@ -41,27 +41,23 @@ pub fn wf_pte_arrays(&self) -> bool {
 
 #[invariant]
 pub fn wf_cursors(&self) -> bool {
-    forall |cpu: CpuId| #![auto]
-        self.cursors.contains_key(cpu) ==> {
-            &&& valid_cpu(self.cpu_num, cpu)
-            &&& self.cursors[cpu].wf()
-        }
+    self.cursors.dom().all(|cpu: CpuId| {
+        &&& valid_cpu(self.cpu_num, cpu)
+        &&& self.cursors[cpu].wf()
+    })
 }
 
 #[invariant]
 pub fn wf_strays(&self) -> bool {
-    forall |pair: (NodeId, Paddr)| #![auto]
-        self.strays.contains_key(pair) ==> {
-            &&& NodeHelper::valid_nid(pair.0)
-            &&& pair.0 != NodeHelper::root_id()
-        }
+    self.strays.dom().all(|pair: (NodeId, Paddr)| {
+        &&& NodeHelper::valid_nid(pair.0)
+        &&& pair.0 != NodeHelper::root_id()
+    })
 }
 
 #[invariant]
 pub fn inv_pt_node_pte_array_relationship(&self) -> bool {
-    forall |nid: NodeId| #![auto]
-        self.nodes.contains_key(nid) <==>
-        self.pte_arrays.contains_key(nid)
+    self.nodes.dom() =~= self.pte_arrays.dom()
 }
 
 #[invariant]
@@ -216,9 +212,9 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
-
         remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
         require(_nid == nid);
+        require(NodeHelper::in_subtree_range(rt, _nid));
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have pte_arrays >= [ pa => let pte_array ];

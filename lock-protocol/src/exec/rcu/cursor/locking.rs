@@ -608,6 +608,18 @@ fn dfs_acquire_lock(
                     let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(pte_token.value().is_void(i as nat));
+                    assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), nid)) by {
+                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                        );
+                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), nid);
+                        NodeHelper::lemma_in_subtree_is_child_in_subtree(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                            nid,
+                        );
+                    };
                     let tracked res = inst.clone().protocol_lock_skip(
                         m.cpu,
                         nid,

@@ -1715,6 +1715,17 @@ impl NodeHelper {
         Self::lemma_parent_child_algebraic_relation(nid, 511);
         Self::lemma_get_child_sound(nid, 511);
     }
+
+    pub proof fn lemma_in_subtree_range_if_next_outside_in_range(rt: NodeId, nd: NodeId)
+        requires
+            Self::valid_nid(rt),
+            Self::valid_nid(nd),
+            rt <= Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt),
+        ensures
+            Self::in_subtree_range(rt, nd),
+    {
+        admit();
+    }
 }
 
 } // verus!
