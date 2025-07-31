@@ -10,22 +10,17 @@ use super::{PageTableNode, PageTableWriteLock};
 
 verus! {
 
-/// A child of a page table node.
+/// A page table entry that owns the child of a page table node if present.
 // #[derive(Debug)]
 pub enum Child {
-    /// A owning handle to a raw page table node.
-    PageTable(PageTableNode, Tracked<SpecInstance>, Ghost<NodeId>),
-    /// A reference of a child page table node, in the form of a physical
-    /// address.
-    PageTableRef(Paddr, Tracked<SpecInstance>, Ghost<NodeId>),
-    /// A mapped frame.
-    // Frame(Frame<dyn AnyFrameMeta>, PageProperty),
+    /// A child page table node.
+    PageTable(PageTableNode),
+    /// Physical address of a mapped physical frame.
+    ///
+    /// It is associated with the virtual page property and the level of the
+    /// mapping node, which decides the size of the frame.
     Frame(Paddr, PagingLevel, PageProperty),
-    /// Mapped frames that are not tracked by handles.
-    // Untracked(Paddr, PagingLevel, PageProperty),
-    // Status(Status),
     None,
-    Unimplemented,
 }
 
 impl Child {
@@ -36,26 +31,10 @@ impl Child {
 
     pub open spec fn wf(&self) -> bool {
         match *self {
-            Self::PageTable(pt, inst, nid) => {
-                &&& pt.wf()
-                &&& pt.inst@.id() == inst@.id()
-                &&& pt.nid@ == nid@
-                &&& inst@.cpu_num() == GLOBAL_CPU_NUM
-                &&& NodeHelper::valid_nid(nid@)
-            },
-            Self::PageTableRef(pa, inst, nid) => {
-                &&& valid_paddr(
-                    pa,
-                )
-                // &&& PageTableNode::from_raw_spec(pa).inst@.id() == inst@.id()
-                // &&& PageTableNode::from_raw_spec(pa).nid@ == nid@
-                &&& inst@.cpu_num() == GLOBAL_CPU_NUM
-                &&& NodeHelper::valid_nid(nid@)
-            },
+            Self::PageTable(node) => { node.wf() },
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
-
             },
             _ => true,
         }
@@ -63,242 +42,174 @@ impl Child {
 
     pub open spec fn wf_with_node(&self, idx: nat, node: PageTableWriteLock) -> bool {
         match *self {
-            Child::PageTable(pt, inst, nid) => {
-                &&& node.level_spec() == (pt.level_spec() + 1) as PagingLevel
-                &&& node.inst_id() == inst@.id()
-                &&& NodeHelper::get_child(node.nid(), idx) == nid@
-            },
-            Child::PageTableRef(paddr, inst, nid) => {
-                &&& node.inst_id() == inst@.id()
-                &&& NodeHelper::get_child(node.nid(), idx) == nid@
+            Child::PageTable(pt) => {
+                &&& node.deref().deref().level_spec() == (pt.level_spec() + 1) as PagingLevel
+                &&& node.inst_id() == pt.inst@.id()
+                &&& NodeHelper::get_child(node.nid(), idx) == pt.nid@
             },
             Child::Frame(paddr, level, prop) => { &&& node.level_spec() == level },
             Child::None => true,
-            Child::Unimplemented => true,
         }
+    }
+
+    pub fn is_none(&self) -> bool
+        requires
+            self.wf(),
+        returns self is Child::None,
+    {
+        if let Child::None = *self { true }
+        else { false }
     }
 
     pub open spec fn wf_into_pte(&self, pte: Pte) -> bool {
         match *self {
-            Child::PageTable(pt, inst, nid) => {
-                &&& pte.wf_new_pt(pt.start_paddr(), inst@, nid@)
-                &&& pte.inner.is_present()
-                &&& !pte.inner.is_last((pt.level_spec() + 1) as PagingLevel)
+            Child::PageTable(node) => {
+                &&& pte.wf_new_pt(node.start_paddr(), node.inst@, node.nid@)
+                &&& pte.is_pt((node.level_spec() + 1) as PagingLevel)
+                &&& pte.inner.paddr() == node.start_paddr()
             },
-            Child::PageTableRef(_, _, _) => true,
             Child::Frame(paddr, level, prop) => {
                 &&& pte.wf_new_page(paddr, level, prop)
-                &&& pte.inner.is_present()
-                &&& pte.inner.is_last(level)
+                &&& pte.is_frame(level) || pte.is_marked()
             },
             Child::None => {
                 &&& pte.wf_new_absent()
-                &&& !pte.inner.is_present()
-            },
-            Child::Unimplemented => {
-                &&& pte.wf_new_absent()
-                &&& !pte.inner.is_present()
+                &&& pte.is_none()
             },
         }
     }
 
-    /// Converts a child into a owning PTE.
-    ///
-    /// By conversion it loses information about whether the page is tracked
-    /// or not. Also it loses the level information. However, the returned PTE
-    /// takes the ownership (reference count) of the child.
-    ///
-    /// Usually this is for recording the PTE into a page table node. When the
-    /// child is needed again by reading the PTE of a page table node, extra
-    /// information should be provided using the [`Child::from_pte`] method.
     pub fn into_pte(self) -> (res: Pte)
         requires
             self.wf(),
-            !(self is PageTableRef),
         ensures
             self.wf_into_pte(res),
-            res.wf(),
     {
         match self {
-            Child::PageTable(pt, inst, nid) => {
+            Child::PageTable(pt) => {
                 let paddr: Paddr = pt.start_paddr();
-                let pt = ManuallyDrop::new(pt);
-                Pte::new_pt(paddr, inst, nid)
+                let tracked inst = pt.inst.borrow().clone();
+                let ghost nid = pt.nid@;
+                let _ = ManuallyDrop::new(pt);
+                Pte::new_pt(paddr, Tracked(inst), Tracked(nid))
             },
-            Child::PageTableRef(_, _, _) => {
-                // vpanic!("`PageTableRef` should not be converted to PTE");
-                unreached()
-            },
-            // Child::Frame(page, prop) => {
-            //     let level = page.map_level();
-            //     Pte::new_page(page.into_raw(), level, prop)
-            // }
             Child::Frame(paddr, level, prop) => { Pte::new_page(paddr, level, prop) },
-            // Child::Untracked(pa, level, prop) => Pte::new_page(pa, level, prop),
             Child::None => Pte::new_absent(),
-            // Child::Status(status) => Pte::new_status(status),
-            Child::Unimplemented => Pte::new_absent(),
         }
     }
 
     pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
-        if !pte.inner.is_present() {
-            if pte.inner.paddr() == 0 {
-                *self is None
-            } else {
-                *self is Unimplemented
-            }
-        } else {  // pte.inner.is_present()
-            if !pte.inner.is_last(level) {
-                &&& *self is PageTable
-                &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
-                &&& self->PageTable_1@ =~= pte.inst@->Some_0
-                &&& self->PageTable_2@ =~= pte.nid()
-            } else {  // pte.inner.is_last(level)
-                &&& *self is Frame
-                &&& self->Frame_0 == pte.inner.paddr()
-                &&& self->Frame_1 == level
-                &&& self->Frame_2 =~= pte.inner.prop()
-            }
+        if pte.is_none() {
+            *self is None
+        } else if pte.is_pt(level) {
+            &&& *self is PageTable
+            &&& *self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
+            &&& self->PageTable_0.start_paddr() == pte.inner.paddr()
+            &&& self->PageTable_0.nid@ == pte.nid()
+            &&& self->PageTable_0.inst@.cpu_num() == GLOBAL_CPU_NUM
+            &&& self->PageTable_0.inst@.id() == pte.inst_id()
+            &&& self->PageTable_0.level_spec() == (level - 1) as PagingLevel
+        } else {
+            &&& *self is Frame
+            &&& self->Frame_0 == pte.inner.paddr()
+            &&& self->Frame_1 == level
+            &&& self->Frame_2 =~= pte.inner.prop()
         }
     }
 
-    /// Converts a PTE back to a child.
-    ///
-    /// # Safety
-    ///
-    /// The provided PTE must be originated from [`Child::into_pte`]. And the
-    /// provided information (level and tracking status) must be the same with
-    /// the lost information during the conversion. Strictly speaking, the
-    /// provided arguments must be compatible with the original child (
-    /// specified by [`Child::is_compatible`]).
-    ///
-    /// This method should be only used no more than once for a PTE that has
-    /// been converted from a child using the [`Child::into_pte`] method.
+    
     pub fn from_pte(pte: Pte, level: PagingLevel) -> (res: Self)
         requires
-            pte.wf(),
-            pte.wf_with_node_level(level),
+            pte.wf(level),
             1 <= level <= 4,
         ensures
             res.wf(),
             res.wf_from_pte(pte, level),
-            !(res is PageTableRef),
-            res is Frame ==> res->Frame_1 == level,
     {
-        if !pte.inner.is_present() {
-            let paddr = pte.inner.paddr();
-            if paddr == 0 {
-                return Child::None;
-            } else {
-                // SAFETY: The physical address is written as a valid status.
-                // return Child::Status(unsafe { Status::from_raw_inner(paddr) });
-                return Child::Unimplemented;
-            }
-        }
         let paddr = pte.inner.paddr();
-
-        if !pte.inner.is_last(level) {
-            // SAFETY: The physical address points to a valid page table node
-            // at the given level.
-            // let pt = unsafe { PageTableNode::from_raw(paddr) };
-            // debug_assert_eq!(pt.level(), level - 1);
-            let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
-            return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
+        if !pte.inner.is_present() && paddr == 0 {
+            return Child::None;
         }
-        Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
+        if pte.inner.is_present() && !pte.inner.is_last(level) {
+            let node = PageTableNode::from_raw(
+                paddr,
+                Ghost(pte.nid()),
+                Ghost(pte.inst_id()),
+                Ghost((level - 1) as PagingLevel),
+            );
+            return Child::PageTable(node);
+        }
+        let res = Child::Frame(paddr, level, pte.inner.prop());
+        proof {
+            res.axiom_no_huge_page();
+        }
+        res
     }
 
-    pub open spec fn wf_ref_from_pte(&self, pte: Pte, level: PagingLevel, clone_raw: bool) -> bool {
-        if !pte.inner.is_present() {
-            if pte.inner.paddr() == 0 {
-                *self is None
-            } else {
-                *self is Unimplemented
-            }
-        } else {  // pte.inner.is_present()
-            if !pte.inner.is_last(level) {
-                if clone_raw {
-                    &&& *self is PageTable
-                    &&& self->PageTable_0 =~= PageTableNode::from_raw_spec(pte.inner.paddr())
-                    &&& self->PageTable_1@ =~= pte.inst@->Some_0
-                    &&& self->PageTable_2@ =~= pte.nid()
-                } else {
-                    &&& *self is PageTableRef
-                    &&& self->PageTableRef_0 == pte.inner.paddr()
-                    &&& self->PageTableRef_1@ =~= pte.inst@->Some_0
-                    &&& self->PageTableRef_2@ =~= pte.nid()
-                }
-            } else {  // pte.inner.is_last(level)
-                &&& *self is Frame
-                &&& self->Frame_0 == pte.inner.paddr()
-                &&& self->Frame_1 == level
-                &&& self->Frame_2 =~= pte.inner.prop()
-            }
+}
+
+pub enum ChildRef<'a> {
+    /// A child page table node.
+    PageTable(PageTableNodeRef<'a>),
+    /// Physical address of a mapped physical frame.
+    ///
+    /// It is associated with the virtual page property and the level of the
+    /// mapping node, which decides the size of the frame.
+    Frame(Paddr, PagingLevel, PageProperty),
+    None,
+}
+
+impl ChildRef<'_> {
+    pub axiom fn axiom_no_huge_page(self)
+        ensures
+            self is Frame ==> self->Frame_1 == 1,
+    ;
+
+    pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
+        if pte.is_none() {
+            *self is None
+        } else if pte.is_pt(level) {
+            &&& *self is PageTable
+            &&& self->PageTable_0 == PageTableNodeRef::borrow_paddr_spec(pte.inner.paddr())
+            &&& self->PageTable_0.deref().start_paddr() == pte.inner.paddr()
+            &&& self->PageTable_0.deref().nid@ == pte.nid()
+            &&& self->PageTable_0.deref().inst@.cpu_num() == GLOBAL_CPU_NUM
+            &&& self->PageTable_0.deref().inst@.id() == pte.inst_id()
+            &&& self->PageTable_0.deref().level_spec() == (level - 1) as PagingLevel
+        } else {
+            &&& *self is Frame
+            &&& self->Frame_0 == pte.inner.paddr()
+            &&& self->Frame_1 == level
+            &&& self->Frame_2 =~= pte.inner.prop()
         }
     }
 
-    /// Gains an extra reference to the child.
-    ///
-    /// If the child is a frame, it increases the reference count of the frame.
-    ///
-    /// If the child is a page table node, the returned value depends on
-    /// `clone_raw`:
-    ///  - If `clone_raw` is `true`, it returns a new owning handle to the page
-    ///    table node ([`Child::PageTable`]).
-    ///  - If `clone_raw` is `false`, it returns a reference to the page table
-    ///    node ([`Child::PageTableRef`]).
-    ///
-    /// # Safety
-    ///
-    /// The provided PTE must be originated from [`Child::into_pte`], which is
-    /// the same requirement as the [`Child::from_pte`] method.
-    ///
-    /// This method must not be used with a PTE that has been restored to a
-    /// child using the [`Child::from_pte`] method.
-    pub fn ref_from_pte(pte: &Pte, level: PagingLevel, clone_raw: bool) -> (res: Self)
+    pub fn from_pte<'a>(pte: &'a Pte, level: PagingLevel) -> (res: ChildRef<'a>)
         requires
-            pte.wf(),
-            pte.wf_with_node_level(level),
+            pte.wf(level),
             1 <= level <= 4,
         ensures
             res.wf(),
-            res.wf_ref_from_pte(*pte, level, clone_raw),
-            !clone_raw ==> !(res is PageTable),
-            res is Frame ==> res->Frame_1 == level,
+            res.wf_from_pte(*pte, level),
     {
-        if !pte.inner.is_present() {
-            let paddr = pte.inner.paddr();
-            if paddr == 0 {
-                return Child::None;
-            } else {
-                // SAFETY: The physical address is written as a valid status.
-                // return Child::Status(unsafe { Status::from_raw_inner(paddr) });
-                return Child::Unimplemented;
-            }
-        }
         let paddr = pte.inner.paddr();
-
-        if !pte.inner.is_last(level) {
-            if clone_raw {
-                // SAFETY: The physical address is valid and the PTE already owns
-                // the reference to the page.
-                // unsafe { inc_frame_ref_count(paddr) };
-                // SAFETY: The physical address points to a valid page table node
-                // at the given level.
-                // let pt = unsafe { PageTableNode::from_raw(paddr) };
-                let pt = PageTableNode::from_raw(paddr, Ghost(pte.nid()), Ghost(pte.inst_id()));
-                // debug_assert_eq!(pt.level(), level - 1);
-                assert(pte.inst@ is Some);
-                assert(pte.nid@ is Some);
-                return Child::PageTable(pt, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
-            } else {
-                assert(pte.inst@ is Some);
-                assert(pte.nid@ is Some);
-                return Child::PageTableRef(paddr, Tracked(pte.tracked_inst()), Ghost(pte.nid()));
-            }
+        if !pte.inner.is_present() && paddr == 0 {
+            return ChildRef::None;
         }
-        Child::Frame(pte.inner.paddr(), level, pte.inner.prop())
+        if pte.inner.is_present() && !pte.inner.is_last(level) {
+            let node = PageTableNodeRef::borrow_paddr(
+                paddr,
+                Ghost(pte.nid()),
+                Ghost(pte.inst_id()),
+                Ghost((level - 1) as PagingLevel),
+            );
+            return ChildRef::PageTable(node);
+        }
+        let res = ChildRef::Frame(paddr, level, pte.inner.prop());
+        proof {
+            res.axiom_no_huge_page();
+        }
+        res
     }
 }
 
