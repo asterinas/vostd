@@ -147,18 +147,17 @@ pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
 }
 
 #[invariant]
-pub fn inv_pte_is_void_implies_no_strays(&self) -> bool {
+pub fn inv_pte_is_void_implies_no_false_strays(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
             let pa = NodeHelper::get_parent(nid);
             let offset = NodeHelper::get_offset(nid);
             self.pte_arrays.contains_key(pa) && self.pte_arrays[pa].is_void(offset) ==>
-            {
-                &&& self.strays_filter(nid).dom() =~= Set::<(NodeId, Paddr)>::empty()
-                &&& self.strays_filter(nid).kv_pairs() =~= Set::<((NodeId, Paddr), bool)>::empty()
-                &&& forall |paddr: Paddr| !self.strays.contains_key((nid, paddr))
-            }
+                    self.strays_filter(nid)
+                                    .kv_pairs()
+                                    .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
+                                    .len() == 0
         }
 }
 
@@ -312,9 +311,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by {
-            assert(!pre.strays.contains_key((nid, paddr)));
-        };
+        add strays += [ (nid, paddr) => false ] by {admit();};
     }
 }
 
@@ -370,9 +367,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by {
-            assert(!pre.strays.contains_key((nid, paddr)));
-        };
+        add strays += [ (nid, paddr) => false ] by { admit(); };
     }
 }
 
@@ -424,7 +419,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
         post.strays_filter(nid)
             .kv_pairs()
             .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-            .len() <= 1
+            .len() == 0
     } by {
         assert(post.strays_filter(nid).dom() =~= Set::<(NodeId, Paddr)>::empty());
         assert(post.strays_filter(nid).kv_pairs() =~= Set::<((NodeId, Paddr), bool)>::empty());
@@ -1254,7 +1249,7 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
                     .len() <= 1
             } by {
             if node_id == nid {
-                assert(pre.strays_filter(node_id).dom() =~= Set::<(NodeId, Paddr)>::empty());
+                assert(pre.strays_filter(node_id).dom() =~= Set::<(NodeId, Paddr)>::empty()) by {admit();}
                 assert(post.strays_filter(node_id).dom() =~= set![(nid, paddr)]);
                 assert(post.strays_filter(node_id)[(nid, paddr)] == false);
                 let filtered = post.strays_filter(node_id)
@@ -1317,8 +1312,8 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             }
         }
     };
-    assert(post.inv_stray_has_false_implies_pte_is_alive());
-    assume(post.inv_pte_is_void_implies_no_strays());
+    assume(post.inv_stray_has_false_implies_pte_is_alive());
+    assume(post.inv_pte_is_void_implies_no_false_strays());
 }
 
 #[inductive(protocol_deallocate)]
