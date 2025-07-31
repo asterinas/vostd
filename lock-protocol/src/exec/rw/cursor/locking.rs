@@ -76,7 +76,6 @@ pub fn lock_range<'a>(
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
     }
-
     let mut cur_wlock_opt: Option<PageTableWriteLock> = None;
     while cur_pt.deref().level() > 1
         invariant_except_break
@@ -92,6 +91,7 @@ pub fn lock_range<'a>(
                 |i| va_level_to_nid(va.start, (4 - i) as PagingLevel),
             ),
             cur_pt.wf(),
+            cur_pt.deref().inst@.id() == pt.inst@.id(),
             cur_nid == cur_pt.deref().nid@,
             cur_nid == va_level_to_nid(va.start, cur_pt.deref().level_spec()),
             cur_pt.deref().level_spec() >= va_range_get_guard_level(*va),
@@ -125,6 +125,7 @@ pub fn lock_range<'a>(
                 |i| va_level_to_nid(va.start, (4 - i) as PagingLevel),
             ),
             cur_pt.wf(),
+            cur_pt.deref().inst@.id() == pt.inst@.id(),
             cur_nid == cur_pt.deref().nid@,
             cur_nid == va_level_to_nid(va.start, cur_pt.deref().level_spec()),
             cur_pt.deref().level_spec() == va_range_get_guard_level(*va),
@@ -158,12 +159,11 @@ pub fn lock_range<'a>(
             lemma_va_range_get_guard_level_implies_offsets_equal(*va);
         };
 
-        // proof {
-        //     assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id()) by {
-        //         reveal(NodeHelper::trace_to_nid_rec);
-        //     };
-        //     lemma_wf_tree_path_inc(m.path(), cur_pt.nid@);
-        // }
+        proof {
+            assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id()) by {
+                reveal(NodeHelper::trace_to_nid_rec);
+            };
+        }
         let res = cur_pt.clone_ref().lock_read(guard, Tracked(m));
         let mut cur_pt_rlockguard = res.0;
         proof {
@@ -239,7 +239,7 @@ pub fn lock_range<'a>(
                             &mut cur_pt_wlockguard, 
                             Tracked(&m),
                         ).unwrap();
-                        let cur_pt = wguard.as_ref();
+                        let nxt_pt = wguard.as_ref();
                         // This is implicitly write locked. Don't drop (unlock) it.
                         let _ = ManuallyDrop::new(wguard);
                         // Downgrade to read lock.
@@ -253,6 +253,7 @@ pub fn lock_range<'a>(
                             m = res.1.get();
                         }
                         path[cur_level as usize - 1] = GuardInPath::Read(cur_pt_rlockguard);
+                        cur_pt = nxt_pt;
                         proof {
                             cur_nid = nxt_nid;
                         }
