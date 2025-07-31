@@ -144,7 +144,6 @@ proof fn lemma_aligned_identity(x: u64, align_: u64)
 pub fn align_down(x: usize, align: usize) -> (res: usize)
     requires
         is_power_2(align as int),
-        x < usize::MAX as u64 - align,
         align < u64::MAX as usize,
     ensures
         res > x - align,

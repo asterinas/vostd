@@ -25,7 +25,7 @@ use vstd_extra::extra_num::{
 
 use super::{
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token,
-    Paddr, PagingLevel, Vaddr, NR_ENTRIES,
+    page_size_spec, lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
 
 use crate::exec;
@@ -655,7 +655,37 @@ proof fn lemma_add_page_size_change_pte_index<C: PagingConstsTrait>(
     admit();
 }
 
+proof fn lemma_sub_mod_div_same(a: usize, d: usize)
+    requires
+        a >= 0,
+        d > 0,
+    ensures
+        0 <= a / d == ((a - (a % d)) as usize) / d <= a,
+{
+    admit();
+}
+
+proof fn lemma_usize_shr_is_div(x: usize, shift: int)
+    requires
+        0 <= shift < usize::BITS,
+    ensures
+        x >> shift == x / (pow2(shift as nat) as usize),
+{
+    // Proof idea is to use u64 as a bridge
+    assert(usize::MAX <= u64::MAX);
+    assert(usize::BITS <= u64::BITS < u64::MAX);
+    // Since usize <= u64, we can cast x and shift to u64 without overflow
+    assert(0 <= x <= u64::MAX);
+    assert(0 <= shift <= u64::MAX);
+    let x_ = x as u64;
+    let shift_ = shift as u64;
+    lemma_u64_shr_is_div(x_, shift_);
+    admit();
+}
+
 proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= C::NR_LEVELS_SPEC(),
     ensures
         forall|l: PagingLevel|
             level <= l <= C::NR_LEVELS_SPEC() ==> #[trigger] pte_index::<C>(x, l) == pte_index::<C>(
@@ -663,7 +693,46 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
                 l,
             ),
 {
-    admit();
+    assert forall|l: PagingLevel| level <= l <= C::NR_LEVELS_SPEC() implies #[trigger]
+        pte_index::<C>(x, l) == pte_index::<C>(align_down(x, page_size::<C>(l)), l)
+    by {
+        // The page size
+        let pg_size = page_size_spec::<C>(l);
+        lemma_page_size_spec_properties::<C>(l);
+        // The values used in pte_index_spec
+        let base_bits = C::BASE_PAGE_SIZE_SPEC().ilog2();
+        let index_bits = nr_pte_index_bits::<C>();
+        C::lemma_consts_properties();
+        assert((base_bits + (l - 1) as u32 * index_bits as u32) < usize::BITS) by {
+            assert(base_bits + index_bits * C::NR_LEVELS() < usize::BITS);
+            assert(index_bits >= 0);
+            assert(base_bits + (l - 1) * index_bits <= base_bits + index_bits * C::NR_LEVELS())
+                by (nonlinear_arith)
+                requires
+                    1 <= l <= C::NR_LEVELS(),
+                    index_bits >= 0,
+            ;
+            assert(base_bits + (l - 1) * index_bits < usize::BITS);
+        }
+        assert(base_bits + (l - 1) as u32 * index_bits as u32 == base_bits + index_bits as u32 * (l - 1) as u32) by (nonlinear_arith);
+        // The shift local var in both pte_index calls
+        let shift = base_bits + (l - 1) as u32 * index_bits as u32;
+        assert(shift < usize::BITS);
+        assert(shift as nat == (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+            l - 1)));
+        assert(pg_size == pow2(shift as nat) as usize);
+        // Precondition for align_down
+        assert(is_power_2(pg_size as int));
+        assert(pg_size < usize::MAX);
+        let aligned_x = align_down(x, pg_size);
+        // Then, the property of align_down shows that aligned_x == x - (x % pg_size).
+        assert(aligned_x == (x - (x % pg_size)) as usize);
+        // This lemma gives x / pg_size == aligned_x / pg_size
+        lemma_sub_mod_div_same(x, pg_size);
+        // Show that division by pg_size is shr by shift
+        lemma_usize_shr_is_div(x, shift);
+        lemma_usize_shr_is_div(aligned_x, shift);
+    }
 }
 
 /// A handle to a page table.
