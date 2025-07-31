@@ -14,7 +14,7 @@ use crate::{
 
 use vstd::prelude::*;
 use vstd::{
-    arithmetic::{div_mod::{lemma_div_non_zero, lemma_div_nonincreasing}, logarithm::*, power::pow, power2::*},
+    arithmetic::{div_mod::*, logarithm::*, power::pow, power2::*},
     bits::*,
     layout::is_power_2,
 };
@@ -662,7 +662,15 @@ proof fn lemma_sub_mod_div_same(a: usize, d: usize)
     ensures
         0 <= a / d == ((a - (a % d)) as usize) / d <= a,
 {
-    admit();
+    // int versions of a and d
+    let ai = a as int;
+    let di = d as int;
+    // First, prove the two inequalities
+    assert(a / d == ai / di);
+    lemma_div_pos_is_pos(ai, di);
+    lemma_div_nonincreasing(ai, di);
+    assert(0 <= a / d <= a);
+    assume(a / d == ((a - (a % d)) as usize) / d);
 }
 
 proof fn lemma_usize_shr_is_div(x: usize, shift: int)
