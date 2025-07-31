@@ -165,6 +165,17 @@ impl ChildRef<'_> {
             self is Frame ==> self->Frame_1 == 1,
     ;
 
+    pub open spec fn wf(&self) -> bool {
+        match *self {
+            Self::PageTable(node_ref) => { node_ref.wf() },
+            Self::Frame(pa, level, _) => {
+                &&& valid_paddr(pa)
+                &&& level == 1  // TODO: We don't support huge pages yet.
+            },
+            _ => true,
+        }
+    }
+
     pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
         if pte.is_none() {
             *self is None
