@@ -487,8 +487,8 @@ fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -608,7 +608,7 @@ fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_pt_node_pte_relationship()) by {
         assert(post.pte_arrays == pre.pte_arrays);
         assert forall |node_id: NodeId|
-            (NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
                 post.nodes.dom().contains(node_id) <==> {
                     let pa = NodeHelper::get_parent(node_id);
                     let offset = NodeHelper::get_offset(node_id);
@@ -637,8 +637,8 @@ fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -741,8 +741,8 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -792,8 +792,8 @@ fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -870,8 +870,8 @@ fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -960,7 +960,7 @@ fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_pt_node_pte_relationship()) by {
         assert(post.pte_arrays == pre.pte_arrays);
         assert forall |node_id: NodeId|
-            (NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
                 post.nodes.dom().contains(node_id) <==> {
                     let pa = NodeHelper::get_parent(node_id);
                     let offset = NodeHelper::get_offset(node_id);
@@ -987,8 +987,8 @@ fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -1103,8 +1103,8 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -1156,8 +1156,8 @@ fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     assert(post.inv_non_overlapping()) by {
         assert forall |cpu1: CpuId, cpu2: CpuId|
             (cpu1 != cpu2 &&
-            post.cursors.dom().contains(cpu1) &&
-            post.cursors.dom().contains(cpu2) &&
+            #[trigger] post.cursors.dom().contains(cpu1) &&
+            #[trigger] post.cursors.dom().contains(cpu2) &&
             post.cursors[cpu1] is Locked &&
             post.cursors[cpu2] is Locked) implies {
             let nid1 = post.cursors[cpu1]->Locked_0;
@@ -1227,7 +1227,7 @@ fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {
     // inv_pt_node_pte_relationship: unchanged pte_arrays, node nid changes from Free to LockedOutside
     assert(post.inv_pt_node_pte_relationship()) by {
         assert forall |node_id: NodeId|
-            (NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
                 post.nodes.dom().contains(node_id) <==> {
                     let pa = NodeHelper::get_parent(node_id);
                     let offset = NodeHelper::get_offset(node_id);
@@ -1289,7 +1289,7 @@ fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {
     // inv_pt_node_pte_relationship: unchanged pte_arrays, node nid changes from LockedOutside to Free
     assert(post.inv_pt_node_pte_relationship()) by {
         assert forall |node_id: NodeId|
-            (NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
                 post.nodes.dom().contains(node_id) <==> {
                     let pa = NodeHelper::get_parent(node_id);
                     let offset = NodeHelper::get_offset(node_id);
