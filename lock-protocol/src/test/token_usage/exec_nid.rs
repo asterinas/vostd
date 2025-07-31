@@ -1,5 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
 use vstd::prelude::*;
 
 use super::super::super::spec::{utils::*, common::*};

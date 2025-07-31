@@ -1,6 +1,6 @@
 // Copied from vstd
 use core::marker::PhantomData;
-use state_machines_macros::tokenized_state_machine;
+use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 use vstd::atomic_ghost::*;
 use vstd::invariant::InvariantPredicate;

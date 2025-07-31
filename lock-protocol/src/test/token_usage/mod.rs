@@ -4,9 +4,7 @@ mod spin_lock;
 
 use std::collections::HashMap;
 
-use builtin::*;
-use builtin_macros::*;
-use state_machines_macros::tokenized_state_machine;
+use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 use vstd::hash_map::*;
 use vstd::tokens::*;

@@ -1,8 +1,8 @@
 use vstd::prelude::*;
 use vstd::map::*;
 
-use state_machines_macros::case_on_init;
-use state_machines_macros::case_on_next;
+use verus_state_machines_macros::case_on_init;
+use verus_state_machines_macros::case_on_next;
 
 use crate::spec::{common::*, utils::*};
 

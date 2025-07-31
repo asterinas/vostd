@@ -1,6 +1,3 @@
-use builtin::*;
-use builtin_macros::*;
-
 use super::super::super::spec::{common::*, utils::*};
 
 verus! {

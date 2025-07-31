@@ -1,4 +1,4 @@
-use state_machines_macros::state_machine;
+use verus_state_machines_macros::state_machine;
 use vstd::prelude::*;
 use vstd::map::*;
 

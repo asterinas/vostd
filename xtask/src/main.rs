@@ -491,8 +491,6 @@ lazy_static! {
     static ref SYSTEM_CRATES: HashSet<&'static str> = {
         let mut set = HashSet::new();
         set.insert("vstd");
-        set.insert("builtin");
-        set.insert("builtin_macros");
         set
     };
 }
@@ -773,18 +771,7 @@ fn exec_doc(args: &DocArgs) -> Result<(), DynError> {
             ))
             .arg("--extern")
             .arg(format!(
-                "builtin={}/target-verus/debug/libbuiltin.rlib",
-                verus_root.display()
-            ))
-            .arg("--extern")
-            .arg(format!(
-                "builtin_macros={}/target-verus/debug/libbuiltin_macros.{}",
-                verus_root.display(),
-                dll_ext
-            ))
-            .arg("--extern")
-            .arg(format!(
-                "state_machines_macros={}/target-verus/debug/libstate_machines_macros.{}",
+                "verus_state_machines_macros={}/target-verus/debug/lib_verus_state_machines_macros.{}",
                 verus_root.display(),
                 dll_ext
             ))

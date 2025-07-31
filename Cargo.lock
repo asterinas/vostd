@@ -6,7 +6,6 @@ version = 4
 name = "aster_common"
 version = "0.1.0"
 dependencies = [
- "builtin_macros",
  "vstd",
  "vstd_extra",
 ]
@@ -16,22 +15,6 @@ name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
-name = "builtin"
-version = "0.1.0"
-
-[[package]]
-name = "builtin_macros"
-version = "0.1.0"
-dependencies = [
- "prettyplease_verus",
- "proc-macro2",
- "quote",
- "syn",
- "syn_verus",
- "synstructure",
-]
 
 [[package]]
 name = "fvt1-mem-region-init"
@@ -68,8 +51,6 @@ dependencies = [
 name = "fvt3-page-acquisition-safety"
 version = "0.1.0"
 dependencies = [
- "builtin",
- "builtin_macros",
  "num-derive",
  "num-traits",
  "vstd",
@@ -79,8 +60,6 @@ dependencies = [
 name = "fvt4-into-from-raw"
 version = "0.1.0"
 dependencies = [
- "builtin",
- "builtin_macros",
  "num-derive",
  "num-traits",
  "vstd",
@@ -144,14 +123,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prettyplease_verus"
-version = "0.2.29"
-dependencies = [
- "proc-macro2",
- "syn_verus",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,29 +141,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "state_machines_macros"
-version = "0.1.0"
-dependencies = [
- "indexmap",
- "proc-macro2",
- "quote",
- "syn_verus",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17b6f705963418cdb9927482fa304bc562ece2fdd4f616084c50b7023b435a40"
-dependencies = [
- "proc-macro2",
- "quote",
- "unicode-ident",
-]
-
-[[package]]
-name = "syn_verus"
-version = "2.0.96"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -223,19 +175,60 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
+name = "verus_builtin"
+version = "0.1.0"
+
+[[package]]
+name = "verus_builtin_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+ "synstructure",
+ "verus_prettyplease",
+ "verus_syn",
+]
+
+[[package]]
+name = "verus_prettyplease"
+version = "0.2.29+verus"
+dependencies = [
+ "proc-macro2",
+ "verus_syn",
+]
+
+[[package]]
+name = "verus_state_machines_macros"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "proc-macro2",
+ "quote",
+ "verus_syn",
+]
+
+[[package]]
+name = "verus_syn"
+version = "2.0.96+verus"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "vstd"
 version = "0.1.0"
 dependencies = [
- "builtin",
- "builtin_macros",
- "state_machines_macros",
+ "verus_builtin",
+ "verus_builtin_macros",
+ "verus_state_machines_macros",
 ]
 
 [[package]]
 name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
- "builtin",
- "builtin_macros",
  "vstd",
 ]

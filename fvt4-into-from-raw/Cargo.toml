@@ -10,8 +10,6 @@ rustc = []
 
 [dependencies]
 vstd ={ path = "../tools/verus/source/vstd" }
-builtin ={ path = "../tools/verus/source/builtin" }
-builtin_macros ={ path = "../tools/verus/source/builtin_macros" }
 num-derive = { version = "*", default-features = false }
 num-traits = { version = "*", default-features = false }
 

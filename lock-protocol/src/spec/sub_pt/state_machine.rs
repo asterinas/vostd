@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use state_machines_macros::*;
+use verus_state_machines_macros::*;
 use vstd::prelude::*;
 
 use crate::mm::allocator::pa_is_valid_kernel_address;
