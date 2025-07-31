@@ -872,6 +872,18 @@ fn dfs_release_lock<'rcu>(
                             NodeHelper::lemma_last_child_next_outside_subtree(cur_node.nid());
                         }
                     };
+                    assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), nid)) by {
+                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                        );
+                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), nid);
+                        NodeHelper::lemma_in_subtree_is_child_in_subtree(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                            nid,
+                        );
+                    };
                     let tracked res = inst.clone().protocol_unlock_skip(
                         m.cpu,
                         nid,

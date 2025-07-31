@@ -277,9 +277,9 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
-
         remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
         require(_nid == NodeHelper::next_outside_subtree(nid));
+        require(rt <= nid);
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have pte_arrays >= [ pa => let pte_array ];
