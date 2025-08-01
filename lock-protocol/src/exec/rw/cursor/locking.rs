@@ -70,7 +70,7 @@ pub fn lock_range<'a>(
         assert(m.state() is ReadLocking);
     }
     proof {
-        assert(cur_nid == va_level_to_nid(va.start, level)) by {
+        assert(cur_nid == va_level_to_nid(va.start, cur_pt.deref().level_spec())) by {
             reveal(NodeHelper::trace_to_nid_rec);
         };
         lemma_va_range_get_guard_level(*va);
