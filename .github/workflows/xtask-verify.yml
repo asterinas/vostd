@@ -29,7 +29,7 @@ jobs:
 
       - name: Run verification
         run: |
-          make 2>&1 | tee verus.log
+          VOSTD_VERIFY_PARALLEL=1 make 2>&1 | tee verus.log
           if grep -q "error:" verus.log; then
             echo "::error title=Verification Failed::Verification errors found in the code"
             echo "Verification errors:"

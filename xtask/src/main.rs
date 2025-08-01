@@ -370,6 +370,11 @@ struct VerifyArgs {
     help = "Count the number of lines of code",
     default_value = "false", action = ArgAction::SetTrue)]
     count_line: bool,
+
+    #[arg(short = 'p', long = "parallel",
+    help = "Run verification in parallel",
+    default_value = "false", action = ArgAction::SetTrue)]
+    parallel: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -435,7 +440,7 @@ fn target_parser(s: &str) -> Result<String, String> {
     }
 }
 
-type DynError = Box<dyn std::error::Error>;
+type DynError = Box<dyn std::error::Error + Send + Sync>;
 
 fn crate_type(target: &str) -> (PathBuf, &str) {
     let target_root = Path::new(&target).join("src");
@@ -556,56 +561,85 @@ fn get_dependency(target: &String) -> Vec<(String, PathBuf)> {
 }
 
 fn exec_verify(args: &VerifyArgs) -> Result<(), DynError> {
-    let targets = &args.targets;
+    if args.parallel && args.count_line {
+        return Err("`--parallel` and `--count-line` cannot be used together".into());
+    }
+
     let verus = get_verus();
     let z3 = get_z3();
-    let mut imports = HashSet::new();
-    imports.extend(args.imports.iter().map(|s| s.as_str()));
+    let imports: HashSet<_> = args.imports.iter().map(|s| s.as_str()).collect();
 
-    for target in targets {
-        let (target_file, crate_type) = crate_type(target);
-        let cmd = &mut Command::new(&verus);
-        cmd.env("VERUS_PATH", &verus).env("VERUS_Z3_PATH", &z3);
+    let results: Result<Vec<_>, DynError> = if args.parallel {
+        args.targets
+            .par_iter()
+            .map(|target| verify_single_target(target, &verus, &z3, &imports, args))
+            .collect()
+    } else {
+        args.targets
+            .iter()
+            .map(|target| verify_single_target(target, &verus, &z3, &imports, args))
+            .collect()
+    };
 
-        let deps = get_dependency(target);
-        let mut target_import = HashSet::new();
-        target_import.extend(imports.clone());
-        target_import.extend(deps.iter().map(|(name, _)| name.as_str()));
-        push_imports(cmd, target_import.iter().cloned().collect());
+    results?;
+    Ok(())
+}
 
-        if args.log {
-            cmd.arg("--log-all");
-        }
-        if args.emit_dep_info || args.count_line {
-            cmd.arg("--emit=dep-info");
-        }
-        cmd.arg(target_file)
-            .arg(format!("--crate-type={}", crate_type))
-            .arg("--expand-errors")
-            .arg(format!("--multiple-errors={}", args.max_errors))
-            .args(&args.pass_through)
-            .arg("--")
-            .arg("-C")
-            .arg(format!("metadata={}", target))
-            .stdout(Stdio::inherit());
+fn verify_single_target(
+    target: &String,
+    verus: &PathBuf,
+    z3: &PathBuf,
+    imports: &HashSet<&str>,
+    args: &VerifyArgs,
+) -> Result<(), DynError> {
+    let (target_file, crate_type) = crate_type(target);
+    let mut cmd = Command::new(verus);
+    cmd.env("VERUS_PATH", verus).env("VERUS_Z3_PATH", z3);
 
-        println!("Verifying target: {}\n{:?}", target, cmd);
-        cmd.status()?;
+    let deps = get_dependency(target);
+    let mut target_import: HashSet<_> = imports.clone();
+    target_import.extend(deps.iter().map(|(name, _)| name.as_str()));
+    push_imports(&mut cmd, target_import.iter().cloned().collect());
 
-        if args.count_line {
-            let dependency_file = env::current_dir()?.join("lib.d");
-            let verus_root = get_verus_root();
-            let line_count_dir = verus_root.join("tools/line_count");
-            env::set_current_dir(&line_count_dir)?;
-            let mut cargo_cmd = Command::new("cargo");
-            cargo_cmd
-                .arg("run")
-                .arg("--release")
-                .arg(&dependency_file)
-                .arg("-p");
-            cargo_cmd.status()?;
-            fs::remove_file(&dependency_file)?;
-        }
+    if args.log {
+        cmd.arg("--log-all");
+    }
+    if args.emit_dep_info || args.count_line {
+        cmd.arg("--emit=dep-info");
+    }
+
+    cmd.arg(target_file)
+        .arg(format!("--crate-type={}", crate_type))
+        .arg("--expand-errors")
+        .arg(format!("--multiple-errors={}", args.max_errors))
+        .args(&args.pass_through)
+        .arg("--")
+        .arg("-C")
+        .arg(format!("metadata={}", target))
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    println!("Verifying target: {}", target);
+    let status = cmd.status()?;
+    if !status.success() {
+        return Err(format!("Target {} failed with status {}", target, status).into());
+    }
+
+    if args.count_line {
+        let verus_root = get_verus_root();
+        let line_count_dir = verus_root.join("tools/line_count");
+        let dependency_file = env::current_dir()?.join("lib.d");
+        env::set_current_dir(&line_count_dir)?;
+        let mut cargo_cmd = Command::new("cargo");
+        cargo_cmd
+            .arg("run")
+            .arg("--release")
+            .arg(&dependency_file)
+            .arg("-p");
+
+        println!("Counting lines for target: {}", target);
+        cargo_cmd.status()?;
+        fs::remove_file(&dependency_file)?;
     }
 
     Ok(())
