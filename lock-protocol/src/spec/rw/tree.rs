@@ -1133,7 +1133,7 @@ ensures
         };
 }
 
-proof fn lemma_inv_implies_inv_non_overlapping(&self)
+pub proof fn lemma_inv_implies_inv_non_overlapping(&self)
 requires
     self.inv_cursors(),
     self.inv_cursor_path_node_relation(),
