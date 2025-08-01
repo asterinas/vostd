@@ -88,7 +88,25 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                     AtomicCursorState::Locked(nid),
                 )
             );
-            admit();
+            assert forall |_cpu|
+                #[trigger] interp(pre).cursors.contains_key(_cpu) && 
+                interp(pre).cursors[_cpu] is Locked
+            implies {
+                let _nid = interp(pre).cursors[_cpu]->Locked_0;
+                !NodeHelper::in_subtree(nid, _nid) &&
+                !NodeHelper::in_subtree(_nid, nid)
+            } by {
+                let _nid = interp(pre).cursors[_cpu]->Locked_0;
+                assert(pre.cursors.contains_key(_cpu));
+                assert(pre.cursors[_cpu] is WriteLocked);
+                assert(pre.cursors[_cpu].get_write_lock_node() == _nid);
+                if _cpu != cpu {
+                    assert(post.cursors[_cpu] =~= pre.cursors[_cpu]);
+                    assert(post.inv_non_overlapping()) by {
+                        post.lemma_inv_implies_inv_non_overlapping();
+                    };
+                }
+            };
             AtomicSpec::show::lock(interp(pre), interp(post), cpu, nid);
         }
 
