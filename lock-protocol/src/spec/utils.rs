@@ -1728,6 +1728,19 @@ impl NodeHelper {
         Self::lemma_parent_child_algebraic_relation(nid, 511);
         Self::lemma_get_child_sound(nid, 511);
     }
+
+    pub proof fn lemma_brothers_have_different_offset(nid1: NodeId, nid2: NodeId)
+        requires
+            Self::valid_nid(nid1),
+            nid1 != Self::root_id(),
+            Self::valid_nid(nid2),
+            nid2 != Self::root_id(),
+            Self::get_parent(nid1) == Self::get_parent(nid2),
+        ensures
+            Self::get_offset(nid1) != Self::get_offset(nid2),
+    {
+        admit();
+    }
 }
 
 } // verus!

@@ -3,7 +3,7 @@ use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};
 use super::{types::*, wf_tree_path::*};
-use vstd::{set::*, set_lib::*, map_lib::*};
+use vstd::{set::*, seq::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 verus! {
@@ -48,6 +48,12 @@ pub fn inv_nodes(&self) -> bool {
     &&& forall |nid: NodeId| 
         #![trigger self.nodes.contains_key(nid)]
         self.nodes.contains_key(nid) ==> NodeHelper::valid_nid(nid)
+    &&& forall |nid: NodeId|
+        #![trigger self.nodes.contains_key(nid)]
+        self.nodes.contains_key(nid) && nid != NodeHelper::root_id() ==> {
+            let pa = NodeHelper::get_parent(nid);
+            self.nodes.contains_key(pa)
+        }
 }
 
 /// Every node has a corresponding pte array.
@@ -687,10 +693,377 @@ fn in_protocol_write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: Node
 fn in_protocol_write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(allocate)]
-fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    assert(post.inv_pte_arrays()) by {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        assert(NodeHelper::valid_nid(pa)) by {
+            NodeHelper::lemma_get_parent_sound(nid);
+        };
+        assert(0 <= offset < 512) by {
+            NodeHelper::lemma_get_offset_sound(nid);
+        };
+        assert forall |id|
+            #[trigger] post.pte_arrays.contains_key(id)
+        implies post.pte_arrays[id].wf()
+        by {
+            if id == pa {
+                assert(post.pte_arrays[id] =~= 
+                    pre.pte_arrays[id].update(offset, PteState::Alive)
+                );
+                assert(post.pte_arrays[id].wf());
+            } else if id != nid {
+                assert(pre.pte_arrays.contains_key(id));
+                assert(post.pte_arrays[id] =~= pre.pte_arrays[id]);
+                assert(pre.pte_arrays[id].wf());
+            } else {
+                assert(post.pte_arrays[id] =~= PteArrayState::empty());
+                assert(post.pte_arrays[id].wf());
+            }
+        };
+    };
+    assert(post.inv_cursor_path_node_relation()) by {
+        assert forall |cpu|
+            post.cursors.contains_key(cpu)
+        implies {
+            let path = post.cursors[cpu].get_path();
+            path.all(|nid| post.nodes.contains_key(nid))
+        } by {
+            let path = post.cursors[cpu].get_path();
+            assert(post.cursors[cpu] =~= pre.cursors[cpu]);
+            assert(path =~= pre.cursors[cpu].get_path());
+            assert(path.all(|nid| post.nodes.contains_key(nid))) by {
+                assert(pre.inv_cursor_path_node_relation());
+                assert(pre.cursors.contains_key(cpu));
+                assert(path.all(|nid| pre.nodes.contains_key(nid)));
+                assert(post.nodes.dom() =~= pre.nodes.dom().insert(nid));
+                assert(forall |id: NodeId|
+                    #[trigger] pre.nodes.contains_key(id) ==>
+                        post.nodes.contains_key(id)
+                );
+                assert forall |i|
+                    0 <= i < path.len()
+                implies post.nodes.contains_key(#[trigger] path[i])
+                by {
+                    assert(pre.nodes.contains_key(path[i])) by {
+                        lemma_seq_all_index(path, |nid| pre.nodes.contains_key(nid), i);
+                    };
+                };
+            };
+        };
+    };
+    assert(post.inv_node_pte_relation()) by {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        assert(NodeHelper::valid_nid(pa)) by {
+            NodeHelper::lemma_get_parent_sound(nid);
+        };
+        assert(0 <= offset < 512) by {
+            NodeHelper::lemma_get_offset_sound(nid);
+        };
+        assert forall |id: NodeId|
+            #[trigger] NodeHelper::valid_nid(id) && id != NodeHelper::root_id()
+        implies {
+            post.nodes.contains_key(id) <==> {
+                let pa = NodeHelper::get_parent(id);
+                let offset = NodeHelper::get_offset(id);
+
+                post.pte_arrays.contains_key(pa) &&
+                post.pte_arrays[pa].is_alive(offset)
+            }
+        } by {
+            let pa = NodeHelper::get_parent(id);
+            let offset = NodeHelper::get_offset(id);
+            assert(NodeHelper::valid_nid(pa)) by {
+                NodeHelper::lemma_get_parent_sound(id);
+            };
+            assert(0 <= offset < 512) by {
+                NodeHelper::lemma_get_offset_sound(id);
+            };
+            if id == nid {
+                assert(!pre.nodes.contains_key(id));
+                assert(post.nodes.contains_key(id));
+                assert(post.pte_arrays[pa] =~=
+                    pre.pte_arrays[pa].update(offset, PteState::Alive)
+                );
+            } else if pa == nid {} 
+            else {
+                assert(pre.nodes.contains_key(id) <==> {
+                    pre.pte_arrays.contains_key(pa) &&
+                    pre.pte_arrays[pa].is_alive(offset)
+                });
+                assert(post.nodes.contains_key(id) <==>
+                    pre.nodes.contains_key(id)
+                );
+                assert(post.pte_arrays.contains_key(pa) <==>
+                    pre.pte_arrays.contains_key(pa)
+                );
+                if post.pte_arrays.contains_key(pa) {
+                    if pa == NodeHelper::get_parent(nid) {
+                        assert(offset != NodeHelper::get_offset(nid)) by {
+                            NodeHelper::lemma_brothers_have_different_offset(id, nid);
+                        };
+                        assert(post.pte_arrays[pa] =~= 
+                            pre.pte_arrays[pa].update(
+                                NodeHelper::get_offset(nid), 
+                                PteState::Alive,
+                            )
+                        );
+                        assert(post.pte_arrays[pa].inner[offset as int] =~=
+                            pre.pte_arrays[pa].inner[offset as int]
+                        ) by {
+                            axiom_seq_update_different(
+                                pre.pte_arrays[pa].inner,
+                                offset as int,
+                                NodeHelper::get_offset(nid) as int,
+                                PteState::Alive,
+                            );
+                        };
+                    } else {
+                        assert(post.pte_arrays[pa] =~= pre.pte_arrays[pa]);
+                    }
+                    assert(post.pte_arrays[pa].is_alive(offset) <==>
+                        pre.pte_arrays[pa].is_alive(offset)
+                    );
+                }
+            }
+        };
+    }
+    assert(post.inv_reader_counts_cursors_relation()) by {
+        assert(post.reader_counts[nid] == value_filter(
+            post.cursors,
+            |cursor: CursorState| cursor.hold_read_lock(nid),
+        ).len()) by {
+            assert forall |cpu|
+                #[trigger] post.cursors.contains_key(cpu)
+            implies !post.cursors[cpu].hold_read_lock(nid)
+            by {
+                assert(pre.cursors[cpu] =~= post.cursors[cpu]);
+                assert(!pre.cursors[cpu].hold_read_lock(nid)) by {
+                    assert(!pre.nodes.contains_key(nid));
+                    if pre.cursors[cpu].hold_read_lock(nid) {
+                        let path = pre.cursors[cpu].get_path();
+                        assert(path.contains(nid));
+                        let idx = choose |idx| 
+                            0 <= idx < path.len() && path[idx] == nid;
+                        assert(path[idx] == nid);
+                        assert(pre.nodes.contains_key(nid)) by {
+                            lemma_seq_all_index(
+                                path, 
+                                |nid| pre.nodes.contains_key(nid), 
+                                idx,
+                            );
+                        };
+                    }
+                }
+            };
+            let filtered_map = value_filter(
+                post.cursors,
+                |cursor: CursorState| cursor.hold_read_lock(nid),
+            );
+            assert(0 == filtered_map.len()) by {
+                if filtered_map.len() != 0 {
+                    let _cpu = filtered_map.dom().choose();
+                    assert(filtered_map.contains_key(_cpu));
+                    assert(filtered_map[_cpu].hold_read_lock(nid));
+                }
+            }
+        };
+    };
+    assert(post.inv_rw_lock()) by {
+        assert(post.inv_write_lock_cursors_subtree_locked()) by {
+            assert forall |_cpu|
+                #[trigger] post.cursors.contains_key(_cpu) &&
+                post.cursors[_cpu].hold_write_lock()
+            implies {
+                let sub_rt = post.cursors[_cpu].get_write_lock_node();
+                post.nodes[sub_rt] is WriteLocked &&
+                post.subtree_locked(sub_rt)
+            } by {
+                let sub_rt = post.cursors[_cpu].get_write_lock_node();
+                assert(post.nodes[sub_rt] is WriteLocked) by {
+                    if sub_rt == nid {
+                        assert(!pre.nodes.contains_key(nid));
+                        assert(pre.nodes.contains_key(sub_rt)) by {
+                            let path = pre.cursors[_cpu].get_path();
+                            lemma_seq_all_index(
+                                path,
+                                |nid| pre.nodes.contains_key(nid),
+                                path.len() - 1, 
+                            );
+                        };
+                    }
+                };
+            };
+        };
+    };
+}
 
 #[inductive(deallocate)]
-fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    assert(post.inv_pte_arrays()) by {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        assert(NodeHelper::valid_nid(pa)) by {
+            NodeHelper::lemma_get_parent_sound(nid);
+        };
+        assert(0 <= offset < 512) by {
+            NodeHelper::lemma_get_offset_sound(nid);
+        };
+        assert forall |id|
+            #[trigger] post.pte_arrays.contains_key(id)
+        implies post.pte_arrays[id].wf()
+        by {
+            if id == pa {
+                assert(post.pte_arrays[id] =~= 
+                    pre.pte_arrays[id].update(offset, PteState::None)
+                );
+                assert(post.pte_arrays[id].wf());
+            } else if id != nid {
+                assert(pre.pte_arrays.contains_key(id));
+                assert(post.pte_arrays[id] =~= pre.pte_arrays[id]);
+                assert(pre.pte_arrays[id].wf());
+            } else {
+                assert(post.pte_arrays.contains_key(id));
+            }
+        };
+    }
+    assert(post.inv_cursor_path_node_relation()) by {
+        assert forall |cpu|
+            post.cursors.contains_key(cpu)
+        implies {
+            let path = post.cursors[cpu].get_path();
+            path.all(|nid| post.nodes.contains_key(nid))
+        } by {
+            let path = post.cursors[cpu].get_path();
+            assert(post.cursors[cpu] =~= pre.cursors[cpu]);
+            assert(path =~= pre.cursors[cpu].get_path());
+            assert(path.all(|nid| post.nodes.contains_key(nid))) by {
+                assert(pre.inv_cursor_path_node_relation());
+                assert(pre.cursors.contains_key(cpu));
+                assert(path.all(|nid| pre.nodes.contains_key(nid)));
+                assert(post.nodes.dom() =~= pre.nodes.dom().remove(nid));
+                assert(forall |id: NodeId|
+                    #[trigger] pre.nodes.contains_key(id) && id != nid ==>
+                        post.nodes.contains_key(id)
+                );
+                assert forall |i|
+                    0 <= i < path.len()
+                implies post.nodes.contains_key(#[trigger] path[i])
+                by {
+                    assert(pre.nodes.contains_key(path[i])) by {
+                        lemma_seq_all_index(path, |nid| pre.nodes.contains_key(nid), i);
+                    };
+                    if path[i] == nid {
+                        assert(pre.nodes.contains_key(nid));
+                        assert(pre.nodes[nid] !is WriteLocked);
+                        assert(pre.reader_counts[nid] == 0);
+                        assert(pre.nodes[nid] is WriteUnLocked || pre.nodes[nid] is WriteLocked) by {
+                            if pre.cursors[cpu] is WriteLocked && i == path.len() - 1 {
+                                assert(pre.nodes[nid] is WriteLocked);
+                            } else {
+                                assert(pre.nodes[nid] is WriteUnLocked) by {
+                                    assert(pre.reader_counts[nid] > 0) by {
+                                        pre.lemma_inv_implies_inv_rc_positive();
+                                        let read_path = pre.cursors[cpu].get_read_lock_path();
+                                        assert(pre.rc_positive(read_path));
+                                        assert(0 <= i < read_path.len());
+                                        assert(read_path[i] == nid);
+                                        lemma_seq_all_index(
+                                            read_path,
+                                            |nid| pre.reader_counts[nid] > 0,
+                                            i,
+                                        );
+                                    };
+                                };
+                            }
+                        };
+                        assert(pre.nodes[nid] is WriteUnLocked ==>
+                            pre.reader_counts[nid] > 0
+                        );
+                    }
+                };
+            };
+        };
+    }
+    assert(post.inv_node_pte_relation()) by {
+        let pa = NodeHelper::get_parent(nid);
+        let offset = NodeHelper::get_offset(nid);
+        assert(NodeHelper::valid_nid(pa)) by {
+            NodeHelper::lemma_get_parent_sound(nid);
+        };
+        assert(0 <= offset < 512) by {
+            NodeHelper::lemma_get_offset_sound(nid);
+        };
+        assert forall |id: NodeId|
+            #[trigger] NodeHelper::valid_nid(id) && id != NodeHelper::root_id()
+        implies {
+            post.nodes.contains_key(id) <==> {
+                let pa = NodeHelper::get_parent(id);
+                let offset = NodeHelper::get_offset(id);
+
+                post.pte_arrays.contains_key(pa) &&
+                post.pte_arrays[pa].is_alive(offset)
+            }
+        } by {
+            let pa = NodeHelper::get_parent(id);
+            let offset = NodeHelper::get_offset(id);
+            assert(NodeHelper::valid_nid(pa)) by {
+                NodeHelper::lemma_get_parent_sound(id);
+            };
+            assert(0 <= offset < 512) by {
+                NodeHelper::lemma_get_offset_sound(id);
+            };
+            if id == nid {
+                assert(pre.nodes.contains_key(id));
+                assert(!post.nodes.contains_key(id));
+                assert(post.pte_arrays[pa] =~=
+                    pre.pte_arrays[pa].update(offset, PteState::None)
+                );
+            } else if pa == nid {} 
+            else {
+                assert(pre.nodes.contains_key(id) <==> {
+                    pre.pte_arrays.contains_key(pa) &&
+                    pre.pte_arrays[pa].is_alive(offset)
+                });
+                assert(post.nodes.contains_key(id) <==>
+                    pre.nodes.contains_key(id)
+                );
+                assert(post.pte_arrays.contains_key(pa) <==>
+                    pre.pte_arrays.contains_key(pa)
+                );
+                if post.pte_arrays.contains_key(pa) {
+                    if pa == NodeHelper::get_parent(nid) {
+                        assert(offset != NodeHelper::get_offset(nid)) by {
+                            NodeHelper::lemma_brothers_have_different_offset(id, nid);
+                        };
+                        assert(post.pte_arrays[pa] =~= 
+                            pre.pte_arrays[pa].update(
+                                NodeHelper::get_offset(nid), 
+                                PteState::None,
+                            )
+                        );
+                        assert(post.pte_arrays[pa].inner[offset as int] =~=
+                            pre.pte_arrays[pa].inner[offset as int]
+                        ) by {
+                            axiom_seq_update_different(
+                                pre.pte_arrays[pa].inner,
+                                offset as int,
+                                NodeHelper::get_offset(nid) as int,
+                                PteState::None,
+                            );
+                        };
+                    } else {
+                        assert(post.pte_arrays[pa] =~= pre.pte_arrays[pa]);
+                    }
+                    assert(post.pte_arrays[pa].is_alive(offset) <==>
+                        pre.pte_arrays[pa].is_alive(offset)
+                    );
+                }
+            }
+        };
+    }
+}
 
 proof fn lemma_valid_cpu_set_finite(cpu_num: CpuId)
 ensures
@@ -769,10 +1142,10 @@ requires
 ensures
     self.inv_non_overlapping(),
 {
-    assert forall |cpu1: CpuId, cpu2: CpuId| #![auto]
+    assert forall |cpu1: CpuId, cpu2: CpuId| 
         cpu1 != cpu2 &&
-        self.cursors.contains_key(cpu1) &&
-        self.cursors.contains_key(cpu2) &&
+        #[trigger] self.cursors.contains_key(cpu1) &&
+        #[trigger] self.cursors.contains_key(cpu2) &&
         self.cursors[cpu1].hold_write_lock() &&
         self.cursors[cpu2].hold_write_lock()
     implies {
