@@ -65,9 +65,13 @@ impl Cursor<'_> {
         &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
-                if level < self.guard_level {
-                    // TODO
+                if level < self.level {
                     self.path[level - 1] is Unlocked
+                } else if level < self.guard_level {
+                    &&& self.path[level - 1] is ImplicitWrite
+                    &&& self.path[level - 1]->ImplicitWrite_0.wf()
+                    &&& self.path[level - 1]->ImplicitWrite_0.inst_id() == self.inst@.id()
+                    &&& self.path[level - 1]->ImplicitWrite_0.guard->Some_0.in_protocol@ == true
                 } else if level == self.guard_level {
                     &&& self.path[level - 1] is Write
                     &&& self.path[level - 1]->Write_0.wf()
@@ -80,7 +84,36 @@ impl Cursor<'_> {
                 }
             }
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-        &&& self.unlock_level@ == self.guard_level
+        &&& self.unlock_level@ == self.level
+    }
+
+    // Used for `unlock_range`
+    pub open spec fn wf_unlocking(&self) -> bool {
+        &&& self.path@.len() == 4
+        &&& 1 <= self.level <= self.guard_level <= 4
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
+            1 <= level <= 4 ==> {
+                if level < self.unlock_level@ {
+                    self.path[level - 1] is Unlocked
+                } else if level < self.guard_level {
+                    &&& self.path[level - 1] is ImplicitWrite
+                    &&& self.path[level - 1]->ImplicitWrite_0.wf()
+                    &&& self.path[level - 1]->ImplicitWrite_0.inst_id() == self.inst@.id()
+                    &&& self.path[level - 1]->ImplicitWrite_0.guard->Some_0.in_protocol@ == true
+                } else if level == self.guard_level {
+                    &&& self.path[level - 1] is Write
+                    &&& self.path[level - 1]->Write_0.wf()
+                    &&& self.path[level - 1]->Write_0.inst_id() == self.inst@.id()
+                    &&& self.path[level - 1]->Write_0.guard->Some_0.in_protocol@ == false
+                } else {
+                    &&& self.path[level - 1] is Read
+                    &&& self.path[level - 1]->Read_0.wf()
+                    &&& self.path[level - 1]->Read_0.inst_id() == self.inst@.id()
+                }
+            }
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+        &&& self.level <= self.unlock_level@ <= 5
     }
 
     pub open spec fn wf_init(&self, va: Range<Vaddr>) -> bool
@@ -102,17 +135,32 @@ impl Cursor<'_> {
 
     pub open spec fn wf_with_lock_protocol_model(&self, m: LockProtocolModel) -> bool {
         &&& m.inst_id() == self.inst@.id()
-        &&& m.path().len() == 5 - self.unlock_level@
-        &&& forall|level: int|
-            #![trigger self.path[level - 1]]
-            self.unlock_level@ <= level <= 4 ==> {
-                &&& !(self.path[level - 1] is Unlocked)
-                &&& match self.path[level - 1] {
-                    GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
-                    GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
-                    GuardInPath::ImplicitWrite(wguard) => m.path()[4 - level] == wguard.nid(),
-                    GuardInPath::Unlocked => true,
+        &&& if self.unlock_level@ >= self.guard_level {
+            &&& m.path().len() == 5 - self.unlock_level@
+            &&& forall|level: int|
+                #![trigger self.path[level - 1]]
+                self.unlock_level@ <= level <= 4 ==> {
+                    &&& !(self.path[level - 1] is Unlocked)
+                    &&& match self.path[level - 1] {
+                        GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
+                        GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
+                        GuardInPath::ImplicitWrite(wguard) => true,
+                        GuardInPath::Unlocked => true,
+                    }
                 }
+            } else {
+                &&& m.path().len() == 5 - self.guard_level@
+                &&& forall|level: int|
+                    #![trigger self.path[level - 1]]
+                    self.guard_level@ <= level <= 4 ==> {
+                        &&& !(self.path[level - 1] is Unlocked)
+                        &&& match self.path[level - 1] {
+                            GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
+                            GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
+                            GuardInPath::ImplicitWrite(wguard) => true,
+                            GuardInPath::Unlocked => true,
+                        }
+                    }
             }
     }
 
@@ -127,6 +175,7 @@ impl Cursor<'_> {
             self.level == old(self).level,
             self.guard_level == old(self).guard_level,
             self.va =~= old(self).va,
+            self.barrier_va =~= old(self).barrier_va,
             self.inst@ =~= old(self).inst@,
             self.unlock_level@ == old(self).unlock_level@,
     {
