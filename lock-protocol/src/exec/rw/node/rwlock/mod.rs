@@ -1076,6 +1076,7 @@ impl PageTablePageRwLock {
         Tracked(m)
     }
 
+    #[verifier::external_body]
     #[verifier::exec_allows_no_decreases_clause]
     pub fn in_protocol_lock_write(
         &self,
@@ -1206,6 +1207,7 @@ impl PageTablePageRwLock {
         write_handle
     }
 
+    #[verifier::external_body]
     pub fn in_protocol_unlock_write(
         &self, 
         guard: RwWriteGuard, 
