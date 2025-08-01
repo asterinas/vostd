@@ -334,6 +334,19 @@ impl PageTableEntryPerms {
             }
     }
 
+    pub open spec fn relate_pte_state_except(
+        &self,
+        level: PagingLevel,
+        state: PteArrayState,
+        idx: nat,
+    ) -> bool {
+        forall|i: int|
+            #![trigger self.inner.value()[i].is_pt(level)]
+            0 <= i < 512 && i != idx ==> {
+                self.inner.value()[i].is_pt(level) <==> state.is_alive(i as nat)
+            }
+    }
+
     pub open spec fn relate_pte(&self, pte: Pte, idx: nat) -> bool {
         pte =~= self.inner.value()[idx as int]
     }
@@ -482,6 +495,21 @@ impl RwWriteGuard {
         &&& self.pte_array_token@.key() == rwlock.nid@
         &&& self.pte_array_token@.value().wf()
         &&& self.perms@.relate_pte_state(rwlock.level@, self.pte_array_token@.value())
+        &&& self.perms@.wf(rwlock.paddr@, rwlock.level@, rwlock.pt_inst@.id(), rwlock.nid@)
+        &&& self.perms@.addr() == paddr_to_vaddr(rwlock.paddr@)
+        &&& self.in_protocol@ <==> self.node_token@.value() is InProtocolWriteLocked
+    }
+
+    /// Used in PageTableGuard::write_pte
+    pub open spec fn wf_except(self, rwlock: &PageTablePageRwLock, idx: nat) -> bool {
+        &&& self.handle@.instance_id() == rwlock.inst@.id()
+        &&& self.node_token@.instance_id() == rwlock.pt_inst@.id()
+        &&& self.node_token@.key() == rwlock.nid@
+        &&& self.node_token@.value().is_write_locked()
+        &&& self.pte_array_token@.instance_id() == rwlock.pt_inst@.id()
+        &&& self.pte_array_token@.key() == rwlock.nid@
+        &&& self.pte_array_token@.value().wf()
+        &&& self.perms@.relate_pte_state_except(rwlock.level@, self.pte_array_token@.value(), idx)
         &&& self.perms@.wf(rwlock.paddr@, rwlock.level@, rwlock.pt_inst@.id(), rwlock.nid@)
         &&& self.perms@.addr() == paddr_to_vaddr(rwlock.paddr@)
         &&& self.in_protocol@ <==> self.node_token@.value() is InProtocolWriteLocked
