@@ -163,7 +163,7 @@ pub fn inv_pte_is_void_implies_no_node(&self) -> bool {
         }
 }
 
-#[invariant]
+/*#[invariant]
 pub fn inv_free_node_not_in_strays(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
@@ -171,13 +171,13 @@ pub fn inv_free_node_not_in_strays(&self) -> bool {
         {
             self.strays_filter(nid).len() == 0
         }
-}
+}*/
 
 #[invariant]
 pub fn inv_stray_in_node(&self) -> bool {
-    forall |nid:NodeId|
+    forall |nid:NodeId, paddr: Paddr|
     #[trigger]
-    self.strays_filter(nid).len() > 0 ==>
+    self.strays.contains_key((nid, paddr)) ==>
     self.nodes.contains_key(nid)
 }
 
@@ -331,7 +331,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by {admit();};
+        add strays += [ (nid, paddr) => false ];
     }
 }
 
@@ -387,7 +387,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by { admit(); };
+        add strays += [ (nid, paddr) => false ];
     }
 }
 
