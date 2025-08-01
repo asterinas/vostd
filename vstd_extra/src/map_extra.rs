@@ -223,12 +223,15 @@ pub proof fn lemma_value_filter_contains_key<K, V>(m: Map<K, V>, f: spec_fn(V) -
 pub broadcast proof fn lemma_value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool)
     requires
         value_filter(m, f).len() != 0,
-        value_filter(m, f).dom().finite(),
     ensures
         value_filter(m, f).contains_key(#[trigger] value_filter_choose(m, f)),
         f(m[value_filter_choose(m, f)]),
 {
-    axiom_set_choose_len(value_filter(m, f).dom());
+    if value_filter(m, f).dom().finite() {
+        axiom_set_choose_len(value_filter(m, f).dom());
+    } else {
+        axiom_set_choose_finite(value_filter(m, f).dom());
+    }
 }
 
 } // verus!
@@ -365,7 +368,23 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
 }
 
 pub open spec fn left_submap<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<(K1, K2), V> {
-    m.filter_keys(|pair| pair.0 == k1)
+    m.filter_keys(|pair: (K1, K2)| pair.0 == k1)
+}
+
+pub proof fn lemma_left_submap_value_filter_non_empty<K1, K2, V>(
+    m: Map<(K1, K2), V>,
+    k1: K1,
+    f: spec_fn(V) -> bool,
+)
+    requires
+        value_filter(left_submap(m, k1), f).len() != 0,
+    ensures
+        exists|k2: K2| #[trigger]
+            left_submap(m, k1).contains_key((k1, k2)) && f(left_submap(m, k1)[(k1, k2)]),
+{
+    lemma_value_filter_choose(left_submap(m, k1), f);
+    let pair = value_filter_choose(left_submap(m, k1), f);
+    assert(left_submap(m, k1).contains_key((k1, pair.1)) && f(left_submap(m, k1)[(k1, pair.1)]));
 }
 
 } // verus!
