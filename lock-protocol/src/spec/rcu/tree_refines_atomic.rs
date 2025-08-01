@@ -76,12 +76,59 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
 
         protocol_lock_end(cpu) => {
             let ghost rt = post.cursors[cpu]->Locked_0;
-            admit();
+            // broadcast use NodeHelper::lemma_in_subtree_iff_in_subtree_range;
+
+            // Prove that the interpreted cursors map is updated correctly
+            assert(
+                interp(post).cursors =~=
+                interp(pre).cursors.insert(
+                    cpu,
+                    AtomicCursorState::Locked(rt),
+                )
+            );
+
+            // Prove the non-overlapping condition for the atomic spec
+            assert(interp(pre).all_non_overlapping(rt)) by {
+                // Use the TreeSpec invariant directly
+                // The TreeSpec has inv_non_overlapping which ensures no two locked CPUs have overlapping subtrees
+                assert(forall |other_cpu: CpuId|
+                    interp(pre).cursors.dom().contains(other_cpu) &&
+                    interp(pre).cursors[other_cpu] is Locked ==> {
+                        let other_nid = interp(pre).cursors[other_cpu]->Locked_0;
+                        !NodeHelper::in_subtree(rt, other_nid) &&
+                        !NodeHelper::in_subtree(other_nid, rt)
+                    }) by {
+
+                    // From the TreeSpec invariants and the relationship between concrete and abstract states
+                    // If interp(pre).cursors[other_cpu] is Locked, then pre.cursors[other_cpu] is also Locked
+                    // because only CursorState::Locked maps to AtomicCursorState::Locked
+
+                    // Use the TreeSpec's non-overlapping invariant:
+                    // Since we know rt will be locked (from transition postcondition),
+                    // and the invariant holds, rt doesn't overlap with existing locks
+
+                    // The key insight: we need to use that the TreeSpec maintains non-overlapping
+                    // between any potential lock (like rt) and existing locks
+                    admit();
+                }
+            };
+
             AtomicSpec::show::lock(interp(pre), interp(post), cpu, rt);
         }
 
         protocol_unlock_start(cpu) => {
-            admit();
+            // The TreeSpec transition changes cursor from Locked(rt) to Locking(rt, next)
+            // In the atomic interpretation, this is Locked(rt) to Void, which matches unlock
+
+            // Prove that the interpreted cursors map is updated correctly
+            assert(
+                interp(post).cursors =~=
+                interp(pre).cursors.insert(
+                    cpu,
+                    AtomicCursorState::Void,
+                )
+            );
+
             AtomicSpec::show::unlock(interp(pre), interp(post), cpu);
         }
 
@@ -101,8 +148,35 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         }
 
         protocol_allocate(nid, paddr) => {
-            assert(interp(pre).cursors =~= interp(post).cursors) by { admit(); };
-            admit();
+            // The protocol_allocate transition only modifies nodes, pte_arrays, and strays
+            // The cursors and cpu_num fields remain unchanged
+            assert(interp(pre).cpu_num == interp(post).cpu_num) by {
+                // cpu_num is a constant field in the state machine, so it's unchanged
+                admit();
+            };
+            assert(interp(pre).cursors =~= interp(post).cursors) by {
+                // Both interpreted cursor maps are constructed using Map::new with:
+                // - Same domain function: |cpu| valid_cpu(s.cpu_num, cpu)
+                // - Same value function: |cpu| interp_cursor_state(s.cursors[cpu])
+                // Since cpu_num and cursors are unchanged, the maps are identical
+
+                assert(forall |cpu: CpuId|
+                    #![auto]
+                    interp(pre).cursors.dom().contains(cpu) <==>
+                    interp(post).cursors.dom().contains(cpu)) by {
+                    // Both use valid_cpu(cpu_num, cpu) with same cpu_num
+                };
+
+                assert(forall |cpu: CpuId|
+                    #![auto]
+                    interp(pre).cursors.dom().contains(cpu) ==>
+                    interp(pre).cursors[cpu] == interp(post).cursors[cpu]) by {
+                    // Both use interp_cursor_state(cursors[cpu]) with same cursors map
+                    // We need to use the fact that pre.cursors[cpu] == post.cursors[cpu]
+                    // This follows from the transition semantics but needs explicit proof
+                    admit();
+                };
+            };
             AtomicSpec::show::no_op(interp(pre), interp(post));
         }
 
@@ -122,8 +196,18 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         }
 
         normal_allocate(nid, paddr) => {
-            assert(interp(pre).cursors =~= interp(post).cursors) by { admit(); };
-            admit();
+            // The normal_allocate transition only modifies nodes, pte_arrays, and strays
+            // The cursors and cpu_num fields remain unchanged
+            assert(pre.cpu_num == post.cpu_num) by {
+                // cpu_num is marked as #[sharding(constant)], so it's never modified
+                admit();
+            };
+            assert(pre.cursors =~= post.cursors) by {
+                // normal_allocate transition doesn't modify cursors field
+                // Only nodes, pte_arrays, and strays are modified
+                admit();
+            };
+            assert_maps_equal!(interp(pre).cursors, interp(post).cursors);
             AtomicSpec::show::no_op(interp(pre), interp(post));
         }
 
