@@ -179,7 +179,6 @@ impl<'g> Entry {
     ///
     /// If the old entry is not none, the operation will fail and return `None`.
     /// Otherwise, the lock guard of the new child page table node is returned.
-    #[verifier::external_body]
     pub fn alloc_if_none(
         &mut self,
         guard: &'g (),
@@ -220,8 +219,23 @@ impl<'g> Entry {
         let mut lock_guard = node.guard.take().unwrap();
         let tracked node_token = lock_guard.node_token.get();
         let tracked pte_array_token = lock_guard.pte_array_token.get();
+        assert(node_token.value().is_write_locked());
+        assert(pte_array_token.value().is_void(self.idx as nat));
+        assert(cur_nid != NodeHelper::root_id()) by {
+            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
+        };
+        assert(NodeHelper::valid_nid(cur_nid)) by {
+            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+        };
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
+        assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
+        };
         let res = PageTableNode::alloc(
             level - 1,
             Ghost(cur_nid),
@@ -246,6 +260,10 @@ impl<'g> Entry {
         );
 
         // We the child is implicitly write locked because the parent is write locked.
+        assert(node.nid() == NodeHelper::get_parent(pt_ref.nid@)) by {
+            assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
+            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
+        };
         let pt_lock_guard = pt_ref.make_write_guard_unchecked(
             guard,
             Tracked(m),
