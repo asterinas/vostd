@@ -312,6 +312,31 @@ pub fn unlock_range(
 {
     let tracked mut m = m.get();
 
+    let mut i = cursor.level;
+    let ghost level = cursor.level;
+    let ghost guard_level = cursor.guard_level;
+    while i < cursor.guard_level
+        invariant
+            cursor.level <= i <= cursor.guard_level,
+            m.inv(),
+            m.inst_id() == cursor.inst@.id(),
+            m.state() is WriteLocked,
+            cursor.wf_unlocking(),
+            cursor.wf_with_lock_protocol_model(m),
+            cursor.unlock_level@ == i,
+            cursor.level == level,
+            cursor.guard_level == guard_level,
+        decreases cursor.guard_level - i,
+    {
+        let GuardInPath::ImplicitWrite(guard) = cursor.take_guard(i as usize - 1) else {
+            unreached()
+        };
+        // This is implicitly write locked. Don't drop (unlock) it.
+        let _ = ManuallyDrop::new(guard);
+        i += 1;
+        cursor.unlock_level = Ghost(i);
+    }
+
     let guard_level = cursor.guard_level;
     let GuardInPath::Write(mut guard_node) = cursor.take_guard(guard_level as usize - 1) else {
         unreached()
@@ -329,9 +354,10 @@ pub fn unlock_range(
             i == cursor.unlock_level@,
             m.inv(),
             m.state() is ReadLocking,
-            cursor.inst@.cpu_num() == GLOBAL_CPU_NUM,
-            cursor.path@.len() == 4,
+            cursor.wf_unlocking(),
             cursor.wf_with_lock_protocol_model(m),
+            cursor.level == level,
+            cursor.guard_level == guard_level,
             forall|level: int|
                 #![trigger cursor.path@[level - 1] is Read]
                 i <= level <= 4 ==> {
@@ -351,12 +377,12 @@ pub fn unlock_range(
                 proof {
                     m = res.get();
                 }
-                cursor.unlock_level = Ghost((cursor.unlock_level@ + 1) as PagingLevel);
             },
             GuardInPath::Write(_) => unreached(),
             GuardInPath::ImplicitWrite(_) => unreached(),
         }
         i += 1;
+        cursor.unlock_level = Ghost(i);
     }
 
     proof {
