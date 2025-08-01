@@ -22,6 +22,7 @@ use walkdir::WalkDir;
 use owo_colors::{OwoColorize, Stream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
+use rayon::prelude::*;
 
 static VERUS_REPO: &str = "https://github.com/asterinas/verus.git";
 
@@ -301,7 +302,7 @@ enum Commands {
     Doc(DocArgs),
     Bootstrap(BootstrapArgs),
     Compile(CompileArgs),
-    Fmt,
+    Fmt(FmtArgs),
     Update(UpdateArgs),
 }
 
@@ -412,6 +413,14 @@ struct CompileArgs {
         allow_hyphen_values = true
     )]
     pass_through: Vec<String>,
+}
+
+#[derive(Parser, Debug)]
+struct FmtArgs {
+    #[arg(short = 't', long = "targets", value_parser = target_parser,
+        help = "The targets to format", num_args = 0..,
+        action = ArgAction::Append)]
+    targets: Vec<String>,
 }
 
 fn target_parser(s: &str) -> Result<String, String> {
@@ -894,7 +903,8 @@ fn compile_verus() -> Result<(), DynError> {
         let cmd = &mut get_powershell_command()?;
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("/c")
-            .arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
+            //.arg("& '..\\tools\\activate.ps1' ; vargo build --release --features singular");
+            .arg("& '..\\tools\\activate.ps1' ; vargo build --release");
         println!("{:?}", cmd);
         cmd.status()?;
     }
@@ -903,7 +913,9 @@ fn compile_verus() -> Result<(), DynError> {
         let cmd = &mut Command::new("bash");
         cmd.current_dir(Path::new("tools").join("verus").join("source"))
             .arg("-c")
-            .arg("source ../tools/activate && vargo build --release --features singular");
+            // We do not use the integer_ring feature yet
+            //.arg("source ../tools/activate && vargo build --release --features singular");
+            .arg("source ../tools/activate && vargo build --release");
         println!("{:?}", cmd);
         cmd.status()?;
     }
@@ -1033,16 +1045,18 @@ fn exec_update(args: &UpdateArgs) -> Result<(), DynError> {
     Ok(())
 }
 
-fn exec_fmt() -> Result<(), DynError> {
+fn exec_fmt(args: &FmtArgs) -> Result<(), DynError> {
     // do `cargo fmt` befor verusfmt
-    let status = Command::new("cargo")
-        .arg("fmt")
-        .status()
-        .expect("Failed to run cargo fmt");
-    if !status.success() {
-        eprintln!("Failed to run cargo fmt");
-        std::process::exit(1);
+    let mut cmd = Command::new("cargo");
+    cmd.arg("fmt");
+
+    if !args.targets.is_empty() {
+        for target in &args.targets {
+            cmd.arg("--package").arg(target);
+        }
     }
+
+    cmd.status().expect("Failed to run cargo fmt");
 
     // format the xtask build script
     let xtask = Path::new("xtask").join("src").join("main.rs");
@@ -1073,29 +1087,43 @@ fn exec_fmt() -> Result<(), DynError> {
         .exec()
         .expect("Failed to get cargo metadata");
 
-    for package in metadata.packages {
+    // Filter packages based on the provided targets
+    let fmt_packages = if args.targets.is_empty() {
+        metadata.packages
+    } else {
+        metadata
+            .packages
+            .into_iter()
+            .filter(|p| args.targets.contains(&p.name))
+            .collect::<Vec<_>>()
+    };
+
+    for package in fmt_packages {
         for target in package.targets {
             let path = target.src_path;
             let src_dir = path.parent().unwrap();
             // Just search for all `.rs` files in the src directory instead of chasing them
-            let files = WalkDir::new(src_dir).into_iter().filter_map(|entry| {
-                let path = entry.ok()?.path().to_path_buf();
-                if path.is_file() && path.extension().map_or(false, |ext| ext == "rs") {
-                    Some(path)
-                } else {
-                    None
-                }
-            });
-            for file in files {
-                println!("Formatting file: {}", &file.display());
-                let status = Command::new(&verusfmt)
-                    .arg(&file)
-                    .status()
-                    .expect("Failed to run verusfmt");
-                if !status.success() {
-                    eprintln!("Failed to format file: {}, skipping", &file.display());
-                }
-            }
+            WalkDir::new(src_dir)
+                .into_iter()
+                .filter_map(|entry| {
+                    let path = entry.ok()?.path().to_path_buf();
+                    if path.is_file() && path.extension().map_or(false, |ext| ext == "rs") {
+                        Some(path)
+                    } else {
+                        None
+                    }
+                })
+                .par_bridge()
+                .for_each(|file| {
+                    println!("Formatting file: {}", &file.display());
+                    let status = Command::new(&verusfmt)
+                        .arg(&file)
+                        .status()
+                        .expect("Failed to run verusfmt");
+                    if !status.success() {
+                        eprintln!("Failed to format file: {}, skipping", &file.display());
+                    }
+                });
         }
     }
     Ok(())
@@ -1111,7 +1139,7 @@ fn main() {
         Commands::Doc(args) => exec_doc(args),
         Commands::Bootstrap(args) => exec_bootstrap(args),
         Commands::Compile(args) => exec_compile(args),
-        Commands::Fmt => exec_fmt(),
+        Commands::Fmt(args) => exec_fmt(args),
         Commands::Update(args) => exec_update(args),
     } {
         eprintln!("Error: {}", e);
