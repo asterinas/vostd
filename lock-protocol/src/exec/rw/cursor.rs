@@ -56,7 +56,9 @@ impl Cursor {
         &&& self.path@.len() == 4
         &&& 1 <= self.level <= self.guard_level <= 4
         &&& forall|level: PagingLevel|
-            #![trigger self.path[level - 1]]
+            #![trigger self.path[level - 1] is Unlocked]
+            #![trigger self.path[level - 1] is Read]
+            #![trigger self.path[level - 1] is Write]
             1 <= level <= 4 ==> {
                 if level < self.guard_level {
                     self.path[level - 1] is Unlocked
@@ -365,7 +367,9 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
         assert(m.state() is ReadLocking);
     }
     proof {
-        reveal(NodeHelper::trace_to_nid_rec);
+        assert(cur_nid == va_level_to_nid(va.start, level)) by {
+            reveal(NodeHelper::trace_to_nid_rec);
+        };
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
     }
@@ -424,7 +428,6 @@ pub fn lock_range(pt: &PageTable, va: &Range<Vaddr>, m: Tracked<LockProtocolMode
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
             forall|i: int| #![trigger path@[i - 1]] 1 <= i <= level ==> path@[i - 1] is Unlocked,
-            m.path().len() == 4 - level,
             m.state() is ReadLocking,
             cur_wlock_opt is None,
             m.path().len() > 0 ==> NodeHelper::is_child(m.path().last(), cur_nid),
@@ -656,7 +659,7 @@ pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res:
             i == cursor.unlock_level@,
             cursor.path@.len() == 4,
             forall|level: int|
-                #![trigger cursor.path@[level - 1]]
+                #![trigger cursor.path@[level - 1] is Read]
                 i <= level <= 4 ==> {
                     &&& cursor.path@[level - 1] is Read
                     &&& cursor.path@[level - 1]->Read_0.wf()

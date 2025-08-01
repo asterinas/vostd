@@ -13,7 +13,7 @@ pub open spec fn wf_tree_path(path: Seq<NodeId>) -> bool {
     } else {
         &&& path[0] == NodeHelper::root_id()
         &&& forall|i: int|
-            1 <= i < path.len() ==> NodeHelper::is_child(path[i - 1], #[trigger] path[i])
+            1 <= i < path.len() ==> NodeHelper::is_child(#[trigger] path[i - 1], path[i])
         &&& path.all(|nid| NodeHelper::valid_nid(nid))
     }
 }
