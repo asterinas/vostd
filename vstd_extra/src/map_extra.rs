@@ -364,4 +364,8 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
 
 }
 
+pub open spec fn left_submap<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<(K1, K2), V> {
+    m.filter_keys(|pair| pair.0 == k1)
+}
+
 } // verus!
