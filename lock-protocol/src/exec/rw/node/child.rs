@@ -36,6 +36,7 @@ impl Child {
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
+
             },
             _ => true,
         }
@@ -57,10 +58,14 @@ impl Child {
     pub fn is_none(&self) -> bool
         requires
             self.wf(),
-        returns self is None,
+        returns
+            self is None,
     {
-        if let Child::None = *self { true }
-        else { false }
+        if let Child::None = *self {
+            true
+        } else {
+            false
+        }
     }
 
     pub open spec fn wf_into_pte(&self, pte: Pte) -> bool {
@@ -119,7 +124,6 @@ impl Child {
         }
     }
 
-    
     pub fn from_pte(pte: Pte, level: PagingLevel) -> (res: Self)
         requires
             pte.wf(level),
@@ -147,7 +151,6 @@ impl Child {
         }
         res
     }
-
 }
 
 pub enum ChildRef<'a> {
@@ -173,6 +176,7 @@ impl<'a> ChildRef<'a> {
             Self::Frame(pa, level, _) => {
                 &&& valid_paddr(pa)
                 &&& level == 1  // TODO: We don't support huge pages yet.
+
             },
             _ => true,
         }
@@ -197,10 +201,7 @@ impl<'a> ChildRef<'a> {
         }
     }
 
-    pub fn from_pte<'b>(
-        pte: &'b Pte, 
-        level: PagingLevel,
-    ) -> (res: ChildRef<'a>)
+    pub fn from_pte<'b>(pte: &'b Pte, level: PagingLevel) -> (res: ChildRef<'a>)
         requires
             pte.wf(level),
             1 <= level <= 4,

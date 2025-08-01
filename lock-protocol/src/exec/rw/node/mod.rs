@@ -50,8 +50,8 @@ impl PageTableNode {
 
     #[verifier::external_body]
     pub fn from_raw(
-        paddr: Paddr, 
-        nid: Ghost<NodeId>, 
+        paddr: Paddr,
+        nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
         level: Ghost<PagingLevel>,
     ) -> (res: Self)
@@ -161,10 +161,7 @@ impl PageTableNode {
             res.0.level_spec() == level,
             res.1@.instance_id() == inst@.id(),
             res.1@.key() == pa_nid@,
-            res.1@.value() =~= pte_array_token@.value().update(
-                offset@,
-                PteState::Alive,
-            ),
+            res.1@.value() =~= pte_array_token@.value().update(offset@, PteState::Alive),
     {
         unimplemented!();
     }
@@ -178,7 +175,7 @@ pub struct PageTableNodeRef<'a> {
 // Functions defined in struct 'FrameRef'.
 impl<'a> PageTableNodeRef<'a> {
     #[verifier::external_body]
-    pub fn clone_ref(&self) -> (res: PageTableNodeRef<'a>) 
+    pub fn clone_ref(&self) -> (res: PageTableNodeRef<'a>)
         ensures
             *res.deref() =~= *self.deref(),
     {
@@ -241,11 +238,7 @@ impl<'a> PageTableNodeRef<'a> {
         self.deref().wf()
     }
 
-    pub fn lock_write(
-        self, 
-        guard: &'a (),
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (
+    pub fn lock_write(self, guard: &'a (), m: Tracked<LockProtocolModel>) -> (res: (
         PageTableWriteLock<'a>,
         Tracked<LockProtocolModel>,
     ))
@@ -269,18 +262,11 @@ impl<'a> PageTableNodeRef<'a> {
         proof {
             m = res.1.get();
         }
-        let write_guard = PageTableWriteLock { 
-            inner: self, 
-            guard: Some(res.0), 
-        };
+        let write_guard = PageTableWriteLock { inner: self, guard: Some(res.0) };
         (write_guard, Tracked(m))
     }
 
-    pub fn lock_read(
-        self, 
-        guard: &'a (),
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: (
+    pub fn lock_read(self, guard: &'a (), m: Tracked<LockProtocolModel>) -> (res: (
         PageTableReadLock<'a>,
         Tracked<LockProtocolModel>,
     ))
@@ -304,19 +290,12 @@ impl<'a> PageTableNodeRef<'a> {
         proof {
             m = res.1.get();
         }
-        let read_guard = PageTableReadLock { 
-            inner: self, 
-            guard: Some(res.0),
-        };
+        let read_guard = PageTableReadLock { inner: self, guard: Some(res.0) };
         (read_guard, Tracked(m))
     }
 
-    pub fn make_write_guard_unchecked(
-        self,
-        _guard: &'a (),
-        m: Tracked<&LockProtocolModel>,
-    ) -> (res: PageTableWriteLock<'a>)
-        where 'a: 'a,
+    pub fn make_write_guard_unchecked(self, _guard: &'a (), m: Tracked<&LockProtocolModel>) -> (res:
+        PageTableWriteLock<'a>) where 'a: 'a
         requires
             self.wf(),
             m@.inv(),
@@ -329,10 +308,7 @@ impl<'a> PageTableNodeRef<'a> {
             res.guard->Some_0.in_protocol@ == true,
     {
         let guard = self.deref().meta().lock.in_protocol_lock_write(m);
-        let write_guard = PageTableWriteLock { 
-            inner: self, 
-            guard: Some(guard), 
-        };
+        let write_guard = PageTableWriteLock { inner: self, guard: Some(guard) };
         write_guard
     }
 }
@@ -383,7 +359,7 @@ impl<'a> PageTableReadLock<'a> {
     }
 
     /// Gets the reference to the page table node.
-    pub fn as_ref(&self) -> (res: PageTableNodeRef<'a>) 
+    pub fn as_ref(&self) -> (res: PageTableNodeRef<'a>)
         requires
             self.wf(),
         ensures
@@ -432,10 +408,9 @@ impl<'a> Deref for PageTableReadLock<'a> {
 }
 
 impl PageTableReadLock<'_> {
-    pub fn drop<'a>(
-        &'a mut self,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             old(self).wf(),
             m@.inv(),
@@ -511,7 +486,7 @@ impl<'a> PageTableWriteLock<'a> {
     }
 
     /// Gets the reference to the page table node.
-    pub fn as_ref(&self) -> (res: PageTableNodeRef<'a>) 
+    pub fn as_ref(&self) -> (res: PageTableNodeRef<'a>)
         requires
             self.wf(),
         ensures
@@ -594,12 +569,12 @@ impl<'a> PageTableWriteLock<'a> {
                                 old(self).guard->Some_0.pte_array_token@.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_array_token@.value() =~= 
-                                old(self).guard->Some_0.pte_array_token@.value()
-                            );
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
-                                old(self).guard->Some_0.perms@.inner.value()[i]
-                            );
+                            assert(self.guard->Some_0.pte_array_token@.value() =~= old(
+                                self,
+                            ).guard->Some_0.pte_array_token@.value());
+                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                                self,
+                            ).guard->Some_0.perms@.inner.value()[i]);
                         }
                     };
                 };
@@ -615,12 +590,12 @@ impl<'a> PageTableWriteLock<'a> {
                             old(self).guard->Some_0.pte_array_token@.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_array_token@.value() =~= 
-                            old(self).guard->Some_0.pte_array_token@.value()
-                        );
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= 
-                            old(self).guard->Some_0.perms@.inner.value()[i]
-                        );
+                        assert(self.guard->Some_0.pte_array_token@.value() =~= old(
+                            self,
+                        ).guard->Some_0.pte_array_token@.value());
+                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            self,
+                        ).guard->Some_0.perms@.inner.value()[i]);
                     };
                 };
             }
@@ -647,10 +622,9 @@ impl<'a> Deref for PageTableWriteLock<'a> {
 }
 
 impl PageTableWriteLock<'_> {
-    pub fn drop<'a>(
-        &'a mut self,
-        m: Tracked<LockProtocolModel>,
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             old(self).wf(),
             old(self).guard->Some_0.in_protocol@ == false,

@@ -36,7 +36,7 @@ pub enum GuardInPath<'a> {
 
 impl<'a> GuardInPath<'a> {
     /// Verus does not support replace.
-    #[verifier::external_body]  
+    #[verifier::external_body]
     pub fn take(&mut self) -> (res: GuardInPath<'a>)
         ensures
             res =~= *old(self),
@@ -148,24 +148,24 @@ impl Cursor<'_> {
                         GuardInPath::Unlocked => true,
                     }
                 }
-            } else {
-                &&& m.path().len() == 5 - self.guard_level@
-                &&& forall|level: int|
-                    #![trigger self.path[level - 1]]
-                    self.guard_level@ <= level <= 4 ==> {
-                        &&& !(self.path[level - 1] is Unlocked)
-                        &&& match self.path[level - 1] {
-                            GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
-                            GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
-                            GuardInPath::ImplicitWrite(wguard) => true,
-                            GuardInPath::Unlocked => true,
-                        }
+        } else {
+            &&& m.path().len() == 5 - self.guard_level@
+            &&& forall|level: int|
+                #![trigger self.path[level - 1]]
+                self.guard_level@ <= level <= 4 ==> {
+                    &&& !(self.path[level - 1] is Unlocked)
+                    &&& match self.path[level - 1] {
+                        GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
+                        GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
+                        GuardInPath::ImplicitWrite(wguard) => true,
+                        GuardInPath::Unlocked => true,
                     }
-            }
+                }
+        }
     }
 
     /// Verus does not support index for &mut.
-    #[verifier::external_body]  
+    #[verifier::external_body]
     pub fn take_guard(&mut self, idx: usize) -> (res: GuardInPath)
         requires
             0 <= idx < old(self).path@.len(),

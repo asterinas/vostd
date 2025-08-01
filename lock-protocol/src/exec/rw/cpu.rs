@@ -50,7 +50,7 @@ impl LockProtocolModel {
         self.path().last()
     }
 
-    pub open spec fn node_is_locked(&self, nid: NodeId) -> bool 
+    pub open spec fn node_is_locked(&self, nid: NodeId) -> bool
         recommends
             self.state() is WriteLocked,
     {

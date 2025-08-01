@@ -45,7 +45,7 @@ fields {
 #[invariant]
 pub fn inv_nodes(&self) -> bool {
     &&& self.nodes.contains_key(NodeHelper::root_id())
-    &&& forall |nid: NodeId| 
+    &&& forall |nid: NodeId|
         #![trigger self.nodes.contains_key(nid)]
         self.nodes.contains_key(nid) ==> NodeHelper::valid_nid(nid)
     &&& forall |nid: NodeId|
@@ -160,7 +160,7 @@ pub open spec fn inv_rc_positive(&self) -> bool {
 
 /// The subtree rooted at `nid` should not have any read counts and should not be WriteLocked.
 pub open spec fn subtree_locked(&self, nid: NodeId) -> bool {
-    forall |id: NodeId| 
+    forall |id: NodeId|
         #![trigger self.nodes.contains_key(id)]
         #![trigger NodeHelper::in_subtree_range(nid, id)]
         self.nodes.contains_key(id) &&
@@ -350,7 +350,7 @@ transition!{
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
         require(NodeHelper::in_subtree_range(path.last(), nid));
-        
+
         remove nodes -= [ nid => NodeState::WriteUnLocked ];
         add nodes += [ nid => NodeState::InProtocolWriteLocked ];
     }
@@ -364,7 +364,7 @@ transition!{
 
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
         require(NodeHelper::in_subtree_range(path.last(), nid));
-        
+
         remove nodes -= [ nid => NodeState::InProtocolWriteLocked ];
         add nodes += [ nid => NodeState::WriteUnLocked ];
     }
@@ -381,7 +381,7 @@ transition!{
         let offset = NodeHelper::get_offset(nid);
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
         require(NodeHelper::in_subtree_range(path.last(), pa));
-        
+
         have nodes >= [ pa => let pa_node ];
         require(pa_node.is_write_locked());
         remove pte_arrays -= [ pa => let pte_array ];
@@ -405,7 +405,7 @@ transition!{
         let offset = NodeHelper::get_offset(nid);
         have cursors >= [ cpu => let CursorState::WriteLocked(path) ];
         require(NodeHelper::in_subtree_range(path.last(), pa));
-        
+
         remove nodes -= [ nid => NodeState::InProtocolWriteLocked ];
         remove pte_arrays -= [ nid => PteArrayState::empty() ];
         remove reader_counts -= [ nid => 0 ];
@@ -708,7 +708,7 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         implies post.pte_arrays[id].wf()
         by {
             if id == pa {
-                assert(post.pte_arrays[id] =~= 
+                assert(post.pte_arrays[id] =~=
                     pre.pte_arrays[id].update(offset, PteState::Alive)
                 );
                 assert(post.pte_arrays[id].wf());
@@ -786,7 +786,7 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 assert(post.pte_arrays[pa] =~=
                     pre.pte_arrays[pa].update(offset, PteState::Alive)
                 );
-            } else if pa == nid {} 
+            } else if pa == nid {}
             else {
                 assert(pre.nodes.contains_key(id) <==> {
                     pre.pte_arrays.contains_key(pa) &&
@@ -803,9 +803,9 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                         assert(offset != NodeHelper::get_offset(nid)) by {
                             NodeHelper::lemma_brothers_have_different_offset(id, nid);
                         };
-                        assert(post.pte_arrays[pa] =~= 
+                        assert(post.pte_arrays[pa] =~=
                             pre.pte_arrays[pa].update(
-                                NodeHelper::get_offset(nid), 
+                                NodeHelper::get_offset(nid),
                                 PteState::Alive,
                             )
                         );
@@ -844,13 +844,13 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     if pre.cursors[cpu].hold_read_lock(nid) {
                         let path = pre.cursors[cpu].get_path();
                         assert(path.contains(nid));
-                        let idx = choose |idx| 
+                        let idx = choose |idx|
                             0 <= idx < path.len() && path[idx] == nid;
                         assert(path[idx] == nid);
                         assert(pre.nodes.contains_key(nid)) by {
                             lemma_seq_all_index(
-                                path, 
-                                |nid| pre.nodes.contains_key(nid), 
+                                path,
+                                |nid| pre.nodes.contains_key(nid),
                                 idx,
                             );
                         };
@@ -889,7 +889,7 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                             lemma_seq_all_index(
                                 path,
                                 |nid| pre.nodes.contains_key(nid),
-                                path.len() - 1, 
+                                path.len() - 1,
                             );
                         };
                     }
@@ -915,7 +915,7 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         implies post.pte_arrays[id].wf()
         by {
             if id == pa {
-                assert(post.pte_arrays[id] =~= 
+                assert(post.pte_arrays[id] =~=
                     pre.pte_arrays[id].update(offset, PteState::None)
                 );
                 assert(post.pte_arrays[id].wf());
@@ -1020,7 +1020,7 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 assert(post.pte_arrays[pa] =~=
                     pre.pte_arrays[pa].update(offset, PteState::None)
                 );
-            } else if pa == nid {} 
+            } else if pa == nid {}
             else {
                 assert(pre.nodes.contains_key(id) <==> {
                     pre.pte_arrays.contains_key(pa) &&
@@ -1037,9 +1037,9 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                         assert(offset != NodeHelper::get_offset(nid)) by {
                             NodeHelper::lemma_brothers_have_different_offset(id, nid);
                         };
-                        assert(post.pte_arrays[pa] =~= 
+                        assert(post.pte_arrays[pa] =~=
                             pre.pte_arrays[pa].update(
-                                NodeHelper::get_offset(nid), 
+                                NodeHelper::get_offset(nid),
                                 PteState::None,
                             )
                         );
@@ -1094,7 +1094,7 @@ ensures
                 CursorState::Void => {}
                 CursorState::ReadLocking(path) => {
                     assert(path == self.cursors[cpu].get_read_lock_path());
-                    assert forall |i| 0 <= i < path.len() implies 
+                    assert forall |i| 0 <= i < path.len() implies
                     #[trigger] self.reader_counts[path[i]] > 0 by {
                         let f = |cursor: CursorState| cursor.hold_read_lock(path[i]);
                         let filtered_cursors = value_filter(
@@ -1142,7 +1142,7 @@ requires
 ensures
     self.inv_non_overlapping(),
 {
-    assert forall |cpu1: CpuId, cpu2: CpuId| 
+    assert forall |cpu1: CpuId, cpu2: CpuId|
         cpu1 != cpu2 &&
         #[trigger] self.cursors.contains_key(cpu1) &&
         #[trigger] self.cursors.contains_key(cpu2) &&
@@ -1294,8 +1294,8 @@ ensures
 {
     broadcast use crate::spec::utils::group_node_helper_lemmas;
     assert forall |id: NodeId|
-        #[trigger] self.nodes.contains_key(id) && 
-        #[trigger] NodeHelper::in_subtree_range(child, id) && id != child 
+        #[trigger] self.nodes.contains_key(id) &&
+        #[trigger] NodeHelper::in_subtree_range(child, id) && id != child
     implies
         self.reader_counts[id] == 0 &&
         self.nodes[id] !is WriteLocked by {

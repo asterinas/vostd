@@ -199,4 +199,4 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     }
 }
 
-}
+} // verus!

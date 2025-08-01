@@ -89,7 +89,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 )
             );
             assert forall |_cpu|
-                #[trigger] interp(pre).cursors.contains_key(_cpu) && 
+                #[trigger] interp(pre).cursors.contains_key(_cpu) &&
                 interp(pre).cursors[_cpu] is Locked
             implies {
                 let _nid = interp(pre).cursors[_cpu]->Locked_0;

@@ -49,8 +49,10 @@ impl<'g> Entry {
     pub open spec fn wf_read(&self, node: PageTableReadLock<'g>) -> bool {
         &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
         &&& 0 <= self.idx < 512
-        &&& node.guard is Some ==> 
-            node.guard->Some_0.view_perms().relate_pte(self.pte, self.idx as nat)
+        &&& node.guard is Some ==> node.guard->Some_0.view_perms().relate_pte(
+            self.pte,
+            self.idx as nat,
+        )
     }
 
     pub open spec fn nid_read(&self, node: PageTableReadLock<'g>) -> NodeId {
@@ -104,8 +106,7 @@ impl<'g> Entry {
     pub open spec fn wf_write(&self, node: PageTableWriteLock<'g>) -> bool {
         &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
         &&& 0 <= self.idx < 512
-        &&& node.guard is Some ==> 
-            node.guard->Some_0.perms@.relate_pte(self.pte, self.idx as nat)
+        &&& node.guard is Some ==> node.guard->Some_0.perms@.relate_pte(self.pte, self.idx as nat)
     }
 
     pub open spec fn nid_write(&self, node: PageTableWriteLock<'g>) -> NodeId {
@@ -168,13 +169,10 @@ impl<'g> Entry {
     //         res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
     // {
     //     let old_child = Child::from_pte(self.pte, node.inner.deref().level());
-
     //     self.pte = new_child.into_pte();
     //     node.write_pte(self.idx, self.pte);
-
     //     old_child
     // }
-
     /// Allocates a new child page table node and replaces the entry with it.
     ///
     /// If the old entry is not none, the operation will fail and return `None`.
@@ -184,7 +182,7 @@ impl<'g> Entry {
         guard: &'g (),
         node: &mut PageTableWriteLock<'g>,
         Tracked(m): Tracked<&LockProtocolModel>,
-    ) -> (res: Option<PageTableWriteLock<'g>>) 
+    ) -> (res: Option<PageTableWriteLock<'g>>)
         requires
             old(self).wf_write(*old(node)),
             old(node).wf(),
@@ -213,7 +211,6 @@ impl<'g> Entry {
         if !(self.is_none() && node.inner.deref().level() > 1) {
             return None;
         }
-
         let level = node.inner.deref().level();
         let ghost cur_nid = self.nid_write(*node);
         let mut lock_guard = node.guard.take().unwrap();
@@ -264,10 +261,7 @@ impl<'g> Entry {
             assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
             NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
-        let pt_lock_guard = pt_ref.make_write_guard_unchecked(
-            guard,
-            Tracked(m),
-        );
+        let pt_lock_guard = pt_ref.make_write_guard_unchecked(guard, Tracked(m));
 
         self.pte = Child::PageTable(new_page).into_pte();
 

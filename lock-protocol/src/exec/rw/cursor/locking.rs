@@ -30,8 +30,8 @@ verus! {
 #[verifier::exec_allows_no_decreases_clause]
 pub fn lock_range<'a>(
     pt: &'a PageTable,
-    guard: &'a (), 
-    va: &Range<Vaddr>, 
+    guard: &'a (),
+    va: &Range<Vaddr>,
     m: Tracked<LockProtocolModel>,
 ) -> (res: (Cursor<'a>, Tracked<LockProtocolModel>))
     requires
@@ -84,7 +84,7 @@ pub fn lock_range<'a>(
             va_range_wf(*va),
             m.inv(),
             m.inst_id() == pt.inst@.id(),
-            m.state() is ReadLocking,        
+            m.state() is ReadLocking,
             m.path().len() > 0 ==> NodeHelper::is_child(m.cur_node(), cur_nid),
             m.path() =~= Seq::new(
                 (4 - cur_pt.deref().level_spec()) as nat,
@@ -111,8 +111,9 @@ pub fn lock_range<'a>(
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
-            forall|i: int| #![trigger path@[i - 1]] 
-                1 <= i <= cur_pt.deref().level_spec() ==> path@[i - 1] is Unlocked,    
+            forall|i: int|
+                #![trigger path@[i - 1]]
+                1 <= i <= cur_pt.deref().level_spec() ==> path@[i - 1] is Unlocked,
         ensures
             cur_wlock_opt is None,
             m.inv(),
@@ -137,9 +138,9 @@ pub fn lock_range<'a>(
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
                     &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
                 },
-            forall|i: int| #![trigger path@[i - 1]] 
+            forall|i: int|
+                #![trigger path@[i - 1]]
                 1 <= i <= cur_pt.deref().level_spec() ==> path@[i - 1] is Unlocked,
-            
         decreases cur_pt.deref().level_spec(),
     {
         let cur_level = cur_pt.deref().level();
@@ -235,8 +236,8 @@ pub fn lock_range<'a>(
                     ChildRef::None => {
                         // We need to allocate a new page table node.
                         let wguard = entry.alloc_if_none(
-                            guard, 
-                            &mut cur_pt_wlockguard, 
+                            guard,
+                            &mut cur_pt_wlockguard,
                             Tracked(&m),
                         ).unwrap();
                         let nxt_pt = wguard.as_ref();
@@ -296,10 +297,9 @@ pub fn lock_range<'a>(
     (cursor, Tracked(m))
 }
 
-pub fn unlock_range(
-    cursor: &mut Cursor, 
-    m: Tracked<LockProtocolModel>,
-) -> (res: Tracked<LockProtocolModel>)
+pub fn unlock_range(cursor: &mut Cursor, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+    LockProtocolModel,
+>)
     requires
         old(cursor).wf(),
         old(cursor).wf_with_lock_protocol_model(m@),
@@ -328,8 +328,7 @@ pub fn unlock_range(
             cursor.guard_level == guard_level,
         decreases cursor.guard_level - i,
     {
-        let GuardInPath::ImplicitWrite(guard) = cursor.take_guard(i as usize - 1) else {
-            unreached()
+        let GuardInPath::ImplicitWrite(guard) = cursor.take_guard(i as usize - 1) else { unreached()
         };
         // This is implicitly write locked. Don't drop (unlock) it.
         let _ = ManuallyDrop::new(guard);
