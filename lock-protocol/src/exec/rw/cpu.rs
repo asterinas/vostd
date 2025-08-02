@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use crate::spec::{common::*, rw::*};
+use crate::spec::{common::*, utils::*, rw::*};
 use super::{common::*, types::*};
 
 verus! {
@@ -34,6 +34,27 @@ impl LockProtocolModel {
         &&& self.token.key() == self.cpu
         &&& self.inst.cpu_num() == GLOBAL_CPU_NUM
         &&& wf_tree_path(self.path())
+    }
+
+    pub open spec fn sub_tree_rt(&self) -> NodeId
+        recommends
+            self.state() is WriteLocked,
+    {
+        self.path().last()
+    }
+
+    pub open spec fn cur_node(&self) -> NodeId
+        recommends
+            self.path().len() > 0,
+    {
+        self.path().last()
+    }
+
+    pub open spec fn node_is_locked(&self, nid: NodeId) -> bool
+        recommends
+            self.state() is WriteLocked,
+    {
+        NodeHelper::in_subtree(self.sub_tree_rt(), nid)
     }
 }
 

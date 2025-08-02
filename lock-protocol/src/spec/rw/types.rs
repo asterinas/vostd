@@ -7,9 +7,58 @@ use vstd_extra::{ghost_tree::Node, seq_extra::*};
 verus! {
 
 pub enum NodeState {
-    UnAllocated,
     WriteUnLocked,
     WriteLocked,
+    InProtocolWriteLocked,
+}
+
+impl NodeState {
+    pub open spec fn is_write_locked(&self) -> bool {
+        self is WriteLocked || self is InProtocolWriteLocked
+    }
+}
+
+pub enum PteState {
+    Alive,
+    None,
+}
+
+pub ghost struct PteArrayState {
+    pub inner: Seq<PteState>,
+}
+
+impl PteArrayState {
+    pub open spec fn wf(&self) -> bool {
+        self.inner.len() == 512
+    }
+
+    pub open spec fn empty() -> Self {
+        Self { inner: Seq::new(512, |i: int| PteState::None) }
+    }
+
+    pub open spec fn is_void(&self, idx: nat) -> bool
+        recommends
+            self.wf(),
+            0 <= idx < 512,
+    {
+        self.inner[idx as int] is None
+    }
+
+    pub open spec fn is_alive(&self, idx: nat) -> bool
+        recommends
+            self.wf(),
+            0 <= idx < 512,
+    {
+        self.inner[idx as int] is Alive
+    }
+
+    pub open spec fn update(self, idx: nat, v: PteState) -> Self
+        recommends
+            self.wf(),
+            0 <= idx < 512,
+    {
+        Self { inner: self.inner.update(idx as int, v) }
+    }
 }
 
 pub enum CursorState {
@@ -96,11 +145,6 @@ impl CursorState {
 pub enum AtomicCursorState {
     Void,
     Locked(NodeId),
-}
-
-pub enum NodeStability {
-    Stable,
-    Instable,
 }
 
 } // verus!
