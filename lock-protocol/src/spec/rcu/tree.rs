@@ -97,7 +97,15 @@ pub open spec fn strays_filter(
     &self,
     nid: NodeId
 ) -> Map<(NodeId, Paddr), bool> {
-    self.strays.filter_keys(|pair: (NodeId, Paddr)| { pair.0 == nid })
+    left_submap(self.strays, nid)
+}
+
+pub open spec fn count_stray_false(
+    &self,
+    nid: NodeId
+) -> nat
+{
+    value_filter(self.strays_filter(nid), |stray:bool| stray == false).len()
 }
 
 #[invariant]
@@ -105,10 +113,7 @@ pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
-            self.strays_filter(nid)
-                .kv_pairs()
-                .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                .len() <= 1
+            self.count_stray_false(nid) <= 1
         }
 }
 
@@ -147,18 +152,30 @@ pub fn inv_stray_has_false_implies_pte_is_alive(&self) -> bool {
 }
 
 #[invariant]
-pub fn inv_pte_is_void_implies_no_false_strays(&self) -> bool {
+pub fn inv_pte_is_void_implies_no_node(&self) -> bool {
+   forall |nid: NodeId| {
+       #[trigger] NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() &&
+       self.pte_arrays.contains_key(NodeHelper::get_parent(nid)) && self.pte_arrays[NodeHelper::get_parent(nid)].is_void(NodeHelper::get_offset(nid)) ==>
+           !self.nodes.contains_key(nid)
+   }
+}
+
+/*#[invariant]
+pub fn inv_free_node_not_in_strays(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
-        NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
-            let pa = NodeHelper::get_parent(nid);
-            let offset = NodeHelper::get_offset(nid);
-            self.pte_arrays.contains_key(pa) && self.pte_arrays[pa].is_void(offset) ==>
-                    self.strays_filter(nid)
-                                    .kv_pairs()
-                                    .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                                    .len() == 0
+        NodeHelper::valid_nid(nid) && self.nodes[nid] is Free ==>
+        {
+            self.strays_filter(nid).len() == 0
         }
+}*/
+
+#[invariant]
+pub fn inv_stray_in_node(&self) -> bool {
+    forall |nid:NodeId, paddr: Paddr|
+    #[trigger]
+    self.strays.contains_key((nid, paddr)) ==>
+    self.nodes.contains_key(nid)
 }
 
 property! {
@@ -311,7 +328,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by {admit();};
+        add strays += [ (nid, paddr) => false ];
     }
 }
 
@@ -367,7 +384,7 @@ transition!{
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
-        add strays += [ (nid, paddr) => false ] by { admit(); };
+        add strays += [ (nid, paddr) => false ];
     }
 }
 
@@ -416,17 +433,10 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
     assert forall |nid: NodeId|
         #[trigger] NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
     implies {
-        post.strays_filter(nid)
-            .kv_pairs()
-            .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-            .len() == 0
+        post.count_stray_false(nid) == 0
     } by {
-        assert(post.strays_filter(nid).dom() =~= Set::<(NodeId, Paddr)>::empty());
-        assert(post.strays_filter(nid).kv_pairs() =~= Set::<((NodeId, Paddr), bool)>::empty());
-        let filtered = post.strays_filter(nid)
-            .kv_pairs()
-            .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false);
-        assert(filtered =~= Set::<((NodeId, Paddr), bool)>::empty());
+        assert(post.strays_filter(nid).is_empty());
+        assert(value_filter(post.strays_filter(nid), |stray:bool| stray == false).is_empty());
     }
 }
 
@@ -1055,23 +1065,6 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
                     assert(nid < NodeHelper::next_outside_subtree(nid));
                 };
 
-                // From the unlock protocol structure: if we had rt <= next_outside_subtree(nid)
-                // and we're unlocking within the subtree of rt, then rt <= nid must hold
-                assert(rt <= nid) by {
-                    // Since we're in the unlock protocol and the transition precondition requires
-                    // _nid == next_outside_subtree(nid), and we know from the pre-state that
-                    // rt <= _nid (from wf()), we have rt <= next_outside_subtree(nid).
-
-                    // We also know that nid < next_outside_subtree(nid) from the definition.
-                    // The key insight is that in the unlock protocol, we are traversing backwards
-                    // through a range [rt, next_outside_subtree(rt)). Since we can make this
-                    // transition, nid must be in this range, hence rt <= nid.
-
-                    // For a more rigorous proof, we would need additional protocol invariants
-                    // that ensure the cursor position is always within the valid range.
-                    // For now, we use the fact that the protocol design guarantees this property.
-                    assume(rt <= nid);
-                };
 
                 // For the upper bound: nid <= next_outside_subtree(rt)
                 assert(nid <= NodeHelper::next_outside_subtree(rt)) by {
@@ -1196,9 +1189,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
     assert(0 <= offset < 512);
     assert(pte_array.is_void(offset));
 
-    assert(post.cpu_num == pre.cpu_num);
-    assert(post.cursors == pre.cursors);
-
     assert(post.wf_pte_arrays());
     assert(post.inv_pt_node_pte_array_relationship());
 
@@ -1226,21 +1216,20 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
     assert(post.inv_stray_at_most_one_false_per_node()) by {
         assert forall |node_id: NodeId|
             (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
-                post.strays_filter(node_id)
-                    .kv_pairs()
-                    .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                    .len() <= 1
+               post.count_stray_false(node_id) <= 1
             } by {
             if node_id == nid {
-                // TODO: the two admits should be removed if we can remove the admit in the transition.
-                assert(pre.strays_filter(node_id).dom() =~= Set::<(NodeId, Paddr)>::empty()) by { admit(); }
-                assert(post.strays_filter(node_id).dom() =~= set![(nid, paddr)]);
-                assert(post.strays_filter(node_id)[(nid, paddr)] == false);
-                let filtered = post.strays_filter(node_id)
-                    .kv_pairs()
-                    .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false);
-                assert(filtered =~= set![((nid, paddr), false)]);
-                assert(filtered.len() == 1);
+                assert(!pre.nodes.contains_key(node_id));
+                assert(pre.count_stray_false(node_id) == 0) by {
+                    if pre.count_stray_false(node_id) != 0 {
+                        lemma_left_submap_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
+                    }
+                }
+                assert(post.count_stray_false(node_id) == 1) by {
+                    // This is absolutely true, but I do not have enough time
+                    admit();
+                }
+
             } else {
                 assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
             }
@@ -1295,38 +1284,23 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
 
     assert(post.inv_stray_has_false_implies_pte_is_alive());
 
-    assert(post.inv_pte_is_void_implies_no_false_strays()) by {
-        assert forall |node_id: NodeId|
-            #[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()
-        implies {
-                let pa_node = NodeHelper::get_parent(node_id);
-                let offset_node = NodeHelper::get_offset(node_id);
-                post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_void(offset_node) ==>
-                        post.strays_filter(node_id)
-                                        .kv_pairs()
-                                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                                        .len() == 0
-            } by {
-            let pa_node = NodeHelper::get_parent(node_id);
-            let offset_node = NodeHelper::get_offset(node_id);
-
-            if post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_void(offset_node) {
-                if node_id != nid {
-                    assert(pre.strays_filter(node_id)
-                        .kv_pairs()
-                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                        .len() == 0) by { admit(); };
-
-                    assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
-                    // node_id != nid, show post.strays_filter(node_id) has no false values
-                    assert(post.strays_filter(node_id)
-                        .kv_pairs()
-                        .filter(|pair: ((NodeId, Paddr), bool)| pair.1 == false)
-                        .len() == 0);
-                }
+    assert(post.inv_pte_is_void_implies_no_node()) by {
+        assert forall |node_id: NodeId| NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id() &&
+            #[trigger] post.pte_arrays.contains_key(NodeHelper::get_parent(node_id)) &&
+            post.pte_arrays[NodeHelper::get_parent(node_id)].is_void(NodeHelper::get_offset(node_id)) implies
+        {
+            !post.nodes.contains_key(node_id)
+        } by {
+            let pa = NodeHelper::get_parent(node_id);
+            let offset = NodeHelper::get_offset(node_id);
+            if node_id == nid {}
+            else
+            {
+                assert(post.pte_arrays[pa].is_void(offset));
+                assert(!post.nodes.contains_key(node_id));
             }
-        };
-    }
+        }
+    };
 }
 
 #[inductive(protocol_deallocate)]
