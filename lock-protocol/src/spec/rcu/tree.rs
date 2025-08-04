@@ -415,12 +415,16 @@ transition!{
 }
 
 #[inductive(initialize)]
-#[verifier::external_body]
 fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
     assert(post.wf_nodes()) by {
         assert(forall |nid: NodeId| post.nodes.contains_key(nid) ==> #[trigger] NodeHelper::valid_nid(nid)) by {
             NodeHelper::lemma_root_id();
         }
+        assert(post.nodes.dom() == set![NodeHelper::root_id()]);
+    }
+    assert(post.cursors.dom().finite()) by{
+        assert(post.cursors.dom() == Set::new(|p: nat| 0 <= p < cpu_num));
+        lemma_nat_range_finite(0, cpu_num);
     }
 
     assert forall |nid: NodeId| NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
