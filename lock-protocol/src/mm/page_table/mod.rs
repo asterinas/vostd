@@ -17,6 +17,7 @@ use vstd::{
     arithmetic::{div_mod::*, logarithm::*, power::pow, power2::*},
     bits::*,
     layout::is_power_2,
+    seq::{Seq},
 };
 use vstd_extra::extra_num::{
     lemma_log2_to64, lemma_pow2_is_power2_to64, lemma_usize_ilog2_ordered, lemma_usize_ilog2_to32,
@@ -631,6 +632,89 @@ pub open spec fn pte_index_add_with_carry<C: PagingConstsTrait>(
         } else {
             // No carry: this level remains unchanged
             pte_index_spec::<C>(va, cur_level)
+        }
+    }
+}
+
+// Checks if a sequence is a valid sequence of PTE indices.
+// A sequence does not necessarily start from level 1 and end at the highest level.
+// The first element in the sequence is the index at the lowest level.
+spec fn is_valid_pte_index_seq<C: PagingConstsTrait>(seq: Seq<usize>) -> bool {
+    forall |i: int| 0 <= i < seq.len() ==> 0 <= #[trigger] seq[i] < nr_subpage_per_huge::<C>()
+}
+
+// Treats a sequence as a little endian number with radix `nr_subpage_per_huge::<C>()`.
+spec fn pte_index_seq_to_nat<C: PagingConstsTrait>(seq: Seq<usize>) -> int
+    decreases seq.len()
+{
+    if seq.len() == 0 {
+        0
+    } else {
+        seq[0] + pte_index_seq_to_nat::<C>(seq.skip(1)) * nr_subpage_per_huge::<C>()
+    }
+}
+
+// Actually, this is not strictly injective, but injective over all sequences
+// with the same length.
+proof fn lemma_pte_index_seq_to_nat_injective<C: PagingConstsTrait>(seq1: Seq<usize>, seq2: Seq<usize>)
+    requires
+        seq1.len() == seq2.len(),
+        is_valid_pte_index_seq::<C>(seq1),
+        is_valid_pte_index_seq::<C>(seq2),
+        pte_index_seq_to_nat::<C>(seq1) == pte_index_seq_to_nat::<C>(seq2),
+    ensures
+        seq1 == seq2,
+    decreases
+        seq1.len(),
+{
+    if seq1.len() == 0 {
+        assert(seq2.len() == 0);
+    } else {
+        assert(0 <= 0 < seq1.len() == seq2.len());
+        // The result of evaluating the tails
+        let tail_eval1: int = pte_index_seq_to_nat::<C>(seq1.skip(1));
+        let tail_eval2: int = pte_index_seq_to_nat::<C>(seq2.skip(1));
+        // The first three preconditions are automatically worked out.
+        assert(seq1[0] == seq2[0] && tail_eval1 == tail_eval2) by {
+            assert(seq1[0] + tail_eval1 * nr_subpage_per_huge::<C>() ==
+                seq2[0] + tail_eval2 * nr_subpage_per_huge::<C>());
+            // Moving terms around, we have
+            assert(seq1[0] - seq2[0] == (tail_eval2 - tail_eval1) * nr_subpage_per_huge::<C>())
+                by (nonlinear_arith)
+                requires
+                    seq1[0] + tail_eval1 * nr_subpage_per_huge::<C>() ==
+                    seq2[0] + tail_eval2 * nr_subpage_per_huge::<C>()
+            ;
+            // This should follow from the precondition that each element is in range.
+            assert(-nr_subpage_per_huge::<C>() < seq1[0] - seq2[0] < nr_subpage_per_huge::<C>());
+            assert((seq1[0] - seq2[0]) % (nr_subpage_per_huge::<C>() as int) == 0) by {
+                lemma_fundamental_div_mod_converse_mod(
+                    seq1[0] - seq2[0],
+                    nr_subpage_per_huge::<C>() as int,
+                    tail_eval2 - tail_eval1,
+                    0
+                );
+            }
+            assert(seq1[0] - seq2[0] == 0) by (nonlinear_arith)
+                requires
+                    -nr_subpage_per_huge::<C>() < seq1[0] - seq2[0] < nr_subpage_per_huge::<C>(),
+                    (seq1[0] - seq2[0]) % (nr_subpage_per_huge::<C>() as int) == 0,
+            ;
+            assert(tail_eval2 - tail_eval1 == 0) by (nonlinear_arith)
+                requires
+                    seq1[0] - seq2[0] == 0,
+                    seq1[0] - seq2[0] == (tail_eval2 - tail_eval1) * nr_subpage_per_huge::<C>(),
+                    nr_subpage_per_huge::<C>() > 0,
+            ;
+        }
+        lemma_pte_index_seq_to_nat_injective::<C>(seq1.skip(1), seq2.skip(1));
+        assert forall |i: int| 0 <= i < seq1.len() implies seq1[i] == seq2[i] by {
+            if (i == 0) {
+            } else {
+                assert(0 <= i - 1 < seq1.len() - 1 == seq1.skip(1).len() == seq2.skip(1).len());
+                assert(seq1[i] == seq1.skip(1)[i - 1]);
+                assert(seq2[i] == seq2.skip(1)[i - 1]);
+            }
         }
     }
 }
