@@ -121,6 +121,15 @@ impl PageTableNode {
         meta_slot.get_inner_pt().level
     }
 
+    // Allocator is trusted so we can assume the paddr is free.
+    #[verifier::external_body]
+    pub proof fn assume_free_paddr_token(inst: SpecInstance) -> (res: FreePaddrToken)
+        ensures
+            res.instance_id() == inst.id(),
+    {
+        unimplemented!();
+    }
+
     // Trusted
     #[verifier::external_body]
     pub fn normal_alloc(
@@ -173,8 +182,15 @@ impl PageTableNode {
         let tracked ch_node_token;
         let tracked ch_pte_token;
         let tracked stray_token;
+        let tracked free_paddr_token = Self::assume_free_paddr_token(inst@);
         proof {
-            let tracked res = inst.borrow().normal_allocate(nid@, paddr, &node_token, pte_token);
+            let tracked res = inst.borrow().normal_allocate(
+                nid@,
+                paddr,
+                &node_token,
+                pte_token,
+                free_paddr_token,
+            );
             ch_node_token = res.0.get();
             pte_token = res.1.get();
             ch_pte_token = res.2.get();

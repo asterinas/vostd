@@ -36,7 +36,7 @@ pub proof fn init_refines_init(post: StateC) {
     requires(post.invariant() && StateC::init(post));
     ensures(StateA::init(interp(post)));
     case_on_init!{post, TreeSpec => {
-        initialize(cpu_num) => {
+        initialize(cpu_num, paddrs) => {
             let cursors = Map::new(
                 |cpu: CpuId| valid_cpu(post.cpu_num, cpu),
                 |cpu: CpuId| AtomicCursorState::Void,

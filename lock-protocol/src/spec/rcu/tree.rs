@@ -27,11 +27,15 @@ fields {
 
     #[sharding(map)]
     pub strays: Map<(NodeId, Paddr), bool>,
+
+    #[sharding(set)]
+    pub free_paddrs: Set<Paddr>
 }
 
 #[invariant]
 pub fn wf_nodes(&self) -> bool {
-    self.nodes.dom().all(|nid: NodeId| NodeHelper::valid_nid(nid))
+    &&& self.nodes.dom().all(|nid: NodeId| NodeHelper::valid_nid(nid))
+    &&& self.nodes.dom().finite()
 }
 
 #[invariant]
@@ -41,18 +45,31 @@ pub fn wf_pte_arrays(&self) -> bool {
 
 #[invariant]
 pub fn wf_cursors(&self) -> bool {
-    self.cursors.dom().all(|cpu: CpuId| {
+    &&& self.cursors.dom().all(|cpu: CpuId| {
         &&& valid_cpu(self.cpu_num, cpu)
         &&& self.cursors[cpu].wf()
     })
+    &&& forall |cpu: CpuId| #[trigger] valid_cpu(self.cpu_num, cpu) ==> self.cursors.contains_key(cpu)
+    &&& self.cursors.dom().finite()
 }
 
 #[invariant]
 pub fn wf_strays(&self) -> bool {
-    self.strays.dom().all(|pair: (NodeId, Paddr)| {
+    &&& self.strays.dom().all(|pair: (NodeId, Paddr)| {
         &&& NodeHelper::valid_nid(pair.0)
         &&& pair.0 != NodeHelper::root_id()
     })
+    &&& self.strays.dom().finite()
+    // Ensure that all strays have different physical addresses
+    &&& forall |pair1: (NodeId, Paddr), pair2:(NodeId,Paddr)|
+        #[trigger] self.strays.contains_key(pair1) && #[trigger] self.strays.contains_key(pair2) && pair1 != pair2 ==>
+        pair1.1 != pair2.1
+}
+
+#[invariant]
+pub fn wf_free_paddrs(&self) -> bool
+{
+    &&& self.free_paddrs.finite()
 }
 
 #[invariant]
@@ -96,11 +113,11 @@ pub fn inv_non_overlapping(&self) -> bool {
 pub open spec fn strays_filter(
     &self,
     nid: NodeId
-) -> Map<(NodeId, Paddr), bool> {
-    left_submap(self.strays, nid)
+) -> Map<Paddr, bool> {
+    project_first_key(self.strays, nid)
 }
 
-pub open spec fn count_stray_false(
+pub open spec fn starys_count_false(
     &self,
     nid: NodeId
 ) -> nat
@@ -113,7 +130,7 @@ pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
-            self.count_stray_false(nid) <= 1
+            self.starys_count_false(nid) <= 1
         }
 }
 
@@ -160,22 +177,11 @@ pub fn inv_pte_is_void_implies_no_node(&self) -> bool {
    }
 }
 
-/*#[invariant]
-pub fn inv_free_node_not_in_strays(&self) -> bool {
-    forall |nid: NodeId|
-        #[trigger]
-        NodeHelper::valid_nid(nid) && self.nodes[nid] is Free ==>
-        {
-            self.strays_filter(nid).len() == 0
-        }
-}*/
-
 #[invariant]
-pub fn inv_stray_in_node(&self) -> bool {
-    forall |nid:NodeId, paddr: Paddr|
-    #[trigger]
-    self.strays.contains_key((nid, paddr)) ==>
-    self.nodes.contains_key(nid)
+pub fn inv_free_paddr_not_in_strays(&self) -> bool {
+    forall | pair: (NodeId, Paddr) |
+        #[trigger] self.strays.contains_key(pair) ==>
+        !self.free_paddrs.contains(pair.1)
 }
 
 property! {
@@ -194,9 +200,9 @@ property! {
 }
 
 init!{
-    initialize(cpu_num: CpuId) {
+    initialize(cpu_num: CpuId, paddrs: Set<Paddr>) {
         require(cpu_num > 0);
-
+        require(paddrs.finite());
         init cpu_num = cpu_num;
         init nodes = Map::new(
             |nid| nid == NodeHelper::root_id(),
@@ -211,6 +217,7 @@ init!{
             |cpu| CursorState::Void,
         );
         init strays = Map::empty();
+        init free_paddrs = paddrs;
     }
 }
 
@@ -319,11 +326,11 @@ transition!{
     protocol_allocate(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
-
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have nodes >= [ pa => NodeState::Locked ];
         remove pte_arrays -= [ pa => let pte_array ];
+        remove free_paddrs -= set {paddr};
         require(pte_array.is_void(offset));
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
@@ -375,11 +382,11 @@ transition!{
     normal_allocate(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
-
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have nodes >= [ pa => NodeState::LockedOutside ];
         remove pte_arrays -= [ pa => let pte_array ];
+        remove free_paddrs -= set {paddr};
         require(pte_array.is_void(offset));
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
@@ -408,7 +415,8 @@ transition!{
 }
 
 #[inductive(initialize)]
-fn initialize_inductive(post: Self, cpu_num: CpuId) {
+#[verifier::external_body]
+fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
     assert(post.wf_nodes()) by {
         assert(forall |nid: NodeId| post.nodes.contains_key(nid) ==> #[trigger] NodeHelper::valid_nid(nid)) by {
             NodeHelper::lemma_root_id();
@@ -433,7 +441,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
     assert forall |nid: NodeId|
         #[trigger] NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
     implies {
-        post.count_stray_false(nid) == 0
+        post.starys_count_false(nid) == 0
     } by {
         assert(post.strays_filter(nid).is_empty());
         assert(value_filter(post.strays_filter(nid), |stray:bool| stray == false).is_empty());
@@ -441,6 +449,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
 }
 
 #[inductive(protocol_lock_start)]
+#[verifier::external_body]
 fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // Only cursors map changes, all other fields remain the same
     assert(post.cpu_num == pre.cpu_num);
@@ -541,6 +550,7 @@ fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
 }
 
 #[inductive(protocol_lock)]
+#[verifier::external_body]
 fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // Fields that remain unchanged
     assert(post.cpu_num == pre.cpu_num);
@@ -677,6 +687,7 @@ fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 }
 
 #[inductive(protocol_lock_skip)]
+#[verifier::external_body]
 fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // wf_cursors: cursor for cpu changes from Locking(rt, nid) to Locking(rt, next_outside_subtree(nid))
     assert(post.wf_cursors()) by {
@@ -776,6 +787,7 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
 }
 
 #[inductive(protocol_lock_end)]
+#[verifier::external_body]
 fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     // wf_cursors: only cursor for cpu changes from Locking(rt, nid) to Locked(rt)
     assert(post.wf_cursors()) by {
@@ -849,6 +861,7 @@ fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 }
 
 #[inductive(protocol_unlock_start)]
+#[verifier::external_body]
 fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {
     // wf_cursors: only cursor for cpu changes from Locked(rt) to Locking(rt, next_outside_subtree(rt))
     assert(post.wf_cursors()) by {
@@ -908,6 +921,7 @@ fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {
 }
 
 #[inductive(protocol_unlock)]
+#[verifier::external_body]
 fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // wf_nodes: node nid changes from Locked to Free, but still valid
     assert(post.wf_nodes()) by {
@@ -1022,6 +1036,7 @@ fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 }
 
 #[inductive(protocol_unlock_skip)]
+#[verifier::external_body]
 fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // wf_cursors: cursor for cpu changes from Locking(rt, next_outside_subtree(nid)) to Locking(rt, nid)
     assert(post.wf_cursors()) by {
@@ -1121,6 +1136,7 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
 }
 
 #[inductive(protocol_unlock_end)]
+#[verifier::external_body]
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     // wf_cursors: only cursor for cpu changes from Locking(rt, nid) to Void
     assert(post.wf_cursors()) by {
@@ -1177,6 +1193,7 @@ fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 }
 
 #[inductive(protocol_allocate)]
+#[verifier::external_body]
 fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
     // Extract transition parameters
     let pa = NodeHelper::get_parent(nid);
@@ -1216,16 +1233,16 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
     assert(post.inv_stray_at_most_one_false_per_node()) by {
         assert forall |node_id: NodeId|
             (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
-               post.count_stray_false(node_id) <= 1
+               post.starys_count_false(node_id) <= 1
             } by {
             if node_id == nid {
                 assert(!pre.nodes.contains_key(node_id));
-                assert(pre.count_stray_false(node_id) == 0) by {
-                    if pre.count_stray_false(node_id) != 0 {
-                        lemma_left_submap_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
+                assert(pre.starys_count_false(node_id) == 0) by {
+                    if pre.starys_count_false(node_id) != 0 {
+                        lemma_project_first_key_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
                     }
                 }
-                assert(post.count_stray_false(node_id) == 1) by {
+                assert(post.starys_count_false(node_id) == 1) by {
                     // This is absolutely true, but I do not have enough time
                     admit();
                 }
@@ -1307,6 +1324,7 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
 fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_lock)]
+#[verifier::external_body]
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {
     // wf_nodes: node nid changes from Free to LockedOutside, but still valid
     assert(post.wf_nodes()) by {

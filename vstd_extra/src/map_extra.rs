@@ -367,24 +367,49 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
 
 }
 
-pub open spec fn left_submap<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<(K1, K2), V> {
-    m.filter_keys(|pair: (K1, K2)| pair.0 == k1)
+/// Returns a new map that projects the first key of a pair `(K1, K2)`,
+/// keeping the values associated with the second key `K2`.
+pub open spec fn project_first_key<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1) -> Map<K2, V> {
+    Map::new(|k2: K2| m.contains_key((k1, k2)), |k2: K2| m[(k1, k2)])
 }
 
-pub proof fn lemma_left_submap_value_filter_non_empty<K1, K2, V>(
+/// Returns a new map that projects the second key of a pair `(K1, K2)`,
+/// keeping the values associated with the first key `K1`.
+pub open spec fn project_second_key<K1, K2, V>(m: Map<(K1, K2), V>, k2: K2) -> Map<K1, V> {
+    Map::new(|k1: K1| m.contains_key((k1, k2)), |k1: K1| m[(k1, k2)])
+}
+
+/// A lemma showing that `project_first_key`` is sound.
+/// There is no need to actually use this lemma in practice at most of the time because Verus can automatically prove it.
+pub proof fn lemma_project_first_key_sound<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1)
+    ensures
+        forall|k2: K2|
+            {
+                &&& #[trigger] project_first_key(m, k1).contains_key(k2) <==> m.contains_key(
+                    (k1, k2),
+                )
+                &&& project_first_key(m, k1).contains_key(k2) ==> project_first_key(m, k1)[k2]
+                    == m[(k1, k2)]
+            },
+{
+}
+
+/// If the value filter of the projected map is non-empty, then there exists a key `k2`
+/// such that the original map contains the pair `(k1, k2)` and `m[(k1, k2)]` satisfies the predicate `f`.
+pub proof fn lemma_project_first_key_value_filter_non_empty<K1, K2, V>(
     m: Map<(K1, K2), V>,
     k1: K1,
     f: spec_fn(V) -> bool,
 )
     requires
-        value_filter(left_submap(m, k1), f).len() != 0,
+        value_filter(project_first_key(m, k1), f).len() != 0,
     ensures
         exists|k2: K2| #[trigger]
-            left_submap(m, k1).contains_key((k1, k2)) && f(left_submap(m, k1)[(k1, k2)]),
+            project_first_key(m, k1).contains_key(k2) && f(project_first_key(m, k1)[k2]),
 {
-    lemma_value_filter_choose(left_submap(m, k1), f);
-    let pair = value_filter_choose(left_submap(m, k1), f);
-    assert(left_submap(m, k1).contains_key((k1, pair.1)) && f(left_submap(m, k1)[(k1, pair.1)]));
+    lemma_value_filter_choose(project_first_key(m, k1), f);
+    let k2 = value_filter_choose(project_first_key(m, k1), f);
+    assert(project_first_key(m, k1).contains_key(k2) && f(m[(k1, k2)]));
 }
 
 } // verus!

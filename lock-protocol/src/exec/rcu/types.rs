@@ -13,4 +13,6 @@ pub type CursorToken = TreeSpec::cursors;
 
 pub type StrayToken = TreeSpec::strays;
 
+pub type FreePaddrToken = TreeSpec::free_paddrs;
+
 } // verus!
