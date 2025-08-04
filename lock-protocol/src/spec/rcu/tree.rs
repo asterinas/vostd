@@ -99,8 +99,8 @@ pub fn inv_non_overlapping(&self) -> bool {
         cpu1 != cpu2 &&
         #[trigger] self.cursors.contains_key(cpu1) &&
         #[trigger] self.cursors.contains_key(cpu2) &&
-        self.cursors[cpu1] !is Void &&
-        self.cursors[cpu2] !is Void ==>
+        !(self.cursors[cpu1] is Void) &&
+        !(self.cursors[cpu2] is Void) ==>
         {
             let range1 = self.cursors[cpu1].locked_range();
             let range2 = self.cursors[cpu2].locked_range();
@@ -446,9 +446,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
 }
 
 #[inductive(protocol_lock_start)]
-fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    assert(post.inv_non_overlapping()) by { admit(); };
-}
+fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_lock)]
 fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
@@ -483,53 +481,8 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
 
 #[inductive(protocol_lock_end)]
 fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
-    // inv_non_overlapping: cursor for cpu changes from Locking to Locked, others unchanged
     assert(post.inv_non_overlapping()) by {
-        assert forall |cpu1: CpuId, cpu2: CpuId|
-            (cpu1 != cpu2 &&
-            #[trigger] post.cursors.contains_key(cpu1) &&
-            #[trigger] post.cursors.contains_key(cpu2) &&
-            post.cursors[cpu1] is Locked &&
-            post.cursors[cpu2] is Locked) implies {
-            let nid1 = post.cursors[cpu1]->Locked_0;
-            let nid2 = post.cursors[cpu2]->Locked_0;
-            !NodeHelper::in_subtree_range(nid1, nid2) &&
-            !NodeHelper::in_subtree_range(nid2, nid1)
-        } by {
-            // Need to analyze the case where cpu is one of cpu1/cpu2
-            if cpu1 == cpu {
-                // cpu1 now has Locked(rt), cpu2 has some other Locked state
-                assert(post.cursors[cpu1] is Locked);
-                let rt = post.cursors[cpu1]->Locked_0;
-                assert(post.cursors[cpu2] is Locked);
-                let nid2 = post.cursors[cpu2]->Locked_0;
-
-                // From pre invariant, since cpu2 was already Locked and cpu1 was Locking,
-                // we need to ensure non-overlapping property still holds
-                // The key insight is that if pre.cursors[cpu] was Locking(rt, nid) and reached
-                // the end (nid == next_outside_subtree(rt)), then rt is fully locked
-                // and from pre invariant, no other CPU can have overlapping locked subtree
-                assert(pre.cursors[cpu2] == post.cursors[cpu2]);
-                assert(pre.cursors[cpu2] is Locked);
-                // From pre invariant on non-overlapping, if there were two Locked cursors,
-                // they would be non-overlapping. But cpu was Locking, not Locked.
-                // Now cpu becomes Locked(rt), and we need to show rt doesn't overlap with nid2
-
-                // This requires reasoning about the locking protocol invariants
-                // For now, use the fact that the locking protocol ensures non-overlapping
-                admit();
-            } else if cpu2 == cpu {
-                // Similar case with cpu1 and cpu2 swapped
-                admit();
-            } else {
-                // Both cursors unchanged from pre, so pre invariant applies
-                if post.cursors.contains_key(cpu1) && post.cursors.contains_key(cpu2) {
-                    assert(post.cursors[cpu1] == pre.cursors[cpu1]);
-                    assert(post.cursors[cpu2] == pre.cursors[cpu2]);
-                    // From pre invariant
-                }
-            }
-        }
+        assert(post.cursors[cpu].locked_range() == pre.cursors[cpu].locked_range());
     };
 }
 
