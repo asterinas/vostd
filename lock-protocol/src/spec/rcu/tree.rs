@@ -99,12 +99,12 @@ pub fn inv_non_overlapping(&self) -> bool {
         cpu1 != cpu2 &&
         #[trigger] self.cursors.contains_key(cpu1) &&
         #[trigger] self.cursors.contains_key(cpu2) &&
-        !(self.cursors[cpu1] is Void) &&
-        !(self.cursors[cpu2] is Void) ==>
+        self.cursors[cpu1] !is Void &&
+        self.cursors[cpu2] !is Void ==>
         {
-            let range1 = self.cursors[cpu1].lock_range();
-            let range2 = self.cursors[cpu2].lock_range();
-            range1.1 <= range2.0 || range2.1 <= range1.0
+            let range1 = self.cursors[cpu1].locked_range();
+            let range2 = self.cursors[cpu2].locked_range();
+            range1.disjoint(range2)
         }
 }
 
@@ -115,7 +115,7 @@ pub open spec fn strays_filter(
     project_first_key(self.strays, nid)
 }
 
-pub open spec fn starys_count_false(
+pub open spec fn strays_count_false(
     &self,
     nid: NodeId
 ) -> nat
@@ -128,7 +128,7 @@ pub fn inv_stray_at_most_one_false_per_node(&self) -> bool {
     forall |nid: NodeId|
         #[trigger]
         NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id() ==> {
-            self.starys_count_false(nid) <= 1
+            self.strays_count_false(nid) <= 1
         }
 }
 
@@ -438,7 +438,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
     assert forall |nid: NodeId|
         #[trigger] NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
     implies {
-        post.starys_count_false(nid) == 0
+        post.strays_count_false(nid) == 0
     } by {
         assert(post.strays_filter(nid).is_empty());
         assert(value_filter(post.strays_filter(nid), |stray:bool| stray == false).is_empty());
@@ -576,16 +576,16 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
     assert(post.inv_stray_at_most_one_false_per_node()) by {
         assert forall |node_id: NodeId|
             (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
-               post.starys_count_false(node_id) <= 1
+               post.strays_count_false(node_id) <= 1
             } by {
             if node_id == nid {
                 assert(!pre.nodes.contains_key(node_id));
-                assert(pre.starys_count_false(node_id) == 0) by {
-                    if pre.starys_count_false(node_id) != 0 {
+                assert(pre.strays_count_false(node_id) == 0) by {
+                    if pre.strays_count_false(node_id) != 0 {
                         lemma_project_first_key_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
                     }
                 }
-                assert(post.starys_count_false(node_id) == 1) by {
+                assert(post.strays_count_false(node_id) == 1) by {
                     // This is absolutely true, but I do not have enough time
                     admit();
                 }
