@@ -543,21 +543,11 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_allocate)]
-#[verifier::external_body]
 fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
-    // Extract transition parameters
     let pa = NodeHelper::get_parent(nid);
     let offset = NodeHelper::get_offset(nid);
-
-    assert(pre.pte_arrays.contains_key(pa)); // remove pte_arrays -= [pa => ...]
     let pte_array = pre.pte_arrays[pa];
-    assert(pte_array.wf());
     NodeHelper::lemma_get_offset_sound(nid);
-    assert(0 <= offset < 512);
-    assert(pte_array.is_void(offset));
-
-    assert(post.wf_pte_arrays());
-    assert(post.inv_pt_node_pte_array_relationship());
 
     assert(post.inv_pt_node_pte_relationship()) by {
         assert forall |node_id: NodeId|
@@ -645,26 +635,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
                         assert(post.strays[(node_id, paddr_other)] == false);
                     }
                 }
-            }
-        }
-    };
-
-    assert(post.inv_stray_has_false_implies_pte_is_alive());
-
-    assert(post.inv_pte_is_void_implies_no_node()) by {
-        assert forall |node_id: NodeId| NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id() &&
-            #[trigger] post.pte_arrays.contains_key(NodeHelper::get_parent(node_id)) &&
-            post.pte_arrays[NodeHelper::get_parent(node_id)].is_void(NodeHelper::get_offset(node_id)) implies
-        {
-            !post.nodes.contains_key(node_id)
-        } by {
-            let pa = NodeHelper::get_parent(node_id);
-            let offset = NodeHelper::get_offset(node_id);
-            if node_id == nid {}
-            else
-            {
-                assert(post.pte_arrays[pa].is_void(offset));
-                assert(!post.nodes.contains_key(node_id));
             }
         }
     };
