@@ -593,16 +593,19 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
 }
 
 // PTE index increment recursively
+//
+// Returns the level `cur_level` PTE index of the virtual address formed by
+// adding the page size of `add_level` to `va`.
 pub open spec fn pte_index_add_with_carry<C: PagingConstsTrait>(
     va: Vaddr,
     add_level: PagingLevel,
     cur_level: PagingLevel,
 ) -> usize
-    recommends
-        1 <= add_level <= cur_level <= C::NR_LEVELS_SPEC(),
     decreases cur_level,
 {
-    if cur_level <= add_level {
+    if cur_level < add_level {
+        pte_index_spec::<C>(va, cur_level)
+    } else if cur_level == add_level {
         if pte_index_spec::<C>(va, cur_level) == pte_index_mask::<C>() {
             0  // Overflow
 
