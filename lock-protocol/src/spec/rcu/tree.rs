@@ -99,14 +99,12 @@ pub fn inv_non_overlapping(&self) -> bool {
         cpu1 != cpu2 &&
         #[trigger] self.cursors.contains_key(cpu1) &&
         #[trigger] self.cursors.contains_key(cpu2) &&
-        self.cursors[cpu1] is Locked &&
-        self.cursors[cpu2] is Locked ==>
+        !(self.cursors[cpu1] is Void) &&
+        !(self.cursors[cpu2] is Void) ==>
         {
-            let nid1 = self.cursors[cpu1]->Locked_0;
-            let nid2 = self.cursors[cpu2]->Locked_0;
-
-            !NodeHelper::in_subtree_range(nid1, nid2) &&
-            !NodeHelper::in_subtree_range(nid2, nid1)
+            let range1 = self.cursors[cpu1].lock_range();
+            let range2 = self.cursors[cpu2].lock_range();
+            range1.1 <= range2.0 || range2.1 <= range1.0
         }
 }
 

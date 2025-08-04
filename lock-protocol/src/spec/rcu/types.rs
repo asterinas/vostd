@@ -86,6 +86,17 @@ impl CursorState {
             // },
         }
     }
+
+    pub open spec fn lock_range(&self) -> (NodeId, NodeId)
+        recommends
+            *self !is Void,
+    {
+        match *self {
+            Self::Void => arbitrary(),
+            Self::Locking(rt, nid) => (rt, nid),
+            Self::Locked(rt) => (rt, NodeHelper::next_outside_subtree(rt)),
+        }
+    }
 }
 
 pub enum AtomicCursorState {
