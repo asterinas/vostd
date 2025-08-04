@@ -642,7 +642,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let start = self.0.va;
         assert(len % page_size::<C>(1) == 0);
         let end = start + len;
-        // assert!(end <= self.0.barrier_va.end); // TODO
+        assert(end <= self.0.barrier_va.end);
 
         while self.0.va < end && self.0.level > 1
             invariant
@@ -651,6 +651,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,
+                end <= self.0.barrier_va.end,
             decreases
                     end - self.0.va,
                     self.0.level,  // for push_level, only level decreases
@@ -666,7 +667,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     self.0.va = end;
                     break ;
                 }
-                assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
+                assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
                 self.0.move_forward(Tracked(spt));
                 assert(self.0.path_wf(spt));
 
@@ -695,8 +696,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 self.0.va = end;
                                 break ;
                             }
-                            assume(self.0.va + page_size::<C>(self.0.level)
-                                <= self.0.barrier_va.end);  // TODO: P1
+                            assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
                             self.0.move_forward(Tracked(spt));
                         }
                     },
