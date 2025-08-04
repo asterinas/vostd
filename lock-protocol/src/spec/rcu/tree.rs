@@ -372,7 +372,6 @@ transition!{
 transition!{
     normal_unlock(nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
-
         remove nodes -= [ nid => NodeState::LockedOutside ];
         add nodes += [ nid => NodeState::Free ];
     }
@@ -433,12 +432,8 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
         let offset = NodeHelper::get_offset(nid);
         !(post.pte_arrays.contains_key(pa) && post.pte_arrays[pa].is_alive(offset))
     } by {
-        let pa = NodeHelper::get_parent(nid);
-        let offset = NodeHelper::get_offset(nid);
-        if pa == NodeHelper::root_id() {
+        if NodeHelper::get_parent(nid) == NodeHelper::root_id() {
             NodeHelper::lemma_get_offset_sound(nid);
-        } else {
-            assert(!post.pte_arrays.contains_key(pa));
         }
     }
 
@@ -453,105 +448,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
 }
 
 #[inductive(protocol_lock_start)]
-#[verifier::external_body]
-fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    // Only cursors map changes, all other fields remain the same
-    assert(post.cpu_num == pre.cpu_num);
-    assert(post.nodes == pre.nodes);
-    assert(post.pte_arrays == pre.pte_arrays);
-    assert(post.strays == pre.strays);
-
-    // wf_nodes: unchanged nodes map
-    assert(post.wf_nodes()) by {
-        assert(post.nodes == pre.nodes);
-    };
-
-    // wf_pte_arrays: unchanged pte_arrays map
-    assert(post.wf_pte_arrays()) by {
-        assert(post.pte_arrays == pre.pte_arrays);
-    };
-
-    // wf_cursors: only cursor for cpu changes from Void to Locking(nid, nid)
-    assert(post.wf_cursors()) by {
-        assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) implies {
-            &&& valid_cpu(post.cpu_num, cpu_id)
-            &&& post.cursors[cpu_id].wf()
-        } by {
-            if cpu_id == cpu {
-                // The CPU that changed - now has Locking(nid, nid)
-                assert(post.cursors[cpu_id] == CursorState::Locking(nid, nid));
-                assert(valid_cpu(post.cpu_num, cpu_id)); // from transition requirement
-                // Locking state should satisfy wf()
-            } else {
-                // Other CPUs unchanged
-                if post.cursors.contains_key(cpu_id) {
-                    assert(pre.cursors.contains_key(cpu_id));
-                    assert(post.cursors[cpu_id] == pre.cursors[cpu_id]);
-                    assert(valid_cpu(pre.cpu_num, cpu_id));
-                    assert(pre.cursors[cpu_id].wf());
-                }
-            }
-        }
-    };
-
-    // wf_strays: unchanged strays map
-    assert(post.wf_strays()) by {
-        assert(post.strays == pre.strays);
-    };
-
-    // inv_pt_node_pte_array_relationship: unchanged nodes and pte_arrays
-    assert(post.inv_pt_node_pte_array_relationship()) by {
-        assert(post.nodes == pre.nodes);
-        assert(post.pte_arrays == pre.pte_arrays);
-    };
-
-    // inv_pt_node_pte_relationship: unchanged nodes and pte_arrays
-    assert(post.inv_pt_node_pte_relationship()) by {
-        assert(post.nodes == pre.nodes);
-        assert(post.pte_arrays == pre.pte_arrays);
-    };
-
-    // inv_non_overlapping: cursor for cpu changes from Void to Locking, others unchanged
-    assert(post.inv_non_overlapping()) by {
-        assert forall |cpu1: CpuId, cpu2: CpuId|
-            (cpu1 != cpu2 &&
-            #[trigger] post.cursors.contains_key(cpu1) &&
-            #[trigger] post.cursors.contains_key(cpu2) &&
-            post.cursors[cpu1] is Locked &&
-            post.cursors[cpu2] is Locked) implies {
-            let nid1 = post.cursors[cpu1]->Locked_0;
-            let nid2 = post.cursors[cpu2]->Locked_0;
-            !NodeHelper::in_subtree_range(nid1, nid2) &&
-            !NodeHelper::in_subtree_range(nid2, nid1)
-        } by {
-            // The changed cursor is Locking, not Locked, so antecedent is false
-            if cpu1 == cpu {
-                assert(post.cursors[cpu1] is Locking);
-                assert(!(post.cursors[cpu1] is Locked));
-            } else if cpu2 == cpu {
-                assert(post.cursors[cpu2] is Locking);
-                assert(!(post.cursors[cpu2] is Locked));
-            } else {
-                // Both cursors unchanged from pre
-                if post.cursors.contains_key(cpu1) && post.cursors.contains_key(cpu2) {
-                    assert(post.cursors[cpu1] == pre.cursors[cpu1]);
-                    assert(post.cursors[cpu2] == pre.cursors[cpu2]);
-                }
-            }
-        }
-    };
-
-    // inv_stray_at_most_one_false_per_node: unchanged strays
-    assert(post.inv_stray_at_most_one_false_per_node()) by {
-        assert(post.strays == pre.strays);
-    };
-
-    // inv_pte_is_alive_implies_stray_has_false: unchanged pte_arrays and strays
-    assert(post.inv_pte_is_alive_implies_stray_has_false()) by {
-        assert(post.pte_arrays == pre.pte_arrays);
-        assert(post.strays == pre.strays);
-    };
-}
+fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_lock)]
 #[verifier::external_body]
