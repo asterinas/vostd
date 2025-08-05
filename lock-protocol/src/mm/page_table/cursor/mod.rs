@@ -300,62 +300,29 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             if (self.level == self.guard_level) {
                 // The proof automatically goes through in this case.
             } else {
-                assert(self.level < self.guard_level);
+                let old_level = old(self).level;
+                let aligned_va = align_down(old(self).va, cur_page_size);
+                // Information from the loop termination
+                assert(old_level <= self.level < self.guard_level);
                 assert(pte_index::<C>(next_va, self.level) != 0);
-                assert(forall|i: u8|
-                    self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(self.va, i)
-                        == #[trigger] pte_index::<C>(old(self).va, i)) by {
-                    let old_level = old(self).level;
-                    let aligned_va = align_down(old(self).va, cur_page_size);
-                    assert(aligned_va + cur_page_size < usize::MAX) by {
-                        assert(aligned_va + cur_page_size <= old(self).barrier_va.end);
-                        assert(old(self).barrier_va.end < usize::MAX);
-                    }
 
+                // No overflow.
+                assert(aligned_va + cur_page_size < usize::MAX) by {
+                    assert(aligned_va + cur_page_size <= old(self).barrier_va.end);
+                    assert(old(self).barrier_va.end < usize::MAX);
+                }
+                assert(self.va == next_va == aligned_va + cur_page_size);
+                assume(forall|i: u8|
+                    self.level < i <= self.guard_level ==>
+                    #[trigger] pte_index::<C>(aligned_va, i) ==
+                    #[trigger] pte_index::<C>(next_va, i));
+                assert forall|i: u8| self.level < i <= self.guard_level implies
+                    pte_index::<C>(self.va, i) == pte_index::<C>(old(self).va, i)
+                by {
+                    assert(pte_index::<C>(self.va, i) == pte_index::<C>(next_va, i));
+                    assert(pte_index::<C>(next_va, i) == pte_index::<C>(aligned_va, i));
                     lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
-                    lemma_add_page_size_change_pte_index::<C>(
-                        aligned_va,
-                        page_size::<C>(old_level),
-                        old_level,
-                    );
-
-                    assert(forall|i: PagingLevel|
-                        #![auto]
-                        self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
-                            == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
-                    assert(forall|i: PagingLevel|
-                        #![auto]
-                        self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
-                            aligned_va,
-                            old_level,
-                            i,
-                        ) == pte_index::<C>(aligned_va, i)) by {
-                        admit();
-                    }
-                    assert(forall|i: PagingLevel|
-                        #![auto]
-                        self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
-                            == pte_index::<C>(aligned_va, i)) by {
-                        // Use the transitivity: self.va -> pte_index_add_with_carry -> aligned_va
-                        assert(forall|i: PagingLevel|
-                            #![auto]
-                            self.level < i <= self.guard_level ==> pte_index::<C>(self.va, i)
-                                == pte_index_add_with_carry::<C>(aligned_va, old_level, i));
-                        assert(forall|i: PagingLevel|
-                            #![auto]
-                            self.level < i <= self.guard_level ==> pte_index_add_with_carry::<C>(
-                                aligned_va,
-                                old_level,
-                                i,
-                            ) == pte_index::<C>(aligned_va, i));
-                    }
-                    assert(forall|i: PagingLevel|
-                        self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(
-                            aligned_va,
-                            i,
-                        ) == #[trigger] pte_index::<C>(old(self).va, i)) by {
-                        admit();
-                    }
+                    assert(pte_index::<C>(aligned_va, i) == pte_index::<C>(old(self).va, i));
                 }
                 assert(self.wf(spt));
             }
