@@ -183,13 +183,13 @@ pub fn inv_free_paddr_not_in_strays(&self) -> bool {
 }
 
 #[invariant]
-pub fn inv_node_locked(&self) -> bool{
+pub fn inv_locked_node_state(&self) -> bool{
     forall |cpu:CpuId, nid:NodeId| {
         &&& #[trigger] self.cursors.contains_key(cpu)
         &&& !(self.cursors[cpu] is Void)
         &&& self.cursors[cpu].locked_range().contains(nid) } ==>{
-            !self.nodes.contains_key(nid) ||
-            #[trigger] self.nodes.contains_key(nid) && self.nodes[nid] is Locked
+            ||| (!self.nodes.contains_key(nid))
+            ||| (#[trigger] self.nodes.contains_key(nid) && self.nodes[nid] is Locked)
         }
 
 }
@@ -203,6 +203,22 @@ pub fn inv_subtree_not_allocated(&self) -> bool {
         !self.nodes.contains_key(nid)
     }
 
+#[invariant]
+pub fn inv_unallocated_node_locked_implies_in_subtree(&self) -> bool {
+    forall |cpu: CpuId, nid: NodeId| {
+        &&& #[trigger] self.cursors.contains_key(cpu)
+        &&& !(self.cursors[cpu] is Void)
+        &&& self.cursors[cpu].locked_range().contains(nid)
+        &&& !#[trigger] self.nodes.contains_key(nid) } ==> {
+            &&& self.cursors[cpu].locked_range().contains(self.cursors[cpu].root())
+            &&& NodeHelper::in_subtree(self.cursors[cpu].root(), nid)
+        }
+}
+
+#[invariant]
+pub fn inv_cursor_root_in_nodes(&self) -> bool {
+    forall_map_values(self.cursors, |cursor:CursorState| !(cursor is Void) ==> self.nodes.contains_key(cursor.root()))
+}
 
 property! {
     stray_is_false(nid: NodeId, paddr: Paddr) {
@@ -275,9 +291,10 @@ transition!{
         require(nid != NodeHelper::root_id());
         remove cursors -= [ cpu => let CursorState::Locking(rt, _nid) ];
         require(_nid == nid);
-        require(NodeHelper::in_subtree_range(rt, _nid));
+        require(NodeHelper::in_subtree_range(rt, nid));
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
+        require(nid != rt);
         have pte_arrays >= [ pa => let pte_array ];
         require(pte_array.is_void(offset));
         add cursors += [ cpu => CursorState::Locking(rt, NodeHelper::next_outside_subtree(nid)) ];
@@ -466,9 +483,22 @@ fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
 fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_lock_skip)]
-#[verifier::external_body]
 fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    // wf_cursors: cursor for cpu changes from Locking(rt, nid) to Locking(rt, next_outside_subtree(nid))
+    broadcast use group_node_helper_lemmas;
+
+    let root = pre.cursors[cpu].root();
+    // Specify what's changed in the transition
+    assert(!pre.nodes.contains_key(nid));
+    assert(post.cursors == pre.cursors.insert(cpu, CursorState::Locking(root, NodeHelper::next_outside_subtree(nid))));
+
+    assert forall |node_id: NodeId|
+        ! #[trigger]pre.cursors[cpu].locked_range().contains(node_id) &&
+        post.cursors[cpu].locked_range().contains(node_id) implies
+        NodeHelper::in_subtree(nid, node_id) && !pre.nodes.contains_key(node_id) by {
+            assert(NodeHelper::in_subtree(nid, node_id));
+        };
+
+
     assert(post.wf_cursors()) by {
         assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) implies {
             &&& valid_cpu(post.cpu_num, cpu_id)
@@ -482,30 +512,82 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
                 } else {
                     // rt < nid, so need to show next_outside_subtree(nid) <= next_outside_subtree(rt)
                     // This follows from the fact that nid is in the subtree range of rt
-                    NodeHelper::lemma_in_subtree_range_implies_in_subtree(rt, nid);
                     NodeHelper::lemma_in_subtree_bounded(rt, nid);
                     assert(NodeHelper::next_outside_subtree(nid) <= NodeHelper::next_outside_subtree(rt));
                 }
             }
         }
     };
-    assert(post.inv_non_overlapping()) by { admit(); };
-}
 
-#[inductive(protocol_lock_end)]
-#[verifier::external_body]
-fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
+    // Insight: The current cursor must have locked nid's parent
     assert(post.inv_non_overlapping()) by {
-        assert(post.cursors[cpu].locked_range() == pre.cursors[cpu].locked_range());
+        assert forall |cpu1: CpuId, cpu2: CpuId|
+            cpu1 != cpu2 &&
+            #[trigger] post.cursors.contains_key(cpu1) &&
+            #[trigger] post.cursors.contains_key(cpu2) &&
+            !(post.cursors[cpu1] is Void) &&
+            !(post.cursors[cpu2] is Void) implies
+            {
+                let range1 = post.cursors[cpu1].locked_range();
+                let range2 = post.cursors[cpu2].locked_range();
+                range1.disjoint(range2)
+            } by {
+            assert(post.cursors == pre.cursors.insert(cpu, CursorState::Locking(root, NodeHelper::next_outside_subtree(nid))));
+            if cpu1 == cpu {
+                assert forall |node_id: NodeId|
+                    !#[trigger] pre.cursors[cpu1].locked_range().contains(node_id) &&
+                    post.cursors[cpu1].locked_range().contains(node_id) implies
+                    !pre.cursors[cpu2].locked_range().contains(node_id) by {
+                        let pa = NodeHelper::get_parent(nid);
+                        assert(NodeHelper::in_subtree(root, pa)) by
+                        { NodeHelper::lemma_child_in_subtree_implies_in_subtree(root, pa, nid);};
+                        assert(pre.cursors[cpu1].locked_range().contains(pa)) by {
+                            NodeHelper::lemma_is_child_nid_increasing(pa,nid);
+                        };
+                        if pre.cursors[cpu2].locked_range().contains(node_id) {
+                            let root2 = pre.cursors[cpu2].root();
+                            assert(NodeHelper::in_subtree(root2, node_id));
+                            assert(NodeHelper::in_subtree(root2,nid) && root2 != nid);
+                            assert(NodeHelper::in_subtree_range(root2, pa)) by {
+                                NodeHelper::lemma_child_in_subtree_implies_in_subtree(root2, pa, nid);
+                            };
+                            assert(false);
+                        }
+                    }
+            }
+            if cpu2 == cpu {
+                assert forall |node_id: NodeId|
+                    !#[trigger] pre.cursors[cpu2].locked_range().contains(node_id) &&
+                    post.cursors[cpu2].locked_range().contains(node_id) implies
+                    !pre.cursors[cpu1].locked_range().contains(node_id) by {
+                        let pa = NodeHelper::get_parent(nid);
+                        assert(NodeHelper::in_subtree(root, pa)) by
+                        { NodeHelper::lemma_child_in_subtree_implies_in_subtree(root, pa, nid);};
+                        assert(pre.cursors[cpu2].locked_range().contains(pa)) by {
+                            NodeHelper::lemma_is_child_nid_increasing(pa,nid);
+                        };
+                        if pre.cursors[cpu1].locked_range().contains(node_id) {
+                            let root1 = pre.cursors[cpu1].root();
+                            assert(NodeHelper::in_subtree(root1, node_id));
+                            assert(NodeHelper::in_subtree(root1,nid) && root1 != nid);
+                            assert(NodeHelper::in_subtree_range(root1, pa)) by {
+                                NodeHelper::lemma_child_in_subtree_implies_in_subtree(root1, pa, nid);
+                            };
+                            assert(false);
+                        }
+                    }
+            }
+            }
     };
 }
 
+#[inductive(protocol_lock_end)]
+fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
+
 #[inductive(protocol_unlock_start)]
-#[verifier::external_body]
 fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_unlock)]
-#[verifier::external_body]
 fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_unlock_skip)]
@@ -616,7 +698,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
 fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_lock)]
-#[verifier::external_body]
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_unlock)]

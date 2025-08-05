@@ -97,6 +97,17 @@ impl CursorState {
             Self::Locked(rt) => Set::new(|id| rt <= id < NodeHelper::next_outside_subtree(rt)),
         }
     }
+
+    pub open spec fn root(&self) -> NodeId
+        recommends
+            *self !is Void,
+    {
+        match *self {
+            Self::Void => arbitrary(),
+            Self::Locking(rt, _) => rt,
+            Self::Locked(rt) => rt,
+        }
+    }
 }
 
 pub enum AtomicCursorState {
