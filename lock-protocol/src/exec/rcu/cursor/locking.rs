@@ -104,6 +104,8 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
             ),
         va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
 {
+    broadcast use group_node_helper_lemmas;
+
     let guard_level = va_range_get_guard_level(va);
     let trace = va_level_to_trace(va.start, guard_level);
     lemma_va_range_get_guard_level(va);
@@ -117,7 +119,6 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
             let sub_trace = trace.subrange(0, i);
             assert(nid == NodeHelper::trace_to_nid(sub_trace));
             lemma_va_level_to_trace_valid(va.start, guard_level);
-            NodeHelper::lemma_trace_to_nid_sound(sub_trace);
         }
     }
 }
@@ -509,6 +510,8 @@ fn dfs_acquire_lock(
         res@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
     decreases cur_node.deref().deref().level_spec(),
 {
+    broadcast use crate::spec::utils::group_node_helper_lemmas;
+
     let cur_level = cur_node.deref().deref().level();
     if cur_level == 1 {
         assert(m@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid())) by {
@@ -561,30 +564,13 @@ fn dfs_acquire_lock(
         match child {
             ChildRef::PageTable(pt) => {
                 assert(pt.nid@ == NodeHelper::get_child(cur_node.nid(), entry.idx as nat));
-                assert(cur_node.nid() == NodeHelper::get_parent(pt.nid@)) by {
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
-                };
-                assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
-                };
                 let tracked pa_pte_array_token =
                     cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
                 assert(pa_pte_array_token.value().is_alive(entry.idx as nat));
                 assert(pa_pte_array_token.value().get_paddr(entry.idx as nat)
                     == cur_node.guard->Some_0.perms@.inner.value()[entry.idx as int].inner.paddr());
                 assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt.nid@)) by {
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                     assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), cur_node.nid()));
-                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                        m.sub_tree_rt(),
-                        cur_node.nid(),
-                    );
-                    NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), pt.nid@);
-                    NodeHelper::lemma_in_subtree_is_child_in_subtree(
-                        m.sub_tree_rt(),
-                        cur_node.nid(),
-                        pt.nid@,
-                    );
                 }
                 let res = pt.lock(guard, Tracked(m), Tracked(pa_pte_array_token));
                 let pt_guard = res.0;
@@ -610,16 +596,10 @@ fn dfs_acquire_lock(
                 let tracked inst = tracked_inst.get();
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(pte_token.value().is_void(i as nat));
                     assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), nid)) by {
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                            m.sub_tree_rt(),
-                            cur_node.nid(),
-                        );
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), nid);
                         NodeHelper::lemma_in_subtree_is_child_in_subtree(
                             m.sub_tree_rt(),
                             cur_node.nid(),
@@ -637,10 +617,6 @@ fn dfs_acquire_lock(
                     assert(m.cur_node() <= NodeHelper::next_outside_subtree(m.sub_tree_rt())) by {
                         assert(NodeHelper::in_subtree(m.sub_tree_rt(), cur_node.nid())) by {
                             assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), cur_node.nid()));
-                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                                m.sub_tree_rt(),
-                                cur_node.nid(),
-                            );
                         }
                         if i + 1 < 512 {
                             assert(m.cur_node() == NodeHelper::get_child(
@@ -653,19 +629,11 @@ fn dfs_acquire_lock(
                                     i as nat,
                                 );
                             };
-                            NodeHelper::lemma_get_child_sound(cur_node.nid(), (i + 1) as nat);
                             NodeHelper::lemma_in_subtree_is_child_in_subtree(
                                 m.sub_tree_rt(),
                                 cur_node.nid(),
                                 m.cur_node(),
                             );
-                            assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), m.cur_node())) by {
-                                assert(NodeHelper::in_subtree(m.sub_tree_rt(), m.cur_node()));
-                                NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                                    m.sub_tree_rt(),
-                                    m.cur_node(),
-                                );
-                            };
                         } else {
                             assert(i + 1 == 512);
                             assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()))
@@ -689,7 +657,6 @@ fn dfs_acquire_lock(
             }
             assert(m.node_is_locked(cur_node.nid())) by {
                 assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), (i + 1) as nat));
-                NodeHelper::lemma_get_child_sound(cur_node.nid(), (i + 1) as nat);
                 NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
             }
         } else {
@@ -735,6 +702,8 @@ fn dfs_release_lock<'rcu>(
         res@.cur_node() == cur_node.nid(),
     decreases cur_node.deref().deref().level_spec(),
 {
+    broadcast use crate::spec::utils::group_node_helper_lemmas;
+
     let tracked mut m = m.get();
 
     let cur_level = cur_node.deref().deref().level();
@@ -788,7 +757,6 @@ fn dfs_release_lock<'rcu>(
                 assert(m.node_is_locked(pt.deref().nid@)) by {
                     assert(pt.deref().nid@ == NodeHelper::get_child(cur_node.nid(), i as nat));
                     assert(m.sub_tree_rt() <= pt.deref().nid@) by {
-                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                         NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), pt.deref().nid@);
                     };
                     if i + 1 < 512 {
@@ -804,24 +772,12 @@ fn dfs_release_lock<'rcu>(
                     } else {
                         assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()));
                         assert(NodeHelper::in_subtree_range(cur_node.nid(), pt.deref().nid@)) by {
-                            NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                             NodeHelper::lemma_is_child_implies_in_subtree(
-                                cur_node.nid(),
-                                pt.deref().nid@,
-                            );
-                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(
                                 cur_node.nid(),
                                 pt.deref().nid@,
                             );
                         };
                     }
-                };
-                assert(pt.nid@ == NodeHelper::get_child(cur_node.nid(), entry.idx as nat));
-                assert(cur_node.nid() == NodeHelper::get_parent(pt.nid@)) by {
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
-                };
-                assert(entry.idx as nat == NodeHelper::get_offset(pt.nid@)) by {
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), entry.idx as nat);
                 };
                 let tracked pa_pte_array_token =
                     cur_node.tracked_borrow_guard().tracked_borrow_pte_token();
@@ -861,7 +817,6 @@ fn dfs_release_lock<'rcu>(
                 let tracked inst = tracked_inst.get();
                 proof {
                     let ghost nid = NodeHelper::get_child(cur_node.nid(), i as nat);
-                    NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                     let tracked pte_token: &PteArrayToken =
                         cur_node.guard.tracked_borrow().pte_token.borrow().tracked_borrow();
                     assert(m.cur_node() == NodeHelper::next_outside_subtree(nid)) by {
@@ -879,11 +834,6 @@ fn dfs_release_lock<'rcu>(
                         }
                     };
                     assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), nid)) by {
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(
-                            m.sub_tree_rt(),
-                            cur_node.nid(),
-                        );
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(m.sub_tree_rt(), nid);
                         NodeHelper::lemma_in_subtree_is_child_in_subtree(
                             m.sub_tree_rt(),
                             cur_node.nid(),
@@ -901,7 +851,6 @@ fn dfs_release_lock<'rcu>(
                     assert(m.cur_node() == nid);
                     assert(m.sub_tree_rt() <= m.cur_node()) by {
                         assert(m.sub_tree_rt() <= cur_node.nid());
-                        NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
                         NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), nid);
                     };
                     assert(m.cur_node() <= NodeHelper::next_outside_subtree(m.sub_tree_rt()));
@@ -910,7 +859,6 @@ fn dfs_release_lock<'rcu>(
         }
         assert(m.node_is_locked(cur_node.nid())) by {
             assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), i as nat));
-            NodeHelper::lemma_get_child_sound(cur_node.nid(), i as nat);
             NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
         }
     }

@@ -186,10 +186,7 @@ pub proof fn lemma_wf_tree_path_contains_descendant_implies_contains_ancestor(
         lemma_wf_tree_path_nid_to_trace_len(path);
     }
     assert(ancestor_path =~= ancestor_in_path_path);
-    assert(ancestor == ancestor_in_path) by {
-        NodeHelper::lemma_nid_to_trace_sound(ancestor);
-        NodeHelper::lemma_nid_to_trace_sound(ancestor_in_path);
-    }
+    assert(ancestor == ancestor_in_path);
 }
 
 } // verus!

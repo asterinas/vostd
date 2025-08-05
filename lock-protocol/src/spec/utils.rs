@@ -22,6 +22,11 @@ pub struct NodeHelper;
 
 pub broadcast group group_node_helper_lemmas {
     NodeHelper::lemma_in_subtree_iff_in_subtree_range,
+    NodeHelper::lemma_trace_to_nid_sound,
+    NodeHelper::lemma_nid_to_trace_sound,
+    NodeHelper::lemma_get_parent_sound,
+    NodeHelper::lemma_get_offset_sound,
+    NodeHelper::lemma_get_child_sound,
 }
 
 impl NodeHelper {
@@ -715,11 +720,11 @@ impl NodeHelper {
     /// `nid_to_trace` correctly returns a trace of the node id `nid` starting from the root.
     /// By applying `nid_to_trace` to the trace produced by `nid_to_trace`, we can
     /// reconstruct the original node id.
-    pub proof fn lemma_nid_to_trace_sound(nid: NodeId)
+    pub broadcast proof fn lemma_nid_to_trace_sound(nid: NodeId)
         requires
             Self::valid_nid(nid),
         ensures
-            Self::valid_trace(Self::nid_to_trace(nid)),
+            Self::valid_trace(#[trigger] Self::nid_to_trace(nid)),
             Self::trace_to_nid(Self::nid_to_trace(nid)) == nid,
     {
         reveal(NodeHelper::trace_to_nid_rec);
@@ -813,11 +818,11 @@ impl NodeHelper {
 
     /// `trace_to_nid` correctly returns a node id from the trace starting from the root.
     /// We can reconstruct the node id using `trace_to_nid` with the trace given by `nid_to_trace`.
-    pub proof fn lemma_trace_to_nid_sound(trace: Seq<nat>)
+    pub broadcast proof fn lemma_trace_to_nid_sound(trace: Seq<nat>)
         requires
             Self::valid_trace(trace),
         ensures
-            Self::valid_nid(Self::trace_to_nid(trace)),
+            Self::valid_nid(#[trigger] Self::trace_to_nid(trace)),
             trace =~= Self::nid_to_trace(Self::trace_to_nid(trace)),
     {
         Self::lemma_trace_to_nid_rec_sound(trace, 0, 3)
@@ -1050,12 +1055,12 @@ impl NodeHelper {
 
     /// `get_parent` correctly returns the parent of a node.
     /// The result indeed satisfies `is_child(get_parent(nid), nid)`.
-    pub proof fn lemma_get_parent_sound(nid: NodeId)
+    pub broadcast proof fn lemma_get_parent_sound(nid: NodeId)
         requires
             Self::valid_nid(nid),
             nid != Self::root_id(),
         ensures
-            Self::valid_nid(Self::get_parent(nid)),
+            Self::valid_nid(#[trigger] Self::get_parent(nid)),
             Self::is_child(Self::get_parent(nid), nid),
     {
         Self::lemma_nid_to_trace_sound(nid);
@@ -1063,12 +1068,12 @@ impl NodeHelper {
     }
 
     /// `get_offset` returns the offset in a correct range.
-    pub proof fn lemma_get_offset_sound(nid: NodeId)
+    pub broadcast proof fn lemma_get_offset_sound(nid: NodeId)
         requires
             Self::valid_nid(nid),
             nid != Self::root_id(),
         ensures
-            0 <= Self::get_offset(nid) < 512,
+            0 <= #[trigger] Self::get_offset(nid) < 512,
     {
         Self::lemma_nid_to_trace_sound(nid);
     }
@@ -1115,13 +1120,13 @@ impl NodeHelper {
 
     /// `get_child` correctly returns the child of a node.
     /// The result indeed satisfies `is_child(nid, get_child(nid, offset))`.
-    pub proof fn lemma_get_child_sound(nid: NodeId, offset: nat)
+    pub broadcast proof fn lemma_get_child_sound(nid: NodeId, offset: nat)
         requires
             Self::valid_nid(nid),
             Self::nid_to_dep(nid) < 3,
             0 <= offset < 512,
         ensures
-            Self::valid_nid(Self::get_child(nid, offset)),
+            Self::valid_nid(#[trigger] Self::get_child(nid, offset)),
             nid == Self::get_parent(Self::get_child(nid, offset)),
             offset == Self::get_offset(Self::get_child(nid, offset)),
             Self::is_child(nid, Self::get_child(nid, offset)),
