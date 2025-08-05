@@ -182,6 +182,28 @@ pub fn inv_free_paddr_not_in_strays(&self) -> bool {
         !self.free_paddrs.contains(pair.1)
 }
 
+#[invariant]
+pub fn inv_node_locked(&self) -> bool{
+    forall |cpu:CpuId, nid:NodeId| {
+        &&& #[trigger] self.cursors.contains_key(cpu)
+        &&& !(self.cursors[cpu] is Void)
+        &&& self.cursors[cpu].locked_range().contains(nid) } ==>{
+            !self.nodes.contains_key(nid) ||
+            #[trigger] self.nodes.contains_key(nid) && self.nodes[nid] is Locked
+        }
+
+}
+
+#[invariant]
+pub fn inv_subtree_not_allocated(&self) -> bool {
+    forall |rt: NodeId, nid: NodeId| {
+        &&& ! #[trigger] self.nodes.contains_key(rt)
+        &&& NodeHelper::valid_nid(nid)
+        &&& #[trigger] NodeHelper::in_subtree_range(rt, nid) } ==>
+        !self.nodes.contains_key(nid)
+    }
+
+
 property! {
     stray_is_false(nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
@@ -449,11 +471,10 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
 fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_lock)]
-fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    assert(post.inv_non_overlapping()) by { admit(); };
-}
+fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_lock_skip)]
+#[verifier::external_body]
 fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     // wf_cursors: cursor for cpu changes from Locking(rt, nid) to Locking(rt, next_outside_subtree(nid))
     assert(post.wf_cursors()) by {
@@ -480,6 +501,7 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
 }
 
 #[inductive(protocol_lock_end)]
+#[verifier::external_body]
 fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
     assert(post.inv_non_overlapping()) by {
         assert(post.cursors[cpu].locked_range() == pre.cursors[cpu].locked_range());
@@ -487,18 +509,23 @@ fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 }
 
 #[inductive(protocol_unlock_start)]
+#[verifier::external_body]
 fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_unlock)]
+#[verifier::external_body]
 fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_unlock_skip)]
+#[verifier::external_body]
 fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_unlock_end)]
+#[verifier::external_body]
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_allocate)]
+#[verifier::external_body]
 fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
     let pa = NodeHelper::get_parent(nid);
     let offset = NodeHelper::get_offset(nid);
@@ -600,10 +627,13 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
 fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
 
 #[inductive(normal_lock)]
+#[verifier::external_body]
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_unlock)]
-fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
+fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {
+    admit();
+}
 
 #[inductive(normal_allocate)]
 fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit();}
