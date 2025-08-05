@@ -591,11 +591,9 @@ fn protocol_unlock_start_inductive(pre: Self, post: Self, cpu: CpuId) {}
 fn protocol_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_unlock_skip)]
-#[verifier::external_body]
 fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
 
 #[inductive(protocol_unlock_end)]
-#[verifier::external_body]
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_allocate)]
@@ -701,9 +699,7 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); 
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_unlock)]
-fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {
-    admit();
-}
+fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_allocate)]
 fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit();}
