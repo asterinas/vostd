@@ -246,6 +246,8 @@ transition!{
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
 
+        have nodes >= [ nid => let node_state ];
+
         remove cursors -= [ cpu => CursorState::Void ];
         add cursors += [ cpu => CursorState::Locking(nid, nid) ];
     }
