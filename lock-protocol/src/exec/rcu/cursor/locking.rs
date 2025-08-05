@@ -455,12 +455,10 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         return (None, Tracked(m));
     } else {
         proof {
-            let tracked node_token = pt_guard
-                .tracked_borrow_guard()
-                .tracked_borrow_node_token();
+            let tracked node_token = pt_guard.tracked_borrow_guard().tracked_borrow_node_token();
             m.token = pt.inst.borrow().protocol_lock_start(
-                m.cpu, 
-                pt_guard.nid(), 
+                m.cpu,
+                pt_guard.nid(),
                 node_token,
                 m.token,
             );
