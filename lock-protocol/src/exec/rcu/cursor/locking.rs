@@ -455,7 +455,15 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         return (None, Tracked(m));
     } else {
         proof {
-            m.token = pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), m.token);
+            let tracked node_token = pt_guard
+                .tracked_borrow_guard()
+                .tracked_borrow_node_token();
+            m.token = pt.inst.borrow().protocol_lock_start(
+                m.cpu, 
+                pt_guard.nid(), 
+                node_token,
+                m.token,
+            );
             assert(m.state() is Locking);
         }
         assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt_guard.nid())) by {

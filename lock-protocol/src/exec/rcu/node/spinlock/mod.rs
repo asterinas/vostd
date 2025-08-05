@@ -345,6 +345,15 @@ impl SpinGuard {
         &&& self.perms =~= old.perms
     }
 
+    pub proof fn tracked_borrow_node_token(tracked &self) -> (tracked res: &NodeToken)
+        requires
+            self.node_token@ is Some,
+        ensures
+            *res =~= self.node_token@->Some_0,
+    {
+        self.node_token.borrow().tracked_borrow()
+    }
+
     pub proof fn tracked_borrow_pte_token(tracked &self) -> (tracked res: &PteArrayToken)
         requires
             self.pte_token@ is Some,
