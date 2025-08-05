@@ -437,6 +437,7 @@ transition!{
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
+    broadcast use group_node_helper_lemmas;
     assert(post.wf_nodes()) by {
         assert(forall |nid: NodeId| post.nodes.contains_key(nid) ==> #[trigger] NodeHelper::valid_nid(nid)) by {
             NodeHelper::lemma_root_id();
@@ -446,17 +447,6 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
     assert(post.cursors.dom().finite()) by{
         assert(post.cursors.dom() == Set::new(|p: nat| 0 <= p < cpu_num));
         lemma_nat_range_finite(0, cpu_num);
-    }
-
-    assert forall |nid: NodeId| NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
-    implies {
-        let pa = NodeHelper::get_parent(nid);
-        let offset = NodeHelper::get_offset(nid);
-        !(post.pte_arrays.contains_key(pa) && post.pte_arrays[pa].is_alive(offset))
-    } by {
-        if NodeHelper::get_parent(nid) == NodeHelper::root_id() {
-            NodeHelper::lemma_get_offset_sound(nid);
-        }
     }
 
     assert forall |nid: NodeId|
@@ -529,10 +519,11 @@ fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 #[inductive(protocol_allocate)]
 #[verifier::external_body]
 fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
+    broadcast use group_node_helper_lemmas;
+
     let pa = NodeHelper::get_parent(nid);
     let offset = NodeHelper::get_offset(nid);
     let pte_array = pre.pte_arrays[pa];
-    NodeHelper::lemma_get_offset_sound(nid);
 
     assert(post.inv_pt_node_pte_relationship()) by {
         assert forall |node_id: NodeId|
@@ -545,8 +536,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             } by {
             let pa_node = NodeHelper::get_parent(node_id);
             let offset_node = NodeHelper::get_offset(node_id);
-            NodeHelper::lemma_get_offset_sound(node_id);
-            assert(0 <= offset_node < 512);
 
             if node_id != nid && pa_node == pa && offset_node == offset {
                 NodeHelper::lemma_parent_offset_uniqueness(node_id, nid);
@@ -595,8 +584,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             } by {
             let pa_node = NodeHelper::get_parent(node_id);
             let offset_node = NodeHelper::get_offset(node_id);
-            NodeHelper::lemma_get_offset_sound(node_id);
-            assert(0 <= offset_node < 512);
 
             if post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_alive(offset_node) {
                 if node_id == nid {

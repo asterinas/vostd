@@ -208,6 +208,8 @@ impl<'g> Entry {
                 &&& res->Some_0.guard->Some_0.in_protocol@ == true
             },
     {
+        broadcast use group_node_helper_lemmas;
+
         if !(self.is_none() && node.inner.deref().level() > 1) {
             return None;
         }
@@ -220,17 +222,11 @@ impl<'g> Entry {
         assert(pte_array_token.value().is_void(self.idx as nat));
         assert(cur_nid != NodeHelper::root_id()) by {
             assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
             NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
-        };
-        assert(NodeHelper::valid_nid(cur_nid)) by {
-            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
         };
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
         assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
-            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
             NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
         };
         let res = PageTableNode::alloc(
@@ -256,11 +252,7 @@ impl<'g> Entry {
             Ghost(new_page.level_spec()),
         );
 
-        // We the child is implicitly write locked because the parent is write locked.
-        assert(node.nid() == NodeHelper::get_parent(pt_ref.nid@)) by {
-            assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_get_child_sound(node.nid(), self.idx as nat);
-        };
+        // The child is implicitly write locked because the parent is write locked.
         let pt_lock_guard = pt_ref.make_write_guard_unchecked(guard, Tracked(m));
 
         self.pte = Child::PageTable(new_page).into_pte();

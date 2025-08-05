@@ -8,13 +8,6 @@ use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 verus! {
 
-broadcast use {
-    vstd_extra::map_extra::group_forall_map_lemmas,
-    vstd_extra::map_extra::group_value_filter_lemmas,
-    vstd_extra::seq_extra::group_forall_seq_lemmas,
-    crate::spec::utils::group_node_helper_lemmas,
-};
-
 tokenized_state_machine!{
 
 TreeSpec {
@@ -420,6 +413,7 @@ transition!{
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId) {
+    broadcast use crate::spec::utils::group_node_helper_lemmas;
     assert(post.inv_nodes()) by {
         assert(post.nodes.dom() =~= Set::empty().insert(NodeHelper::root_id()));
         assert(NodeHelper::valid_nid(NodeHelper::root_id())) by {
@@ -437,22 +431,7 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
             }
         }
     };
-    assert(post.inv_node_pte_relation()) by {
-        assert forall |nid: NodeId| NodeHelper::valid_nid(nid) && nid != NodeHelper::root_id()
-        implies {
-            let pa = NodeHelper::get_parent(nid);
-            let offset = NodeHelper::get_offset(nid);
-            !(post.pte_arrays.contains_key(pa) && post.pte_arrays[pa].is_alive(offset))
-        } by {
-            let pa = NodeHelper::get_parent(nid);
-            let offset = NodeHelper::get_offset(nid);
-            if pa == NodeHelper::root_id() {
-                NodeHelper::lemma_get_offset_sound(nid);
-            } else {
-                assert(!post.pte_arrays.contains_key(pa));
-            }
-        }
-    }
+
     assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
          post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock(nid)).len() by {
@@ -694,15 +673,10 @@ fn in_protocol_write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: No
 
 #[inductive(allocate)]
 fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    broadcast use group_node_helper_lemmas;
     assert(post.inv_pte_arrays()) by {
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        assert(NodeHelper::valid_nid(pa)) by {
-            NodeHelper::lemma_get_parent_sound(nid);
-        };
-        assert(0 <= offset < 512) by {
-            NodeHelper::lemma_get_offset_sound(nid);
-        };
         assert forall |id|
             #[trigger] post.pte_arrays.contains_key(id)
         implies post.pte_arrays[id].wf()
@@ -755,12 +729,6 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_node_pte_relation()) by {
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        assert(NodeHelper::valid_nid(pa)) by {
-            NodeHelper::lemma_get_parent_sound(nid);
-        };
-        assert(0 <= offset < 512) by {
-            NodeHelper::lemma_get_offset_sound(nid);
-        };
         assert forall |id: NodeId|
             #[trigger] NodeHelper::valid_nid(id) && id != NodeHelper::root_id()
         implies {
@@ -774,12 +742,6 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         } by {
             let pa = NodeHelper::get_parent(id);
             let offset = NodeHelper::get_offset(id);
-            assert(NodeHelper::valid_nid(pa)) by {
-                NodeHelper::lemma_get_parent_sound(id);
-            };
-            assert(0 <= offset < 512) by {
-                NodeHelper::lemma_get_offset_sound(id);
-            };
             if id == nid {
                 assert(!pre.nodes.contains_key(id));
                 assert(post.nodes.contains_key(id));
@@ -901,15 +863,10 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 
 #[inductive(deallocate)]
 fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    broadcast use group_node_helper_lemmas;
     assert(post.inv_pte_arrays()) by {
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        assert(NodeHelper::valid_nid(pa)) by {
-            NodeHelper::lemma_get_parent_sound(nid);
-        };
-        assert(0 <= offset < 512) by {
-            NodeHelper::lemma_get_offset_sound(nid);
-        };
         assert forall |id|
             #[trigger] post.pte_arrays.contains_key(id)
         implies post.pte_arrays[id].wf()
@@ -989,12 +946,6 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     assert(post.inv_node_pte_relation()) by {
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
-        assert(NodeHelper::valid_nid(pa)) by {
-            NodeHelper::lemma_get_parent_sound(nid);
-        };
-        assert(0 <= offset < 512) by {
-            NodeHelper::lemma_get_offset_sound(nid);
-        };
         assert forall |id: NodeId|
             #[trigger] NodeHelper::valid_nid(id) && id != NodeHelper::root_id()
         implies {
@@ -1008,12 +959,6 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         } by {
             let pa = NodeHelper::get_parent(id);
             let offset = NodeHelper::get_offset(id);
-            assert(NodeHelper::valid_nid(pa)) by {
-                NodeHelper::lemma_get_parent_sound(id);
-            };
-            assert(0 <= offset < 512) by {
-                NodeHelper::lemma_get_offset_sound(id);
-            };
             if id == nid {
                 assert(pre.nodes.contains_key(id));
                 assert(!post.nodes.contains_key(id));
@@ -1218,8 +1163,8 @@ ensures
 {
     broadcast use {
                 vstd_extra::seq_extra::group_forall_seq_lemmas,
+                crate::spec::utils::group_node_helper_lemmas,
             };
-    NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid,child);
     let f = |cursor: CursorState| cursor.hold_read_lock(child);
     if nid == child {}
     else
