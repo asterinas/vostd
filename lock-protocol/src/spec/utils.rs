@@ -980,14 +980,16 @@ impl NodeHelper {
         ensures
             Self::next_outside_subtree(ch) <= Self::next_outside_subtree(pa),
     {
+        broadcast use {
+            NodeHelper::lemma_nid_to_trace_sound,
+            NodeHelper::lemma_trace_to_nid_sound,
+        };
         let dep_pa = Self::nid_to_dep(pa);
         let dep_ch = Self::nid_to_dep(ch);
         let sz_pa = Self::sub_tree_size(pa);
         let sz_ch = Self::sub_tree_size(ch);
         let trace_pa = Self::nid_to_trace(pa);
         let trace_ch = Self::nid_to_trace(ch);
-        Self::lemma_nid_to_trace_sound(pa);
-        Self::lemma_nid_to_trace_sound(ch);
         Self::lemma_is_child_implies_in_subtree(pa, ch);
 
         // Verify subtree containment.
@@ -1002,10 +1004,7 @@ impl NodeHelper {
                 let sz = Self::tree_size_spec(pa_level - 2);
                 Self::lemma_child_nid_from_trace_offset_sound(trace_pa, offset);
                 assert(ch == pa + offset * sz + 1) by {
-                    assert(trace_ch.drop_last() =~= trace_pa) by {
-                        Self::lemma_trace_to_nid_sound(trace_ch.drop_last());
-                    }
-
+                    assert(trace_ch.drop_last() =~= trace_pa);
                     assert(trace_ch.last() == offset) by {
                         assert(trace_ch =~= trace_pa.push(offset));
                         assert(Self::trace_to_nid(trace_ch) == Self::trace_to_nid(
@@ -1033,6 +1032,7 @@ impl NodeHelper {
             Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt),
         decreases Self::nid_to_trace(nd).len() - Self::nid_to_trace(rt).len(),
     {
+        broadcast use NodeHelper::lemma_nid_to_trace_sound;
         if rt == nd {
         } else {
             // Induction step: use `lemma_is_child_bound` to prove the relationship between `nd` and its parent,
@@ -1041,8 +1041,7 @@ impl NodeHelper {
             assert(Self::nid_to_trace(rt).len() < Self::nid_to_trace(nd).len()) by {
                 if Self::nid_to_trace(rt).len() == Self::nid_to_trace(nd).len() {
                     assert(Self::nid_to_trace(rt) == Self::nid_to_trace(nd));
-                    Self::lemma_nid_to_trace_sound(rt);
-                    Self::lemma_nid_to_trace_sound(nd);
+
                     assert(rt == nd);
                 }
             }
@@ -1063,8 +1062,10 @@ impl NodeHelper {
             Self::valid_nid(#[trigger] Self::get_parent(nid)),
             Self::is_child(Self::get_parent(nid), nid),
     {
-        Self::lemma_nid_to_trace_sound(nid);
-        Self::lemma_trace_to_nid_sound(Self::nid_to_trace(nid).drop_last());
+        broadcast use {
+            NodeHelper::lemma_nid_to_trace_sound,
+            NodeHelper::lemma_trace_to_nid_sound,
+        };
     }
 
     /// `get_offset` returns the offset in a correct range.
@@ -1089,17 +1090,17 @@ impl NodeHelper {
             !(Self::get_parent(nid1) == Self::get_parent(nid2) && Self::get_offset(nid1)
                 == Self::get_offset(nid2)),
     {
+        broadcast use {
+            NodeHelper::lemma_nid_to_trace_sound,
+            NodeHelper::lemma_trace_to_nid_sound,
+        };
         if Self::get_parent(nid1) == Self::get_parent(nid2) && Self::get_offset(nid1)
             == Self::get_offset(nid2) {
             let trace1 = Self::nid_to_trace(nid1);
             let trace2 = Self::nid_to_trace(nid2);
 
-            Self::lemma_nid_to_trace_sound(nid1);
-            Self::lemma_nid_to_trace_sound(nid2);
-
             Self::lemma_nid_to_trace_left_inverse();
-            Self::lemma_trace_to_nid_sound(trace1.drop_last());
-            Self::lemma_trace_to_nid_sound(trace2.drop_last());
+
             assert(Self::trace_to_nid(trace1.drop_last()) == Self::trace_to_nid(
                 trace2.drop_last(),
             ));
@@ -1371,6 +1372,10 @@ impl NodeHelper {
         ensures
             Self::in_subtree_range(rt, nd),
     {
+        broadcast use {
+            NodeHelper::lemma_nid_to_trace_sound,
+            NodeHelper::lemma_trace_to_nid_sound,
+        };
         assert(rt <= nd < Self::next_outside_subtree(rt)) by {
             assert(Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt)) by {
                 Self::lemma_in_subtree_bounded(rt, nd);
@@ -1381,14 +1386,6 @@ impl NodeHelper {
             assert(rt <= nd) by {
                 let rt_trace = Self::nid_to_trace(rt);
                 let nd_trace = Self::nid_to_trace(nd);
-
-                // First prove that both are valid traces
-                assert(Self::valid_trace(rt_trace)) by {
-                    Self::lemma_nid_to_trace_sound(rt);
-                }
-                assert(Self::valid_trace(nd_trace)) by {
-                    Self::lemma_nid_to_trace_sound(nd);
-                }
 
                 if rt_trace.len() == 0 {
                 } else {
@@ -1427,31 +1424,17 @@ impl NodeHelper {
                                 assert(rt_trace =~= nd_trace.subrange(0, rt_trace.len() as int));
                             }
 
-                            assert(rt == Self::trace_to_nid(rt_trace)) by {
-                                Self::lemma_nid_to_trace_sound(rt);
-                            }
-
                             assert(Self::nid_to_trace(nd) =~= rt_trace.add(suffix)) by {
                                 assert(Self::nid_to_trace(nd) =~= nd_trace);
                                 assert(nd_trace =~= rt_trace.add(suffix));
                             }
                             Self::lemma_nid_to_trace_bijective();
 
-                            assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == nd) by {
-                                Self::lemma_nid_to_trace_sound(nd);
-                            }
-
                             assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == Self::trace_to_nid(
                                 rt_trace.add(suffix),
                             )) by {
                                 let t1 = Self::nid_to_trace(nd);
                                 let t2 = rt_trace.add(suffix);
-
-                                Self::lemma_trace_to_nid_sound(t1);
-                                Self::lemma_trace_to_nid_sound(t2);
-                                assert(t1 =~= t2);
-                                assert(t1 =~= Self::nid_to_trace(Self::trace_to_nid(t1)));
-                                assert(t2 =~= Self::nid_to_trace(Self::trace_to_nid(t2)));
                                 Self::lemma_nid_to_trace_right_inverse();
                             }
                             assert(nd == Self::trace_to_nid(rt_trace.add(suffix)));
@@ -1548,11 +1531,12 @@ impl NodeHelper {
         ensures
             Self::in_subtree(rt, pa),
     {
+        broadcast use {
+            NodeHelper::lemma_nid_to_trace_sound,
+            NodeHelper::lemma_trace_to_nid_sound,
+        };
         if (Self::nid_to_trace(ch).len() == Self::nid_to_trace(rt).len()) {
             assert(Self::nid_to_trace(ch) =~= Self::nid_to_trace(rt));
-            Self::lemma_nid_to_trace_sound(ch);
-            Self::lemma_nid_to_trace_sound(rt);
-            assert(ch == rt);
         }
     }
 
