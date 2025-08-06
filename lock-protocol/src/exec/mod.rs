@@ -33,11 +33,11 @@ use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable};
 
 verus! {
 
-pub const SIZEOF_PAGETABLEENTRY: usize = 20;
+pub const SIZEOF_PAGETABLEENTRY: usize = 24;
 
 global layout MockPageTableEntry is size == 24, align == 8;
 
-pub const SIZEOF_FRAME: usize = 20 * 512;
+pub const SIZEOF_FRAME: usize = SIZEOF_PAGETABLEENTRY * 512;
 
 global layout MockPageTablePage is size == 12288, align == 8;
 
@@ -150,7 +150,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
 
     #[verifier::external_body]
     fn is_last(&self, level: u8) -> bool {
-        unimplemented!()
+        level == 1
     }
 
     fn new_page(
@@ -189,7 +189,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
 
     #[verifier::external_body]
     fn prop(&self) -> crate::mm::page_prop::PageProperty {
-        todo!()
+        self.prop.clone()
     }
 
     open spec fn prop_spec(&self) -> PageProperty {
@@ -230,7 +230,17 @@ impl PageTableEntryTrait for MockPageTableEntry {
     }
 }
 
+#[verifier::external_body]
 pub fn main_test() {
+    test_map::test(
+        0x123,
+        PageProperty {
+            has_map: true,
+            flags: PageFlags::R(),
+            cache: page_prop::CachePolicy::Uncacheable,
+            priv_flags: PrivilegedPageFlags::empty(),
+        },
+    )
 }
 
 pub open spec fn get_pte_addr_from_va_frame_addr_and_level_spec<C: PagingConstsTrait>(
@@ -335,7 +345,7 @@ pub fn PHYSICAL_BASE_ADDRESS() -> (res: usize)
 }
 
 #[verifier::external_body]
-pub fn print_msg(msg: &str, num: usize) {
+pub fn print_msg(msg: &str, num: &u8) {
     println!("{}: {:#x}", msg, num);
 }
 

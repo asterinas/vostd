@@ -537,7 +537,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
-        while self.0.level > level
+        while self.0.level != level
             invariant
                 spt.wf(),
                 self.0.wf(spt),
@@ -573,6 +573,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             }
             continue ;
         }
+        assert(self.0.level == level);
 
         let mut cur_entry = self.0.cur_entry(Tracked(spt));
 
