@@ -463,6 +463,7 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
                 } else {
                     // rt < nid, so need to show next_outside_subtree(nid) <= next_outside_subtree(rt)
                     // This follows from the fact that nid is in the subtree range of rt
+                    NodeHelper::lemma_in_subtree_range_implies_in_subtree(rt, nid);
                     NodeHelper::lemma_in_subtree_bounded(rt, nid);
                     assert(NodeHelper::next_outside_subtree(nid) <= NodeHelper::next_outside_subtree(rt));
                 }
