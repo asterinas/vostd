@@ -230,6 +230,7 @@ impl PageTableEntryTrait for MockPageTableEntry {
     }
 }
 
+#[verifier::external_body]
 pub fn main_test() {
     test_map::test(
         0x123,

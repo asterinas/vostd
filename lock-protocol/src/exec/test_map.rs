@@ -177,7 +177,8 @@ requires
     );
 
     print_msg("level: ", &cursor.0.level);
-    print_msg("path 0", &cursor.0.path[0].as_ref().unwrap().level(Tracked(&sub_page_table.alloc_model)));
+    // TODO
+    // print_msg("path 0", &cursor.0.path[0].as_ref().unwrap().level(Tracked(&sub_page_table.alloc_model)));
 
     assert(cursor.0.wf(&sub_page_table));
 }

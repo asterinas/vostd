@@ -511,11 +511,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa
                         == C::item_into_raw_spec(item).0
                 },
-            path_index!(self.0.path[self.0.level]).is_some(),
-            path_index!(self.0.path[self.0.level]).unwrap().wf(&spt.alloc_model),
-            spt.alloc_model.meta_map.contains_key(
-                path_index!(self.0.path[self.0.level]).unwrap().paddr() as int,
-            ),
     {
         let preempt_guard = self.0.preempt_guard;
 
@@ -542,18 +537,13 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         #[verifier::loop_isolation(false)]
         // Go down if not applicable.
-        while self.0.level > level
+        while self.0.level != level
             invariant
                 spt.wf(),
                 self.0.wf(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
-                path_index!(self.0.path[self.0.level]).is_some(),
-                path_index!(self.0.path[self.0.level]).unwrap().wf(&spt.alloc_model),
-                spt.alloc_model.meta_map.contains_key(
-                    path_index!(self.0.path[self.0.level]).unwrap().paddr() as int,
-                ),
             decreases self.0.level,
         {
             let cur_level = self.0.level;
@@ -583,6 +573,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             }
             continue ;
         }
+        assert(self.0.level == level);
 
         let mut cur_entry = self.0.cur_entry(Tracked(spt));
 
