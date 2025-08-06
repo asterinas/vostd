@@ -200,7 +200,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     #[verifier::external_body]
     fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E) {
         let e = self.inner.ptr.read(Tracked(spt.perms.tracked_borrow(self.paddr()))).ptes[idx];
-        todo!("e -> usize -> C::E");
+        // todo!("e -> usize -> C::E");
+        let c_e = &e as *const _ as *const C::E;
+        unsafe { (*c_e).clone() }
     }
 
     fn write_pte(

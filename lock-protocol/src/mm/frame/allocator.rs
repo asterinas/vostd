@@ -123,8 +123,10 @@ impl MockGlobalAllocator {
     {
         for i in 0..MAX_FRAME_NUM {
             if !self.frames[i].is_none() {
-                let (ptr, pt_perm) = self.frames[i].take().unwrap();
-
+                // let (ptr, pt_perm) = self.frames[i].take().unwrap();
+                // TODO: make self.frames point to real memory
+                self.frames[i].take().unwrap();
+                let (ptr, pt_perm) = PPtr::<MockPageTablePage>::empty();
                 let (meta_ptr, Tracked(meta_perm)) = PPtr::new(meta);
 
                 proof {
