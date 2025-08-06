@@ -195,7 +195,7 @@ pub fn inv_locked_node_state(&self) -> bool{
 }
 
 #[invariant]
-pub fn inv_subtree_not_allocated(&self) -> bool {
+pub fn inv_not_allocated_subtree(&self) -> bool {
     forall |rt: NodeId, nid: NodeId| {
         &&& ! #[trigger] self.nodes.contains_key(rt)
         &&& NodeHelper::valid_nid(nid)
@@ -368,7 +368,7 @@ transition!{
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
         have cursors >= [ cpu => let CursorState::Locked(rt) ];
-        require(NodeHelper::in_subtree_range(rt, nid));
+        require(NodeHelper::in_subtree_range(rt, pa));
         have nodes >= [ pa => NodeState::Locked ];
         remove pte_arrays -= [ pa => let pte_array ];
         remove free_paddrs -= set {paddr};
@@ -381,12 +381,13 @@ transition!{
 }
 
 transition!{
-    protocol_deallocate(nid: NodeId) {
+    protocol_deallocate(cpu: CpuId, nid: NodeId) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
-
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
+        have cursors >= [ cpu => let CursorState::Locked(rt) ];
+        require(NodeHelper::in_subtree_range(rt, pa));
         remove nodes -= [ nid => NodeState::Locked ];
         have nodes >= [ pa => NodeState::Locked ];
         remove pte_arrays -= [ pa => let pte_array ];
@@ -691,13 +692,24 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
             }
         }
     };
-    assert(post.inv_subtree_not_allocated()) by {
-        admit();
+    assert(post.inv_not_allocated_subtree()) by {
+        assert forall |rt: NodeId, node_id: NodeId|
+            !#[trigger] post.nodes.contains_key(rt) &&
+            NodeHelper::valid_nid(node_id) &&
+            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
+            !post.nodes.contains_key(node_id) by {
+                if node_id == nid && post.nodes.contains_key(nid) {
+                    assert(NodeHelper::is_child(pa,nid));
+                    assert(NodeHelper::in_subtree(rt, pa)) by {
+                        NodeHelper::lemma_child_in_subtree_implies_in_subtree(rt, pa, nid);
+                    };
+                }
+            };
     }
 }
 
 #[inductive(protocol_deallocate)]
-fn protocol_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
+fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
 
 #[inductive(normal_lock)]
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
