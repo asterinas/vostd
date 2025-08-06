@@ -570,6 +570,11 @@ fn exec_verify(args: &VerifyArgs) -> Result<(), DynError> {
     let imports: HashSet<_> = args.imports.iter().map(|s| s.as_str()).collect();
 
     let results: Result<Vec<_>, DynError> = if args.parallel {
+        eprintln!(
+            "{}",
+            "Warning: Running verification in parallel mode, the output may be out of order."
+                .if_supports_color(Stream::Stderr, |text| text.yellow())
+        );
         args.targets
             .par_iter()
             .map(|target| verify_single_target(target, &verus, &z3, &imports, args))
