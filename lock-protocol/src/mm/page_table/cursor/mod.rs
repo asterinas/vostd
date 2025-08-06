@@ -11,8 +11,8 @@ use std::{
 };
 
 use vstd::{
-    invariant, layout::is_power_2, pervasive::VecAdditionalExecFns, prelude::*,
-    raw_ptr::MemContents,
+    calc, invariant, layout::is_power_2, pervasive::VecAdditionalExecFns,
+    prelude::*, raw_ptr::MemContents, seq::Seq,
 };
 use vstd::bits::*;
 use vstd::tokens::SetToken;
@@ -313,16 +313,21 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 }
                 assert(self.va == next_va == aligned_va + cur_page_size);
                 assume(forall|i: u8|
-                    self.level < i <= self.guard_level ==>
-                    #[trigger] pte_index::<C>(aligned_va, i) ==
-                    #[trigger] pte_index::<C>(next_va, i));
-                assert forall|i: u8| self.level < i <= self.guard_level implies
-                    pte_index::<C>(self.va, i) == pte_index::<C>(old(self).va, i)
-                by {
-                    assert(pte_index::<C>(self.va, i) == pte_index::<C>(next_va, i));
-                    assert(pte_index::<C>(next_va, i) == pte_index::<C>(aligned_va, i));
-                    lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
-                    assert(pte_index::<C>(aligned_va, i) == pte_index::<C>(old(self).va, i));
+                    self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(aligned_va, i)
+                        == #[trigger] pte_index::<C>(next_va, i));
+                assert forall|i: u8| self.level < i <= self.guard_level implies pte_index::<C>(
+                    self.va,
+                    i,
+                ) == pte_index::<C>(old(self).va, i) by {
+                    calc! {
+                        (==)
+                        pte_index::<C>(self.va, i); {}
+                        pte_index::<C>(next_va, i); {}
+                        pte_index::<C>(aligned_va, i); {
+                            lemma_aligned_pte_index_unchanged::<C>(old(self).va, old_level);
+                        }
+                        pte_index::<C>(old(self).va, i);
+                    }
                 }
                 assert(self.wf(spt));
             }
