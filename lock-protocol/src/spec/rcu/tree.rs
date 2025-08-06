@@ -362,17 +362,19 @@ transition!{
 }
 
 transition!{
-    protocol_allocate(nid: NodeId, paddr: Paddr) {
+    protocol_allocate(cpu: CpuId, nid: NodeId, paddr: Paddr) {
         require(NodeHelper::valid_nid(nid));
         require(nid != NodeHelper::root_id());
         let pa = NodeHelper::get_parent(nid);
         let offset = NodeHelper::get_offset(nid);
+        have cursors >= [ cpu => let CursorState::Locked(rt) ];
+        require(NodeHelper::in_subtree_range(rt, nid));
         have nodes >= [ pa => NodeState::Locked ];
         remove pte_arrays -= [ pa => let pte_array ];
         remove free_paddrs -= set {paddr};
         require(pte_array.is_void(offset));
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
-        add nodes += [ nid => NodeState::Free ];
+        add nodes += [ nid => NodeState::Locked ];
         add pte_arrays += [ nid => PteArrayState::empty() ];
         add strays += [ (nid, paddr) => false ];
     }
@@ -597,8 +599,7 @@ fn protocol_unlock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId
 fn protocol_unlock_end_inductive(pre: Self, post: Self, cpu: CpuId) {}
 
 #[inductive(protocol_allocate)]
-#[verifier::external_body]
-fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
+fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, paddr: Paddr) {
     broadcast use group_node_helper_lemmas;
 
     let pa = NodeHelper::get_parent(nid);
@@ -690,6 +691,9 @@ fn protocol_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr)
             }
         }
     };
+    assert(post.inv_subtree_not_allocated()) by {
+        admit();
+    }
 }
 
 #[inductive(protocol_deallocate)]
