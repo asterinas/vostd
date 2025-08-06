@@ -59,6 +59,10 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
     ensures
         page_size_spec::<C>(level) > 0,
         is_power_2(page_size_spec::<C>(level) as int),
+        page_size_spec::<C>(level) as nat == pow2(
+            (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+            level - 1)) as nat,
+        ),
 {
     C::lemma_consts_properties();
     C::lemma_consts_properties_derived();
