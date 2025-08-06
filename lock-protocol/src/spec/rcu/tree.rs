@@ -709,7 +709,62 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
 }
 
 #[inductive(protocol_deallocate)]
-fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { admit(); }
+fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { 
+    broadcast use group_node_helper_lemmas;
+    let pa = NodeHelper::get_parent(nid);
+    let offset = NodeHelper::get_offset(nid);
+    let pte_array = pre.pte_arrays[pa];
+
+    assert(post.inv_stray_at_most_one_false_per_node()) by {
+        admit();
+    };
+    assert(post.inv_not_allocated_subtree()) by {
+        assert forall |rt: NodeId, node_id: NodeId|
+            !#[trigger] post.nodes.contains_key(rt) &&
+            NodeHelper::valid_nid(node_id) &&
+            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
+            !post.nodes.contains_key(node_id) by {
+                if node_id != nid && NodeHelper::in_subtree(nid,node_id) {
+                    assert (!pre.nodes.contains_key(node_id)) by {
+                        if pre.nodes.contains_key(node_id) {
+                            let nid_trace = NodeHelper::nid_to_trace(nid);
+                            let node_id_trace = NodeHelper::nid_to_trace(node_id);
+                            assert(nid_trace != node_id_trace && nid_trace.is_prefix_of(node_id_trace));
+                            assert(nid_trace.len() < node_id_trace.len()) by {
+                                if nid_trace.len() == node_id_trace.len() {
+                                    assert(nid_trace == node_id_trace);
+                                    assert(nid == NodeHelper::trace_to_nid(nid_trace));
+                                    assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
+                                }     
+                            }
+                            let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
+                            assert(conflict_trace.is_prefix_of(node_id_trace));
+                            let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
+                            assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
+                            assert(pre.nodes.contains_key(conflict_nid));
+                            assert(nid_trace.is_prefix_of(conflict_trace));
+                            assert(NodeHelper::get_parent(conflict_nid) == nid);
+                        }
+                    };
+                }
+            };
+    };
+    assert(post.inv_cursor_root_in_nodes()) by {
+        assert(pre.cursors[cpu].locked_range().contains(nid) && pre.cursors[cpu].root() != nid) by {
+            NodeHelper::lemma_in_subtree_is_child_in_subtree(pre.cursors[cpu].root(), pa, nid);
+        }; 
+        assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) &&
+            !(post.cursors[cpu_id] is Void) implies post.nodes.contains_key(post.cursors[cpu_id].root()) by {
+            if cpu_id == cpu {
+            } else {
+                //assert(!pre.cursors[cpu_id].locked_range().contains(nid));
+                //assert(pre.cursors[cpu_id].locked_range().contains(pre.cursors[cpu_id].root()));
+                //assert(nid!= pre.cursors[cpu_id].root());
+                admit();
+            }
+        };
+    };
+}
 
 #[inductive(normal_lock)]
 fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
