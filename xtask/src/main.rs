@@ -18,7 +18,6 @@ use git2::{
     build::{RepoBuilder, CheckoutBuilder},
 };
 use walkdir::WalkDir;
-#[cfg(target_os = "windows")]
 use owo_colors::{OwoColorize, Stream};
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
