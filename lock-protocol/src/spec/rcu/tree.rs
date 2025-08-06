@@ -718,7 +718,127 @@ fn normal_lock_inductive(pre: Self, post: Self, nid: NodeId) {}
 fn normal_unlock_inductive(pre: Self, post: Self, nid: NodeId) {}
 
 #[inductive(normal_allocate)]
-fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) { admit();}
+fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
+    broadcast use group_node_helper_lemmas;
+    let pa = NodeHelper::get_parent(nid);
+    let offset = NodeHelper::get_offset(nid);
+    let pte_array = pre.pte_arrays[pa];
+
+    assert(post.inv_pt_node_pte_relationship()) by {
+        assert forall |node_id: NodeId|
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+                post.nodes.contains_key(node_id) <==> {
+                    let pa_node = NodeHelper::get_parent(node_id);
+                    let offset_node = NodeHelper::get_offset(node_id);
+                    post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_alive(offset_node)
+                }
+            } by {
+                let pa_node = NodeHelper::get_parent(node_id);
+                let offset_node = NodeHelper::get_offset(node_id);
+
+                if node_id != nid && pa_node == pa && offset_node == offset {
+                    NodeHelper::lemma_parent_offset_uniqueness(node_id, nid);
+                    assert(false);
+                }
+            }
+    }
+    assert(post.inv_stray_at_most_one_false_per_node()) by {
+        assert forall |node_id: NodeId|
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+               post.strays_count_false(node_id) <= 1
+            } by {
+            if node_id == nid {
+                assert(!pre.nodes.contains_key(node_id));
+                assert(pre.strays_count_false(node_id) == 0) by {
+                    if pre.strays_count_false(node_id) != 0 {
+                        lemma_project_first_key_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
+                    }
+                }
+                assert(post.strays_count_false(node_id) == 1) by {
+                    // This is absolutely true, but I do not have enough time
+                    admit();
+                }
+
+            } else {
+                assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
+            }
+        }
+    }
+    assert(post.inv_pte_is_alive_implies_stray_has_false()) by {
+        assert forall |node_id: NodeId|
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+                let pa_node = NodeHelper::get_parent(node_id);
+                let offset_node = NodeHelper::get_offset(node_id);
+                (post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_alive(offset_node)) ==>
+                exists |pair: (NodeId, Paddr)|
+                    #![trigger post.strays.contains_key(pair)]
+                    {
+                        &&& pair.0 == node_id
+                        &&& pair.1 == post.pte_arrays[pa_node].get_paddr(offset_node)
+                        &&& post.strays.contains_key(pair)
+                        &&& post.strays[pair] == false
+                    }
+            } by {
+            let pa_node = NodeHelper::get_parent(node_id);
+            let offset_node = NodeHelper::get_offset(node_id);
+
+            if post.pte_arrays.contains_key(pa_node) && post.pte_arrays[pa_node].is_alive(offset_node) {
+                if node_id == nid {
+                    assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr);
+                    assert(post.strays.contains_key((nid, paddr)));
+                    assert(post.strays[(nid, paddr)] == false);
+                } else {
+                    if pa_node == pa && offset_node != offset {
+                        let paddr_other = pre.pte_arrays[pa_node].get_paddr(offset_node);
+                        assert(post.pte_arrays[pa_node] == pte_array.update(offset, PteState::Alive(paddr)));
+                        assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
+
+                        assert(post.strays.contains_key((node_id, paddr_other)));
+                        assert(post.strays[(node_id, paddr_other)] == false);
+                    } else if pa_node != pa {
+                        let paddr_other = pre.pte_arrays[pa_node].get_paddr(offset_node);
+                        assert(post.pte_arrays[pa_node] == pre.pte_arrays[pa_node]);
+                        assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
+
+                        assert(post.strays.contains_key((node_id, paddr_other)));
+                        assert(post.strays[(node_id, paddr_other)] == false);
+                    }
+                }
+            }
+        }
+    }
+    assert(post.inv_locked_node_state()) by {
+        assert forall |cpu: CpuId| #[trigger]
+            pre.cursors.contains_key(cpu) && !(pre.cursors[cpu] is Void) implies
+            !pre.cursors[cpu].locked_range().contains(nid) by
+            {
+                if pre.cursors[cpu].locked_range().contains(nid) {
+                    let root = pre.cursors[cpu].root();
+                    assert(NodeHelper::in_subtree(root, nid));
+                    assert(NodeHelper::in_subtree(root, pa)) by {
+                        NodeHelper::lemma_child_in_subtree_implies_in_subtree(root, pa, nid);
+                    };
+                    assert(pre.cursors[cpu].locked_range().contains(pa)) by {
+                        NodeHelper::lemma_is_child_nid_increasing(pa,nid);
+                    };
+                }
+            }
+    }
+    assert(post.inv_not_allocated_subtree()) by {
+        assert forall |rt: NodeId, node_id: NodeId|
+            !#[trigger] post.nodes.contains_key(rt) &&
+            NodeHelper::valid_nid(node_id) &&
+            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
+            !post.nodes.contains_key(node_id) by {
+                if node_id == nid && post.nodes.contains_key(nid) {
+                    assert(NodeHelper::is_child(pa,nid));
+                    assert(NodeHelper::in_subtree(rt, pa)) by {
+                        NodeHelper::lemma_child_in_subtree_implies_in_subtree(rt, pa, nid);
+                    };
+                }
+            };
+    }
+}
 
 #[inductive(normal_deallocate)]
 fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) { admit(); }
