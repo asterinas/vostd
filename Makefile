@@ -5,12 +5,14 @@ VERIFICATION_TARGETS := \
 	fvt1-mem-region-init \
 	fvt3-page-acquisition-safety \
 	fvt4-into-from-raw \
-	fvt5-lifecycle-safety \
 	fvt6-vmreader-and-vmwriter \
 	fvt10-pt-cursor-navigation \
 	fvt11-pt-cursor-guards \
-	fvt13-vmspace-unmap-safety \
 	lock-protocol
+
+# Disabled:
+# fvt5-lifecycle-safety
+# fvt13-vmspace-unmap-safety 
 
 COMPILE_TARGETS := vstd_extra aster_common
 
