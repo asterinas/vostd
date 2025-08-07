@@ -747,6 +747,109 @@ proof fn lemma_add_page_size_change_pte_index<C: PagingConstsTrait>(
     admit();
 }
 
+// A number x can be represented the sum of its three parts
+proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
+    requires
+        0 < q < p,
+    ensures
+        x == pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q)),
+        0 <= x % pow2(q) < pow2(q),
+        0 <= x % pow2(p) / pow2(q) < pow2((p - q) as nat),
+{
+    assert((x % pow2(p) % pow2(q)) == x % pow2(q)) by {
+        let m = pow2(q);
+        let d = pow2((p - q) as nat);
+        assert(m * d == pow2(p)) by {
+            assert(p - q > 0);
+            assert(pow2(p) == pow2(q + (p - q) as nat));
+            lemma_pow2_adds(q as nat, (p - q) as nat);
+        }
+        lemma_pow2_pos(q);
+        lemma_pow2_pos((p - q) as nat);
+        lemma_mod_mod(x as int, m as int, d as int);
+    }
+    calc! {
+        (==)
+        x; {
+            lemma_pow2_pos(p);
+            lemma_fundamental_div_mod(x as int, pow2(p) as int);
+        }
+        pow2(p) * (x / pow2(p)) + (x % pow2(p)); {
+            lemma_pow2_pos(q);
+            lemma_fundamental_div_mod((x % pow2(p)) as int, pow2(q) as int);
+        }
+        pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q));
+    }
+    assert(0 <= x % pow2(q) < pow2(q)) by {
+        lemma_pow2_pos(q);
+        lemma_mod_bound(x as int, pow2(q) as int);
+    }
+    assert(0 <= x % pow2(p) / pow2(q) < pow2((p - q) as nat)) by {
+        lemma_pow2_pos(p);
+        lemma_pow2_pos(q);
+        // This gives 0 <= x % pow2(p) < pow2(p)
+        lemma_mod_bound(x as int, pow2(p) as int);
+        // This gives pow2(p) / pow2(q) == pow2(p - q)
+        lemma_pow2_adds(q, (p - q) as nat);
+        assert((pow2(p) - 1) as nat / pow2(q) == pow2((p - q) as nat) - 1) by (nonlinear_arith)
+            requires
+                pow2(p) > 0,
+                pow2(q) > 0,
+                pow2(p) == pow2(q) * pow2((p - q) as nat),
+        ;
+        assert(0 <= x % pow2(p) / pow2(q) < pow2((p - q) as nat)) by (nonlinear_arith)
+            requires
+                0 <= x % pow2(p) <= pow2(p) - 1,
+                (pow2(p) - 1) as nat / pow2(q) == pow2((p - q) as nat) - 1,
+                pow2(q) > 0,
+        ;
+    }
+}
+
+// When doing addition by a number <= 2^q (y < x <= y + 2^q),
+// if the x[0..q] == 0 and x[q..p] != 0, then the carry doesn't propagate to
+// the bits higher than p.
+proof fn lemma_carry_ends_at_nonzero_result(x: nat, y: nat, p: nat, q: nat)
+    // This proof is going to rely heavily on nonlinear arithmetics
+    by (nonlinear_arith)
+    requires
+        0 < q < p,
+        y < x <= y + pow2(q),
+        // The condition on the result
+        x % pow2(q) == 0,
+        x % pow2(p) / pow2(q) != 0,
+    ensures
+        x / pow2(p) == y / pow2(p),
+{
+    // Decompose the arguments into parts, and the range of their parts
+    let a = x / pow2(p);
+    let b = x % pow2(p) / pow2(q);
+    assert(x == pow2(p) * a + pow2(q) * b && 1 <= b <= pow2((p - q) as nat) - 1) by {
+        lemma_nat_as_parts(x, p, q);
+        assert(b != 0);
+    }
+    let c = y / pow2(p);
+    let d = y % pow2(p) / pow2(q);
+    let e = y % pow2(q);
+    assert(y == pow2(p) * c + pow2(q) * d + e && 0 <= e <= pow2(q) - 1 && 0 <= d <= pow2((p - q) as nat) - 1) by {
+        lemma_nat_as_parts(y, p, q);
+    }
+    let diff = x - y;
+    // Equation (*)
+    assert((a - c) * pow2(p) == e + diff + (d - b) * pow2(q));
+    // Range of the difference
+    assert(0 < diff <= pow2(q));
+    // Properties about 2^p and 2^q the solver needs
+    lemma_pow2_pos(q);
+    lemma_pow2_adds(q, (p - q) as nat);
+    // The solver seems to be able to prove these automatically
+    assert(-pow2(p) < e + diff + (d - b) * pow2(q));
+    assert(e + diff + (d - b) * pow2(q) < pow2(p));
+    // Substitute the equation (*)
+    assert(-pow2(p) < (a - c) * pow2(p) < pow2(p));
+    assert(a - c == 0);
+}
+
 proof fn lemma_sub_mod_div_same(a: usize, b: usize)
     requires
         a >= 0,
