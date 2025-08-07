@@ -773,7 +773,25 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
             };
     };
     assert(post.inv_cursor_root_in_nodes()) by {
-        admit();
+        assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) &&
+        !post.cursors[cpu_id].locked_range().is_empty() implies {
+            post.nodes.contains_key(post.cursors[cpu_id].root())
+        } by {
+            if cpu_id == cpu {
+                let rt = pre.cursors[cpu_id]->Locked_0;
+                assert(post.nodes.contains_key(rt));
+            } else
+            {
+                assert(pre.cursors[cpu_id].locked_range() == post.cursors[cpu_id].locked_range());
+                if pre.cursors[cpu_id].root() == nid {
+                    assert(pre.cursors[cpu_id].locked_range().contains(nid));
+                    assert(pre.cursors[cpu].locked_range().contains(nid)) by {
+                        NodeHelper::lemma_is_child_nid_increasing(pa, nid);
+                        NodeHelper::lemma_in_subtree_is_child_in_subtree(pre.cursors[cpu].root(), pa, nid);
+                    }
+                }
+            }
+        }
     };
 }
 
@@ -908,8 +926,37 @@ fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
 #[inductive(normal_deallocate)]
 fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {
     broadcast use group_node_helper_lemmas;
+    let pa = NodeHelper::get_parent(nid);
+    let offset = NodeHelper::get_offset(nid);
+    let pte_array = pre.pte_arrays[pa];
+    let paddr = pte_array.get_paddr(offset);
+
+    assert(post.strays == pre.strays.insert((nid, paddr), true));
     assert(post.inv_stray_at_most_one_false_per_node()) by {
-        admit();
+        assert forall |node_id: NodeId|
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+               post.strays_count_false(node_id) <= 1
+            } by {
+            if node_id == nid {
+                lemma_project_first_key_finite(pre.strays, node_id);
+                lemma_value_filter_finite(pre.strays_filter(node_id), |stray:bool| stray == false);
+                assert(pre.strays_count_false(node_id) == 1) by {
+                    assert(pre.strays_filter(node_id).contains_key(paddr) && pre.strays_filter(node_id)[paddr] == false);
+                    assert(pre.strays_count_false(node_id) <= 1);
+                    assert(pre.strays_count_false(node_id) > 0) by {
+                        if pre.strays_count_false(node_id) == 0 {
+                            lemma_project_first_key_value_filter_empty(pre.strays, node_id, |stray:bool| stray == false);
+                        }
+                    }
+                }
+                assert(post.strays_count_false(node_id) == 0) by {
+                    pre.lemma_insert_stray_true(node_id, paddr);
+                }
+            }
+            else {
+                assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
+            }
+        }
     };
     assert(post.inv_not_allocated_subtree()) by {
         assert forall |rt: NodeId, node_id: NodeId|
