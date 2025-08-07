@@ -63,6 +63,10 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
             (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
             level - 1)) as nat,
         ),
+        // Sometimes the order of the operators to multiplication are reversed
+        page_size_spec::<C>(level) as nat == pow2(
+            (C::BASE_PAGE_SIZE().ilog2() + (level - 1) * (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2())) as nat,
+        )
 {
     C::lemma_consts_properties();
     C::lemma_consts_properties_derived();
@@ -97,6 +101,7 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
         (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
         level - 1)) as nat,
     );
+    assert((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (level - 1) == (level - 1) * (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2())) by (nonlinear_arith);
 }
 
 /// The page size
