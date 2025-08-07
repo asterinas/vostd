@@ -37,8 +37,8 @@ use crate::{
 };
 
 use super::{
-    lemma_add_page_size_change_pte_index, lemma_aligned_pte_index_unchanged, pte_index,
-    pte_index_add_with_carry, pte_index_mask, PageTable, PageTableConfig, PageTableEntryTrait,
+    lemma_aligned_pte_index_unchanged, lemma_addr_aligned_propagate, pte_index,
+    pte_index_mask, PageTable, PageTableConfig, PageTableEntryTrait,
     PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
@@ -282,6 +282,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         let cur_page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
+        assert(next_va % page_size::<C>(self.level) == 0) by (nonlinear_arith)
+            requires
+                next_va == align_down(self.va, cur_page_size) + cur_page_size,
+                cur_page_size == page_size::<C>(self.level),
+                align_down(self.va, cur_page_size) % cur_page_size == 0,
+        ;
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
                 old(self).wf(spt),
@@ -289,11 +295,16 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.constant_fields_unchanged(old(self), spt, spt),
                 self.level >= old(self).level,
                 self.va == old(self).va,
-                forall|i: PagingLevel|
-                    old(self).level <= i < self.level ==> pte_index::<C>(next_va, i) == 0,
+                next_va % page_size::<C>(self.level) == 0,
             decreases self.guard_level - self.level,
         {
             self.pop_level(Tracked(&spt));
+            proof {
+                // Only thing we need to prove is next_va % page_size(self.level) == 0
+                assert(next_va % page_size::<C>((self.level - 1) as u8) == 0);
+                assert(pte_index::<C>(next_va, (self.level - 1) as u8) == 0);
+                lemma_addr_aligned_propagate::<C>(next_va, self.level);
+            }
         }
         self.va = next_va;
         proof {
@@ -301,20 +312,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 // The proof automatically goes through in this case.
             } else {
                 let old_level = old(self).level;
-                let aligned_va = align_down(old(self).va, cur_page_size);
+                let old_page_size = cur_page_size;
+                let aligned_va = align_down(old(self).va, old_page_size);
                 // Information from the loop termination
                 assert(old_level <= self.level < self.guard_level);
                 assert(pte_index::<C>(next_va, self.level) != 0);
 
                 // No overflow.
-                assert(aligned_va + cur_page_size < usize::MAX) by {
-                    assert(aligned_va + cur_page_size <= old(self).barrier_va.end);
+                assert(aligned_va + old_page_size < usize::MAX) by {
+                    assert(aligned_va + old_page_size <= old(self).barrier_va.end);
                     assert(old(self).barrier_va.end < usize::MAX);
                 }
-                assert(self.va == next_va == aligned_va + cur_page_size);
+                assert(self.va == next_va == aligned_va + old_page_size);
                 assume(forall|i: u8|
                     self.level < i <= self.guard_level ==> #[trigger] pte_index::<C>(aligned_va, i)
                         == #[trigger] pte_index::<C>(next_va, i));
+
+                // Then use transitivity.
                 assert forall|i: u8| self.level < i <= self.guard_level implies pte_index::<C>(
                     self.va,
                     i,

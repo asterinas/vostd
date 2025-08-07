@@ -691,157 +691,41 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     res as usize
 }
 
-// PTE index increment recursively
-//
-// Returns the level `cur_level` PTE index of the virtual address formed by
-// adding the page size of `add_level` to `va`.
-pub open spec fn pte_index_add_with_carry<C: PagingConstsTrait>(
-    va: Vaddr,
-    add_level: PagingLevel,
-    cur_level: PagingLevel,
-) -> usize
-    decreases cur_level,
-{
-    if cur_level < add_level {
-        pte_index_spec::<C>(va, cur_level)
-    } else if cur_level == add_level {
-        if pte_index_spec::<C>(va, cur_level) == pte_index_mask::<C>() {
-            0  // Overflow
-
-        } else {
-            (pte_index_spec::<C>(va, cur_level) + 1) as usize
-        }
-    } else {
-        // if there's carry from the lower level
-        let lower_level_has_carry = pte_index_add_with_carry::<C>(
-            va,
-            add_level,
-            (cur_level - 1) as PagingLevel,
-        ) == 0 && pte_index_spec::<C>(va, (cur_level - 1) as PagingLevel) == pte_index_mask::<C>();
-
-        if lower_level_has_carry {
-            // Carry propagates up: increment this level (or overflow to 0)
-            if pte_index_spec::<C>(va, cur_level) == pte_index_mask::<C>() {
-                0  // This level also overflows
-
-            } else {
-                (pte_index_spec::<C>(va, cur_level) + 1) as usize
-            }
-        } else {
-            // No carry: this level remains unchanged
-            pte_index_spec::<C>(va, cur_level)
-        }
-    }
-}
-
-// Checks if a sequence is a valid sequence of PTE indices.
-// A sequence does not necessarily start from level 1 and end at the highest level.
-// The first element in the sequence is the index at the lowest level.
-spec fn is_valid_pte_index_seq<C: PagingConstsTrait>(seq: Seq<usize>) -> bool {
-    forall|i: int| 0 <= i < seq.len() ==> 0 <= #[trigger] seq[i] < nr_subpage_per_huge::<C>()
-}
-
-// Treats a sequence as a little endian number with radix `nr_subpage_per_huge::<C>()`.
-spec fn pte_index_seq_to_nat<C: PagingConstsTrait>(seq: Seq<usize>) -> int
-    decreases seq.len(),
-{
-    if seq.len() == 0 {
-        0
-    } else {
-        seq[0] + pte_index_seq_to_nat::<C>(seq.skip(1)) * nr_subpage_per_huge::<C>()
-    }
-}
-
-// Actually, this is not strictly injective, but injective over all sequences
-// with the same length.
-proof fn lemma_pte_index_seq_to_nat_injective<C: PagingConstsTrait>(
-    seq1: Seq<usize>,
-    seq2: Seq<usize>,
-)
+proof fn lemma_addr_aligned_propagate<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel)
     requires
-        seq1.len() == seq2.len(),
-        is_valid_pte_index_seq::<C>(seq1),
-        is_valid_pte_index_seq::<C>(seq2),
-        pte_index_seq_to_nat::<C>(seq1) == pte_index_seq_to_nat::<C>(seq2),
+        2 <= level <= C::NR_LEVELS_SPEC(),
+        va % page_size::<C>((level - 1) as PagingLevel) == 0,
+        pte_index_spec::<C>(va, (level - 1) as PagingLevel) == 0,
     ensures
-        seq1 == seq2,
-    decreases seq1.len(),
+        va % page_size::<C>(level) == 0,
 {
-    if seq1.len() == 0 {
-        assert(seq2.len() == 0);
-    } else {
-        assert(0 <= 0 < seq1.len() == seq2.len());
-        // The result of evaluating the tails
-        let tail_eval1: int = pte_index_seq_to_nat::<C>(seq1.skip(1));
-        let tail_eval2: int = pte_index_seq_to_nat::<C>(seq2.skip(1));
-        // The first three preconditions are automatically worked out.
-        assert(seq1[0] == seq2[0] && tail_eval1 == tail_eval2) by {
-            assert(seq1[0] + tail_eval1 * nr_subpage_per_huge::<C>() == seq2[0] + tail_eval2
-                * nr_subpage_per_huge::<C>());
-            // Moving terms around, we have
-            assert(seq1[0] - seq2[0] == (tail_eval2 - tail_eval1) * nr_subpage_per_huge::<C>())
-                by (nonlinear_arith)
-                requires
-                    seq1[0] + tail_eval1 * nr_subpage_per_huge::<C>() == seq2[0] + tail_eval2
-                        * nr_subpage_per_huge::<C>(),
-            ;
-            // This should follow from the precondition that each element is in range.
-            assert(-nr_subpage_per_huge::<C>() < seq1[0] - seq2[0] < nr_subpage_per_huge::<C>());
-            assert((seq1[0] - seq2[0]) % (nr_subpage_per_huge::<C>() as int) == 0) by {
-                lemma_fundamental_div_mod_converse_mod(
-                    seq1[0] - seq2[0],
-                    nr_subpage_per_huge::<C>() as int,
-                    tail_eval2 - tail_eval1,
-                    0,
-                );
-            }
-            assert(seq1[0] - seq2[0] == 0) by (nonlinear_arith)
-                requires
-                    -nr_subpage_per_huge::<C>() < seq1[0] - seq2[0] < nr_subpage_per_huge::<C>(),
-                    (seq1[0] - seq2[0]) % (nr_subpage_per_huge::<C>() as int) == 0,
-            ;
-            assert(tail_eval2 - tail_eval1 == 0) by (nonlinear_arith)
-                requires
-                    seq1[0] - seq2[0] == 0,
-                    seq1[0] - seq2[0] == (tail_eval2 - tail_eval1) * nr_subpage_per_huge::<C>(),
-                    nr_subpage_per_huge::<C>() > 0,
-            ;
-        }
-        lemma_pte_index_seq_to_nat_injective::<C>(seq1.skip(1), seq2.skip(1));
-        assert forall|i: int| 0 <= i < seq1.len() implies seq1[i] == seq2[i] by {
-            if (i == 0) {
-            } else {
-                assert(0 <= i - 1 < seq1.len() - 1 == seq1.skip(1).len() == seq2.skip(1).len());
-                assert(seq1[i] == seq1.skip(1)[i - 1]);
-                assert(seq2[i] == seq2.skip(1)[i - 1]);
-            }
-        }
+    let old_level = (level - 1) as PagingLevel;
+    assert(1 <= old_level < C::NR_LEVELS_SPEC());
+    let old_pg_size = page_size_spec::<C>(old_level) as nat;
+    let new_pg_size = page_size_spec::<C>(level) as nat;
+    let diff = nr_subpage_per_huge::<C>() as nat;
+    assert(old_pg_size > 0) by {
+        lemma_page_size_spec_properties::<C>(old_level);
     }
-}
-
-// Adding a page size to an aligned address increments the PTE index
-proof fn lemma_add_page_size_change_pte_index<C: PagingConstsTrait>(
-    aligned_va: Vaddr,
-    page_sz: usize,
-    level: PagingLevel,
-)
-    requires
-        1 <= level <= C::NR_LEVELS(),
-        aligned_va % page_sz == 0,
-        page_sz == page_size::<C>(level),
-        // This condition suffices, because this lemma is only called when the
-        // loop terminates before the guard level.
-        aligned_va + page_sz < pow2(C::ADDRESS_WIDTH() as nat),
-    ensures
-// The result at any level >= the target level follows the carry propagation
-
-        forall|l: PagingLevel|
-            level <= l <= C::NR_LEVELS() ==> #[trigger] pte_index::<C>(
-                (aligned_va + page_sz) as usize,
-                l,
-            ) == #[trigger] pte_index_add_with_carry::<C>(aligned_va, level, l),
-{
-    admit();
+    assert(diff > 0) by {
+        C::lemma_consts_properties();
+        C::lemma_consts_properties_derived();
+    }
+    assert(new_pg_size == old_pg_size * diff) by {
+        lemma_page_size_adjacent_levels::<C>(level);
+    }
+    let van = va as nat;
+    assert(van / old_pg_size % diff == 0) by {
+        lemma_pte_index_alternative_spec::<C>(va, old_level);
+    }
+    assert(van % old_pg_size == 0) by {
+        // This lemma is needed because it convinces the verifier that old_pg_size > 0
+        lemma_page_size_spec_properties::<C>(old_level);
+        assert(van % old_pg_size == (va % page_size::<C>(old_level)) as nat);
+    }
+    lemma_breakdown(van as int, old_pg_size as int, diff as int);
+    // The verifier seems to be able to figure out that calculation in nat and int are the same,
+    // and then it is smart enough to automatically substitute zeros into the calculation.
 }
 
 // A number x can be represented the sum of its three parts
@@ -906,7 +790,7 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
 // When doing addition by a number <= 2^q (y < x <= y + 2^q),
 // if the x[0..q] == 0 and x[q..p] != 0, then the carry doesn't propagate to
 // the bits higher than p.
-proof fn lemma_carry_ends_at_nonzero_result(x: nat, y: nat, p: nat, q: nat)
+proof fn lemma_carry_ends_at_nonzero_result_bits(x: nat, y: nat, p: nat, q: nat)
     // This proof is going to rely heavily on nonlinear arithmetics
     by (nonlinear_arith)
     requires
