@@ -508,7 +508,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     assert(post.cursors[cpu].hold_read_lock(nid)) by {
                         lemma_push_contains_same(path, nid);
                     }
-                    lemma_insert_value_filter_different_len(
+                    lemma_insert_value_filter_different_len_contains(
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.push(nid))
                     );
                 }
@@ -564,7 +564,7 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     );
                 }
                 else {
-                    lemma_insert_value_filter_different_len(
+                    lemma_insert_value_filter_different_len_contains(
                         pre.cursors, f, cpu, CursorState::ReadLocking(path.drop_last())
                     );
                 }

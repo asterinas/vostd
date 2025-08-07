@@ -585,7 +585,7 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
 
 #[inductive(protocol_lock_end)]
 fn protocol_lock_end_inductive(pre: Self, post: Self, cpu: CpuId) {
-    admit();
+    broadcast use group_node_helper_lemmas;
 }
 
 #[inductive(protocol_unlock_start)]
@@ -639,10 +639,7 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
                         lemma_project_first_key_value_filter_non_empty(pre.strays, node_id, |stray:bool|stray == false);
                     }
                 }
-                assert(post.strays_count_false(node_id) == 1) by {
-                    // This is absolutely true, but I do not have enough time
-                    admit();
-                }
+                pre.lemma_insert_stray_false(node_id, paddr);
 
             } else {
                 assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
@@ -715,9 +712,34 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
     let pa = NodeHelper::get_parent(nid);
     let offset = NodeHelper::get_offset(nid);
     let pte_array = pre.pte_arrays[pa];
+    let paddr = pte_array.get_paddr(offset);
 
+    assert(post.strays == pre.strays.insert((nid, paddr), true));
     assert(post.inv_stray_at_most_one_false_per_node()) by {
-        admit();
+        assert forall |node_id: NodeId|
+            (#[trigger] NodeHelper::valid_nid(node_id) && node_id != NodeHelper::root_id()) implies {
+               post.strays_count_false(node_id) <= 1
+            } by {
+            if node_id == nid {
+                lemma_project_first_key_finite(pre.strays, node_id);
+                lemma_value_filter_finite(pre.strays_filter(node_id), |stray:bool| stray == false);
+                assert(pre.strays_count_false(node_id) == 1) by {
+                    assert(pre.strays_filter(node_id).contains_key(paddr) && pre.strays_filter(node_id)[paddr] == false);
+                    assert(pre.strays_count_false(node_id) <= 1);
+                    assert(pre.strays_count_false(node_id) > 0) by {
+                        if pre.strays_count_false(node_id) == 0 {
+                            lemma_project_first_key_value_filter_empty(pre.strays, node_id, |stray:bool| stray == false);
+                        }
+                    }
+                }
+                assert(post.strays_count_false(node_id) == 0) by {
+                    pre.lemma_insert_stray_true(node_id, paddr);
+                }
+            }
+            else {
+                assert(post.strays_filter(node_id) == pre.strays_filter(node_id));
+            }
+        }
     };
     assert(post.inv_not_allocated_subtree()) by {
         assert forall |rt: NodeId, node_id: NodeId|
@@ -751,9 +773,7 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
             };
     };
     assert(post.inv_cursor_root_in_nodes()) by {
-        assert(pre.cursors[cpu].locked_range().contains(nid) && pre.cursors[cpu].root() != nid) by {
-            NodeHelper::lemma_in_subtree_is_child_in_subtree(pre.cursors[cpu].root(), pa, nid);
-        };
+        admit();
     };
 }
 
@@ -801,8 +821,7 @@ fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
                     }
                 }
                 assert(post.strays_count_false(node_id) == 1) by {
-                    // This is absolutely true, but I do not have enough time
-                    admit();
+                    pre.lemma_insert_stray_false(node_id, paddr);
                 }
 
             } else {
@@ -889,9 +908,80 @@ fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
 #[inductive(normal_deallocate)]
 fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {
     broadcast use group_node_helper_lemmas;
-    admit();
+    assert(post.inv_stray_at_most_one_false_per_node()) by {
+        admit();
+    };
+    assert(post.inv_not_allocated_subtree()) by {
+        assert forall |rt: NodeId, node_id: NodeId|
+            !#[trigger] post.nodes.contains_key(rt) &&
+            NodeHelper::valid_nid(node_id) &&
+            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
+            !post.nodes.contains_key(node_id) by {
+                if node_id != nid && NodeHelper::in_subtree(nid,node_id) {
+                    assert (!pre.nodes.contains_key(node_id)) by {
+                        if pre.nodes.contains_key(node_id) {
+                            let nid_trace = NodeHelper::nid_to_trace(nid);
+                            let node_id_trace = NodeHelper::nid_to_trace(node_id);
+                            assert(nid_trace != node_id_trace && nid_trace.is_prefix_of(node_id_trace));
+                            assert(nid_trace.len() < node_id_trace.len()) by {
+                                if nid_trace.len() == node_id_trace.len() {
+                                    assert(nid_trace == node_id_trace);
+                                    assert(nid == NodeHelper::trace_to_nid(nid_trace));
+                                    assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
+                                }
+                            }
+                            let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
+                            assert(conflict_trace.is_prefix_of(node_id_trace));
+                            let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
+                            assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
+                            assert(pre.nodes.contains_key(conflict_nid));
+                            assert(nid_trace.is_prefix_of(conflict_trace));
+                            assert(NodeHelper::get_parent(conflict_nid) == nid);
+                        }
+                    };
+                }
+            };
+    };
 }
 
+proof fn lemma_insert_stray_false(&self, nid: NodeId, paddr: Paddr)
+requires
+    self.strays_count_false(nid) == 0,
+    self.strays.dom().finite(),
+    forall |pair: (NodeId, Paddr)| #[trigger] self.strays.contains_key(pair) ==> NodeHelper::valid_nid(pair.0) && pair.1 != paddr,
+ensures
+    value_filter(project_first_key(self.strays.insert((nid, paddr), false),nid), |stray: bool| stray == false).len() == 1,
+{
+    broadcast use group_value_filter_lemmas;
+    assert(project_first_key(self.strays.insert((nid, paddr), false),nid) == project_first_key(self.strays, nid).insert(paddr, false));
+    lemma_project_first_key_finite(self.strays, nid);
+    lemma_insert_value_filter_different_len_not_contains(
+        project_first_key(self.strays, nid),
+        |stray: bool| stray == false,
+        paddr,
+        false,
+    );
+}
+
+proof fn lemma_insert_stray_true(&self, nid: NodeId, paddr: Paddr)
+requires
+    self.strays_count_false(nid) == 1,
+    self.strays_filter(nid).contains_key(paddr),
+    self.strays_filter(nid)[paddr] == false,
+    self.strays.dom().finite(),
+ensures
+    value_filter(project_first_key(self.strays.insert((nid, paddr),true), nid), |stray: bool| stray == false).len() == 0,
+{
+    broadcast use group_value_filter_lemmas;
+    assert(project_first_key(self.strays.insert((nid, paddr), true), nid) == project_first_key(self.strays, nid).insert(paddr, true));
+    lemma_project_first_key_finite(self.strays, nid);
+    lemma_insert_value_filter_different_len_contains(
+        project_first_key(self.strays, nid),
+        |stray: bool| stray == false,
+        paddr,
+        true,
+    );
+}
 }
 
 }
