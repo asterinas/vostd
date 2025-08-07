@@ -14,6 +14,7 @@ use vstd::prelude::*;
 use vstd::{
     arithmetic::{div_mod::lemma_div_non_zero, logarithm::*, power::pow, power2::*},
     bits::*,
+    calc,
     layout::is_power_2,
 };
 use vstd_extra::extra_num::{
@@ -199,6 +200,53 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
         C::lemma_consts_properties_derived();
     }
     C::BASE_PAGE_SIZE() / C::PTE_SIZE()
+}
+
+// Adjacent levels of the page sizes differ by a factor of nr_subpage_per_huge().
+proof fn lemma_page_size_adjacent_levels<C: PagingConstsTrait>(level: PagingLevel)
+    by (nonlinear_arith)
+    requires
+        1 < level <= C::NR_LEVELS(),
+    ensures
+        page_size_spec::<C>(level) as nat == nr_subpage_per_huge::<C>() as nat * (page_size_spec::<C>((level - 1) as PagingLevel) as nat),
+{
+    C::lemma_consts_properties();
+    C::lemma_consts_properties_derived();
+    let prev_level = (level - 1) as PagingLevel;
+    assert(1 <= prev_level < C::NR_LEVELS());
+    calc! {
+        (==)
+        page_size_spec::<C>(level) as nat; {
+            lemma_page_size_spec_properties::<C>(level);
+        }
+        pow2(
+            (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+            level - 1)) as nat,
+        ); {}
+        pow2(
+            (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+            level - 2)) as nat +
+            (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+        ); {
+            lemma_pow2_adds(
+                (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+                level - 2)) as nat,
+                (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+            );
+        }
+        pow2(
+            (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+        ) * pow2(
+            (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+            level - 2)) as nat
+        ); {
+            lemma_page_size_spec_properties::<C>(prev_level);
+        }
+        pow2(
+            (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+        ) * (page_size_spec::<C>(prev_level) as nat); {}
+        nr_subpage_per_huge::<C>() as nat * (page_size_spec::<C>(prev_level) as nat);
+    }
 }
 
 /// The maximum virtual address of user space (non inclusive).

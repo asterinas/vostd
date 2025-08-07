@@ -26,6 +26,7 @@ use vstd_extra::extra_num::{
 };
 
 use super::{
+    lemma_page_size_adjacent_levels,
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token,
     page_size_spec, lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
@@ -553,7 +554,9 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         0 < level <= C::NR_LEVELS_SPEC(),
     ensures
         pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat,
-        pte_index_spec::<C>(va, level) as nat == va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat,
+        level < C::NR_LEVELS_SPEC() ==>
+            pte_index_spec::<C>(va, level) as nat ==
+            va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat,
 {
     assert(pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat) by {
         C::lemma_consts_properties();
@@ -598,41 +601,47 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         }
     }
     // Then, we prove the second equality using properties of div and mod.
-    let a = page_size_spec::<C>(level) as int;
-    let b = nr_subpage_per_huge::<C>() as int;
-    let x = va as int;
-    assert(a > 0 && b > 0 && x >= 0) by {
-        lemma_page_size_spec_properties::<C>(level);
-        C::lemma_consts_properties();
-        C::lemma_consts_properties_derived();
-    }
-    assume(page_size_spec::<C>((level + 1) as PagingLevel) as int == a * b);
-    assert(x / a % b == x % (a * b) / a) by {
-        // x % (a * b) == a * (x / a % b) + (x % a)
-        lemma_breakdown(x, a, b);
-        assert(0 <= x % a < a) by (nonlinear_arith) requires a > 0;
-        assert((x / a % b) == (x % (a * b)) / a) by (nonlinear_arith)
-            requires
-                0 <= x % a < a,
-                x % (a * b) == a * (x / a % b) + (x % a),
-        ;
-    }
-    // We can use transitivity again
-    calc! {
-        (==)
-        (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat; {}
-        ((x / a) % b) as nat; {}
-        (x % (a * b) / a) as nat; {
-            assert(x % (a * b) >= 0) by (nonlinear_arith)
-                requires
-                    a > 0,
-                    b > 0,
-            ;
-            assert(a > 0);
+    if level < C::NR_LEVELS() {
+        let a = page_size_spec::<C>(level) as int;
+        let b = nr_subpage_per_huge::<C>() as int;
+        let x = va as int;
+        assert(a > 0 && b > 0 && x >= 0) by {
+            lemma_page_size_spec_properties::<C>(level);
+            C::lemma_consts_properties();
+            C::lemma_consts_properties_derived();
         }
-        (x % (a * b)) as nat / a as nat; {}
-        x as nat % (a * b) as nat / a as nat; {}
-        va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat;
+        assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == a * b) by {
+            assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == b * a) by {
+                lemma_page_size_adjacent_levels::<C>((level + 1) as PagingLevel);
+            }
+        }
+        assert(x / a % b == x % (a * b) / a) by {
+            // x % (a * b) == a * (x / a % b) + (x % a)
+            lemma_breakdown(x, a, b);
+            assert(0 <= x % a < a) by (nonlinear_arith) requires a > 0;
+            assert((x / a % b) == (x % (a * b)) / a) by (nonlinear_arith)
+                requires
+                    0 <= x % a < a,
+                    x % (a * b) == a * (x / a % b) + (x % a),
+            ;
+        }
+        // We can use transitivity again
+        calc! {
+            (==)
+            (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat; {}
+            ((x / a) % b) as nat; {}
+            (x % (a * b) / a) as nat; {
+                assert(x % (a * b) >= 0) by (nonlinear_arith)
+                    requires
+                        a > 0,
+                        b > 0,
+                ;
+                assert(a > 0);
+            }
+            (x % (a * b)) as nat / a as nat; {}
+            x as nat % (a * b) as nat / a as nat; {}
+            va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat;
+        }
     }
 }
 
