@@ -754,16 +754,6 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
         assert(pre.cursors[cpu].locked_range().contains(nid) && pre.cursors[cpu].root() != nid) by {
             NodeHelper::lemma_in_subtree_is_child_in_subtree(pre.cursors[cpu].root(), pa, nid);
         };
-        assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) &&
-            !(post.cursors[cpu_id] is Void) implies post.nodes.contains_key(post.cursors[cpu_id].root()) by {
-            if cpu_id == cpu {
-            } else {
-                //assert(!pre.cursors[cpu_id].locked_range().contains(nid));
-                //assert(pre.cursors[cpu_id].locked_range().contains(pre.cursors[cpu_id].root()));
-                //assert(nid!= pre.cursors[cpu_id].root());
-                admit();
-            }
-        };
     };
 }
 
