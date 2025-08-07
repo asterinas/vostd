@@ -95,7 +95,7 @@ pub proof fn lemma_value_filter_all_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> b
         value_filter(m, f).is_empty() <==> forall|k: K| m.contains_key(k) ==> !#[trigger] f(m[k]),
 {
     if value_filter(m, f).is_empty() {
-        assert forall |k: K| m.contains_key(k) implies !#[trigger] f(m[k]) by {
+        assert forall|k: K| m.contains_key(k) implies !#[trigger] f(m[k]) by {
             if f(m[k]) {
                 assert(value_filter(m, f).contains_key(k));
             }
@@ -446,13 +446,11 @@ pub proof fn lemma_project_first_key_value_filter_empty<K1, K2, V>(
     requires
         value_filter(project_first_key(m, k1), f).len() == 0,
     ensures
-        forall|k2: K2| #[trigger] project_first_key(m, k1).contains_key(k2) ==> !f(
-            project_first_key(m, k1)[k2],
-        ),
+        forall|k2: K2| #[trigger]
+            project_first_key(m, k1).contains_key(k2) ==> !f(project_first_key(m, k1)[k2]),
 {
     admit();
 }
-    
 
 /// If the original map is finite, then the projected map is also finite.
 pub proof fn lemma_project_first_key_finite<K1, K2, V>(m: Map<(K1, K2), V>, k1: K1)
@@ -463,5 +461,5 @@ pub proof fn lemma_project_first_key_finite<K1, K2, V>(m: Map<(K1, K2), V>, k1: 
 {
     admit();
 }
-    
-}
+
+} // verus!
