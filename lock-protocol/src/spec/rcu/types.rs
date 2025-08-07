@@ -87,12 +87,9 @@ impl CursorState {
         }
     }
 
-    pub open spec fn locked_range(&self) -> Set<NodeId>
-        recommends
-            *self !is Void,
-    {
+    pub open spec fn locked_range(&self) -> Set<NodeId> {
         match *self {
-            Self::Void => arbitrary(),
+            Self::Void => Set::<NodeId>::empty(),
             Self::Locking(rt, nid) => Set::new(|id| rt <= id < nid),
             Self::Locked(rt) => Set::new(|id| rt <= id < NodeHelper::next_outside_subtree(rt)),
         }

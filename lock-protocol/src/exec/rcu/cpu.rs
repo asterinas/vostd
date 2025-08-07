@@ -24,12 +24,7 @@ impl LockProtocolModel {
         recommends
             !(self.state() is Void),
     {
-        match self.state() {
-            CursorState::Void => arbitrary(),
-            CursorState::Locking(rt, _) => rt,
-            CursorState::Locked(rt) => rt,
-            // CursorState::UnLocking(rt, _) => rt,
-        }
+        self.state().root()
     }
 
     pub open spec fn cur_node(&self) -> NodeId
