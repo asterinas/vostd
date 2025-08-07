@@ -709,7 +709,7 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
 }
 
 #[inductive(protocol_deallocate)]
-fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) { 
+fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     broadcast use group_node_helper_lemmas;
     let pa = NodeHelper::get_parent(nid);
     let offset = NodeHelper::get_offset(nid);
@@ -735,7 +735,7 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
                                     assert(nid_trace == node_id_trace);
                                     assert(nid == NodeHelper::trace_to_nid(nid_trace));
                                     assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
-                                }     
+                                }
                             }
                             let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
                             assert(conflict_trace.is_prefix_of(node_id_trace));
@@ -752,7 +752,7 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
     assert(post.inv_cursor_root_in_nodes()) by {
         assert(pre.cursors[cpu].locked_range().contains(nid) && pre.cursors[cpu].root() != nid) by {
             NodeHelper::lemma_in_subtree_is_child_in_subtree(pre.cursors[cpu].root(), pa, nid);
-        }; 
+        };
         assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) &&
             !(post.cursors[cpu_id] is Void) implies post.nodes.contains_key(post.cursors[cpu_id].root()) by {
             if cpu_id == cpu {
