@@ -103,20 +103,26 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
             // 4. Need to show all_non_overlapping(rt) in the interpreted pre-state
             assert(interp(pre).all_non_overlapping(rt)) by {
                 // This follows from the TreeSpec invariant inv_non_overlapping
-                assert(pre.inv_non_overlapping());
-
-                // The key insight is that TreeSpec's inv_non_overlapping ensures disjoint locked ranges,
-                // and disjoint ranges imply non-overlapping subtrees by definition.
-                // However, the full proof requires several intermediate lemmas about the relationship
-                // between locked ranges and subtree ranges that are beyond the scope of this admit.
-
-                // In a complete proof, we would show:
-                // 1. For cpu with Locking(rt, next_outside_subtree(rt)), locked_range = [rt, next_outside_subtree(rt))
-                // 2. For cpu2 with Locked(nid2), locked_range = [nid2, next_outside_subtree(nid2))
-                // 3. TreeSpec inv_non_overlapping ensures these ranges are disjoint
-                // 4. By NodeHelper::lemma_in_subtree_iff_in_subtree_range, disjoint ranges mean non-overlapping subtrees
-
-                admit();
+                broadcast use group_node_helper_lemmas;
+                assert forall |cpu_id: CpuId| #[trigger]
+                    interp(pre).cursors.contains_key(cpu_id) &&
+                    interp(pre).cursors[cpu_id] is Locked implies
+                    {
+                        let nid = interp(pre).cursors[cpu_id]->Locked_0;
+                        !NodeHelper::in_subtree(nid, rt) && !NodeHelper::in_subtree(rt, nid)
+                    } by {
+                        let nid = pre.cursors[cpu_id]->Locked_0;
+                        assert(nid == interp(pre).cursors[cpu_id]->Locked_0);
+                        assert(pre.cursors[cpu_id] is Locked);
+                        assert(pre.cursors.contains_key(cpu_id));
+                        assert(pre.cursors[cpu] is Locking);
+                        NodeHelper::lemma_sub_tree_size_lowerbound(rt);
+                        NodeHelper::lemma_sub_tree_size_lowerbound(nid);
+                        assert(pre.cursors[cpu_id].locked_range().disjoint(pre.cursors[cpu].locked_range()));
+                        assert(pre.cursors[cpu].locked_range().contains(rt));
+                        assert(!NodeHelper::in_subtree_range(nid, rt));
+                        assert(!NodeHelper::in_subtree_range(rt, nid));
+                    }
             };
 
             // 5. Show that the cursors map updates correctly
