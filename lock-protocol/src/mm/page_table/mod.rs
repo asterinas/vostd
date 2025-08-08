@@ -731,7 +731,7 @@ proof fn lemma_addr_aligned_propagate<C: PagingConstsTrait>(va: Vaddr, level: Pa
 // A number x can be represented the sum of its three parts
 proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
     requires
-        0 < q < p,
+        0 <= q <= p,
     ensures
         x == pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q)),
         0 <= x % pow2(q) < pow2(q),
@@ -741,7 +741,7 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
         let m = pow2(q);
         let d = pow2((p - q) as nat);
         assert(m * d == pow2(p)) by {
-            assert(p - q > 0);
+            assert(p - q >= 0);
             assert(pow2(p) == pow2(q + (p - q) as nat));
             lemma_pow2_adds(q as nat, (p - q) as nat);
         }
@@ -794,7 +794,7 @@ proof fn lemma_carry_ends_at_nonzero_result_bits(x: nat, y: nat, p: nat, q: nat)
     // This proof is going to rely heavily on nonlinear arithmetics
     by (nonlinear_arith)
     requires
-        0 < q < p,
+        0 <= q <= p,
         y < x <= y + pow2(q),
         // The condition on the result
         x % pow2(q) == 0,
