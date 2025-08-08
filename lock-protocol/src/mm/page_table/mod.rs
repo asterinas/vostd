@@ -26,9 +26,9 @@ use vstd_extra::extra_num::{
 };
 
 use super::{
-    lemma_page_size_adjacent_levels, lemma_page_size_geometric,
-    meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token,
-    page_size_spec, lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
+    lemma_page_size_adjacent_levels, lemma_page_size_geometric, meta::AnyFrameMeta,
+    nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token, page_size_spec,
+    lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
 
 use crate::exec;
@@ -553,12 +553,15 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
     requires
         0 < level <= C::NR_LEVELS_SPEC(),
     ensures
-        pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat,
-        level < C::NR_LEVELS_SPEC() ==>
-            pte_index_spec::<C>(va, level) as nat ==
-            va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat,
+        pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat)
+            % nr_subpage_per_huge::<C>() as nat,
+        level < C::NR_LEVELS_SPEC() ==> pte_index_spec::<C>(va, level) as nat == va as nat
+            % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(
+            level,
+        ) as nat,
 {
-    assert(pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat) % nr_subpage_per_huge::<C>() as nat) by {
+    assert(pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat)
+        % nr_subpage_per_huge::<C>() as nat) by {
         C::lemma_consts_properties();
         C::lemma_consts_properties_derived();
         // Constants computed in the body of the spec fn
@@ -575,19 +578,28 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
                 // This step simply expands the definition of pte_index.
             }
             ((va >> shift) & pte_index_mask::<C>()) as nat; {
-                assert(pte_index_mask::<C>() == low_bits_mask((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat) as usize);
-                lemma_u64_low_bits_mask_is_mod((va >> shift) as u64, (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat);
+                assert(pte_index_mask::<C>() == low_bits_mask(
+                    (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+                ) as usize);
+                lemma_u64_low_bits_mask_is_mod(
+                    (va >> shift) as u64,
+                    (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+                );
             }
-            ((va >> shift) % pow2((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat) as usize) as nat; {
+            ((va >> shift) % pow2(
+                (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
+            ) as usize) as nat; {
                 // This step follows from the definition of nr_subpage_per_huge.
             }
             ((va >> shift) % nr_subpage_per_huge::<C>()) as nat; {}
             (va >> shift) as nat % nr_subpage_per_huge::<C>() as nat; {
                 assert(shift_nat < usize::BITS) by {
-                    assert(shift_nat <= base_bits + C::NR_LEVELS_SPEC() * index_bits) by (nonlinear_arith)
+                    assert(shift_nat <= base_bits + C::NR_LEVELS_SPEC() * index_bits)
+                        by (nonlinear_arith)
                         requires
                             base_bits == C::BASE_PAGE_SIZE_SPEC().ilog2(),
-                            index_bits as int == C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2(),
+                            index_bits as int == C::BASE_PAGE_SIZE().ilog2()
+                                - C::PTE_SIZE().ilog2(),
                             shift_nat == (base_bits + (level - 1) * index_bits) as nat,
                             index_bits >= 0,
                             level <= C::NR_LEVELS_SPEC(),
@@ -618,7 +630,10 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         assert(x / a % b == x % (a * b) / a) by {
             // x % (a * b) == a * (x / a % b) + (x % a)
             lemma_breakdown(x, a, b);
-            assert(0 <= x % a < a) by (nonlinear_arith) requires a > 0;
+            assert(0 <= x % a < a) by (nonlinear_arith)
+                requires
+                    a > 0,
+            ;
             assert((x / a % b) == (x % (a * b)) / a) by (nonlinear_arith)
                 requires
                     0 <= x % a < a,
@@ -640,7 +655,9 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
             }
             (x % (a * b)) as nat / a as nat; {}
             x as nat % (a * b) as nat / a as nat; {}
-            va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(level) as nat;
+            va as nat % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<
+                C,
+            >(level) as nat;
         }
     }
 }
@@ -790,8 +807,14 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
 // When doing addition by a number <= 2^q (y < x <= y + 2^q),
 // if the x[0..q] == 0 and x[q..p] != 0, then the carry doesn't propagate to
 // the bits higher than p.
-proof fn lemma_carry_ends_at_nonzero_result_bits(x: nat, y: nat, p: nat, q: nat)
-    // This proof is going to rely heavily on nonlinear arithmetics
+proof fn lemma_carry_ends_at_nonzero_result_bits(
+    x: nat,
+    y: nat,
+    p: nat,
+    q: nat,
+)
+// This proof is going to rely heavily on nonlinear arithmetics
+
     by (nonlinear_arith)
     requires
         0 <= q <= p,
@@ -812,7 +835,9 @@ proof fn lemma_carry_ends_at_nonzero_result_bits(x: nat, y: nat, p: nat, q: nat)
     let c = y / pow2(p);
     let d = y % pow2(p) / pow2(q);
     let e = y % pow2(q);
-    assert(y == pow2(p) * c + pow2(q) * d + e && 0 <= e <= pow2(q) - 1 && 0 <= d <= pow2((p - q) as nat) - 1) by {
+    assert(y == pow2(p) * c + pow2(q) * d + e && 0 <= e <= pow2(q) - 1 && 0 <= d <= pow2(
+        (p - q) as nat,
+    ) - 1) by {
         lemma_nat_as_parts(y, p, q);
     }
     let diff = x - y;
@@ -933,10 +958,15 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
             (==)
             axn / pg_size_l; {}
             (xn - (xn % pg_size_level)) as nat / (pg_size_level * ratio); {
-                lemma_div_denominator((xn - (xn % pg_size_level)) as int, pg_size_level as int, ratio as int);
+                lemma_div_denominator(
+                    (xn - (xn % pg_size_level)) as int,
+                    pg_size_level as int,
+                    ratio as int,
+                );
             }
             (xn - (xn % pg_size_level)) as nat / pg_size_level / ratio; {
-                assert((xn - (xn % pg_size_level)) as nat / pg_size_level == xn / pg_size_level) by (nonlinear_arith)
+                assert((xn - (xn % pg_size_level)) as nat / pg_size_level == xn / pg_size_level)
+                    by (nonlinear_arith)
                     requires
                         xn >= 0,
                         pg_size_level > 0,
