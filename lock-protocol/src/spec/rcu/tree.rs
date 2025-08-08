@@ -473,7 +473,6 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
     implies {
         post.strays_count_false(nid) == 0
     } by {
-        assert(post.strays_filter(nid).is_empty());
         assert(value_filter(post.strays_filter(nid), |stray:bool| stray == false).is_empty());
     }
 }
@@ -490,7 +489,6 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
 
     let root = pre.cursors[cpu].root();
     // Specify what's changed in the transition
-    assert(!pre.nodes.contains_key(nid));
     assert(post.cursors == pre.cursors.insert(cpu, CursorState::Locking(root, NodeHelper::next_outside_subtree(nid))));
 
     assert forall |node_id: NodeId|
@@ -508,14 +506,8 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
         } by {
             if cpu_id == cpu {
                 let rt = pre.cursors[cpu_id]->Locking_0;
-                let _nid = pre.cursors[cpu_id]->Locking_1;
-                // Need to show: rt <= next_outside_subtree(nid) <= next_outside_subtree(rt)
-                if rt == nid {
-                } else {
-                    // rt < nid, so need to show next_outside_subtree(nid) <= next_outside_subtree(rt)
-                    // This follows from the fact that nid is in the subtree range of rt
+                if rt != nid {
                     NodeHelper::lemma_in_subtree_bounded(rt, nid);
-                    assert(NodeHelper::next_outside_subtree(nid) <= NodeHelper::next_outside_subtree(rt));
                 }
             }
         }
@@ -548,8 +540,6 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
                         };
                         if pre.cursors[cpu2].locked_range().contains(node_id) {
                             let root2 = pre.cursors[cpu2].root();
-                            assert(NodeHelper::in_subtree(root2, node_id));
-                            assert(NodeHelper::in_subtree(root2,nid) && root2 != nid);
                             assert(NodeHelper::in_subtree_range(root2, pa)) by {
                                 NodeHelper::lemma_child_in_subtree_implies_in_subtree(root2, pa, nid);
                             };
@@ -570,8 +560,6 @@ fn protocol_lock_skip_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) 
                         };
                         if pre.cursors[cpu1].locked_range().contains(node_id) {
                             let root1 = pre.cursors[cpu1].root();
-                            assert(NodeHelper::in_subtree(root1, node_id));
-                            assert(NodeHelper::in_subtree(root1,nid) && root1 != nid);
                             assert(NodeHelper::in_subtree_range(root1, pa)) by {
                                 NodeHelper::lemma_child_in_subtree_implies_in_subtree(root1, pa, nid);
                             };
@@ -675,14 +663,12 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
                         let paddr_other = pre.pte_arrays[pa_node].get_paddr(offset_node);
                         assert(post.pte_arrays[pa_node] == pte_array.update(offset, PteState::Alive(paddr)));
                         assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
-
                         assert(post.strays.contains_key((node_id, paddr_other)));
                         assert(post.strays[(node_id, paddr_other)] == false);
                     } else if pa_node != pa {
                         let paddr_other = pre.pte_arrays[pa_node].get_paddr(offset_node);
                         assert(post.pte_arrays[pa_node] == pre.pte_arrays[pa_node]);
                         assert(post.pte_arrays[pa_node].get_paddr(offset_node) == paddr_other);
-
                         assert(post.strays.contains_key((node_id, paddr_other)));
                         assert(post.strays[(node_id, paddr_other)] == false);
                     }
@@ -697,7 +683,6 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
             #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
             !post.nodes.contains_key(node_id) by {
                 if node_id == nid && post.nodes.contains_key(nid) {
-                    assert(NodeHelper::is_child(pa,nid));
                     assert(NodeHelper::in_subtree(rt, pa)) by {
                         NodeHelper::lemma_child_in_subtree_implies_in_subtree(rt, pa, nid);
                     };
@@ -742,35 +727,7 @@ fn protocol_deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId)
         }
     };
     assert(post.inv_not_allocated_subtree()) by {
-        assert forall |rt: NodeId, node_id: NodeId|
-            !#[trigger] post.nodes.contains_key(rt) &&
-            NodeHelper::valid_nid(node_id) &&
-            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
-            !post.nodes.contains_key(node_id) by {
-                if node_id != nid && NodeHelper::in_subtree(nid,node_id) {
-                    assert (!pre.nodes.contains_key(node_id)) by {
-                        if pre.nodes.contains_key(node_id) {
-                            let nid_trace = NodeHelper::nid_to_trace(nid);
-                            let node_id_trace = NodeHelper::nid_to_trace(node_id);
-                            assert(nid_trace != node_id_trace && nid_trace.is_prefix_of(node_id_trace));
-                            assert(nid_trace.len() < node_id_trace.len()) by {
-                                if nid_trace.len() == node_id_trace.len() {
-                                    assert(nid_trace == node_id_trace);
-                                    assert(nid == NodeHelper::trace_to_nid(nid_trace));
-                                    assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
-                                }
-                            }
-                            let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
-                            assert(conflict_trace.is_prefix_of(node_id_trace));
-                            let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
-                            assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
-                            assert(pre.nodes.contains_key(conflict_nid));
-                            assert(nid_trace.is_prefix_of(conflict_trace));
-                            assert(NodeHelper::get_parent(conflict_nid) == nid);
-                        }
-                    };
-                }
-            };
+        pre.lemma_deallocate_keep_inv_not_allocated_subtree(nid);
     };
     assert(post.inv_cursor_root_in_nodes()) by {
         assert forall |cpu_id: CpuId| #[trigger] post.cursors.contains_key(cpu_id) &&
@@ -959,35 +916,7 @@ fn normal_deallocate_inductive(pre: Self, post: Self, nid: NodeId) {
         }
     };
     assert(post.inv_not_allocated_subtree()) by {
-        assert forall |rt: NodeId, node_id: NodeId|
-            !#[trigger] post.nodes.contains_key(rt) &&
-            NodeHelper::valid_nid(node_id) &&
-            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
-            !post.nodes.contains_key(node_id) by {
-                if node_id != nid && NodeHelper::in_subtree(nid,node_id) {
-                    assert (!pre.nodes.contains_key(node_id)) by {
-                        if pre.nodes.contains_key(node_id) {
-                            let nid_trace = NodeHelper::nid_to_trace(nid);
-                            let node_id_trace = NodeHelper::nid_to_trace(node_id);
-                            assert(nid_trace != node_id_trace && nid_trace.is_prefix_of(node_id_trace));
-                            assert(nid_trace.len() < node_id_trace.len()) by {
-                                if nid_trace.len() == node_id_trace.len() {
-                                    assert(nid_trace == node_id_trace);
-                                    assert(nid == NodeHelper::trace_to_nid(nid_trace));
-                                    assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
-                                }
-                            }
-                            let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
-                            assert(conflict_trace.is_prefix_of(node_id_trace));
-                            let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
-                            assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
-                            assert(pre.nodes.contains_key(conflict_nid));
-                            assert(nid_trace.is_prefix_of(conflict_trace));
-                            assert(NodeHelper::get_parent(conflict_nid) == nid);
-                        }
-                    };
-                }
-            };
+        pre.lemma_deallocate_keep_inv_not_allocated_subtree(nid);
     };
 }
 
@@ -1029,6 +958,52 @@ ensures
         true,
     );
 }
-}
 
+proof fn lemma_deallocate_keep_inv_not_allocated_subtree(&self, nid: NodeId)
+requires
+    self.inv_not_allocated_subtree(),
+    self.inv_pte_is_void_implies_no_node(),
+    self.inv_pt_node_pte_array_relationship(),
+    self.nodes.contains_key(nid),
+    self.pte_arrays[nid] == PteArrayState::empty(),
+ensures
+    forall |rt: NodeId, node_id: NodeId| {
+        &&& ! #[trigger] self.nodes.remove(nid).contains_key(rt)
+        &&& NodeHelper::valid_nid(node_id)
+        &&& #[trigger] NodeHelper::in_subtree_range(rt, node_id) } ==>
+        !self.nodes.remove(nid).contains_key(node_id)
+    {
+        broadcast use group_node_helper_lemmas;
+        assert forall |rt: NodeId, node_id: NodeId|
+            !#[trigger] self.nodes.remove(nid).contains_key(rt) &&
+            NodeHelper::valid_nid(node_id) &&
+            #[trigger] NodeHelper::in_subtree_range(rt, node_id) implies
+            !self.nodes.remove(nid).contains_key(node_id) by {
+                if node_id != nid && NodeHelper::in_subtree(nid,node_id) {
+                    assert (!self.nodes.contains_key(node_id)) by {
+                        if self.nodes.contains_key(node_id) {
+                            let nid_trace = NodeHelper::nid_to_trace(nid);
+                            let node_id_trace = NodeHelper::nid_to_trace(node_id);
+                            assert(nid_trace.is_prefix_of(node_id_trace));
+                            assert(nid_trace.len() < node_id_trace.len()) by {
+                                if nid_trace.len() == node_id_trace.len() {
+                                    assert(nid_trace == node_id_trace);
+                                    assert(nid == NodeHelper::trace_to_nid(nid_trace));
+                                    assert(node_id == NodeHelper::trace_to_nid(node_id_trace));
+                                }
+                            }
+                            let conflict_trace = node_id_trace.subrange(0, (nid_trace.len() + 1) as int);
+                            assert(conflict_trace.is_prefix_of(node_id_trace));
+                            let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
+                            assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
+                            assert(self.nodes.contains_key(conflict_nid));
+                            assert(nid_trace.is_prefix_of(conflict_trace));
+                            assert(NodeHelper::get_parent(conflict_nid) == nid);
+                        }
+                    };
+                }
+            };
+    }
+
+}
 }

@@ -1539,11 +1539,11 @@ impl NodeHelper {
     }
 
     /// If `pa` is the parent of `ch`, then `pa` is less than `ch`.
-    pub proof fn lemma_is_child_nid_increasing(pa: NodeId, ch: NodeId)
+    pub broadcast proof fn lemma_is_child_nid_increasing(pa: NodeId, ch: NodeId)
         requires
             Self::valid_nid(pa),
             Self::valid_nid(ch),
-            Self::is_child(pa, ch),
+            #[trigger] Self::is_child(pa, ch),
         ensures
             pa < ch,
     {
