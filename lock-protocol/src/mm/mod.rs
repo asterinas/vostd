@@ -12,7 +12,7 @@ pub use frame::*;
 use vstd::arithmetic::power2::lemma_pow2_pos;
 use vstd::prelude::*;
 use vstd::{
-    arithmetic::{div_mod::lemma_div_non_zero, logarithm::*, power::pow, power2::*},
+    arithmetic::{div_mod::lemma_div_non_zero, logarithm::*, power::*, power2::*},
     bits::*,
     calc,
     layout::is_power_2,
@@ -103,6 +103,30 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
         level - 1)) as nat,
     );
     assert((C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (level - 1) == (level - 1) * (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2())) by (nonlinear_arith);
+}
+
+pub proof fn lemma_page_size_increases<C: PagingConstsTrait>(i: PagingLevel, j: PagingLevel)
+    by (nonlinear_arith)
+    requires
+        1 <= i <= j <= C::NR_LEVELS(),
+    ensures
+        page_size_spec::<C>(i) as nat <= page_size_spec::<C>(j) as nat,
+{
+    lemma_page_size_spec_properties::<C>(i);
+    lemma_page_size_spec_properties::<C>(j);
+    C::lemma_consts_properties();
+    assert(
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        i - 1)) as nat <=
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        j - 1)) as nat
+    );
+    lemma_pow2_increases(
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        i - 1)) as nat,
+        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
+        j - 1)) as nat,
+    );
 }
 
 /// The page size
@@ -246,6 +270,50 @@ proof fn lemma_page_size_adjacent_levels<C: PagingConstsTrait>(level: PagingLeve
             (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as nat,
         ) * (page_size_spec::<C>(prev_level) as nat); {}
         nr_subpage_per_huge::<C>() as nat * (page_size_spec::<C>(prev_level) as nat);
+    }
+}
+
+// Generalization of lemma_page_size_adjacent_levels, the page sizes form a
+// geometric sequence.
+proof fn lemma_page_size_geometric<C: PagingConstsTrait>(i: PagingLevel, j: PagingLevel)
+    by (nonlinear_arith)
+    requires
+        1 <= i <= j <= C::NR_LEVELS(),
+    ensures
+        page_size::<C>(j) as nat == page_size::<C>(i) as nat * pow(nr_subpage_per_huge::<C>() as int, (j - i) as nat) as nat,
+    decreases j - i,
+{
+    if (i == j) {
+        assert(j - i == 0);
+        lemma_pow0(nr_subpage_per_huge::<C>() as int);
+    } else {
+        let base = nr_subpage_per_huge::<C>() as int;
+        assert(base > 0) by {
+            C::lemma_consts_properties();
+        }
+        calc! {
+            (==)
+            page_size::<C>(j) as nat; {
+                lemma_page_size_adjacent_levels::<C>(j);
+            }
+            page_size::<C>((j - 1) as PagingLevel) as nat * base as nat; {
+                lemma_page_size_geometric::<C>(i, (j - 1) as PagingLevel);
+            }
+            page_size::<C>(i) as nat * pow(base, (j - 1 - i) as nat) as nat * base as nat; {
+                assert(base == pow(base, 1)) by {
+                    lemma_pow1(base);
+                }
+                assert(pow(base, (j - 1 - i) as nat) * base == pow(base, (j - i) as nat)) by {
+                    lemma_pow_adds(base, (j - 1 - i) as nat, 1);
+                    assert((j - 1 - i) as nat + 1nat == (j - i) as nat);
+                }
+                assert(base > 0);
+                assert(pow(base, (j - 1 - i) as nat) > 0) by {
+                    lemma_pow_positive(base, (j - 1 - i) as nat);
+                }
+            }
+            page_size::<C>(i) as nat * pow(base, (j - i) as nat) as nat;
+        }
     }
 }
 
