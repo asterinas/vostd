@@ -26,7 +26,7 @@ use vstd_extra::extra_num::{
 };
 
 use super::{
-    lemma_page_size_adjacent_levels,
+    lemma_page_size_adjacent_levels, lemma_page_size_geometric,
     meta::AnyFrameMeta, nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token,
     page_size_spec, lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
@@ -914,36 +914,6 @@ proof fn lemma_usize_shr_is_div(x: usize, shift: int)
     }
 }
 
-proof fn lemma_shr_in_steps(x: usize, a: u32, b: u32)
-    requires
-        a + b < usize::BITS,
-    ensures
-        x >> (a + b) == (x >> a) >> b,
-    decreases b,
-{
-    if (b == 0) {
-        assert(x >> (a + 0) == (x >> a) >> 0) by (bit_vector);
-    } else if (b == 1) {
-        assert(x >> (a + 1) == (x >> a) >> 1) by (bit_vector);
-    } else {
-        calc! {
-            (==)
-            x >> (a + b); {}
-            x >> ((a + 1) + (b - 1)); {
-                lemma_shr_in_steps(x, (a + 1) as u32, (b - 1) as u32);
-            }
-            (x >> (a + 1)) >> (b - 1); {
-                lemma_shr_in_steps(x, a, 1);
-            }
-            ((x >> a) >> 1) >> (b - 1); {
-                lemma_shr_in_steps((x >> a), 1, (b - 1) as u32);
-            }
-            (x >> a) >> ((1) + (b - 1)); {}
-            (x >> a) >> b;
-        }
-    }
-}
-
 proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS_SPEC(),
@@ -957,64 +927,71 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
     assert forall|l: PagingLevel| level <= l <= C::NR_LEVELS_SPEC() implies #[trigger] pte_index::<
         C,
     >(x, l) == pte_index::<C>(align_down(x, page_size::<C>(level)), l) by {
-        // The page size
-        let pg_size = page_size_spec::<C>(level) as nat;
-        lemma_page_size_spec_properties::<C>(level);
-        // The values used in pte_index_spec
-        let base_bits = C::BASE_PAGE_SIZE_SPEC().ilog2();
-        let index_bits = nr_pte_index_bits::<C>();
-        C::lemma_consts_properties();
-        assert((base_bits + (l - 1) as u32 * index_bits as u32) < usize::BITS) by {
-            assert(base_bits + index_bits * C::NR_LEVELS() < usize::BITS);
-            assert(index_bits >= 0);
-            assert(base_bits + (l - 1) * index_bits <= base_bits + index_bits * C::NR_LEVELS())
-                by (nonlinear_arith)
-                requires
-                    1 <= l <= C::NR_LEVELS(),
-                    index_bits >= 0,
-            ;
-            assert(base_bits + (l - 1) * index_bits < usize::BITS);
+        // nat version of x
+        let xn = x as nat;
+        // The page size at level
+        let pg_size_level = page_size::<C>(level) as nat;
+        assert(pg_size_level > 0 && is_power_2(pg_size_level as int)) by {
+            lemma_page_size_spec_properties::<C>(level);
         }
-        assert(base_bits + (l - 1) as u32 * index_bits as u32 == base_bits + index_bits as u32 * (l
-            - 1) as u32) by (nonlinear_arith);
-        // The shift local var in both pte_index calls
-        let shift = base_bits + (l - 1) as u32 * index_bits as u32;
-        assert(shift < usize::BITS);
-        assert(shift as nat == base_bits + index_bits * (l - 1));
-        // log2(pg_size)
-        let log_pg_size = base_bits + index_bits as u32 * (level - 1) as u32;
-        assert(log_pg_size as nat == base_bits + index_bits * (level - 1));
-        assert(log_pg_size as nat <= shift as nat) by (nonlinear_arith)
+        // Aligned address and its nat version
+        let aligned_x = align_down(x, page_size::<C>(level));
+        let axn = aligned_x as nat;
+        assert(x as int >= (xn % pg_size_level) as int) by (nonlinear_arith)
             requires
-                log_pg_size as nat == base_bits + (level - 1) * index_bits,
-                shift as nat == base_bits + index_bits * (l - 1),
-                1 <= level <= l,
-                index_bits >= 0,
+                x as int == xn as int,
+                xn >= 0,
+                pg_size_level > 0,
         ;
-        assert(log_pg_size <= shift < usize::BITS);
-        assert(pg_size == pow2(log_pg_size as nat) as usize);
-        // Precondition for align_down
-        assert(is_power_2(pg_size as int));
-        assert(pg_size < usize::MAX);
-        let aligned_x = align_down(x, pg_size as usize);
-        assert(x >> log_pg_size == aligned_x >> log_pg_size) by {
-            // The shift is the same as the one in pte_index
-            lemma_usize_shr_is_div(x, log_pg_size);
-            lemma_usize_shr_is_div(aligned_x, log_pg_size);
-            lemma_sub_mod_div_same(x, pg_size as usize);
-            assert(aligned_x == (x - (x % pg_size as usize)) as usize);
-            assert(x / (pg_size as usize) == aligned_x / (pg_size as usize));
+        assert(aligned_x == (x - (x % page_size::<C>(level))) as usize);
+        // Then we promote the discussion to nat
+        assert(axn == xn - (xn % pg_size_level));
+        // The page size at l
+        let pg_size_l = page_size::<C>(l) as nat;
+        assert(pg_size_l > 0) by {
+            lemma_page_size_spec_properties::<C>(l);
+        }
+        // The ratio of pg_size_l / pg_size_level
+        let ratio = pow(nr_subpage_per_huge::<C>() as int, (l - level) as nat) as nat;
+        assert(pg_size_l == pg_size_level * ratio) by {
+            lemma_page_size_geometric::<C>(level, l);
+        }
+        assert(ratio > 0) by (nonlinear_arith)
+            requires
+                pg_size_l == pg_size_level * ratio,
+                pg_size_l > 0,
+                pg_size_level > 0,
+        ;
+        // Finally, prove that the va / page_size is the same for x and aligned_x
+        calc! {
+            (==)
+            axn / pg_size_l; {}
+            (xn - (xn % pg_size_level)) as nat / (pg_size_level * ratio); {
+                lemma_div_denominator((xn - (xn % pg_size_level)) as int, pg_size_level as int, ratio as int);
+            }
+            (xn - (xn % pg_size_level)) as nat / pg_size_level / ratio; {
+                assert((xn - (xn % pg_size_level)) as nat / pg_size_level == xn / pg_size_level) by (nonlinear_arith)
+                    requires
+                        xn >= 0,
+                        pg_size_level > 0,
+                ;
+            }
+            xn / pg_size_level / ratio; {
+                lemma_div_denominator(xn as int, pg_size_level as int, ratio as int);
+            }
+            xn / (pg_size_level * ratio); {}
+            xn / pg_size_l;
         }
         calc! {
             (==)
-            x >> shift; {
-                lemma_shr_in_steps(x, log_pg_size as u32, (shift - log_pg_size) as u32);
+            pte_index::<C>(x, l) as nat; {
+                lemma_pte_index_alternative_spec::<C>(x, l);
             }
-            (x >> log_pg_size) >> (shift - log_pg_size); {}
-            (aligned_x >> log_pg_size) >> (shift - log_pg_size); {
-                lemma_shr_in_steps(aligned_x, log_pg_size as u32, (shift - log_pg_size) as u32);
+            xn / pg_size_l % nr_subpage_per_huge::<C>() as nat; {}
+            axn / pg_size_l % nr_subpage_per_huge::<C>() as nat; {
+                lemma_pte_index_alternative_spec::<C>(aligned_x, l);
             }
-            aligned_x >> shift;
+            pte_index::<C>(aligned_x, l) as nat;
         }
     }
 }
