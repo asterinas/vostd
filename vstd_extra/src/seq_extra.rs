@@ -171,7 +171,7 @@ pub broadcast proof fn lemma_forall_seq_drop_last<T>(s: Seq<T>, f: spec_fn(int, 
             s.last(),
         ),
 {
-    assert(s =~= s.drop_last().push(s.last()));
+    assert(s == s.drop_last().push(s.last()));
 }
 
 /// `s.all(f)` is equivalent to `s.drop_last().all(f)` and `f(s.last())`.
@@ -181,7 +181,7 @@ pub broadcast proof fn lemma_seq_all_drop_last<T>(s: Seq<T>, f: spec_fn(T) -> bo
     ensures
         s.all(f) <==> #[trigger] s.drop_last().all(f) && f(s.last()),
 {
-    assert(s =~= s.drop_last().push(s.last()));
+    assert(s == s.drop_last().push(s.last()));
 }
 
 pub broadcast proof fn lemma_seq_all_add<T>(s1: Seq<T>, s2: Seq<T>, f: spec_fn(T) -> bool)
@@ -192,16 +192,16 @@ pub broadcast proof fn lemma_seq_all_add<T>(s1: Seq<T>, s2: Seq<T>, f: spec_fn(T
 
 {
     if s2.len() == 0 {
-        assert(s1 + s2 =~= s1);
+        assert(s1 + s2 == s1);
     } else {
-        // Induction step: assume the lemma holds for s2.drop_last() and show that s2=~=s2.drop_last().push(s2.last()).
+        // Induction step: assume the lemma holds for s2.drop_last() and show that s2==s2.drop_last().push(s2.last()).
         lemma_seq_all_add(s1, s2.drop_last(), f);
         if s1.all(f) && s2.all(f) {
             assert((s1 + s2).all(f));
         }
         if (s1 + s2).all(f) {
-            assert((s1 + s2).drop_last() =~= s1 + s2.drop_last());
-            assert(s2 =~= s2.drop_last().push(s2.last()));
+            assert((s1 + s2).drop_last() == s1 + s2.drop_last());
+            assert(s2 == s2.drop_last().push(s2.last()));
             assert((s1 + s2).last() == s2.last());
         }
     }

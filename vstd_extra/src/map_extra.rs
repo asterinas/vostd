@@ -59,7 +59,7 @@ pub broadcast proof fn lemma_value_filter_finite<K, V>(m: Map<K, V>, f: spec_fn(
     ensures
         #[trigger] value_filter(m, f).dom().finite(),
 {
-    assert(value_filter(m, f).dom() =~= m.dom().filter(|s| f(m[s])));
+    assert(value_filter(m, f).dom() == m.dom().filter(|s| f(m[s])));
     m.dom().lemma_len_filter(|s| f(m[s]));
 }
 
@@ -317,9 +317,9 @@ pub broadcast proof fn lemma_forall_map_insert<K, V>(
 {
     assert(m.insert(k, v).contains_key(k));
     if m.contains_key(k) {
-        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+        assert(m.insert(k, v) == m.remove(k).insert(k, v));
     } else {
-        assert(m.insert(k, v) =~= m.insert(k, v));
+        assert(m.insert(k, v) == m.insert(k, v));
     }
     if forall_map(m.insert(k, v), f) {
         if m.contains_key(k) {
@@ -346,9 +346,9 @@ pub broadcast proof fn lemma_forall_map_values_insert<K, V>(
 {
     assert(m.insert(k, v).contains_key(k));
     if m.contains_key(k) {
-        assert(m.insert(k, v) =~= m.remove(k).insert(k, v));
+        assert(m.insert(k, v) == m.remove(k).insert(k, v));
     } else {
-        assert(m.insert(k, v) =~= m.insert(k, v));
+        assert(m.insert(k, v) == m.insert(k, v));
     }
     if forall_map_values(m.insert(k, v), f) {
         if m.contains_key(k) {
@@ -368,9 +368,9 @@ pub broadcast proof fn lemma_forall_map_remove<K, V>(m: Map<K, V>, f: spec_fn(K,
         )),
 {
     if m.contains_key(k) {
-        assert(m =~= m.remove(k).insert(k, m[k]));
+        assert(m == m.remove(k).insert(k, m[k]));
     } else {
-        assert(m =~= m.remove(k));
+        assert(m == m.remove(k));
     }
 }
 
@@ -386,9 +386,9 @@ pub broadcast proof fn lemma_forall_map_values_remove<K, V>(
         m.contains_key(k) ==> f(m[k])),
 {
     if m.contains_key(k) {
-        assert(m =~= m.remove(k).insert(k, m[k]));
+        assert(m == m.remove(k).insert(k, m[k]));
     } else {
-        assert(m =~= m.remove(k));
+        assert(m == m.remove(k));
     }
 
 }
@@ -444,12 +444,23 @@ pub proof fn lemma_project_first_key_value_filter_empty<K1, K2, V>(
     f: spec_fn(V) -> bool,
 )
     requires
+        m.dom().finite(),
         value_filter(project_first_key(m, k1), f).len() == 0,
     ensures
         forall|k2: K2| #[trigger]
             project_first_key(m, k1).contains_key(k2) ==> !f(project_first_key(m, k1)[k2]),
 {
-    admit();
+    assert forall|k2: K2| #[trigger] project_first_key(m, k1).contains_key(k2) implies !f(
+        project_first_key(m, k1)[k2],
+    ) by {
+        if f(project_first_key(m, k1)[k2]) {
+            assert(value_filter(project_first_key(m, k1), f).dom().contains(k2));
+            lemma_project_first_key_finite(m, k1);
+            lemma_value_filter_finite(project_first_key(m, k1), f);
+            Set::lemma_len0_is_empty(value_filter(project_first_key(m, k1), f).dom());
+            assert(false);
+        }
+    }
 }
 
 /// If the original map is finite, then the projected map is also finite.
@@ -458,8 +469,22 @@ pub proof fn lemma_project_first_key_finite<K1, K2, V>(m: Map<(K1, K2), V>, k1: 
         m.dom().finite(),
     ensures
         project_first_key(m, k1).dom().finite(),
+    decreases m.dom().len(),
 {
-    admit();
+    if m.dom().len() == 0 {
+        assert(project_first_key(m, k1).dom() == Set::<K2>::empty());
+    } else {
+        let pair = m.dom().choose();
+        lemma_project_first_key_finite(m.remove(pair), k1);
+        if pair.0 != k1 {
+            assert(project_first_key(m, k1) == project_first_key(m.remove(pair), k1));
+        } else {
+            assert(project_first_key(m, k1).dom() == project_first_key(
+                m.remove(pair),
+                k1,
+            ).dom().insert(pair.1));
+        }
+    }
 }
 
 } // verus!

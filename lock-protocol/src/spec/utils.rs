@@ -1670,13 +1670,10 @@ impl NodeHelper {
         ensures
             Self::get_child(Self::get_parent(nid), Self::get_offset(nid)) == nid,
     {
-        broadcast use {
-            NodeHelper::lemma_get_parent_sound,
-            NodeHelper::lemma_get_offset_sound,
-            NodeHelper::lemma_get_child_sound,
-        };
+        broadcast use {NodeHelper::lemma_nid_to_trace_sound, NodeHelper::lemma_trace_to_nid_sound};
 
-        admit();
+        let trace = Self::nid_to_trace(nid);
+        assert(trace.drop_last().push(trace.last()) == trace);
     }
 
     pub proof fn lemma_brothers_have_different_offset(nid1: NodeId, nid2: NodeId)
