@@ -716,6 +716,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     ///
     /// This function will panic if the end range covers a part of a huge page
     /// and the next page is that huge page.
+    #[verifier::spinoff_prover]
     pub unsafe fn take_next(
         &mut self,
         len: usize,
