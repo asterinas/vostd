@@ -1,22 +1,26 @@
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
+use std::marker::PhantomData;
 
 use vstd::prelude::*;
 use vstd::vpanic;
 
 use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*};
-use super::super::pte::{Pte, page_prop::PageProperty, page_table_entry_trait::*};
+use super::super::pte::Pte;
+use crate::mm::page_prop::PageProperty;
+use crate::mm::page_table::PageTableEntryTrait;
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use crate::sync::rcu::RcuDrop;
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
 /// A page table entry that owns the child of a page table node if present.
 // #[derive(Debug)]
-pub enum Child {
+pub enum Child<C: PageTableConfig> {
     /// A child page table node.
-    PageTable(RcuDrop<PageTableNode>),
+    PageTable(RcuDrop<PageTableNode<C>>),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -25,7 +29,7 @@ pub enum Child {
     None,
 }
 
-impl Child {
+impl<C: PageTableConfig> Child<C> {
     pub axiom fn axiom_no_huge_page(self)
         ensures
             self is Frame ==> self->Frame_1 == 1,
@@ -145,9 +149,9 @@ impl Child {
 
 /// A reference to the child of a page table node.
 // #[derive(Debug)]
-pub enum ChildRef<'a> {
+pub enum ChildRef<'a, C: PageTableConfig> {
     /// A child page table node.
-    PageTable(PageTableNodeRef<'a>),
+    PageTable(PageTableNodeRef<'a, C>),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -156,7 +160,7 @@ pub enum ChildRef<'a> {
     None,
 }
 
-impl ChildRef<'_> {
+impl<C: PageTableConfig> ChildRef<'_, C> {
     pub axiom fn axiom_no_huge_page(self)
         ensures
             self is Frame ==> self->Frame_1 == 1,
