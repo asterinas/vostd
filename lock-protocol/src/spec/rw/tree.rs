@@ -415,21 +415,13 @@ transition!{
 fn initialize_inductive(post: Self, cpu_num: CpuId) {
     broadcast use crate::spec::utils::group_node_helper_lemmas;
     assert(post.inv_nodes()) by {
-        assert(post.nodes.dom() =~= Set::empty().insert(NodeHelper::root_id()));
+        assert(post.nodes.dom() == Set::empty().insert(NodeHelper::root_id()));
         assert(NodeHelper::valid_nid(NodeHelper::root_id())) by {
             NodeHelper::lemma_root_id();
         };
     }
     assert(post.inv_cursors()) by {
-        assert(post.cursors.dom().finite()) by {
-            assert(post.cursors.dom()=~=Set::new(
-                |cpu| valid_cpu(post.cpu_num, cpu),
-            ));
-            assert(Set::new(|cpu:CpuId| valid_cpu(post.cpu_num, cpu)).finite()) by
-            {
-                Self::lemma_valid_cpu_set_finite(post.cpu_num);
-            }
-        }
+            Self::lemma_valid_cpu_set_finite(post.cpu_num);
     };
 
     assert(post.inv_reader_counts_cursors_relation()) by {
@@ -524,9 +516,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 if path.len() == 0 {
                     // If the path is empty, it means we locked the root node, therefore
                     // there are no writelocked cursors in the previous state.
-                    assert(nid == NodeHelper::root_id());
                     pre.lemma_write_lock_root_id_state(cpu0);
-                    assert(pre.reader_counts[NodeHelper::root_id()] > 0);
                 }
                 else
                 {
@@ -615,7 +605,6 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 let locked_node = post.cursors[cpu0].get_write_lock_node();
                 assert(NodeHelper::valid_nid(locked_node));
                 if path.len() == 0 {
-                    assert(nid == NodeHelper::root_id());
                     assert(pre.reader_counts[NodeHelper::root_id()] == 0);
                     if cpu != cpu0 {
                         //No write lock cursor is possible in the previous state.
@@ -628,15 +617,13 @@ fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                     if cpu != cpu0 {
                         assert(!NodeHelper::in_subtree_range(locked_node,nid)) by {
                             assert(NodeHelper::is_child(read_node,nid));
-                            assert(pre.reader_counts[read_node]>0) by {
+                            assert(pre.reader_counts[read_node] > 0) by {
                                 pre.lemma_inv_implies_inv_rc_positive();
                             };
                             NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(locked_node,read_node,nid);
                         };
                     } else
                     {
-                        // nid is naturally subtree_locked
-                        NodeHelper::lemma_in_subtree_self(nid);
                         pre.lemma_read_counter_zero_implies_subtree_locked(nid,nid);
                     }
                 }
@@ -674,28 +661,7 @@ fn in_protocol_write_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: No
 #[inductive(allocate)]
 fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     broadcast use group_node_helper_lemmas;
-    assert(post.inv_pte_arrays()) by {
-        let pa = NodeHelper::get_parent(nid);
-        let offset = NodeHelper::get_offset(nid);
-        assert forall |id|
-            #[trigger] post.pte_arrays.contains_key(id)
-        implies post.pte_arrays[id].wf()
-        by {
-            if id == pa {
-                assert(post.pte_arrays[id] =~=
-                    pre.pte_arrays[id].update(offset, PteState::Alive)
-                );
-                assert(post.pte_arrays[id].wf());
-            } else if id != nid {
-                assert(pre.pte_arrays.contains_key(id));
-                assert(post.pte_arrays[id] =~= pre.pte_arrays[id]);
-                assert(pre.pte_arrays[id].wf());
-            } else {
-                assert(post.pte_arrays[id] =~= PteArrayState::empty());
-                assert(post.pte_arrays[id].wf());
-            }
-        };
-    };
+
     assert(post.inv_cursor_path_node_relation()) by {
         assert forall |cpu|
             post.cursors.contains_key(cpu)
@@ -704,17 +670,8 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             path.all(|nid| post.nodes.contains_key(nid))
         } by {
             let path = post.cursors[cpu].get_path();
-            assert(post.cursors[cpu] =~= pre.cursors[cpu]);
-            assert(path =~= pre.cursors[cpu].get_path());
+            assert(path == pre.cursors[cpu].get_path());
             assert(path.all(|nid| post.nodes.contains_key(nid))) by {
-                assert(pre.inv_cursor_path_node_relation());
-                assert(pre.cursors.contains_key(cpu));
-                assert(path.all(|nid| pre.nodes.contains_key(nid)));
-                assert(post.nodes.dom() =~= pre.nodes.dom().insert(nid));
-                assert(forall |id: NodeId|
-                    #[trigger] pre.nodes.contains_key(id) ==>
-                        post.nodes.contains_key(id)
-                );
                 assert forall |i|
                     0 <= i < path.len()
                 implies post.nodes.contains_key(#[trigger] path[i])
@@ -742,36 +699,20 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         } by {
             let pa = NodeHelper::get_parent(id);
             let offset = NodeHelper::get_offset(id);
-            if id == nid {
-                assert(!pre.nodes.contains_key(id));
-                assert(post.nodes.contains_key(id));
-                assert(post.pte_arrays[pa] =~=
-                    pre.pte_arrays[pa].update(offset, PteState::Alive)
-                );
-            } else if pa == nid {}
+            if id == nid {} else if pa == nid {}
             else {
-                assert(pre.nodes.contains_key(id) <==> {
-                    pre.pte_arrays.contains_key(pa) &&
-                    pre.pte_arrays[pa].is_alive(offset)
-                });
-                assert(post.nodes.contains_key(id) <==>
-                    pre.nodes.contains_key(id)
-                );
-                assert(post.pte_arrays.contains_key(pa) <==>
-                    pre.pte_arrays.contains_key(pa)
-                );
                 if post.pte_arrays.contains_key(pa) {
                     if pa == NodeHelper::get_parent(nid) {
                         assert(offset != NodeHelper::get_offset(nid)) by {
                             NodeHelper::lemma_brothers_have_different_offset(id, nid);
                         };
-                        assert(post.pte_arrays[pa] =~=
+                        assert(post.pte_arrays[pa] ==
                             pre.pte_arrays[pa].update(
                                 NodeHelper::get_offset(nid),
                                 PteState::Alive,
                             )
                         );
-                        assert(post.pte_arrays[pa].inner[offset as int] =~=
+                        assert(post.pte_arrays[pa].inner[offset as int] ==
                             pre.pte_arrays[pa].inner[offset as int]
                         ) by {
                             axiom_seq_update_different(
@@ -781,12 +722,7 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                                 PteState::Alive,
                             );
                         };
-                    } else {
-                        assert(post.pte_arrays[pa] =~= pre.pte_arrays[pa]);
                     }
-                    assert(post.pte_arrays[pa].is_alive(offset) <==>
-                        pre.pte_arrays[pa].is_alive(offset)
-                    );
                 }
             }
         };
@@ -800,15 +736,12 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                 #[trigger] post.cursors.contains_key(cpu)
             implies !post.cursors[cpu].hold_read_lock(nid)
             by {
-                assert(pre.cursors[cpu] =~= post.cursors[cpu]);
                 assert(!pre.cursors[cpu].hold_read_lock(nid)) by {
                     assert(!pre.nodes.contains_key(nid));
                     if pre.cursors[cpu].hold_read_lock(nid) {
                         let path = pre.cursors[cpu].get_path();
-                        assert(path.contains(nid));
                         let idx = choose |idx|
                             0 <= idx < path.len() && path[idx] == nid;
-                        assert(path[idx] == nid);
                         assert(pre.nodes.contains_key(nid)) by {
                             lemma_seq_all_index(
                                 path,
@@ -864,27 +797,7 @@ fn allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 #[inductive(deallocate)]
 fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     broadcast use group_node_helper_lemmas;
-    assert(post.inv_pte_arrays()) by {
-        let pa = NodeHelper::get_parent(nid);
-        let offset = NodeHelper::get_offset(nid);
-        assert forall |id|
-            #[trigger] post.pte_arrays.contains_key(id)
-        implies post.pte_arrays[id].wf()
-        by {
-            if id == pa {
-                assert(post.pte_arrays[id] =~=
-                    pre.pte_arrays[id].update(offset, PteState::None)
-                );
-                assert(post.pte_arrays[id].wf());
-            } else if id != nid {
-                assert(pre.pte_arrays.contains_key(id));
-                assert(post.pte_arrays[id] =~= pre.pte_arrays[id]);
-                assert(pre.pte_arrays[id].wf());
-            } else {
-                assert(post.pte_arrays.contains_key(id));
-            }
-        };
-    }
+
     assert(post.inv_cursor_path_node_relation()) by {
         assert forall |cpu|
             post.cursors.contains_key(cpu)
@@ -893,17 +806,7 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
             path.all(|nid| post.nodes.contains_key(nid))
         } by {
             let path = post.cursors[cpu].get_path();
-            assert(post.cursors[cpu] =~= pre.cursors[cpu]);
-            assert(path =~= pre.cursors[cpu].get_path());
             assert(path.all(|nid| post.nodes.contains_key(nid))) by {
-                assert(pre.inv_cursor_path_node_relation());
-                assert(pre.cursors.contains_key(cpu));
-                assert(path.all(|nid| pre.nodes.contains_key(nid)));
-                assert(post.nodes.dom() =~= pre.nodes.dom().remove(nid));
-                assert(forall |id: NodeId|
-                    #[trigger] pre.nodes.contains_key(id) && id != nid ==>
-                        post.nodes.contains_key(id)
-                );
                 assert forall |i|
                     0 <= i < path.len()
                 implies post.nodes.contains_key(#[trigger] path[i])
@@ -912,9 +815,6 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                         lemma_seq_all_index(path, |nid| pre.nodes.contains_key(nid), i);
                     };
                     if path[i] == nid {
-                        assert(pre.nodes.contains_key(nid));
-                        assert(pre.nodes[nid] !is WriteLocked);
-                        assert(pre.reader_counts[nid] == 0);
                         assert(pre.nodes[nid] is WriteUnLocked || pre.nodes[nid] is WriteLocked) by {
                             if pre.cursors[cpu] is WriteLocked && i == path.len() - 1 {
                                 assert(pre.nodes[nid] is WriteLocked);
@@ -923,9 +823,6 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                                     assert(pre.reader_counts[nid] > 0) by {
                                         pre.lemma_inv_implies_inv_rc_positive();
                                         let read_path = pre.cursors[cpu].get_read_lock_path();
-                                        assert(pre.rc_positive(read_path));
-                                        assert(0 <= i < read_path.len());
-                                        assert(read_path[i] == nid);
                                         lemma_seq_all_index(
                                             read_path,
                                             |nid| pre.reader_counts[nid] > 0,
@@ -935,9 +832,6 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                                 };
                             }
                         };
-                        assert(pre.nodes[nid] is WriteUnLocked ==>
-                            pre.reader_counts[nid] > 0
-                        );
                     }
                 };
             };
@@ -959,36 +853,20 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         } by {
             let pa = NodeHelper::get_parent(id);
             let offset = NodeHelper::get_offset(id);
-            if id == nid {
-                assert(pre.nodes.contains_key(id));
-                assert(!post.nodes.contains_key(id));
-                assert(post.pte_arrays[pa] =~=
-                    pre.pte_arrays[pa].update(offset, PteState::None)
-                );
-            } else if pa == nid {}
+            if id == nid {} else if pa == nid {}
             else {
-                assert(pre.nodes.contains_key(id) <==> {
-                    pre.pte_arrays.contains_key(pa) &&
-                    pre.pte_arrays[pa].is_alive(offset)
-                });
-                assert(post.nodes.contains_key(id) <==>
-                    pre.nodes.contains_key(id)
-                );
-                assert(post.pte_arrays.contains_key(pa) <==>
-                    pre.pte_arrays.contains_key(pa)
-                );
                 if post.pte_arrays.contains_key(pa) {
                     if pa == NodeHelper::get_parent(nid) {
                         assert(offset != NodeHelper::get_offset(nid)) by {
                             NodeHelper::lemma_brothers_have_different_offset(id, nid);
                         };
-                        assert(post.pte_arrays[pa] =~=
+                        assert(post.pte_arrays[pa] ==
                             pre.pte_arrays[pa].update(
                                 NodeHelper::get_offset(nid),
                                 PteState::None,
                             )
                         );
-                        assert(post.pte_arrays[pa].inner[offset as int] =~=
+                        assert(post.pte_arrays[pa].inner[offset as int] ==
                             pre.pte_arrays[pa].inner[offset as int]
                         ) by {
                             axiom_seq_update_different(
@@ -998,12 +876,7 @@ fn deallocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
                                 PteState::None,
                             );
                         };
-                    } else {
-                        assert(post.pte_arrays[pa] =~= pre.pte_arrays[pa]);
                     }
-                    assert(post.pte_arrays[pa].is_alive(offset) <==>
-                        pre.pte_arrays[pa].is_alive(offset)
-                    );
                 }
             }
         };
@@ -1015,7 +888,7 @@ ensures
     Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).finite(),
     Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)).len() == cpu_num,
 {
-    assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) =~= Set::new(
+    assert(Set::new(|cpu: CpuId| valid_cpu(cpu_num, cpu)) == Set::new(
         |cpu: CpuId| 0<=cpu<cpu_num,
     ));
     lemma_nat_range_finite(0, cpu_num);
@@ -1046,8 +919,6 @@ ensures
                             self.cursors,
                             f,
                         );
-                        assert(NodeHelper::valid_nid(path[i]));
-                        assert(self.cursors[cpu].hold_read_lock(path[i]));
                         lemma_value_filter_finite(self.cursors, f);
                         axiom_set_contains_len(
                             filtered_cursors.dom(),
@@ -1065,8 +936,6 @@ ensures
                             self.cursors,
                             f,
                         );
-                        assert(NodeHelper::valid_nid(path[i]));
-                        assert(self.cursors[cpu].hold_read_lock(path[i]));
                         lemma_value_filter_finite(self.cursors, f);
                         axiom_set_contains_len(
                             filtered_cursors.dom(),
@@ -1102,16 +971,10 @@ ensures
     } by {
         let nid1 = self.cursors[cpu1].get_write_lock_node();
         let nid2 = self.cursors[cpu2].get_write_lock_node();
-        assert(self.nodes.contains_key(nid1)) by {
-            let path = self.cursors[cpu1].get_path();
-            assert(path.len() > 0);
-            lemma_seq_all_index(path, |nid| self.nodes.contains_key(nid), path.len() - 1);
-        };
-        assert(self.nodes.contains_key(nid2)) by {
-            let path = self.cursors[cpu2].get_path();
-            assert(path.len() > 0);
-            lemma_seq_all_index(path, |nid| self.nodes.contains_key(nid), path.len() - 1);
-        };
+        let path1 = self.cursors[cpu1].get_path();
+        let path2 = self.cursors[cpu2].get_path();
+        lemma_seq_all_index(path1, |nid| self.nodes.contains_key(nid), path1.len() - 1);
+        lemma_seq_all_index(path2, |nid| self.nodes.contains_key(nid), path2.len() - 1);
     };
 }
 
@@ -1164,16 +1027,12 @@ ensures
     broadcast use {
                 vstd_extra::seq_extra::group_forall_seq_lemmas,
                 crate::spec::utils::group_node_helper_lemmas,
+                vstd_extra::map_extra::group_value_filter_lemmas,
             };
     let f = |cursor: CursorState| cursor.hold_read_lock(child);
     if nid == child {}
     else
     {
-        broadcast use {
-            vstd_extra::map_extra::group_forall_map_lemmas,
-            vstd_extra::map_extra::group_value_filter_lemmas,
-            crate::spec::utils::group_node_helper_lemmas,
-        };
         if child == NodeHelper::root_id() {}
         else
         {
@@ -1181,8 +1040,6 @@ ensures
                 // If the child has positive reader count, then there must be a cursor holding a read lock on it,
                 // then the cursor must also hold nid.
                 let cursor_cpu = choose |cpu| value_filter(self.cursors, f).contains_key(cpu);
-                assert(value_filter(self.cursors,f).dom().finite());
-                assert(value_filter(self.cursors,f).len() != 0);
                 lemma_value_filter_choose(self.cursors, f);
                 assert(self.cursors.contains_key(cursor_cpu)) by
                 {
@@ -1201,7 +1058,6 @@ ensures
             if self.nodes[child] is WriteLocked {
                 // If the child is WriteLocked, then there must be a cursor holding a write lock on it,
                 // then the cursor must also hold nid.
-                assert (self.nodes.contains_key(child));
                 let cursor_cpu = choose |cpu| #[trigger] self.cursors.contains_key(cpu) &&
                     self.cursors[cpu].hold_write_lock() &&
                     self.cursors[cpu].get_write_lock_node() == child;

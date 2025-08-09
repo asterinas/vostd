@@ -57,10 +57,12 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     decreases r - l,
 {
     if l == r {
-        assert(Set::new(|p: nat| l <= p < r) =~= Set::empty());
+        assert(Set::new(|p: nat| l <= p < r) == Set::<nat>::empty());
     } else {
         lemma_nat_range_finite(l, (r - 1) as nat);
-        assert(Set::new(|p| l <= p < r - 1).insert((r - 1) as nat) =~= Set::new(|p| l <= p < r));
+        assert(Set::new(|p| l <= p < r - 1).insert((r - 1) as nat) == Set::new(
+            |p: nat| l <= p < r,
+        ));
     }
 }
 
@@ -76,17 +78,17 @@ pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     decreases s.len(),
 {
     if s.is_empty() {
-        assert(s.filter(f) =~= Set::empty());
-        assert(s.filter(|x| !f(x)) =~= Set::empty());
+        assert(s.filter(f) == Set::<T>::empty());
+        assert(s.filter(|x| !f(x)) == Set::<T>::empty());
     } else {
         let x = s.choose();
         lemma_set_separation(s.remove(x), f);
         if f(x) {
-            assert(s.filter(f) =~= s.remove(x).filter(f).insert(x));
-            assert(s.filter(|x| !f(x)) =~= s.remove(x).filter(|x| !f(x)));
+            assert(s.filter(f) == s.remove(x).filter(f).insert(x));
+            assert(s.filter(|x| !f(x)) == s.remove(x).filter(|x| !f(x)));
         } else {
-            assert(s.filter(f) =~= s.remove(x).filter(f));
-            assert(s.filter(|x| !f(x)) =~= s.remove(x).filter(|x| !f(x)).insert(x));
+            assert(s.filter(f) == s.remove(x).filter(f));
+            assert(s.filter(|x| !f(x)) == s.remove(x).filter(|x| !f(x)).insert(x));
         }
     }
 }
@@ -150,7 +152,7 @@ pub open spec fn is_partition<A>(s: Set<A>, parts: Set<Set<A>>) -> bool {
         // Parts are pairwise disjoint
         pairwise_disjoint(parts) &&
         // Union of parts is s
-        s =~= parts.flatten()
+        s == parts.flatten()
 }
 
 /// If `parts` is a finite set of finite, pairwise-disjoint sets,
@@ -166,25 +168,19 @@ pub proof fn lemma_flatten_cardinality_under_disjointness<A>(parts: Set<Set<A>>)
     decreases parts.len(),
 {
     if parts.is_empty() {
-        assert(parts.flatten() =~= Set::empty());
+        assert(parts.flatten() == Set::<A>::empty());
         lemma_fold_empty(0nat, |acc: nat, p: Set<A>| acc + p.len());
     } else {
         let p = parts.choose();
         let rest = parts.remove(p);
-        assert(parts =~= rest.insert(p));
+        assert(parts == rest.insert(p));
         lemma_flatten_cardinality_under_disjointness(rest);
         assert(rest.flatten().len() == rest.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()));
-        assert(parts.flatten() =~= rest.flatten().union(p));
+        assert(parts.flatten() == rest.flatten().union(p));
         assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
             lemma_set_disjoint_lens(rest.flatten(), p);
         }
-
-        assert(parts.fold(0nat, |acc: nat, p: Set<A>| acc + p.len()) == rest.fold(
-            0nat,
-            |acc: nat, p: Set<A>| acc + p.len(),
-        ) + p.len()) by {
-            lemma_fold_insert(rest, 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
-        }
+        lemma_fold_insert(rest, 0nat, |acc: nat, p: Set<A>| acc + p.len(), p);
     }
 }
 
@@ -201,13 +197,13 @@ pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: 
     decreases parts.len(),
 {
     if parts.is_empty() {
-        assert(parts.flatten() =~= Set::empty());
+        assert(parts.flatten() == Set::<A>::empty());
     } else {
         let p = parts.choose();
         let rest = parts.remove(p);
-        assert(parts =~= rest.insert(p));
+        assert(parts == rest.insert(p));
         lemma_flatten_cardinality_under_disjointness_same_length(rest, c);
-        assert(parts.flatten() =~= rest.flatten().union(p));
+        assert(parts.flatten() == rest.flatten().union(p));
         assert(parts.flatten().len() == rest.flatten().len() + p.len()) by {
             lemma_set_disjoint_lens(rest.flatten(), p);
         }

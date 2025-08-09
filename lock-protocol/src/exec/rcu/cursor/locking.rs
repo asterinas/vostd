@@ -657,7 +657,6 @@ fn dfs_acquire_lock(
             }
             assert(m.node_is_locked(cur_node.nid())) by {
                 assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), (i + 1) as nat));
-                NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
             }
         } else {
             assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid())) by {
