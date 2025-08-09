@@ -1,4 +1,5 @@
 use core::ops::Deref;
+use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
@@ -7,12 +8,14 @@ use super::super::{common::*, types::*, cpu::*};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use super::child::*;
 use super::stray::*;
-use super::super::pte::{Pte, page_table_entry_trait::*};
+use super::super::pte::Pte;
+use crate::mm::page_table::PageTableEntryTrait;
 use crate::sync::rcu::RcuDrop;
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
-pub struct Entry {
+pub struct Entry<C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -25,7 +28,7 @@ pub struct Entry {
     pub idx: usize,
 }
 
-impl Entry {
+impl<C: PageTableConfig> Entry<C> {
     pub open spec fn wf(&self, node: PageTableGuard) -> bool {
         &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
         &&& 0 <= self.idx < 512
@@ -67,7 +70,7 @@ impl Entry {
     }
 
     /// Gets a reference to the child.
-    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu>) -> (res: ChildRef<'rcu>)
+    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu, C>) -> (res: ChildRef<'rcu, C>)
         requires
             self.wf(*node),
             node.wf(),

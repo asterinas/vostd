@@ -1,16 +1,18 @@
-pub mod page_prop;
-pub mod page_table_entry;
-pub mod page_table_entry_trait;
-pub mod page_table_flags;
+// pub mod page_prop;
+// pub mod page_table_entry;
+// pub mod page_table_entry_trait;
+// pub mod page_table_flags;
+
+use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*};
 use super::{common::*, types::*};
 use super::node::PageTableNode;
-use page_prop::PageProperty;
-use page_table_entry::PageTableEntry;
-pub use page_table_entry_trait::*;
+use crate::mm::page_prop::PageProperty;
+pub use crate::mm::page_table::PageTableEntryTrait;
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
@@ -19,19 +21,19 @@ verus! {
 //  2. !pte.is_present() && pte.paddr() != 0 implies marked entry.
 //  3. pte.is_present() && !pte.is_last(level) implies page table node entry.
 //  4. pte.is_present() && pte.is_last(level) implies frame entry.
-pub struct Pte {
+pub struct Pte<C: PageTableConfig> {
     // We only concerned about:
     //  (1) is_present
     //  (2) paddr
     //  (3) is_last
-    pub inner: PageTableEntry,
+    pub inner: C::E,
     // The nid and inst fields should be consistent
     // with the corresponding page table node.
     pub nid: Ghost<Option<NodeId>>,
     pub inst: Tracked<Option<SpecInstance>>,
 }
 
-impl Pte {
+impl<C: PageTableConfig> Pte<C> {
     pub open spec fn is_none(&self) -> bool {
         !self.inner.is_present() && self.inner.paddr() == 0
     }
@@ -108,7 +110,7 @@ impl Pte {
     }
 
     pub open spec fn wf_new_absent(&self) -> bool {
-        &&& self.inner =~= PageTableEntry::new_absent_spec()
+        &&& self.inner =~= C::E::new_absent_spec()
         &&& self.nid@ is None
         &&& self.inst@ is None
     }
@@ -119,7 +121,7 @@ impl Pte {
             res.wf_new_absent(),
             res.is_none(),
     {
-        Self { inner: PageTableEntry::new_absent(), nid: Ghost(None), inst: Tracked(None) }
+        Self { inner: C::E::new_absent(), nid: Ghost(None), inst: Tracked(None) }
     }
 
     pub open spec fn wf_new_page(
@@ -128,7 +130,7 @@ impl Pte {
         level: PagingLevel,
         prop: PageProperty,
     ) -> bool {
-        &&& self.inner =~= PageTableEntry::new_page_spec(paddr, level, prop)
+        &&& self.inner =~= C::E::new_page_spec(paddr, level, prop)
         &&& self.nid@ is None
         &&& self.inst@ is None
     }
@@ -143,14 +145,14 @@ impl Pte {
             res.is_frame(level) || res.is_marked(),
     {
         Self {
-            inner: PageTableEntry::new_page(paddr, level, prop),
+            inner: C::E::new_page(paddr, level, prop),
             nid: Ghost(None),
             inst: Tracked(None),
         }
     }
 
     pub open spec fn wf_new_pt(&self, paddr: Paddr, inst: SpecInstance, nid: NodeId) -> bool {
-        &&& self.inner =~= PageTableEntry::new_pt_spec(paddr)
+        &&& self.inner =~= C::E::new_pt_spec(paddr)
         &&& self.nid@ is Some
         &&& self.nid@->Some_0 == nid
         &&& self.inst@ is Some
@@ -165,11 +167,11 @@ impl Pte {
             NodeHelper::valid_nid(nid@),
         ensures
             res.wf_new_pt(paddr, inst@, nid@),
-            res.is_pt((PageTableNode::from_raw_spec(paddr).level_spec() + 1) as PagingLevel),
+            res.is_pt((PageTableNode::<C>::from_raw_spec(paddr).level_spec() + 1) as PagingLevel),
             res.inner.paddr() == paddr,
     {
         Self {
-            inner: PageTableEntry::new_pt(paddr),
+            inner: C::E::new_pt(paddr),
             nid: Ghost(Some(nid@)),
             inst: Tracked(Some(inst.get())),
         }

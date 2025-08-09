@@ -62,7 +62,10 @@ impl<C: PageTableConfig> Child<C> {
                 let _ = ManuallyDrop::new(node);
                 C::E::new_pt(paddr)
             },
-            Child::Frame(paddr, level, prop) => C::E::new_page(paddr, level, prop),
+            Child::Frame(paddr, level, prop) => {
+                assert(level == 1) by { admit(); };
+                C::E::new_page(paddr, level, prop)
+            },
             Child::None => C::E::new_absent(),
         }
     }
