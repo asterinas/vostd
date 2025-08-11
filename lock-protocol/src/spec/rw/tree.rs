@@ -561,9 +561,7 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
         };
     };
     assert(pre.reader_counts[nid] > 0) by {
-        broadcast use {
-            vstd_extra::seq_extra::group_forall_seq_lemmas,
-        };
+        broadcast use vstd_extra::seq_extra::group_forall_seq_lemmas;
         pre.lemma_inv_implies_inv_rc_positive()
     };
 }

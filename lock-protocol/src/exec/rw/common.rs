@@ -128,7 +128,6 @@ pub proof fn lemma_va_level_to_nid_valid(va: Vaddr, level: PagingLevel)
         NodeHelper::valid_nid(va_level_to_nid(va, level)),
 {
     broadcast use group_node_helper_lemmas;
-
     lemma_va_level_to_trace_valid(va, level);
 }
 

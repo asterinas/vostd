@@ -948,7 +948,6 @@ requires
 ensures
     value_filter(project_first_key(self.strays.insert((nid, paddr),true), nid), |stray: bool| stray == false).len() == 0,
 {
-    broadcast use group_value_filter_lemmas;
     assert(project_first_key(self.strays.insert((nid, paddr), true), nid) == project_first_key(self.strays, nid).insert(paddr, true));
     lemma_project_first_key_finite(self.strays, nid);
     lemma_insert_value_filter_different_len_contains(
@@ -996,9 +995,7 @@ ensures
                             assert(conflict_trace.is_prefix_of(node_id_trace));
                             let conflict_nid = NodeHelper::trace_to_nid(conflict_trace);
                             assert(NodeHelper::in_subtree_range(conflict_nid, node_id));
-                            assert(self.nodes.contains_key(conflict_nid));
                             assert(nid_trace.is_prefix_of(conflict_trace));
-                            assert(NodeHelper::get_parent(conflict_nid) == nid);
                         }
                     };
                 }
