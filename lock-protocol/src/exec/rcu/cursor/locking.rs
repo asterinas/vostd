@@ -458,19 +458,18 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         let node_token = pt_guard.take_node_token();
         let tracked new_node_token;
         proof {
-            let tracked node_token = node_token.get();
-            let tracked new_token;
-            new_token =
-            pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), node_token, m.token);
+            let tracked new_token = pt.inst.borrow().protocol_lock_start(
+                m.cpu,
+                pt_guard.nid(),
+                node_token.get(),
+                m.token,
+            );
             new_node_token = new_token.0.get();
-            let tracked new_cursor_token = new_token.1.get();
-            m.token = new_cursor_token;
-            assert(m.state() is Locking);
+            m.token = new_token.1.get();
         }
         pt_guard.put_node_token(Tracked(new_node_token));
         pt_guard.update_in_protocol(Ghost(true));
         assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt_guard.nid())) by {
-            assert(m.sub_tree_rt() == pt_guard.nid());
             assert(NodeHelper::next_outside_subtree(m.sub_tree_rt()) > m.sub_tree_rt()) by {
                 NodeHelper::lemma_tree_size_spec_table()
             };
