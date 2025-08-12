@@ -363,6 +363,36 @@ impl SpinGuard {
         self.pte_token.borrow().tracked_borrow()
     }
 
+    pub proof fn tracked_take_node_token(tracked &mut self) -> (tracked res: NodeToken)
+        requires
+            old(self).node_token@ is Some,
+        ensures
+            res == old(self).node_token@->Some_0,
+            self.node_token@ == None::<NodeToken>,
+            self.pte_token == old(self).pte_token,
+            self.stray_perm == old(self).stray_perm,
+            self.perms == old(self).perms,
+            self.in_protocol == old(self).in_protocol,
+            self.handle == old(self).handle,
+    {
+        self.node_token.borrow_mut().tracked_take()
+    }
+
+    #[verifier::external_body]
+    pub proof fn tracked_put_node_token(tracked &mut self, token: NodeToken)
+        requires
+            old(self).node_token@ is None,
+        ensures
+            self.node_token@ == Option::Some(token),
+            self.pte_token == old(self).pte_token,
+            self.stray_perm == old(self).stray_perm,
+            self.perms == old(self).perms,
+            self.in_protocol == old(self).in_protocol,
+            self.handle == old(self).handle,
+    {
+        unimplemented!()
+    }
+
     pub fn trans_lock_protocol(
         self,
         spinlock: &PageTablePageSpinLock,

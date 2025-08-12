@@ -6,6 +6,7 @@ pub mod stray;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use core::marker::PhantomData;
+use std::borrow::BorrowMut;
 
 use vstd::prelude::*;
 use vstd::raw_ptr::{PointsTo, ptr_ref};
@@ -584,6 +585,43 @@ impl<'rcu> PageTableGuard<'rcu> {
                 };
             }
         }
+    }
+
+    pub proof fn tracked_take_node_token(tracked &mut self) -> (tracked res: NodeToken)
+        requires
+            old(self).guard is Some,
+            old(self).guard->Some_0.node_token@ is Some,
+        ensures
+            res == old(self).guard->Some_0.node_token@->Some_0,
+            self.guard->Some_0.node_token@ == None::<NodeToken>,
+            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
+            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
+            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
+            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.guard->Some_0.node_token@ == None::<NodeToken>,
+            self.inner == old(self).inner,
+    {
+        let tracked mut guard = self.guard.tracked_take();
+        let tracked res = guard.tracked_take_node_token();
+        self.guard = Some(guard);
+        res
+    }
+
+    pub proof fn tracked_put_node_token(tracked &mut self, token: NodeToken)
+        requires
+            old(self).guard is Some,
+            old(self).guard->Some_0.node_token@ is None,
+        ensures
+            self.guard->Some_0.node_token@ == Some(token),
+            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
+            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
+            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
+            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.inner == old(self).inner,
+    {
+        let tracked mut guard = self.guard.tracked_take();
+        guard.tracked_put_node_token(token);
+        self.guard = Some(guard);
     }
 
     pub fn trans_lock_protocol(&mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
