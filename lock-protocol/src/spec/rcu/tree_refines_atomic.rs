@@ -83,7 +83,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
 
             assert(interp(pre).all_non_overlapping(rt)) by {
                 broadcast use group_node_helper_lemmas;
-                assert (forall |cpu_id: CpuId| #[trigger]
+                assume (forall |cpu_id: CpuId| #[trigger]
                     interp(pre).cursors.contains_key(cpu_id) &&
                     interp(pre).cursors[cpu_id] is Locked ==>
                     {

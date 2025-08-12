@@ -260,11 +260,10 @@ transition!{
     protocol_lock_start(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
         require(NodeHelper::valid_nid(nid));
-
-        have nodes >= [ nid => NodeState::LockedOutside ];
-
+        remove nodes -= [ nid => NodeState::LockedOutside ];
         remove cursors -= [ cpu => CursorState::Void ];
-        add cursors += [ cpu => CursorState::Locking(nid, nid) ];
+        add nodes += [ nid => NodeState::Locked ];
+        add cursors += [ cpu => CursorState::Locking(nid, nid + 1) ];
     }
 }
 
@@ -478,7 +477,9 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
 }
 
 #[inductive(protocol_lock_start)]
-fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
+fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
+    admit();
+ }
 
 #[inductive(protocol_lock)]
 fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}

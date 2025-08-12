@@ -455,26 +455,26 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         pt_guard.normal_drop();
         return (None, Tracked(m));
     } else {
+        let node_token = pt_guard.take_node_token();
+        let tracked new_node_token;
         proof {
-            let tracked node_token = pt_guard.tracked_borrow_guard().tracked_borrow_node_token();
-            m.token = pt.inst.borrow().protocol_lock_start(
-                m.cpu,
-                pt_guard.nid(),
-                node_token,
-                m.token,
-            );
+            let tracked node_token = node_token.get();
+            let tracked new_token;
+            new_token =
+            pt.inst.borrow().protocol_lock_start(m.cpu, pt_guard.nid(), node_token, m.token);
+            new_node_token = new_token.0.get();
+            let tracked new_cursor_token = new_token.1.get();
+            m.token = new_cursor_token;
             assert(m.state() is Locking);
         }
+        pt_guard.put_node_token(Tracked(new_node_token));
+        pt_guard.update_in_protocol(Ghost(true));
         assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt_guard.nid())) by {
             assert(m.sub_tree_rt() == pt_guard.nid());
             assert(NodeHelper::next_outside_subtree(m.sub_tree_rt()) > m.sub_tree_rt()) by {
                 NodeHelper::lemma_tree_size_spec_table()
             };
         };
-        let res = pt_guard.trans_lock_protocol(Tracked(m));
-        proof {
-            m = res.get();
-        }
     }
     (Some(pt_guard), Tracked(m))
 }
@@ -657,6 +657,7 @@ fn dfs_acquire_lock(
             }
             assert(m.node_is_locked(cur_node.nid())) by {
                 assert(m.cur_node() == NodeHelper::get_child(cur_node.nid(), (i + 1) as nat));
+                NodeHelper::lemma_is_child_nid_increasing(cur_node.nid(), m.cur_node());
             }
         } else {
             assert(m.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid())) by {

@@ -15,6 +15,7 @@ use vstd::cell::{PCell, PointsTo as CellPointsTo};
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
+use crate::task::guard;
 use super::{common::*, types::*, cpu::*, frame::meta::*};
 use super::pte::{Pte, page_table_entry_trait::*};
 use spinlock::{PageTablePageSpinLock, SpinGuard};
@@ -587,76 +588,64 @@ impl<'rcu> PageTableGuard<'rcu> {
         }
     }
 
-    pub proof fn tracked_take_node_token(tracked &mut self) -> (tracked res: NodeToken)
+    //Although this function has mode exec, its operations are pure logical
+    pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken>)
         requires
             old(self).guard is Some,
             old(self).guard->Some_0.node_token@ is Some,
         ensures
-            res == old(self).guard->Some_0.node_token@->Some_0,
+            res@ == old(self).guard->Some_0.node_token@->Some_0,
             self.guard->Some_0.node_token@ == None::<NodeToken>,
             self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
             self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
             self.guard->Some_0.perms == old(self).guard->Some_0.perms,
             self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
-            self.guard->Some_0.node_token@ == None::<NodeToken>,
+            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
             self.inner == old(self).inner,
+            self.guard is Some,
     {
-        let tracked mut guard = self.guard.tracked_take();
-        let tracked res = guard.tracked_take_node_token();
+        let mut guard = self.guard.take().unwrap();
+        let res = guard.take_node_token();
         self.guard = Some(guard);
         res
     }
 
-    pub proof fn tracked_put_node_token(tracked &mut self, token: NodeToken)
+    //Although this function has mode exec, its operations are pure logical
+    pub fn put_node_token(&mut self, token: Tracked<NodeToken>)
         requires
             old(self).guard is Some,
             old(self).guard->Some_0.node_token@ is None,
         ensures
-            self.guard->Some_0.node_token@ == Some(token),
+            self.guard->Some_0.node_token@ == Some(token@),
             self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
             self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
             self.guard->Some_0.perms == old(self).guard->Some_0.perms,
             self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
             self.inner == old(self).inner,
+            self.guard is Some,
     {
-        let tracked mut guard = self.guard.tracked_take();
-        guard.tracked_put_node_token(token);
+        let mut guard = self.guard.take().unwrap();
+        guard.put_node_token(token);
         self.guard = Some(guard);
     }
 
-    pub fn trans_lock_protocol(&mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
-        LockProtocolModel,
-    >)
+    pub fn update_in_protocol(&mut self, in_protocol: Ghost<bool>)
         requires
-            old(self).wf(),
-            old(self).guard->Some_0.stray_perm@.value() == false,
-            old(self).guard->Some_0.in_protocol@ == false,
-            m@.inv(),
-            m@.inst_id() == old(self).inst_id(),
-            m@.state() is Locking,
-            m@.cur_node() == old(self).nid(),
-            NodeHelper::in_subtree_range(m@.sub_tree_rt(), old(self).nid()),
+            old(self).guard is Some,
         ensures
-            self.wf(),
-            self.guard->Some_0.stray_perm@.value() == false,
-            self.guard->Some_0.in_protocol@ == true,
-            self.inner =~= old(self).inner,
-            self.guard->Some_0.wf_trans_lock_protocol(&old(self).guard->Some_0),
-            res@.inv(),
-            res@.inst_id() == self.inst_id(),
-            res@.state() is Locking,
-            res@.sub_tree_rt() == m@.sub_tree_rt(),
-            res@.cur_node() == self.nid() + 1,
+            self.guard->Some_0.in_protocol@ == in_protocol@,
+            self.guard->Some_0.node_token@ == old(self).guard->Some_0.node_token@,
+            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
+            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
+            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
+            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
+            self.inner == old(self).inner,
+            self.guard is Some,
     {
-        let tracked mut m = m.get();
-        let guard = self.guard.take().unwrap();
-        let res = guard.trans_lock_protocol(&self.inner.deref().meta().lock, Tracked(m));
-        let trans_guard = res.0;
-        proof {
-            m = res.1.get();
-        }
-        self.guard = Some(trans_guard);
-        Tracked(m)
+        let mut guard = self.guard.take().unwrap();
+        guard.update_in_protocol(in_protocol);
+        self.guard = Some(guard);
     }
 
     pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard)
