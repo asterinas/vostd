@@ -4,6 +4,7 @@ use std::ops::Range;
 
 use vstd::prelude::*;
 
+use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
@@ -231,6 +232,8 @@ pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (
         res@.inst_id() == old(cursor).inst@.id(),
         res@.state() is Void,
 {
+    broadcast use group_node_helper_lemmas;
+
     let tracked mut m = m.get();
     proof {
         let tracked res = cursor.inst.borrow().protocol_unlock_start(m.cpu, m.token);
@@ -264,10 +267,6 @@ pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (
     //     .start
     //     .align_down(page_size(cursor.guard_level + 1));
 
-    assert(m.sub_tree_rt() == guard_node.nid());
-    assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), guard_node.nid())) by {
-        NodeHelper::lemma_tree_size_spec_table();
-    };
     let res = dfs_release_lock(
         cursor.rcu_guard,
         guard_node,
@@ -324,6 +323,8 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
             &&& res.1@.cur_node() == res.1@.sub_tree_rt() + 1
         },
 {
+    broadcast use group_node_helper_lemmas;
+
     let tracked mut m = m.get();
 
     let mut cur_node_guard: Option<PageTableGuard> = None;
@@ -469,11 +470,6 @@ fn try_traverse_and_lock_subtree_root<'rcu>(
         }
         pt_guard.put_node_token(Tracked(new_node_token));
         pt_guard.update_in_protocol(Ghost(true));
-        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), pt_guard.nid())) by {
-            assert(NodeHelper::next_outside_subtree(m.sub_tree_rt()) > m.sub_tree_rt()) by {
-                NodeHelper::lemma_tree_size_spec_table()
-            };
-        };
     }
     (Some(pt_guard), Tracked(m))
 }
@@ -514,10 +510,7 @@ fn dfs_acquire_lock(
     let cur_level = cur_node.deref().deref().level();
     if cur_level == 1 {
         assert(m@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid())) by {
-            assert(NodeHelper::nid_to_level(cur_node.nid()) == 1);
-            assert(NodeHelper::next_outside_subtree(cur_node.nid()) == cur_node.nid() + 1) by {
-                NodeHelper::lemma_tree_size_spec_table();
-            };
+            NodeHelper::lemma_tree_size_spec_table();
         }
         return m;
     }
@@ -708,10 +701,7 @@ fn dfs_release_lock<'rcu>(
     let cur_level = cur_node.deref().deref().level();
     if cur_level == 1 {
         assert(m.cur_node() == cur_node.nid() + 1) by {
-            assert(NodeHelper::nid_to_level(cur_node.nid()) == 1);
-            assert(NodeHelper::next_outside_subtree(cur_node.nid()) == cur_node.nid() + 1) by {
-                NodeHelper::lemma_tree_size_spec_table();
-            };
+            NodeHelper::lemma_tree_size_spec_table();
         };
 
         // Manually drop the guard
