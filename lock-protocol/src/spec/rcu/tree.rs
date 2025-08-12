@@ -478,8 +478,8 @@ fn initialize_inductive(post: Self, cpu_num: CpuId, paddrs: Set<Paddr>) {
 
 #[inductive(protocol_lock_start)]
 fn protocol_lock_start_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    admit();
- }
+    broadcast use group_node_helper_lemmas;
+}
 
 #[inductive(protocol_lock)]
 fn protocol_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {}
