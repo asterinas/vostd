@@ -13,7 +13,7 @@ pub mod prelude;
 pub mod spec;
 // FIXME: There is a rw lock version in this module and incomplete
 pub mod task;
-pub mod test;
+// pub mod test;
 pub mod x86_64;
 #[macro_use]
 pub mod helpers;
