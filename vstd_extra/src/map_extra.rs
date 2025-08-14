@@ -256,7 +256,7 @@ pub broadcast proof fn lemma_value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(
     if value_filter(m, f).dom().finite() {
         axiom_set_choose_len(value_filter(m, f).dom());
     } else {
-        axiom_set_choose_finite(value_filter(m, f).dom());
+        axiom_set_choose_infinite(value_filter(m, f).dom());
     }
 }
 
