@@ -17,7 +17,7 @@ use super::super::node::{
     spinlock::*,
     stray::*,
 };
-use super::super::pte::{Pte, page_table_entry_trait::*};
+use super::super::pte::*;
 use super::super::trust_rcu::*;
 use super::Cursor;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
