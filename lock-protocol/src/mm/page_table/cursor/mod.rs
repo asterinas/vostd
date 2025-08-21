@@ -271,6 +271,84 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         Ok(locking::lock_range(pt, va))
     }
 
+    /// Queries the mapping at the current virtual address.
+    ///
+    /// If the cursor is pointing to a valid virtual address that is locked,
+    /// it will return the virtual address range and the item at that slot.
+    pub fn query(&mut self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: Result<
+        Option<(Paddr, PagingLevel, PageProperty)>,
+        PageTableError,
+    >)
+        requires
+            old(self).wf(spt),
+        ensures
+            self.wf(spt),
+            match res {
+                Ok(Some(item)) => {
+                    exists|pte_pa: Paddr|
+                        {
+                            &&& #[trigger] spt.ptes.value().contains_key(pte_pa as int)
+                            &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == item.0
+                        }
+                },
+                Ok(None) => true,  // Maybe && forall spt.ptes.value()[pte_pa as int].va != self.va
+                Err(err) => {
+                    &&& old(self).va >= self.barrier_va.end
+                    &&& err == PageTableError::InvalidVaddr(old(self).va)
+                },
+            },
+    {
+        if self.va >= self.barrier_va.end {
+            return Err(PageTableError::InvalidVaddr(self.va));
+        }
+        let ghost cur_va = self.va;
+
+        let rcu_guard = self.preempt_guard;
+
+        loop
+            invariant
+                self.wf(spt),
+                self.constant_fields_unchanged(old(self), spt, spt),
+                self.va == old(self).va,
+            decreases self.level,
+        {
+            let level = self.level;
+            let ghost cur_level = self.level;
+
+            let cur_entry = self.cur_entry(Tracked(spt));
+            let item = match cur_entry.to_ref(Tracked(spt)) {
+                ChildRef::PageTable(pt) => {
+                    let guard = pt.make_guard_unchecked(
+                        rcu_guard,
+                        Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                    );
+                    self.push_level(guard, Tracked(spt));
+                    continue ;
+                },
+                ChildRef::None => None,
+                ChildRef::Frame(pa, ch_level, prop) => {
+                    // debug_assert_eq!(ch_level, level);
+                    // SAFETY:
+                    // This is part of (if `split_huge` happens) a page table item mapped
+                    // with a previous call to `C::item_into_raw`, where:
+                    //  - The physical address and the paging level match it;
+                    //  - The item part is still mapped so we don't take its ownership.
+                    //
+                    // For page table configs that require the `AVAIL1` flag to be kept
+                    // (currently, only kernel page tables), the callers of the unsafe
+                    // `protect_next` method uphold this invariant.
+                    // let item = core::mem::ManuallyDrop::new(
+                    //     unsafe { C::item_from_raw(pa, level, prop, Tracked(&spt.alloc_model)) },
+                    // );
+                    // TODO: Provide a `PageTableItemRef` to reduce copies.
+                    Some((pa, ch_level, prop))
+                },
+            };
+
+            return Ok(item);
+        }
+    }
+
     /// Traverses forward in the current level to the next PTE.
     ///
     /// If reached the end of a page table node, it leads itself up to the next page of the parent
