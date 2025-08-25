@@ -48,10 +48,9 @@ pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usi
     recommends
         1 <= level <= C::NR_LEVELS(),
 {
-    pow2(
-        (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) * (
-        level - 1)) as nat,
-    ) as usize
+    let base_page_bits = C::BASE_PAGE_SIZE().ilog2();
+    let pte_bits = C::PTE_SIZE().ilog2();
+    pow2((base_page_bits + (base_page_bits - pte_bits) * (level - 1)) as nat) as usize
 }
 
 pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: PagingLevel)
