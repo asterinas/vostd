@@ -28,10 +28,11 @@ use crate::mm::page_table::PageTableConfig;
 verus! {
 
 pub struct PageTableNode<C: PageTableConfig> {
-    pub ptr: *const MetaSlot,
-    pub perm: Tracked<MetaSlotPerm>,
+    pub ptr: *const MetaSlot<C>,
+    pub perm: Tracked<MetaSlotPerm<C>>,
     pub nid: Ghost<NodeId>,
     pub inst: Tracked<SpecInstance>,
+    pub _phantom: PhantomData<C>,
 }
 
 // Functions defined in struct 'Frame'.
@@ -46,8 +47,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
         ensures
             *res =~= self.meta_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, (Tracked(perm)));
+        let tracked perm: &PointsTo<MetaSlot<C>> = &self.perm.borrow().inner;
+        let meta_slot: &MetaSlot<C> = ptr_ref(self.ptr, (Tracked(perm)));
         &meta_slot.get_inner_pt()
     }
 
@@ -96,6 +97,14 @@ impl<C: PageTableConfig> PageTableNode<C> {
     {
         meta_to_frame(self.ptr.addr())
     }
+
+    #[verifier::external_body]
+    pub proof fn axiom_from_raw_sound(&self)
+        requires
+            self.wf(),
+        ensures
+            Self::from_raw_spec(self.start_paddr()) =~= *self,
+    {}
 }
 
 // Functions defined in struct 'PageTableNode'.
@@ -120,8 +129,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
         ensures
             res == self.level_spec(),
     {
-        let tracked perm: &PointsTo<MetaSlot> = &self.perm.borrow().inner;
-        let meta_slot: &MetaSlot = ptr_ref(self.ptr, Tracked(perm));
+        let tracked perm: &PointsTo<MetaSlot<C>> = &self.perm.borrow().inner;
+        let meta_slot: &MetaSlot<C> = ptr_ref(self.ptr, Tracked(perm));
         meta_slot.get_inner_pt().level
     }
 
@@ -206,7 +215,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
 }
 
 pub struct PageTableNodeRef<'a, C: PageTableConfig> {
-    pub inner: ManuallyDrop<PageTableNode>,
+    pub inner: ManuallyDrop<PageTableNode<C>>,
     pub _marker: PhantomData<&'a ()>,
 }
 
@@ -239,14 +248,14 @@ impl<C: PageTableConfig> PageTableNodeRef<'_, C> {
     }
 }
 
-pub open spec fn pt_node_ref_deref_spec<'a>(
-    pt_node_ref: &'a PageTableNodeRef<'_>,
-) -> &'a PageTableNode {
+pub open spec fn pt_node_ref_deref_spec<'a, C: PageTableConfig>(
+    pt_node_ref: &'a PageTableNodeRef<'_, C>,
+) -> &'a PageTableNode<C> {
     &pt_node_ref.inner.deref()
 }
 
 impl<C: PageTableConfig> Deref for PageTableNodeRef<'_, C> {
-    type Target = PageTableNode;
+    type Target = PageTableNode<C>;
 
     #[verifier::when_used_as_spec(pt_node_ref_deref_spec)]
     fn deref(&self) -> (ret: &Self::Target)
@@ -266,7 +275,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub fn normal_lock<'rcu>(
         self,
         guard: &'rcu (),  // TODO
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
         ensures
@@ -275,14 +284,18 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol@ == false,
     {
         let guard = self.deref().meta().lock.normal_lock();
-        PageTableGuard { inner: self, guard: Some(guard) }
+        PageTableGuard { 
+            inner: self, 
+            guard: Some(guard),
+            _phantom: PhantomData,
+        }
     }
 
     pub fn normal_lock_new_allocated_node<'rcu>(
         self,
         guard: &'rcu (),  // TODO
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
             self.nid@ != NodeHelper::root_id(),
@@ -298,7 +311,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol@ == false,
     {
         let guard = self.deref().meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
-        PageTableGuard { inner: self, guard: Some(guard) }
+        PageTableGuard { 
+            inner: self, 
+            guard: Some(guard),
+            _phantom: PhantomData,
+        }
     }
 
     pub fn lock<'rcu>(
@@ -306,7 +323,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         guard: &'rcu (),  // TODO
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: (PageTableGuard<'rcu>, Tracked<LockProtocolModel>)) where 'a: 'rcu
+    ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel>)) where 'a: 'rcu
         requires
             self.wf(),
             m@.inv(),
@@ -336,7 +353,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         proof {
             m = res.1.get();
         }
-        let guard = PageTableGuard { inner: self, guard: Some(res.0) };
+        let guard = PageTableGuard { 
+            inner: self, 
+            guard: Some(res.0),
+            _phantom: PhantomData,
+        };
         (guard, Tracked(m))
     }
 
@@ -346,7 +367,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         _guard: &'rcu (),
         m: Tracked<&LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: PageTableGuard<'rcu>) where 'a: 'rcu
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
             m@.inv(),
@@ -372,11 +393,12 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 }
 
 pub struct PageTableGuard<'rcu, C: PageTableConfig> {
-    pub inner: PageTableNodeRef<'rcu>,
-    pub guard: Option<SpinGuard>,
+    pub inner: PageTableNodeRef<'rcu, C>,
+    pub guard: Option<SpinGuard<C>>,
+    pub _phantom: PhantomData<C>,
 }
 
-impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
+impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.inner.wf()
         &&& self.guard is Some
@@ -411,7 +433,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
         Tracked(tracked_inst.borrow().clone())
     }
 
-    pub fn entry(&self, idx: usize) -> (res: Entry)
+    pub fn entry(&self, idx: usize) -> (res: Entry<C>)
         requires
             self.wf(),
             0 <= idx < 512,
@@ -429,12 +451,12 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
             res == self.guard->Some_0.stray_perm@.value(),
     {
         let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
-        let guard: &SpinGuard = self.guard.as_ref().unwrap();
+        let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
         let tracked stray_perm = guard.stray_perm.borrow();
         stray_cell.read(Tracked(stray_perm))
     }
 
-    pub fn read_pte(&self, idx: usize) -> (res: Pte)
+    pub fn read_pte(&self, idx: usize) -> (res: Pte<C>)
         requires
             self.wf(),
             0 <= idx < 512,
@@ -444,7 +466,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
     {
         let va = paddr_to_vaddr(self.deref().deref().start_paddr());
         let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
-        let guard: &SpinGuard = self.guard.as_ref().unwrap();
+        let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
         let tracked perms = guard.perms.borrow();
         // assert(perms.inner.value()[idx as int].wf());
         let pte: Pte<C> = ptr.get(Tracked(&perms.inner), idx);
@@ -454,7 +476,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
         pte
     }
 
-    pub fn write_pte(&mut self, idx: usize, pte: Pte)
+    pub fn write_pte(&mut self, idx: usize, pte: Pte<C>)
         requires
             if pte.is_pt(old(self).inner.deref().level_spec()) {
                 // Called in Entry::alloc_if_none
@@ -650,7 +672,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
         self.guard = Some(guard);
     }
 
-    pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard)
+    pub proof fn tracked_borrow_guard(tracked &self) -> (tracked res: &SpinGuard<C>)
         requires
             self.guard is Some,
         ensures
@@ -660,14 +682,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu> {
     }
 }
 
-pub open spec fn pt_guard_deref_spec<'a, 'rcu>(
-    guard: &'a PageTableGuard<'rcu>,
-) -> &'a PageTableNodeRef<'rcu> {
+pub open spec fn pt_guard_deref_spec<'a, 'rcu, C: PageTableConfig>(
+    guard: &'a PageTableGuard<'rcu, C>,
+) -> &'a PageTableNodeRef<'rcu, C> {
     &guard.inner
 }
 
 impl<'rcu, C: PageTableConfig> Deref for PageTableGuard<'rcu, C> {
-    type Target = PageTableNodeRef<'rcu>;
+    type Target = PageTableNodeRef<'rcu, C>;
 
     #[verifier::when_used_as_spec(pt_guard_deref_spec)]
     fn deref(&self) -> (ret: &Self::Target)
@@ -722,7 +744,7 @@ impl<C: PageTableConfig> PageTableGuard<'_, C> {
 }
 
 pub struct PageTablePageMeta<C: PageTableConfig> {
-    pub lock: PageTablePageSpinLock,
+    pub lock: PageTablePageSpinLock<C>,
     // The stray flag indicates whether this frame is a page table node.
     pub stray: StrayFlag,
     pub level: PagingLevel,

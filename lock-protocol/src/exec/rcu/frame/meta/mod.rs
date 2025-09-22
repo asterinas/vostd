@@ -6,6 +6,7 @@ use vstd::raw_ptr::{PointsTo};
 use crate::spec::{common::*, utils::*};
 use super::super::{common::*, types::*};
 use super::super::node::PageTablePageMeta;
+use crate::mm::page_table::PageTableConfig;
 
 pub use mapping::*;
 
@@ -17,9 +18,9 @@ pub enum MetaSlotType {
 }
 
 struct_with_invariants! {
-    pub struct MetaSlot {
+    pub struct MetaSlot<C: PageTableConfig> {
         pub usage: MetaSlotType,
-        pub inner: Option<PageTablePageMeta>,
+        pub inner: Option<PageTablePageMeta<C>>,
     }
 
     pub open spec fn wf(&self) -> bool {
@@ -30,19 +31,19 @@ struct_with_invariants! {
     }
 }
 
-impl MetaSlot {
+impl<C: PageTableConfig> MetaSlot<C> {
     pub open spec fn is_pt(&self) -> bool {
         self.usage is PageTablePageMeta
     }
 
-    pub open spec fn get_inner_pt_spec(&self) -> PageTablePageMeta
+    pub open spec fn get_inner_pt_spec(&self) -> PageTablePageMeta<C>
         recommends
             self.is_pt(),
     {
         self.inner->Some_0
     }
 
-    pub fn get_inner_pt(&self) -> (res: &PageTablePageMeta)
+    pub fn get_inner_pt(&self) -> (res: &PageTablePageMeta<C>)
         requires
             self.wf(),
             self.is_pt(),
@@ -53,13 +54,13 @@ impl MetaSlot {
     }
 }
 
-pub tracked struct MetaSlotPerm {
-    pub inner: PointsTo<MetaSlot>,
+pub tracked struct MetaSlotPerm<C: PageTableConfig> {
+    pub inner: PointsTo<MetaSlot<C>>,
     pub slot_idx: nat,
 }
 
-impl MetaSlotPerm {
-    pub open spec fn relate(&self, ptr: *const MetaSlot) -> bool {
+impl<C: PageTableConfig> MetaSlotPerm<C> {
+    pub open spec fn relate(&self, ptr: *const MetaSlot<C>) -> bool {
         &&& self.inner.ptr() == ptr
     }
 
@@ -86,7 +87,7 @@ impl MetaSlotPerm {
         self.inner.ptr() as usize
     }
 
-    pub open spec fn value(&self) -> MetaSlot {
+    pub open spec fn value(&self) -> MetaSlot<C> {
         self.inner.value()
     }
 }

@@ -60,7 +60,7 @@ impl<C: PageTableConfig> Pte<C> {
         &&& self.inst@ is Some ==> self.inst@->Some_0.cpu_num() == GLOBAL_CPU_NUM
     }
 
-    pub open spec fn wf_with_node(&self, node: PageTableNode, offset: nat) -> bool {
+    pub open spec fn wf_with_node(&self, node: PageTableNode<C>, offset: nat) -> bool {
         &&& self.wf(node.level_spec())
         &&& self.nid@ is Some ==> self.nid@->Some_0 == NodeHelper::get_child(node.nid@, offset)
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == node.inst@.id()
@@ -78,7 +78,7 @@ impl<C: PageTableConfig> Pte<C> {
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == inst_id
     }
 
-    pub proof fn lemma_wf_node_imply_wf_node_info(&self, node: PageTableNode, offset: nat)
+    pub proof fn lemma_wf_node_imply_wf_node_info(&self, node: PageTableNode<C>, offset: nat)
         requires
             self.wf_with_node(node, offset),
         ensures
@@ -178,21 +178,21 @@ impl<C: PageTableConfig> Pte<C> {
     }
 }
 
-impl Clone for Pte {
+impl<C: PageTableConfig> Clone for Pte<C> {
     fn clone(&self) -> (res: Self)
         ensures
             res =~= *self,
     {
         Self {
-            inner: self.inner.clone(),
+            inner: self.inner.clone_pte(),
             nid: Ghost(self.nid@),
             inst: Tracked(*self.inst.borrow()),
         }
     }
 }
 
-impl Copy for Pte {
-
+impl<C: PageTableConfig> Copy for Pte<C> {
+    
 }
 
 } // verus!

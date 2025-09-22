@@ -47,7 +47,7 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub open spec fn wf_with_node(&self, idx: nat, node: PageTableGuard) -> bool {
+    pub open spec fn wf_with_node(&self, idx: nat, node: PageTableGuard<C>) -> bool {
         match *self {
             Child::PageTable(pt) => {
                 &&& node.deref().deref().level_spec() == (pt.level_spec() + 1) as PagingLevel
@@ -59,7 +59,7 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub open spec fn wf_into_pte(&self, pte: Pte) -> bool {
+    pub open spec fn wf_into_pte(&self, pte: Pte<C>) -> bool {
         match *self {
             Child::PageTable(node) => {
                 &&& pte.wf_new_pt(node.start_paddr(), node.inst@, node.nid@)
@@ -77,7 +77,7 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub fn into_pte(self) -> (res: Pte)
+    pub fn into_pte(self) -> (res: Pte<C>)
         requires
             self.wf(),
         ensures
@@ -86,7 +86,9 @@ impl<C: PageTableConfig> Child<C> {
         match self {
             Child::PageTable(node) => {
                 let paddr = node.start_paddr();
-                let tracked_inst = node.deref().inst;
+                let tracked_node = node.deref();
+                proof { tracked_node.axiom_from_raw_sound(); }
+                let tracked_inst = tracked_node.inst;
                 let tracked inst = tracked_inst.borrow().clone();
                 let ghost nid = node.nid@;
                 let _ = ManuallyDrop::new(node);
@@ -97,7 +99,7 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
+    pub open spec fn wf_from_pte(&self, pte: Pte<C>, level: PagingLevel) -> bool {
         if pte.is_none() {
             *self is None
         } else if pte.is_pt(level) {
@@ -116,7 +118,7 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub fn from_pte(pte: Pte, level: PagingLevel) -> (res: Self)
+    pub fn from_pte(pte: Pte<C>, level: PagingLevel) -> (res: Self)
         requires
             pte.wf(level),
             1 <= level <= 4,
@@ -178,12 +180,12 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         }
     }
 
-    pub open spec fn wf_from_pte(&self, pte: Pte, level: PagingLevel) -> bool {
+    pub open spec fn wf_from_pte(&self, pte: Pte<C>, level: PagingLevel) -> bool {
         if pte.is_none() {
             *self is None
         } else if pte.is_pt(level) {
             &&& *self is PageTable
-            &&& self->PageTable_0 == PageTableNodeRef::borrow_paddr_spec(pte.inner.paddr())
+            &&& self->PageTable_0 == PageTableNodeRef::<C>::borrow_paddr_spec(pte.inner.paddr())
             &&& self->PageTable_0.deref().start_paddr() == pte.inner.paddr()
             &&& self->PageTable_0.deref().nid@ == pte.nid()
             &&& self->PageTable_0.deref().inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -197,7 +199,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         }
     }
 
-    pub fn from_pte<'a>(pte: &'a Pte, level: PagingLevel) -> (res: ChildRef<'a>)
+    pub fn from_pte<'a>(pte: &'a Pte<C>, level: PagingLevel) -> (res: ChildRef<'a, C>)
         requires
             pte.wf(level),
             1 <= level <= 4,

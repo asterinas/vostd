@@ -1,4 +1,4 @@
-// mod rcu;
+mod rcu;
 mod rw;
 // mod test_map;
 
@@ -14,7 +14,7 @@ use crate::mm::allocator::{self, AllocatorModel, pa_is_valid_kernel_address};
 use crate::mm::cursor::spec_helpers;
 use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
-use crate::mm::page_table::PageTableNode;
+use crate::mm::page_table::node::PageTableNode;
 
 use crate::mm::{page_size_spec, pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
 use crate::{

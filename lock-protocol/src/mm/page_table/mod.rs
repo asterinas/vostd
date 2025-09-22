@@ -3,7 +3,7 @@ pub mod node;
 
 use cursor::spec_helpers;
 
-pub use node::*;
+use node::*;
 use core::fmt::Debug;
 use std::{marker::PhantomData, ops::Range};
 
@@ -209,7 +209,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 }
 
 pub trait PageTableEntryTrait: Clone +
-// Copy +
+Copy +
 // Default +
 // Sized + Send + Sync + 'static
 // Debug // TODO: Implement Debug for PageTableEntryTrait
@@ -398,6 +398,7 @@ Sized {
             self.is_present() == res.is_present(),
             self.prop() == res.prop(),
             self.frame_paddr() == res.frame_paddr(),
+            res =~= *self,
     ;
 }
 
@@ -1104,8 +1105,14 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
 // TODO: Debug for PageTable
 // #[derive(Debug)]
 pub struct PageTable<C: PageTableConfig> {
-    root: PageTableNode<C>,
-    _phantom: PhantomData<C>,
+    pub root: PageTableNode<C>,
+    pub _phantom: PhantomData<C>,
+}
+
+impl<C: PageTableConfig> PageTable<C> {
+    pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
+        &&& self.root.wf(alloc_model)
+    }
 }
 
 } // verus!
