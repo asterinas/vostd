@@ -38,6 +38,7 @@ use crate::{
     },
     task::DisabledPreemptGuard,
     sync::rcu::RcuDrop,
+    spec::sub_pt::level_is_in_range,
 };
 
 use super::{
@@ -736,15 +737,42 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 ChildRef::None => {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
+                    let ghost old_alloc_model = spt.alloc_model;
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
-                    // TODO: Verus is able to prove `guard_option.unwrap().wf()` here, but with a deref to inner it fails,
-                    // this is trivial, might a verus bug?
-                    assume(forall|i: PagingLevel|
+
+                    assert forall|i: PagingLevel|
                         #![trigger self.0.path[path_index_at_level_spec(i)]]
-                        self.0.level <= i <= self.0.guard_level ==> {
-                            let guard_option = path_index!(self.0.path[i]);
-                            &&& guard_option.unwrap().inner.wf(&spt.alloc_model)
-                        });
+                        self.0.level <= i <= self.0.guard_level implies {
+                        let guard = path_index!(self.0.path[i]).unwrap();
+                        guard.wf(&spt.alloc_model)
+                    } by {
+                        // From self.wf() before calling alloc_if_none
+                        assert(forall|i: PagingLevel|
+                            #![trigger self.0.path[path_index_at_level_spec(i)]]
+                            self.0.level <= i <= self.0.guard_level ==> {
+                                let guard_option = path_index!(self.0.path[i]);
+                                &&& guard_option.unwrap().wf(&old_alloc_model)
+                            });
+                        // From post condition of alloc_if_none's alloc_model_do_not_change_except_add_frame
+                        assert(forall|i: int| #[trigger]
+                            old_alloc_model.meta_map.contains_key(i) ==> {
+                                &&& spt.alloc_model.meta_map.contains_key(i)
+                                &&& spt.alloc_model.meta_map[i].pptr()
+                                    == old_alloc_model.meta_map[i].pptr()
+                                &&& spt.alloc_model.meta_map[i].value()
+                                    == old_alloc_model.meta_map[i].value()
+                            });
+                        let guard = path_index!(self.0.path[i]).unwrap();
+                        assert(level_is_in_range::<C>(guard.level_spec(&old_alloc_model) as int));
+                        assert(old_alloc_model.meta_map.contains_key(guard.paddr() as int));
+                        assert(spt.alloc_model.meta_map.contains_key(guard.paddr() as int));
+                        assert(guard.inner.meta_spec(&old_alloc_model) == guard.inner.meta_spec(
+                            &spt.alloc_model,
+                        ));
+                        assert(guard.level_spec(&old_alloc_model) == guard.level_spec(
+                            &spt.alloc_model,
+                        ));
+                    }
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {
