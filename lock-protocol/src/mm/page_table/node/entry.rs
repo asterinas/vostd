@@ -7,7 +7,8 @@ use crate::{
     helpers::conversion::usize_mod_is_int_mod,
     mm::{
         cursor::spec_helpers::{
-            self, spt_do_not_change_except, spt_do_not_change_except_frames_change,
+            self, spt_do_not_change_except_modify_pte, spt_do_not_change_except_frames_change,
+            spt_do_not_change_above_level, alloc_model_do_not_change_except_add_frame,
         },
         frame::allocator::AllocatorModel,
         meta::AnyFrameMeta,
@@ -192,7 +193,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
             spt.instance.id() == old(spt).instance.id(),
             spt.wf(),
-            spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
+            spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int),
             spt.frames == old(spt).frames,
             spt.alloc_model == old(spt).alloc_model,
             self.remove_old_child(res, old(self).pte, old(spt), spt),
@@ -411,7 +412,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.idx == old(self).idx,
             spt.wf(),
             res is Some,
-            spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int),
+            spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int),
+            spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
+            alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr()),
             res.unwrap().wf(&spt.alloc_model),
             spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
             !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
@@ -503,7 +506,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
 
         assert(self.wf(spt));
-        assume(spt_do_not_change_except(spt, old(spt), self.pte.pte_paddr() as int));
+        assume(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
+        assume(spt_do_not_change_above_level(spt, old(spt), level));
+        assume(alloc_model_do_not_change_except_add_frame(spt, old(spt), pa));
         assert(node_ref.level_spec(&spt.alloc_model) == level - 1);
 
         Some(node_ref.make_guard_unchecked(guard, Ghost(self.va@)))

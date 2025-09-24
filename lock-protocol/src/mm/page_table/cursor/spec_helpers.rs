@@ -40,7 +40,7 @@ use crate::exec;
 
 verus! {
 
-pub open spec fn spt_do_not_change_except<C: PageTableConfig>(
+pub open spec fn spt_do_not_change_except_modify_pte<C: PageTableConfig>(
     spt: &SubPageTable<C>,
     old_spt: &SubPageTable<C>,
     pte_addr: int,
@@ -97,6 +97,53 @@ pub open spec fn forward_spt_do_not_change_except<C: PageTableConfig>(
                 &&& spt.i_ptes.value()[i] == old_spt.i_ptes.value()[i]
             }
         }
+}
+
+pub open spec fn spt_do_not_change_above_level<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
+    level: PagingLevel,
+) -> bool {
+    &&& forall|i: int|
+        {
+            (old_spt.frames.value().contains_key(i) && old_spt.frames.value()[i].level as int
+                >= level) ==> {
+                &&& #[trigger] spt.frames.value().contains_key(i)
+                &&& #[trigger] spt.frames.value()[i] == old_spt.frames.value()[i]
+            }
+        }
+    &&& forall|i: int|
+        {
+            (old_spt.alloc_model.meta_map.contains_key(i)
+                && old_spt.alloc_model.meta_map[i].value().level as int >= level) ==> {
+                &&& #[trigger] spt.alloc_model.meta_map.contains_key(i)
+                &&& spt.alloc_model.meta_map[i].pptr() == old_spt.alloc_model.meta_map[i].pptr()
+                &&& spt.alloc_model.meta_map[i].value() == old_spt.alloc_model.meta_map[i].value()
+            }
+        }
+}
+
+pub open spec fn alloc_model_do_not_change_except_add_frame<C: PageTableConfig>(
+    spt: &SubPageTable<C>,
+    old_spt: &SubPageTable<C>,
+    new_frame: Paddr,
+) -> bool {
+    &&& {
+        forall|i: int| #[trigger]
+            spt.alloc_model.meta_map.contains_key(i) && i != new_frame as int ==> {
+                &&& #[trigger] old_spt.alloc_model.meta_map.contains_key(i)
+                &&& spt.alloc_model.meta_map[i].pptr() == old_spt.alloc_model.meta_map[i].pptr()
+                &&& spt.alloc_model.meta_map[i].value() == old_spt.alloc_model.meta_map[i].value()
+            }
+    }
+    &&& {
+        forall|i: int| #[trigger]
+            old_spt.alloc_model.meta_map.contains_key(i) ==> {
+                &&& #[trigger] spt.alloc_model.meta_map.contains_key(i)
+                &&& spt.alloc_model.meta_map[i].pptr() == old_spt.alloc_model.meta_map[i].pptr()
+                &&& spt.alloc_model.meta_map[i].value() == old_spt.alloc_model.meta_map[i].value()
+            }
+    }
 }
 
 } // verus!

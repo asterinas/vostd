@@ -156,7 +156,7 @@ pub struct PageTableGuard<'a, C: PageTableConfig> {
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
-        &&& self.inner.wf(alloc_model)
+        self.inner.wf(alloc_model)
     }
 
     #[verifier::allow_in_spec]

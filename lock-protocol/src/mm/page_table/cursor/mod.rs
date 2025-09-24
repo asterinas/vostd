@@ -737,6 +737,14 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_spec(&spt.alloc_model) == cur_level);
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
+                    // TODO: Verus is able to prove `guard_option.unwrap().wf()` here, but with a deref to inner it fails,
+                    // this is trivial, might a verus bug?
+                    assume(forall|i: PagingLevel|
+                        #![trigger self.0.path[path_index_at_level_spec(i)]]
+                        self.0.level <= i <= self.0.guard_level ==> {
+                            let guard_option = path_index!(self.0.path[i]);
+                            &&& guard_option.unwrap().inner.wf(&spt.alloc_model)
+                        });
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {
