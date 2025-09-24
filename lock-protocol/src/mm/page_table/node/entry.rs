@@ -106,9 +106,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             self.wf(spt),
         ensures
-            res is PageTable <==> spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
             res is PageTable <==> match res {
                 ChildRef::PageTable(pt) => {
+                    &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
                     &&& pt.wf(&spt.alloc_model)
                     &&& pt.deref().start_paddr() == self.pte.frame_paddr() as usize
                     &&& pt.level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model)
@@ -132,14 +132,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 },
                 _ => false,
             },
-            res is Frame <==> spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
             res is Frame <==> match res {
-                ChildRef::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
+                ChildRef::Frame(pa, level, prop) => {
+                    &&& pa == self.pte.frame_paddr() as usize
+                    &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
+                },
                 _ => false,
             },
             res is None <==> {
                 &&& !spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& !spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
             },
             res is None <==> match res {
                 ChildRef::None => true,
@@ -402,6 +405,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.wf(spt),
             self.pte.pte_paddr() == old(self).pte.pte_paddr(),
             self.node == old(self).node,
+            self.node.level_spec(&spt.alloc_model) == old(self).node.level_spec(
+                &old(spt).alloc_model,
+            ),
             self.idx == old(self).idx,
             spt.wf(),
             res is Some,

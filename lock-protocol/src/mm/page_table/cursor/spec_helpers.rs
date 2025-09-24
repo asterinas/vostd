@@ -72,7 +72,7 @@ pub open spec fn forward_spt_do_not_change_except<C: PageTableConfig>(
 ) -> bool {
     &&& forall|i: int| #[trigger]
         spt.frames.value().contains_key(i) ==> {
-            !(exists|l: int| #[trigger]
+            (forall|l: int| #[trigger]
                 spt.frames.value()[i].ancestor_chain.contains_key(l)
                     && #[trigger] spt.frames.value()[i].ancestor_chain[l].entry_pa() != pte_addr)
                 ==> {

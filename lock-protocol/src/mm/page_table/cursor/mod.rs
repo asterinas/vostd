@@ -316,7 +316,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             let ghost cur_level = self.level;
 
             let cur_entry = self.cur_entry(Tracked(spt));
-            let item = match cur_entry.to_ref(Tracked(spt)) {
+            match cur_entry.to_ref(Tracked(spt)) {
                 ChildRef::PageTable(pt) => {
                     let guard = pt.make_guard_unchecked(
                         rcu_guard,
@@ -325,7 +325,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     self.push_level(guard, Tracked(spt));
                     continue ;
                 },
-                ChildRef::None => None,
+                ChildRef::None => return Ok(None),
                 ChildRef::Frame(pa, ch_level, prop) => {
                     // debug_assert_eq!(ch_level, level);
                     // SAFETY:
@@ -341,11 +341,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     //     unsafe { C::item_from_raw(pa, level, prop, Tracked(&spt.alloc_model)) },
                     // );
                     // TODO: Provide a `PageTableItemRef` to reduce copies.
-                    Some((pa, ch_level, prop))
+                    return Ok(Some((pa, ch_level, prop)));
                 },
             };
-
-            return Ok(item);
         }
     }
 
@@ -717,6 +715,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
+                self.0.level >= level,
             decreases self.0.level,
         {
             let cur_level = self.0.level;
