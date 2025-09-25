@@ -17,12 +17,13 @@ use vstd_extra::{manually_drop::*, array_ptr::*};
 use crate::spec::{common::*, utils::*, rcu::*};
 use crate::task::guard;
 use super::{common::*, cpu::*, frame::meta::*};
-use super::pte::{Pte, page_table_entry_trait::*};
+use super::pte::Pte;
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
 use entry::Entry;
 use stray::{StrayFlag, StrayPerm};
 use crate::mm::page_table::PageTableConfig;
+use crate::mm::page_table::PageTableEntryTrait;
 
 verus! {
 
@@ -440,7 +441,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     {
         let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
         let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
-        let tracked stray_perm = guard.stray_perm.borrow();
+        let tracked stray_perm = &guard.inner.borrow().stray_perm;
         stray_cell.read(Tracked(stray_perm))
     }
 
@@ -455,11 +456,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let va = paddr_to_vaddr(self.deref().deref().start_paddr());
         let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
         let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
-        let tracked perms = guard.perms.borrow();
+        let tracked perms = &guard.inner.borrow().perms;
         // assert(perms.inner.value()[idx as int].wf());
         let pte: Pte<C> = ptr.get(Tracked(&perms.inner), idx);
-        assert(self.guard->Some_0.perms@.relate_pte(pte, idx as nat)) by {
-            assert(pte =~= guard.perms@.inner.opt_value()[idx as int]->Init_0);
+        assert(self.guard->Some_0.perms().relate_pte(pte, idx as nat)) by {
+            assert(pte =~= guard.perms().inner.opt_value()[idx as int]->Init_0);
         };
         pte
     }
