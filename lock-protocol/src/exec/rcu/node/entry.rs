@@ -1,4 +1,5 @@
 use core::ops::Deref;
+use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
@@ -7,12 +8,14 @@ use super::super::{common::*, types::*, cpu::*};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use super::child::*;
 use super::stray::*;
-use super::super::pte::{Pte, page_table_entry_trait::*};
+use super::super::pte::Pte;
+use crate::mm::page_table::PageTableEntryTrait;
 use crate::sync::rcu::RcuDrop;
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
-pub struct Entry {
+pub struct Entry<C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -20,19 +23,19 @@ pub struct Entry {
     /// other CPUs may modify the memory location for accessed/dirty bits. Such
     /// accesses will violate the aliasing rules of Rust and cause undefined
     /// behaviors.
-    pub pte: Pte,
+    pub pte: Pte<C>,
     /// The index of the entry in the node.
     pub idx: usize,
 }
 
-impl Entry {
-    pub open spec fn wf(&self, node: PageTableGuard) -> bool {
+impl<C: PageTableConfig> Entry<C> {
+    pub open spec fn wf(&self, node: PageTableGuard<C>) -> bool {
         &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
         &&& 0 <= self.idx < 512
         &&& node.guard is Some ==> node.guard->Some_0.perms@.relate_pte(self.pte, self.idx as nat)
     }
 
-    pub open spec fn nid(&self, node: PageTableGuard) -> NodeId {
+    pub open spec fn nid(&self, node: PageTableGuard<C>) -> NodeId {
         NodeHelper::get_child(node.nid(), self.idx as nat)
     }
 
@@ -49,13 +52,13 @@ impl Entry {
         !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
     }
 
-    pub open spec fn is_node_spec(&self, node: &PageTableGuard) -> bool {
+    pub open spec fn is_node_spec(&self, node: &PageTableGuard<C>) -> bool {
         self.pte.is_pt(node.deref().deref().level_spec())
     }
 
     /// Returns if the entry maps to a page table node.
     #[verifier::when_used_as_spec(is_node_spec)]
-    pub fn is_node(&self, node: &PageTableGuard) -> bool
+    pub fn is_node(&self, node: &PageTableGuard<C>) -> bool
         requires
             self.wf(*node),
             node.wf(),
@@ -67,7 +70,7 @@ impl Entry {
     }
 
     /// Gets a reference to the child.
-    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu>) -> (res: ChildRef<'rcu>)
+    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu, C>) -> (res: ChildRef<'rcu, C>)
         requires
             self.wf(*node),
             node.wf(),
@@ -81,7 +84,7 @@ impl Entry {
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
-    pub fn replace(&mut self, new_child: Child, node: &mut PageTableGuard) -> (res: Child)
+    pub fn replace(&mut self, new_child: Child<C>, node: &mut PageTableGuard<C>) -> (res: Child<C>)
         requires
             old(self).wf(*old(node)),
             new_child.wf(),
@@ -119,8 +122,8 @@ impl Entry {
     pub fn normal_alloc_if_none<'rcu>(
         &mut self,
         guard: &'rcu (),  // TODO
-        node: &mut PageTableGuard<'rcu>,
-    ) -> (res: Option<PageTableGuard<'rcu>>)
+        node: &mut PageTableGuard<'rcu, C>,
+    ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires
             old(self).wf(*old(node)),
             old(node).wf(),
@@ -207,7 +210,7 @@ impl Entry {
     }
 
     /// Create a new entry at the node with guard.
-    pub fn new_at(idx: usize, node: &PageTableGuard) -> (res: Self)
+    pub fn new_at(idx: usize, node: &PageTableGuard<C>) -> (res: Self)
         requires
             0 <= idx < 512,
             node.wf(),

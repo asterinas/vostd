@@ -162,79 +162,69 @@ pub enum VmItem {
 pub(crate) struct UserPtConfig {}
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
-unsafe impl PageTableConfig for UserPtConfig {
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> bool {
-        true
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
-        true
-    }
-
-    type E = MockPageTableEntry;
-
-    type C = PagingConsts;
-
-    type Item = VmItem;
-
-    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
-        ensures
-            res == Self::item_into_raw_spec(item),
-    {
-        match item {
-            VmItem::Frame(frame, prop) => {
-                let level = frame.map_level();
-                let paddr = frame.into_raw();
-                (paddr, level, prop)
-            },
-            VmItem::Status(status, level) => {
-                let raw_inner = status.into_raw_inner();
-                (raw_inner as Paddr, level, PageProperty::new_absent())
-            },
-        }
-    }
-
-    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        match item {
-            VmItem::Frame(frame, prop) => {
-                let level = frame.map_level();
-                let paddr = frame.start_paddr();
-                (paddr, level, prop)
-            },
-            VmItem::Status(status, level) => {
-                let raw_inner = status.into_raw_inner();
-                (raw_inner as Paddr, level, PageProperty::new_absent())
-            },
-        }
-    }
-
-    unsafe fn item_from_raw(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-        Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>,
-    ) -> Self::Item {
-        if prop.has_map {
-            // debug_assert_eq!(level, 1);
-            // SAFETY: The caller ensures safety.
-            assume(alloc_model.meta_map.contains_key(paddr as int));  // TODO: We need a from_raw -> into_raw model to prove this
-            let frame = unsafe { Frame::from_raw(paddr, Tracked(alloc_model)) };
-            VmItem::Frame(frame, prop)
-        } else {
-            // SAFETY: The caller ensures safety.
-            let status = unsafe { Status::from_raw_inner(paddr) };
-            VmItem::Status(status, level)
-        }
-    }
-}
-
+// unsafe impl PageTableConfig for UserPtConfig {
+//     fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
+//         0..256
+//     }
+//     open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
+//         0..256
+//     }
+//     fn TOP_LEVEL_CAN_UNMAP() -> bool {
+//         true
+//     }
+//     open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
+//         true
+//     }
+//     type E = MockPageTableEntry;
+//     type C = PagingConsts;
+//     type Item = VmItem;
+//     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+//         ensures
+//             res == Self::item_into_raw_spec(item),
+//     {
+//         match item {
+//             VmItem::Frame(frame, prop) => {
+//                 let level = frame.map_level();
+//                 let paddr = frame.into_raw();
+//                 (paddr, level, prop)
+//             },
+//             VmItem::Status(status, level) => {
+//                 let raw_inner = status.into_raw_inner();
+//                 (raw_inner as Paddr, level, PageProperty::new_absent())
+//             },
+//         }
+//     }
+//     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+//         match item {
+//             VmItem::Frame(frame, prop) => {
+//                 let level = frame.map_level();
+//                 let paddr = frame.start_paddr();
+//                 (paddr, level, prop)
+//             },
+//             VmItem::Status(status, level) => {
+//                 let raw_inner = status.into_raw_inner();
+//                 (raw_inner as Paddr, level, PageProperty::new_absent())
+//             },
+//         }
+//     }
+//     unsafe fn item_from_raw(
+//         paddr: Paddr,
+//         level: PagingLevel,
+//         prop: PageProperty,
+//         Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>,
+//     ) -> Self::Item {
+//         if prop.has_map {
+//             // debug_assert_eq!(level, 1);
+//             // SAFETY: The caller ensures safety.
+//             assume(alloc_model.meta_map.contains_key(paddr as int));  // TODO: We need a from_raw -> into_raw model to prove this
+//             let frame = unsafe { Frame::from_raw(paddr, Tracked(alloc_model)) };
+//             VmItem::Frame(frame, prop)
+//         } else {
+//             // SAFETY: The caller ensures safety.
+//             let status = unsafe { Status::from_raw_inner(paddr) };
+//             VmItem::Status(status, level)
+//         }
+//     }
+// }
 // TODO: TryFrom<PageTableItem> for VmItem
 } // verus!
