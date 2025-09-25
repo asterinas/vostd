@@ -125,6 +125,7 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             spt.wf(),
             pte == entry.pte,
             entry.wf(spt),
+            level == entry.node.level_spec(&spt.alloc_model),
         ensures
             res.child_entry_spt_wf(entry, spt),
     {
@@ -135,11 +136,14 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
 
         if !pte.is_last(level) {
             assert(spt.alloc_model.invariants());
-            assume(spt.alloc_model.meta_map.contains_key(paddr as int));  // TODO
-            let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
+            assert(spt.alloc_model.meta_map.contains_key(paddr as int));
+            let node = PageTableNodeRef::borrow_pt_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
+            assert(node.wf(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
-            assume(res.child_entry_spt_wf(entry, spt));
+            assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
+            assert(node.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model) - 1);
+            assert(res.child_entry_spt_wf(entry, spt));
             assert(!(res is None));
             assert(pte.is_present());
             return res;

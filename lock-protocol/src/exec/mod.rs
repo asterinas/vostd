@@ -148,8 +148,11 @@ impl PageTableEntryTrait for MockPageTableEntry {
         self.frame_pa as Paddr
     }
 
-    #[verifier::external_body]
     fn is_last(&self, level: u8) -> bool {
+        level == 1
+    }
+
+    open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
         level == 1
     }
 

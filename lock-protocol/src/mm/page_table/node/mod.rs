@@ -46,6 +46,7 @@ use crate::mm::NR_ENTRIES;
 
 use super::cursor::spec_helpers;
 use super::PageTableConfig;
+use std::ops::Deref;
 
 verus! {
 
@@ -136,6 +137,31 @@ impl<C: PageTableConfig> PageTableNode<C> {
 pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMeta<C>>;
 
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
+    /// Borrows the PageTableNode at the physical address as a PageTableNodeRef.
+    /// This is a specialized version of FrameRef::borrow_paddr for page table nodes.
+    pub fn borrow_pt_paddr(
+        raw: Paddr,
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: Self)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(raw as int),
+            pa_is_valid_pt_address(raw as int),
+            level_is_in_range::<C>(alloc_model.meta_map[raw as int].value().level as int),
+        ensures
+            res.deref().start_paddr() == raw,
+            res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+            res.wf(alloc_model),
+            alloc_model.invariants(),
+    {
+        let res = FrameRef::borrow_paddr(raw, Tracked(alloc_model));
+        res
+    }
+
+    pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
+        self.deref().wf(alloc_model)
+    }
+
     // Actually should be checked after verification. Just can't be checked in pure Rust.
     pub fn make_guard_unchecked<'rcu>(
         self,
