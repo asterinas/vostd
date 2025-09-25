@@ -5,6 +5,7 @@ use std::mem::ManuallyDrop;
 use vstd::prelude::*;
 
 use crate::mm::cursor::spec_helpers;
+use crate::mm::entry::Entry;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::Token;
@@ -15,6 +16,8 @@ use crate::mm::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
 use crate::mm::PagingLevel;
+use crate::spec::sub_pt::state_machine::IntermediatePageTableEntryView;
+use std::ops::Deref;
 
 use crate::sync::rcu::RcuDrop;
 
@@ -112,23 +115,87 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
     ///
     /// The provided level must be the same with the level of the page table
     /// node that contains this PTE.
-    #[verifier::external_body]
     pub(super) fn from_pte(
         pte: &C::E,
         level: PagingLevel,
         Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> Self {
+        entry: &Entry<C>,
+    ) -> (res: Self)
+    requires
+        spt.wf(),
+        pte == entry.pte,
+        entry.wf(spt),
+    ensures
+        res.child_entry_spt_wf(entry, spt),
+    {
         if !pte.is_present() {
             return ChildRef::None;
         }
         let paddr = pte.frame_paddr();
 
         if !pte.is_last(level) {
+            assert(spt.alloc_model.invariants());
+            assume(spt.alloc_model.meta_map.contains_key(paddr as int)); // TODO
             let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
-            return ChildRef::PageTable(node);
+            let res = ChildRef::PageTable(node);
+            assume(res.child_entry_spt_wf(entry, spt));
+            assert(!(res is None));
+            assert(pte.is_present());
+            return res;
         }
-        ChildRef::Frame(paddr, level, pte.prop())
+        let res = ChildRef::Frame(paddr, level, pte.prop());
+        assume(spt.ptes.value().contains_key(entry.pte.pte_paddr() as int));
+        assume(spt.ptes.value()[entry.pte.pte_paddr() as int].map_to_pa == paddr);
+        res
+    }
+
+    #[verifier::inline]
+    pub(in crate::mm) open spec fn child_entry_spt_wf(&self, entry: &Entry<C>, spt: &SubPageTable<C>) -> bool {
+            &&& self is PageTable <==> match self {
+                ChildRef::PageTable(pt) => {
+                    &&& spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int)
+                    &&& pt.wf(&spt.alloc_model)
+                    &&& pt.deref().start_paddr() == entry.pte.frame_paddr() as usize
+                    &&& pt.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model)
+                        - 1
+                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
+                    &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
+                        == pt.meta_ptr
+                    &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
+                    &&& spt.frames.value()[pt.deref().start_paddr() as int].ancestor_chain
+                        == spt.frames.value()[entry.node.paddr() as int].ancestor_chain.insert(
+                        entry.node.level_spec(&spt.alloc_model) as int,
+                        IntermediatePageTableEntryView {
+                            map_va: entry.va as int,
+                            frame_pa: entry.node.paddr() as int,
+                            in_frame_index: entry.idx as int,
+                            map_to_pa: pt.deref().start_paddr() as int,
+                            level: entry.node.level_spec(&spt.alloc_model),
+                            phantom: PhantomData,
+                        },
+                    )
+                },
+                _ => false,
+            }
+            &&& self is Frame <==> match self {
+                ChildRef::Frame(pa, level, prop) => {
+                    &&& pa == entry.pte.frame_paddr() as usize
+                    &&& spt.ptes.value().contains_key(entry.pte.pte_paddr() as int)
+                    &&& spt.ptes.value()[entry.pte.pte_paddr() as int].map_to_pa == pa
+                },
+                _ => false,
+            }
+            &&& (self is PageTable || self is Frame) <==> entry.pte.is_present_spec()
+            &&& self is None <==> {
+                // &&& !spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int)
+                // &&& !spt.ptes.value().contains_key(entry.pte.pte_paddr() as int)
+                &&& !entry.pte.is_present_spec()
+            }
+            &&& self is None <==> match self {
+                ChildRef::None => true,
+                _ => false,
+            }
     }
 }
 

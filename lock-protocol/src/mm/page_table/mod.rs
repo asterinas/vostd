@@ -228,7 +228,10 @@ Sized {
     /// or [`Self::new_pt`], whatever modified with [`Self::set_prop`] or not,
     /// this method should return true.
     #[verifier::when_used_as_spec(is_present_spec)]
-    fn is_present(&self) -> (res: bool);
+    fn is_present(&self) -> (res: bool)
+    ensures
+        res == self.is_present_spec(),
+    ;
 
     spec fn is_present_spec(&self) -> bool;
 

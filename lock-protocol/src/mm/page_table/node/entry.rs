@@ -63,7 +63,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& self.idx < nr_subpage_per_huge::<C>()
         &&& self.pte.pte_paddr_spec() == index_pte_paddr(self.node.paddr() as int, self.idx as int)
         &&& spt.frames.value().contains_key(self.node.paddr() as int)
-        &&& self.pte.is_present_spec() ==> {
+        &&& self.pte.is_present_spec() <==> {
             ||| spt.i_ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
             ||| spt.ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
         }
@@ -98,7 +98,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     }
 
     /// Gets a reference to the child.
-    #[verifier::external_body]
     pub(in crate::mm) fn to_ref(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: ChildRef<
         'rcu,
         C,
@@ -107,53 +106,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             spt.wf(),
             self.wf(spt),
         ensures
-            res is PageTable <==> match res {
-                ChildRef::PageTable(pt) => {
-                    &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                    &&& pt.wf(&spt.alloc_model)
-                    &&& pt.deref().start_paddr() == self.pte.frame_paddr() as usize
-                    &&& pt.level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model)
-                        - 1
-                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
-                    &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr()
-                        == pt.meta_ptr
-                    &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
-                    &&& spt.frames.value()[pt.deref().start_paddr() as int].ancestor_chain
-                        == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
-                        self.node.level_spec(&spt.alloc_model) as int,
-                        IntermediatePageTableEntryView {
-                            map_va: self.va as int,
-                            frame_pa: self.node.paddr() as int,
-                            in_frame_index: self.idx as int,
-                            map_to_pa: pt.deref().start_paddr() as int,
-                            level: self.node.level_spec(&spt.alloc_model),
-                            phantom: PhantomData,
-                        },
-                    )
-                },
-                _ => false,
-            },
-            res is Frame <==> match res {
-                ChildRef::Frame(pa, level, prop) => {
-                    &&& pa == self.pte.frame_paddr() as usize
-                    &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
-                    &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
-                },
-                _ => false,
-            },
-            res is None <==> {
-                &&& !spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& !spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
-            },
-            res is None <==> match res {
-                ChildRef::None => true,
-                _ => false,
-            },
+            res.child_entry_spt_wf(self, spt),
     {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), self.node.is_tracked(), false) }
-        ChildRef::from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), Tracked(spt))
+        ChildRef::from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), Tracked(spt), &self)
     }
 
     /// Operates on the mapping properties of the entry.

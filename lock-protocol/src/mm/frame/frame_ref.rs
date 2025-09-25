@@ -33,10 +33,11 @@ impl<'a, M: AnyFrameMeta> FrameRef<'a, M> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(raw as int),
-            alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(),
+            // alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(), // ?
         ensures
             res.deref().start_paddr() == raw,
             res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+            alloc_model.invariants(),
     {
         Self {
             inner: ManuallyDrop::new(Frame::from_raw(raw, Tracked(alloc_model))),
