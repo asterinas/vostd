@@ -105,12 +105,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
     }
 
-    #[verifier::external_body]
     pub(in crate::mm) fn is_none(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: bool)
         requires
             spt.wf(),
-        returns
-            self.is_none_spec(spt),
+            self.wf(spt),
+        ensures
+            res == self.is_none_spec(spt),
+            res == !self.pte.is_present(),
     {
         !self.pte.is_present()
     }
