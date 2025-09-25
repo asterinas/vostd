@@ -423,8 +423,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             ),
     {
         if !self.pte.is_present() {
-            assume(false);
-            // The entry is already present.
             return None;
         }
         let level = self.node.level(Tracked(&spt.alloc_model));
