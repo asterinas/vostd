@@ -12,3 +12,5 @@ test.pdb
 simple_page_table.exe
 simple_page_table.pdb
 lib
+.github/chatmodes/
+.vscode/launch.json
