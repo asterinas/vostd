@@ -16,9 +16,8 @@ use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use crate::task::guard;
-use super::{common::*, types::*, cpu::*, frame::meta::*};
-use super::pte::Pte;
-use crate::mm::page_table::PageTableEntryTrait;
+use super::{common::*, cpu::*, frame::meta::*};
+use super::pte::{Pte, page_table_entry_trait::*};
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
 use entry::Entry;
@@ -282,7 +281,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.in_protocol@ == false,
+            res.guard->Some_0.in_protocol() == false,
     {
         let guard = self.deref().meta().lock.normal_lock();
         PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
@@ -304,8 +303,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.stray_perm@.value() == false,
-            res.guard->Some_0.in_protocol@ == false,
+            res.guard->Some_0.stray_perm().value() == false,
+            res.guard->Some_0.in_protocol() == false,
     {
         let guard = self.deref().meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
         PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
@@ -333,8 +332,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.0.wf(),
             res.0.inner =~= self,
-            res.0.guard->Some_0.stray_perm@.value() == false,
-            res.0.guard->Some_0.in_protocol@ == true,
+            res.0.guard->Some_0.stray_perm().value() == false,
+            res.0.guard->Some_0.in_protocol() == true,
             res.1@.inv(),
             res.1@.inst_id() == res.0.inst_id(),
             res.1@.state() is Locking,
@@ -373,8 +372,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.stray_perm@.value() == false,
-            res.guard->Some_0.in_protocol@ == true,
+            res.guard->Some_0.stray_perm().value() == false,
+            res.guard->Some_0.in_protocol() == true,
     {
         // PageTableGuard { inner: self }
         unimplemented!()
@@ -437,7 +436,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             self.wf(),
         ensures
-            res == self.guard->Some_0.stray_perm@.value(),
+            res == self.guard->Some_0.stray_perm().value(),
     {
         let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
         let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
@@ -451,7 +450,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             0 <= idx < 512,
         ensures
             res.wf_with_node(*self.deref().deref(), idx as nat),
-            self.guard->Some_0.perms@.relate_pte(res, idx as nat),
+            self.guard->Some_0.perms().relate_pte(res, idx as nat),
     {
         let va = paddr_to_vaddr(self.deref().deref().start_paddr());
         let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
@@ -470,15 +469,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             if pte.is_pt(old(self).inner.deref().level_spec()) {
                 // Called in Entry::alloc_if_none
                 &&& old(self).wf_except(idx as nat)
-                &&& old(self).guard->Some_0.pte_token@->Some_0.value().is_alive(idx as nat)
+                &&& old(self).guard->Some_0.pte_token()->Some_0.value().is_alive(idx as nat)
                 &&& pte.inner.paddr() == old(
                     self,
-                ).guard->Some_0.pte_token@->Some_0.value().get_paddr(idx as nat)
+                ).guard->Some_0.pte_token()->Some_0.value().get_paddr(idx as nat)
             } else {
                 // Called in Entry::replace
                 old(self).wf()
             },
-            old(self).guard->Some_0.stray_perm@.value() == false,
+            old(self).guard->Some_0.stray_perm().value() == false,
             0 <= idx < 512,
             pte.wf_with_node(*(old(self).inner.deref()), idx as nat),
         ensures
@@ -488,113 +487,113 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 self.wf_except(idx as nat)
             },
             self.inner =~= old(self).inner,
-            self.guard->Some_0.perms@.relate_pte(pte, idx as nat),
-            self.guard->Some_0.pte_token =~= old(self).guard->Some_0.pte_token,
-            self.guard->Some_0.stray_perm@.value() == old(self).guard->Some_0.stray_perm@.value(),
-            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.guard->Some_0.perms().relate_pte(pte, idx as nat),
+            self.guard->Some_0.pte_token() =~= old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm().value() == old(self).guard->Some_0.stray_perm().value(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
         let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
         let mut guard = self.guard.take().unwrap();
         assert forall|i: int|
-            #![trigger guard.perms@.inner.opt_value()[i]]
+            #![trigger guard.perms().inner.opt_value()[i]]
             0 <= i < 512 && i != idx implies {
-            &&& guard.perms@.inner.opt_value()[i]->Init_0.wf_with_node(
+            &&& guard.perms().inner.opt_value()[i]->Init_0.wf_with_node(
                 *self.inner.deref(),
                 i as nat,
             )
         } by {
-            assert(guard.perms@.inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
+            assert(guard.perms().inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
         };
-        ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
+        ptr.overwrite(Tracked(&mut guard.inner.borrow_mut().perms.inner), idx, pte);
         self.guard = Some(guard);
         proof {
             let ghost level = self.inner.deref().level_spec();
             if pte.is_pt(level) {
                 assert(self.wf()) by {
-                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert(self.guard->Some_0.pte_token() is Some);
                     assert forall|i: int| #![auto] 0 <= i < 512 implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
                     } by {
                         if i != idx as int {
                             assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                                 old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                old(self).guard->Some_0.pte_token()->Some_0.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                                 self,
-                            ).guard->Some_0.pte_token@->Some_0.value());
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            ).guard->Some_0.pte_token()->Some_0.value());
+                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                                 self,
-                            ).guard->Some_0.perms@.inner.value()[i]);
+                            ).guard->Some_0.perms().inner.value()[i]);
                         }
                     };
                     assert forall|i: int|
                         #![auto]
-                        0 <= i < 512 && self.guard->Some_0.perms@.inner.value()[i].is_pt(
+                        0 <= i < 512 && self.guard->Some_0.perms().inner.value()[i].is_pt(
                             level,
                         ) implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
                     } by {
                         if i != idx as int {
                             assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                                 old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token@->Some_0.value(),
+                                old(self).guard->Some_0.pte_token()->Some_0.value(),
                                 idx as nat,
                             ));
-                            assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                                 self,
-                            ).guard->Some_0.pte_token@->Some_0.value());
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                            ).guard->Some_0.pte_token()->Some_0.value());
+                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                                 self,
-                            ).guard->Some_0.perms@.inner.value()[i]);
+                            ).guard->Some_0.perms().inner.value()[i]);
                         }
                     };
                 };
             } else {
                 assert(self.wf_except(idx as nat)) by {
-                    assert(self.guard->Some_0.pte_token@ is Some);
+                    assert(self.guard->Some_0.pte_token() is Some);
                     assert forall|i: int| #![auto] 0 <= i < 512 && i != idx as int implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token@->Some_0.value().is_alive(i as nat)
+                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
+                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
                     } by {
                         assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                             old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            old(self).guard->Some_0.pte_token()->Some_0.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                             self,
-                        ).guard->Some_0.pte_token@->Some_0.value());
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                        ).guard->Some_0.pte_token()->Some_0.value());
+                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                             self,
-                        ).guard->Some_0.perms@.inner.value()[i]);
+                        ).guard->Some_0.perms().inner.value()[i]);
                     };
                     assert forall|i: int|
                         #![auto]
                         0 <= i < 512 && i != idx
-                            && self.guard->Some_0.perms@.inner.value()[i].is_pt(level) implies {
-                        self.guard->Some_0.perms@.inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token@->Some_0.value().get_paddr(i as nat)
+                            && self.guard->Some_0.perms().inner.value()[i].is_pt(level) implies {
+                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
+                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
                     } by {
                         assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
+                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
                             old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token@->Some_0.value(),
+                            old(self).guard->Some_0.pte_token()->Some_0.value(),
                             idx as nat,
                         ));
-                        assert(self.guard->Some_0.pte_token@->Some_0.value() =~= old(
+                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
                             self,
-                        ).guard->Some_0.pte_token@->Some_0.value());
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
+                        ).guard->Some_0.pte_token()->Some_0.value());
+                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
                             self,
-                        ).guard->Some_0.perms@.inner.value()[i]);
+                        ).guard->Some_0.perms().inner.value()[i]);
                     };
                 };
             }
@@ -605,14 +604,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken>)
         requires
             old(self).guard is Some,
-            old(self).guard->Some_0.node_token@ is Some,
+            old(self).guard->Some_0.node_token() is Some,
         ensures
-            res@ == old(self).guard->Some_0.node_token@->Some_0,
-            self.guard->Some_0.node_token@ == None::<NodeToken>,
-            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
-            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
-            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
-            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            res@ == old(self).guard->Some_0.node_token()->Some_0,
+            self.guard->Some_0.node_token() == None::<NodeToken>,
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
             self.guard->Some_0.handle == old(self).guard->Some_0.handle,
             self.inner == old(self).inner,
             self.guard is Some,
@@ -627,13 +626,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn put_node_token(&mut self, token: Tracked<NodeToken>)
         requires
             old(self).guard is Some,
-            old(self).guard->Some_0.node_token@ is None,
+            old(self).guard->Some_0.node_token() is None,
         ensures
-            self.guard->Some_0.node_token@ == Some(token@),
-            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
-            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
-            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
-            self.guard->Some_0.in_protocol == old(self).guard->Some_0.in_protocol,
+            self.guard->Some_0.node_token() == Some(token@),
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
+            self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
             self.guard->Some_0.handle == old(self).guard->Some_0.handle,
             self.inner == old(self).inner,
             self.guard is Some,
@@ -643,15 +642,15 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         self.guard = Some(guard);
     }
 
-    pub fn update_in_protocol(&mut self, in_protocol: Ghost<bool>)
+    pub fn update_in_protocol(&mut self, in_protocol: Tracked<bool>)
         requires
             old(self).guard is Some,
         ensures
-            self.guard->Some_0.in_protocol@ == in_protocol@,
-            self.guard->Some_0.node_token@ == old(self).guard->Some_0.node_token@,
-            self.guard->Some_0.pte_token == old(self).guard->Some_0.pte_token,
-            self.guard->Some_0.stray_perm == old(self).guard->Some_0.stray_perm,
-            self.guard->Some_0.perms == old(self).guard->Some_0.perms,
+            self.guard->Some_0.in_protocol() == in_protocol@,
+            self.guard->Some_0.node_token() == old(self).guard->Some_0.node_token(),
+            self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
+            self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
+            self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
             self.guard->Some_0.handle == old(self).guard->Some_0.handle,
             self.inner == old(self).inner,
             self.guard is Some,
@@ -694,7 +693,7 @@ impl<C: PageTableConfig> PageTableGuard<'_, C> {
     pub fn normal_drop<'a>(&'a mut self)
         requires
             old(self).wf(),
-            old(self).guard->Some_0.in_protocol@ == false,
+            old(self).guard->Some_0.in_protocol() == false,
         ensures
             self.guard is None,
     {
@@ -707,8 +706,8 @@ impl<C: PageTableConfig> PageTableGuard<'_, C> {
     >)
         requires
             old(self).wf(),
-            old(self).guard->Some_0.stray_perm@.value() == false,
-            old(self).guard->Some_0.in_protocol@ == true,
+            old(self).guard->Some_0.stray_perm().value() == false,
+            old(self).guard->Some_0.in_protocol() == true,
             m@.inv(),
             m@.inst_id() == old(self).inst_id(),
             m@.state() is Locking,

@@ -1,7 +1,8 @@
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use super::common::*;
+use crate::spec::rcu::token_types::*;
+use super::common::*; // TODO
 
 verus! {
 

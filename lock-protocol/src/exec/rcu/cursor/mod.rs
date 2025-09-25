@@ -5,8 +5,7 @@ use std::{marker::PhantomData, ops::Range};
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use super::{common::*, types::*, cpu::*};
-use super::page_table::PageTable;
+use super::{common::*, cpu::*};
 use super::node::PageTableGuard;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::task::DisabledPreemptGuard;
