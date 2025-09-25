@@ -87,7 +87,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         }
         &&& forall|level: u8|
             self.pte.is_last(level) <==> {
-                spt.ptes.value().contains_key(self.pte.pte_paddr() as int) && level == 1
+                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int) 
+                &&& level == 1
+                // When this is a leaf PTE, the map_to_pa should equal the frame address
+                &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == self.pte.frame_paddr() as int
             }
         &&& forall|level: u8|
             !self.pte.is_last(level) <==> {

@@ -155,8 +155,6 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             return res;
         }
         let res = ChildRef::Frame(paddr, level, pte.prop());
-        assume(spt.ptes.value().contains_key(entry.pte.pte_paddr() as int));
-        assume(spt.ptes.value()[entry.pte.pte_paddr() as int].map_to_pa == paddr);
         res
     }
 
