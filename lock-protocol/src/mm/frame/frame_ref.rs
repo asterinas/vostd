@@ -4,7 +4,10 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 
-use crate::{mm::{cursor::MAX_NR_LEVELS, Paddr, PageTableConfig, PageTableNode, PagingConsts}, x86_64::NR_LEVELS_SPEC};
+use crate::{
+    mm::{cursor::MAX_NR_LEVELS, Paddr, PageTableConfig, PageTableNode, PagingConsts},
+    x86_64::NR_LEVELS_SPEC,
+};
 
 use super::{allocator::AllocatorModel, meta::AnyFrameMeta, Frame};
 use crate::mm::page_table::PagingConstsTrait;

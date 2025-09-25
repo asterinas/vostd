@@ -147,7 +147,8 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             assert(node.wf(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            assert(node.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model) - 1);
+            assert(node.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model)
+                - 1);
             assert(res.child_entry_spt_wf(entry, spt));
             assert(!(res is None));
             assert(pte.is_present());

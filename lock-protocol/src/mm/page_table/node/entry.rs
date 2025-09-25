@@ -7,7 +7,8 @@ use crate::{
     helpers::conversion::usize_mod_is_int_mod,
     mm::{
         cursor::spec_helpers::{
-            self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level, spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte
+            self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
+            spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
         },
         frame::allocator::AllocatorModel,
         meta::AnyFrameMeta,
@@ -19,7 +20,8 @@ use crate::{
         NR_ENTRIES,
     },
     sync::rcu::RcuDrop,
-    task::DisabledPreemptGuard, x86_64::NR_LEVELS_SPEC,
+    task::DisabledPreemptGuard,
+    x86_64::NR_LEVELS_SPEC,
 };
 
 use super::{Child, ChildRef, PageTableGuard, PageTableNode, PageTableNodeRef};
@@ -83,17 +85,24 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& self.pte.is_present() <==> {
             &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
         }
-        &&& forall |level: u8| self.pte.is_last(level) <==> {
-            spt.ptes.value().contains_key(self.pte.pte_paddr() as int) && level == 1
-        }
-        &&& forall |level: u8| !self.pte.is_last(level) <==> {
-            &&& #[trigger] spt.i_ptes.value().contains_key(#[trigger] self.pte.pte_paddr_spec() as int)
-            &&& level == self.node.level_spec(&spt.alloc_model)
-            &&& #[trigger] level_is_in_range::<C>(level as int)
-            // When this is an intermediate PTE, the child frame's level should be one less than current node's level
-            &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
-            &&& spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level == level - 1
-        }
+        &&& forall|level: u8|
+            self.pte.is_last(level) <==> {
+                spt.ptes.value().contains_key(self.pte.pte_paddr() as int) && level == 1
+            }
+        &&& forall|level: u8|
+            !self.pte.is_last(level) <==> {
+                &&& #[trigger] spt.i_ptes.value().contains_key(
+                    #[trigger] self.pte.pte_paddr_spec() as int,
+                )
+                &&& level == self.node.level_spec(&spt.alloc_model)
+                &&& #[trigger] level_is_in_range::<C>(
+                    level as int,
+                )
+                // When this is an intermediate PTE, the child frame's level should be one less than current node's level
+                &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
+                &&& spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level == level
+                    - 1
+            }
     }
 
     #[verifier::external_body]
