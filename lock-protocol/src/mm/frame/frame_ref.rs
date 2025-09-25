@@ -34,7 +34,7 @@ impl<'a, M: AnyFrameMeta> FrameRef<'a, M> {
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(
                 raw as int,
-            ),// alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(),
+            ),  // alloc_model.meta_map[raw as int].pptr() == alloc_model.meta_map[raw as int].pptr(),
     // ?
 
         ensures
