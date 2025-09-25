@@ -104,7 +104,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
             self.wf(),
         ensures
             Self::from_raw_spec(self.start_paddr()) =~= *self,
-    {}
+    {
+    }
 }
 
 // Functions defined in struct 'PageTableNode'.
@@ -284,11 +285,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol@ == false,
     {
         let guard = self.deref().meta().lock.normal_lock();
-        PageTableGuard { 
-            inner: self, 
-            guard: Some(guard),
-            _phantom: PhantomData,
-        }
+        PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
     }
 
     pub fn normal_lock_new_allocated_node<'rcu>(
@@ -311,11 +308,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol@ == false,
     {
         let guard = self.deref().meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
-        PageTableGuard { 
-            inner: self, 
-            guard: Some(guard),
-            _phantom: PhantomData,
-        }
+        PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
     }
 
     pub fn lock<'rcu>(
@@ -353,11 +346,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         proof {
             m = res.1.get();
         }
-        let guard = PageTableGuard { 
-            inner: self, 
-            guard: Some(res.0),
-            _phantom: PhantomData,
-        };
+        let guard = PageTableGuard { inner: self, guard: Some(res.0), _phantom: PhantomData };
         (guard, Tracked(m))
     }
 

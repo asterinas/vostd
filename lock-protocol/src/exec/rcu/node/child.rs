@@ -87,7 +87,9 @@ impl<C: PageTableConfig> Child<C> {
             Child::PageTable(node) => {
                 let paddr = node.start_paddr();
                 let tracked_node = node.deref();
-                proof { tracked_node.axiom_from_raw_sound(); }
+                proof {
+                    tracked_node.axiom_from_raw_sound();
+                }
                 let tracked_inst = tracked_node.inst;
                 let tracked inst = tracked_inst.borrow().clone();
                 let ghost nid = node.nid@;

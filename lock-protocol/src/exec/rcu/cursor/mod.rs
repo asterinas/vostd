@@ -1,9 +1,6 @@
 pub mod locking;
 
-use std::{
-    marker::PhantomData,
-    ops::Range,
-};
+use std::{marker::PhantomData, ops::Range};
 
 use vstd::prelude::*;
 
@@ -32,7 +29,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.path.len() == 4
         &&& 1 <= self.level <= self.guard_level <= 4
-        &&& forall |level: PagingLevel|
+        &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
             1 <= level <= 4 ==> {
                 if level > self.guard_level {

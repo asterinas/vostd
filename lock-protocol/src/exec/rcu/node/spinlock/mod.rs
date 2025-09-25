@@ -156,11 +156,7 @@ impl<C: PageTableConfig> PageTableEntryPerms<C> {
             }
     }
 
-    pub open spec fn relate_pte(
-        &self, 
-        pte: Pte<C>,
-        idx: nat
-    ) -> bool {
+    pub open spec fn relate_pte(&self, pte: Pte<C>, idx: nat) -> bool {
         pte =~= self.inner.value()[idx as int]
     }
 }
@@ -807,11 +803,9 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
         (guard, Tracked(m))
     }
 
-    pub fn unlock(
-        &self, 
-        guard: SpinGuard<C>, 
-        m: Tracked<LockProtocolModel>
-    ) -> (res: Tracked<LockProtocolModel>)
+    pub fn unlock(&self, guard: SpinGuard<C>, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+        LockProtocolModel,
+    >)
         requires
             self.wf(),
             guard.wf(self),

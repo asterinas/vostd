@@ -166,25 +166,18 @@ pub(crate) struct UserPtConfig {}
 //     fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
 //         0..256
 //     }
-
 //     open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
 //         0..256
 //     }
-
 //     fn TOP_LEVEL_CAN_UNMAP() -> bool {
 //         true
 //     }
-
 //     open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
 //         true
 //     }
-
 //     type E = MockPageTableEntry;
-
 //     type C = PagingConsts;
-
 //     type Item = VmItem;
-
 //     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
 //         ensures
 //             res == Self::item_into_raw_spec(item),
@@ -201,7 +194,6 @@ pub(crate) struct UserPtConfig {}
 //             },
 //         }
 //     }
-
 //     open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
 //         match item {
 //             VmItem::Frame(frame, prop) => {
@@ -215,7 +207,6 @@ pub(crate) struct UserPtConfig {}
 //             },
 //         }
 //     }
-
 //     unsafe fn item_from_raw(
 //         paddr: Paddr,
 //         level: PagingLevel,
@@ -235,6 +226,5 @@ pub(crate) struct UserPtConfig {}
 //         }
 //     }
 // }
-
 // TODO: TryFrom<PageTableItem> for VmItem
 } // verus!

@@ -208,8 +208,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     }
 }
 
-pub trait PageTableEntryTrait: Clone +
-Copy +
+pub trait PageTableEntryTrait: Clone + Copy +
 // Default +
 // Sized + Send + Sync + 'static
 // Debug // TODO: Implement Debug for PageTableEntryTrait
@@ -232,7 +231,7 @@ Sized {
         returns
             self.as_value_spec(),
     ;
-    
+
     open spec fn new_absent_spec() -> Self {
         Self::default_spec()
     }
@@ -268,7 +267,8 @@ Sized {
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            // valid_paddr(paddr),
+    // valid_paddr(paddr),
+
             level == 1,
         ensures
             res.is_present(),
@@ -284,10 +284,12 @@ Sized {
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
         requires
-            // valid_paddr(paddr),
+    // valid_paddr(paddr),
+
         ensures
             res.is_present(),
-            // valid_paddr(res.paddr()),
+    // valid_paddr(res.paddr()),
+
         returns
             Self::new_pt_spec(paddr),
     ;
@@ -343,7 +345,8 @@ Sized {
             !Self::default().is_present(),
             forall|p: Paddr, level: PagingLevel, prop: PageProperty|
                 #![trigger Self::new_page(p, level, prop)]
-                // valid_paddr(p) && 
+            // valid_paddr(p) &&
+
                 level == 1 ==> {
                     let page = Self::new_page(p, level, prop);
                     &&& page.is_present()
@@ -352,13 +355,15 @@ Sized {
                 },
             forall|p: Paddr|
                 #![trigger Self::new_pt(p)]
-                // valid_paddr(p) ==> 
+            // valid_paddr(p) ==>
+
                 {
                     let pt = Self::new_pt(p);
                     &&& pt.is_present()
                     &&& pt.paddr_spec() == p
                     // TODO
                     // &&& !pt.is_last(PageTableNode::from_raw_spec(p).level_spec())
+
                 },
     ;
 

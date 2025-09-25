@@ -2,7 +2,6 @@
 // pub mod page_table_entry;
 // pub mod page_table_entry_trait;
 // pub mod page_table_flags;
-
 use std::marker::PhantomData;
 
 use vstd::prelude::*;
@@ -144,11 +143,7 @@ impl<C: PageTableConfig> Pte<C> {
             res.wf_new_page(paddr, level, prop),
             res.is_frame(level) || res.is_marked(),
     {
-        Self {
-            inner: C::E::new_page(paddr, level, prop),
-            nid: Ghost(None),
-            inst: Tracked(None),
-        }
+        Self { inner: C::E::new_page(paddr, level, prop), nid: Ghost(None), inst: Tracked(None) }
     }
 
     pub open spec fn wf_new_pt(&self, paddr: Paddr, inst: SpecInstance, nid: NodeId) -> bool {
@@ -170,11 +165,7 @@ impl<C: PageTableConfig> Pte<C> {
             res.is_pt((PageTableNode::<C>::from_raw_spec(paddr).level_spec() + 1) as PagingLevel),
             res.inner.paddr() == paddr,
     {
-        Self {
-            inner: C::E::new_pt(paddr),
-            nid: Ghost(Some(nid@)),
-            inst: Tracked(Some(inst.get())),
-        }
+        Self { inner: C::E::new_pt(paddr), nid: Ghost(Some(nid@)), inst: Tracked(Some(inst.get())) }
     }
 }
 
@@ -192,7 +183,7 @@ impl<C: PageTableConfig> Clone for Pte<C> {
 }
 
 impl<C: PageTableConfig> Copy for Pte<C> {
-    
+
 }
 
 } // verus!
