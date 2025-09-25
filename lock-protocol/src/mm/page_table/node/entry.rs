@@ -111,7 +111,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
         // unsafe { Child::ref_from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), self.node.is_tracked(), false) }
-        ChildRef::from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), Tracked(spt), &self)
+        ChildRef::from_pte(
+            &self.pte,
+            self.node.level(Tracked(&spt.alloc_model)),
+            Tracked(spt),
+            &self,
+        )
     }
 
     /// Operates on the mapping properties of the entry.
