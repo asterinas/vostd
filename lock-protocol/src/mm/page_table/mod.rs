@@ -396,18 +396,6 @@ Sized {
     /// This can be done for both present and absent PTEs.
     fn set_paddr(&mut self, paddr: Paddr);
 
-    /// If the PTE maps a page rather than a child page table.
-    ///
-    /// The level of the page table the entry resides is given since architectures
-    /// like amd64 only uses a huge bit in intermediate levels.
-    #[verifier::when_used_as_spec(is_last_spec)]
-    fn is_last(&self, level: PagingLevel) -> (res: bool)
-    ensures
-        res == self.is_last_spec(level),
-    ;
-
-    spec fn is_last_spec(&self, level: PagingLevel) -> bool;
-
     // It seems we cannot specify a clone spec for a trait in Verus.
     fn clone_pte(&self) -> (res: Self)
         ensures

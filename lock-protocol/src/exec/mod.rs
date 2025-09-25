@@ -148,9 +148,9 @@ pub fn alloc_page_table<C: PageTableConfig>(
 //         level == 1
 //     }
 
-    open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
-        level == 1
-    }
+///    open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
+///        level == 1
+///    }
 //     fn new_page(
 //         paddr: crate::mm::Paddr,
 //         level: crate::mm::PagingLevel,
