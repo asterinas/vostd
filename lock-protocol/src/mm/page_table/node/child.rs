@@ -193,11 +193,6 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             _ => false,
         }
         &&& (self is PageTable || self is Frame) <==> entry.pte.is_present_spec()
-        &&& self is None <==> {
-            // &&& !spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int)
-            // &&& !spt.ptes.value().contains_key(entry.pte.pte_paddr() as int)
-            &&& !entry.pte.is_present_spec()
-        }
         &&& self is None <==> match self {
             ChildRef::None => true,
             _ => false,
