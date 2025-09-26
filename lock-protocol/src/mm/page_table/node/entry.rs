@@ -478,7 +478,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 map_va: self.va@ as int,
                 frame_pa: self.node.paddr() as int,
                 in_frame_index: self.idx as int,
-                map_to_pa: pt.start_paddr() as int,
+                map_to_pa: pa as int,
                 level,
                 phantom: PhantomData::<C>,
             };
@@ -498,7 +498,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
             assert(spt.frames.value()[self.node.paddr() as int].level as int == level as int);
             spt.instance.set_child(i_pte, &mut spt.frames, &mut spt.i_ptes, &spt.ptes);
-            spt.perms.tracked_insert(pt.start_paddr(), perm);
+            spt.perms.tracked_insert(pa, perm);
+
+            // i_pte.entry_pa() == i_pte.pte_paddr_spec(). @see entry_pa
+            assert(spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
         }
 
         assert(spt.wf());
@@ -514,12 +517,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         assert(spt.alloc_model.meta_map.contains_key(pa as int));
         assert(spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int));
 
-        // assert(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
-
         assert(self.wf(spt));
-        assume(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
-        assume(spt_do_not_change_above_level(spt, old(spt), level));
-        assume(alloc_model_do_not_change_except_add_frame(spt, old(spt), pa));
+        assert(alloc_model_do_not_change_except_add_frame(spt, old(spt), pa));
+        assert(spt_do_not_change_above_level(spt, old(spt), level));
+        assert(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
 
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
         assert(node_ref.level_spec(&spt.alloc_model) == level - 1);

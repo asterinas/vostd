@@ -319,7 +319,20 @@ SubPageTableStateMachine<C: PageTableConfig> {
     }
 
     #[inductive(set_child)]
-    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView<C>) {}
+    pub fn tr_set_child_invariant(pre: Self, post: Self, i_pte: IntermediatePageTableEntryView<C>) {
+        assert(forall |i|
+            #[trigger] pre.frames.contains_key(i) ==>
+            (forall |l| #[trigger] pre.frames[i].ancestor_chain.dom().contains(l)
+            && !(#[trigger] pre.frames[i].ancestor_chain.index(l).entry_pa() == i_pte.entry_pa())) ==>
+               #[trigger] post.frames.contains_key(i)
+        );
+        // assert(forall |i|
+        //     #[trigger] post.frames.contains_key(i) ==>
+        //     (forall |l| #[trigger] post.frames[i].ancestor_chain.dom().contains(l)
+        //     && !(#[trigger] post.frames[i].ancestor_chain.index(l).entry_pa() == i_pte.entry_pa())) ==>
+        //        #[trigger] pre.frames.contains_key(i)
+        // );
+    }
 
     transition! {
         // remove a pte at a given address

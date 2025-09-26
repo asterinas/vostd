@@ -583,7 +583,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va == old(self).va,
             // Path remains unchanged except the one being set
             forall|i: PagingLevel|
-                #![trigger self.path.view().index(path_index_at_level_spec(i))]
+                #![auto]
                 old(self).level <= i <= old(self).guard_level ==> {
                     #[trigger] path_index!(self.path[i]) == path_index!(old(self).path[i])
                 },

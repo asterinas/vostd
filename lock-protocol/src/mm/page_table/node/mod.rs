@@ -121,8 +121,15 @@ impl<C: PageTableConfig> PageTableNode<C> {
             // old model does not change
             forall|pa: Paddr| #[trigger]
                 old(model).meta_map.contains_key(pa as int)
-                    ==> #[trigger] model.meta_map.contains_key(pa as int)
-                    && model.meta_map[pa as int] == old(model).meta_map[pa as int],
+                    <==> {
+                    &&& #[trigger] model.meta_map.contains_key(pa as int)
+                    &&& res.0.start_paddr() != pa
+                },
+            forall |pa: Paddr| #[trigger]
+                model.meta_map.contains_key(pa as int) && old(model).meta_map.contains_key(pa as int)
+                    ==> {
+                    &&& model.meta_map[pa as int] == old(model).meta_map[pa as int]
+                },
     {
         crate::exec::alloc_page_table(level, Tracked(model))
     }
