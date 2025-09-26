@@ -613,7 +613,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
             self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
             self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
-            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
             self.inner == old(self).inner,
             self.guard is Some,
     {
@@ -634,7 +634,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
             self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
             self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
-            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
             self.inner == old(self).inner,
             self.guard is Some,
     {
@@ -652,7 +652,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
             self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
             self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
-            self.guard->Some_0.handle == old(self).guard->Some_0.handle,
+            self.guard->Some_0.handle() == old(self).guard->Some_0.handle(),
             self.inner == old(self).inner,
             self.guard is Some,
     {

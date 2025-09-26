@@ -216,9 +216,10 @@ pub(super) fn lock_range<'rcu>(
     )
 }
 
-pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (res: Tracked<
-    LockProtocolModel,
->)
+pub fn unlock_range(
+    cursor: &mut Cursor<'_>, 
+    m: Tracked<LockProtocolModel>
+) -> (res: Tracked<LockProtocolModel>)
     requires
         old(cursor).wf(),
         m@.inv(),
@@ -487,7 +488,8 @@ fn dfs_acquire_lock(
     // cur_node_va: Vaddr,
     // va_range: Range<Vaddr>,
     m: Tracked<LockProtocolModel>,
-) -> (res: Tracked<LockProtocolModel>)
+    forgot_guards: Tracked<SubTreeForgotGuard>,
+) -> (res: (Tracked<LockProtocolModel>, Tracked<SubTreeForgotGuard>))
     requires
         cur_node.wf(),
         cur_node.guard->Some_0.stray_perm().value() == false,
@@ -498,14 +500,16 @@ fn dfs_acquire_lock(
         m@.cur_node() == cur_node.nid() + 1,
         m@.node_is_locked(cur_node.nid()),
     ensures
-        res@.inv(),
-        res@.inst_id() == cur_node.inst_id(),
-        res@.state() is Locking,
-        res@.sub_tree_rt() == m@.sub_tree_rt(),
-        res@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
+        res.0@.inv(),
+        res.0@.inst_id() == cur_node.inst_id(),
+        res.0@.state() is Locking,
+        res.0@.sub_tree_rt() == m@.sub_tree_rt(),
+        res.0@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::utils::group_node_helper_lemmas;
+
+    let tracked mut forgot_guards = forgot_guards.get();
 
     let cur_level = cur_node.deref().deref().level();
     if cur_level == 1 {
@@ -579,8 +583,14 @@ fn dfs_acquire_lock(
                 proof {
                     m = res.get();
                 }
+                // Forget the page table guard.
+                assert(pt_guard.guard is Some);
+                let tracked guard = pt_guard.guard.tracked_unwrap()
+                let tracked forgot_guard = guard.inner.get();
+                proof {
+                    forgot_guards.tracked_put(, forgot_guard);
+                }
                 let _ = ManuallyDrop::new(pt_guard);
-
             },
             ChildRef::Frame(_, _, _) => unreached(),
             ChildRef::None => {
