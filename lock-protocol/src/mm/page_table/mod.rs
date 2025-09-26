@@ -429,7 +429,16 @@ Sized {
     /// Set the physical address of the PTE.
     ///
     /// This can be done for both present and absent PTEs.
-    fn set_paddr(&mut self, paddr: Paddr);
+    fn set_paddr(&mut self, paddr: Paddr)
+        ensures
+            self.pte_paddr() == paddr,
+            self.pte_paddr_spec() == paddr,
+            self.is_present() == old(self).is_present(),
+            self.prop() == old(self).prop(),
+            self.frame_paddr() == old(self).frame_paddr(),
+            forall|level: PagingLevel| #[trigger]
+                old(self).is_last_spec(level) <==> self.is_last_spec(level),
+    ;
 
     // It seems we cannot specify a clone spec for a trait in Verus.
     fn clone_pte(&self) -> (res: Self)
