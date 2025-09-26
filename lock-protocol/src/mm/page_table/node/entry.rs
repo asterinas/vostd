@@ -60,6 +60,14 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
 }
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
+    #[verifier::inline]
+    pub open spec fn pte_frame_level(&self, spt: &SubPageTable<C>) -> PagingLevel
+        recommends
+            spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int),
+    {
+        spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level
+    }
+
     pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
         &&& self.node.wf(&spt.alloc_model)
         &&& self.idx < nr_subpage_per_huge::<C>()
@@ -82,11 +90,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         &&& spt.frames.value()[self.node.paddr() as int].level as int == self.node.level_spec(
             &spt.alloc_model,
         )
-        &&& self.pte.is_present() <==> {
+        &&& self.pte.is_present() ==> {
             &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
         }
         &&& forall|level: u8|
-            self.pte.is_last(level) <==> {
+            self.pte.is_last(level) ==> {
                 &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
                 &&& level
                     == 1
@@ -94,19 +102,33 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa
                     == self.pte.frame_paddr() as int
             }
+        &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int) ==> {
+            &&& #[trigger] level_is_in_range::<C>(self.pte_frame_level(spt) as int)
+        }
         &&& forall|level: u8|
-            !self.pte.is_last(level) <==> {
+            !self.pte.is_last(level) && self.pte.is_present() <==> {
                 &&& #[trigger] spt.i_ptes.value().contains_key(
                     #[trigger] self.pte.pte_paddr_spec() as int,
                 )
-                &&& level == self.node.level_spec(&spt.alloc_model)
-                &&& #[trigger] level_is_in_range::<C>(
-                    level as int,
+                &&& level == self.node.level_spec(
+                    &spt.alloc_model,
                 )
                 // When this is an intermediate PTE, the child frame's level should be one less than current node's level
                 &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
-                &&& spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level == level
-                    - 1
+                &&& self.pte_frame_level(spt) == level - 1
+                &&& spt.frames.value().contains_key(self.pte.frame_paddr() as int)
+                &&& spt.frames.value()[self.pte.frame_paddr() as int].ancestor_chain
+                    == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
+                    self.node.level_spec(&spt.alloc_model) as int,
+                    IntermediatePageTableEntryView {
+                        map_va: self.va@ as int,
+                        frame_pa: self.node.paddr() as int,
+                        in_frame_index: self.idx as int,
+                        map_to_pa: self.pte.frame_paddr() as int,
+                        level: self.node.level_spec(&spt.alloc_model),
+                        phantom: PhantomData,
+                    },
+                )
             }
     }
 
@@ -394,6 +416,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             !old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(self).node.level_spec(&old(spt).alloc_model) > 1,
             old(self).node.wf(&old(spt).alloc_model),
+            !old(self).pte.is_present(),
         ensures
             self.wf(spt),
             self.pte.pte_paddr() == old(self).pte.pte_paddr(),
@@ -427,9 +450,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 },
             ),
     {
-        if !self.pte.is_present() {
-            return None;
-        }
+        assert(!self.pte.is_present());
         let level = self.node.level(Tracked(&spt.alloc_model));
         let (pt, Tracked(perm)) = PageTableNode::<C>::alloc(
             level - 1,
@@ -495,6 +516,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
         let node_ref = PageTableNodeRef::borrow_paddr(pa, Tracked(&spt.alloc_model));
 
+        assume(self.pte.is_present());  // TODO: model is_present
         assert(self.wf(spt));
         assume(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
         assume(spt_do_not_change_above_level(spt, old(spt), level));

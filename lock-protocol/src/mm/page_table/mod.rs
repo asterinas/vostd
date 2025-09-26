@@ -283,7 +283,7 @@ Sized {
     /// Create a new PTE that map to a child page table.
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
-        requires
+    // requires
     // valid_paddr(paddr),
 
         ensures

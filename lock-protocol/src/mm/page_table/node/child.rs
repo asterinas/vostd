@@ -25,8 +25,7 @@ use super::{PageTableNode, PageTableNodeRef};
 
 use crate::exec;
 use crate::spec::sub_pt::SubPageTable;
-
-// use crate::prelude::{RawPageTableNode, PageProperty, Paddr, PagingLevel, DynPage};
+use crate::spec::sub_pt::level_is_in_range;
 
 verus! {
 
@@ -142,20 +141,17 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
         if !pte.is_last(level) {
             assert(spt.alloc_model.invariants());
             assert(spt.alloc_model.meta_map.contains_key(paddr as int));
+            assert(level_is_in_range::<C>(entry.pte_frame_level(&spt) as int));
+            assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
             let node = PageTableNodeRef::borrow_pt_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
             assert(node.wf(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            assert(node.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model)
-                - 1);
             assert(res.child_entry_spt_wf(entry, spt));
-            assert(!(res is None));
-            assert(pte.is_present());
             return res;
         }
-        let res = ChildRef::Frame(paddr, level, pte.prop());
-        res
+        ChildRef::Frame(paddr, level, pte.prop())
     }
 
     #[verifier::inline]
