@@ -208,12 +208,18 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
     }
 }
 
+pub ghost struct PageTableEntryGhost {
+    pub level: int,
+}
+
 pub trait PageTableEntryTrait: Clone + Copy +
 // Default +
 // Sized + Send + Sync + 'static
 // Debug // TODO: Implement Debug for PageTableEntryTrait
 // + Pod + PodOnce // TODO: Implement Pod and PodOnce for PageTableEntryTrait
 Sized {
+    spec fn view(&self) -> PageTableEntryGhost;
+
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.
@@ -261,6 +267,19 @@ Sized {
             self.is_present_spec(),
     ;
 
+    fn set_present(&mut self)
+        requires
+            !old(self).is_present(),
+        ensures
+            self.is_present(),
+            self.paddr() == old(self).paddr(),
+            self.prop() == old(self).prop(),
+            self.frame_paddr() == old(self).frame_paddr(),
+            self.pte_paddr() == old(self).pte_paddr(),
+            forall|level: PagingLevel| #[trigger]
+                old(self).is_last_spec(level) == self.is_last_spec(level),
+    ;
+
     spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self;
 
     /// Create a new PTE with the given physical address and flags that map to a page.
@@ -274,6 +293,7 @@ Sized {
             res.is_present(),
             // valid_paddr(res.paddr()),
             res.is_last_spec(level),
+            res@.level == 1,
         returns
             Self::new_page_spec(paddr, level, prop),
     ;
@@ -288,8 +308,8 @@ Sized {
 
         ensures
             res.is_present(),
-    // valid_paddr(res.paddr()),
-
+            // valid_paddr(res.paddr()),
+            res@.level > 1,
         returns
             Self::new_pt_spec(paddr),
     ;
@@ -327,7 +347,9 @@ Sized {
             old(self).set_prop_spec(prop) == self,
     ;
 
-    spec fn is_last_spec(&self, level: PagingLevel) -> bool;
+    open spec fn is_last_spec(&self, level: PagingLevel) -> bool {
+        level == self@.level && self@.level == 1
+    }
 
     /// If the PTE maps a page rather than a child page table.
     ///
@@ -382,6 +404,19 @@ Sized {
     ;
 
     spec fn frame_paddr_spec(&self) -> Paddr;
+
+    fn set_frame_paddr(&mut self, paddr: Paddr)
+        requires
+            old(self).is_present(),
+        ensures
+            self.frame_paddr() == paddr,
+            self.is_present(),
+            self.paddr() == old(self).paddr(),
+            self.prop() == old(self).prop(),
+            self.pte_paddr() == old(self).pte_paddr(),
+            forall|level: PagingLevel| #[trigger]
+                old(self).is_last_spec(level) <==> self.is_last_spec(level),
+    ;
 
     #[verifier::when_used_as_spec(pte_paddr_spec)]
     fn pte_paddr(&self) -> Paddr

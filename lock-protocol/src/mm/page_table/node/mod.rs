@@ -91,6 +91,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         self.meta_spec(alloc_model).level
     }
 
+    #[verifier::external_body]
     pub fn alloc(
         level: PagingLevel,
         Tracked(model): Tracked<&mut AllocatorModel<PageTablePageMeta<C>>>,
@@ -120,15 +121,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
             // old model does not change
             forall|pa: Paddr| #[trigger]
                 old(model).meta_map.contains_key(pa as int)
-                    ==> #[trigger] model.meta_map.contains_key(pa as int),
-            forall|p: Paddr| #[trigger]
-                old(model).meta_map.contains_key(p as int) ==> {
-                    &&& #[trigger] model.meta_map.contains_key(p as int)
-                    &&& (#[trigger] model.meta_map[p as int]).pptr() == (#[trigger] old(
-                        model,
-                    ).meta_map[p as int]).pptr()
-                    &&& model.meta_map[p as int].value() == old(model).meta_map[p as int].value()
-                },
+                    ==> #[trigger] model.meta_map.contains_key(pa as int)
+                    && model.meta_map[pa as int] == old(model).meta_map[pa as int],
     {
         crate::exec::alloc_page_table(level, Tracked(model))
     }
