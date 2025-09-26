@@ -428,7 +428,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& spt.wf()
                 &&& res is Some
                 &&& spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int)
-                &&& spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model))
+                &&& spt_do_not_change_above_level(
+                    spt,
+                    old(spt),
+                    self.node.level_spec(&spt.alloc_model),
+                )
                 &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr())
                 &&& res.unwrap().wf(&spt.alloc_model)
                 &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
@@ -436,7 +440,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& spt.frames.value().contains_key(res.unwrap().paddr() as int)
                 &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
                 &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
-                &&& res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1
+                &&& res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(
+                    &spt.alloc_model,
+                ) - 1
                 &&& spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
                     == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
                     self.node.level_spec(&spt.alloc_model) as int,
@@ -449,7 +455,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         phantom: PhantomData,
                     },
                 )
-            }
+            },
     {
         if self.pte.is_present() {
             return None;
