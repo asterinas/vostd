@@ -48,8 +48,9 @@ pub open spec fn spt_do_not_change_except_modify_pte<C: PageTableConfig>(
     &&& spt.wf()
     &&& old_spt.wf()
     &&& spt.instance.id() == old_spt.instance.id()
-    &&& spt.instance.root() == old_spt.instance.root()
-    // &&& forward_spt_do_not_change_except(spt, old_spt, pte_addr) // not correct?
+    &&& spt.instance.root()
+        == old_spt.instance.root()// &&& forward_spt_do_not_change_except(spt, old_spt, pte_addr)
+    // not correct?
     &&& forward_spt_do_not_change_except(old_spt, spt, pte_addr)
 }
 

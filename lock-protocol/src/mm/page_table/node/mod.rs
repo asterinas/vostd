@@ -120,14 +120,14 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.0.start_paddr() % page_size_spec::<C>(level) == 0,
             // old model does not change
             forall|pa: Paddr| #[trigger]
-                old(model).meta_map.contains_key(pa as int)
-                    <==> {
+                old(model).meta_map.contains_key(pa as int) <==> {
                     &&& #[trigger] model.meta_map.contains_key(pa as int)
                     &&& res.0.start_paddr() != pa
                 },
-            forall |pa: Paddr| #[trigger]
-                model.meta_map.contains_key(pa as int) && old(model).meta_map.contains_key(pa as int)
-                    ==> {
+            forall|pa: Paddr| #[trigger]
+                model.meta_map.contains_key(pa as int) && old(model).meta_map.contains_key(
+                    pa as int,
+                ) ==> {
                     &&& model.meta_map[pa as int] == old(model).meta_map[pa as int]
                 },
     {
