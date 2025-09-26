@@ -412,41 +412,48 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             !old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
             old(self).node.level_spec(&old(spt).alloc_model) > 1,
             old(self).node.wf(&old(spt).alloc_model),
-            !old(self).pte.is_present(),
         ensures
-            self.wf(spt),
-            self.pte.pte_paddr() == old(self).pte.pte_paddr(),
-            self.node == old(self).node,
-            self.node.level_spec(&spt.alloc_model) == old(self).node.level_spec(
-                &old(spt).alloc_model,
-            ),
-            self.idx == old(self).idx,
-            spt.wf(),
-            res is Some,
-            spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int),
-            spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model)),
-            alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr()),
-            res.unwrap().wf(&spt.alloc_model),
-            spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int),
-            !old(spt).frames.value().contains_key(res.unwrap().paddr() as int),
-            spt.frames.value().contains_key(res.unwrap().paddr() as int),
-            !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
-            spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int),
-            res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1,
-            spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
-                == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
-                self.node.level_spec(&spt.alloc_model) as int,
-                IntermediatePageTableEntryView {
-                    map_va: self.va as int,
-                    frame_pa: self.node.paddr() as int,
-                    in_frame_index: self.idx as int,
-                    map_to_pa: res.unwrap().paddr() as int,
-                    level: self.node.level_spec(&spt.alloc_model),
-                    phantom: PhantomData,
-                },
-            ),
+            if old(self).pte.is_present() {
+                &&& res is None
+                &&& spt == old(spt)
+                &&& self == old(self)
+            } else {
+                &&& self.wf(spt)
+                &&& self.pte.pte_paddr() == old(self).pte.pte_paddr()
+                &&& self.node == old(self).node
+                &&& self.node.level_spec(&spt.alloc_model) == old(self).node.level_spec(
+                    &old(spt).alloc_model,
+                )
+                &&& self.idx == old(self).idx
+                &&& spt.wf()
+                &&& res is Some
+                &&& spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int)
+                &&& spt_do_not_change_above_level(spt, old(spt), self.node.level_spec(&spt.alloc_model))
+                &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr())
+                &&& res.unwrap().wf(&spt.alloc_model)
+                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
+                &&& !old(spt).frames.value().contains_key(res.unwrap().paddr() as int)
+                &&& spt.frames.value().contains_key(res.unwrap().paddr() as int)
+                &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
+                &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr() as int)
+                &&& res.unwrap().level_spec(&spt.alloc_model) == self.node.level_spec(&spt.alloc_model) - 1
+                &&& spt.frames.value()[res.unwrap().paddr() as int].ancestor_chain
+                    == spt.frames.value()[self.node.paddr() as int].ancestor_chain.insert(
+                    self.node.level_spec(&spt.alloc_model) as int,
+                    IntermediatePageTableEntryView {
+                        map_va: self.va as int,
+                        frame_pa: self.node.paddr() as int,
+                        in_frame_index: self.idx as int,
+                        map_to_pa: res.unwrap().paddr() as int,
+                        level: self.node.level_spec(&spt.alloc_model),
+                        phantom: PhantomData,
+                    },
+                )
+            }
     {
-        assert(!self.pte.is_present());
+        if self.pte.is_present() {
+            return None;
+        }
         let level = self.node.level(Tracked(&spt.alloc_model));
         let (pt, Tracked(perm)) = PageTableNode::<C>::alloc(
             level - 1,
