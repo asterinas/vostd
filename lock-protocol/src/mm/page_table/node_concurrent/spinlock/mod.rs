@@ -128,8 +128,8 @@ impl<C: PageTableConfig> PageTableEntryPerms<C> {
         forall|i: int|
             #![trigger self.inner.value()[i]]
             0 <= i < 512 ==> {
-                self.inner.value()[i].nid@ is Some ==>
-                    self.inner.value()[i].nid@->Some_0 == NodeHelper::get_child(nid, i as nat)
+                self.inner.value()[i].nid@ is Some ==> self.inner.value()[i].nid@->Some_0
+                    == NodeHelper::get_child(nid, i as nat)
             }
     }
 
@@ -548,14 +548,16 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                         }
                     }
                     let guard = SpinGuard {
-                        inner: Tracked(SpinGuardGhostInner {
-                            handle: handle,
-                            node_token: node_token,
-                            pte_token: pte_token,
-                            stray_perm: stray_perm,
-                            perms: perms,
-                            in_protocol: false,
-                        }),
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: node_token,
+                                pte_token: pte_token,
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: false,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
@@ -662,14 +664,16 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                         node_token = self.pt_inst.borrow().normal_lock(self.nid@, node_token);
                     }
                     let guard = SpinGuard {
-                        inner: Tracked(SpinGuardGhostInner {
-                            handle: handle,
-                            node_token: Some(node_token),
-                            pte_token: Some(pte_token),
-                            stray_perm: stray_perm,
-                            perms: perms,
-                            in_protocol: false,
-                        })
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: Some(node_token),
+                                pte_token: Some(pte_token),
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: false,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);
@@ -840,14 +844,16 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                         m.token = res.1.get();
                     }
                     let guard = SpinGuard {
-                        inner: Tracked(SpinGuardGhostInner {
-                            handle: handle,
-                            node_token: Some(node_token),
-                            pte_token: Some(pte_token),
-                            stray_perm: stray_perm,
-                            perms: perms,
-                            in_protocol: true,
-                        }),
+                        inner: Tracked(
+                            SpinGuardGhostInner {
+                                handle: handle,
+                                node_token: Some(node_token),
+                                pte_token: Some(pte_token),
+                                stray_perm: stray_perm,
+                                perms: perms,
+                                in_protocol: true,
+                            },
+                        ),
                     };
                     assert(guard.wf(self));
                     guard_opt = Some(guard);

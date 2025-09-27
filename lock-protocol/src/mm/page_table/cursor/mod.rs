@@ -39,10 +39,7 @@ use crate::{
     },
     task::DisabledPreemptGuard,
     sync::rcu::RcuDrop,
-    spec::{
-        sub_pt::level_is_in_range,
-        rcu::*,
-    },
+    spec::{sub_pt::level_is_in_range, rcu::*},
 };
 
 use super::{
@@ -154,7 +151,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     //         }
     //     &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     // }
-
     /// Well-formedness of the cursor.
     pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
         &&& spt.wf()
@@ -162,6 +158,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
         // &&& self.wf_temp()
+
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -298,10 +295,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     //     }
     //     // TODO
     //     // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
-
     //     Ok(locking::lock_range(pt, va))
     // }
-
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
@@ -664,7 +659,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     // pub(super) fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
     //     Cursor::new(pt, va).map(|inner| Self(inner))
     // }
-
     /// Gets the current virtual address.
     pub fn virt_addr(&self) -> Vaddr {
         self.0.virt_addr()

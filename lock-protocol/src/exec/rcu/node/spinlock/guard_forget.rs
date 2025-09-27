@@ -12,16 +12,15 @@ pub tracked struct SubTreeForgotGuard<C: PageTableConfig> {
 
 impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     pub open spec fn wf(&self) -> bool {
-        &&& forall |nid: NodeId| self.guards.dom().contains(nid) ==> {
-            &&& NodeHelper::valid_nid(nid)
-            &&& self.guards[nid].relate_nid(nid)
-        }
+        &&& forall|nid: NodeId|
+            self.guards.dom().contains(nid) ==> {
+                &&& NodeHelper::valid_nid(nid)
+                &&& self.guards[nid].relate_nid(nid)
+            }
     }
 
     pub open spec fn put_spec(self, nid: NodeId, guard: SpinGuardGhostInner<C>) -> Self {
-        Self {
-            guards: self.guards.insert(nid, guard)
-        }
+        Self { guards: self.guards.insert(nid, guard) }
     }
 
     pub proof fn tracked_put(tracked &mut self, nid: NodeId, tracked guard: SpinGuardGhostInner<C>)
@@ -38,12 +37,11 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 
     pub open spec fn take_spec(self, nid: NodeId) -> Self {
-        Self {
-            guards: self.guards.remove(nid)
-        }
+        Self { guards: self.guards.remove(nid) }
     }
 
-    pub proof fn tracked_take(tracked &mut self, nid: NodeId) -> (tracked guard: SpinGuardGhostInner<C>)
+    pub proof fn tracked_take(tracked &mut self, nid: NodeId) -> (tracked guard:
+        SpinGuardGhostInner<C>)
         requires
             old(self).wf(),
             self.guards.dom().contains(nid),
@@ -57,4 +55,4 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 }
 
-}
+} // verus!

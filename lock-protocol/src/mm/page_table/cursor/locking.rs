@@ -216,10 +216,9 @@ pub(super) fn lock_range<'rcu>(
     )
 }
 
-pub fn unlock_range(
-    cursor: &mut Cursor<'_>, 
-    m: Tracked<LockProtocolModel>
-) -> (res: Tracked<LockProtocolModel>)
+pub fn unlock_range(cursor: &mut Cursor<'_>, m: Tracked<LockProtocolModel>) -> (res: Tracked<
+    LockProtocolModel,
+>)
     requires
         old(cursor).wf(),
         m@.inv(),
@@ -487,9 +486,11 @@ fn dfs_acquire_lock(
     cur_node: &PageTableGuard<'_>,
     // cur_node_va: Vaddr,
     // va_range: Range<Vaddr>,
-    m: Tracked<LockProtocolModel>,
+    m: Tracked<
+        LockProtocolModel,
+    >,
     // forgot_guards: Tracked<SubTreeForgotGuard>,
-// ) -> (res: (Tracked<LockProtocolModel>, Tracked<SubTreeForgotGuard>))
+    // ) -> (res: (Tracked<LockProtocolModel>, Tracked<SubTreeForgotGuard>))
 ) -> (res: Tracked<LockProtocolModel>)
     requires
         cur_node.wf(),
@@ -501,11 +502,12 @@ fn dfs_acquire_lock(
         m@.cur_node() == cur_node.nid() + 1,
         m@.node_is_locked(cur_node.nid()),
     ensures
-        // res.0@.inv(),
-        // res.0@.inst_id() == cur_node.inst_id(),
-        // res.0@.state() is Locking,
-        // res.0@.sub_tree_rt() == m@.sub_tree_rt(),
-        // res.0@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
+// res.0@.inv(),
+// res.0@.inst_id() == cur_node.inst_id(),
+// res.0@.state() is Locking,
+// res.0@.sub_tree_rt() == m@.sub_tree_rt(),
+// res.0@.cur_node() == NodeHelper::next_outside_subtree(cur_node.nid()),
+
         res@.inv(),
         res@.inst_id() == cur_node.inst_id(),
         res@.state() is Locking,
@@ -514,7 +516,6 @@ fn dfs_acquire_lock(
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::utils::group_node_helper_lemmas;
-
     // let tracked mut forgot_guards = forgot_guards.get();
 
     let cur_level = cur_node.deref().deref().level();

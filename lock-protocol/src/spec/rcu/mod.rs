@@ -1,8 +1,8 @@
 pub mod atomic;
+pub mod token_types;
 pub mod tree;
 mod tree_refines_atomic;
 pub mod types;
-pub mod token_types;
 
 pub use tree::*;
 pub use types::*;
