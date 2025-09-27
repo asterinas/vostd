@@ -1,4 +1,4 @@
-mod locking;
+// mod locking;
 pub mod spec_helpers;
 
 use std::{
@@ -34,11 +34,15 @@ use crate::{
         page_size, page_size_spec, lemma_page_size_spec_properties, lemma_page_size_increases,
         lemma_page_size_geometric,
         vm_space::Token,
+        lock_protocol_utils::*,
         Frame, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     sync::rcu::RcuDrop,
-    spec::sub_pt::level_is_in_range,
+    spec::{
+        sub_pt::level_is_in_range,
+        rcu::*,
+    },
 };
 
 use super::{
@@ -112,6 +116,7 @@ pub struct Cursor<'rcu, C: PageTableConfig> {
     /// RCU read-side critical section.
     // #[expect(dead_code)]
     pub preempt_guard: &'rcu DisabledPreemptGuard,
+    pub inst: Tracked<SpecInstance>,
     pub _phantom: PhantomData<&'rcu PageTable<C>>,
 }
 
@@ -126,12 +131,37 @@ pub enum PageTableItem<C: PageTableConfig> {
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
+    // pub open spec fn wf_temp(&self) -> bool {
+    //     &&& self.path.len() == 4
+    //     &&& 1 <= self.level <= self.guard_level <= 4
+    //     &&& forall|level: PagingLevel|
+    //         #![trigger self.path[level - 1]]
+    //         1 <= level <= 4 ==> {
+    //             if level > self.guard_level {
+    //                 self.path[level - 1] is None
+    //             } else if level == self.guard_level {
+    //                 &&& self.path[level - 1] is Some
+    //                 &&& self.path[level - 1]->Some_0.wf()
+    //                 &&& self.path[level - 1]->Some_0.inst_id() == self.inst@.id()
+    //                 &&& self.path[level - 1]->Some_0.guard->Some_0.stray_perm@.value() == false
+    //                 &&& self.path[level - 1]->Some_0.guard->Some_0.in_protocol@ == true
+    //             } else {
+    //                 self.path[level - 1] is Some ==> {
+    //                     &&& self.path[level - 1]->Some_0.wf()
+    //                     &&& self.path[level - 1]->Some_0.inst_id() == self.inst@.id()
+    //                 }
+    //             }
+    //         }
+    //     &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+    // }
+
     /// Well-formedness of the cursor.
     pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
         &&& spt.wf()
         &&& self.va_wf()
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
+        // &&& self.wf_temp()
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -258,19 +288,19 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    pub fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
-        if   /* Check range covers || */
-        !(va.start < va.end) {
-            return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
-        }
-        if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
-            return Err(PageTableError::UnalignedVaddr);
-        }
-        // TODO
-        // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
+    // pub fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
+    //     if   /* Check range covers || */
+    //     !(va.start < va.end) {
+    //         return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
+    //     }
+    //     if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
+    //         return Err(PageTableError::UnalignedVaddr);
+    //     }
+    //     // TODO
+    //     // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
 
-        Ok(locking::lock_range(pt, va))
-    }
+    //     Ok(locking::lock_range(pt, va))
+    // }
 
     /// Queries the mapping at the current virtual address.
     ///
@@ -631,9 +661,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     /// The cursor created will only be able to map, query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    pub(super) fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
-        Cursor::new(pt, va).map(|inner| Self(inner))
-    }
+    // pub(super) fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
+    //     Cursor::new(pt, va).map(|inner| Self(inner))
+    // }
 
     /// Gets the current virtual address.
     pub fn virt_addr(&self) -> Vaddr {
@@ -971,7 +1001,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     // SAFETY:
                     //  - We checked that we are not unmapping shared kernel page table nodes.
                     //  - We must have locked the entire sub-tree since the range is locked.
-                    let unlocked_pt = locking::dfs_mark_astray(locked_pt);
+                    // let unlocked_pt = locking::dfs_mark_astray(locked_pt);
                     // See `locking.rs` for why we need this. // TODO
                     // let drop_after_grace = unlocked_pt.clone();
                     // crate::sync::after_grace_period(|| {

@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
 use crate::spec::rcu::token_types::*;
-use super::common::*; // TODO
+use crate::mm::lock_protocol_utils::*;
 
 verus! {
 

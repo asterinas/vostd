@@ -1,5 +1,7 @@
 pub mod cursor;
 pub mod node;
+pub mod node_concurrent;
+pub mod pte;
 
 use cursor::spec_helpers;
 
@@ -33,6 +35,9 @@ use super::{
 
 use crate::exec;
 use crate::spec::sub_pt::SubPageTable;
+
+use crate::spec::{common::*, utils::*, rcu::*};
+use crate::mm::lock_protocol_utils::*;
 
 verus! {
 
@@ -1146,12 +1151,14 @@ proof fn lemma_aligned_pte_index_unchanged<C: PagingConstsTrait>(x: Vaddr, level
 // #[derive(Debug)]
 pub struct PageTable<C: PageTableConfig> {
     pub root: PageTableNode<C>,
+    pub inst: Tracked<SpecInstance>,
     pub _phantom: PhantomData<C>,
 }
 
 impl<C: PageTableConfig> PageTable<C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         &&& self.root.wf(alloc_model)
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     }
 }
 

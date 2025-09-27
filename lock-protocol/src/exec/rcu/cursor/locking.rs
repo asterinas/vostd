@@ -588,7 +588,7 @@ fn dfs_acquire_lock(
                 let tracked guard = pt_guard.guard.tracked_unwrap()
                 let tracked forgot_guard = guard.inner.get();
                 proof {
-                    forgot_guards.tracked_put(, forgot_guard);
+                    forgot_guards.tracked_put(pt.nid@, forgot_guard);
                 }
                 let _ = ManuallyDrop::new(pt_guard);
             },
@@ -670,7 +670,7 @@ fn dfs_acquire_lock(
         i += 1;
     }
 
-    Tracked(m)
+    (Tracked(m), Tracked(forgot_guards))
 }
 
 /// Releases the locks for the given range in the sub-tree rooted at the node.
