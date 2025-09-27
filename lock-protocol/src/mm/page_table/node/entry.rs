@@ -1,4 +1,5 @@
 use vstd::prelude::*;
+use vstd::calc;
 
 use core::ops::Deref;
 use std::marker::PhantomData;
@@ -226,12 +227,37 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         self.pte = new_child.into_pte();
 
         assert(spt.perms.contains_key(self.node.paddr()));
-
-        // TODO: should be trivial?
-        assume(self.pte.pte_paddr_spec() == index_pte_paddr(
-            self.node.paddr() as int,
-            self.idx as int,
-        ));
+        let pte_addr: usize = self.node.paddr() + self.idx * exec::SIZEOF_PAGETABLEENTRY;
+        self.pte.set_paddr(pte_addr);
+        proof {
+            let idx_int = self.idx as int;
+            let node_pa_int = self.node.paddr() as int;
+            let size_int = exec::SIZEOF_PAGETABLEENTRY as int;
+            let computed_addr_int = node_pa_int + idx_int * size_int;
+            assert(pte_addr as int == computed_addr_int) by {
+                calc! {
+                    (==)
+                    (pte_addr as int); {}
+                    ((self.node.paddr() + self.idx * exec::SIZEOF_PAGETABLEENTRY) as int); {}
+                    (node_pa_int + idx_int * size_int);
+                }
+            };
+            assert(index_pte_paddr(node_pa_int, idx_int) == computed_addr_int) by {
+                calc! {
+                    (==)
+                    (index_pte_paddr(node_pa_int, idx_int)); {}
+                    (node_pa_int + idx_int * size_int);
+                }
+            };
+            calc! {
+                (==)
+                (self.pte.pte_paddr_spec() as int); {}
+                (self.pte.pte_paddr() as int); {}
+                (pte_addr as int); {}
+                computed_addr_int; {}
+                index_pte_paddr(node_pa_int, idx_int);
+            }
+        }
         assume(spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
         self.node.write_pte(
             self.idx,
