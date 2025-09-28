@@ -164,6 +164,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_frame_view = spt.frames.value()[cur_frame_pa];
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
+        &&& self.va < self.barrier_va.end ==> cur_frame.va == align_down(self.va, page_size::<C>((level + 1) as u8))
         &&& cur_frame.wf(&spt.alloc_model)
         &&& cur_frame.level_spec(&spt.alloc_model) == level
         &&& cur_frame == self.path[path_index_at_level_spec(level)].unwrap()
@@ -310,7 +311,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             invariant
                 self.wf(spt),
                 self.constant_fields_unchanged(old(self), spt, spt),
-                self.va == old(self).va,
+                cur_va == self.va == old(self).va < self.barrier_va.end,
             decreases self.level,
         {
             let level = self.level;
@@ -390,6 +391,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
         self.va = next_va;
         proof {
+            // FIXME: Prove this.
+            assume(forall|i: PagingLevel| 
+                #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                self.level <= i <= self.guard_level ==>
+                self.va < self.barrier_va.end ==> path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
+            );
             if (self.level == self.guard_level) {
                 // The proof automatically goes through in this case.
             } else {
@@ -574,6 +581,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             child_pt.level_spec(&spt.alloc_model) == old(self).level - 1,
             spt.frames.value().contains_key(child_pt.paddr() as int),
             old(self).ancestors_match_path(spt, child_pt),
+            old(self).va < old(self).barrier_va.end,
+            // The guard is to be inserted at level `old(self).level - 1`, so its
+            // virtual address should be aligned to page_size(old(self).level).
+            child_pt.va == align_down(old(self).va, page_size::<C>(old(self).level)),
         ensures
             self.wf(spt),
             self.constant_fields_unchanged(old(self), spt, spt),
@@ -773,6 +784,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             &spt.alloc_model,
                         ));
                     }
+                    // FIXME: What is the va stuff in Entry doing?
+                    assume(child_pt.va == align_down(cur_va, page_size::<C>(cur_level)));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {

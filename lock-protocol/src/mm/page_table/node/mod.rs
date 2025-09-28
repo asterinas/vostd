@@ -171,6 +171,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         ensures
             res.inner == self,
+            res.va == va,
     {
         PageTableGuard { inner: self, va: Ghost(va) }
     }
