@@ -392,7 +392,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         self.va = next_va;
         proof {
             // FIXME: Prove this.
-            assume(forall|i: PagingLevel| 
+            assume(forall|i: PagingLevel|
                 #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
                 self.level <= i <= self.guard_level ==>
                 self.va < self.barrier_va.end ==> path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
@@ -751,41 +751,49 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     let ghost old_alloc_model = spt.alloc_model;
                     let child_pt = cur_entry.alloc_if_none(preempt_guard, Tracked(spt)).unwrap();
 
-                    assert forall|i: PagingLevel|
-                        #![trigger self.0.path[path_index_at_level_spec(i)]]
-                        self.0.level <= i <= self.0.guard_level implies {
-                        let guard = path_index!(self.0.path[i]).unwrap();
-                        guard.wf(&spt.alloc_model)
-                    } by {
-                        // From self.wf() before calling alloc_if_none
-                        assert(forall|i: PagingLevel|
+                    assert(self.0.wf(spt)) by {
+                        assert forall|i: PagingLevel|
                             #![trigger self.0.path[path_index_at_level_spec(i)]]
-                            self.0.level <= i <= self.0.guard_level ==> {
-                                let guard_option = path_index!(self.0.path[i]);
-                                &&& guard_option.unwrap().wf(&old_alloc_model)
-                            });
-                        // From post condition of alloc_if_none's alloc_model_do_not_change_except_add_frame
-                        assert(forall|i: int| #[trigger]
-                            old_alloc_model.meta_map.contains_key(i) ==> {
-                                &&& spt.alloc_model.meta_map.contains_key(i)
-                                &&& spt.alloc_model.meta_map[i].pptr()
-                                    == old_alloc_model.meta_map[i].pptr()
-                                &&& spt.alloc_model.meta_map[i].value()
-                                    == old_alloc_model.meta_map[i].value()
-                            });
-                        let guard = path_index!(self.0.path[i]).unwrap();
-                        assert(level_is_in_range::<C>(guard.level_spec(&old_alloc_model) as int));
-                        assert(old_alloc_model.meta_map.contains_key(guard.paddr() as int));
-                        assert(spt.alloc_model.meta_map.contains_key(guard.paddr() as int));
-                        assert(guard.inner.meta_spec(&old_alloc_model) == guard.inner.meta_spec(
-                            &spt.alloc_model,
-                        ));
-                        assert(guard.level_spec(&old_alloc_model) == guard.level_spec(
-                            &spt.alloc_model,
-                        ));
+                            self.0.level <= i <= self.0.guard_level implies {
+                            let guard = path_index!(self.0.path[i]).unwrap();
+                            guard.wf(&spt.alloc_model)
+                        } by {
+                            // From self.wf() before calling alloc_if_none
+                            assert(forall|i: PagingLevel|
+                                #![trigger self.0.path[path_index_at_level_spec(i)]]
+                                self.0.level <= i <= self.0.guard_level ==> {
+                                    let guard_option = path_index!(self.0.path[i]);
+                                    &&& guard_option.unwrap().wf(&old_alloc_model)
+                                });
+                            // From post condition of alloc_if_none's alloc_model_do_not_change_except_add_frame
+                            assert(forall|i: int| #[trigger]
+                                old_alloc_model.meta_map.contains_key(i) ==> {
+                                    &&& spt.alloc_model.meta_map.contains_key(i)
+                                    &&& spt.alloc_model.meta_map[i].pptr()
+                                        == old_alloc_model.meta_map[i].pptr()
+                                    &&& spt.alloc_model.meta_map[i].value()
+                                        == old_alloc_model.meta_map[i].value()
+                                });
+                            let guard = path_index!(self.0.path[i]).unwrap();
+                            assert(level_is_in_range::<C>(guard.level_spec(&old_alloc_model) as int));
+                            assert(old_alloc_model.meta_map.contains_key(guard.paddr() as int));
+                            assert(spt.alloc_model.meta_map.contains_key(guard.paddr() as int));
+                            assert(guard.inner.meta_spec(&old_alloc_model) == guard.inner.meta_spec(
+                                &spt.alloc_model,
+                            ));
+                            assert(guard.level_spec(&old_alloc_model) == guard.level_spec(
+                                &spt.alloc_model,
+                            ));
+                        }
                     }
-                    // FIXME: What is the va stuff in Entry doing?
-                    assume(child_pt.va == align_down(cur_va, page_size::<C>(cur_level)));
+                    assert(child_pt.va@ == align_down(self.0.va, page_size::<C>(self.0.level))) by {
+                        calc! {
+                            (==)
+                            child_pt.va@; {}
+                            cur_entry.va@; {}
+                            align_down(self.0.va, page_size::<C>(self.0.level));
+                        }
+                    }
                     self.0.push_level(child_pt, Tracked(spt));
                 },
                 ChildRef::Frame(_, _, _) => {

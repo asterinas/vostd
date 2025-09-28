@@ -425,6 +425,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &old(spt).alloc_model,
                 )
                 &&& self.idx == old(self).idx
+                &&& self.va == old(self).va
                 &&& spt.wf()
                 &&& res is Some
                 &&& spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int)
@@ -455,6 +456,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         phantom: PhantomData,
                     },
                 )
+                &&& res.unwrap().va == self.va
             },
     {
         if self.pte.is_present() {
