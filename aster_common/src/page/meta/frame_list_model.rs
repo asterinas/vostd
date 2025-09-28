@@ -1,4 +1,3 @@
-extern crate vstd_extra;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd::seq_lib::*;

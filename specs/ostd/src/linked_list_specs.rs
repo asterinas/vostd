@@ -1,3 +1,4 @@
+extern crate vstd_extra;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 use vstd_extra::ownership::*;
