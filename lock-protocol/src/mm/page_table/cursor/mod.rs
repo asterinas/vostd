@@ -369,6 +369,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         let cur_page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
+        assert(next_va <= self.barrier_va.end) by {
+            assert(align_down(self.va, cur_page_size) <= self.va);
+        }
         assert(next_va % page_size::<C>(self.level) == 0) by (nonlinear_arith)
             requires
                 next_va == align_down(self.va, cur_page_size) + cur_page_size,
@@ -395,12 +398,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
         self.va = next_va;
         proof {
+            assert(self.va <= self.barrier_va.end);
             // FIXME: Prove this.
-            assume(forall|i: PagingLevel|
-                #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-                self.level <= i <= self.guard_level ==>
-                self.va < self.barrier_va.end ==> path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
-            );
+            assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
+            implies
+                path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
+            by {
+                admit();
+            }
             if (self.level == self.guard_level) {
                 // The proof automatically goes through in this case.
             } else {
@@ -722,7 +728,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         assert(self.0.level >= level);
 
-        #[verifier::loop_isolation(false)]
         // Go down if not applicable.
         while self.0.level != level
             invariant
@@ -731,7 +736,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
-                self.0.level >= level,
+                self.0.level >= level >= 1,
+                self.0.va < self.0.barrier_va.end,
             decreases self.0.level,
         {
             let cur_level = self.0.level;
@@ -812,7 +818,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         let old_entry = cur_entry.replace(Child::Frame(pa, level, prop), Tracked(spt));
 
-        assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO: P1
+        assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
         assert(self.0.path_wf(spt));
 
         let old_va = self.0.va;
