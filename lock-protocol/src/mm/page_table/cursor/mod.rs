@@ -141,6 +141,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             < MAX_USERSPACE_VADDR
         // We allow the cursor to be at the end of the range.
         &&& self.barrier_va.start <= self.va <= self.barrier_va.end
+        // The barrier range should be contained in the range of the frame at
+        // the guard level.
+        &&& align_down(self.barrier_va.start, page_size::<C>((self.guard_level + 1) as u8))
+            == align_down((self.barrier_va.end - 1) as usize, page_size::<C>((self.guard_level + 1) as u8))
     }
 
     /// Well-formedness of the cursor's level and guard level.
