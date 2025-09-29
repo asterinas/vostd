@@ -369,9 +369,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         let cur_page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
-        assert(next_va <= self.barrier_va.end) by {
-            assert(align_down(self.va, cur_page_size) <= self.va);
-        }
+        let ghost old_path = self.path;
         assert(next_va % page_size::<C>(self.level) == 0) by (nonlinear_arith)
             requires
                 next_va == align_down(self.va, cur_page_size) + cur_page_size,
@@ -386,6 +384,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.level >= old(self).level,
                 self.va == old(self).va,
                 next_va % page_size::<C>(self.level) == 0,
+                forall|i: PagingLevel|
+                    self.level <= i <= self.guard_level ==> path_index!(self.path[i]) == 
+                    #[trigger] old_path[path_index_at_level_spec(i)],
             decreases self.guard_level - self.level,
         {
             self.pop_level(Tracked(&spt));
@@ -398,7 +399,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
         self.va = next_va;
         proof {
-            assert(self.va <= self.barrier_va.end);
             // FIXME: Prove this.
             assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
                 self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
@@ -562,10 +562,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).level < old(self).guard_level,
         ensures
             self.wf(spt),
-            self.constant_fields_unchanged(old(self), spt, spt),
             self.level == old(self).level + 1,
             // Other fields remain unchanged.
+            self.constant_fields_unchanged(old(self), spt, spt),
             self.va == old(self).va,
+            forall|i: PagingLevel|
+                #![trigger self.path[path_index_at_level_spec(i)]]
+                self.level <= i <= self.guard_level ==> {
+                    path_index!(self.path[i]) == path_index!(old(self).path[i])
+                },
     {
         proof {
             let taken = &path_index!(self.path[self.level]);
