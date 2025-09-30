@@ -212,6 +212,18 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
     res_ as usize
 }
 
+pub proof fn lemma_align_down_properties(x: usize, align: usize)
+    by (nonlinear_arith)
+    requires
+        is_power_2(align as int),
+        align < usize::MAX as usize,
+    ensures
+        align_down(x, align) as int == x as int - (x as int % align as int) == (x / align) * align,
+{
+    assert(x as int % align as int <= x as int);
+}
+
+// FIXME: We can improve the proof of this function.
 pub proof fn lemma_align_down_monotone(x: usize, y: usize, align: usize)
     requires
         is_power_2(align as int),
@@ -220,64 +232,16 @@ pub proof fn lemma_align_down_monotone(x: usize, y: usize, align: usize)
     ensures
         align_down(x, align) <= align_down(y, align),
 {
-    // quotients
-    let qx = align_down(x, align);
-    let qy = align_down(y, align);
-    // remainders
-    let rx = x % align;
-    let ry = y % align;
-    
-    assert(x % align <= x) by (nonlinear_arith)
+    lemma_align_down_properties(x, align);
+    lemma_align_down_properties(y, align);
+    assert(x as int / align as int <= y as int / align as int) by (nonlinear_arith)
         requires
-            x >= 0,
+            x as int <= y as int,
             align > 0;
-    assert(qx == x - rx);
-    assert(qx % align == 0 && 0 <= rx < align) by (nonlinear_arith)
+    assert(x / align * align <= y / align * align) by (nonlinear_arith)
         requires
-            align > 0,
-            qx == x - rx,
-            rx == x % align;
-
-    assert(y % align <= y) by (nonlinear_arith)
-        requires
-            y >= 0,
+            x as int / align as int <= y as int / align as int,
             align > 0;
-    assert(qy == y - ry);
-    assert(qy % align == 0 && 0 <= ry < align) by (nonlinear_arith)
-        requires
-            align > 0,
-            qy == y - ry,
-            ry == y % align;
-
-    assert(qx as int % align as int == 0);
-    assert(qy as int % align as int == 0);
-    
-    assert(y - x == (qy - qx) + (ry - rx) >= 0);
-    assert(qy - qx >= rx - ry >= -(align - 1));
-    assert((qy - qx) % align as int == 0) by {
-        let a = x as int / align as int;
-        let b = y as int / align as int;
-        assert(x as int == a * align as int + rx as int) by {
-            lemma_fundamental_div_mod(x as int, align as int);
-        }
-        assert(y as int == b * align as int + ry as int) by {
-            lemma_fundamental_div_mod(y as int, align as int);
-        }
-        assert(qx == a * align as int);
-        assert(qy == b * align as int);
-        assert(qy - qx == (b - a) * align as int + 0) by (nonlinear_arith)
-            requires
-                qx == a * align as int,
-                qy == b * align as int;
-        assert((qy - qx) % align as int == 0) by {
-            lemma_fundamental_div_mod_converse(qy - qx, align as int, b - a, 0);
-        }
-    }
-    assert(qy - qx >= 0) by (nonlinear_arith)
-        requires
-            align > 0,
-            (qy - qx) % align as int == 0,
-            qy - qx >= -(align - 1);
 }
 
 pub proof fn lemma_align_down_squeeze(x: usize, y: usize, z: usize, align: usize)
