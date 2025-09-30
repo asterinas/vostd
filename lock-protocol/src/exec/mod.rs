@@ -10,18 +10,23 @@ use std::sync::{Mutex, OnceLock};
 use vstd::tokens::*;
 
 use crate::mm::allocator::{self, AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::cursor::spec_helpers;
-use crate::mm::entry::Entry;
 use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
 use crate::mm::page_table::node::PageTableNode;
 
-use crate::mm::{page_size_spec, pte_index, Paddr, PageTableConfig, PagingLevel, NR_ENTRIES};
+use crate::mm::{page_size_spec, Paddr, PagingLevel, NR_ENTRIES};
 use crate::{
     mm::{
-        cursor::{Cursor, CursorMut},
+        page_table::{
+            cursor::spec_helpers,
+            pte_index, PageTableConfig,
+            node::entry::Entry,
+            cursor::{Cursor, CursorMut},
+            PageTableEntryTrait,
+            node::PageTablePageMeta,
+            PagingConsts, PagingConstsTrait,
+        },
         meta::{AnyFrameMeta, MetaSlot},
-        page_prop, Frame, PageTableEntryTrait, PageTablePageMeta, PagingConsts, PagingConstsTrait,
-        Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        page_prop, Frame, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
     },
     task::{disable_preempt, DisabledPreemptGuard},
 };

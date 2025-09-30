@@ -6,9 +6,12 @@ use std::marker::PhantomData;
 use crate::{
     helpers::conversion::usize_mod_is_int_mod,
     mm::{
-        cursor::spec_helpers::{
-            self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
-            spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
+        page_table::{
+            cursor::spec_helpers::{
+                self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
+                spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
+            },
+            PageTableConfig, PageTableEntryTrait,
         },
         frame::allocator::AllocatorModel,
         meta::AnyFrameMeta,
@@ -16,15 +19,17 @@ use crate::{
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Paddr, PageTableConfig, PageTableEntryTrait, PagingConstsTrait, PagingLevel, Vaddr,
-        NR_ENTRIES,
+        Paddr, PagingConstsTrait, PagingLevel, Vaddr, NR_ENTRIES,
     },
     sync::rcu::RcuDrop,
     task::DisabledPreemptGuard,
     x86_64::NR_LEVELS_SPEC,
 };
 
-use super::{Child, ChildRef, PageTableGuard, PageTableNode, PageTableNodeRef};
+use super::{
+    child::{Child, ChildRef},
+    PageTableGuard, PageTableNode, PageTableNodeRef,
+};
 
 use crate::exec;
 

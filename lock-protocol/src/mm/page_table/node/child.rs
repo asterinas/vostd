@@ -4,15 +4,12 @@ use std::mem::ManuallyDrop;
 
 use vstd::prelude::*;
 
-use crate::mm::cursor::spec_helpers;
-use crate::mm::entry::Entry;
 use crate::mm::meta::AnyFrameMeta;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::vm_space::Token;
 use crate::mm::Frame;
 use crate::mm::Paddr;
-use crate::mm::PageTableConfig;
-use crate::mm::PageTableEntryTrait;
+use crate::mm::page_table::{PageTableEntryTrait, PageTableConfig, cursor::spec_helpers, entry::Entry};
 use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
 use crate::mm::PagingLevel;

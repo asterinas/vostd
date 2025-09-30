@@ -3,15 +3,18 @@ use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
+use crate::spec::{
+    utils::{NodeHelper, group_node_helper_lemmas},
+    common::NodeId,
+};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
-use super::child::*;
-use super::stray::*;
-use crate::mm::page_table::pte::Pte;
-use crate::mm::page_table::PageTableEntryTrait;
+use crate::mm::page_table::{
+    PageTableEntryTrait,
+    pte::Pte,
+    PageTableConfig,
+    node_concurrent::child::{Child, ChildRef},
+};
 use crate::sync::rcu::RcuDrop;
-use crate::mm::page_table::PageTableConfig;
 
 verus! {
 

@@ -15,10 +15,15 @@ use vstd::cell::{PCell, PointsTo as CellPointsTo};
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::task::guard;
-use crate::spec::{common::*, utils::*, rcu::*, lock_protocol::*};
-use crate::mm::lock_protocol_utils::*;
-use crate::mm::frame_concurrent::meta::*;
-use crate::mm::page_table::pte::Pte;
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    common::NodeId,
+    utils::NodeHelper,
+    rcu::{SpecInstance, NodeToken, PteArrayToken, PteState, FreePaddrToken},
+};
+use crate::mm::lock_protocol_utils::{Paddr, PagingLevel, valid_paddr, paddr_to_vaddr, PTE_NUM};
+use crate::mm::frame_concurrent::meta::{MetaSlot, meta_to_frame, MetaSlotPerm};
+use crate::mm::page_table::{pte::Pte, GLOBAL_CPU_NUM};
 use spinlock::{PageTablePageSpinLock, SpinGuard};
 use child::Child;
 use entry::Entry;

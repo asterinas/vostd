@@ -9,7 +9,7 @@ use vstd::arithmetic::mul::*;
 use vstd::set::*;
 use vstd_extra::prelude::*;
 
-use crate::mm::child;
+use crate::mm::page_table::node::child;
 
 use super::common::*;
 use super::rcu::tree;

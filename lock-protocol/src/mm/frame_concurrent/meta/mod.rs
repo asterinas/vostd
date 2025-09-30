@@ -1,14 +1,13 @@
 pub mod mapping;
 
 use vstd::prelude::*;
-use vstd::raw_ptr::{PointsTo};
+use vstd::raw_ptr::PointsTo;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
+use crate::mm::{Paddr, Vaddr};
 use crate::mm::page_table::node_concurrent::PageTablePageMeta;
 use crate::mm::page_table::PageTableConfig;
 
-pub use mapping::*;
+pub use mapping::{frame_to_meta, meta_to_frame};
 
 verus! {
 

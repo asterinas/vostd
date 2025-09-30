@@ -20,7 +20,7 @@ use crate::mm::PagingLevel;
 use crate::mm::PAGE_SIZE;
 use crate::exec::MockPageTablePage;
 
-use super::PageTableConfig;
+use super::page_table::PageTableConfig;
 
 verus! {
 

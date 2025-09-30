@@ -15,16 +15,14 @@ use vstd::tokens::SetToken;
 use crate::{
     helpers::align_ext::align_down,
     mm::{
-        child::Child,
-        entry::Entry,
+        page_table::{child::Child, entry::Entry, node::PageTableNode, PageTableConfig},
         frame::{self, allocator::AllocatorModel},
         meta::AnyFrameMeta,
-        node::PageTableNode,
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Frame, Paddr, PageTableConfig, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
+        Frame, Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     x86_64::VMALLOC_VADDR_RANGE,

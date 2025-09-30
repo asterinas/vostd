@@ -7,8 +7,8 @@ pub mod vm_space;
 
 use std::ops::Range;
 
-pub use page_table::*;
-pub use page_table::node::*;
+use page_table::{PagingConstsTrait, PagingConsts};
+
 pub use frame::*;
 
 use vstd::arithmetic::power2::lemma_pow2_pos;

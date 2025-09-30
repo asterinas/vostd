@@ -5,7 +5,10 @@ use core::mem::ManuallyDrop;
 use core::ops::Deref;
 
 use crate::{
-    mm::{cursor::MAX_NR_LEVELS, Paddr, PageTableConfig, PageTableNode, PagingConsts},
+    mm::{
+        page_table::{cursor::MAX_NR_LEVELS, PageTableConfig, node::PageTableNode},
+        Paddr, PagingConsts,
+    },
     x86_64::NR_LEVELS_SPEC,
 };
 

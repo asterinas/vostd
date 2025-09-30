@@ -10,8 +10,6 @@ use entry::Entry;
 use vstd::cell::PCell;
 use vstd::prelude::*;
 
-#[allow(unused_imports)]
-use child::*;
 use vstd::simple_pptr::MemContents;
 use vstd::simple_pptr::PPtr;
 use vstd::simple_pptr::PointsTo;
@@ -21,7 +19,7 @@ use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_size_spec;
 use crate::mm::Paddr;
-use crate::mm::PageTableEntryTrait;
+use crate::mm::page_table::PageTableEntryTrait;
 use crate::mm::PagingConstsTrait;
 use crate::mm::PagingConsts;
 

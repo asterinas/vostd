@@ -5,7 +5,7 @@ use vstd::prelude::*;
 
 use crate::mm::allocator::pa_is_valid_kernel_address;
 use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
-use crate::mm::{page_size_spec, PageTableConfig, PagingLevel};
+use crate::mm::{page_size_spec, page_table::PageTableConfig, PagingLevel};
 
 verus! {
 

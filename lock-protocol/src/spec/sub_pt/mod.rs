@@ -4,11 +4,14 @@ use std::ops::Sub;
 
 use state_machine::{frames_valid, FrameView, SubPageTableStateMachine};
 
-use vstd::{prelude::*};
+use vstd::prelude::*;
 use vstd::simple_pptr::{PPtr, PointsTo};
 
 use crate::mm::allocator::{AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::{Paddr, PageTableConfig, PageTablePageMeta};
+use crate::mm::{
+    Paddr,
+    page_table::{PageTableConfig, node::PageTablePageMeta},
+};
 use crate::mm::NR_ENTRIES;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::mm::page_table::PagingConstsTrait;

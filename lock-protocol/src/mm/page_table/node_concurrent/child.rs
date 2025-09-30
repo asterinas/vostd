@@ -5,11 +5,15 @@ use std::marker::PhantomData;
 use vstd::prelude::*;
 use vstd::vpanic;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
-use crate::mm::page_table::pte::Pte;
+use crate::spec::{
+    common::{valid_pte_offset, NodeId},
+    utils::{NodeHelper, group_node_helper_lemmas},
+};
+use crate::mm::{Paddr, PagingLevel};
 use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::PageTableEntryTrait;
+use crate::mm::page_table::{
+    PageTableEntryTrait, pte::Pte, GLOBAL_CPU_NUM, node_concurrent::valid_paddr,
+};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use crate::sync::rcu::RcuDrop;
 use crate::mm::page_table::PageTableConfig;

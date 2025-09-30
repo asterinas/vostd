@@ -36,8 +36,8 @@ use super::{
 use crate::exec;
 use crate::spec::sub_pt::SubPageTable;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
+use crate::spec::rcu::SpecInstance;
+use crate::mm::lock_protocol_utils::GLOBAL_CPU_NUM;
 
 verus! {
 

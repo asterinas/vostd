@@ -24,22 +24,20 @@ use core::ops::Deref;
 use crate::{
     helpers::{align_ext::align_down, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
-        child::{self, Child, ChildRef},
-        entry::Entry,
+        page_table::child::{self, Child, ChildRef},
+        page_table::node::{PageTableNode, entry::Entry, PageTableGuard},
         frame::{self, allocator::AllocatorModel},
         meta::AnyFrameMeta,
-        node::PageTableNode,
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size, page_size_spec, lemma_page_size_spec_properties, lemma_page_size_increases,
         lemma_page_size_geometric,
         vm_space::Token,
-        lock_protocol_utils::*,
-        Frame, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
+        Frame, Paddr, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
     task::DisabledPreemptGuard,
     sync::rcu::RcuDrop,
-    spec::{sub_pt::level_is_in_range, rcu::*},
+    spec::{sub_pt::level_is_in_range, rcu::SpecInstance},
 };
 
 use super::{
@@ -51,7 +49,6 @@ use super::{
 
 use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
 use crate::exec;
-use spec_helpers::*;
 use crate::mm::NR_ENTRIES;
 
 /// A handy ghost mode macro to get the guard at a certain level in the path.
