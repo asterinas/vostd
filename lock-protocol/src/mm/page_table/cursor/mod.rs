@@ -370,7 +370,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_page_size = page_size::<C>(self.level);
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
         assert(self.va < next_va <= self.va + cur_page_size) by {
-            admit();
+            let aligned_va = align_down(self.va, cur_page_size) as int;
+            lemma_page_size_spec_properties::<C>(self.level);
+            assert(0 <= self.va % cur_page_size <= self.va && 0 <= self.va % cur_page_size < cur_page_size) by (nonlinear_arith)
+                requires
+                    self.va >= 0,
+                    cur_page_size > 0;
+            assert(aligned_va as int == self.va as int - self.va as int % cur_page_size as int);
+            assert(next_va - self.va == cur_page_size - self.va % cur_page_size);
+            assert(0 < cur_page_size - self.va % cur_page_size <= cur_page_size);
         }
         let ghost old_path = self.path;
         assert(next_va % page_size::<C>(self.level) == 0) by (nonlinear_arith)
