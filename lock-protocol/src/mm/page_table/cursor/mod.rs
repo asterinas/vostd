@@ -513,13 +513,75 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     assert(next_va as nat / pow2(p) == old(self).va as nat / pow2(p));
                 }
 
-                // FIXME: Prove this.
+                assert forall|i: PagingLevel| #![trigger page_size::<C>(i)]
+                    self.level < i <= self.guard_level
+                implies
+                    old(self).va as nat / page_size::<C>(i) as nat == self.va as nat / page_size::<C>(i) as nat
+                by {
+                    assert(self.level + 1 <= i);
+                    assert(next_pg_size > 0) by {
+                        lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
+                    }
+                    // Ratio of page_size::<C>(i) / next_pg_size
+                    let ratio = pow(
+                        nr_subpage_per_huge::<C>() as int,
+                        (i - (self.level + 1)) as nat,
+                    ) as nat;
+                    assert(page_size::<C>(i) as nat == next_pg_size * ratio) by {
+                        lemma_page_size_geometric::<C>((self.level + 1) as u8, i);
+                    }
+                    assert(ratio > 0) by {
+                        C::lemma_consts_properties();
+                        assert(nr_subpage_per_huge::<C>() > 0);
+                        lemma_pow_positive(
+                            nr_subpage_per_huge::<C>() as int,
+                            (i - (self.level + 1)) as nat,
+                        );
+                    }
+                    calc! {
+                        (==)
+                        old(self).va as nat / page_size::<C>(i) as nat; {
+                            // Already proven: page_size(i) == next_pg_size * ratio
+                        }
+                        old(self).va as nat / (next_pg_size * ratio) as nat; {
+                            lemma_div_denominator(
+                                old(self).va as int,
+                                next_pg_size as int,
+                                ratio as int,
+                            );
+                        }
+                        old(self).va as nat / next_pg_size / ratio as nat; {
+                            // Already proven
+                        }
+                        self.va as nat / next_pg_size / ratio as nat; {
+                            lemma_div_denominator(
+                                self.va as int,
+                                next_pg_size as int,
+                                ratio as int,
+                            );
+                        }
+                        self.va as nat / (next_pg_size * ratio) as nat; {
+                            // Already proven: page_size(i) == next_pg_size * ratio
+                        }
+                        self.va as nat / page_size::<C>(i) as nat;
+                    }
+                }
+
                 assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
                     self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
                 implies
                     path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
                 by {
-                    admit();
+                    calc! {
+                        (==)
+                        path_index!(self.path[i]).unwrap().va@; {}
+                        old_path[path_index_at_level_spec(i)].unwrap().va@; {}
+                        align_down(old(self).va, page_size::<C>((i + 1) as u8)); {
+                            // FIXME: Prove this.
+                            admit();
+                        }
+                        align_down(self.va, page_size::<C>((i + 1) as u8));
+                    }
                 }
 
                 assert forall|i: u8| self.level < i <= self.guard_level implies pte_index::<C>(
@@ -551,42 +613,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     calc! {
                         (==)
                         pte_index::<C>(self.va, i) as nat; {
-                            assert(self.va == next_va);
+                            lemma_pte_index_alternative_spec::<C>(self.va, i);
                         }
-                        pte_index::<C>(next_va, i) as nat; {
-                            lemma_pte_index_alternative_spec::<C>(next_va, i);
-                        }
-                        next_va as nat / page_size_spec::<C>(i) as nat % nr_subpage_per_huge::<
+                        self.va as nat / page_size_spec::<C>(i) as nat % nr_subpage_per_huge::<
                             C,
-                        >() as nat; {
-                            // Already proven: page_size(i) == next_pg_size * ratio
-                        }
-                        next_va as nat / (next_pg_size * ratio) % nr_subpage_per_huge::<
-                            C,
-                        >() as nat; {
-                            lemma_div_denominator(
-                                next_va as int,
-                                next_pg_size as int,
-                                ratio as int,
-                            );
-                        }
-                        next_va as nat / next_pg_size / ratio % nr_subpage_per_huge::<C>() as nat; {
-                            // Already proven
-                        }
-                        old(self).va as nat / next_pg_size / ratio % nr_subpage_per_huge::<
-                            C,
-                        >() as nat; {
-                            lemma_div_denominator(
-                                old(self).va as int,
-                                next_pg_size as int,
-                                ratio as int,
-                            );
-                        }
-                        old(self).va as nat / (next_pg_size * ratio) % nr_subpage_per_huge::<
-                            C,
-                        >() as nat; {
-                            // Already proven: page_size(i) == next_pg_size * ratio
-                        }
+                        >() as nat; {}
                         old(self).va as nat / page_size_spec::<C>(i) as nat % nr_subpage_per_huge::<
                             C,
                         >() as nat; {
