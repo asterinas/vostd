@@ -55,7 +55,7 @@ pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usi
 
 pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: PagingLevel)
     requires
-        1 <= level <= C::NR_LEVELS(),
+        1 <= level <= C::NR_LEVELS() + 1,
     ensures
         page_size_spec::<C>(level) > 0,
         is_power_2(page_size_spec::<C>(level) as int),
@@ -78,7 +78,7 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
     assert((C::BASE_PAGE_SIZE().ilog2() + subpage_bits * (level - 1)) <= (
     C::BASE_PAGE_SIZE().ilog2() + subpage_bits * C::NR_LEVELS())) by (nonlinear_arith)
         requires
-            level <= C::NR_LEVELS(),
+            level <= C::NR_LEVELS() + 1,
             subpage_bits >= 0,
     ;
     lemma_pow2_increases(
@@ -109,7 +109,7 @@ pub proof fn lemma_page_size_spec_properties<C: PagingConstsTrait>(level: Paging
 pub proof fn lemma_page_size_increases<C: PagingConstsTrait>(i: PagingLevel, j: PagingLevel)
     by (nonlinear_arith)
     requires
-        1 <= i <= j <= C::NR_LEVELS(),
+        1 <= i <= j <= C::NR_LEVELS() + 1,
     ensures
         page_size_spec::<C>(i) as nat <= page_size_spec::<C>(j) as nat,
 {
