@@ -12,7 +12,7 @@ use std::{
 
 use vstd::{
     arithmetic::{div_mod::*, power::*, power2::*},
-    calc, invariant,
+    calc, layout::is_power_2, invariant,
     pervasive::VecAdditionalExecFns,
     prelude::*,
     raw_ptr::MemContents,
@@ -22,7 +22,7 @@ use vstd::tokens::SetToken;
 use core::ops::Deref;
 
 use crate::{
-    helpers::{align_ext::{align_down, lemma_align_down_squeeze}, math::lemma_usize_mod_0_maintain_after_add},
+    helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
         child::{self, Child, ChildRef},
         entry::Entry,
@@ -514,7 +514,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 }
 
                 assert forall|i: PagingLevel| #![trigger page_size::<C>(i)]
-                    self.level < i <= self.guard_level
+                    self.level < i <= self.guard_level + 1
                 implies
                     old(self).va as nat / page_size::<C>(i) as nat == self.va as nat / page_size::<C>(i) as nat
                 by {
@@ -572,15 +572,20 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 implies
                     path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
                 by {
+                    lemma_page_size_spec_properties::<C>((i + 1) as u8);
                     calc! {
                         (==)
-                        path_index!(self.path[i]).unwrap().va@; {}
-                        old_path[path_index_at_level_spec(i)].unwrap().va@; {}
-                        align_down(old(self).va, page_size::<C>((i + 1) as u8)); {
-                            // FIXME: Prove this.
-                            admit();
+                        path_index!(self.path[i]).unwrap().va@ as nat; {}
+                        old_path[path_index_at_level_spec(i)].unwrap().va@ as nat; {}
+                        align_down(old(self).va, page_size::<C>((i + 1) as u8)) as nat; {
+                            lemma_align_down_properties(old(self).va, page_size::<C>((i + 1) as u8));
                         }
-                        align_down(self.va, page_size::<C>((i + 1) as u8));
+                        old(self).va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>((i + 1) as u8) as nat; {
+                        }
+                        self.va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>((i + 1) as u8) as nat; {
+                            lemma_align_down_properties(self.va, page_size::<C>((i + 1) as u8));
+                        }
+                        align_down(self.va, page_size::<C>((i + 1) as u8)) as nat;
                     }
                 }
 

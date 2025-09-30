@@ -228,7 +228,7 @@ pub fn nr_subpage_per_huge<C: PagingConstsTrait>() -> (res: usize)
 proof fn lemma_page_size_adjacent_levels<C: PagingConstsTrait>(level: PagingLevel)
     by (nonlinear_arith)
     requires
-        1 < level <= C::NR_LEVELS(),
+        1 < level <= C::NR_LEVELS() + 1,
     ensures
         page_size_spec::<C>(level) as nat == nr_subpage_per_huge::<C>() as nat * (page_size_spec::<
             C,
@@ -237,7 +237,7 @@ proof fn lemma_page_size_adjacent_levels<C: PagingConstsTrait>(level: PagingLeve
     C::lemma_consts_properties();
     C::lemma_consts_properties_derived();
     let prev_level = (level - 1) as PagingLevel;
-    assert(1 <= prev_level < C::NR_LEVELS());
+    assert(1 <= prev_level < C::NR_LEVELS() + 1);
     calc! {
         (==)
         page_size_spec::<C>(level) as nat; {
@@ -275,7 +275,7 @@ proof fn lemma_page_size_adjacent_levels<C: PagingConstsTrait>(level: PagingLeve
 proof fn lemma_page_size_geometric<C: PagingConstsTrait>(i: PagingLevel, j: PagingLevel)
     by (nonlinear_arith)
     requires
-        1 <= i <= j <= C::NR_LEVELS(),
+        1 <= i <= j <= C::NR_LEVELS() + 1,
     ensures
         page_size::<C>(j) as nat == page_size::<C>(i) as nat * pow(
             nr_subpage_per_huge::<C>() as int,

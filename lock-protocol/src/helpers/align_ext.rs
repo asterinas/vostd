@@ -219,6 +219,7 @@ pub proof fn lemma_align_down_properties(x: usize, align: usize)
         align < usize::MAX as usize,
     ensures
         align_down(x, align) as int == x as int - (x as int % align as int) == (x / align) * align,
+        align_down(x, align) as nat == x as nat - (x as nat % align as nat) == (x / align) * align,
 {
     assert(x as int % align as int <= x as int);
 }
