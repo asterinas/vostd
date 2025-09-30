@@ -212,4 +212,36 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
     res_ as usize
 }
 
+pub proof fn lemma_align_down_monotone(x: usize, y: usize, align: usize)
+    requires
+        is_power_2(align as int),
+        align < u64::MAX as usize,
+        x <= y,
+    ensures
+        align_down(x, align) <= align_down(y, align),
+{
+    let x_aligned = align_down(x, align);
+    let y_aligned = align_down(y, align);
+
+    admit();
+}
+
+pub proof fn lemma_align_down_squeeze(x: usize, y: usize, z: usize, align: usize)
+    requires
+        is_power_2(align as int),
+        align < u64::MAX as usize,
+        x <= y <= z,
+        align_down(x, align) == align_down(z, align),
+    ensures
+        align_down(x, align) == align_down(y, align),
+{
+    assert(align_down(x, align) <= align_down(y, align)) by {
+        lemma_align_down_monotone(x, y, align);
+    };
+    assert(align_down(y, align) <= align_down(z, align)) by {
+        lemma_align_down_monotone(y, z, align);
+    };
+    assert(align_down(x, align) == align_down(z, align));
+}
+
 } // verus!

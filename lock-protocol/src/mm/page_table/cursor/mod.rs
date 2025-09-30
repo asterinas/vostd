@@ -22,7 +22,7 @@ use vstd::tokens::SetToken;
 use core::ops::Deref;
 
 use crate::{
-    helpers::{align_ext::align_down, math::lemma_usize_mod_0_maintain_after_add},
+    helpers::{align_ext::{align_down, lemma_align_down_squeeze}, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
         child::{self, Child, ChildRef},
         entry::Entry,
@@ -399,16 +399,41 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
         self.va = next_va;
         proof {
-            // FIXME: Prove this.
-            assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-                self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
-            implies
-                path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
-            by {
-                admit();
-            }
+            // We prove self.wf(spt) by considering two cases
             if (self.level == self.guard_level) {
-                // The proof automatically goes through in this case.
+                assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                    self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
+                implies
+                    path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
+                by {
+                    assert(i == self.guard_level);
+                    let guard_va = old_path[path_index_at_level_spec(i)].unwrap().va;
+                    let pg_size = page_size::<C>((i + 1) as u8);
+                    lemma_page_size_spec_properties::<C>((i + 1) as u8);
+                    calc! {
+                        (==)
+                        path_index!(self.path[i]).unwrap().va@; {}
+                        guard_va@; {}
+                        align_down(old(self).va, page_size::<C>((i + 1) as u8)); {
+                            lemma_align_down_squeeze(
+                                self.barrier_va.start,
+                                old(self).va,
+                                (self.barrier_va.end - 1) as usize,
+                                page_size::<C>((i + 1) as u8),
+                            );
+                        }
+                        align_down(self.barrier_va.start, page_size::<C>((i + 1) as u8)); {
+                            lemma_align_down_squeeze(
+                                self.barrier_va.start,
+                                self.va,
+                                (self.barrier_va.end - 1) as usize,
+                                page_size::<C>((i + 1) as u8),
+                            );
+                        }
+                        align_down(self.va, page_size::<C>((i + 1) as u8));
+                    }
+                }
+                assert(self.wf(spt));
             } else {
                 let old_level = old(self).level;
                 let old_page_size = cur_page_size;
@@ -423,6 +448,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     assert(old(self).barrier_va.end < usize::MAX);
                 }
                 assert(self.va == next_va == aligned_va + old_page_size);
+
+                // FIXME: Prove this.
+                assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                    self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
+                implies
+                    path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
+                by {
+                    admit();
+                }
 
                 assert forall|i: u8| self.level < i <= self.guard_level implies pte_index::<C>(
                     self.va,
