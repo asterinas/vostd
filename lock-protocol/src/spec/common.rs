@@ -3,8 +3,6 @@ use std::{io::Write, path, result};
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::spec::utils::*;
-
 verus! {
 
 pub type CpuId = nat;

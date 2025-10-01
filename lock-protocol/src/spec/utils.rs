@@ -9,10 +9,8 @@ use vstd::arithmetic::mul::*;
 use vstd::set::*;
 use vstd_extra::prelude::*;
 
+use crate::spec::common::NodeId;
 use crate::mm::page_table::node::child;
-
-use super::common::*;
-use super::rcu::tree;
 
 verus! {
 

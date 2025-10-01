@@ -2,8 +2,11 @@ use verus_state_machines_macros::state_machine;
 use vstd::prelude::*;
 use vstd::map::*;
 
-use crate::spec::{common::*, utils::*};
-use super::types::*;
+use crate::spec::{
+    utils::NodeHelper,
+    common::{CpuId, NodeId, valid_cpu},
+};
+use super::types::AtomicCursorState;
 
 verus! {
 

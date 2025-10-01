@@ -1,8 +1,8 @@
 pub mod atomic;
-pub mod tree;
+mod tree;
 mod tree_refines_atomic;
-pub mod types;
-pub mod wf_tree_path;
+mod types;
+mod wf_tree_path;
 
 pub use types::*;
 pub use tree::*;

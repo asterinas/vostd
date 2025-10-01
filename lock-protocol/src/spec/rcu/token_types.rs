@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use crate::spec::rcu::*;
+use crate::spec::rcu::TreeSpec;
 
 verus! {
 

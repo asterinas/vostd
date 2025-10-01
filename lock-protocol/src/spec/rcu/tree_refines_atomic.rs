@@ -4,9 +4,12 @@ use vstd::map::*;
 use verus_state_machines_macros::case_on_init;
 use verus_state_machines_macros::case_on_next;
 
-use crate::spec::{common::*, utils::*};
-
-use super::{types::*, tree::TreeSpec, atomic::AtomicSpec};
+use crate::spec::{
+    common::{valid_cpu, CpuId},
+    rcu::{AtomicCursorState, CursorState},
+    utils::{NodeHelper, group_node_helper_lemmas},
+};
+use super::{tree::TreeSpec, atomic::AtomicSpec};
 
 verus! {
 

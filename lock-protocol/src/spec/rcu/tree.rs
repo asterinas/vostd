@@ -2,11 +2,13 @@ use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
 use vstd::multiset::*;
 
-use crate::spec::{common::*, utils::*};
-use super::types::*;
 use vstd::{set::*, set_lib::*, map_lib::*};
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
+
 use crate::mm::Paddr;
+use crate::spec::common::{CpuId, NodeId, valid_cpu};
+use crate::spec::rcu::types::{CursorState, NodeState, PteState, PteArrayState};
+use crate::spec::utils::{NodeHelper, group_node_helper_lemmas};
 
 tokenized_state_machine! {
 
