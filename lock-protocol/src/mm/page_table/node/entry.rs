@@ -6,6 +6,10 @@ use std::marker::PhantomData;
 use crate::{
     helpers::conversion::usize_mod_is_int_mod,
     mm::{
+        frame::{allocator::AllocatorModel, meta::AnyFrameMeta},
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size,
         page_table::{
             cursor::spec_helpers::{
                 self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
@@ -13,17 +17,11 @@ use crate::{
             },
             PageTableConfig, PageTableEntryTrait,
         },
-        frame::allocator::AllocatorModel,
-        meta::AnyFrameMeta,
-        nr_subpage_per_huge,
-        page_prop::PageProperty,
-        page_size,
         vm_space::Token,
         Paddr, PagingConstsTrait, PagingLevel, Vaddr, NR_ENTRIES,
     },
     sync::rcu::RcuDrop,
     task::DisabledPreemptGuard,
-    x86_64::NR_LEVELS_SPEC,
 };
 
 use super::{

@@ -28,7 +28,7 @@ use vstd_extra::extra_num::{
 };
 
 use super::{
-    lemma_page_size_adjacent_levels, lemma_page_size_geometric, meta::AnyFrameMeta,
+    lemma_page_size_adjacent_levels, lemma_page_size_geometric, frame::meta::AnyFrameMeta,
     nr_subpage_per_huge, page_prop::PageProperty, page_size, vm_space::Token, page_size_spec,
     lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };

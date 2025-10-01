@@ -13,34 +13,30 @@ use vstd::prelude::*;
 use vstd::simple_pptr::MemContents;
 use vstd::simple_pptr::PPtr;
 use vstd::simple_pptr::PointsTo;
-use crate::mm::frame;
-use crate::mm::meta::AnyFrameMeta;
-use crate::mm::nr_subpage_per_huge;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::page_size_spec;
-use crate::mm::Paddr;
-use crate::mm::page_table::PageTableEntryTrait;
-use crate::mm::PagingConstsTrait;
-use crate::mm::PagingConsts;
-
-use crate::mm::frame::{
-    Frame, FrameRef,
-    allocator::{AllocatorModel, pa_is_valid_kernel_address},
+use crate::{
+    mm::{
+        NR_ENTRIES,
+        frame::{
+            self,
+            allocator::{pa_is_valid_kernel_address, AllocatorModel},
+            meta::AnyFrameMeta,
+            Frame, FrameRef,
+        },
+        nr_subpage_per_huge,
+        page_prop::PageProperty,
+        page_size_spec,
+        page_table::PageTableEntryTrait,
+        Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
+    },
+    sync::spin,
+    x86_64::kspace::paddr_to_vaddr,
 };
-use crate::mm::PagingLevel;
-
-use crate::mm::Vaddr;
-use crate::sync::spin;
-// TODO: Use a generic style?
-use crate::x86_64::paddr_to_vaddr;
 
 use crate::exec::{
     self, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY, frame_addr_to_index,
     frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
 };
 use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
-
-use crate::mm::NR_ENTRIES;
 
 use super::cursor::spec_helpers;
 use super::PageTableConfig;

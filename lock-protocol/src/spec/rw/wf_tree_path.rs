@@ -3,7 +3,7 @@ use std::{io::Write, path, result};
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::spec::{common::*, utils::*};
+use crate::spec::{common::NodeId, utils::NodeHelper};
 
 verus! {
 

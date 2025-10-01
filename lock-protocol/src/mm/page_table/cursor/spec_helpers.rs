@@ -16,16 +16,15 @@ use crate::{
     helpers::align_ext::align_down,
     mm::{
         page_table::{child::Child, entry::Entry, node::PageTableNode, PageTableConfig},
-        frame::{self, allocator::AllocatorModel},
-        meta::AnyFrameMeta,
+        frame::{self, allocator::AllocatorModel, Frame, meta::AnyFrameMeta},
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size,
         vm_space::Token,
-        Frame, Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
+        Paddr, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, PAGE_SIZE,
     },
+    x86_64::kspace::VMALLOC_VADDR_RANGE,
     task::DisabledPreemptGuard,
-    x86_64::VMALLOC_VADDR_RANGE,
 };
 
 use super::{

@@ -2,8 +2,7 @@ use vstd::prelude::*;
 use vstd::arithmetic::div_mod::*;
 
 use crate::extern_const;
-use crate::mm::*;
-// use crate::page::meta::mapping::*;
+use crate::mm::{Paddr, Vaddr, PAGE_SIZE};
 use crate::x86_64::mm::{MAX_NR_PAGES, MAX_PADDR};
 use core::ops::Range;
 

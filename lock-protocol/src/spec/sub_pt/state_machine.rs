@@ -3,9 +3,13 @@ use std::marker::PhantomData;
 use verus_state_machines_macros::*;
 use vstd::prelude::*;
 
-use crate::mm::allocator::pa_is_valid_kernel_address;
-use crate::mm::page_prop::{PageProperty, PageFlags, PrivilegedPageFlags, CachePolicy};
-use crate::mm::{page_size_spec, page_table::PageTableConfig, PagingLevel};
+use crate::mm::{
+    frame::allocator::pa_is_valid_kernel_address,
+    page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+    page_size_spec,
+    page_table::PageTableConfig,
+    PagingLevel,
+};
 
 verus! {
 

@@ -14,7 +14,6 @@ use vstd::cell::{PCell, PointsTo as CellPointsTo};
 
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
-use crate::task::guard;
 use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::NodeId,

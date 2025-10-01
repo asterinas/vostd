@@ -1,3 +1,3 @@
-pub mod guard;
+mod guard;
 
 pub use guard::*;

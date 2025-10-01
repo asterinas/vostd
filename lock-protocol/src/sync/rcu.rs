@@ -3,11 +3,10 @@ use core::mem::ManuallyDrop;
 
 use vstd::prelude::*;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
-use crate::mm::page_table::pte::Pte;
-use crate::mm::page_table::node_concurrent::PageTableNode;
-use crate::mm::page_table::PageTableConfig;
+use crate::mm::{
+    page_table::{node_concurrent::PageTableNode, pte::Pte, PageTableConfig},
+    Vaddr,
+};
 
 verus! {
 

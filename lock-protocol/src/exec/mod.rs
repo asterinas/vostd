@@ -9,27 +9,25 @@ use std::sync::{Mutex, OnceLock};
 
 use vstd::tokens::*;
 
-use crate::mm::allocator::{self, AllocatorModel, pa_is_valid_kernel_address};
-use crate::mm::page_prop::{PageFlags, PageProperty, PrivilegedPageFlags};
-use crate::mm::page_table::node::PageTableNode;
-
-use crate::mm::{page_size_spec, Paddr, PagingLevel, NR_ENTRIES};
 use crate::{
     mm::{
-        page_table::{
-            cursor::spec_helpers,
-            pte_index, PageTableConfig,
-            node::entry::Entry,
-            cursor::{Cursor, CursorMut},
-            PageTableEntryTrait,
-            node::PageTablePageMeta,
-            PagingConsts, PagingConstsTrait,
+        frame::{
+            allocator::{self, pa_is_valid_kernel_address, AllocatorModel},
+            meta::{AnyFrameMeta, MetaSlot},
+            Frame,
         },
-        meta::{AnyFrameMeta, MetaSlot},
-        page_prop, Frame, Vaddr, MAX_USERSPACE_VADDR, NR_LEVELS, PAGE_SIZE,
+        page_prop::{self, PageFlags, PageProperty, PrivilegedPageFlags},
+        page_size_spec,
+        page_table::{
+            cursor::{spec_helpers, Cursor, CursorMut},
+            node::{entry::Entry, PageTableNode, PageTablePageMeta},
+            pte_index, PageTableConfig, PageTableEntryTrait, PagingConsts, PagingConstsTrait,
+        },
+        Paddr, PagingLevel, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
     },
     task::{disable_preempt, DisabledPreemptGuard},
 };
+
 use vstd::simple_pptr::*;
 
 use crate::exec;

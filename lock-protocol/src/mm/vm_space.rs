@@ -13,18 +13,19 @@ use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
 use vstd::bits::*;
 
-use crate::mm::page_table::{PageTableConfig, PagingConsts};
-use crate::mm::frame::Frame;
-use crate::mm::page_prop::PageProperty;
-use crate::mm::{PagingLevel, Paddr};
-use crate::exec::MockPageTableEntry;
+use crate::{
+    exec::MockPageTableEntry,
+    mm::{
+        frame::{allocator::AllocatorModel, meta::AnyFrameMeta, Frame},
+        page_prop::PageProperty,
+        page_table::{PageTableConfig, PagingConsts},
+        Paddr, PagingLevel, PAGE_SIZE,
+    },
+};
 
 verus! {
 
 use vstd::prelude::verus;
-use super::allocator::AllocatorModel;
-use super::meta::AnyFrameMeta;
-use super::PAGE_SIZE;
 
 // TODO: VmSpace
 // TODO: Cursor

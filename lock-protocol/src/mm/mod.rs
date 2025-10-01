@@ -9,8 +9,6 @@ use std::ops::Range;
 
 use page_table::{PagingConstsTrait, PagingConsts};
 
-pub use frame::*;
-
 use vstd::arithmetic::power2::lemma_pow2_pos;
 use vstd::prelude::*;
 use vstd::{
