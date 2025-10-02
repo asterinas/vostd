@@ -147,6 +147,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     //         }
     //     &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     // }
+    
     /// Well-formedness of the cursor.
     pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
         &&& spt.wf()
@@ -154,7 +155,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
         // &&& self.wf_temp()
-
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -281,18 +281,29 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    // pub fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
-    //     if   /* Check range covers || */
-    //     !(va.start < va.end) {
-    //         return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
-    //     }
-    //     if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
-    //         return Err(PageTableError::UnalignedVaddr);
-    //     }
-    //     // TODO
-    //     // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
-    //     Ok(locking::lock_range(pt, va))
-    // }
+    #[verifier::external_body]
+    pub fn new(
+        pt: &'a PageTable<C>,
+        guard: &'a DisabledPreemptGuard,
+        va: &Range<Vaddr>,
+    ) -> (res: (Self, Tracked<SubPageTable<C>>)) 
+        ensures
+            res.0.wf(&res.1@),
+            res.1@.root@.map_va <= va.start,
+            res.1@.root@.map_va + page_size_spec::<C>((res.1@.root@.level + 1) as u8) >= va.end,
+    {
+        // if !is_valid_range::<C>(va) || va.is_empty() {
+        //     assert(false);
+        // }
+        // if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
+        //     assert(false);
+        // }
+        
+        // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
+        
+        unimplemented!()
+    }
+
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,

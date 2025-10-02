@@ -1,4 +1,4 @@
-// mod rcu;
+mod rcu;
 // mod rw;
 // mod test_map;
 use vstd::{invariant, prelude::*};

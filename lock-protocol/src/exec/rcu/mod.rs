@@ -1,10 +1,10 @@
 pub mod common;
 pub mod configs;
 pub mod cpu;
-// pub mod cursor;
+pub mod cursor;
 pub mod frame;
 pub mod node;
 pub mod page_table;
 pub mod pte;
-// pub mod trust_rcu;
+pub mod trust_rcu;
 pub mod types;

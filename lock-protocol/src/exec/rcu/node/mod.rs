@@ -18,12 +18,13 @@ use crate::spec::{common::*, utils::*, rcu::*};
 use crate::task::guard;
 use super::{common::*, cpu::*, frame::meta::*};
 use super::pte::Pte;
-use spinlock::{PageTablePageSpinLock, SpinGuard};
+use spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner};
 use child::Child;
 use entry::Entry;
 use stray::{StrayFlag, StrayPerm};
 use crate::mm::page_table::PageTableConfig;
 use crate::mm::page_table::PageTableEntryTrait;
+use crate::task::preempt::guard::DisabledPreemptGuard;
 
 verus! {
 
@@ -275,7 +276,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
     pub fn normal_lock<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
@@ -285,12 +286,12 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol() == false,
     {
         let guard = self.deref().meta().lock.normal_lock();
-        PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
+        PageTableGuard { inner: self, guard: Some(guard) }
     }
 
     pub fn normal_lock_new_allocated_node<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
@@ -308,12 +309,12 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.in_protocol() == false,
     {
         let guard = self.deref().meta().lock.normal_lock_new_allocated_node(pa_pte_array_token);
-        PageTableGuard { inner: self, guard: Some(guard), _phantom: PhantomData }
+        PageTableGuard { inner: self, guard: Some(guard) }
     }
 
     pub fn lock<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel>)) where 'a: 'rcu
@@ -346,16 +347,17 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         proof {
             m = res.1.get();
         }
-        let guard = PageTableGuard { inner: self, guard: Some(res.0), _phantom: PhantomData };
+        let guard = PageTableGuard { inner: self, guard: Some(res.0) };
         (guard, Tracked(m))
     }
 
-    #[verifier::external_body]
     pub fn make_guard_unchecked<'rcu>(
         self,
-        _guard: &'rcu (),
+        _guard: &'rcu DisabledPreemptGuard,
         m: Tracked<&LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
+        forgot_guard: Tracked<SpinGuardGhostInner<C>>,
+        spin_lock: Ghost<PageTablePageSpinLock<C>>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
@@ -370,21 +372,27 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
                 NodeHelper::get_offset(self.deref().nid@),
             ),
             m@.node_is_locked(pa_pte_array_token@.key()),
+            forgot_guard@.wf(&spin_lock@),
+            forgot_guard@.stray_perm.value() == false,
+            forgot_guard@.in_protocol@ == true,
+            self.deref().meta_spec().lock =~= spin_lock@,
         ensures
             res.wf(),
             res.inner =~= self,
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == true,
+            res.guard->Some_0.inner@ =~= forgot_guard@,
+            res.deref().deref().meta_spec().lock =~= spin_lock@,
     {
-        // PageTableGuard { inner: self }
-        unimplemented!()
+        let spin_guard: SpinGuard<C> = SpinGuard { inner: forgot_guard };
+        let res = PageTableGuard { inner: self, guard: Some(spin_guard) };
+        res
     }
 }
 
 pub struct PageTableGuard<'rcu, C: PageTableConfig> {
     pub inner: PageTableNodeRef<'rcu, C>,
     pub guard: Option<SpinGuard<C>>,
-    pub _phantom: PhantomData<C>,
 }
 
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
