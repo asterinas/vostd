@@ -703,7 +703,7 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
     ensures
         pte_index_spec::<C>(va, level) as nat == (va as nat / page_size_spec::<C>(level) as nat)
             % nr_subpage_per_huge::<C>() as nat,
-        level < C::NR_LEVELS_SPEC() ==> pte_index_spec::<C>(va, level) as nat == va as nat
+        level <= C::NR_LEVELS_SPEC() ==> pte_index_spec::<C>(va, level) as nat == va as nat
             % page_size_spec::<C>((level + 1) as PagingLevel) as nat / page_size_spec::<C>(
             level,
         ) as nat,
@@ -761,7 +761,7 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         }
     }
     // Then, we prove the second equality using properties of div and mod.
-    if level < C::NR_LEVELS() {
+    if level <= C::NR_LEVELS() {
         let a = page_size_spec::<C>(level) as int;
         let b = nr_subpage_per_huge::<C>() as int;
         let x = va as int;
@@ -772,6 +772,8 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         }
         assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == a * b) by {
             assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == b * a) by {
+                C::lemma_consts_properties();
+                assert(1 < level + 1 <= C::NR_LEVELS() + 1 < u8::MAX);
                 lemma_page_size_adjacent_levels::<C>((level + 1) as PagingLevel);
             }
         }
