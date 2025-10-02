@@ -147,7 +147,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     //         }
     //     &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     // }
-    
     /// Well-formedness of the cursor.
     pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
         &&& spt.wf()
@@ -155,6 +154,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
         // &&& self.wf_temp()
+
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -282,11 +282,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
     #[verifier::external_body]
-    pub fn new(
-        pt: &'a PageTable<C>,
-        guard: &'a DisabledPreemptGuard,
-        va: &Range<Vaddr>,
-    ) -> (res: (Self, Tracked<SubPageTable<C>>)) 
+    pub fn new(pt: &'a PageTable<C>, guard: &'a DisabledPreemptGuard, va: &Range<Vaddr>) -> (res: (
+        Self,
+        Tracked<SubPageTable<C>>,
+    ))
         ensures
             res.0.wf(&res.1@),
             res.1@.root@.map_va <= va.start,
@@ -298,9 +297,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         // if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
         //     assert(false);
         // }
-        
         // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
-        
         unimplemented!()
     }
 

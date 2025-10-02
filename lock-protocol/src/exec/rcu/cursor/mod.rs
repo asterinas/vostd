@@ -25,7 +25,7 @@ pub struct Cursor<'rcu, C: PageTableConfig> {
     pub rcu_guard: &'rcu DisabledPreemptGuard,
     pub inst: Tracked<SpecInstance>,
     // pub _phantom: PhantomData<&'rcu PageTable<C>>,
-    pub g_level: Ghost<PagingLevel>, // Ghost level, used in 'unlock_range'
+    pub g_level: Ghost<PagingLevel>,  // Ghost level, used in 'unlock_range'
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
@@ -37,11 +37,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.guards_in_path_relation()
     }
 
-    pub open spec fn guards_in_path_relation(&self) -> bool 
+    pub open spec fn guards_in_path_relation(&self) -> bool
         recommends
             self.wf_path(),
     {
-        &&& forall|level: PagingLevel| #![trigger self.path[level - 1]]
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
             self.g_level@ < level <= self.guard_level ==> {
                 let nid1 = self.path[level - 1]->Some_0.nid();
                 let nid2 = self.path[level - 2]->Some_0.nid();
@@ -76,8 +77,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     pub open spec fn guard_in_path_nid_diff(
-        &self, 
-        level1: PagingLevel, 
+        &self,
+        level1: PagingLevel,
         level2: PagingLevel,
     ) -> bool {
         self.get_guard(level1 - 1).nid() != self.get_guard(level2 - 1).nid()
@@ -87,24 +88,27 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         requires
             self.wf(),
         ensures
-            forall |level1: PagingLevel, level2: PagingLevel|
-                self.g_level@ <= level1 < level2 <= self.guard_level &&
-                self.g_level@ <= level2 <= self.guard_level &&
-                level1 != level2 ==>
-                    #[trigger] self.guard_in_path_nid_diff(level1, level2),
-    { admit(); }
+            forall|level1: PagingLevel, level2: PagingLevel|
+                self.g_level@ <= level1 < level2 <= self.guard_level && self.g_level@ <= level2
+                    <= self.guard_level && level1 != level2
+                    ==> #[trigger] self.guard_in_path_nid_diff(level1, level2),
+    {
+        admit();
+    }
 
     pub proof fn lemma_guard_in_path_relation_implies_in_subtree_range(&self)
         requires
             self.wf(),
         ensures
-            forall |level: PagingLevel|
-                self.g_level@ <= level <= self.guard_level ==>
-                    #[trigger] NodeHelper::in_subtree_range(
-                        self.get_guard(self.guard_level - 1).nid(),
-                        self.get_guard(level - 1).nid(),
-                    ),
-    { admit(); }
+            forall|level: PagingLevel|
+                self.g_level@ <= level <= self.guard_level
+                    ==> #[trigger] NodeHelper::in_subtree_range(
+                    self.get_guard(self.guard_level - 1).nid(),
+                    self.get_guard(level - 1).nid(),
+                ),
+    {
+        admit();
+    }
 
     pub open spec fn rec_put_guard_from_path(
         &self,
@@ -115,22 +119,24 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ <= cur_level <= self.guard_level,
         decreases cur_level - self.g_level@,
     {
-        if cur_level < self.g_level@ { forgot_guards }
-        else {
-            let res = if cur_level == self.g_level@ { 
-                forgot_guards 
-            } else { 
-                self.rec_put_guard_from_path(forgot_guards, (cur_level - 1) as PagingLevel) 
+        if cur_level < self.g_level@ {
+            forgot_guards
+        } else {
+            let res = if cur_level == self.g_level@ {
+                forgot_guards
+            } else {
+                self.rec_put_guard_from_path(forgot_guards, (cur_level - 1) as PagingLevel)
             };
             let guard = self.path[cur_level - 1]->Some_0;
-            res.put_spec(guard.nid(), guard.guard->Some_0.inner@, guard.inner.deref().meta_spec().lock)
+            res.put_spec(
+                guard.nid(),
+                guard.guard->Some_0.inner@,
+                guard.inner.deref().meta_spec().lock,
+            )
         }
     }
 
-    pub open spec fn wf_with_forgot_guards(
-        &self, 
-        forgot_guards: SubTreeForgotGuard<C>,
-    ) -> bool {
+    pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
         &&& {
             let res = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
             {
@@ -138,7 +144,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 &&& res.is_root_and_contained(self.path[self.guard_level - 1]->Some_0.nid())
             }
         }
-        &&& forall|level: PagingLevel| #![trigger self.path[level - 1]]
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
             self.g_level@ <= level <= self.guard_level ==> {
                 !forgot_guards.inner.dom().contains(self.path[level - 1]->Some_0.nid())
             }
@@ -148,35 +155,35 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &self,
         forgot_guards: SubTreeForgotGuard<C>,
     ) -> bool {
-        forall |level: PagingLevel| 
+        forall|level: PagingLevel|
             #![trigger self.rec_put_guard_from_path(forgot_guards, (level - 1) as PagingLevel)]
             self.g_level@ <= level <= self.guard_level ==> {
                 let guard = self.get_guard(level - 1);
                 let _forgot_guards = self.rec_put_guard_from_path(
-                    forgot_guards, 
+                    forgot_guards,
                     (level - 1) as PagingLevel,
                 );
                 {
                     &&& _forgot_guards.wf()
                     &&& _forgot_guards.is_sub_root(guard.nid())
                     &&& _forgot_guards.childs_are_contained(
-                        guard.nid(), guard.guard->Some_0.view_pte_token().value(),
+                        guard.nid(),
+                        guard.guard->Some_0.view_pte_token().value(),
                     )
                 }
             }
     }
 
-    pub proof fn lemma_wf_with_forgot_guards_sound(
-        &self, 
-        forgot_guards: SubTreeForgotGuard<C>,
-    )
+    pub proof fn lemma_wf_with_forgot_guards_sound(&self, forgot_guards: SubTreeForgotGuard<C>)
         requires
             self.wf(),
             forgot_guards.wf(),
             self.wf_with_forgot_guards(forgot_guards),
         ensures
             self.guards_in_path_wf_with_forgot_guards(forgot_guards),
-    { admit(); }
+    {
+        admit();
+    }
 
     // Trusted
     #[verifier::external_body]

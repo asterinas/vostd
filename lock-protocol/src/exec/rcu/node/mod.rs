@@ -274,10 +274,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         self.deref().wf()
     }
 
-    pub fn normal_lock<'rcu>(
-        self,
-        guard: &'rcu DisabledPreemptGuard,
-    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
+    pub fn normal_lock<'rcu>(self, guard: &'rcu DisabledPreemptGuard) -> (res: PageTableGuard<
+        'rcu,
+        C,
+    >) where 'a: 'rcu
         requires
             self.wf(),
         ensures
