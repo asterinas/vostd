@@ -238,11 +238,13 @@ pub proof fn lemma_align_down_monotone(x: usize, y: usize, align: usize)
     assert(x as int / align as int <= y as int / align as int) by (nonlinear_arith)
         requires
             x as int <= y as int,
-            align > 0;
+            align > 0,
+    ;
     assert(x / align * align <= y / align * align) by (nonlinear_arith)
         requires
             x as int / align as int <= y as int / align as int,
-            align > 0;
+            align > 0,
+    ;
 }
 
 pub proof fn lemma_align_down_squeeze(x: usize, y: usize, z: usize, align: usize)

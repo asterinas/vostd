@@ -12,7 +12,9 @@ use std::{
 
 use vstd::{
     arithmetic::{div_mod::*, power::*, power2::*},
-    calc, layout::is_power_2, invariant,
+    calc,
+    layout::is_power_2,
+    invariant,
     pervasive::VecAdditionalExecFns,
     prelude::*,
     raw_ptr::MemContents,
@@ -42,10 +44,9 @@ use crate::{
 };
 
 use super::{
-    lemma_addr_aligned_propagate,
-    lemma_carry_ends_at_nonzero_result_bits, lemma_pte_index_alternative_spec, pte_index,
-    pte_index_mask, PageTable, PageTableConfig, PageTableEntryTrait, PageTableError, PagingConsts,
-    PagingConstsTrait, PagingLevel,
+    lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
+    lemma_pte_index_alternative_spec, pte_index, pte_index_mask, PageTable, PageTableConfig,
+    PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
 use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
@@ -140,11 +141,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.barrier_va.start < self.barrier_va.end
             < MAX_USERSPACE_VADDR
         // We allow the cursor to be at the end of the range.
-        &&& self.barrier_va.start <= self.va <= self.barrier_va.end
+        &&& self.barrier_va.start <= self.va
+            <= self.barrier_va.end
         // The barrier range should be contained in the range of the frame at
         // the guard level.
         &&& align_down(self.barrier_va.start, page_size::<C>((self.guard_level + 1) as u8))
-            == align_down((self.barrier_va.end - 1) as usize, page_size::<C>((self.guard_level + 1) as u8))
+            == align_down(
+            (self.barrier_va.end - 1) as usize,
+            page_size::<C>((self.guard_level + 1) as u8),
+        )
     }
 
     /// Well-formedness of the cursor's level and guard level.
@@ -168,7 +173,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_frame_view = spt.frames.value()[cur_frame_pa];
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
-        &&& self.va < self.barrier_va.end ==> cur_frame.va == align_down(self.va, page_size::<C>((level + 1) as u8))
+        &&& self.va < self.barrier_va.end ==> cur_frame.va == align_down(
+            self.va,
+            page_size::<C>((level + 1) as u8),
+        )
         &&& cur_frame.wf(&spt.alloc_model)
         &&& cur_frame.level_spec(&spt.alloc_model) == level
         &&& cur_frame == self.path[path_index_at_level_spec(level)].unwrap()
@@ -372,10 +380,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         assert(self.va < next_va <= self.va + cur_page_size) by {
             let aligned_va = align_down(self.va, cur_page_size) as int;
             lemma_page_size_spec_properties::<C>(self.level);
-            assert(0 <= self.va % cur_page_size <= self.va && 0 <= self.va % cur_page_size < cur_page_size) by (nonlinear_arith)
+            assert(0 <= self.va % cur_page_size <= self.va && 0 <= self.va % cur_page_size
+                < cur_page_size) by (nonlinear_arith)
                 requires
                     self.va >= 0,
-                    cur_page_size > 0;
+                    cur_page_size > 0,
+            ;
             assert(aligned_va as int == self.va as int - self.va as int % cur_page_size as int);
             assert(next_va - self.va == cur_page_size - self.va % cur_page_size);
             assert(0 < cur_page_size - self.va % cur_page_size <= cur_page_size);
@@ -396,8 +406,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.va == old(self).va,
                 next_va % page_size::<C>(self.level) == 0,
                 forall|i: PagingLevel|
-                    self.level <= i <= self.guard_level ==> path_index!(self.path[i]) == 
-                    #[trigger] old_path[path_index_at_level_spec(i)],
+                    self.level <= i <= self.guard_level ==> path_index!(self.path[i])
+                        == #[trigger] old_path[path_index_at_level_spec(i)],
             decreases self.guard_level - self.level,
         {
             self.pop_level(Tracked(&spt));
@@ -412,11 +422,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         proof {
             // We prove self.wf(spt) by considering two cases
             if (self.level == self.guard_level) {
-                assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-                    self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
-                implies
-                    path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
-                by {
+                assert forall|i: PagingLevel|
+                    #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                    self.level <= i <= self.guard_level && self.va
+                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va
+                    == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
                     assert(i == self.guard_level);
                     let guard_va = old_path[path_index_at_level_spec(i)].unwrap().va;
                     let pg_size = page_size::<C>((i + 1) as u8);
@@ -470,9 +480,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     let p = (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
                         - C::PTE_SIZE().ilog2()) * self.level) as nat;
                     assert(pow2(p) == next_pg_size) by {
-                        lemma_page_size_spec_properties::<C>(
-                            (self.level + 1) as PagingLevel,
-                        );
+                        lemma_page_size_spec_properties::<C>((self.level + 1) as PagingLevel);
                     }
                     let q = (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
                         - C::PTE_SIZE().ilog2()) * (self.level - 1)) as nat;
@@ -513,11 +521,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     assert(next_va as nat / pow2(p) == old(self).va as nat / pow2(p));
                 }
 
-                assert forall|i: PagingLevel| #![trigger page_size::<C>(i)]
-                    self.level < i <= self.guard_level + 1
-                implies
-                    old(self).va as nat / page_size::<C>(i) as nat == self.va as nat / page_size::<C>(i) as nat
-                by {
+                assert forall|i: PagingLevel|
+                    #![trigger page_size::<C>(i)]
+                    self.level < i <= self.guard_level + 1 implies old(self).va as nat
+                    / page_size::<C>(i) as nat == self.va as nat / page_size::<C>(i) as nat by {
                     assert(self.level + 1 <= i);
                     assert(next_pg_size > 0) by {
                         lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
@@ -567,22 +574,28 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     }
                 }
 
-                assert forall|i: PagingLevel| #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-                    self.level <= i <= self.guard_level && self.va < self.barrier_va.end 
-                implies
-                    path_index!(self.path[i]).unwrap().va == align_down(self.va, page_size::<C>((i + 1) as u8))
-                by {
+                assert forall|i: PagingLevel|
+                    #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
+                    self.level <= i <= self.guard_level && self.va
+                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va
+                    == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
                     lemma_page_size_spec_properties::<C>((i + 1) as u8);
                     calc! {
                         (==)
                         path_index!(self.path[i]).unwrap().va@ as nat; {}
                         old_path[path_index_at_level_spec(i)].unwrap().va@ as nat; {}
                         align_down(old(self).va, page_size::<C>((i + 1) as u8)) as nat; {
-                            lemma_align_down_properties(old(self).va, page_size::<C>((i + 1) as u8));
+                            lemma_align_down_properties(
+                                old(self).va,
+                                page_size::<C>((i + 1) as u8),
+                            );
                         }
-                        old(self).va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>((i + 1) as u8) as nat; {
-                        }
-                        self.va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>((i + 1) as u8) as nat; {
+                        old(self).va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>(
+                            (i + 1) as u8,
+                        ) as nat; {}
+                        self.va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>(
+                            (i + 1) as u8,
+                        ) as nat; {
                             lemma_align_down_properties(self.va, page_size::<C>((i + 1) as u8));
                         }
                         align_down(self.va, page_size::<C>((i + 1) as u8)) as nat;
@@ -594,7 +607,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     i,
                 ) == pte_index::<C>(old(self).va, i) by {
                     assert(self.level + 1 <= i);
-                    
+
                     assert(next_pg_size > 0) by {
                         lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
                     }
@@ -755,29 +768,41 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             assert(r / small_page * small_page == r - (r % small_page)) by (nonlinear_arith)
                 requires
                     r >= 0,
-                    small_page > 0;
+                    small_page > 0,
+            ;
             assert(cur_node.va@ as nat == self.va as nat - r) by (nonlinear_arith)
                 requires
                     cur_node.va@ as nat == self.va as nat / big_page * big_page,
                     r == self.va as nat % big_page,
-                    big_page > 0;
+                    big_page > 0,
+            ;
             assert(cur_node.va@ as nat + idx * small_page == self.va as nat - (r % small_page));
             assert(r % small_page == self.va as nat % small_page) by {
                 assert(self.va as nat - r == q * big_page) by {
                     lemma_fundamental_div_mod(self.va as int, big_page as int);
                 }
                 assert(q * big_page == q * (nr_subpage_per_huge::<C>() * small_page));
-                assert(q * big_page == (q * nr_subpage_per_huge::<C>()) * small_page + 0) by (nonlinear_arith)
+                assert(q * big_page == (q * nr_subpage_per_huge::<C>()) * small_page + 0)
+                    by (nonlinear_arith)
                     requires
-                        q * big_page == q * (nr_subpage_per_huge::<C>() * small_page);
+                        q * big_page == q * (nr_subpage_per_huge::<C>() * small_page),
+                ;
                 assert((self.va as nat - r) % small_page as int == 0) by {
-                    lemma_fundamental_div_mod_converse(q * big_page as int, small_page as int, (q * nr_subpage_per_huge::<C>()) as int, 0);
+                    lemma_fundamental_div_mod_converse(
+                        q * big_page as int,
+                        small_page as int,
+                        (q * nr_subpage_per_huge::<C>()) as int,
+                        0,
+                    );
                 }
                 assert(self.va as int % small_page as int == r as int % small_page as int) by {
                     lemma_mod_equivalence(self.va as int, r as int, small_page as int);
                 }
             }
-            assert(cur_node.va@ as nat + idx * small_page == align_down(self.va, small_page as usize) as nat) by {
+            assert(cur_node.va@ as nat + idx * small_page == align_down(
+                self.va,
+                small_page as usize,
+            ) as nat) by {
                 lemma_align_down_properties(self.va, small_page as usize);
             }
         }
@@ -934,7 +959,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                         == old_alloc_model.meta_map[i].value()
                                 });
                             let guard = path_index!(self.0.path[i]).unwrap();
-                            assert(level_is_in_range::<C>(guard.level_spec(&old_alloc_model) as int));
+                            assert(level_is_in_range::<C>(
+                                guard.level_spec(&old_alloc_model) as int,
+                            ));
                             assert(old_alloc_model.meta_map.contains_key(guard.paddr() as int));
                             assert(spt.alloc_model.meta_map.contains_key(guard.paddr() as int));
                             assert(guard.inner.meta_spec(&old_alloc_model) == guard.inner.meta_spec(
@@ -1044,8 +1071,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 end <= self.0.barrier_va.end,
             decreases
                     end - self.0.va,
-                    self.0.level,  // for push_level, only level decreases
-
+                    // for push_level, only level decreases
+                    self.0.level,
         {
             let cur_va = self.0.va;
             let cur_level = self.0.level;
