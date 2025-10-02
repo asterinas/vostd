@@ -12,7 +12,7 @@ use super::super::pte::Pte;
 use crate::mm::page_table::PageTableEntryTrait;
 use crate::sync::rcu::RcuDrop;
 use crate::mm::page_table::PageTableConfig;
-use crate::task::preempt::guard::DisabledPreemptGuard;
+use crate::task::DisabledPreemptGuard;
 
 verus! {
 

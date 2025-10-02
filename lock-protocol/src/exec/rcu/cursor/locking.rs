@@ -24,7 +24,7 @@ use super::Cursor;
 use crate::mm::page_table::PageTableConfig;
 use crate::mm::page_table::PageTableEntryTrait;
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
-use crate::task::preempt::guard::DisabledPreemptGuard;
+use crate::task::DisabledPreemptGuard;
 
 verus! {
 

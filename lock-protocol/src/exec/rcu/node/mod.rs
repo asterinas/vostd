@@ -15,7 +15,6 @@ use vstd::cell::{PCell, PointsTo as CellPointsTo};
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use crate::task::guard;
 use super::{common::*, cpu::*, frame::meta::*};
 use super::pte::Pte;
 use spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner};
@@ -24,7 +23,7 @@ use entry::Entry;
 use stray::{StrayFlag, StrayPerm};
 use crate::mm::page_table::PageTableConfig;
 use crate::mm::page_table::PageTableEntryTrait;
-use crate::task::preempt::guard::DisabledPreemptGuard;
+use crate::task::DisabledPreemptGuard;
 
 verus! {
 
