@@ -32,7 +32,7 @@ use crate::{
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size, page_size_spec, lemma_page_size_spec_properties, lemma_page_size_increases,
-        lemma_page_size_geometric,
+        lemma_page_size_geometric, lemma_page_size_adjacent_levels,
         vm_space::Token,
         Frame, Paddr, PageTableGuard, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
     },
@@ -709,6 +709,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: Entry<'_, 'a, C>)
         requires
             self.wf(spt),
+            self.va < self.barrier_va.end,
         ensures
             res.wf(spt),
             res.node == path_index!(self.path[self.level]).unwrap(),
@@ -719,10 +720,67 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_node = self.path[path_index_at_level(self.level)].as_ref().unwrap();
         let idx = pte_index::<C>(self.va, self.level);
         assert(self.level == cur_node.level_spec(&spt.alloc_model));
-        assume(cur_node.va@ + idx * page_size::<C>(self.level) == align_down(
+        assert(cur_node.va@ + idx * page_size::<C>(self.level) == align_down(
             self.va,
             page_size::<C>(self.level),
-        ));
+        )) by {
+            let big_page = page_size::<C>((self.level + 1) as u8) as nat;
+            let small_page = page_size::<C>(self.level) as nat;
+            lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
+            lemma_page_size_spec_properties::<C>(self.level);
+            assert(big_page == nr_subpage_per_huge::<C>() * small_page) by {
+                lemma_page_size_adjacent_levels::<C>((self.level + 1) as u8);
+            }
+            calc! {
+                (==)
+                cur_node.va@ as nat; {}
+                align_down(self.va, page_size::<C>((self.level + 1) as u8)) as nat; {
+                    lemma_align_down_properties(self.va, page_size::<C>((self.level + 1) as u8));
+                }
+                self.va as nat / big_page * big_page;
+            }
+            calc! {
+                (==)
+                idx as nat; {}
+                pte_index::<C>(self.va, self.level) as nat; {
+                    lemma_pte_index_alternative_spec::<C>(self.va, self.level);
+                }
+                self.va as nat % big_page / small_page;
+            }
+            // The quotient and remainder of self.va / big_page
+            let q = self.va as nat / big_page;
+            let r = self.va as nat % big_page;
+
+            assert(idx * page_size::<C>(self.level) == r / small_page * small_page);
+            assert(r / small_page * small_page == r - (r % small_page)) by (nonlinear_arith)
+                requires
+                    r >= 0,
+                    small_page > 0;
+            assert(cur_node.va@ as nat == self.va as nat - r) by (nonlinear_arith)
+                requires
+                    cur_node.va@ as nat == self.va as nat / big_page * big_page,
+                    r == self.va as nat % big_page,
+                    big_page > 0;
+            assert(cur_node.va@ as nat + idx * small_page == self.va as nat - (r % small_page));
+            assert(r % small_page == self.va as nat % small_page) by {
+                assert(self.va as nat - r == q * big_page) by {
+                    lemma_fundamental_div_mod(self.va as int, big_page as int);
+                }
+                assert(q * big_page == q * (nr_subpage_per_huge::<C>() * small_page));
+                assert(q * big_page == (q * nr_subpage_per_huge::<C>()) * small_page + 0) by (nonlinear_arith)
+                    requires
+                        q * big_page == q * (nr_subpage_per_huge::<C>() * small_page);
+                assert((self.va as nat - r) % small_page as int == 0) by {
+                    lemma_fundamental_div_mod_converse(q * big_page as int, small_page as int, (q * nr_subpage_per_huge::<C>()) as int, 0);
+                }
+                assert(self.va as int % small_page as int == r as int % small_page as int) by {
+                    lemma_mod_equivalence(self.va as int, r as int, small_page as int);
+                }
+            }
+            assert(cur_node.va@ as nat + idx * small_page == align_down(self.va, small_page as usize) as nat) by {
+                lemma_align_down_properties(self.va, small_page as usize);
+            }
+        }
         Entry::new_at(cur_node, idx, Tracked(spt))
     }
 }
@@ -769,6 +827,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     ///
     /// The caller should ensure that the virtual range being mapped does
     /// not affect kernel's memory safety.
+    #[verifier::spinoff_prover]
     pub fn map(&mut self, item: C::Item, Tracked(spt): Tracked<&mut SubPageTable<C>>) -> (res:
         PageTableItem<C>)
         requires
