@@ -1,11 +1,13 @@
 pub mod child;
 pub mod entry;
+pub mod stray;
 
 use std::cell::Cell;
 use std::cell::SyncUnsafeCell;
 use std::marker::PhantomData;
 use std::ops::Range;
 use core::mem::ManuallyDrop;
+use std::ops::Deref;
 
 use vstd::cell::PCell;
 use vstd::prelude::*;
@@ -32,6 +34,7 @@ use crate::{
         Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, PAGE_SIZE,
     },
     sync::spin,
+    sync::spinlock::SpinGuard,
     x86_64::kspace::paddr_to_vaddr,
 };
 
@@ -40,16 +43,28 @@ use crate::exec::{
     frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
 };
 use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    common::NodeId,
+    utils::NodeHelper,
+    rcu::{SpecInstance, NodeToken, PteArrayToken, PteState, FreePaddrToken},
+};
+
+use crate::mm::frame_concurrent::meta::{MetaSlot, meta_to_frame, MetaSlotPerm};
 
 use super::cursor::spec_helpers;
 use super::PageTableConfig;
-use std::ops::Deref;
 
 verus! {
 
 pub struct PageTableNode<C: PageTableConfig> {
     pub meta_ptr_l: PPtr<PageTablePageMeta<C>>,
     pub ptr_l: PPtr<MockPageTablePage>,
+
+    pub ptr: *const MetaSlot<C>,
+    pub perm: Tracked<MetaSlotPerm<C>>,
+    pub nid: Ghost<NodeId>,
+    pub inst: Tracked<SpecInstance>,
 }
 
 impl<C: PageTableConfig> PageTableNode<C> {
@@ -128,7 +143,14 @@ impl<C: PageTableConfig> PageTableNode<C> {
         ensures
             res.deref() == self,
     {
-        PageTableNodeRef::borrow_paddr(self.start_paddr(), Tracked(alloc_model))
+        let res = PageTableNodeRef::borrow_paddr(self.start_paddr(), Tracked(alloc_model));
+        assert(res.deref() =~= self) by {
+            assert(res.ptr =~= self.ptr) by { admit(); };
+            assert(res.perm =~= self.perm) by { admit(); };
+            assert(res.nid =~= self.nid) by { admit(); };
+            assert(res.inst =~= self.inst) by { admit(); };
+        };
+        res
     }
 
     /// Forgets the handle to the frame.
@@ -321,6 +343,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     }
 
     // Actually should be checked after verification. Just can't be checked in pure Rust.
+    // TODO: fix me
+    #[verifier::external_body]
     pub fn make_guard_unchecked<'rcu>(
         self,
         _guard: &'rcu crate::task::DisabledPreemptGuard,
@@ -330,12 +354,14 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.inner == self,
             res.va == va,
     {
-        PageTableGuard { inner: self, va: Ghost(va) }
+        // PageTableGuard { inner: self, va: Ghost(va) }
+        unimplemented!()
     }
 }
 
 pub struct PageTableGuard<'a, C: PageTableConfig> {
     pub inner: PageTableNodeRef<'a, C>,
+    pub guard: Option<SpinGuard<C>>,
     pub va: Ghost<Vaddr>,
 }
 

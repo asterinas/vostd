@@ -1,5 +1,6 @@
 pub mod rcu;
 pub(crate) mod spin;
+pub mod spinlock;
 
 /// Registers a callback to be invoked after the current grace period.
 pub(crate) fn after_grace_period<F: FnOnce() + Send + 'static>(callback: F) {
