@@ -141,7 +141,7 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             assert(spt.alloc_model.meta_map.contains_key(paddr as int));
             assert(level_is_in_range::<C>(entry.pte_frame_level(&spt) as int));
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            let node = PageTableNodeRef::borrow_pt_paddr(paddr, Tracked(&spt.alloc_model));
+            let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
             assert(node.wf(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
@@ -165,7 +165,7 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
                 &&& pt.deref().start_paddr() == entry.pte.frame_paddr() as usize
                 &&& pt.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model) - 1
                 &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
-                &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr() == pt.meta_ptr
+                &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr() == pt.meta_ptr_l
                 &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
                 &&& spt.frames.value()[pt.deref().start_paddr() as int].ancestor_chain
                     == spt.frames.value()[entry.node.paddr() as int].ancestor_chain.insert(
