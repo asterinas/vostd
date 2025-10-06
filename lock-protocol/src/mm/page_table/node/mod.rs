@@ -48,8 +48,8 @@ use std::ops::Deref;
 verus! {
 
 pub struct PageTableNode<C: PageTableConfig> {
-    pub meta_ptr: PPtr<PageTablePageMeta<C>>,
-    pub ptr: PPtr<MockPageTablePage>,
+    pub meta_ptr_l: PPtr<PageTablePageMeta<C>>,
+    pub ptr_l: PPtr<MockPageTablePage>,
 }
 
 impl<C: PageTableConfig> PageTableNode<C> {
@@ -61,11 +61,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.start_paddr() as int),
-            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr_l,
         returns
             self.meta_spec(alloc_model),
     {
-        self.meta_ptr.borrow(
+        self.meta_ptr_l.borrow(
             Tracked(alloc_model.meta_map.tracked_borrow(self.start_paddr() as int)),
         )
     }
@@ -84,10 +84,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
     #[verifier::allow_in_spec]
     pub fn start_paddr(&self) -> Paddr
         returns
-            self.ptr.addr() as Paddr,
+            self.ptr_l.addr() as Paddr,
     {
         // self.slot().frame_paddr() // TODO
-        self.ptr.addr() as Paddr
+        self.ptr_l.addr() as Paddr
     }
 
     /// Gets the paging level of this page.
@@ -122,7 +122,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.start_paddr() as int),
-            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr_l,
             alloc_model.meta_map[self.start_paddr() as int].value() == self.meta_spec(alloc_model),
             level_is_in_range::<C>(alloc_model.meta_map[self.start_paddr() as int].value().level as int),
         ensures
@@ -169,17 +169,18 @@ impl<C: PageTableConfig> PageTableNode<C> {
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(paddr as int),
         ensures
-            res.ptr.addr() == paddr,
-            res.meta_ptr == alloc_model.meta_map[paddr as int].pptr(),
+            res.ptr_l.addr() == paddr,
+            res.meta_ptr_l == alloc_model.meta_map[paddr as int].pptr(),
     {
         // let vaddr = mapping::frame_to_meta::<PagingConsts>(paddr);
         // let ptr = vaddr as *const MetaSlot;
-        Self {
-            ptr: PPtr::from_addr(paddr),
-            meta_ptr: PPtr::from_addr(
-                paddr,
-            ),  // FIXME: This is wrong, we need to use the meta_map.
-        }
+        // Self {
+        //     ptr_l: PPtr::from_addr(paddr),
+        //     meta_ptr_l: PPtr::from_addr(
+        //         paddr,
+        //     ),  // FIXME: This is wrong, we need to use the meta_map.
+        // }
+        unimplemented!()
     }
 }
 
@@ -188,7 +189,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         &&& pa_is_valid_pt_address(self.paddr() as int)
         &&& level_is_in_range::<C>(self.level_spec(alloc_model) as int)
         &&& alloc_model.meta_map.contains_key(self.paddr() as int)
-        &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.meta_ptr
+        &&& alloc_model.meta_map[self.paddr() as int].pptr() == self.meta_ptr_l
         &&& alloc_model.meta_map[self.paddr() as int].value().level == self.level_spec(alloc_model)
     }
 
@@ -207,7 +208,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.start_paddr() as int),
-            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr_l,
         returns
             self.level_spec(alloc_model),
     {
@@ -230,13 +231,13 @@ impl<C: PageTableConfig> PageTableNode<C> {
             old(model).invariants(),
             crate::spec::sub_pt::level_is_in_range::<C>(level as int),
         ensures
-            res.1@.pptr() == res.0.ptr,
+            res.1@.pptr() == res.0.ptr_l,
             res.1@.mem_contents().is_init(),
             pa_is_valid_kernel_address(res.0.start_paddr() as int),
             model.invariants(),
             !old(model).meta_map.contains_key(res.0.start_paddr() as int),
             model.meta_map.contains_key(res.0.start_paddr() as int),
-            model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr,
+            model.meta_map[res.0.start_paddr() as int].pptr() == res.0.meta_ptr_l,
             model.meta_map[res.0.start_paddr() as int].value().level == level,
             forall|i: int|
                 #![trigger res.1@.value().ptes[i]]
@@ -283,7 +284,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             level_is_in_range::<C>(alloc_model.meta_map[raw as int].value().level as int),
         ensures
             res.deref().start_paddr() == raw,
-            res.deref().meta_ptr == alloc_model.meta_map[raw as int].pptr(),
+            res.deref().meta_ptr_l == alloc_model.meta_map[raw as int].pptr(),
             res.wf(alloc_model),
             alloc_model.invariants(),
     {
@@ -358,7 +359,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.inner.start_paddr() as int),
-            alloc_model.meta_map[self.inner.start_paddr() as int].pptr() == self.inner.meta_ptr,
+            alloc_model.meta_map[self.inner.start_paddr() as int].pptr() == self.inner.meta_ptr_l,
         returns
             self.level_spec(alloc_model),
     {
@@ -383,7 +384,7 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
 
     #[verifier::external_body]
     fn read_pte(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E) {
-        let e = self.inner.ptr.read(Tracked(spt.perms.tracked_borrow(self.paddr()))).ptes[idx];
+        let e = self.inner.ptr_l.read(Tracked(spt.perms.tracked_borrow(self.paddr()))).ptes[idx];
         // todo!("e -> usize -> C::E");
         let c_e = &e as *const _ as *const C::E;
         unsafe { (*c_e).clone() }

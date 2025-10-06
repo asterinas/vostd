@@ -362,7 +362,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
                         == self.node.level_spec(&spt.alloc_model) - 1
                     &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
-                        == pt.deref().meta_ptr
+                        == pt.deref().meta_ptr_l
                 },
                 _ => false,
             }
@@ -392,7 +392,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].value().level
                     == self.node.level_spec(&spt.alloc_model) - 1
                 &&& spt.alloc_model.meta_map[pt.deref().paddr() as int].pptr()
-                    == pt.deref().meta_ptr
+                    == pt.deref().meta_ptr_l
             },
             Child::Frame(pa, level, prop) => {
                 &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
