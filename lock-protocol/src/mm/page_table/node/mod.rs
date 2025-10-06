@@ -5,14 +5,17 @@ use std::cell::Cell;
 use std::cell::SyncUnsafeCell;
 use std::marker::PhantomData;
 use std::ops::Range;
+use core::mem::ManuallyDrop;
 
-use entry::Entry;
 use vstd::cell::PCell;
 use vstd::prelude::*;
-
 use vstd::simple_pptr::MemContents;
 use vstd::simple_pptr::PPtr;
 use vstd::simple_pptr::PointsTo;
+
+use vstd_extra::manually_drop::*;
+
+use entry::Entry;
 use crate::{
     mm::{
         NR_ENTRIES,
@@ -26,7 +29,7 @@ use crate::{
         page_prop::PageProperty,
         page_size_spec,
         page_table::PageTableEntryTrait,
-        Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr,
+        Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, PAGE_SIZE,
     },
     sync::spin,
     x86_64::kspace::paddr_to_vaddr,
@@ -44,8 +47,141 @@ use std::ops::Deref;
 
 verus! {
 
-// #[derive(Debug)] // TODO: Debug for PageTableNode
-pub type PageTableNode<C: PageTableConfig> = Frame<PageTablePageMeta<C>>;
+pub struct PageTableNode<C: PageTableConfig> {
+    pub meta_ptr: PPtr<PageTablePageMeta<C>>,
+    pub ptr: PPtr<MockPageTablePage>,
+}
+
+impl<C: PageTableConfig> PageTableNode<C> {
+    /// Gets the metadata of this page.
+    pub fn meta<'a>(
+        &'a self, 
+        Tracked(alloc_model): Tracked<&'a AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> &'a PageTablePageMeta<C>
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.start_paddr() as int),
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+        returns
+            self.meta_spec(alloc_model),
+    {
+        self.meta_ptr.borrow(
+            Tracked(alloc_model.meta_map.tracked_borrow(self.start_paddr() as int)),
+        )
+    }
+
+    pub open spec fn meta_spec(
+        &self, 
+        alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
+    ) -> &PageTablePageMeta<C> {
+        &alloc_model.meta_map[self.start_paddr() as int].value()
+    }
+}
+
+impl<C: PageTableConfig> PageTableNode<C> {
+     /// Gets the physical address of the start of the frame.
+    // TODO: Implement
+    #[verifier::allow_in_spec]
+    pub fn start_paddr(&self) -> Paddr
+        returns
+            self.ptr.addr() as Paddr,
+    {
+        // self.slot().frame_paddr() // TODO
+        self.ptr.addr() as Paddr
+    }
+
+    /// Gets the paging level of this page.
+    ///
+    /// This is the level of the page table entry that maps the frame,
+    /// which determines the size of the frame.
+    ///
+    /// Currently, the level is always 1, which means the frame is a regular
+    /// page frame.
+    #[verifier::allow_in_spec]
+    pub const fn map_level(&self) -> (res: PagingLevel)
+        returns
+            1 as PagingLevel,
+    {
+        1
+    }
+
+    /// Gets the size of this page in bytes.
+    #[verifier::allow_in_spec]
+    pub fn size(&self) -> (res: usize)
+        returns
+            PAGE_SIZE(),
+    {
+        PAGE_SIZE()
+    }
+
+    /// Borrows a reference from the given frame.
+    pub fn borrow(
+        &self, 
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: PageTableNodeRef<'_, C>)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(self.start_paddr() as int),
+            alloc_model.meta_map[self.start_paddr() as int].pptr() == self.meta_ptr,
+            alloc_model.meta_map[self.start_paddr() as int].value() == self.meta_spec(alloc_model),
+            level_is_in_range::<C>(alloc_model.meta_map[self.start_paddr() as int].value().level as int),
+        ensures
+            res.deref() == self,
+    {
+        PageTableNodeRef::borrow_paddr(self.start_paddr(), Tracked(alloc_model))
+    }
+
+    /// Forgets the handle to the frame.
+    ///
+    /// This will result in the frame being leaked without calling the custom dropper.
+    ///
+    /// A physical address to the frame is returned in case the frame needs to be
+    /// restored using [`Frame::from_raw`] later. This is useful when some architectural
+    /// data structures need to hold the frame handle such as the page table.
+    /// TODO: Implement Frame::into_raw
+    #[verifier::external_body]
+    pub(in crate::mm) fn into_raw(self) -> (res: Paddr)
+        ensures
+            res == self.start_paddr(),
+    {
+        let this = ManuallyDrop::new(self);
+        this.start_paddr()
+    }
+
+    /// Restores a forgotten [`Frame`] from a physical address.
+    ///
+    /// # Safety
+    ///
+    /// The caller should only restore a `Frame` that was previously forgotten using
+    /// [`Frame::into_raw`].
+    ///
+    /// And the restoring operation should only be done once for a forgotten
+    /// [`Frame`]. Otherwise double-free will happen.
+    ///
+    /// Also, the caller ensures that the usage of the frame is correct. There's
+    /// no checking of the usage in this function.
+    #[verifier::external_body]
+    pub(crate) fn from_raw(
+        paddr: Paddr, 
+        Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
+    ) -> (res: Self)
+        requires
+            alloc_model.invariants(),
+            alloc_model.meta_map.contains_key(paddr as int),
+        ensures
+            res.ptr.addr() == paddr,
+            res.meta_ptr == alloc_model.meta_map[paddr as int].pptr(),
+    {
+        // let vaddr = mapping::frame_to_meta::<PagingConsts>(paddr);
+        // let ptr = vaddr as *const MetaSlot;
+        Self {
+            ptr: PPtr::from_addr(paddr),
+            meta_ptr: PPtr::from_addr(
+                paddr,
+            ),  // FIXME: This is wrong, we need to use the meta_map.
+        }
+    }
+}
 
 impl<C: PageTableConfig> PageTableNode<C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
@@ -125,16 +261,18 @@ impl<C: PageTableConfig> PageTableNode<C> {
                     &&& model.meta_map[pa as int] == old(model).meta_map[pa as int]
                 },
     {
-        crate::exec::alloc_page_table(level, Tracked(model))
+        // crate::exec::alloc_page_table(level, Tracked(model))
+        unimplemented!()
     }
 }
 
-pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMeta<C>>;
+pub struct PageTableNodeRef<'a, C: PageTableConfig> {
+    pub inner: ManuallyDrop<PageTableNode<C>>,
+    pub _marker: PhantomData<&'a ()>,
+}
 
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
-    /// Borrows the PageTableNode at the physical address as a PageTableNodeRef.
-    /// This is a specialized version of FrameRef::borrow_paddr for page table nodes.
-    pub fn borrow_pt_paddr(
+    pub fn borrow_paddr(
         raw: Paddr,
         Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
     ) -> (res: Self)
@@ -149,10 +287,34 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.wf(alloc_model),
             alloc_model.invariants(),
     {
-        let res = FrameRef::borrow_paddr(raw, Tracked(alloc_model));
-        res
+        Self {
+            inner: ManuallyDrop::new(
+                PageTableNode::from_raw(raw, Tracked(alloc_model))
+            ),
+            _marker: PhantomData,
+        }
     }
+}
 
+pub open spec fn pt_node_ref_deref_spec<'a, C: PageTableConfig>(
+    pt_node_ref: &'a PageTableNodeRef<'_, C>,
+) -> &'a PageTableNode<C> {
+    &pt_node_ref.inner.deref()
+}
+
+impl<C: PageTableConfig> Deref for PageTableNodeRef<'_, C> {
+    type Target = PageTableNode<C>;
+
+    #[verifier::when_used_as_spec(pt_node_ref_deref_spec)]
+    fn deref(&self) -> (ret: &Self::Target)
+        ensures
+            ret == self.inner.deref(),
+    {
+        &self.inner.deref()
+    }
+}
+
+impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub open spec fn wf(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         self.deref().wf(alloc_model)
     }

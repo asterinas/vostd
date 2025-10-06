@@ -141,7 +141,7 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             assert(spt.alloc_model.meta_map.contains_key(paddr as int));
             assert(level_is_in_range::<C>(entry.pte_frame_level(&spt) as int));
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            let node = PageTableNodeRef::borrow_pt_paddr(paddr, Tracked(&spt.alloc_model));
+            let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
             assert(node.wf(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
