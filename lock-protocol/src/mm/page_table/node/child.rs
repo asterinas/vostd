@@ -52,10 +52,10 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    pub(super) fn into_pte(self) -> (res: C::E) {
+    pub(super) fn into_pte_local(self) -> (res: C::E) {
         match self {
             Child::PageTable(node) => {
-                let paddr = node.start_paddr();
+                let paddr = node.start_paddr_local();
                 let _ = ManuallyDrop::new(node);
                 C::E::new_pt(paddr)
             },
@@ -77,7 +77,7 @@ impl<C: PageTableConfig> Child<C> {
     ///
     /// The level must match the original level of the child.
     #[verifier::external_body]
-    pub(super) fn from_pte(
+    pub(super) fn from_pte_local(
         pte: C::E,
         level: PagingLevel,
         Tracked(spt): Tracked<&SubPageTable<C>>,
@@ -88,7 +88,7 @@ impl<C: PageTableConfig> Child<C> {
         let paddr = pte.frame_paddr();
 
         if !pte.is_last(level) {
-            let node = PageTableNode::from_raw(paddr, Tracked(&spt.alloc_model));
+            let node = PageTableNode::from_raw_local(paddr, Tracked(&spt.alloc_model));
             return Child::PageTable(RcuDrop::new(node));
         }
         Child::Frame(paddr, level, pte.prop())
@@ -117,7 +117,7 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
     ///
     /// The provided level must be the same with the level of the page table
     /// node that contains this PTE.
-    pub(super) fn from_pte(
+    pub(super) fn from_pte_local(
         pte: &C::E,
         level: PagingLevel,
         Tracked(spt): Tracked<&SubPageTable<C>>,
@@ -126,8 +126,8 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
         requires
             spt.wf(),
             pte == entry.pte,
-            entry.wf(spt),
-            level == entry.node.level_spec(&spt.alloc_model),
+            entry.wf_local(spt),
+            level == entry.node.level_local_spec(&spt.alloc_model),
         ensures
             res.child_entry_spt_wf(entry, spt),
     {
@@ -141,9 +141,9 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
             assert(spt.alloc_model.meta_map.contains_key(paddr as int));
             assert(level_is_in_range::<C>(entry.pte_frame_level(&spt) as int));
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            let node = PageTableNodeRef::borrow_paddr(paddr, Tracked(&spt.alloc_model));
+            let node = PageTableNodeRef::borrow_paddr_local(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
-            assert(node.wf(&spt.alloc_model));
+            assert(node.wf_local(&spt.alloc_model));
             let res = ChildRef::PageTable(node);
             assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
             assert(res.child_entry_spt_wf(entry, spt));
@@ -161,21 +161,21 @@ impl<'a, C: PageTableConfig> ChildRef<'a, C> {
         &&& self is PageTable <==> match self {
             ChildRef::PageTable(pt) => {
                 &&& spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int)
-                &&& pt.wf(&spt.alloc_model)
-                &&& pt.deref().start_paddr() == entry.pte.frame_paddr() as usize
-                &&& pt.level_spec(&spt.alloc_model) == entry.node.level_spec(&spt.alloc_model) - 1
-                &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr() as int)
-                &&& spt.alloc_model.meta_map[pt.deref().start_paddr() as int].pptr() == pt.meta_ptr_l
-                &&& spt.frames.value().contains_key(pt.deref().start_paddr() as int)
-                &&& spt.frames.value()[pt.deref().start_paddr() as int].ancestor_chain
-                    == spt.frames.value()[entry.node.paddr() as int].ancestor_chain.insert(
-                    entry.node.level_spec(&spt.alloc_model) as int,
+                &&& pt.wf_local(&spt.alloc_model)
+                &&& pt.deref().start_paddr_local() == entry.pte.frame_paddr() as usize
+                &&& pt.level_local_spec(&spt.alloc_model) == entry.node.level_local_spec(&spt.alloc_model) - 1
+                &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr_local() as int)
+                &&& spt.alloc_model.meta_map[pt.deref().start_paddr_local() as int].pptr() == pt.meta_ptr_l
+                &&& spt.frames.value().contains_key(pt.deref().start_paddr_local() as int)
+                &&& spt.frames.value()[pt.deref().start_paddr_local() as int].ancestor_chain
+                    == spt.frames.value()[entry.node.paddr_local() as int].ancestor_chain.insert(
+                    entry.node.level_local_spec(&spt.alloc_model) as int,
                     IntermediatePageTableEntryView {
                         map_va: entry.va as int,
-                        frame_pa: entry.node.paddr() as int,
+                        frame_pa: entry.node.paddr_local() as int,
                         in_frame_index: entry.idx as int,
-                        map_to_pa: pt.deref().start_paddr() as int,
-                        level: entry.node.level_spec(&spt.alloc_model),
+                        map_to_pa: pt.deref().start_paddr_local() as int,
+                        level: entry.node.level_local_spec(&spt.alloc_model),
                         phantom: PhantomData,
                     },
                 )
