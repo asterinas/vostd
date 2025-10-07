@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    child::{Child, ChildRef},
+    child::{ChildLocal, ChildRefLocal},
     PageTableGuard, PageTableNode, PageTableNodeRef,
 };
 
@@ -45,7 +45,7 @@ verus! {
 /// This is a static reference to an entry in a node that does not account for
 /// a dynamic reference count to the child. It can be used to create a owned
 /// handle, which is a [`Child`].
-pub struct Entry<'a, 'rcu, C: PageTableConfig> {
+pub struct EntryLocal<'a, 'rcu, C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
@@ -62,7 +62,7 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
     pub va: Tracked<Vaddr>,
 }
 
-impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
+impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
     #[verifier::inline]
     pub open spec fn pte_frame_level(&self, spt: &SubPageTable<C>) -> PagingLevel
         recommends
@@ -157,7 +157,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub(in crate::mm) fn to_ref_local(
         &self,
         Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: ChildRef<'rcu, C>)
+    ) -> (res: ChildRefLocal<'rcu, C>)
         requires
             spt.wf(),
             self.wf_local(spt),
@@ -166,8 +166,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     {
         // SAFETY: The entry structure represents an existent entry with the
         // right node information.
-        // unsafe { Child::ref_from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), self.node.is_tracked(), false) }
-        ChildRef::from_pte_local(
+        // unsafe { ChildLocal::ref_from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), self.node.is_tracked(), false) }
+        ChildRefLocal::from_pte_local(
             &self.pte,
             self.node.level_local(Tracked(&spt.alloc_model)),
             Tracked(spt),
@@ -195,12 +195,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     /// # Panics
     ///
     /// The method panics if the given child is not compatible with the self.node.
-    /// The compatibility is specified by the [`Child::is_compatible`].
+    /// The compatibility is specified by the [`ChildLocal::is_compatible`].
     pub(in crate::mm) fn replace_local(
         &mut self,
-        new_child: Child<C>,
+        new_child: ChildLocal<C>,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: Child<C>)
+    ) -> (res: ChildLocal<C>)
         requires
             old(self).wf_local(old(spt)),
             old(self).node.wf_local(&old(spt).alloc_model),
@@ -219,7 +219,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             self.add_new_child(new_child, spt),
     {
         let old_pte = self.pte.clone_pte();
-        let old_child = Child::from_pte_local(
+        let old_child = ChildLocal::from_pte_local(
             old_pte,
             self.node.level_local(Tracked(&spt.alloc_model)),
             Tracked(spt),
@@ -260,9 +260,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
     pub(in crate::mm) fn replace_with_none_local(
         &mut self,
-        new_child: Child<C>,
+        new_child: ChildLocal<C>,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: Child<C>)
+    ) -> (res: ChildLocal<C>)
         requires
             old(self).wf_local(&old(spt)),
             old(spt).wf(),
@@ -290,7 +290,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     {
         let old_pte = self.pte.clone_pte();
         assert(old_pte.pte_paddr() == self.pte.pte_paddr());
-        let old_child = Child::from_pte_local(
+        let old_child = ChildLocal::from_pte_local(
             old_pte,
             self.node.level_local(Tracked(&spt.alloc_model)),
             Tracked(spt),
@@ -354,14 +354,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     #[verifier::inline]
     pub(in crate::mm) open spec fn remove_old_child(
         &self,
-        old_child: Child<C>,
+        old_child: ChildLocal<C>,
         old_pte: C::E,
         old_spt: &SubPageTable<C>,
         spt: &SubPageTable<C>,
     ) -> (res: bool) {
         if (old_spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
             match old_child {
-                Child::PageTable(pt) => {
+                ChildLocal::PageTable(pt) => {
                     &&& pt.deref().start_paddr_local() == old_pte.frame_paddr() as usize
                     &&& spt.i_ptes.value().contains_key(old_pte.pte_paddr() as int)
                     &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr_local() as int)
@@ -374,12 +374,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             }
         } else if (old_spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
             match old_child {
-                Child::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
+                ChildLocal::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
                 _ => false,
             }
         } else {
             match old_child {
-                Child::None => true,
+                ChildLocal::None => true,
                 _ => false,
             }
         }
@@ -387,11 +387,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
 
     pub(in crate::mm) open spec fn add_new_child(
         &self,
-        new_child: Child<C>,
+        new_child: ChildLocal<C>,
         spt: &SubPageTable<C>,
     ) -> (res: bool) {
         match new_child {
-            Child::PageTable(pt) => {
+            ChildLocal::PageTable(pt) => {
                 &&& pt.deref().paddr_local() == self.pte.frame_paddr() as usize
                 &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
                 &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr_local() as int)
@@ -400,7 +400,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& spt.alloc_model.meta_map[pt.deref().paddr_local() as int].pptr()
                     == pt.deref().meta_ptr_l
             },
-            Child::Frame(pa, level, prop) => {
+            ChildLocal::Frame(pa, level, prop) => {
                 &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
                 &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
                 &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_va == self.va@ as int
@@ -531,7 +531,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         assert(spt.wf());
         self.node.write_pte_local(
             self.idx,
-            Child::<C>::PageTable(RcuDrop::new(pt)).into_pte_local(),
+            ChildLocal::<C>::PageTable(RcuDrop::new(pt)).into_pte_local(),
             level,
             Tracked(spt),
         );

@@ -26,8 +26,8 @@ use core::ops::Deref;
 use crate::{
     helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
-        page_table::child::{self, Child, ChildRef},
-        page_table::node::{PageTableNode, entry::Entry, PageTableGuard},
+        page_table::child::{self, ChildLocal, ChildRefLocal},
+        page_table::node::{PageTableNode, entry::EntryLocal, PageTableGuard},
         frame::{self, allocator::AllocatorModel, meta::AnyFrameMeta, Frame},
         nr_subpage_per_huge,
         page_prop::PageProperty,
@@ -360,7 +360,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
             let cur_entry = self.cur_entry(Tracked(spt));
             match cur_entry.to_ref_local(Tracked(spt)) {
-                ChildRef::PageTable(pt) => {
+                ChildRefLocal::PageTable(pt) => {
                     let guard = pt.make_guard_unchecked(
                         rcu_guard,
                         Ghost(align_down(cur_va, page_size::<C>(cur_level))),
@@ -368,8 +368,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     self.push_level(guard, Tracked(spt));
                     continue ;
                 },
-                ChildRef::None => return Ok(None),
-                ChildRef::Frame(pa, ch_level, prop) => {
+                ChildRefLocal::None => return Ok(None),
+                ChildRefLocal::Frame(pa, ch_level, prop) => {
                     // debug_assert_eq!(ch_level, level);
                     // SAFETY:
                     // This is part of (if `split_huge` happens) a page table item mapped
@@ -748,7 +748,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
     // Note that mut types are not supported in Verus.
     // fn cur_entry(&mut self) -> Entry<'_, C> {
-    fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: Entry<'_, 'a, C>)
+    fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: EntryLocal<'_, 'a, C>)
         requires
             self.wf(spt),
             self.va < self.barrier_va.end,
@@ -835,7 +835,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 lemma_align_down_properties(self.va, small_page as usize);
             }
         }
-        Entry::new_at_local(cur_node, idx, Tracked(spt))
+        EntryLocal::new_at_local(cur_node, idx, Tracked(spt))
     }
 }
 
@@ -946,7 +946,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let ghost cur_va = self.0.va;
             let mut cur_entry = self.0.cur_entry(Tracked(spt));
             match cur_entry.to_ref_local(Tracked(spt)) {
-                ChildRef::PageTable(pt) => {
+                ChildRefLocal::PageTable(pt) => {
                     assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_level == cur_entry.node.level_local_spec(&spt.alloc_model));
                     assert(cur_level - 1 == pt.level_local_spec(&spt.alloc_model));
@@ -957,7 +957,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
-                ChildRef::None => {
+                ChildRefLocal::None => {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_local_spec(&spt.alloc_model) == cur_level);
                     let ghost old_alloc_model = spt.alloc_model;
@@ -1010,7 +1010,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     }
                     self.0.push_level(child_pt, Tracked(spt));
                 },
-                ChildRef::Frame(_, _, _) => {
+                ChildRefLocal::Frame(_, _, _) => {
                     assume(false);  // FIXME: implement split if huge page
                 },
             }
@@ -1020,7 +1020,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         let mut cur_entry = self.0.cur_entry(Tracked(spt));
 
-        let old_entry = cur_entry.replace_local(Child::Frame(pa, level, prop), Tracked(spt));
+        let old_entry = cur_entry.replace_local(ChildLocal::Frame(pa, level, prop), Tracked(spt));
 
         assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
         assert(self.0.path_wf(spt));
@@ -1031,13 +1031,13 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         self.0.move_forward(Tracked(spt));
 
         match old_entry {
-            Child::Frame(pa, level, prop) => PageTableItem::Mapped {
+            ChildLocal::Frame(pa, level, prop) => PageTableItem::Mapped {
                 va: old_va,
                 page: pa,
                 prop: prop,
             },
-            Child::None => PageTableItem::NotMapped { va: old_va, len: old_len },
-            Child::PageTable(pt) => PageTableItem::StrayPageTable { pt, va: old_va, len: old_len },
+            ChildLocal::None => PageTableItem::NotMapped { va: old_va, len: old_len },
+            ChildLocal::PageTable(pt) => PageTableItem::StrayPageTable { pt, va: old_va, len: old_len },
         }
     }
 
@@ -1126,7 +1126,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 assert(!cur_entry.is_none_local_spec(spt));
                 let child = cur_entry.to_ref_local(Tracked(spt));
                 match child {
-                    ChildRef::PageTable(pt) => {
+                    ChildRefLocal::PageTable(pt) => {
                         let pt = pt.make_guard_unchecked(
                             preempt_guard,
                             Ghost(align_down(cur_va, page_size::<C>(cur_level))),
@@ -1146,11 +1146,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             self.0.move_forward(Tracked(spt));
                         }
                     },
-                    ChildRef::None => {
+                    ChildRefLocal::None => {
                         // unreachable!("Already checked");
                         assert(false);
                     },
-                    ChildRef::Frame(_, _, _) => {
+                    ChildRefLocal::Frame(_, _, _) => {
                         // panic!("Removing part of a huge page");
                         assume(false);  // FIXME: implement split if huge page
                     },
@@ -1179,18 +1179,18 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         != child_frame_addr);
             }
             // TODO: prove the last level entry...
-            let old = cur_entry.replace_with_none_local(Child::None, Tracked(spt));
+            let old = cur_entry.replace_with_none_local(ChildLocal::None, Tracked(spt));
 
             // the post condition
             assert(!spt.i_ptes.value().contains_key(old_pte_paddr as int));
 
             let item = match old {
-                Child::Frame(page, level, prop) => PageTableItem::Mapped {
+                ChildLocal::Frame(page, level, prop) => PageTableItem::Mapped {
                     va: self.0.va,
                     page,
                     prop,
                 },
-                Child::PageTable(pt) => {
+                ChildLocal::PageTable(pt) => {
                     // SAFETY: We must have locked this node.
                     let locked_pt = pt.deref().borrow(
                         Tracked(&spt.alloc_model),
@@ -1218,7 +1218,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         len: page_size::<C>(self.0.level),
                     }
                 },
-                Child::None => { PageTableItem::NotMapped { va: 0, len: 0 } },
+                ChildLocal::None => { PageTableItem::NotMapped { va: 0, len: 0 } },
             };
 
             assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO

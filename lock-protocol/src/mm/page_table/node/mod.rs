@@ -17,7 +17,7 @@ use vstd::simple_pptr::PointsTo;
 
 use vstd_extra::manually_drop::*;
 
-use entry::Entry;
+use entry::EntryLocal;
 use stray::{StrayFlag, StrayPerm};
 use crate::{
     mm::{
