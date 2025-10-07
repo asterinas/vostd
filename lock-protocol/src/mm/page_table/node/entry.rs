@@ -1,586 +1,232 @@
-use vstd::prelude::*;
-
 use core::ops::Deref;
 use std::marker::PhantomData;
 
-use crate::{
-    helpers::conversion::usize_mod_is_int_mod,
-    mm::{
-        frame::{allocator::AllocatorModel, meta::AnyFrameMeta},
-        nr_subpage_per_huge,
-        page_prop::PageProperty,
-        page_size,
-        page_table::{
-            cursor::spec_helpers::{
-                self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
-                spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
-            },
-            PageTableConfig, PageTableEntryTrait,
-        },
-        vm_space::Token,
-        Paddr, PagingConstsTrait, PagingLevel, Vaddr, NR_ENTRIES,
-    },
-    sync::rcu::RcuDrop,
-    task::DisabledPreemptGuard,
-};
+use vstd::prelude::*;
 
-use super::{
-    child::{ChildLocal, ChildRefLocal},
-    PageTableGuard, PageTableNode, PageTableNodeRef,
+use crate::spec::{
+    utils::{NodeHelper, group_node_helper_lemmas},
+    common::NodeId,
 };
-
-use crate::exec;
-
-use crate::spec::sub_pt::{
-    SubPageTable, index_pte_paddr, state_machine::IntermediatePageTableEntryView,
+use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
+use crate::mm::page_table::{
+    PageTableEntryTrait,
+    pte::Pte,
+    PageTableConfig,
+    node::child::{Child, ChildRef},
 };
-use crate::spec::sub_pt::level_is_in_range;
+use crate::sync::rcu::RcuDrop;
 
 verus! {
 
-/// A view of an entry in a page table self.node.
-///
-/// It can be borrowed from a node using the [`PageTableLock::entry`] method.
-///
-/// This is a static reference to an entry in a node that does not account for
-/// a dynamic reference count to the child. It can be used to create a owned
-/// handle, which is a [`Child`].
-pub struct EntryLocal<'a, 'rcu, C: PageTableConfig> {
+pub struct Entry<C: PageTableConfig> {
     /// The page table entry.
     ///
     /// We store the page table entry here to optimize the number of reads from
-    /// the self.node. We cannot hold a `&mut E` reference to the entry because that
+    /// the node. We cannot hold a `&mut E` reference to the entry because that
     /// other CPUs may modify the memory location for accessed/dirty bits. Such
     /// accesses will violate the aliasing rules of Rust and cause undefined
     /// behaviors.
-    pub pte: C::E,
-    /// The index of the entry in the self.node.
+    pub pte: Pte<C>,
+    /// The index of the entry in the node.
     pub idx: usize,
-    /// The node that contains the entry.
-    pub node: &'a PageTableGuard<'rcu, C>,
-    /// The virtual address that the entry maps to.
-    pub va: Tracked<Vaddr>,
 }
 
-impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
-    #[verifier::inline]
-    pub open spec fn pte_frame_level(&self, spt: &SubPageTable<C>) -> PagingLevel
-        recommends
-            spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int),
+impl<C: PageTableConfig> Entry<C> {
+    pub open spec fn wf(&self, node: PageTableGuard<C>) -> bool {
+        &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
+        &&& 0 <= self.idx < 512
+        &&& node.guard is Some ==> node.guard->Some_0.perms().relate_pte(self.pte, self.idx as nat)
+    }
+
+    pub open spec fn nid(&self, node: PageTableGuard<C>) -> NodeId {
+        NodeHelper::get_child(node.nid(), self.idx as nat)
+    }
+
+    pub open spec fn is_none_spec(&self) -> bool {
+        self.pte.is_none()
+    }
+
+    /// Returns if the entry does not map to anything.
+    #[verifier::when_used_as_spec(is_none_spec)]
+    pub fn is_none(&self) -> bool
+        returns
+            self.pte.is_none(),
     {
-        spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level
+        !self.pte.inner.is_present() && self.pte.inner.paddr() == 0
     }
 
-    pub open spec fn wf_local(
-        &self, 
-        spt: &SubPageTable<C>,
-    ) -> bool {
-        &&& self.node.wf_local(&spt.alloc_model)
-        &&& self.idx < nr_subpage_per_huge::<C>()
-        &&& self.pte.pte_paddr_spec() == index_pte_paddr(self.node.paddr_local() as int, self.idx as int)
-        &&& spt.frames.value().contains_key(self.node.paddr_local() as int)
-        &&& self.pte.is_present_spec() <==> {
-            ||| spt.i_ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
-            ||| spt.ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
-        }
-        &&& self.idx < NR_ENTRIES
-        &&& self.va@ % page_size::<C>(self.node.level_local_spec(&spt.alloc_model))
-            == 0
-        // TODO: put node related spec to node wf
-        &&& self.node.level_local_spec(&spt.alloc_model) <= spt.root@.level
-        &&& if (self.node.level_local_spec(&spt.alloc_model) == spt.root@.level) {
-            self.node.paddr_local() == spt.root@.pa
-        } else {
-            self.node.paddr_local() != spt.root@.pa
-        }
-        &&& spt.frames.value()[self.node.paddr_local() as int].level as int == self.node.level_local_spec(
-            &spt.alloc_model,
-        )
-        &&& self.pte.is_present() ==> {
-            &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
-        }
-        &&& self.pte.is_last(self.node.level_local_spec(&spt.alloc_model)) ==> {
-            &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
-            &&& self.node.level_local_spec(&spt.alloc_model)
-                == 1
-            // When this is a leaf PTE, the map_to_pa should equal the frame address
-            &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa
-                == self.pte.frame_paddr() as int
-        }
-        &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int) ==> {
-            &&& #[trigger] level_is_in_range::<C>(self.pte_frame_level(spt) as int)
-        }
-        &&& !self.pte.is_last(self.node.level_local_spec(&spt.alloc_model)) && self.pte.is_present()
-            <==> {
-            &&& #[trigger] spt.i_ptes.value().contains_key(
-                #[trigger] self.pte.pte_paddr_spec() as int,
-            )
-            // When this is an intermediate PTE, the child frame's level should be one less than current node's level
-            &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
-            &&& self.pte_frame_level(spt) == self.node.level_local_spec(&spt.alloc_model) - 1
-            &&& spt.frames.value().contains_key(self.pte.frame_paddr() as int)
-            &&& spt.frames.value()[self.pte.frame_paddr() as int].ancestor_chain
-                == spt.frames.value()[self.node.paddr_local() as int].ancestor_chain.insert(
-                self.node.level_local_spec(&spt.alloc_model) as int,
-                IntermediatePageTableEntryView {
-                    map_va: self.va@ as int,
-                    frame_pa: self.node.paddr_local() as int,
-                    in_frame_index: self.idx as int,
-                    map_to_pa: self.pte.frame_paddr() as int,
-                    level: self.node.level_local_spec(&spt.alloc_model),
-                    phantom: PhantomData,
-                },
-            )
-        }
+    pub open spec fn is_node_spec(&self, node: &PageTableGuard<C>) -> bool {
+        self.pte.is_pt(node.deref().deref().level_spec())
     }
 
-    pub(in crate::mm) fn is_none_local(
-        &self, 
-        Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: bool)
+    /// Returns if the entry maps to a page table node.
+    #[verifier::when_used_as_spec(is_node_spec)]
+    pub fn is_node(&self, node: &PageTableGuard<C>) -> bool
         requires
-            spt.wf(),
-            self.wf_local(spt),
-        ensures
-            res == self.is_none_local_spec(spt),
-            res == !self.pte.is_present(),
+            self.wf(*node),
+            node.wf(),
+        returns
+            self.is_node_spec(node),
     {
-        !self.pte.is_present()
-    }
-
-    pub(in crate::mm) open spec fn is_none_local_spec(&self, spt: &SubPageTable<C>) -> bool {
-        &&& !spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-        &&& !spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
+        &&& self.pte.inner.is_present()
+        &&& !self.pte.inner.is_last(node.deref().deref().level())
     }
 
     /// Gets a reference to the child.
-    pub(in crate::mm) fn to_ref_local(
-        &self,
-        Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: ChildRefLocal<'rcu, C>)
+    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu, C>) -> (res: ChildRef<'rcu, C>)
         requires
-            spt.wf(),
-            self.wf_local(spt),
+            self.wf(*node),
+            node.wf(),
         ensures
-            res.child_entry_spt_wf(self, spt),
+            res.wf(),
+            res.wf_from_pte(self.pte, node.deref().deref().level_spec()),
     {
-        // SAFETY: The entry structure represents an existent entry with the
-        // right node information.
-        // unsafe { ChildLocal::ref_from_pte(&self.pte, self.node.level(Tracked(&spt.alloc_model)), self.node.is_tracked(), false) }
-        ChildRefLocal::from_pte_local(
-            &self.pte,
-            self.node.level_local(Tracked(&spt.alloc_model)),
-            Tracked(spt),
-            &self,
-        )
-    }
-
-    /// Operates on the mapping properties of the entry.
-    ///
-    /// It only modifies the properties if the entry is present.
-    // TODO: Implement protect
-    #[verifier::external_body]
-    pub(in crate::mm) fn protect_local(
-        &mut self,
-        prot_op: &mut impl FnMut(&mut PageProperty),
-        token_op: &mut impl FnMut(&mut Token),
-    ) {
-        unimplemented!()
+        ChildRef::from_pte(&self.pte, node.deref().deref().level())
     }
 
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
-    ///
-    /// # Panics
-    ///
-    /// The method panics if the given child is not compatible with the self.node.
-    /// The compatibility is specified by the [`ChildLocal::is_compatible`].
-    pub(in crate::mm) fn replace_local(
-        &mut self,
-        new_child: ChildLocal<C>,
-        Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: ChildLocal<C>)
+    pub fn replace(&mut self, new_child: Child<C>, node: &mut PageTableGuard<C>) -> (res: Child<C>)
         requires
-            old(self).wf_local(old(spt)),
-            old(self).node.wf_local(&old(spt).alloc_model),
-            old(spt).wf(),
-            old(self).idx < nr_subpage_per_huge::<C>(),
-            old(spt).perms.contains_key(old(self).node.paddr_local()),
+            old(self).wf(*old(node)),
+            new_child.wf(),
+            new_child.wf_with_node(old(self).idx as nat, *old(node)),
+            !(new_child is PageTable),
+            old(node).wf(),
+            old(node).guard->Some_0.stray_perm().value() == false,
         ensures
-            self.node.wf_local(&old(spt).alloc_model),
-            spt.ptes.value().contains_key(self.pte.pte_paddr() as int),
-            spt.instance.id() == old(spt).instance.id(),
-            spt.wf(),
-            spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int),
-            spt.frames == old(spt).frames,
-            spt.alloc_model == old(spt).alloc_model,
-            self.remove_old_child(res, old(self).pte, old(spt), spt),
-            self.add_new_child(new_child, spt),
+            self.wf(*node),
+            new_child.wf_into_pte(self.pte),
+            self.idx == old(self).idx,
+            if res is PageTable {
+                &&& node.wf_except(self.idx as nat)
+                &&& node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat)
+            } else {
+                node.wf()
+            },
+            node.inst_id() == old(node).inst_id(),
+            node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
     {
-        let old_pte = self.pte.clone_pte();
-        let old_child = ChildLocal::from_pte_local(
-            old_pte,
-            self.node.level_local(Tracked(&spt.alloc_model)),
-            Tracked(spt),
-        );
+        let old_child = Child::from_pte(self.pte, node.inner.deref().level());
 
-        if old_child.is_none() && !new_child.is_none() {
-            // *node.nr_children_mut() += 1;
-            self.node.change_children(1);
-        } else if !old_child.is_none() && new_child.is_none() {
-            // *node.nr_children_mut() -= 1;
-            self.node.change_children(-1);
-        }
-        self.pte = new_child.into_pte_local();
-
-        assert(spt.perms.contains_key(self.node.paddr_local()));
-
-        // TODO: should be trivial?
-        assume(self.pte.pte_paddr_spec() == index_pte_paddr(
-            self.node.paddr_local() as int,
-            self.idx as int,
-        ));
-        assume(spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
-        self.node.write_pte_local(
-            self.idx,
-            self.pte.clone_pte(),
-            self.node.level_local(Tracked(&spt.alloc_model)),
-            Tracked(spt),
-        );
-
-        // TODO: replaced ptes.
-        assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
-        // TODO: added last level ptes.
-        assume(spt.ptes.value().contains_key(self.pte.pte_paddr() as int));
-        assume(self.add_new_child(new_child, spt));
+        self.pte = new_child.into_pte();
+        node.write_pte(self.idx, self.pte);
 
         old_child
     }
 
-    pub(in crate::mm) fn replace_with_none_local(
+    /// Allocates a new child page table node and replaces the entry with it.
+    ///
+    /// If the old entry is not none, the operation will fail and return `None`.
+    /// Otherwise, the lock guard of the new child page table node is returned.
+    pub fn normal_alloc_if_none<'rcu>(
         &mut self,
-        new_child: ChildLocal<C>,
-        Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: ChildLocal<C>)
-        requires
-            old(self).wf_local(&old(spt)),
-            old(spt).wf(),
-            old(self).idx < nr_subpage_per_huge::<C>(),
-            old(spt).perms.contains_key(old(self).node.paddr_local()),
-            // TODO: we assume it's an i_pte currently
-            // old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            new_child is None,
-        ensures
-            self.node.wf_local(&old(spt).alloc_model),
-            // !spt.ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            !spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            spt_do_not_change_except_frames_change(spt, old(spt), old(self).pte.pte_paddr() as int),
-            self.remove_old_child(res, old(self).pte, old(spt), spt),
-            old(spt).alloc_model == spt.alloc_model,
-            forall|i: int|
-                old(spt).frames.value().contains_key(i) && i != old(spt).i_ptes.value()[old(
-                    self,
-                ).pte.pte_paddr() as int].map_to_pa ==> {
-                    #[trigger] spt.frames.value().contains_key(i) && spt.frames.value()[i] == old(
-                        spt,
-                    ).frames.value()[i]
-                },
-    {
-        let old_pte = self.pte.clone_pte();
-        assert(old_pte.pte_paddr() == self.pte.pte_paddr());
-        let old_child = ChildLocal::from_pte_local(
-            old_pte,
-            self.node.level_local(Tracked(&spt.alloc_model)),
-            Tracked(spt),
-        );
-
-        if !old_child.is_none() {
-            // *node.nr_children_mut() -= 1;
-            self.node.change_children(-1);
-        }
-        self.pte = new_child.into_pte_local();
-
-        self.node.write_pte_local(
-            self.idx,
-            self.pte.clone_pte(),
-            self.node.level_local(Tracked(&spt.alloc_model)),
-            Tracked(spt),
-        );
-
-        proof {
-            assert(spt.i_ptes.value().contains_key(
-                index_pte_paddr(self.node.paddr_local() as int, self.idx as int) as int,
-            ));
-            let child_frame_addr = spt.i_ptes.value()[index_pte_paddr(
-                self.node.paddr_local() as int,
-                self.idx as int,
-            ) as int].map_to_pa;
-
-            assert(spt.frames.value().contains_key(child_frame_addr));
-            assert(spt.perms.contains_key(child_frame_addr as usize));
-
-            let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
-            // TODO: The child is not an ancestor of any other frame. Where should we enforce this?
-            assume(forall|i: int| #[trigger]
-                spt.frames.value().contains_key(i) ==> {
-                    ||| !spt.frames.value()[i].ancestor_chain.contains_key(child_frame_level)
-                    ||| spt.frames.value()[i].ancestor_chain[child_frame_level].frame_pa
-                        != child_frame_addr
-                });
-            spt.instance.remove_at(
-                self.node.paddr_local() as int,
-                self.idx as int,
-                &mut spt.frames,
-                &mut spt.i_ptes,
-            );
-            spt.perms.tracked_remove(child_frame_addr as usize);
-            assert(spt.wf());
-            assert(!spt.i_ptes.value().contains_key(old(self).pte.pte_paddr() as int));
-
-            assert(spt_do_not_change_except_frames_change(
-                spt,
-                old(spt),
-                old(self).pte.pte_paddr() as int,
-            ));
-            // TODO: replaced ptes.
-            assume(self.remove_old_child(old_child, old(self).pte, old(spt), spt));
-        }
-
-        old_child
-    }
-
-    #[verifier::inline]
-    pub(in crate::mm) open spec fn remove_old_child(
-        &self,
-        old_child: ChildLocal<C>,
-        old_pte: C::E,
-        old_spt: &SubPageTable<C>,
-        spt: &SubPageTable<C>,
-    ) -> (res: bool) {
-        if (old_spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-            match old_child {
-                ChildLocal::PageTable(pt) => {
-                    &&& pt.deref().start_paddr_local() == old_pte.frame_paddr() as usize
-                    &&& spt.i_ptes.value().contains_key(old_pte.pte_paddr() as int)
-                    &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr_local() as int)
-                    &&& spt.alloc_model.meta_map[pt.deref().paddr_local() as int].value().level
-                        == self.node.level_local_spec(&spt.alloc_model) - 1
-                    &&& spt.alloc_model.meta_map[pt.deref().paddr_local() as int].pptr()
-                        == pt.deref().meta_ptr_l
-                },
-                _ => false,
-            }
-        } else if (old_spt.ptes.value().contains_key(self.pte.pte_paddr() as int)) {
-            match old_child {
-                ChildLocal::Frame(pa, level, prop) => { pa == self.pte.frame_paddr() as usize },
-                _ => false,
-            }
-        } else {
-            match old_child {
-                ChildLocal::None => true,
-                _ => false,
-            }
-        }
-    }
-
-    pub(in crate::mm) open spec fn add_new_child(
-        &self,
-        new_child: ChildLocal<C>,
-        spt: &SubPageTable<C>,
-    ) -> (res: bool) {
-        match new_child {
-            ChildLocal::PageTable(pt) => {
-                &&& pt.deref().paddr_local() == self.pte.frame_paddr() as usize
-                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& spt.alloc_model.meta_map.contains_key(pt.deref().paddr_local() as int)
-                &&& spt.alloc_model.meta_map[pt.deref().paddr_local() as int].value().level
-                    == self.node.level_local_spec(&spt.alloc_model) - 1
-                &&& spt.alloc_model.meta_map[pt.deref().paddr_local() as int].pptr()
-                    == pt.deref().meta_ptr_l
-            },
-            ChildLocal::Frame(pa, level, prop) => {
-                &&& spt.ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_to_pa == pa
-                &&& spt.ptes.value()[self.pte.pte_paddr() as int].map_va == self.va@ as int
-            },
-            _ => true,
-        }
-    }
-
-    pub(in crate::mm) fn alloc_if_none_local(
-        &mut self,
-        guard: &'rcu DisabledPreemptGuard,
-        Tracked(spt): Tracked<&mut SubPageTable<C>>,
+        guard: &'rcu (),  // TODO
+        node: &mut PageTableGuard<'rcu, C>,
     ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires
-            old(self).wf_local(&old(spt)),
-            old(spt).wf(),
-            !old(spt).i_ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            !old(spt).ptes.value().contains_key(old(self).pte.pte_paddr() as int),
-            old(self).node.level_local_spec(&old(spt).alloc_model) > 1,
-            old(self).node.wf_local(&old(spt).alloc_model),
+            old(self).wf(*old(node)),
+            old(node).wf(),
+            NodeHelper::is_not_leaf(old(node).nid()),
+            old(node).guard->Some_0.stray_perm().value() == false,
+            old(node).guard->Some_0.in_protocol() == false,
         ensures
-            if old(self).pte.is_present() {
-                &&& res is None
-                &&& spt == old(spt)
-                &&& self == old(self)
-            } else {
-                &&& self.wf_local(spt)
-                &&& self.pte.pte_paddr() == old(self).pte.pte_paddr()
-                &&& self.node == old(self).node
-                &&& self.node.level_local_spec(&spt.alloc_model) == old(self).node.level_local_spec(
-                    &old(spt).alloc_model,
-                )
-                &&& self.idx == old(self).idx
-                &&& self.va == old(self).va
-                &&& spt.wf()
-                &&& res is Some
-                &&& spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int)
-                &&& spt_do_not_change_above_level(
-                    spt,
-                    old(spt),
-                    self.node.level_local_spec(&spt.alloc_model),
-                )
-                &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr_local())
-                &&& res.unwrap().wf_local(&spt.alloc_model)
-                &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& !old(spt).frames.value().contains_key(res.unwrap().paddr_local() as int)
-                &&& spt.frames.value().contains_key(res.unwrap().paddr_local() as int)
-                &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr_local() as int)
-                &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr_local() as int)
-                &&& res.unwrap().level_local_spec(&spt.alloc_model) == self.node.level_local_spec(
-                    &spt.alloc_model,
-                ) - 1
-                &&& spt.frames.value()[res.unwrap().paddr_local() as int].ancestor_chain
-                    == spt.frames.value()[self.node.paddr_local() as int].ancestor_chain.insert(
-                    self.node.level_local_spec(&spt.alloc_model) as int,
-                    IntermediatePageTableEntryView {
-                        map_va: self.va as int,
-                        frame_pa: self.node.paddr_local() as int,
-                        in_frame_index: self.idx as int,
-                        map_to_pa: res.unwrap().paddr_local() as int,
-                        level: self.node.level_local_spec(&spt.alloc_model),
-                        phantom: PhantomData,
-                    },
-                )
-                &&& res.unwrap().va == self.va
+            self.wf(*node),
+            self.idx == old(self).idx,
+            node.wf(),
+            node.inst_id() == old(node).inst_id(),
+            node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
+            !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
+            res is Some ==> {
+                &&& res->Some_0.wf()
+                &&& res->Some_0.inst_id() == node.inst_id()
+                &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
+                &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                &&& res->Some_0.guard->Some_0.stray_perm().value() == false
+                &&& res->Some_0.guard->Some_0.in_protocol() == false
             },
     {
-        if self.pte.is_present() {
+        broadcast use group_node_helper_lemmas;
+
+        if !(self.is_none() && node.inner.deref().level() > 1) {
             return None;
         }
-        let level = self.node.level_local(Tracked(&spt.alloc_model));
-        let (pt, Tracked(perm)) = PageTableNode::<C>::alloc_local(
+        let level = node.inner.deref().level();
+        let ghost cur_nid = self.nid(*node);
+        let mut lock_guard = node.guard.take().unwrap();
+        let tracked mut lock_guard_inner = lock_guard.inner.get();
+        let tracked node_token = lock_guard_inner.node_token.tracked_unwrap();
+        let tracked pte_token = lock_guard_inner.pte_token.tracked_unwrap();
+        assert(node_token.value() is LockedOutside);
+        assert(pte_token.value().is_void(self.idx as nat));
+        assert(cur_nid != NodeHelper::root_id()) by {
+            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
+            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
+        };
+
+        let tracked_inst = node.tracked_pt_inst();
+        let tracked inst = tracked_inst.get();
+        assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
+            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
+        };
+        let res = PageTableNode::normal_alloc(
             level - 1,
-            Tracked(&mut spt.alloc_model),
+            Ghost(cur_nid),
+            Tracked(inst),
+            Ghost(node.nid()),
+            Ghost(self.idx as nat),
+            Tracked(&node_token),
+            Tracked(pte_token),
         );
-        assert(perm.mem_contents().is_init());
-
-        assert(!spt.frames.value().contains_key(pt.start_paddr_local() as int));
-        assert(spt.frames =~= old(spt).frames);
-        assert(forall|pa: Paddr| #[trigger]
-            spt.frames.value().contains_key(pa as int) ==> #[trigger] old(
-                spt,
-            ).alloc_model.meta_map.contains_key(pa as int));
-        // TODO: figure out what triggers we should use here.
-        assert(forall|pa: Paddr|
-            #![auto]
-            old(spt).alloc_model.meta_map.contains_key(pa as int)
-                ==> spt.alloc_model.meta_map.contains_key(pa as int));
-        assert(forall|pa: Paddr| #[trigger]
-            spt.frames.value().contains_key(pa as int)
-                ==> #[trigger] spt.alloc_model.meta_map.contains_key(pa as int));
-
-        let pa = pt.start_paddr_local();
-
-        assert(spt.alloc_model.meta_map.contains_key(pa as int));
-
+        let new_page = RcuDrop::new(res.0);
+        let tracked pte_token = res.1.get();
         proof {
-            let i_pte = IntermediatePageTableEntryView {
-                map_va: self.va@ as int,
-                frame_pa: self.node.paddr_local() as int,
-                in_frame_index: self.idx as int,
-                map_to_pa: pa as int,
-                level,
-                phantom: PhantomData::<C>,
-            };
-            assert(i_pte.wf()) by {
-                usize_mod_is_int_mod(
-                    self.va@,
-                    page_size::<C>(self.node.level_local_spec(&spt.alloc_model)),
-                    0,
-                );
-            }
-            assert(level <= spt.root@.level);
-            assert(self.node.level_local_spec(&spt.alloc_model) == level);
-            if (level == spt.root@.level) {
-                assert(i_pte.frame_pa == spt.root@.pa);
-            } else {
-                assert(i_pte.frame_pa != spt.root@.pa);
-            }
-            assert(spt.frames.value()[self.node.paddr_local() as int].level as int == level as int);
-            spt.instance.set_child(i_pte, &mut spt.frames, &mut spt.i_ptes, &spt.ptes);
-            spt.perms.tracked_insert(pa, perm);
-
-            // i_pte.entry_pa() == i_pte.pte_paddr_spec(). @see entry_pa
-            assert(spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int));
+            lock_guard_inner.node_token = Some(node_token);
+            lock_guard_inner.pte_token = Some(pte_token);
         }
+        lock_guard.inner = Tracked(lock_guard_inner);
+        node.guard = Some(lock_guard);
+        let paddr = new_page.start_paddr();
 
-        assert(spt.wf());
-        self.node.write_pte_local(
-            self.idx,
-            ChildLocal::<C>::PageTable(RcuDrop::new(pt)).into_pte_local(),
-            level,
-            Tracked(spt),
+        let pt_ref = PageTableNodeRef::borrow_paddr(
+            paddr,
+            Ghost(new_page.nid@),
+            Ghost(new_page.inst@.id()),
+            Ghost(new_page.level_spec()),
         );
-        self.pte.set_present();  // TODO: should be in write_pte?
-        self.pte.set_frame_paddr(pa as usize);  // TODO: should be in write_pte?
+        // Lock before writing the PTE, so no one else can operate on it.
+        let tracked pa_pte_array_token = node.tracked_borrow_guard().tracked_borrow_pte_token();
+        assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
+        let pt_lock_guard = pt_ref.normal_lock_new_allocated_node(
+            guard,
+            Tracked(pa_pte_array_token),
+        );
 
-        assert(spt.alloc_model.meta_map.contains_key(pa as int));
-        assert(spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int));
+        self.pte = Child::PageTable(new_page).into_pte();
 
-        assert(self.wf_local(spt));
-        assert(alloc_model_do_not_change_except_add_frame(spt, old(spt), pa));
-        assert(spt_do_not_change_above_level(spt, old(spt), level));
-        assert(spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int));
+        node.write_pte(self.idx, self.pte);
 
-        let node_ref = PageTableNodeRef::borrow_paddr_local(pa, Tracked(&spt.alloc_model));
-        assert(node_ref.level_local_spec(&spt.alloc_model) == level - 1);
-        Some(node_ref.make_guard_unchecked(guard, Ghost(self.va@)))
+        // *self.node.nr_children_mut() += 1;
+
+        Some(pt_lock_guard)
     }
 
-    /// Create a new entry at the self.node.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the index is within the bounds of the self.node.
-    // pub(super) unsafe fn new_at(node: &'a mut PageTableLock<C>, idx: usize) -> Self {
-    #[verifier::external_body]
-    pub fn new_at_local(
-        node: &'a PageTableGuard<'rcu, C>,
-        idx: usize,
-        Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: Self)
+    /// Create a new entry at the node with guard.
+    pub fn new_at(idx: usize, node: &PageTableGuard<C>) -> (res: Self)
         requires
-            idx < nr_subpage_per_huge::<C>(),
-            spt.wf(),
-            node.wf_local(&spt.alloc_model),
+            0 <= idx < 512,
+            node.wf(),
         ensures
-            res.wf_local(spt),
-            res.node == node,
+            res.wf(*node),
             res.idx == idx,
-            res.va == node.va@ + idx * page_size::<C>(node.level_local_spec(&spt.alloc_model)),
     {
-        // SAFETY: The index is within the bound.
-        // let pte = unsafe { self.node.read_pte(idx) };
-        let pte = node.read_pte_local(idx, Tracked(spt));
-        let va = Tracked(
-            (node.va@ + idx * page_size::<C>(node.level_local_spec(&spt.alloc_model))) as Vaddr,
-        );
-
-        Self { pte, idx, node, va }
+        let pte = node.read_pte(idx);
+        Self { pte, idx }
     }
 }
 

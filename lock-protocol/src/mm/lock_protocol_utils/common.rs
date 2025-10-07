@@ -23,25 +23,25 @@ pub const INVALID_PADDR: Paddr = 0xffff_ffff_ffff_ffff;
 } // verus!
 verus! {
 
-// Maybe introduce a MAX_PADDR constant in the future.
-pub open spec fn valid_paddr(pa: Paddr) -> bool {
-    true
-}
+// // Maybe introduce a MAX_PADDR constant in the future.
+// pub open spec fn valid_paddr(pa: Paddr) -> bool {
+//     true
+// }
 
-pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
+// pub uninterp spec fn paddr_to_vaddr_spec(pa: Paddr) -> Vaddr;
 
-#[inline(always)]
-#[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
-#[verifier::external_body]
-pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
-// requires
-// valid_paddr(pa),
+// #[inline(always)]
+// #[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
+// #[verifier::external_body]
+// pub fn paddr_to_vaddr(pa: Paddr) -> (va: Vaddr)
+// // requires
+// // valid_paddr(pa),
 
-    ensures
-        va == paddr_to_vaddr_spec(pa),
-{
-    unimplemented!()
-}
+//     ensures
+//         va == paddr_to_vaddr_spec(pa),
+// {
+//     unimplemented!()
+// }
 
 } // verus!
 verus! {

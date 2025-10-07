@@ -6,9 +6,8 @@ use crate::spec::utils::NodeHelper;
 
 use crate::mm::{PagingLevel, Paddr};
 use crate::spec::{rcu::SpecInstance, common::NodeId};
-use crate::mm::lock_protocol_utils::valid_paddr;
 use crate::mm::page_table::{
-    PageTableEntryTrait, node_concurrent::PageTableNode, PageTableConfig, GLOBAL_CPU_NUM,
+    PageTableEntryTrait, node::PageTableNode, PageTableConfig, GLOBAL_CPU_NUM,
 };
 use crate::mm::page_prop::PageProperty;
 
@@ -136,7 +135,7 @@ impl<C: PageTableConfig> Pte<C> {
     #[verifier::external_body]
     pub fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            valid_paddr(paddr),
+            // valid_paddr(paddr),
             level == 1,
         ensures
             res.wf_new_page(paddr, level, prop),
@@ -156,7 +155,7 @@ impl<C: PageTableConfig> Pte<C> {
     #[verifier::external_body]
     pub fn new_pt(paddr: Paddr, inst: Tracked<SpecInstance>, nid: Ghost<NodeId>) -> (res: Self)
         requires
-            valid_paddr(paddr),
+            // valid_paddr(paddr),
             inst@.cpu_num() == GLOBAL_CPU_NUM,
             NodeHelper::valid_nid(nid@),
         ensures

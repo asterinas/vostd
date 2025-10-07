@@ -26,8 +26,8 @@ use core::ops::Deref;
 use crate::{
     helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
-        page_table::child::{self, ChildLocal, ChildRefLocal},
-        page_table::node::{PageTableNode, entry::EntryLocal, PageTableGuard},
+        page_table::child_local::{self, ChildLocal, ChildRefLocal},
+        page_table::node::{PageTableNode, entry_local::EntryLocal, PageTableGuard},
         frame::{self, allocator::AllocatorModel, meta::AnyFrameMeta, Frame},
         nr_subpage_per_huge,
         page_prop::PageProperty,
@@ -196,7 +196,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_frame_view = spt.frames.value()[cur_frame_pa];
         let cur_ancestors = cur_frame_view.ancestor_chain;
 
-        &&& self.va < self.barrier_va.end ==> cur_frame.va == align_down(
+        &&& self.va < self.barrier_va.end ==> cur_frame.va() == align_down(
             self.va,
             page_size::<C>((level + 1) as u8),
         )
@@ -361,7 +361,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             let cur_entry = self.cur_entry(Tracked(spt));
             match cur_entry.to_ref_local(Tracked(spt)) {
                 ChildRefLocal::PageTable(pt) => {
-                    let guard = pt.make_guard_unchecked(
+                    let guard = pt.make_guard_unchecked_local(
                         rcu_guard,
                         Ghost(align_down(cur_va, page_size::<C>(cur_level))),
                     );
@@ -454,15 +454,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 assert forall|i: PagingLevel|
                     #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
                     self.level <= i <= self.guard_level && self.va
-                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va
+                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va()
                     == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
                     assert(i == self.guard_level);
-                    let guard_va = old_path[path_index_at_level_local_spec(i)].unwrap().va;
+                    let guard_va = old_path[path_index_at_level_local_spec(i)].unwrap().va();
                     let pg_size = page_size::<C>((i + 1) as u8);
                     lemma_page_size_spec_properties::<C>((i + 1) as u8);
                     calc! {
                         (==)
-                        path_index!(self.path[i]).unwrap().va@; {}
+                        path_index!(self.path[i]).unwrap().va(); {}
                         guard_va@; {}
                         align_down(old(self).va, page_size::<C>((i + 1) as u8)); {
                             lemma_align_down_squeeze(
@@ -606,13 +606,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 assert forall|i: PagingLevel|
                     #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
                     self.level <= i <= self.guard_level && self.va
-                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va
+                        < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va()
                     == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
                     lemma_page_size_spec_properties::<C>((i + 1) as u8);
                     calc! {
                         (==)
-                        path_index!(self.path[i]).unwrap().va@ as nat; {}
-                        old_path[path_index_at_level_local_spec(i)].unwrap().va@ as nat; {}
+                        path_index!(self.path[i]).unwrap().va() as nat; {}
+                        old_path[path_index_at_level_local_spec(i)].unwrap().va() as nat; {}
                         align_down(old(self).va, page_size::<C>((i + 1) as u8)) as nat; {
                             lemma_align_down_properties(
                                 old(self).va,
@@ -726,7 +726,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).va < old(self).barrier_va.end,
             // The guard is to be inserted at level `old(self).level - 1`, so its
             // virtual address should be aligned to page_size(old(self).level).
-            child_pt.va == align_down(old(self).va, page_size::<C>(old(self).level)),
+            child_pt.va() == align_down(old(self).va, page_size::<C>(old(self).level)),
         ensures
             self.wf(spt),
             self.constant_fields_unchanged(old(self), spt, spt),
@@ -762,7 +762,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let cur_node = self.path[path_index_at_level(self.level)].as_ref().unwrap();
         let idx = pte_index::<C>(self.va, self.level);
         assert(self.level == cur_node.level_local_spec(&spt.alloc_model));
-        assert(cur_node.va@ + idx * page_size::<C>(self.level) == align_down(
+        assert(cur_node.va() + idx * page_size::<C>(self.level) == align_down(
             self.va,
             page_size::<C>(self.level),
         )) by {
@@ -775,7 +775,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             }
             calc! {
                 (==)
-                cur_node.va@ as nat; {}
+                cur_node.va() as nat; {}
                 align_down(self.va, page_size::<C>((self.level + 1) as u8)) as nat; {
                     lemma_align_down_properties(self.va, page_size::<C>((self.level + 1) as u8));
                 }
@@ -799,13 +799,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     r >= 0,
                     small_page > 0,
             ;
-            assert(cur_node.va@ as nat == self.va as nat - r) by (nonlinear_arith)
+            assert(cur_node.va() as nat == self.va as nat - r) by (nonlinear_arith)
                 requires
-                    cur_node.va@ as nat == self.va as nat / big_page * big_page,
+                    cur_node.va() as nat == self.va as nat / big_page * big_page,
                     r == self.va as nat % big_page,
                     big_page > 0,
             ;
-            assert(cur_node.va@ as nat + idx * small_page == self.va as nat - (r % small_page));
+            assert(cur_node.va() as nat + idx * small_page == self.va as nat - (r % small_page));
             assert(r % small_page == self.va as nat % small_page) by {
                 assert(self.va as nat - r == q * big_page) by {
                     lemma_fundamental_div_mod(self.va as int, big_page as int);
@@ -828,7 +828,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     lemma_mod_equivalence(self.va as int, r as int, small_page as int);
                 }
             }
-            assert(cur_node.va@ as nat + idx * small_page == align_down(
+            assert(cur_node.va() as nat + idx * small_page == align_down(
                 self.va,
                 small_page as usize,
             ) as nat) by {
@@ -950,7 +950,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_level == cur_entry.node.level_local_spec(&spt.alloc_model));
                     assert(cur_level - 1 == pt.level_local_spec(&spt.alloc_model));
-                    let child_pt = pt.make_guard_unchecked(
+                    let child_pt = pt.make_guard_unchecked_local(
                         preempt_guard,
                         Ghost(align_down(cur_va, page_size::<C>(cur_level))),
                     );
@@ -1000,10 +1000,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             ));
                         }
                     }
-                    assert(child_pt.va@ == align_down(self.0.va, page_size::<C>(self.0.level))) by {
+                    assert(child_pt.va() == align_down(self.0.va, page_size::<C>(self.0.level))) by {
                         calc! {
                             (==)
-                            child_pt.va@; {}
+                            child_pt.va(); {}
                             cur_entry.va@; {}
                             align_down(self.0.va, page_size::<C>(self.0.level));
                         }
@@ -1127,7 +1127,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 let child = cur_entry.to_ref_local(Tracked(spt));
                 match child {
                     ChildRefLocal::PageTable(pt) => {
-                        let pt = pt.make_guard_unchecked(
+                        let pt = pt.make_guard_unchecked_local(
                             preempt_guard,
                             Ghost(align_down(cur_va, page_size::<C>(cur_level))),
                         );
@@ -1194,7 +1194,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     // SAFETY: We must have locked this node.
                     let locked_pt = pt.deref().borrow(
                         Tracked(&spt.alloc_model),
-                    ).make_guard_unchecked(
+                    ).make_guard_unchecked_local(
                         preempt_guard,
                         Ghost(align_down(self.0.va, page_size::<C>(self.0.level))),
                     );

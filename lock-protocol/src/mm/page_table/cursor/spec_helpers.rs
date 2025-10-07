@@ -15,7 +15,7 @@ use vstd::tokens::SetToken;
 use crate::{
     helpers::align_ext::align_down,
     mm::{
-        page_table::{child::ChildLocal, entry::EntryLocal, node::PageTableNode, PageTableConfig},
+        page_table::{child_local::ChildLocal, entry_local::EntryLocal, node::PageTableNode, PageTableConfig},
         frame::{self, allocator::AllocatorModel, Frame, meta::AnyFrameMeta},
         nr_subpage_per_huge,
         page_prop::PageProperty,

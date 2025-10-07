@@ -14,7 +14,7 @@ use crate::spec::{
     common::NodeId,
 };
 use crate::mm::{PagingLevel, Paddr, Vaddr};
-use crate::mm::lock_protocol_utils::{valid_paddr, paddr_to_vaddr, PTE_NUM};
+use crate::mm::lock_protocol_utils::PTE_NUM;
 use crate::mm::page_table::{
     PageTableEntryTrait,
     pte::Pte,
@@ -22,7 +22,8 @@ use crate::mm::page_table::{
 };
 use crate::mm::lock_protocol_utils::GLOBAL_CPU_NUM;
 use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
-use crate::mm::page_table::node_concurrent::PageTableGuard;
+use crate::mm::page_table::node::PageTableGuard;
+use crate::x86_64::kspace::paddr_to_vaddr;
 
 tokenized_state_machine! {
 
@@ -245,7 +246,7 @@ struct_with_invariants! {
 
     pub open spec fn wf(&self) -> bool {
         predicate {
-            &&& valid_paddr(self.paddr@)
+            // &&& valid_paddr(self.paddr@)
             &&& 1 <= self.level@ <= 4
             &&& self.inst@.k() == (
                 self.pt_inst@.id(),

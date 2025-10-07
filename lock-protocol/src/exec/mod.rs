@@ -20,7 +20,7 @@ use crate::{
         page_size_spec,
         page_table::{
             cursor::{spec_helpers, Cursor, CursorMut},
-            node::{entry::EntryLocal, PageTableNode, PageTablePageMeta},
+            node::{entry_local::EntryLocal, PageTableNode, PageTablePageMeta},
             pte_index, PageTableConfig, PageTableEntryTrait, PagingConsts, PagingConstsTrait,
         },
         Paddr, PagingLevel, Vaddr, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,

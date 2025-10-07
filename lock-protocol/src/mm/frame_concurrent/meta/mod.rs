@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd::raw_ptr::PointsTo;
 
 use crate::mm::{Paddr, Vaddr};
-use crate::mm::page_table::node_concurrent::PageTablePageMeta;
+use crate::mm::page_table::node::PageTablePageMeta;
 use crate::mm::page_table::PageTableConfig;
 
 pub use mapping::{frame_to_meta, meta_to_frame};

@@ -4,7 +4,7 @@ use core::mem::ManuallyDrop;
 use vstd::prelude::*;
 
 use crate::mm::{
-    page_table::{node_concurrent::PageTableNode, pte::Pte, PageTableConfig},
+    page_table::{node::PageTableNode, pte::Pte, PageTableConfig},
     Vaddr,
 };
 
