@@ -10,7 +10,7 @@ members = [
     "fvt10-pt-cursor-navigation",
     "fvt11-pt-cursor-guards",
     "fvt13-vmspace-unmap-safety",
-    "lock-protocol",
+    "lock-protocol-rcu",
 ]
 exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
 resolver = "2"
