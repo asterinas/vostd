@@ -1,4 +1,4 @@
-// mod locking;
+mod locking;
 pub mod spec_helpers;
 
 use std::{
@@ -9,6 +9,7 @@ use std::{
     marker::PhantomData,
     ops::Range,
 };
+use core::ops::Deref;
 
 use vstd::{
     arithmetic::{div_mod::*, power::*, power2::*},
@@ -21,11 +22,11 @@ use vstd::{
 };
 use vstd::bits::*;
 use vstd::tokens::SetToken;
-use core::ops::Deref;
 
 use crate::{
     helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add},
     mm::{
+        page_table::GLOBAL_CPU_NUM,
         page_table::child_local::{self, ChildLocal, ChildRefLocal},
         page_table::node::{PageTableNode, entry_local::EntryLocal, PageTableGuard},
         frame::{self, allocator::AllocatorModel, meta::AnyFrameMeta, Frame},
@@ -38,7 +39,16 @@ use crate::{
     },
     task::DisabledPreemptGuard,
     sync::rcu::RcuDrop,
-    spec::{sub_pt::level_is_in_range, rcu::SpecInstance},
+    sync::spinlock::guard_forget::SubTreeForgotGuard,
+};
+
+use crate::spec::{
+    sub_pt::{SubPageTable, index_pte_paddr, level_is_in_range},
+    lock_protocol::LockProtocolModel,
+    common::NodeId,
+    utils::{NodeHelper, group_node_helper_lemmas},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken},
+    rcu::{PteArrayState},
 };
 
 use super::{
@@ -47,7 +57,6 @@ use super::{
     PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
-use crate::spec::sub_pt::{SubPageTable, index_pte_paddr};
 use crate::exec;
 use crate::mm::NR_ENTRIES;
 
@@ -110,8 +119,9 @@ pub struct Cursor<'rcu, C: PageTableConfig> {
     /// RCU read-side critical section.
     // #[expect(dead_code)]
     pub preempt_guard: &'rcu DisabledPreemptGuard,
+    // Ghost types
     pub inst: Tracked<SpecInstance>,
-    pub _phantom: PhantomData<&'rcu PageTable<C>>,
+    pub g_level: Ghost<PagingLevel>,  // Ghost level, used in 'unlock_range'
 }
 
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
@@ -125,37 +135,197 @@ pub enum PageTableItem<C: PageTableConfig> {
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
-    // pub open spec fn wf_temp(&self) -> bool {
-    //     &&& self.path.len() == 4
-    //     &&& 1 <= self.level <= self.guard_level <= 4
-    //     &&& forall|level: PagingLevel|
-    //         #![trigger self.path[level - 1]]
-    //         1 <= level <= 4 ==> {
-    //             if level > self.guard_level {
-    //                 self.path[level - 1] is None
-    //             } else if level == self.guard_level {
-    //                 &&& self.path[level - 1] is Some
-    //                 &&& self.path[level - 1]->Some_0.wf()
-    //                 &&& self.path[level - 1]->Some_0.inst_id() == self.inst@.id()
-    //                 &&& self.path[level - 1]->Some_0.guard->Some_0.stray_perm@.value() == false
-    //                 &&& self.path[level - 1]->Some_0.guard->Some_0.in_protocol@ == true
-    //             } else {
-    //                 self.path[level - 1] is Some ==> {
-    //                     &&& self.path[level - 1]->Some_0.wf()
-    //                     &&& self.path[level - 1]->Some_0.inst_id() == self.inst@.id()
-    //                 }
-    //             }
-    //         }
-    //     &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-    // }
+    pub open spec fn wf(&self) -> bool {
+        &&& 1 <= self.level <= self.guard_level <= 4
+        &&& self.level <= self.g_level@ <= self.guard_level + 1
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+        &&& self.wf_path()
+        &&& self.guards_in_path_relation()
+    }
+
+    pub open spec fn guards_in_path_relation(&self) -> bool
+        recommends
+            self.wf_path(),
+    {
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
+            self.g_level@ < level <= self.guard_level ==> {
+                let nid1 = self.path[level - 1]->Some_0.nid();
+                let nid2 = self.path[level - 2]->Some_0.nid();
+                NodeHelper::is_child(nid1, nid2)
+            }
+    }
+
+    pub open spec fn wf_path(&self) -> bool {
+        &&& self.path.len() == 4
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
+            1 <= level <= 4 ==> {
+                if level > self.guard_level {
+                    self.path[level - 1] is None
+                } else if level >= self.g_level@ {
+                    &&& self.path[level - 1] is Some
+                    &&& self.path[level - 1]->Some_0.wf()
+                    &&& self.path[level - 1]->Some_0.inst_id() == self.inst@.id()
+                    &&& self.path[level - 1]->Some_0.guard->Some_0.stray_perm().value() == false
+                    &&& self.path[level - 1]->Some_0.guard->Some_0.in_protocol() == true
+                } else {
+                    self.path[level - 1] is None
+                }
+            }
+    }
+
+    pub open spec fn get_guard(&self, idx: int) -> PageTableGuard<C>
+        recommends
+            self.path[idx] is Some,
+    {
+        self.path[idx]->Some_0
+    }
+
+    pub open spec fn guard_in_path_nid_diff(
+        &self,
+        level1: PagingLevel,
+        level2: PagingLevel,
+    ) -> bool {
+        self.get_guard(level1 - 1).nid() != self.get_guard(level2 - 1).nid()
+    }
+
+    pub proof fn lemma_guard_in_path_relation_implies_nid_diff(&self)
+        requires
+            self.wf(),
+        ensures
+            forall|level1: PagingLevel, level2: PagingLevel|
+                self.g_level@ <= level1 < level2 <= self.guard_level && self.g_level@ <= level2
+                    <= self.guard_level && level1 != level2
+                    ==> #[trigger] self.guard_in_path_nid_diff(level1, level2),
+    {
+        admit();
+    }
+
+    pub proof fn lemma_guard_in_path_relation_implies_in_subtree_range(&self)
+        requires
+            self.wf(),
+        ensures
+            forall|level: PagingLevel|
+                self.g_level@ <= level <= self.guard_level
+                    ==> #[trigger] NodeHelper::in_subtree_range(
+                    self.get_guard(self.guard_level - 1).nid(),
+                    self.get_guard(level - 1).nid(),
+                ),
+    {
+        admit();
+    }
+
+    pub open spec fn rec_put_guard_from_path(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        cur_level: PagingLevel,
+    ) -> SubTreeForgotGuard<C>
+        recommends
+            self.g_level@ <= cur_level <= self.guard_level,
+        decreases cur_level - self.g_level@,
+    {
+        if cur_level < self.g_level@ {
+            forgot_guards
+        } else {
+            let res = if cur_level == self.g_level@ {
+                forgot_guards
+            } else {
+                self.rec_put_guard_from_path(forgot_guards, (cur_level - 1) as PagingLevel)
+            };
+            let guard = self.path[cur_level - 1]->Some_0;
+            res.put_spec(
+                guard.nid(),
+                guard.guard->Some_0.inner@,
+                guard.inner.deref().meta_spec().lock,
+            )
+        }
+    }
+
+    pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
+        &&& {
+            let res = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
+            {
+                &&& res.wf()
+                &&& res.is_root_and_contained(self.path[self.guard_level - 1]->Some_0.nid())
+            }
+        }
+        &&& forall|level: PagingLevel|
+            #![trigger self.path[level - 1]]
+            self.g_level@ <= level <= self.guard_level ==> {
+                !forgot_guards.inner.dom().contains(self.path[level - 1]->Some_0.nid())
+            }
+    }
+
+    pub open spec fn guards_in_path_wf_with_forgot_guards(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    ) -> bool {
+        forall|level: PagingLevel|
+            #![trigger self.rec_put_guard_from_path(forgot_guards, (level - 1) as PagingLevel)]
+            self.g_level@ <= level <= self.guard_level ==> {
+                let guard = self.get_guard(level - 1);
+                let _forgot_guards = self.rec_put_guard_from_path(
+                    forgot_guards,
+                    (level - 1) as PagingLevel,
+                );
+                {
+                    &&& _forgot_guards.wf()
+                    &&& _forgot_guards.is_sub_root(guard.nid())
+                    &&& _forgot_guards.childs_are_contained(
+                        guard.nid(),
+                        guard.guard->Some_0.view_pte_token().value(),
+                    )
+                }
+            }
+    }
+
+    pub proof fn lemma_wf_with_forgot_guards_sound(&self, forgot_guards: SubTreeForgotGuard<C>)
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+            self.wf_with_forgot_guards(forgot_guards),
+        ensures
+            self.guards_in_path_wf_with_forgot_guards(forgot_guards),
+    {
+        admit();
+    }
+
+    // Trusted
+    #[verifier::external_body]
+    pub fn take(&mut self, i: usize) -> (res: Option<PageTableGuard<'a, C>>)
+        requires
+            0 <= i < old(self).path.len(),
+            old(self).level <= i + 1 <= old(self).guard_level,
+            i + 1 == old(self).g_level@,
+        ensures
+            res =~= old(self).path[i as int],
+            self.path[i as int] is None,
+            self.path.len() == old(self).path.len(),
+            forall|_i|
+                #![trigger self.path[_i]]
+                0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
+            self.preempt_guard =~= old(self).preempt_guard,
+            self.level == old(self).level,
+            self.guard_level == old(self).guard_level,
+            self.va == old(self).va,
+            self.barrier_va == old(self).barrier_va,
+            self.inst =~= old(self).inst,
+            self.g_level@ == old(self).g_level@ + 1,
+            self.wf_path(),
+    {
+        self.g_level = Ghost((self.g_level@ + 1) as PagingLevel);
+        self.path[i].take()
+    }
+}
+
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// Well-formedness of the cursor.
-    pub open spec fn wf(&self, spt: &SubPageTable<C>) -> bool {
+    pub open spec fn wf_local(&self, spt: &SubPageTable<C>) -> bool {
         &&& spt.wf()
         &&& self.va_wf()
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
-        // &&& self.wf_temp()
-
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -300,7 +470,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         Tracked<SubPageTable<C>>,
     ))
         ensures
-            res.0.wf(&res.1@),
+            res.0.wf_local(&res.1@),
             res.1@.root@.map_va <= va.start,
             res.1@.root@.map_va + page_size_spec::<C>((res.1@.root@.level + 1) as u8) >= va.end,
     {
@@ -323,9 +493,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         PageTableError,
     >)
         requires
-            old(self).wf(spt),
+            old(self).wf_local(spt),
         ensures
-            self.wf(spt),
+            self.wf_local(spt),
             match res {
                 Ok(Some(item)) => {
                     exists|pte_pa: Paddr|
@@ -350,7 +520,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
         loop
             invariant
-                self.wf(spt),
+                self.wf_local(spt),
                 self.constant_fields_unchanged(old(self), spt, spt),
                 cur_va == self.va == old(self).va < self.barrier_va.end,
             decreases self.level,
@@ -396,10 +566,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// page if possible.
     pub(in crate::mm) fn move_forward(&mut self, Tracked(spt): Tracked<&SubPageTable<C>>)
         requires
-            old(self).wf(spt),
+            old(self).wf_local(spt),
             old(self).va + page_size::<C>(old(self).level) <= old(self).barrier_va.end,
         ensures
-            self.wf(spt),
+            self.wf_local(spt),
             self.constant_fields_unchanged(old(self), spt, spt),
             self.va > old(self).va,
             self.level >= old(self).level,
@@ -428,8 +598,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ;
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
-                old(self).wf(spt),
-                self.wf(spt),
+                old(self).wf_local(spt),
+                self.wf_local(spt),
                 self.constant_fields_unchanged(old(self), spt, spt),
                 self.level >= old(self).level,
                 self.va == old(self).va,
@@ -483,7 +653,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         align_down(self.va, page_size::<C>((i + 1) as u8));
                     }
                 }
-                assert(self.wf(spt));
+                assert(self.wf_local(spt));
             } else {
                 let old_level = old(self).level;
                 let old_page_size = cur_page_size;
@@ -673,7 +843,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         pte_index::<C>(old(self).va, i) as nat;
                     }
                 }
-                assert(self.wf(spt));
+                assert(self.wf_local(spt));
             }
         }
     }
@@ -685,10 +855,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// Goes up a level.
     fn pop_level(&mut self, Tracked(spt): Tracked<&SubPageTable<C>>)
         requires
-            old(self).wf(spt),
+            old(self).wf_local(spt),
             old(self).level < old(self).guard_level,
         ensures
-            self.wf(spt),
+            self.wf_local(spt),
             self.level == old(self).level + 1,
             // Other fields remain unchanged.
             self.constant_fields_unchanged(old(self), spt, spt),
@@ -717,7 +887,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         Tracked(spt): Tracked<&SubPageTable<C>>,
     )
         requires
-            old(self).wf(spt),
+            old(self).wf_local(spt),
             old(self).level > 1,
             child_pt.wf_local(&spt.alloc_model),
             child_pt.level_local_spec(&spt.alloc_model) == old(self).level - 1,
@@ -728,7 +898,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             // virtual address should be aligned to page_size(old(self).level).
             child_pt.va() == align_down(old(self).va, page_size::<C>(old(self).level)),
         ensures
-            self.wf(spt),
+            self.wf_local(spt),
             self.constant_fields_unchanged(old(self), spt, spt),
             self.level == old(self).level - 1,
             path_index!(self.path[self.level]) == Some(child_pt),
@@ -750,7 +920,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     // fn cur_entry(&mut self) -> Entry<'_, C> {
     fn cur_entry(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: EntryLocal<'_, 'a, C>)
         requires
-            self.wf(spt),
+            self.wf_local(spt),
             self.va < self.barrier_va.end,
         ensures
             res.wf_local(spt),
@@ -885,7 +1055,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         PageTableItem<C>)
         requires
             old(spt).wf(),
-            old(self).0.wf(old(spt)),
+            old(self).0.wf_local(old(spt)),
             old(self).0.va % page_size::<C>(1) == 0,
             1 <= C::item_into_raw_spec(item).1 <= old(self).0.guard_level,
             old(self).0.va + page_size::<C>(C::item_into_raw_spec(item).1) <= old(
@@ -893,7 +1063,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             ).0.barrier_va.end,
         ensures
             spt.wf(),
-            self.0.wf(spt),
+            self.0.wf_local(spt),
             self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
             self.0.va > old(self).0.va,
             // The map succeeds.
@@ -919,7 +1089,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         while self.0.level < level
             invariant
                 spt.wf(),
-                self.0.wf(spt),
+                self.0.wf_local(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
@@ -934,7 +1104,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         while self.0.level != level
             invariant
                 spt.wf(),
-                self.0.wf(spt),
+                self.0.wf_local(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
@@ -963,7 +1133,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     let ghost old_alloc_model = spt.alloc_model;
                     let child_pt = cur_entry.alloc_if_none_local(preempt_guard, Tracked(spt)).unwrap();
 
-                    assert(self.0.wf(spt)) by {
+                    assert(self.0.wf_local(spt)) by {
                         assert forall|i: PagingLevel|
                             #![trigger self.0.path[path_index_at_level_local_spec(i)]]
                             self.0.level <= i <= self.0.guard_level implies {
@@ -1073,13 +1243,13 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     ) -> (res: PageTableItem<C>)
         requires
             old(spt).wf(),
-            old(self).0.wf(old(spt)),
+            old(self).0.wf_local(old(spt)),
             old(self).0.va as int + len as int <= old(self).0.barrier_va.end as int,
             len % page_size::<C>(1) == 0,
             len > page_size::<C>(old(self).0.level),
         ensures
             spt.wf(),
-            self.0.wf(spt),
+            self.0.wf_local(spt),
             self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
     {
         let preempt_guard = self.0.preempt_guard;
@@ -1092,7 +1262,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         while self.0.va < end && self.0.level > 1
             invariant
                 spt.wf(),
-                self.0.wf(spt),
+                self.0.wf_local(spt),
                 self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
                 self.0.va + page_size::<C>(self.0.level) < end,
                 self.0.va + len < MAX_USERSPACE_VADDR,

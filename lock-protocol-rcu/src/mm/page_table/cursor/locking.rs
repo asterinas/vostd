@@ -7,24 +7,44 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
-use crate::spec::{common::*, utils::*, rcu::*};
-use super::super::{common::*, cpu::*};
-use super::super::{frame::meta::*, page_table::*};
-use super::super::node::{
+use crate::mm::frame_concurrent::meta::*;
+use crate::mm::page_table::{
+    PageTable,
+    PageTableConfig, PageTableEntryTrait, 
+    Paddr, Vaddr, PagingLevel,
+};
+use crate::mm::page_table::cursor::MAX_NR_LEVELS;
+use crate::mm::lock_protocol_utils::{
+    PTE_NUM, pte_index, GLOBAL_CPU_NUM,
+    valid_va_range,
+    vaddr_is_aligned,
+    va_level_to_trace, va_level_to_offset,
+    lemma_va_level_to_trace_valid,
+};
+use crate::mm::page_table::node::{
     PageTableNode, PageTableNodeRef, PageTableGuard,
     child::{Child, ChildRef},
     entry::Entry,
-    spinlock::*,
-    spinlock::guard_forget::SubTreeForgotGuard,
-    stray::*,
+    stray::{StrayFlag, StrayPerm},
 };
-use super::super::pte::Pte;
-use super::super::trust_rcu::*;
-use super::Cursor;
-use crate::mm::page_table::PageTableConfig;
-use crate::mm::page_table::PageTableEntryTrait;
-use crate::mm::page_table::cursor::MAX_NR_LEVELS;
+use crate::mm::page_table::pte::Pte;
+use crate::sync::rcu::rcu_load_pte;
+use crate::sync::spinlock::{
+    PageTablePageSpinLock, SpinGuard,
+};
+use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
 use crate::task::DisabledPreemptGuard;
+use crate::x86_64::kspace::paddr_to_vaddr;
+
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    common::NodeId,
+    utils::{NodeHelper, group_node_helper_lemmas},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken},
+    rcu::{PteArrayState},
+};
+
+use super::Cursor;
 
 verus! {
 
@@ -213,7 +233,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     (
         Cursor::<'rcu> {
             path,
-            rcu_guard: guard,
+            preempt_guard: guard,
             level: guard_level,
             guard_level,
             va: va.start,
@@ -367,7 +387,7 @@ pub fn unlock_range<C: PageTableConfig>(
     }
 
     assert(!forgot_guards.inner.dom().contains(guard_node.nid()));
-    let res = dfs_release_lock(cursor.rcu_guard, guard_node, Tracked(m), Tracked(forgot_guards));
+    let res = dfs_release_lock(cursor.preempt_guard, guard_node, Tracked(m), Tracked(forgot_guards));
     proof {
         m = res.get();
         let tracked res = cursor.inst.borrow().protocol_unlock_end(m.cpu, m.token);

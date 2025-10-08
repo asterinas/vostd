@@ -38,7 +38,7 @@ use crate::{
         page_table::PageTableEntryTrait,
         Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, PAGE_SIZE,
     },
-    sync::spinlock::{PageTablePageSpinLock, SpinGuard},
+    sync::spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner},
     task::DisabledPreemptGuard,
     x86_64::kspace::paddr_to_vaddr,
 };
@@ -660,12 +660,13 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         (guard, Tracked(m))
     }
 
-    #[verifier::external_body]
     pub fn make_guard_unchecked<'rcu>(
         self,
-        _guard: &'rcu (),
+        _guard: &'rcu DisabledPreemptGuard,
         m: Tracked<&LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
+        forgot_guard: Tracked<SpinGuardGhostInner<C>>,
+        spin_lock: Ghost<PageTablePageSpinLock<C>>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
@@ -680,14 +681,21 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
                 NodeHelper::get_offset(self.deref().nid@),
             ),
             m@.node_is_locked(pa_pte_array_token@.key()),
+            forgot_guard@.wf(&spin_lock@),
+            forgot_guard@.stray_perm.value() == false,
+            forgot_guard@.in_protocol@ == true,
+            self.deref().meta_spec().lock =~= spin_lock@,
         ensures
             res.wf(),
             res.inner =~= self,
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == true,
+            res.guard->Some_0.inner@ =~= forgot_guard@,
+            res.deref().deref().meta_spec().lock =~= spin_lock@,
     {
-        // PageTableGuard { inner: self }
-        unimplemented!()
+        let spin_guard: SpinGuard<C> = SpinGuard { inner: forgot_guard };
+        let res = PageTableGuard { inner: self, guard: Some(spin_guard) };
+        res
     }
 }
 

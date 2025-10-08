@@ -1,3 +1,5 @@
+pub mod guard_forget;
+
 use core::marker::PhantomData;
 use verus_state_machines_macros::tokenized_state_machine;
 use vstd::prelude::*;
@@ -277,6 +279,7 @@ pub tracked struct SpinGuardGhostInner<C: PageTableConfig> {
 
 impl<C: PageTableConfig> SpinGuardGhostInner<C> {
     pub open spec fn wf(self, spinlock: &PageTablePageSpinLock<C>) -> bool {
+        &&& self.handle.instance_id() == spinlock.inst@.id()
         &&& self.node_token is Some <==> self.pte_token is Some
         &&& self.stray_perm.perm.value() == false <==> self.node_token is Some
         &&& self.node_token is Some ==> {
@@ -305,6 +308,7 @@ impl<C: PageTableConfig> SpinGuardGhostInner<C> {
 
     /// Used in PageTableGuard::write_pte
     pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock<C>, idx: nat) -> bool {
+        &&& self.handle.instance_id() == spinlock.inst@.id()
         &&& self.node_token is Some <==> self.pte_token is Some
         &&& self.stray_perm.perm.value() == false <==> self.node_token is Some
         &&& self.node_token is Some ==> {
@@ -349,13 +353,11 @@ pub struct SpinGuard<C: PageTableConfig> {
 
 impl<C: PageTableConfig> SpinGuard<C> {
     pub open spec fn wf(self, spinlock: &PageTablePageSpinLock<C>) -> bool {
-        &&& self.handle().instance_id() == spinlock.inst@.id()
         &&& self.inner@.wf(spinlock)
     }
 
     /// Used in PageTableGuard::write_pte
     pub open spec fn wf_except(self, spinlock: &PageTablePageSpinLock<C>, idx: nat) -> bool {
-        &&& self.handle().instance_id() == spinlock.inst@.id()
         &&& self.inner@.wf_except(spinlock, idx)
     }
 

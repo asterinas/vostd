@@ -1074,6 +1074,11 @@ impl<C: PageTableConfig> PageTable<C> {
     pub open spec fn wf_local(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         &&& self.root.wf_local(alloc_model)
     }
+
+    pub open spec fn wf(&self) -> bool {
+        &&& self.root.wf()
+        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
+    }
 }
 
 } // verus!
