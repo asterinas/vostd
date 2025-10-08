@@ -15,6 +15,7 @@ use crate::mm::page_table::{
     node::child::{Child, ChildRef},
 };
 use crate::sync::rcu::RcuDrop;
+use crate::task::DisabledPreemptGuard;
 
 verus! {
 
@@ -124,7 +125,7 @@ impl<C: PageTableConfig> Entry<C> {
     /// Otherwise, the lock guard of the new child page table node is returned.
     pub fn normal_alloc_if_none<'rcu>(
         &mut self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         node: &mut PageTableGuard<'rcu, C>,
     ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires

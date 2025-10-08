@@ -39,6 +39,7 @@ use crate::{
         Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, PAGE_SIZE,
     },
     sync::spinlock::{PageTablePageSpinLock, SpinGuard},
+    task::DisabledPreemptGuard,
     x86_64::kspace::paddr_to_vaddr,
 };
 use crate::mm::frame_concurrent::meta::{MetaSlot, meta_to_frame, MetaSlotPerm};
@@ -558,7 +559,7 @@ impl<C: PageTableConfig> PageTableNodeRef<'_, C> {
         nid: Ghost<NodeId>,
         inst_id: Ghost<InstanceId>,
         level: Ghost<PagingLevel>,
-    ) -> (res: Self)  // requires// TODOFORMATTER_NOT_INLINE_MARKER
+    ) -> (res: Self)
         ensures
             res =~= Self::borrow_paddr_spec(raw),
             res.wf(),
@@ -584,7 +585,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
     pub fn normal_lock<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
@@ -599,7 +600,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
     pub fn normal_lock_new_allocated_node<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
@@ -622,7 +623,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 
     pub fn lock<'rcu>(
         self,
-        guard: &'rcu (),  // TODO
+        guard: &'rcu DisabledPreemptGuard,
         m: Tracked<LockProtocolModel>,
         pa_pte_array_token: Tracked<&PteArrayToken>,
     ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel>)) where 'a: 'rcu
