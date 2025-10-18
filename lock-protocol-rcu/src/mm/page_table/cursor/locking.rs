@@ -12,15 +12,9 @@ use crate::mm::page_table::{
     PageTable,
     PageTableConfig, PageTableEntryTrait, 
     Paddr, Vaddr, PagingLevel,
+    pte_index,
 };
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
-use crate::mm::lock_protocol_utils::{
-    PTE_NUM, pte_index, GLOBAL_CPU_NUM,
-    valid_va_range,
-    vaddr_is_aligned,
-    va_level_to_trace, va_level_to_offset,
-    lemma_va_level_to_trace_valid,
-};
 use crate::mm::page_table::node::{
     PageTableNode, PageTableNodeRef, PageTableGuard,
     child::{Child, ChildRef},
@@ -36,119 +30,29 @@ use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
 use crate::task::DisabledPreemptGuard;
 use crate::x86_64::kspace::paddr_to_vaddr;
 
+use crate::configs::{PTE_NUM, GLOBAL_CPU_NUM};
 use crate::spec::{
     lock_protocol::LockProtocolModel,
-    common::NodeId,
+    common::{
+        NodeId,
+        valid_va_range,
+        vaddr_is_aligned,
+        va_level_to_trace, va_level_to_offset,
+        lemma_va_level_to_trace_valid,
+    },
     utils::{NodeHelper, group_node_helper_lemmas},
     rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken},
     rcu::{PteArrayState},
 };
 
-use super::Cursor;
+use super::{Cursor, va_range_wf};
 
 verus! {
 
-pub open spec fn va_range_wf(va: Range<Vaddr>) -> bool {
-    &&& valid_va_range(va)
-    &&& va.start < va.end
-    &&& vaddr_is_aligned(va.start)
-    &&& vaddr_is_aligned(va.end)
-}
 
-pub open spec fn va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel) -> PagingLevel
-    recommends
-        va_range_wf(va),
-        1 <= level <= 4,
-    decreases level,
-    when 1 <= level <= 4
-{
-    if level == 1 {
-        1
-    } else {
-        let st = va.start;
-        let en = (va.end - 1) as usize;
-
-        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
-            va_range_get_guard_level_rec(va, (level - 1) as PagingLevel)
-        } else {
-            level
-        }
-    }
-}
-
-pub open spec fn va_range_get_guard_level(va: Range<Vaddr>) -> PagingLevel
-    recommends
-        va_range_wf(va),
-{
-    va_range_get_guard_level_rec(va, 4)
-}
-
-pub proof fn lemma_va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel)
-    requires
-        va_range_wf(va),
-        1 <= level <= 4,
-    ensures
-        1 <= va_range_get_guard_level_rec(va, level) <= level,
-    decreases level,
-{
-    if level > 1 {
-        let st = va.start;
-        let en = (va.end - 1) as usize;
-        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
-            lemma_va_range_get_guard_level_rec(va, (level - 1) as PagingLevel);
-        }
-    }
-}
-
-pub proof fn lemma_va_range_get_guard_level(va: Range<Vaddr>)
-    requires
-        va_range_wf(va),
-    ensures
-        1 <= va_range_get_guard_level(va) <= 4,
-{
-    lemma_va_range_get_guard_level_rec(va, 4);
-}
-
-pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
-    recommends
-        va_range_wf(va),
-{
-    let guard_level = va_range_get_guard_level(va);
-    let trace = va_level_to_trace(va.start, guard_level);
-    NodeHelper::trace_to_tree_path(trace)
-}
-
-pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
-    requires
-        va_range_wf(va),
-    ensures
-        forall|i|
-            #![auto]
-            0 <= i < va_range_get_tree_path(va).len() ==> NodeHelper::valid_nid(
-                va_range_get_tree_path(va)[i],
-            ),
-        va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
-{
-    broadcast use group_node_helper_lemmas;
-
-    let guard_level = va_range_get_guard_level(va);
-    let trace = va_level_to_trace(va.start, guard_level);
-    lemma_va_range_get_guard_level(va);
-    let path = va_range_get_tree_path(va);
-    assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
-        let nid = path[i];
-        if i == 0 {
-            assert(nid == NodeHelper::root_id());
-            NodeHelper::lemma_root_id();
-        } else {
-            let sub_trace = trace.subrange(0, i);
-            assert(nid == NodeHelper::trace_to_nid(sub_trace));
-            lemma_va_level_to_trace_valid(va.start, guard_level);
-        }
-    }
-}
 
 } // verus!
+
 verus! {
 
 #[verifier::exec_allows_no_decreases_clause]
@@ -195,7 +99,6 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
             subtree_root_opt->Some_0.inst_id() == pt.inst@.id(),
             subtree_root_opt->Some_0.guard->Some_0.stray_perm().value() == false,
             subtree_root_opt->Some_0.guard->Some_0.in_protocol() == true,
-            // TODO
             m.inv(),
             m.inst_id() == pt.inst@.id(),
             m.state() is Locking,
@@ -478,9 +381,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             },
         decreases cur_level,
     {
-        let start_idx = pte_index(va.start, cur_level);
+        let start_idx = pte_index::<C>(va.start, cur_level);
         let level_too_high = {
-            let end_idx = pte_index(va.end - 1, cur_level);
+            let end_idx = pte_index::<C>(va.end - 1, cur_level);
             cur_level > 1 && start_idx == end_idx
         };
         assert(cur_level == 1 ==> level_too_high == false);
@@ -999,8 +902,6 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
                 };  // Should be guaranteed by 'from_raw'.
                 let child_node = pt.make_guard_unchecked(
                     guard,
-                    Tracked(&m),
-                    Tracked(pa_pte_array_token),
                     Tracked(child_guard),
                     Ghost(child_spin_lock),
                 );

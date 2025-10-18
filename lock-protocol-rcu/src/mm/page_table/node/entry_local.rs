@@ -1,28 +1,32 @@
-use vstd::prelude::*;
-
 use core::ops::Deref;
 use std::marker::PhantomData;
 
-use crate::{
-    helpers::conversion::usize_mod_is_int_mod,
-    mm::{
-        frame::{allocator::AllocatorModel, meta::AnyFrameMeta},
-        nr_subpage_per_huge,
-        page_prop::PageProperty,
-        page_size,
-        page_table::{
-            cursor::spec_helpers::{
-                self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
-                spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
-            },
-            PageTableConfig, PageTableEntryTrait,
+use vstd::prelude::*;
+
+use crate::helpers::conversion::usize_mod_is_int_mod;
+use crate::mm::{
+    frame::{allocator::AllocatorModel, meta::AnyFrameMeta},
+    nr_subpage_per_huge,
+    page_prop::PageProperty,
+    page_size,
+    page_table::{
+        cursor::spec_helpers::{
+            self, alloc_model_do_not_change_except_add_frame, spt_do_not_change_above_level,
+            spt_do_not_change_except_frames_change, spt_do_not_change_except_modify_pte,
         },
-        vm_space::Token,
-        Paddr, PagingConstsTrait, PagingLevel, Vaddr, NR_ENTRIES,
+        PageTableConfig, PageTableEntryTrait,
     },
-    sync::rcu::RcuDrop,
-    task::DisabledPreemptGuard,
+    vm_space::Token,
+    Paddr, PagingConstsTrait, PagingLevel, Vaddr, NR_ENTRIES,
 };
+use crate::sync::rcu::RcuDrop;
+use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
+use crate::task::DisabledPreemptGuard;
+use crate::spec::sub_pt::{
+    SubPageTable, index_pte_paddr, state_machine::IntermediatePageTableEntryView,
+};
+use crate::spec::sub_pt::level_is_in_range;
+use crate::spec::utils::NodeHelper;
 
 use super::{
     child_local::{ChildLocal, ChildRefLocal},
@@ -31,10 +35,7 @@ use super::{
 
 use crate::exec;
 
-use crate::spec::sub_pt::{
-    SubPageTable, index_pte_paddr, state_machine::IntermediatePageTableEntryView,
-};
-use crate::spec::sub_pt::level_is_in_range;
+
 
 verus! {
 
@@ -413,7 +414,11 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         &mut self,
         guard: &'rcu DisabledPreemptGuard,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
-    ) -> (res: Option<PageTableGuard<'rcu, C>>)
+        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
+    ) -> (res: (
+        Option<PageTableGuard<'rcu, C>>,
+        Tracked<SubTreeForgotGuard<C>>,
+    ))
         requires
             old(self).wf_local(&old(spt)),
             old(spt).wf(),
@@ -423,7 +428,7 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
             old(self).node.wf_local(&old(spt).alloc_model),
         ensures
             if old(self).pte.is_present() {
-                &&& res is None
+                &&& res.0 is None
                 &&& spt == old(spt)
                 &&& self == old(self)
             } else {
@@ -436,41 +441,44 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
                 &&& self.idx == old(self).idx
                 &&& self.va == old(self).va
                 &&& spt.wf()
-                &&& res is Some
+                &&& res.0 is Some
                 &&& spt_do_not_change_except_modify_pte(spt, old(spt), self.pte.pte_paddr() as int)
                 &&& spt_do_not_change_above_level(
                     spt,
                     old(spt),
                     self.node.level_local_spec(&spt.alloc_model),
                 )
-                &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.unwrap().paddr_local())
-                &&& res.unwrap().wf_local(&spt.alloc_model)
+                &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.0.unwrap().paddr_local())
+                &&& res.0.unwrap().wf_local(&spt.alloc_model)
                 &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
-                &&& !old(spt).frames.value().contains_key(res.unwrap().paddr_local() as int)
-                &&& spt.frames.value().contains_key(res.unwrap().paddr_local() as int)
-                &&& !old(spt).alloc_model.meta_map.contains_key(res.unwrap().paddr_local() as int)
-                &&& spt.alloc_model.meta_map.contains_key(res.unwrap().paddr_local() as int)
-                &&& res.unwrap().level_local_spec(&spt.alloc_model) == self.node.level_local_spec(
+                &&& !old(spt).frames.value().contains_key(res.0.unwrap().paddr_local() as int)
+                &&& spt.frames.value().contains_key(res.0.unwrap().paddr_local() as int)
+                &&& !old(spt).alloc_model.meta_map.contains_key(res.0.unwrap().paddr_local() as int)
+                &&& spt.alloc_model.meta_map.contains_key(res.0.unwrap().paddr_local() as int)
+                &&& res.0.unwrap().level_local_spec(&spt.alloc_model) == self.node.level_local_spec(
                     &spt.alloc_model,
                 ) - 1
-                &&& spt.frames.value()[res.unwrap().paddr_local() as int].ancestor_chain
+                &&& spt.frames.value()[res.0.unwrap().paddr_local() as int].ancestor_chain
                     == spt.frames.value()[self.node.paddr_local() as int].ancestor_chain.insert(
                     self.node.level_local_spec(&spt.alloc_model) as int,
                     IntermediatePageTableEntryView {
                         map_va: self.va as int,
                         frame_pa: self.node.paddr_local() as int,
                         in_frame_index: self.idx as int,
-                        map_to_pa: res.unwrap().paddr_local() as int,
+                        map_to_pa: res.0.unwrap().paddr_local() as int,
                         level: self.node.level_local_spec(&spt.alloc_model),
                         phantom: PhantomData,
                     },
                 )
-                &&& res.unwrap().va() == self.va
+                &&& res.0.unwrap().va() == self.va
             },
     {
         if self.pte.is_present() {
-            return None;
+            return (None, forgot_guards);
         }
+
+        let tracked forgot_guards = forgot_guards.get();
+
         let level = self.node.level_local(Tracked(&spt.alloc_model));
         let (pt, Tracked(perm)) = PageTableNode::<C>::alloc_local(
             level - 1,
@@ -548,7 +556,23 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
 
         let node_ref = PageTableNodeRef::borrow_paddr_local(pa, Tracked(&spt.alloc_model));
         assert(node_ref.level_local_spec(&spt.alloc_model) == level - 1);
-        Some(node_ref.make_guard_unchecked_local(guard, Ghost(self.va@)))
+        
+        let ghost nid = node_ref.nid@;
+        let ghost spin_lock = forgot_guards.get_lock(nid);
+        assert(forgot_guards.wf()) by { admit(); };
+        assert(NodeHelper::valid_nid(nid)) by { admit(); };
+        assert(forgot_guards.is_sub_root_and_contained(nid)) by { admit(); };
+        let tracked forgot_guard = forgot_guards.tracked_take(nid);
+        assert(node_ref.wf()) by { admit(); };
+        assert(node_ref.deref().meta_spec().lock =~= spin_lock) by { admit(); };
+        let pt = node_ref.make_guard_unchecked(
+            guard,
+            Tracked(forgot_guard),
+            Ghost(spin_lock),
+        );
+        assert(pt.va() == self.va@) by { admit(); };
+        
+        (Some(pt), Tracked(forgot_guards))
     }
 
     /// Create a new entry at the self.node.

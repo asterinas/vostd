@@ -45,7 +45,12 @@ use crate::{
 use crate::spec::{
     sub_pt::{SubPageTable, index_pte_paddr, level_is_in_range},
     lock_protocol::LockProtocolModel,
-    common::NodeId,
+    common::{
+        NodeId,
+        valid_va_range, vaddr_is_aligned,
+        va_level_to_trace, va_level_to_offset,
+        lemma_va_level_to_trace_valid,
+    },
     utils::{NodeHelper, group_node_helper_lemmas},
     rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken},
     rcu::{PteArrayState},
@@ -74,6 +79,117 @@ macro_rules! path_index {
     (old($self: ident) . 0 . path [$i:expr]) => {
         old($self).0.path.view().index(path_index_at_level_local_spec($i))
     };
+}
+
+verus! {
+
+pub open spec fn va_range_wf(va: Range<Vaddr>) -> bool {
+    &&& valid_va_range(va)
+    &&& va.start < va.end
+    &&& vaddr_is_aligned(va.start)
+    &&& vaddr_is_aligned(va.end)
+}
+
+pub open spec fn va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel) -> PagingLevel
+    recommends
+        va_range_wf(va),
+        1 <= level <= 4,
+    decreases level,
+    when 1 <= level <= 4
+{
+    if level == 1 {
+        1
+    } else {
+        let st = va.start;
+        let en = (va.end - 1) as usize;
+
+        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
+            va_range_get_guard_level_rec(va, (level - 1) as PagingLevel)
+        } else {
+            level
+        }
+    }
+}
+
+pub open spec fn va_range_get_guard_level(va: Range<Vaddr>) -> PagingLevel
+    recommends
+        va_range_wf(va),
+{
+    va_range_get_guard_level_rec(va, 4)
+}
+
+pub proof fn lemma_va_range_get_guard_level_rec(va: Range<Vaddr>, level: PagingLevel)
+    requires
+        va_range_wf(va),
+        1 <= level <= 4,
+    ensures
+        1 <= va_range_get_guard_level_rec(va, level) <= level,
+    decreases level,
+{
+    if level > 1 {
+        let st = va.start;
+        let en = (va.end - 1) as usize;
+        if va_level_to_offset(st, level) == va_level_to_offset(en, level) {
+            lemma_va_range_get_guard_level_rec(va, (level - 1) as PagingLevel);
+        }
+    }
+}
+
+pub proof fn lemma_va_range_get_guard_level(va: Range<Vaddr>)
+    requires
+        va_range_wf(va),
+    ensures
+        1 <= va_range_get_guard_level(va) <= 4,
+{
+    lemma_va_range_get_guard_level_rec(va, 4);
+}
+
+pub open spec fn va_range_get_tree_path(va: Range<Vaddr>) -> Seq<NodeId>
+    recommends
+        va_range_wf(va),
+{
+    let guard_level = va_range_get_guard_level(va);
+    let trace = va_level_to_trace(va.start, guard_level);
+    NodeHelper::trace_to_tree_path(trace)
+}
+
+pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
+    requires
+        va_range_wf(va),
+    ensures
+        forall|i|
+            #![auto]
+            0 <= i < va_range_get_tree_path(va).len() ==> NodeHelper::valid_nid(
+                va_range_get_tree_path(va)[i],
+            ),
+        va_range_get_tree_path(va).len() == 5 - va_range_get_guard_level(va),
+{
+    broadcast use group_node_helper_lemmas;
+
+    let guard_level = va_range_get_guard_level(va);
+    let trace = va_level_to_trace(va.start, guard_level);
+    lemma_va_range_get_guard_level(va);
+    let path = va_range_get_tree_path(va);
+    assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
+        let nid = path[i];
+        if i == 0 {
+            assert(nid == NodeHelper::root_id());
+            NodeHelper::lemma_root_id();
+        } else {
+            let sub_trace = trace.subrange(0, i);
+            assert(nid == NodeHelper::trace_to_nid(sub_trace));
+            lemma_va_level_to_trace_valid(va.start, guard_level);
+        }
+    }
+}
+
+pub open spec fn va_range_get_guard_nid(va: Range<Vaddr>) -> NodeId {
+    let path = va_range_get_tree_path(va);
+    let level = va_range_get_guard_level(va);
+    let idx = 4 - level;
+    path[idx]
+}
+
 }
 
 verus! {
@@ -132,6 +248,13 @@ pub enum PageTableItem<C: PageTableConfig> {
     NotMapped { va: Vaddr, len: usize },
     Mapped { va: Vaddr, page: Paddr, prop: PageProperty },
     StrayPageTable { pt: RcuDrop<PageTableNode<C>>, va: Vaddr, len: usize },
+}
+
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
+    // pub open spec fn wf_with_spt(&self, spt: SubPageTable<C>) -> bool {
+    //     &&& self.wf_with_forgot_guards(spt.forgot_guards)
+    //     &&& self.inst@.id() == spt.lock_protocol_model.inst_id()
+    // }
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
@@ -326,6 +449,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         &&& self.va_wf()
         &&& self.level_wf(spt)
         &&& self.path_wf(spt)
+
+        // &&& self.wf()
+        // &&& self.wf_with_spt(*spt)
     }
 
     /// Well-formedness of the cursor's virtual address.
@@ -465,14 +591,36 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
     #[verifier::external_body]
-    pub fn new(pt: &'a PageTable<C>, guard: &'a DisabledPreemptGuard, va: &Range<Vaddr>) -> (res: (
-        Self,
+    pub fn new(
+        pt: &'a PageTable<C>, 
+        guard: &'a DisabledPreemptGuard, 
+        va: &Range<Vaddr>,
+        m: Tracked<LockProtocolModel>,
+    ) -> (res: (
+        Self, 
         Tracked<SubPageTable<C>>,
+        Tracked<SubTreeForgotGuard<C>>,
+        Tracked<LockProtocolModel>,
     ))
+        requires
+            pt.wf(),
+            va_range_wf(*va),
+            m@.inv(),
+            m@.inst_id() == pt.inst@.id(),
+            m@.state() is Void,
         ensures
             res.0.wf_local(&res.1@),
+            res.0.wf(),
+            res.0.wf_with_forgot_guards(res.2@),
+            res.1@.wf(),
             res.1@.root@.map_va <= va.start,
             res.1@.root@.map_va + page_size_spec::<C>((res.1@.root@.level + 1) as u8) >= va.end,
+            res.2@.wf(),
+            res.2@.is_root_and_contained(va_range_get_guard_nid(*va)),
+            res.3@.inv(),
+            res.3@.inst_id() == pt.inst@.id(),
+            res.3@.state() is Locked,
+            res.3@.sub_tree_rt() == va_range_get_guard_nid(*va),
     {
         // if !is_valid_range::<C>(va) || va.is_empty() {
         //     assert(false);
@@ -481,22 +629,36 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     assert(false);
         // }
         // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
-        unimplemented!()
+        
+        let res = locking::lock_range(pt, guard, va, m);
+        let cursor = res.0;
+        let tracked model = res.1.get();
+        let tracked forgot_guards = res.2.get();
+        let tracked sub_pt = SubPageTable::new(*va, &forgot_guards);
+        assert(cursor.wf_local(&sub_pt)) by { admit(); }; // TODO
+
+        (cursor, Tracked(sub_pt), Tracked(forgot_guards), Tracked(model))
     }
 
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
-    pub fn query(&mut self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: Result<
-        Option<(Paddr, PagingLevel, PageProperty)>,
-        PageTableError,
-    >)
+    pub fn query(
+        &mut self, 
+        Tracked(spt): Tracked<&SubPageTable<C>>,
+        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
+    ) -> (res: (
+        Result<Option<(Paddr, PagingLevel, PageProperty)>, PageTableError>,
+        Tracked<SubTreeForgotGuard<C>>,    
+    ))
         requires
             old(self).wf_local(spt),
+            spt.wf(),
+            spt.wf_with_forgot_guards(forgot_guards@),
         ensures
             self.wf_local(spt),
-            match res {
+            match res.0 {
                 Ok(Some(item)) => {
                     exists|pte_pa: Paddr|
                         {
@@ -512,8 +674,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             },
     {
         if self.va >= self.barrier_va.end {
-            return Err(PageTableError::InvalidVaddr(self.va));
+            return (Err(PageTableError::InvalidVaddr(self.va)), forgot_guards);
         }
+
+        let tracked forgot_guards = forgot_guards.get();
+
         let ghost cur_va = self.va;
 
         let rcu_guard = self.preempt_guard;
@@ -531,14 +696,24 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             let cur_entry = self.cur_entry(Tracked(spt));
             match cur_entry.to_ref_local(Tracked(spt)) {
                 ChildRefLocal::PageTable(pt) => {
-                    let guard = pt.make_guard_unchecked_local(
+                    let ghost nid = pt.nid@;
+                    let ghost spin_lock = forgot_guards.get_lock(nid);
+                    assert(forgot_guards.wf()) by { admit(); };
+                    assert(NodeHelper::valid_nid(nid)) by { admit(); };
+                    assert(forgot_guards.is_sub_root_and_contained(nid)) by { admit(); };
+                    let tracked forgot_guard = forgot_guards.tracked_take(nid);
+                    assert(pt.wf()) by { admit(); };
+                    assert(pt.deref().meta_spec().lock =~= spin_lock) by { admit(); };
+                    let guard = pt.make_guard_unchecked(
                         rcu_guard,
-                        Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                        Tracked(forgot_guard),
+                        Ghost(spin_lock),
                     );
+                    assert(guard.va() == align_down(cur_va, page_size::<C>(cur_level))) by { admit(); };
                     self.push_level(guard, Tracked(spt));
                     continue ;
                 },
-                ChildRefLocal::None => return Ok(None),
+                ChildRefLocal::None => return (Ok(None), Tracked(forgot_guards)),
                 ChildRefLocal::Frame(pa, ch_level, prop) => {
                     // debug_assert_eq!(ch_level, level);
                     // SAFETY:
@@ -554,7 +729,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     //     unsafe { C::item_from_raw(pa, level, prop, Tracked(&spt.alloc_model)) },
                     // );
                     // TODO: Provide a `PageTableItemRef` to reduce copies.
-                    return Ok(Some((pa, ch_level, prop)));
+                    return (Ok(Some((pa, ch_level, prop))), Tracked(forgot_guards));
                 },
             };
         }
@@ -1051,8 +1226,12 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     /// The caller should ensure that the virtual range being mapped does
     /// not affect kernel's memory safety.
     #[verifier::spinoff_prover]
-    pub fn map(&mut self, item: C::Item, Tracked(spt): Tracked<&mut SubPageTable<C>>) -> (res:
-        PageTableItem<C>)
+    pub fn map(
+        &mut self, 
+        item: C::Item, 
+        Tracked(spt): Tracked<&mut SubPageTable<C>>,
+        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
+    ) -> (res: (PageTableItem<C>, Tracked<SubTreeForgotGuard<C>>))
         requires
             old(spt).wf(),
             old(self).0.wf_local(old(spt)),
@@ -1077,6 +1256,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         == C::item_into_raw_spec(item).0
                 },
     {
+        let tracked mut forgot_guards = forgot_guards.get();
+
         let preempt_guard = self.0.preempt_guard;
 
         let (pa, level, prop) = C::item_into_raw(item);
@@ -1120,10 +1301,20 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(spt.i_ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_level == cur_entry.node.level_local_spec(&spt.alloc_model));
                     assert(cur_level - 1 == pt.level_local_spec(&spt.alloc_model));
-                    let child_pt = pt.make_guard_unchecked_local(
+                    let ghost nid = pt.nid@;
+                    let ghost spin_lock = forgot_guards.get_lock(nid);
+                    assert(forgot_guards.wf()) by { admit(); };
+                    assert(NodeHelper::valid_nid(nid)) by { admit(); };
+                    assert(forgot_guards.is_sub_root_and_contained(nid)) by { admit(); };
+                    let tracked forgot_guard = forgot_guards.tracked_take(nid);
+                    assert(pt.wf()) by { admit(); };
+                    assert(pt.deref().meta_spec().lock =~= spin_lock) by { admit(); };
+                    let child_pt = pt.make_guard_unchecked(
                         preempt_guard,
-                        Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                        Tracked(forgot_guard),
+                        Ghost(spin_lock),
                     );
+                    assert(child_pt.va() == align_down(cur_va, page_size::<C>(cur_level))) by { admit(); };
                     assert(self.0.ancestors_match_path(spt, child_pt));
                     self.0.push_level(child_pt, Tracked(spt));
                 },
@@ -1131,7 +1322,15 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(!spt.ptes.value().contains_key(cur_entry.pte.pte_paddr() as int));
                     assert(cur_entry.node.level_local_spec(&spt.alloc_model) == cur_level);
                     let ghost old_alloc_model = spt.alloc_model;
-                    let child_pt = cur_entry.alloc_if_none_local(preempt_guard, Tracked(spt)).unwrap();
+                    let res = cur_entry.alloc_if_none_local(
+                        preempt_guard, 
+                        Tracked(spt),
+                        Tracked(forgot_guards),
+                    );
+                    let child_pt = res.0.unwrap();
+                    proof {
+                        forgot_guards = res.1.get();
+                    }
 
                     assert(self.0.wf_local(spt)) by {
                         assert forall|i: PagingLevel|
@@ -1200,7 +1399,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
         self.0.move_forward(Tracked(spt));
 
-        match old_entry {
+        let res = match old_entry {
             ChildLocal::Frame(pa, level, prop) => PageTableItem::Mapped {
                 va: old_va,
                 page: pa,
@@ -1208,7 +1407,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             },
             ChildLocal::None => PageTableItem::NotMapped { va: old_va, len: old_len },
             ChildLocal::PageTable(pt) => PageTableItem::StrayPageTable { pt, va: old_va, len: old_len },
-        }
+        };
+        (res, Tracked(forgot_guards))
     }
 
     /// Find and remove the first page in the cursor's following range.
@@ -1240,6 +1440,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         &mut self,
         len: usize,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
+        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
     ) -> (res: PageTableItem<C>)
         requires
             old(spt).wf(),
@@ -1252,6 +1453,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             self.0.wf_local(spt),
             self.0.constant_fields_unchanged(&old(self).0, spt, old(spt)),
     {
+        let tracked forgot_guards = forgot_guards.get();
+
         let preempt_guard = self.0.preempt_guard;
 
         let start = self.0.va;
@@ -1297,10 +1500,20 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 let child = cur_entry.to_ref_local(Tracked(spt));
                 match child {
                     ChildRefLocal::PageTable(pt) => {
-                        let pt = pt.make_guard_unchecked_local(
+                        let ghost nid = pt.nid@;
+                        let ghost spin_lock = forgot_guards.get_lock(nid);
+                        assert(forgot_guards.wf()) by { admit(); };
+                        assert(NodeHelper::valid_nid(nid)) by { admit(); };
+                        assert(forgot_guards.is_sub_root_and_contained(nid)) by { admit(); };
+                        let tracked forgot_guard = forgot_guards.tracked_take(nid);
+                        assert(pt.wf()) by { admit(); };
+                        assert(pt.deref().meta_spec().lock =~= spin_lock) by { admit(); };
+                        let pt = pt.make_guard_unchecked(
                             preempt_guard,
-                            Ghost(align_down(cur_va, page_size::<C>(cur_level))),
+                            Tracked(forgot_guard),
+                            Ghost(spin_lock),
                         );
+                        assert(pt.va() == align_down(cur_va, page_size::<C>(cur_level))) by { admit(); };
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
@@ -1362,12 +1575,17 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 },
                 ChildLocal::PageTable(pt) => {
                     // SAFETY: We must have locked this node.
+                    let ghost nid = pt.deref().nid@;
+                    let ghost spin_lock = forgot_guards.get_lock(nid);
+                    let tracked forgot_guard = forgot_guards.tracked_take(nid);
                     let locked_pt = pt.deref().borrow(
                         Tracked(&spt.alloc_model),
-                    ).make_guard_unchecked_local(
+                    ).make_guard_unchecked(
                         preempt_guard,
-                        Ghost(align_down(self.0.va, page_size::<C>(self.0.level))),
+                        Tracked(forgot_guard),
+                        Ghost(spin_lock),
                     );
+                    assert(locked_pt.va() == align_down(self.0.va, page_size::<C>(self.0.level))) by { admit(); };
                     // assert!(
                     //     !(TypeId::of::<M>() == TypeId::of::<KernelMode>()
                     //         && self.0.level == C::NR_LEVELS()),
@@ -1392,7 +1610,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             };
 
             assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO
-            assert(self.0.path_wf(spt));
+            assert(self.0.path_wf(spt)) by { admit(); };
             self.0.move_forward(Tracked(spt));
 
             return item;

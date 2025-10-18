@@ -1,9 +1,9 @@
 use vstd::prelude::*;
 
 use crate::spec::{common::*, utils::*, rcu::*};
-use crate::mm::lock_protocol_utils::*;
 use super::{PageTablePageSpinLock, SpinGuardGhostInner};
 use crate::mm::page_table::PageTableConfig;
+// use crate::configs::{};
 
 verus! {
 
@@ -50,10 +50,8 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
 
     pub open spec fn is_sub_root(&self, nid: NodeId) -> bool {
         forall|_nid: NodeId| #[trigger]
-            self.inner.dom().contains(_nid) && _nid != nid ==> !NodeHelper::in_subtree_range(
-                _nid,
-                nid,
-            )
+            self.inner.dom().contains(_nid) && _nid != nid ==> 
+                !NodeHelper::in_subtree_range(_nid, nid)
     }
 
     pub open spec fn is_sub_root_and_contained(&self, nid: NodeId) -> bool {
@@ -144,9 +142,10 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 
     // Take the sub tree root.
-    pub proof fn tracked_take(tracked &mut self, nid: NodeId) -> (tracked res: SpinGuardGhostInner<
-        C,
-    >)
+    pub proof fn tracked_take(
+        tracked &mut self, 
+        nid: NodeId,
+    ) -> (tracked res: SpinGuardGhostInner<C>)
         requires
             old(self).wf(),
             NodeHelper::valid_nid(nid),

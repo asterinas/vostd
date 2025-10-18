@@ -16,16 +16,15 @@ use crate::spec::{
     common::NodeId,
 };
 use crate::mm::{PagingLevel, Paddr, Vaddr};
-use crate::mm::lock_protocol_utils::PTE_NUM;
 use crate::mm::page_table::{
     PageTableEntryTrait,
     pte::Pte,
     PageTableConfig,
 };
-use crate::mm::lock_protocol_utils::GLOBAL_CPU_NUM;
 use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
 use crate::mm::page_table::node::PageTableGuard;
 use crate::x86_64::kspace::paddr_to_vaddr;
+use crate::configs::{PTE_NUM, GLOBAL_CPU_NUM};
 
 tokenized_state_machine! {
 

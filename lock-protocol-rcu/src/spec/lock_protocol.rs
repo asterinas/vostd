@@ -5,7 +5,7 @@ use crate::spec::{
     utils::NodeHelper,
     common::{CpuId, NodeId, valid_cpu},
 };
-use crate::mm::lock_protocol_utils::GLOBAL_CPU_NUM;
+use crate::configs::GLOBAL_CPU_NUM;
 
 verus! {
 

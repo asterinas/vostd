@@ -44,12 +44,12 @@ use crate::{
 };
 use crate::mm::frame_concurrent::meta::{MetaSlot, meta_to_frame, MetaSlotPerm};
 use crate::mm::page_table::{pte::Pte, GLOBAL_CPU_NUM};
-use crate::mm::lock_protocol_utils::PTE_NUM;
 
 use crate::exec::{
     self, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY, frame_addr_to_index,
     frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
 };
+use crate::configs::PTE_NUM;
 use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
 use crate::spec::{
     lock_protocol::LockProtocolModel,
@@ -530,22 +530,6 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     ) -> bool {
         self.deref().wf_local(alloc_model)
     }
-
-    // Actually should be checked after verification. Just can't be checked in pure Rust.
-    // TODO: fix me
-    #[verifier::external_body]
-    pub fn make_guard_unchecked_local<'rcu>(
-        self,
-        _guard: &'rcu crate::task::DisabledPreemptGuard,
-        Ghost(va): Ghost<Vaddr>,
-    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
-        ensures
-            res.inner == self,
-            res.va() == va,
-    {
-        // PageTableGuard { inner: self, va: Ghost(va) }
-        unimplemented!()
-    }
 }
 
 // Functions defined in struct 'FrameRef'.
@@ -663,24 +647,11 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub fn make_guard_unchecked<'rcu>(
         self,
         _guard: &'rcu DisabledPreemptGuard,
-        m: Tracked<&LockProtocolModel>,
-        pa_pte_array_token: Tracked<&PteArrayToken>,
         forgot_guard: Tracked<SpinGuardGhostInner<C>>,
         spin_lock: Ghost<PageTablePageSpinLock<C>>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
-            m@.inv(),
-            m@.inst_id() == self.deref().inst@.id(),
-            !(m@.state() is Void),
-            m@.node_is_locked(self.deref().nid@),
-            pa_pte_array_token@.instance_id() == self.deref().inst@.id(),
-            pa_pte_array_token@.key() == NodeHelper::get_parent(self.deref().nid@),
-            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.deref().nid@)),
-            self.deref().start_paddr() == pa_pte_array_token@.value().get_paddr(
-                NodeHelper::get_offset(self.deref().nid@),
-            ),
-            m@.node_is_locked(pa_pte_array_token@.key()),
             forgot_guard@.wf(&spin_lock@),
             forgot_guard@.stray_perm.value() == false,
             forgot_guard@.in_protocol@ == true,

@@ -21,6 +21,8 @@ pub mod sync;
 
 pub mod exec;
 
+pub mod configs;
+
 // fn main() {
 //     exec::main_test();
 // }

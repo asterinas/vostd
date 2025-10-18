@@ -1,6 +1,6 @@
 pub mod frame;
 pub mod frame_concurrent;
-pub mod lock_protocol_utils;
+// pub mod lock_protocol_utils;
 pub(crate) mod page_prop;
 pub mod page_table;
 pub mod vm_space;

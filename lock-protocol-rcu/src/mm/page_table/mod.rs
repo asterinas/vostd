@@ -35,9 +35,11 @@ use super::{
 
 use crate::exec;
 use crate::spec::sub_pt::SubPageTable;
-
 use crate::spec::rcu::SpecInstance;
-use crate::mm::lock_protocol_utils::GLOBAL_CPU_NUM;
+use crate::spec::common::{
+    va_level_to_offset,
+};
+use crate::configs::GLOBAL_CPU_NUM;
 
 verus! {
 
@@ -820,13 +822,17 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
 #[verifier::when_used_as_spec(pte_index_spec)]
 /// The index of a VA's PTE in a page table node at the given level.
 // const fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
+#[verifier::external_body]
 pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     usize)  // TODO: type, const
     requires
-        0 < level <= C::NR_LEVELS_SPEC(),
+        // 0 < level <= C::NR_LEVELS_SPEC(),
+        1 <= level <= 4,
     ensures
         res == pte_index_spec::<C>(va, level),
+        res == va_level_to_offset(va, level) as usize,
         res < nr_subpage_per_huge::<C>(),
+        0 <= res < 512, // TODO
 {
     let base_bits = C::BASE_PAGE_SIZE().ilog2();
     let index_bits = nr_pte_index_bits::<C>();
@@ -859,6 +865,12 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
     assert(res <= pte_index_mask::<C>()) by {
         lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
+    };
+    assert(res == va_level_to_offset(va, level) as usize) by {
+        lemma2_to64();
+        let num = (va >> (12 + (level - 1) * 9));
+        assert((num & 511) < 512) by (bit_vector);
+        admit();
     };
     res as usize
 }

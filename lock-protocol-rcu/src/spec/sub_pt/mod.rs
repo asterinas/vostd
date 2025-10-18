@@ -1,6 +1,7 @@
 pub mod state_machine;
 
 use std::ops::Sub;
+use std::ops::Range;
 
 use state_machine::{frames_valid, FrameView, SubPageTableStateMachine};
 
@@ -12,11 +13,19 @@ use crate::{
     mm::{
         frame::allocator::{pa_is_valid_kernel_address, AllocatorModel},
         page_table::{
-            cursor::MAX_NR_LEVELS, node::PageTablePageMeta, PageTableConfig, PagingConstsTrait,
+            cursor::{MAX_NR_LEVELS, va_range_get_guard_nid}, 
+            node::PageTablePageMeta, 
+            PageTableConfig, PagingConstsTrait,
         },
-        Paddr, NR_ENTRIES,
+        Paddr, Vaddr, NR_ENTRIES, page_size_spec,
     },
-    spec::sub_pt::state_machine::ptes_frames_matches,
+    sync::spinlock::guard_forget::SubTreeForgotGuard,
+};
+
+use crate::spec::{
+    common::NodeId,
+    sub_pt::state_machine::ptes_frames_matches,
+    lock_protocol::LockProtocolModel,
 };
 
 verus! {
@@ -51,10 +60,7 @@ pub tracked struct SubPageTable<C: PageTableConfig> {
     pub instance: SubPageTableStateMachine::Instance<C>,
     pub frames: SubPageTableStateMachine::frames<C>,
     pub i_ptes: SubPageTableStateMachine::i_ptes<C>,
-    pub ptes: SubPageTableStateMachine::ptes<
-        C,
-    >,
-    // pub forgot_guards: SubTreeForgotGuard<C: PageTableConfig>,
+    pub ptes: SubPageTableStateMachine::ptes<C>,
 }
 
 impl<C: PageTableConfig> SubPageTable<C> {
@@ -84,13 +90,33 @@ impl<C: PageTableConfig> SubPageTable<C> {
         &&& ptes_frames_matches(&self.frames.value(), &self.i_ptes.value(), &self.ptes.value())
     }
 
-    pub open spec fn wf_with_token(&self) -> bool {
+    pub open spec fn wf(&self) -> bool {
+        &&& self.wf_inner()
+    }
+
+    // TODO
+    pub open spec fn wf_with_forgot_guards(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>, 
+    ) -> bool {
         true
     }
 
-    pub open spec fn wf(&self) -> bool {
-        &&& self.wf_inner()
-        &&& self.wf_with_token()
+    #[verifier::external_body]
+    pub proof fn new(
+        va: Range<Vaddr>,
+        tracked forgot_guards: &SubTreeForgotGuard<C>,
+    ) -> (tracked res: Self)
+        requires
+            forgot_guards.wf(),
+            forgot_guards.is_root_and_contained(va_range_get_guard_nid(va)),
+        ensures
+            res.wf(),
+            res.root@.map_va <= va.start,
+            res.root@.map_va + page_size_spec::<C>((res.root@.level + 1) as u8) >= va.end,
+            res.wf_with_forgot_guards(*forgot_guards),
+    {
+        unimplemented!()
     }
 }
 
