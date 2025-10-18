@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := all
-.PHONY: lock-protocol all compile verify verify-parallel clean fmt
+.PHONY: lock-protocol-rcu all compile verify verify-parallel clean fmt
 
 VERIFICATION_TARGETS := \
 	fvt1-mem-region-init \
@@ -8,7 +8,7 @@ VERIFICATION_TARGETS := \
 	fvt6-vmreader-and-vmwriter \
 	fvt10-pt-cursor-navigation \
 	fvt11-pt-cursor-guards \
-	lock-protocol
+	lock-protocol-rcu
 
 # Disabled:
 # fvt5-lifecycle-safety
@@ -20,8 +20,8 @@ COMPILE_TARGETS := vstd_extra aster_common
 fvt%:
 	cargo xtask verify --targets $(filter fvt$*-%, $(VERIFICATION_TARGETS))
 
-lock-protocol:
-	cargo xtask verify --targets lock-protocol
+lock-protocol-rcu:
+	cargo xtask verify --targets lock-protocol-rcu
 
 fmt:
 	cargo xtask fmt
