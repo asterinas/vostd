@@ -2,10 +2,7 @@ use std::{io::Write, path, result};
 use std::ops::Range;
 
 use vstd::{prelude::*, seq::*};
-use vstd::bits::{
-    low_bits_mask,
-    lemma_low_bits_mask_values,
-};
+use vstd::bits::{low_bits_mask, lemma_low_bits_mask_values};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use crate::mm::{PagingLevel, Vaddr};
@@ -34,7 +31,8 @@ pub open spec fn valid_va_range(va: Range<Vaddr>) -> bool {
 }
 
 pub open spec fn vaddr_is_aligned(va: Vaddr) -> (res: bool)
-    recommends valid_vaddr(va),
+    recommends
+        valid_vaddr(va),
 {
     (va & (low_bits_mask(12) as usize)) == 0
 }
@@ -48,7 +46,6 @@ pub open spec fn va_level_to_offset(va: Vaddr, level: PagingLevel) -> nat
 }
 
 } // verus!
-
 verus! {
 
 pub open spec fn va_level_to_trace(va: Vaddr, level: PagingLevel) -> Seq<nat>
@@ -125,4 +122,4 @@ pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
     }
 }
 
-}
+} // verus!

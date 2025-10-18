@@ -35,8 +35,6 @@ use super::{
 
 use crate::exec;
 
-
-
 verus! {
 
 /// A view of an entry in a page table self.node.
@@ -72,13 +70,13 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         spt.alloc_model.meta_map[self.pte.frame_paddr() as int].value().level
     }
 
-    pub open spec fn wf_local(
-        &self, 
-        spt: &SubPageTable<C>,
-    ) -> bool {
+    pub open spec fn wf_local(&self, spt: &SubPageTable<C>) -> bool {
         &&& self.node.wf_local(&spt.alloc_model)
         &&& self.idx < nr_subpage_per_huge::<C>()
-        &&& self.pte.pte_paddr_spec() == index_pte_paddr(self.node.paddr_local() as int, self.idx as int)
+        &&& self.pte.pte_paddr_spec() == index_pte_paddr(
+            self.node.paddr_local() as int,
+            self.idx as int,
+        )
         &&& spt.frames.value().contains_key(self.node.paddr_local() as int)
         &&& self.pte.is_present_spec() <==> {
             ||| spt.i_ptes.value().contains_key(self.pte.pte_paddr_spec() as int)
@@ -94,9 +92,8 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         } else {
             self.node.paddr_local() != spt.root@.pa
         }
-        &&& spt.frames.value()[self.node.paddr_local() as int].level as int == self.node.level_local_spec(
-            &spt.alloc_model,
-        )
+        &&& spt.frames.value()[self.node.paddr_local() as int].level as int
+            == self.node.level_local_spec(&spt.alloc_model)
         &&& self.pte.is_present() ==> {
             &&& spt.alloc_model.meta_map.contains_key(self.pte.frame_paddr() as int)
         }
@@ -135,10 +132,8 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         }
     }
 
-    pub(in crate::mm) fn is_none_local(
-        &self, 
-        Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: bool)
+    pub(in crate::mm) fn is_none_local(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res:
+        bool)
         requires
             spt.wf(),
             self.wf_local(spt),
@@ -155,10 +150,8 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
     }
 
     /// Gets a reference to the child.
-    pub(in crate::mm) fn to_ref_local(
-        &self,
-        Tracked(spt): Tracked<&SubPageTable<C>>,
-    ) -> (res: ChildRefLocal<'rcu, C>)
+    pub(in crate::mm) fn to_ref_local(&self, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res:
+        ChildRefLocal<'rcu, C>)
         requires
             spt.wf(),
             self.wf_local(spt),
@@ -415,10 +408,7 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         guard: &'rcu DisabledPreemptGuard,
         Tracked(spt): Tracked<&mut SubPageTable<C>>,
         forgot_guards: Tracked<SubTreeForgotGuard<C>>,
-    ) -> (res: (
-        Option<PageTableGuard<'rcu, C>>,
-        Tracked<SubTreeForgotGuard<C>>,
-    ))
+    ) -> (res: (Option<PageTableGuard<'rcu, C>>, Tracked<SubTreeForgotGuard<C>>))
         requires
             old(self).wf_local(&old(spt)),
             old(spt).wf(),
@@ -448,7 +438,11 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
                     old(spt),
                     self.node.level_local_spec(&spt.alloc_model),
                 )
-                &&& alloc_model_do_not_change_except_add_frame(spt, old(spt), res.0.unwrap().paddr_local())
+                &&& alloc_model_do_not_change_except_add_frame(
+                    spt,
+                    old(spt),
+                    res.0.unwrap().paddr_local(),
+                )
                 &&& res.0.unwrap().wf_local(&spt.alloc_model)
                 &&& spt.i_ptes.value().contains_key(self.pte.pte_paddr() as int)
                 &&& !old(spt).frames.value().contains_key(res.0.unwrap().paddr_local() as int)
@@ -476,7 +470,6 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
         if self.pte.is_present() {
             return (None, forgot_guards);
         }
-
         let tracked forgot_guards = forgot_guards.get();
 
         let level = self.node.level_local(Tracked(&spt.alloc_model));
@@ -556,22 +549,30 @@ impl<'a, 'rcu, C: PageTableConfig> EntryLocal<'a, 'rcu, C> {
 
         let node_ref = PageTableNodeRef::borrow_paddr_local(pa, Tracked(&spt.alloc_model));
         assert(node_ref.level_local_spec(&spt.alloc_model) == level - 1);
-        
+
         let ghost nid = node_ref.nid@;
         let ghost spin_lock = forgot_guards.get_lock(nid);
-        assert(forgot_guards.wf()) by { admit(); };
-        assert(NodeHelper::valid_nid(nid)) by { admit(); };
-        assert(forgot_guards.is_sub_root_and_contained(nid)) by { admit(); };
+        assert(forgot_guards.wf()) by {
+            admit();
+        };
+        assert(NodeHelper::valid_nid(nid)) by {
+            admit();
+        };
+        assert(forgot_guards.is_sub_root_and_contained(nid)) by {
+            admit();
+        };
         let tracked forgot_guard = forgot_guards.tracked_take(nid);
-        assert(node_ref.wf()) by { admit(); };
-        assert(node_ref.deref().meta_spec().lock =~= spin_lock) by { admit(); };
-        let pt = node_ref.make_guard_unchecked(
-            guard,
-            Tracked(forgot_guard),
-            Ghost(spin_lock),
-        );
-        assert(pt.va() == self.va@) by { admit(); };
-        
+        assert(node_ref.wf()) by {
+            admit();
+        };
+        assert(node_ref.deref().meta_spec().lock =~= spin_lock) by {
+            admit();
+        };
+        let pt = node_ref.make_guard_unchecked(guard, Tracked(forgot_guard), Ghost(spin_lock));
+        assert(pt.va() == self.va@) by {
+            admit();
+        };
+
         (Some(pt), Tracked(forgot_guards))
     }
 

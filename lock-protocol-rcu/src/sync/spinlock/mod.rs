@@ -16,11 +16,7 @@ use crate::spec::{
     common::NodeId,
 };
 use crate::mm::{PagingLevel, Paddr, Vaddr};
-use crate::mm::page_table::{
-    PageTableEntryTrait,
-    pte::Pte,
-    PageTableConfig,
-};
+use crate::mm::page_table::{PageTableEntryTrait, pte::Pte, PageTableConfig};
 use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
 use crate::mm::page_table::node::PageTableGuard;
 use crate::x86_64::kspace::paddr_to_vaddr;

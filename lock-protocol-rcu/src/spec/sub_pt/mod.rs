@@ -13,8 +13,8 @@ use crate::{
     mm::{
         frame::allocator::{pa_is_valid_kernel_address, AllocatorModel},
         page_table::{
-            cursor::{MAX_NR_LEVELS, va_range_get_guard_nid}, 
-            node::PageTablePageMeta, 
+            cursor::{MAX_NR_LEVELS, va_range_get_guard_nid},
+            node::PageTablePageMeta,
             PageTableConfig, PagingConstsTrait,
         },
         Paddr, Vaddr, NR_ENTRIES, page_size_spec,
@@ -23,9 +23,7 @@ use crate::{
 };
 
 use crate::spec::{
-    common::NodeId,
-    sub_pt::state_machine::ptes_frames_matches,
-    lock_protocol::LockProtocolModel,
+    common::NodeId, sub_pt::state_machine::ptes_frames_matches, lock_protocol::LockProtocolModel,
 };
 
 verus! {
@@ -95,10 +93,7 @@ impl<C: PageTableConfig> SubPageTable<C> {
     }
 
     // TODO
-    pub open spec fn wf_with_forgot_guards(
-        &self,
-        forgot_guards: SubTreeForgotGuard<C>, 
-    ) -> bool {
+    pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
         true
     }
 

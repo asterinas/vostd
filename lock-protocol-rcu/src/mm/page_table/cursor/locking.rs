@@ -9,10 +9,7 @@ use vstd_extra::manually_drop::*;
 
 use crate::mm::frame_concurrent::meta::*;
 use crate::mm::page_table::{
-    PageTable,
-    PageTableConfig, PageTableEntryTrait, 
-    Paddr, Vaddr, PagingLevel,
-    pte_index,
+    PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel, pte_index,
 };
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::mm::page_table::node::{
@@ -23,9 +20,7 @@ use crate::mm::page_table::node::{
 };
 use crate::mm::page_table::pte::Pte;
 use crate::sync::rcu::rcu_load_pte;
-use crate::sync::spinlock::{
-    PageTablePageSpinLock, SpinGuard,
-};
+use crate::sync::spinlock::{PageTablePageSpinLock, SpinGuard};
 use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
 use crate::task::DisabledPreemptGuard;
 use crate::x86_64::kspace::paddr_to_vaddr;
@@ -34,10 +29,7 @@ use crate::configs::{PTE_NUM, GLOBAL_CPU_NUM};
 use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::{
-        NodeId,
-        valid_va_range,
-        vaddr_is_aligned,
-        va_level_to_trace, va_level_to_offset,
+        NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
         lemma_va_level_to_trace_valid,
     },
     utils::{NodeHelper, group_node_helper_lemmas},
@@ -50,9 +42,7 @@ use super::{Cursor, va_range_wf};
 verus! {
 
 
-
 } // verus!
-
 verus! {
 
 #[verifier::exec_allows_no_decreases_clause]
@@ -290,7 +280,12 @@ pub fn unlock_range<C: PageTableConfig>(
     }
 
     assert(!forgot_guards.inner.dom().contains(guard_node.nid()));
-    let res = dfs_release_lock(cursor.preempt_guard, guard_node, Tracked(m), Tracked(forgot_guards));
+    let res = dfs_release_lock(
+        cursor.preempt_guard,
+        guard_node,
+        Tracked(m),
+        Tracked(forgot_guards),
+    );
     proof {
         m = res.get();
         let tracked res = cursor.inst.borrow().protocol_unlock_end(m.cpu, m.token);

@@ -11,9 +11,7 @@ use crate::spec::{
 };
 use crate::mm::{Paddr, PagingLevel};
 use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::{
-    PageTableEntryTrait, pte::Pte, GLOBAL_CPU_NUM,
-};
+use crate::mm::page_table::{PageTableEntryTrait, pte::Pte, GLOBAL_CPU_NUM};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use crate::sync::rcu::RcuDrop;
 use crate::mm::page_table::PageTableConfig;

@@ -1,7 +1,7 @@
-pub mod child_local;
 pub mod child;
-pub mod entry_local;
+pub mod child_local;
 pub mod entry;
+pub mod entry_local;
 pub mod stray;
 
 use std::cell::Cell;
@@ -66,7 +66,6 @@ verus! {
 pub struct PageTableNode<C: PageTableConfig> {
     pub meta_ptr_l: PPtr<PageTablePageMeta<C>>,
     pub ptr_l: PPtr<MockPageTablePage>,
-
     pub ptr: *const MetaSlot<C>,
     pub perm: Tracked<MetaSlotPerm<C>>,
     pub nid: Ghost<NodeId>,
@@ -76,7 +75,7 @@ pub struct PageTableNode<C: PageTableConfig> {
 impl<C: PageTableConfig> PageTableNode<C> {
     /// Gets the metadata of this page.
     pub fn meta_local<'a>(
-        &'a self, 
+        &'a self,
         Tracked(alloc_model): Tracked<&'a AllocatorModel<PageTablePageMeta<C>>>,
     ) -> &'a PageTablePageMeta<C>
         requires
@@ -92,7 +91,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     }
 
     pub open spec fn meta_local_spec(
-        &self, 
+        &self,
         alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
     ) -> &PageTablePageMeta<C> {
         &alloc_model.meta_map[self.start_paddr_local() as int].value()
@@ -100,7 +99,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
 }
 
 impl<C: PageTableConfig> PageTableNode<C> {
-     /// Gets the physical address of the start of the frame.
+    /// Gets the physical address of the start of the frame.
     // TODO: Implement
     #[verifier::allow_in_spec]
     pub fn start_paddr_local(&self) -> Paddr
@@ -137,24 +136,39 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
     /// Borrows a reference from the given frame.
     pub fn borrow(
-        &self, 
+        &self,
         Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
     ) -> (res: PageTableNodeRef<'_, C>)
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.start_paddr_local() as int),
             alloc_model.meta_map[self.start_paddr_local() as int].pptr() == self.meta_ptr_l,
-            alloc_model.meta_map[self.start_paddr_local() as int].value() == self.meta_local_spec(alloc_model),
-            level_is_in_range::<C>(alloc_model.meta_map[self.start_paddr_local() as int].value().level as int),
+            alloc_model.meta_map[self.start_paddr_local() as int].value() == self.meta_local_spec(
+                alloc_model,
+            ),
+            level_is_in_range::<C>(
+                alloc_model.meta_map[self.start_paddr_local() as int].value().level as int,
+            ),
         ensures
             res.deref() == self,
     {
-        let res = PageTableNodeRef::borrow_paddr_local(self.start_paddr_local(), Tracked(alloc_model));
+        let res = PageTableNodeRef::borrow_paddr_local(
+            self.start_paddr_local(),
+            Tracked(alloc_model),
+        );
         assert(res.deref() =~= self) by {
-            assert(res.ptr =~= self.ptr) by { admit(); };
-            assert(res.perm =~= self.perm) by { admit(); };
-            assert(res.nid =~= self.nid) by { admit(); };
-            assert(res.inst =~= self.inst) by { admit(); };
+            assert(res.ptr =~= self.ptr) by {
+                admit();
+            };
+            assert(res.perm =~= self.perm) by {
+                admit();
+            };
+            assert(res.nid =~= self.nid) by {
+                admit();
+            };
+            assert(res.inst =~= self.inst) by {
+                admit();
+            };
         };
         res
     }
@@ -190,7 +204,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     /// no checking of the usage in this function.
     #[verifier::external_body]
     pub(crate) fn from_raw_local(
-        paddr: Paddr, 
+        paddr: Paddr,
         Tracked(alloc_model): Tracked<&AllocatorModel<PageTablePageMeta<C>>>,
     ) -> (res: Self)
         requires
@@ -218,7 +232,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
         &&& level_is_in_range::<C>(self.level_local_spec(alloc_model) as int)
         &&& alloc_model.meta_map.contains_key(self.paddr_local() as int)
         &&& alloc_model.meta_map[self.paddr_local() as int].pptr() == self.meta_ptr_l
-        &&& alloc_model.meta_map[self.paddr_local() as int].value().level == self.level_local_spec(alloc_model)
+        &&& alloc_model.meta_map[self.paddr_local() as int].value().level == self.level_local_spec(
+            alloc_model,
+        )
     }
 
     #[verifier::allow_in_spec]
@@ -497,9 +513,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             alloc_model.invariants(),
     {
         Self {
-            inner: ManuallyDrop::new(
-                PageTableNode::from_raw_local(raw, Tracked(alloc_model))
-            ),
+            inner: ManuallyDrop::new(PageTableNode::from_raw_local(raw, Tracked(alloc_model))),
             _marker: PhantomData,
         }
     }
@@ -524,10 +538,7 @@ impl<C: PageTableConfig> Deref for PageTableNodeRef<'_, C> {
 }
 
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
-    pub open spec fn wf_local(
-        &self, 
-        alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
-    ) -> bool {
+    pub open spec fn wf_local(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         self.deref().wf_local(alloc_model)
     }
 }
@@ -567,10 +578,10 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         self.deref().wf()
     }
 
-    pub fn normal_lock<'rcu>(
-        self,
-        guard: &'rcu DisabledPreemptGuard,
-    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
+    pub fn normal_lock<'rcu>(self, guard: &'rcu DisabledPreemptGuard) -> (res: PageTableGuard<
+        'rcu,
+        C,
+    >) where 'a: 'rcu
         requires
             self.wf(),
         ensures
@@ -681,10 +692,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 }
 
 impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
-    pub open spec fn wf_local(
-        &self, 
-        alloc_model: &AllocatorModel<PageTablePageMeta<C>>,
-    ) -> bool {
+    pub open spec fn wf_local(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
         self.inner.wf_local(alloc_model)
     }
 
@@ -703,7 +711,8 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
         requires
             alloc_model.invariants(),
             alloc_model.meta_map.contains_key(self.inner.start_paddr_local() as int),
-            alloc_model.meta_map[self.inner.start_paddr_local() as int].pptr() == self.inner.meta_ptr_l,
+            alloc_model.meta_map[self.inner.start_paddr_local() as int].pptr()
+                == self.inner.meta_ptr_l,
         returns
             self.level_local_spec(alloc_model),
     {
@@ -723,7 +732,9 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
 
     #[verifier::external_body]
     fn read_pte_local(&self, idx: usize, Tracked(spt): Tracked<&SubPageTable<C>>) -> (res: C::E) {
-        let e = self.inner.ptr_l.read(Tracked(spt.perms.tracked_borrow(self.paddr_local()))).ptes[idx];
+        let e = self.inner.ptr_l.read(
+            Tracked(spt.perms.tracked_borrow(self.paddr_local())),
+        ).ptes[idx];
         // todo!("e -> usize -> C::E");
         let c_e = &e as *const _ as *const C::E;
         unsafe { (*c_e).clone() }
@@ -790,13 +801,11 @@ impl<'a, C: PageTableConfig> PageTableGuard<'a, C> {
     // pub fn meta(&self) -> &PageTablePageMeta<C> {
     //     unimplemented!("meta")
     // }
-
     // Note: mutable types not supported.
     // #[verifier::external_body]
     // pub fn nr_children_mut(&mut self) -> &mut u16 {
     //     unimplemented!("nr_children_mut")
     // }
-
     #[verifier::external_body]
     pub fn nr_children(&self) -> u16 {
         unimplemented!("nr_children")
@@ -1160,7 +1169,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
     // The stray flag indicates whether this frame is a page table node.
     pub stray: StrayFlag,
     pub level: PagingLevel,
-    pub frame_paddr: Paddr, // TODO: should be a ghost type
+    pub frame_paddr: Paddr,  // TODO: should be a ghost type
     pub nid: Ghost<NodeId>,
     pub inst: Tracked<SpecInstance>,
 }
@@ -1174,7 +1183,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.lock.wf()
         &&& self.frame_paddr == self.lock.paddr_spec()
-        &&& self.level == self.lock.level_spec()
+        &&& self.level
+            == self.lock.level_spec()
         // &&& valid_paddr(self.frame_paddr)
         &&& 1 <= self.level <= 4
         &&& NodeHelper::valid_nid(self.nid@)

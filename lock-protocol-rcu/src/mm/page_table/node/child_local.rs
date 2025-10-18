@@ -8,7 +8,9 @@ use crate::mm::frame::meta::AnyFrameMeta;
 use crate::mm::{
     frame::Frame,
     page_prop::PageProperty,
-    page_table::{cursor::spec_helpers, entry_local::EntryLocal, PageTableConfig, PageTableEntryTrait},
+    page_table::{
+        cursor::spec_helpers, entry_local::EntryLocal, PageTableConfig, PageTableEntryTrait,
+    },
     vm_space::Token,
     Paddr, PagingConsts, PagingConstsTrait, PagingLevel,
 };
@@ -163,9 +165,12 @@ impl<'a, C: PageTableConfig> ChildRefLocal<'a, C> {
                 &&& spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int)
                 &&& pt.wf_local(&spt.alloc_model)
                 &&& pt.deref().start_paddr_local() == entry.pte.frame_paddr() as usize
-                &&& pt.level_local_spec(&spt.alloc_model) == entry.node.level_local_spec(&spt.alloc_model) - 1
+                &&& pt.level_local_spec(&spt.alloc_model) == entry.node.level_local_spec(
+                    &spt.alloc_model,
+                ) - 1
                 &&& spt.alloc_model.meta_map.contains_key(pt.deref().start_paddr_local() as int)
-                &&& spt.alloc_model.meta_map[pt.deref().start_paddr_local() as int].pptr() == pt.meta_ptr_l
+                &&& spt.alloc_model.meta_map[pt.deref().start_paddr_local() as int].pptr()
+                    == pt.meta_ptr_l
                 &&& spt.frames.value().contains_key(pt.deref().start_paddr_local() as int)
                 &&& spt.frames.value()[pt.deref().start_paddr_local() as int].ancestor_chain
                     == spt.frames.value()[entry.node.paddr_local() as int].ancestor_chain.insert(
