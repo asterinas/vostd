@@ -49,8 +49,8 @@ pub mod sync;
 pub mod task;
 pub mod timer;
 pub mod trap;
-pub mod user;
-pub mod util; */
+pub mod user;*/
+pub mod util;
 
 /*use core::sync::atomic::{AtomicBool, Ordering};
 
