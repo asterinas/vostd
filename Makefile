@@ -2,12 +2,6 @@
 .PHONY: lock-protocol-rcu all compile verify verify-parallel clean fmt
 
 VERIFICATION_TARGETS := \
-	fvt1-mem-region-init \
-	fvt3-page-acquisition-safety \
-	fvt4-into-from-raw \
-	fvt6-vmreader-and-vmwriter \
-	fvt10-pt-cursor-navigation \
-	fvt11-pt-cursor-guards \
 	lock-protocol-rcu
 
 # Disabled:

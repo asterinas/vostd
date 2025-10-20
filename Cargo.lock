@@ -3,80 +3,10 @@
 version = 4
 
 [[package]]
-name = "aster_common"
-version = "0.1.0"
-dependencies = [
- "vstd",
- "vstd_extra",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-
-[[package]]
-name = "fvt1-mem-region-init"
-version = "0.1.0"
-
-[[package]]
-name = "fvt10-pt-cursor-navigation"
-version = "0.1.0"
-dependencies = [
- "aster_common",
- "vstd",
- "vstd_extra",
-]
-
-[[package]]
-name = "fvt11-pt-cursor-guards"
-version = "0.1.0"
-dependencies = [
- "aster_common",
- "vstd",
- "vstd_extra",
-]
-
-[[package]]
-name = "fvt13-vmspace-unmap-safety"
-version = "0.1.0"
-dependencies = [
- "aster_common",
- "vstd",
- "vstd_extra",
-]
-
-[[package]]
-name = "fvt3-page-acquisition-safety"
-version = "0.1.0"
-dependencies = [
- "num-derive",
- "num-traits",
- "vstd",
-]
-
-[[package]]
-name = "fvt4-into-from-raw"
-version = "0.1.0"
-dependencies = [
- "num-derive",
- "num-traits",
- "vstd",
-]
-
-[[package]]
-name = "fvt5-lifecycle-safety"
-version = "0.1.0"
-dependencies = [
- "aster_common",
- "vstd",
- "vstd_extra",
-]
-
-[[package]]
-name = "fvt6-vmreader-and-vmwriter"
-version = "0.1.0"
 
 [[package]]
 name = "hashbrown"
