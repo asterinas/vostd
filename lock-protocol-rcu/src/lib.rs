@@ -19,7 +19,7 @@ pub mod x86_64;
 pub mod helpers;
 pub mod sync;
 
-pub mod exec;
+// pub mod exec;
 
 pub mod configs;
 

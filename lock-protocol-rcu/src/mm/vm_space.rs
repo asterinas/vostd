@@ -14,9 +14,9 @@ use vstd::prelude::*;
 use vstd::bits::*;
 
 use crate::{
-    exec::MockPageTableEntry,
+    // exec::MockPageTableEntry,
     mm::{
-        frame::{allocator::AllocatorModel, meta::AnyFrameMeta, Frame},
+        frame::meta::AnyFrameMeta,
         page_prop::PageProperty,
         page_table::{PageTableConfig, PagingConsts},
         Paddr, PagingLevel, PAGE_SIZE,
@@ -152,12 +152,12 @@ impl AnyFrameMeta for UntypedFrameMeta {
 }
 
 /// The item that can be mapped into the [`VmSpace`].
-pub enum VmItem {
-    /// Actually mapped a physical frame into the VM space.
-    Frame(Frame<UntypedFrameMeta>, PageProperty),
-    /// Marked with a [`Status`], without actually mapping a physical frame.
-    Status(Status, PagingLevel),
-}
+// pub enum VmItem {
+//     /// Actually mapped a physical frame into the VM space.
+//     Frame(Frame<UntypedFrameMeta>, PageProperty),
+//     /// Marked with a [`Status`], without actually mapping a physical frame.
+//     Status(Status, PagingLevel),
+// }
 
 // #[derive(Clone, Debug)]
 pub(crate) struct UserPtConfig {}

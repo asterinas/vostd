@@ -91,4 +91,12 @@ impl<C: PageTableConfig> MetaSlotPerm<C> {
     }
 }
 
+pub trait AnyFrameMeta {
+
+}
+
+impl AnyFrameMeta for () {
+
+}
+
 } // verus!

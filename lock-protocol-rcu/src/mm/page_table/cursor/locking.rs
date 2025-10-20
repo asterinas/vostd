@@ -7,7 +7,7 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
-use crate::mm::frame_concurrent::meta::*;
+use crate::mm::frame::meta::*;
 use crate::mm::page_table::{
     PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel, pte_index,
 };
@@ -150,10 +150,10 @@ pub fn unlock_range<C: PageTableConfig>(
         m@.inv(),
         m@.inst_id() == old(cursor).inst@.id(),
         m@.state() is Locked,
-        m@.sub_tree_rt() == old(cursor).get_guard(old(cursor).guard_level - 1).nid(),
+        m@.sub_tree_rt() == old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid(),
         old(cursor).wf_with_forgot_guards(forgot_guards@),
         forgot_guards@.wf(),
-        forgot_guards@.is_root(old(cursor).get_guard(old(cursor).guard_level - 1).nid()),
+        forgot_guards@.is_root(old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid()),
     ensures
         cursor.path.len() == old(cursor).path.len(),
         forall|i| 0 <= i < cursor.path.len() ==> cursor.path[i] is None,
@@ -185,17 +185,17 @@ pub fn unlock_range<C: PageTableConfig>(
                 #![trigger cursor.path[level - 1]]
                 i + 1 <= level <= 4 ==> cursor.path[level - 1] =~= old(cursor).path[level - 1],
             forall|level: PagingLevel|
-                #![trigger cursor.path[level - 1]]
-                1 <= level < i + 1 ==> cursor.path[level - 1] is None,
+                #![trigger cursor.get_guard_level(level)]
+                1 <= level < i + 1 ==> cursor.get_guard_level(level) is None,
             cursor.inst =~= old(cursor).inst,
             cursor.wf_with_forgot_guards(forgot_guards),
             forgot_guards.wf(),
-            forgot_guards.is_root(old(cursor).get_guard(old(cursor).guard_level - 1).nid()),
+            forgot_guards.is_root(old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid()),
         decreases 4 - i,
     {
         assert(cursor.path[i as int] is Some) by {
             let level = (i + 1) as PagingLevel;
-            assert(cursor.path[level - 1] is Some);
+            assert(cursor.get_guard_level(level) is Some);
         };
         let ghost _cursor = *cursor;
         let ghost _forgot_guards = forgot_guards;
@@ -208,7 +208,7 @@ pub fn unlock_range<C: PageTableConfig>(
             proof {
                 assert(forgot_guards.is_sub_root(nid)) by {
                     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
-                    assert(nid == _cursor.get_guard(_cursor.g_level@ - 1).nid());
+                    assert(nid == _cursor.get_guard_level_unwrap(_cursor.g_level@).nid());
                     assert(forgot_guards =~= _cursor.rec_put_guard_from_path(
                         forgot_guards,
                         (_cursor.g_level@ - 1) as PagingLevel,
@@ -219,7 +219,7 @@ pub fn unlock_range<C: PageTableConfig>(
                     forgot_guard.pte_token->Some_0.value(),
                 )) by {
                     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
-                    assert(nid == _cursor.get_guard(_cursor.g_level@ - 1).nid());
+                    assert(nid == _cursor.get_guard_level_unwrap(_cursor.g_level@).nid());
                     assert(forgot_guards =~= _cursor.rec_put_guard_from_path(
                         forgot_guards,
                         (_cursor.g_level@ - 1) as PagingLevel,
@@ -247,23 +247,35 @@ pub fn unlock_range<C: PageTableConfig>(
                     };  // Need induction
                     assert(merged_forgot_guards1.wf());
                     assert(merged_forgot_guards1.is_root_and_contained(
-                        cursor.get_guard(cursor.guard_level - 1).nid(),
+                        cursor.get_guard_level_unwrap(cursor.guard_level).nid(),
                     ));
                     _cursor.lemma_guard_in_path_relation_implies_nid_diff();
                     assert forall|level: PagingLevel|
                         #![trigger cursor.path[level - 1]]
                         cursor.g_level@ <= level <= cursor.guard_level implies {
-                        !forgot_guards.inner.dom().contains(cursor.get_guard(level - 1).nid())
+                        !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
                     } by {
-                        assert(cursor.get_guard(level - 1) =~= _cursor.get_guard(level - 1));
+                        assert(
+                            cursor.get_guard_level_unwrap(level) =~= 
+                            _cursor.get_guard_level_unwrap(level)
+                        );
                         assert(!_forgot_guards.inner.dom().contains(
-                            _cursor.get_guard(level - 1).nid(),
+                            _cursor.get_guard_level_unwrap(level).nid(),
                         ));
                         assert(forgot_guards.inner.dom() =~= _forgot_guards.inner.dom().insert(
                             nid,
                         ));
                         assert(_cursor.guard_in_path_nid_diff(_cursor.g_level@, level));
                     }
+                };
+                assert(cursor.guards_in_path_relation()) by {
+                    assert forall |level: PagingLevel| 
+                        cursor.g_level@ < level <= cursor.guard_level
+                    implies {
+                        cursor.adjacent_guard_is_child(level)
+                    } by {
+                        assert(_cursor.adjacent_guard_is_child(level));
+                    };
                 };
             }
             let _ = ManuallyDrop::new(guard);
@@ -276,7 +288,7 @@ pub fn unlock_range<C: PageTableConfig>(
     let guard_node = cursor.take(guard_level as usize - 1).unwrap();
     assert forall|i| 0 <= i < cursor.path@.len() implies { cursor.path[i] is None } by {
         let level = (i + 1) as PagingLevel;
-        assert(cursor.path[level - 1] is None);
+        assert(cursor.get_guard_level(level) is None);
     }
 
     assert(!forgot_guards.inner.dom().contains(guard_node.nid()));

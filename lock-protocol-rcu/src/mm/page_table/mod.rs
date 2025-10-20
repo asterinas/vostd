@@ -3,7 +3,7 @@ pub mod node;
 // pub mod node_concurrent;
 pub mod pte;
 
-use cursor::spec_helpers;
+// use cursor::spec_helpers;
 
 use node::*;
 use core::fmt::Debug;
@@ -11,7 +11,7 @@ use std::{marker::PhantomData, ops::Range};
 
 use crate::{
     helpers::{align_ext::align_down, math::lemma_u64_and_less_than},
-    mm::{frame::allocator::AllocatorModel, BASE_PAGE_SIZE, PTE_SIZE},
+    mm::{BASE_PAGE_SIZE, PTE_SIZE},
 };
 
 use vstd::prelude::*;
@@ -33,8 +33,8 @@ use super::{
     lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
 
-use crate::exec;
-use crate::spec::sub_pt::SubPageTable;
+// use crate::exec;
+// use crate::spec::sub_pt::SubPageTable;
 use crate::spec::rcu::SpecInstance;
 use crate::spec::common::{va_level_to_offset};
 use crate::configs::GLOBAL_CPU_NUM;
@@ -152,11 +152,7 @@ pub  /*(crate)*/
         paddr: Paddr,
         level: PagingLevel,
         prop: PageProperty,
-        Tracked(alloc_model): Tracked<&AllocatorModel<crate::mm::vm_space::UntypedFrameMeta>>,
-    ) -> Self::Item
-        requires
-            alloc_model.invariants(),
-    ;
+    ) -> Self::Item;
 }
 
 impl<C: PageTableConfig> PagingConstsTrait for C {
@@ -607,10 +603,11 @@ impl PagingConstsTrait for PagingConsts {
     }
 
     fn PTE_SIZE() -> usize {
-        proof {
-            assume(core::mem::size_of::<exec::MockPageTableEntry>() == 8);
-        }
-        core::mem::size_of::<exec::MockPageTableEntry>()
+        // proof {
+        //     assume(core::mem::size_of::<exec::MockPageTableEntry>() == 8);
+        // }
+        // core::mem::size_of::<exec::MockPageTableEntry>()
+        8
     }
 
     open spec fn ADDRESS_WIDTH_SPEC() -> usize {
@@ -821,6 +818,7 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
 /// The index of a VA's PTE in a page table node at the given level.
 // const fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
 #[verifier::external_body]
+// TODO
 pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     usize)  // TODO: type, const
     requires
@@ -1082,10 +1080,6 @@ pub struct PageTable<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> PageTable<C> {
-    pub open spec fn wf_local(&self, alloc_model: &AllocatorModel<PageTablePageMeta<C>>) -> bool {
-        &&& self.root.wf_local(alloc_model)
-    }
-
     pub open spec fn wf(&self) -> bool {
         &&& self.root.wf()
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM

@@ -55,12 +55,14 @@ impl<C: PageTableConfig> Pte<C> {
         &&& self.inst@ is Some ==> self.inst@->Some_0.cpu_num() == GLOBAL_CPU_NUM
     }
 
+    // TODO
     pub open spec fn wf_with_node(&self, node: PageTableNode<C>, offset: nat) -> bool {
         &&& self.wf(node.level_spec())
         &&& self.nid@ is Some ==> self.nid@->Some_0 == NodeHelper::get_child(node.nid@, offset)
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == node.inst@.id()
     }
 
+    // TODO
     pub open spec fn wf_with_node_info(
         &self,
         level: PagingLevel,

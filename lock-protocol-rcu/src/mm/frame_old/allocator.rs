@@ -6,7 +6,7 @@ use vstd::vpanic;
 use vstd::rwlock::RwLock;
 use vstd::simple_pptr::{PPtr, PointsTo};
 
-use crate::exec::{MockPageTablePage, MockPageTableEntry, PHYSICAL_BASE_ADDRESS_SPEC, SIZEOF_FRAME};
+// use crate::exec::{MockPageTablePage, MockPageTableEntry, PHYSICAL_BASE_ADDRESS_SPEC, SIZEOF_FRAME};
 
 use super::meta::AnyFrameMeta;
 use super::Frame;
