@@ -203,7 +203,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         }
     }
 
-    pub fn from_pte<'a>(pte: &'a Pte<C>, level: PagingLevel) -> (res: ChildRef<'a, C>)
+    pub fn from_pte<'a>(pte: &Pte<C>, level: PagingLevel) -> (res: ChildRef<'a, C>)
         requires
             pte.wf(level),
             1 <= level <= 4,

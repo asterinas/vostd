@@ -74,7 +74,7 @@ impl<C: PageTableConfig> Entry<C> {
     }
 
     /// Gets a reference to the child.
-    pub fn to_ref<'rcu>(&'rcu self, node: &PageTableGuard<'rcu, C>) -> (res: ChildRef<'rcu, C>)
+    pub fn to_ref<'a, 'rcu>(&'a self, node: &'a PageTableGuard<'rcu, C>) -> (res: ChildRef<'rcu, C>)
         requires
             self.wf(*node),
             node.wf(),
