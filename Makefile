@@ -8,7 +8,7 @@ VERIFICATION_TARGETS := \
 # fvt5-lifecycle-safety
 # fvt13-vmspace-unmap-safety 
 
-COMPILE_TARGETS := vstd_extra aster_common
+COMPILE_TARGETS := vstd_extra
 
 # Pattern rule for individual FVT targets
 fvt%:
