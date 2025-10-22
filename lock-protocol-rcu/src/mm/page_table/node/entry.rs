@@ -16,6 +16,7 @@ use crate::mm::page_table::{
 };
 use crate::sync::rcu::RcuDrop;
 use crate::task::DisabledPreemptGuard;
+use crate::spec::lock_protocol::LockProtocolModel;
 
 verus! {
 
@@ -215,6 +216,44 @@ impl<C: PageTableConfig> Entry<C> {
         // *self.node.nr_children_mut() += 1;
 
         Some(pt_lock_guard)
+    }
+
+    #[verifier::external_body]
+    pub fn alloc_if_none<'rcu>(
+        &mut self,
+        guard: &'rcu DisabledPreemptGuard,
+        node: &mut PageTableGuard<'rcu, C>,
+        Tracked(m): Tracked<&LockProtocolModel>,
+    ) -> (res: Option<PageTableGuard<'rcu, C>>)
+        requires
+            old(self).wf(*old(node)),
+            old(node).wf(),
+            NodeHelper::is_not_leaf(old(node).nid()),
+            old(node).guard->Some_0.stray_perm().value() == false,
+            old(node).guard->Some_0.in_protocol() == true,
+            m.inv(),
+            m.inst_id() == old(node).inst_id(),
+            m.state() is Locked,
+            m.node_is_locked(old(node).nid()),
+        ensures
+            self.wf(*node),
+            self.idx == old(self).idx,
+            node.wf(),
+            node.inst_id() == old(node).inst_id(),
+            node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
+            !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
+            res is Some ==> {
+                &&& res->Some_0.wf()
+                &&& res->Some_0.inst_id() == node.inst_id()
+                &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
+                &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                &&& res->Some_0.guard->Some_0.stray_perm().value() == false
+                &&& res->Some_0.guard->Some_0.in_protocol() == true
+            },
+    {
+        unimplemented!()
     }
 
     /// Create a new entry at the node with guard.

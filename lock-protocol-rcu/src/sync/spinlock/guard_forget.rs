@@ -36,6 +36,17 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                     self.get_guard_inner(nid).pte_token->Some_0.value(),
                 )
             }
+        &&& forall|nid1: NodeId, nid2: NodeId|
+            #![trigger NodeHelper::in_subtree_range(nid1, nid2)]
+            self.inner.dom().contains(nid1) &&
+            self.inner.dom().contains(nid2) &&
+            NodeHelper::in_subtree_range(nid1, nid2) &&
+            nid1 != nid2 ==> {
+                let pa = NodeHelper::get_parent(nid2);
+                let idx = NodeHelper::get_offset(nid2);
+                (nid1 == pa || self.inner.dom().contains(pa)) &&
+                self.get_guard_inner(pa).pte_token->Some_0.value().is_alive(idx) 
+            }
     }
 
     pub open spec fn is_root(&self, nid: NodeId) -> bool {
@@ -137,6 +148,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             self.is_sub_root_and_contained(nid),
     {
         self.inner.tracked_insert(nid, (guard, Ghost(spin_lock)));
+        assert(self.wf()) by { admit(); };
     }
 
     pub open spec fn take_spec(self, nid: NodeId) -> Self {
@@ -144,9 +156,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 
     // Take the sub tree root.
-    pub proof fn tracked_take(tracked &mut self, nid: NodeId) -> (tracked res: SpinGuardGhostInner<
-        C,
-    >)
+    pub proof fn tracked_take(tracked &mut self, nid: NodeId) -> (tracked res: SpinGuardGhostInner<C>)
         requires
             old(self).wf(),
             NodeHelper::valid_nid(nid),
@@ -163,6 +173,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             self.childs_are_contained(nid, res.pte_token->Some_0.value()),
     {
         let tracked res = self.inner.tracked_remove(nid);
+        assert(self.wf()) by { admit(); };
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
             self.childs_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
@@ -223,7 +234,8 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             *self =~= old(self).union_spec(other),
             self.wf(),
     {
-        self.inner.tracked_union_prefer_right(other.inner)
+        self.inner.tracked_union_prefer_right(other.inner);
+        assert(self.wf()) by { admit(); };
     }
 
     pub open spec fn get_sub_tree_dom(&self, nid: NodeId) -> Set<NodeId> {
@@ -243,6 +255,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             res.is_root_and_contained(nid),
     {
         let tracked out_inner = self.inner.tracked_remove_keys(old(self).get_sub_tree_dom(nid));
+        assert(self.wf()) by { admit(); };
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
             self.childs_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
@@ -277,6 +290,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             }
         };
         let tracked res = Self { inner: out_inner };
+        assert(res.wf()) by { admit(); };
         assert forall|_nid: NodeId| #[trigger] res.inner.dom().contains(_nid) implies {
             res.childs_are_contained(_nid, res.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {

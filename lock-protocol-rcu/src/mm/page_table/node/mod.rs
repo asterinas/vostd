@@ -139,6 +139,22 @@ impl<C: PageTableConfig> PageTableNode<C> {
             Self::from_raw_spec(self.start_paddr()) =~= *self,
     {
     }
+
+    #[verifier::external_body]
+    pub fn borrow(&self) -> (res: PageTableNodeRef<'_, C>)
+        requires
+            self.wf(),
+        ensures
+            *res.inner.deref() =~= *self,
+            res.wf(),
+    {
+        PageTableNodeRef::borrow_paddr(
+            self.start_paddr(),
+            Ghost(self.nid@),
+            Ghost(self.inst@.id()),
+            Ghost(self.level_spec()),
+        )
+    }
 }
 
 // Functions defined in struct 'PageTableNode'.
@@ -700,6 +716,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             *res =~= self.guard->Some_0,
     {
         self.guard.tracked_borrow()
+    }
+
+    #[verifier::external_body]
+    pub fn nr_children(&self) -> u16 {
+        unimplemented!("nr_children")
     }
 }
 

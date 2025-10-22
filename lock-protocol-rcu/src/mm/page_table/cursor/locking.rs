@@ -123,20 +123,19 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     let mut path: [Option<PageTableGuard<'rcu, C>>; MAX_NR_LEVELS] = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    (
-        Cursor::<'rcu> {
-            path,
-            preempt_guard: guard,
-            level: guard_level,
-            guard_level,
-            va: va.start,
-            barrier_va: va.start..va.end,
-            inst: Tracked(pt.inst.borrow().clone()),
-            g_level: Ghost(guard_level),
-        },
-        Tracked(m),
-        Tracked(forgot_guards),
-    )
+    let result = Cursor::<'rcu> {
+        path,
+        preempt_guard: guard,
+        level: guard_level,
+        guard_level,
+        va: va.start,
+        barrier_va: va.start..va.end,
+        inst: Tracked(pt.inst.borrow().clone()),
+        g_level: Ghost(guard_level),
+    };
+    assert(result.wf_with_forgot_guards(forgot_guards)) by { admit(); };
+
+    (result, Tracked(m), Tracked(forgot_guards))
 }
 
 pub fn unlock_range<C: PageTableConfig>(
