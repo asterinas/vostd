@@ -133,6 +133,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         inst: Tracked(pt.inst.borrow().clone()),
         g_level: Ghost(guard_level),
     };
+    assert(result.wf_va()) by { admit(); };
     assert(result.wf_with_forgot_guards(forgot_guards)) by { admit(); };
 
     (result, Tracked(m), Tracked(forgot_guards))

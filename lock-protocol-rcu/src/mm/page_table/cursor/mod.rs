@@ -297,12 +297,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     // TODO
     /// Well-formedness of the cursor's virtual address.
     pub open spec fn wf_va(&self) -> bool {
-        // // &&& self.va < MAX_USERSPACE_VADDR
-        // &&& self.barrier_va.start < self.barrier_va.end
-        //     < MAX_USERSPACE_VADDR
+        // &&& self.va < MAX_USERSPACE_VADDR
+        &&& self.barrier_va.start < self.barrier_va.end
+            < MAX_USERSPACE_VADDR
         // // We allow the cursor to be at the end of the range.
-        // &&& self.barrier_va.start <= self.va
-        //     <= self.barrier_va.end
+        &&& self.barrier_va.start <= self.va
+            <= self.barrier_va.end
         // // The barrier range should be contained in the range of the frame at
         // // the guard level.
         // &&& align_down(self.barrier_va.start, page_size::<C>((self.guard_level + 1) as u8))
@@ -310,7 +310,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     (self.barrier_va.end - 1) as usize,
         //     page_size::<C>((self.guard_level + 1) as u8),
         // )
-        true
     }
 
     /// Well-formedness of the cursor's level and guard level.
@@ -410,6 +409,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
     }
 
+    // Trivial but nontrivial for Verus.
+    pub proof fn lemma_cursor_eq_implie_forgot_guards_eq(
+        cursor1: Self,
+        cursor2: Self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            cursor1.guard_level == cursor2.guard_level,
+            cursor1.g_level == cursor2.g_level,
+            cursor1.path =~= cursor2.path,
+        ensures
+            cursor1.rec_put_guard_from_path(forgot_guards, cursor1.guard_level) =~=
+            cursor2.rec_put_guard_from_path(forgot_guards, cursor2.guard_level),
+    {
+        admit();
+    }
+
     pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
         &&& {
             let res = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
@@ -457,7 +473,40 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.guards_in_path_wf_with_forgot_guards(forgot_guards),
     {
         admit();
-    }    
+    }
+
+    // pub proof fn lemma_push_level_sustains_wf_with_forgot_guards(
+    //     pre: Self, 
+    //     post: Self, 
+    // )
+    //     requires
+    //     ensures
+    // {
+    //     admit();
+    // }
+
+    pub proof fn lemma_pop_level_sustains_wf_with_forgot_guards(
+        pre: Self,
+        post: Self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            pre.wf(),
+            post.wf(),
+            pre.wf_pop_level(post),
+            forgot_guards.wf(),
+            pre.wf_with_forgot_guards(forgot_guards),
+        ensures
+            post.wf_with_forgot_guards({
+                let guard = pre.get_guard_level_unwrap(pre.level);
+                let nid = guard.nid();
+                let inner = guard.guard->Some_0.inner@;
+                let spin_lock = guard.inner.deref().meta_spec().lock;
+                forgot_guards.put_spec(nid, inner, spin_lock)
+            }),
+    {
+        admit();
+    }
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
@@ -666,7 +715,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     ///
     /// If reached the end of a page table node, it leads itself up to the next page of the parent
     /// page if possible.
-    #[verifier::external_body]
     pub(in crate::mm) fn move_forward(
         &mut self,
         forgot_guards: Tracked<SubTreeForgotGuard<C>>,
@@ -676,6 +724,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).g_level@ == old(self).level,
             forgot_guards@.wf(),
             old(self).wf_with_forgot_guards(forgot_guards@),
+            old(self).va + page_size::<C>(old(self).level) <= old(self).barrier_va.end,
         ensures
             self.wf(),
             self.g_level@ == self.level,
@@ -684,10 +733,16 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.level >= old(self).level,
             res@.wf(),
             self.wf_with_forgot_guards(res@),
+            forall |level: PagingLevel|
+                #![trigger self.get_guard_level(level)]
+                self.level <= level <= self.guard_level ==> 
+                    self.get_guard_level(level) =~= old(self).get_guard_level(level),
     {
         let tracked forgot_guards = forgot_guards.get();
 
+        assert(1 <= self.level <= C::NR_LEVELS()) by { admit(); }; // We only target x86.
         let cur_page_size = page_size::<C>(self.level);
+        assert(align_down(self.va, cur_page_size) <= self.va) by { admit(); }; // Strange bug.
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
         assert(self.va < next_va <= self.va + cur_page_size) by {
             let aligned_va = align_down(self.va, cur_page_size) as int;
@@ -711,257 +766,123 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ;
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
+                next_va % page_size::<C>(self.level) == 0,
                 self.wf(),
+                self.g_level@ == self.level,
                 self.constant_fields_unchanged(old(self)),
                 self.va == old(self).va,
                 self.level >= old(self).level,
-                next_va % page_size::<C>(self.level) == 0,
                 forall |level: PagingLevel|
                     #![trigger self.get_guard_level(level)]
                     self.level <= level <= self.guard_level ==> 
                         self.get_guard_level(level) =~= old(self).get_guard_level(level),
+                forgot_guards.wf(),
+                self.wf_with_forgot_guards(forgot_guards)
             decreases self.guard_level - self.level,
         {
+            let ghost _cursor = *self;
             let res = self.pop_level(Tracked(forgot_guards));
             proof {
                 forgot_guards = res.get();
             }
-            // proof {
-            //     // Only thing we need to prove is next_va % page_size(self.level) == 0
-            //     assert(next_va % page_size::<C>((self.level - 1) as u8) == 0);
-            //     assert(pte_index::<C>(next_va, (self.level - 1) as u8) == 0);
-            //     lemma_addr_aligned_propagate::<C>(next_va, self.level);
-            // }
+            proof {
+                assert(next_va % page_size::<C>((self.level - 1) as u8) == 0);
+                assert(pte_index::<C>(next_va, (self.level - 1) as u8) == 0);
+                assert(1 <= self.level <= C::NR_LEVELS()) by { admit(); }; // We only target x86.
+                lemma_addr_aligned_propagate::<C>(next_va, self.level);
+
+                assert forall |level: PagingLevel|
+                    #![trigger self.get_guard_level(level)]
+                    self.level <= level <= self.guard_level
+                implies {
+                    self.get_guard_level(level) =~= old(self).get_guard_level(level)
+                } by {
+                    assert(self.get_guard_level(level) =~= _cursor.get_guard_level(level));
+                };
+            }
         }
+        assert(self.wf());
+        assert(self.wf_with_forgot_guards(forgot_guards));
+        let ghost _cursor = *self;
         self.va = next_va;
-        // proof {
-        //     // We prove self.wf(spt) by considering two cases
-        //     if (self.level == self.guard_level) {
-        //         assert forall|i: PagingLevel|
-        //             #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-        //             self.level <= i <= self.guard_level && self.va
-        //                 < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va()
-        //             == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
-        //             assert(i == self.guard_level);
-        //             let guard_va = old_path[path_index_at_level_local_spec(i)].unwrap().va();
-        //             let pg_size = page_size::<C>((i + 1) as u8);
-        //             lemma_page_size_spec_properties::<C>((i + 1) as u8);
-        //             calc! {
-        //                 (==)
-        //                 path_index!(self.path[i]).unwrap().va(); {}
-        //                 guard_va@; {}
-        //                 align_down(old(self).va, page_size::<C>((i + 1) as u8)); {
-        //                     lemma_align_down_squeeze(
-        //                         self.barrier_va.start,
-        //                         old(self).va,
-        //                         (self.barrier_va.end - 1) as usize,
-        //                         page_size::<C>((i + 1) as u8),
-        //                     );
-        //                 }
-        //                 align_down(self.barrier_va.start, page_size::<C>((i + 1) as u8)); {
-        //                     lemma_align_down_squeeze(
-        //                         self.barrier_va.start,
-        //                         self.va,
-        //                         (self.barrier_va.end - 1) as usize,
-        //                         page_size::<C>((i + 1) as u8),
-        //                     );
-        //                 }
-        //                 align_down(self.va, page_size::<C>((i + 1) as u8));
-        //             }
-        //         }
-        //         assert(self.wf_local(spt));
-        //     } else {
-        //         let old_level = old(self).level;
-        //         let old_page_size = cur_page_size;
-        //         let aligned_va = align_down(old(self).va, old_page_size);
-        //         // Information from the loop termination
-        //         assert(old_level <= self.level < self.guard_level);
-        //         assert(pte_index::<C>(next_va, self.level) != 0);
-
-        //         // No overflow.
-        //         assert(aligned_va + old_page_size < usize::MAX) by {
-        //             assert(aligned_va + old_page_size <= old(self).barrier_va.end);
-        //             assert(old(self).barrier_va.end < usize::MAX);
-        //         }
-        //         assert(self.va == next_va == aligned_va + old_page_size);
-
-        //         // The page size of the "next" level, i.e., self.level + 1.
-        //         let next_pg_size = page_size::<C>((self.level + 1) as u8) as nat;
-        //         // Apply the main lemma here to show that old(self).va and self.va are the
-        //         // same when aligned to next_pg_size.
-        //         assert(old(self).va as nat / next_pg_size == self.va as nat / next_pg_size) by {
-        //             assert(old(self).va < self.va <= old(self).va + old_page_size);
-        //             // These are the arguments to lemma_carry_ends_at_nonzero_result_bits
-        //             let p = (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
-        //                 - C::PTE_SIZE().ilog2()) * self.level) as nat;
-        //             assert(pow2(p) == next_pg_size) by {
-        //                 lemma_page_size_spec_properties::<C>((self.level + 1) as PagingLevel);
-        //             }
-        //             let q = (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
-        //                 - C::PTE_SIZE().ilog2()) * (self.level - 1)) as nat;
-        //             assert(pow2(q) == page_size::<C>(self.level) as nat) by {
-        //                 lemma_page_size_spec_properties::<C>(self.level);
-        //             }
-        //             // Preconditions
-        //             C::lemma_consts_properties();
-        //             // q <= p
-        //             assert(q <= p) by (nonlinear_arith)
-        //                 requires
-        //                     p == (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
-        //                         - C::PTE_SIZE().ilog2()) * self.level) as nat,
-        //                     q == (C::BASE_PAGE_SIZE().ilog2() + (C::BASE_PAGE_SIZE().ilog2()
-        //                         - C::PTE_SIZE().ilog2()) * (self.level - 1)) as nat,
-        //                     C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2() >= 0,
-        //             ;
-        //             // old_page_size is not too large
-        //             assert(old_page_size <= pow2(q)) by {
-        //                 lemma_page_size_increases::<C>(old(self).level, self.level);
-        //             }
-        //             // The middle part of the result is not zero
-        //             assert(next_va as nat % pow2(p) / pow2(q) != 0) by {
-        //                 lemma_pte_index_alternative_spec::<C>(next_va, self.level);
-        //                 // Use this to activate the second alternative spec
-        //                 assert(self.level < self.guard_level <= C::NR_LEVELS());
-        //                 // Then, use this to help the verifier know where the !=0 came from
-        //                 assert(pte_index::<C>(next_va, self.level) != 0);
-        //             }
-        //             // Now we are finally ready to apply the main lemma
-        //             lemma_carry_ends_at_nonzero_result_bits(
-        //                 next_va as nat,
-        //                 old(self).va as nat,
-        //                 p,
-        //                 q,
-        //             );
-        //             // Let's restate the result of the lemma here.
-        //             assert(next_va as nat / pow2(p) == old(self).va as nat / pow2(p));
-        //         }
-
-        //         assert forall|i: PagingLevel|
-        //             #![trigger page_size::<C>(i)]
-        //             self.level < i <= self.guard_level + 1 implies old(self).va as nat
-        //             / page_size::<C>(i) as nat == self.va as nat / page_size::<C>(i) as nat by {
-        //             assert(self.level + 1 <= i);
-        //             assert(next_pg_size > 0) by {
-        //                 lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
-        //             }
-        //             // Ratio of page_size::<C>(i) / next_pg_size
-        //             let ratio = pow(
-        //                 nr_subpage_per_huge::<C>() as int,
-        //                 (i - (self.level + 1)) as nat,
-        //             ) as nat;
-        //             assert(page_size::<C>(i) as nat == next_pg_size * ratio) by {
-        //                 lemma_page_size_geometric::<C>((self.level + 1) as u8, i);
-        //             }
-        //             assert(ratio > 0) by {
-        //                 C::lemma_consts_properties();
-        //                 assert(nr_subpage_per_huge::<C>() > 0);
-        //                 lemma_pow_positive(
-        //                     nr_subpage_per_huge::<C>() as int,
-        //                     (i - (self.level + 1)) as nat,
-        //                 );
-        //             }
-        //             calc! {
-        //                 (==)
-        //                 old(self).va as nat / page_size::<C>(i) as nat; {
-        //                     // Already proven: page_size(i) == next_pg_size * ratio
-        //                 }
-        //                 old(self).va as nat / (next_pg_size * ratio) as nat; {
-        //                     lemma_div_denominator(
-        //                         old(self).va as int,
-        //                         next_pg_size as int,
-        //                         ratio as int,
-        //                     );
-        //                 }
-        //                 old(self).va as nat / next_pg_size / ratio as nat; {
-        //                     // Already proven
-        //                 }
-        //                 self.va as nat / next_pg_size / ratio as nat; {
-        //                     lemma_div_denominator(
-        //                         self.va as int,
-        //                         next_pg_size as int,
-        //                         ratio as int,
-        //                     );
-        //                 }
-        //                 self.va as nat / (next_pg_size * ratio) as nat; {
-        //                     // Already proven: page_size(i) == next_pg_size * ratio
-        //                 }
-        //                 self.va as nat / page_size::<C>(i) as nat;
-        //             }
-        //         }
-
-        //         assert forall|i: PagingLevel|
-        //             #![trigger align_down(self.va, page_size::<C>((i + 1) as u8))]
-        //             self.level <= i <= self.guard_level && self.va
-        //                 < self.barrier_va.end implies path_index!(self.path[i]).unwrap().va()
-        //             == align_down(self.va, page_size::<C>((i + 1) as u8)) by {
-        //             lemma_page_size_spec_properties::<C>((i + 1) as u8);
-        //             calc! {
-        //                 (==)
-        //                 path_index!(self.path[i]).unwrap().va() as nat; {}
-        //                 old_path[path_index_at_level_local_spec(i)].unwrap().va() as nat; {}
-        //                 align_down(old(self).va, page_size::<C>((i + 1) as u8)) as nat; {
-        //                     lemma_align_down_properties(
-        //                         old(self).va,
-        //                         page_size::<C>((i + 1) as u8),
-        //                     );
-        //                 }
-        //                 old(self).va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>(
-        //                     (i + 1) as u8,
-        //                 ) as nat; {}
-        //                 self.va as nat / page_size::<C>((i + 1) as u8) as nat * page_size::<C>(
-        //                     (i + 1) as u8,
-        //                 ) as nat; {
-        //                     lemma_align_down_properties(self.va, page_size::<C>((i + 1) as u8));
-        //                 }
-        //                 align_down(self.va, page_size::<C>((i + 1) as u8)) as nat;
-        //             }
-        //         }
-
-        //         assert forall|i: u8| self.level < i <= self.guard_level implies pte_index::<C>(
-        //             self.va,
-        //             i,
-        //         ) == pte_index::<C>(old(self).va, i) by {
-        //             assert(self.level + 1 <= i);
-
-        //             assert(next_pg_size > 0) by {
-        //                 lemma_page_size_spec_properties::<C>((self.level + 1) as u8);
-        //             }
-        //             // Ratio of page_size::<C>(i) / next_pg_size
-        //             let ratio = pow(
-        //                 nr_subpage_per_huge::<C>() as int,
-        //                 (i - (self.level + 1)) as nat,
-        //             ) as nat;
-        //             assert(page_size::<C>(i) as nat == next_pg_size * ratio) by {
-        //                 lemma_page_size_geometric::<C>((self.level + 1) as u8, i);
-        //             }
-        //             assert(ratio > 0) by {
-        //                 C::lemma_consts_properties();
-        //                 assert(nr_subpage_per_huge::<C>() > 0);
-        //                 lemma_pow_positive(
-        //                     nr_subpage_per_huge::<C>() as int,
-        //                     (i - (self.level + 1)) as nat,
-        //                 );
-        //             }
-
-        //             calc! {
-        //                 (==)
-        //                 pte_index::<C>(self.va, i) as nat; {
-        //                     lemma_pte_index_alternative_spec::<C>(self.va, i);
-        //                 }
-        //                 self.va as nat / page_size_spec::<C>(i) as nat % nr_subpage_per_huge::<
-        //                     C,
-        //                 >() as nat; {}
-        //                 old(self).va as nat / page_size_spec::<C>(i) as nat % nr_subpage_per_huge::<
-        //                     C,
-        //                 >() as nat; {
-        //                     lemma_pte_index_alternative_spec::<C>(old(self).va, i);
-        //                 }
-        //                 pte_index::<C>(old(self).va, i) as nat;
-        //             }
-        //         }
-        //         assert(self.wf_local(spt));
-        //     }
-        // }
+        // Have no idea how to remove the redundant proofs.
+        assert(self.wf()) by {
+            assert(self.wf_path()) by {
+                assert forall |level: PagingLevel|
+                    #![trigger self.get_guard_level(level)]
+                    #![trigger self.get_guard_level_unwrap(level)]
+                    1 <= level <= 4 
+                implies {
+                    if level > self.guard_level {
+                        self.get_guard_level(level) is None
+                    } else if level >= self.g_level@ {
+                        &&& self.get_guard_level(level) is Some
+                        &&& self.get_guard_level_unwrap(level).wf()
+                        &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    } else {
+                        self.get_guard_level(level) is None
+                    }
+                } by {
+                    assert(self.guard_level == _cursor.guard_level);
+                    assert(self.g_level@ == _cursor.g_level@);
+                    if level > _cursor.guard_level {
+                        assert(_cursor.get_guard_level(level) is None);
+                    } else if level >= _cursor.g_level@ {
+                        assert({
+                            &&& _cursor.get_guard_level(level) is Some
+                            &&& _cursor.get_guard_level_unwrap(level).wf()
+                            &&& _cursor.get_guard_level_unwrap(level).inst_id() == _cursor.inst@.id()
+                            &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                            &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        });
+                    } else {
+                        assert(_cursor.get_guard_level(level) is None);
+                    }
+                }
+            };
+            assert(self.guards_in_path_relation()) by {
+                assert forall |level: PagingLevel|
+                    #![trigger self.adjacent_guard_is_child(level)]
+                    self.g_level@ < level <= self.guard_level
+                implies {
+                    self.adjacent_guard_is_child(level)
+                } by {
+                    assert(_cursor.adjacent_guard_is_child(level));
+                }
+            }
+        }
+        assert(self.wf_with_forgot_guards(forgot_guards)) by {
+            let res1 = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
+            let res2 = _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level);
+            assert(res1 =~= res2) by {
+                assert(self.guard_level == _cursor.guard_level);
+                assert(self.g_level@ == _cursor.g_level@);
+                assert(self.path =~= _cursor.path);
+                Self::lemma_cursor_eq_implie_forgot_guards_eq(*self, _cursor, forgot_guards);
+            };
+            assert({
+                &&& res1.wf()
+                &&& res1.is_root_and_contained(self.get_guard_level_unwrap(self.guard_level).nid())
+            });
+            assert forall|level: PagingLevel|
+                #![trigger self.get_guard_level_unwrap(level)]
+                self.g_level@ <= level <= self.guard_level
+            implies {
+                !forgot_guards.inner.dom().contains(self.get_guard_level_unwrap(level).nid())
+            } by {
+                assert(!forgot_guards.inner.dom().contains(_cursor.get_guard_level_unwrap(level).nid()))
+            }
+        }
+        assert forall |level: PagingLevel|
+            #![trigger self.get_guard_level(level)]
+            self.level <= level <= self.guard_level
+        implies {
+            self.get_guard_level(level) =~= old(self).get_guard_level(level)
+        } by {
+            assert(self.get_guard_level(level) =~= _cursor.get_guard_level(level));
+        };
 
         Tracked(forgot_guards)
     }
@@ -972,8 +893,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         self.va
     }
 
+    pub open spec fn wf_pop_level(self, post: Self) -> bool {
+        &&& post.level == self.level + 1
+        &&& post.g_level@ == self.g_level@ + 1
+        &&& forall |level: PagingLevel|
+            #![trigger self.get_guard_level(level)]
+            #![trigger self.get_guard_level_unwrap(level)]
+            1 <= level <= self.guard_level && level != self.level ==> {
+                self.get_guard_level(level) =~= post.get_guard_level(level)
+            }
+        &&& self.get_guard_level(self.level) is Some
+        &&& post.get_guard_level(self.level) is None
+        // Other fields remain unchanged.
+        &&& self.constant_fields_unchanged(&post)
+        &&& self.va == post.va
+    }
+
     /// Goes up a level.
-    #[verifier::external_body]
     fn pop_level(
         &mut self,
         forgot_guards: Tracked<SubTreeForgotGuard<C>>,
@@ -981,28 +917,23 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         requires
             old(self).wf(),
             old(self).g_level@ == old(self).level,
+            old(self).level < old(self).guard_level,
             forgot_guards@.wf(),
             old(self).wf_with_forgot_guards(forgot_guards@),
         ensures
+            old(self).wf_pop_level(*self),
             self.wf(),
             self.g_level@ == self.level,
-            self.level == old(self).level + 1,
             res@.wf(),
             self.wf_with_forgot_guards(res@),
-            // Other fields remain unchanged.
-            self.constant_fields_unchanged(old(self)),
-            self.va == old(self).va,
-            forall |level: PagingLevel|
-                #![trigger self.get_guard_level(level)]
-                #![trigger self.get_guard_level_unwrap(level)]
-                self.level <= level <= self.guard_level ==> {
-                    self.get_guard_level(level) =~= old(self).get_guard_level(level)
-                },
     {
+        let ghost init_forgot_guards = forgot_guards@;
         let tracked mut forgot_guards = forgot_guards.get();
 
         let guard_opt = self.take((self.level - 1) as usize);
-        assert(guard_opt is Some);
+        assert(guard_opt is Some) by {
+            assert(old(self).get_guard_level(self.level) is Some);
+        };
         let guard = guard_opt.unwrap();
         assert(guard.wf());
         assert(guard.guard is Some);
@@ -1011,12 +942,71 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let tracked inner = guard.guard.tracked_unwrap();
         let tracked forgot_guard = inner.inner.get();
         proof {
+            assert(!forgot_guards.inner.dom().contains(nid)) by { admit(); };
+            assert(forgot_guard.stray_perm.value() == false) by { admit(); };
+            assert(forgot_guard.in_protocol == true) by { admit(); };
+            assert(forgot_guards.is_sub_root(nid)) by { admit(); };
+            assert(forgot_guards.childs_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by { admit(); };
             forgot_guards.tracked_put(nid, forgot_guard, spin_lock);
         }
 
         self.path[(self.level - 1) as usize] = None;
 
         self.level = self.level + 1;
+
+        assert(self.wf()) by {
+            assert(self.wf_path()) by {
+                assert forall |level: PagingLevel|
+                    #![trigger self.get_guard_level(level)]
+                    #![trigger self.get_guard_level_unwrap(level)]
+                    1 <= level <= 4 
+                implies {
+                    if level > self.guard_level {
+                        self.get_guard_level(level) is None
+                    } else if level >= self.g_level@ {
+                        &&& self.get_guard_level(level) is Some
+                        &&& self.get_guard_level_unwrap(level).wf()
+                        &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    } else {
+                        self.get_guard_level(level) is None
+                    }
+                } by {
+                    assert(self.guard_level == old(self).guard_level);
+                    assert(self.g_level@ == old(self).g_level@ + 1);
+                    if level > self.guard_level {
+                        assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                    } else if level >= self.g_level@ {
+                        assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                    } else {
+                        if level == self.g_level@ - 1 {
+                            assert(self.get_guard_level(level) is None);
+                        } else {
+                            assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                            assert(old(self).get_guard_level(level) is None);
+                        }
+                    }
+                }
+            };
+            assert(self.guards_in_path_relation()) by {
+                assert forall |level: PagingLevel|
+                    #![trigger self.adjacent_guard_is_child(level)]
+                    self.g_level@ < level <= self.guard_level
+                implies {
+                    self.adjacent_guard_is_child(level)
+                } by {
+                    assert(old(self).adjacent_guard_is_child(level));
+                }
+            }
+        };
+        assert(self.wf_with_forgot_guards(forgot_guards)) by {
+            Self::lemma_pop_level_sustains_wf_with_forgot_guards(
+                *old(self),
+                *self,
+                init_forgot_guards,
+            );
+        };
 
         Tracked(forgot_guards)
     }

@@ -45,7 +45,7 @@ pub const PTE_SIZE: usize = 8;
 
 pub open spec fn page_size_spec<C: PagingConstsTrait>(level: PagingLevel) -> usize
     recommends
-        1 <= level <= C::NR_LEVELS(),
+        1 <= level <= 4,
 {
     let base_page_bits = C::BASE_PAGE_SIZE().ilog2();
     let pte_bits = C::PTE_SIZE().ilog2();
