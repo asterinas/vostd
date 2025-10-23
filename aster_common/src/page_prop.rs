@@ -160,24 +160,12 @@ impl CachePolicy {
         (CachePolicy::Writeback.value() + 1) as usize
     }
 
-    #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
-        match self {
-            CachePolicy::Uncacheable => 0,
-            CachePolicy::WriteCombining => 1,
-            CachePolicy::WriteProtected => 2,
-            CachePolicy::Writethrough => 3,
-            CachePolicy::Writeback => 4,
-        }
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
+    #[vstd::contrib::auto_spec]
     pub const fn value(&self) -> (res: u8)
-        ensures res == self.value()
     {
         match self {
-            CachePolicy::Uncacheable => 0,
+            CachePolicy::Uncacheable => 0u8,
             CachePolicy::WriteCombining => 1,
             CachePolicy::WriteProtected => 2,
             CachePolicy::Writethrough => 3,
@@ -226,30 +214,18 @@ impl PageFlags {
         Self { bits: 0 }
     }
 
-    #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
-        self.bits
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
+    #[vstd::contrib::auto_spec]
     pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
     {
         self.bits
     }
 
-    #[verifier::inline]
-    pub open spec fn from_bits_spec(value: u8) -> Self {
-        Self { bits: value }
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(from_bits_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn from_bits(value: u8) -> (res: Self)
-        ensures
-            res == Self::from_bits_spec(value),
-            res.bits == value,
+    ensures
+        res.bits == value,
     {
         Self { bits: value }
     }
@@ -410,15 +386,9 @@ impl PrivilegedPageFlags {
         Self { bits: 0 }
     }
 
-    #[verifier::inline]
-    pub open spec fn value_spec(&self) -> u8 {
-        self.bits
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(value_spec)]
+    #[vstd::contrib::auto_spec]
     pub const fn value(&self) -> (res: u8)
-        ensures res == self.value_spec()
     {
         self.bits
     }

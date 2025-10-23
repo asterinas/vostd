@@ -70,17 +70,7 @@ pub tracked struct PageModel {
 verus! {
 
 impl PageOwner {
-    pub open spec fn as_usage_spec(&self) -> PageUsage {
-        match self {
-            PageOwner::Kernel { .. } => PageUsage::Kernel,
-            PageOwner::User { .. } => PageUsage::Frame,
-            PageOwner::PageTable(_) => PageUsage::PageTable,
-            PageOwner::Dma => PageUsage::Reserved,
-            PageOwner::Cpu => PageUsage::Reserved,
-        }
-    }
-
-    #[verifier::when_used_as_spec(as_usage_spec)]
+    #[verifier::contrib::auto_spec]
     pub fn as_usage(&self) -> PageUsage {
         match self {
             PageOwner::Kernel { .. } => PageUsage::Kernel,

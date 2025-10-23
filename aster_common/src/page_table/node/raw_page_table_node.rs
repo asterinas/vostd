@@ -20,29 +20,13 @@ impl RawPageTableNode {
         true
     }
 
-    #[verifier::inline]
-    pub open spec fn paddr_spec(&self) -> Paddr {
+    #[vstd::contrib::auto_spec]
+    pub fn paddr(&self) -> (res: Paddr) {
         self.raw
     }
 
-    #[verifier::when_used_as_spec(paddr_spec)]
-    pub fn paddr(&self) -> (res: Paddr)
-        ensures
-            res == self.paddr_spec(),
-    {
-        self.raw
-    }
-
-    #[verifier::inline]
-    pub open spec fn level_spec(&self) -> PagingLevel {
-        self.level
-    }
-
-    #[verifier::when_used_as_spec(level_spec)]
-    pub fn level(&self) -> (res: PagingLevel)
-        ensures
-            res == self.level_spec(),
-    {
+    #[vstd::contrib::auto_spec]
+    pub fn level(&self) -> (res: PagingLevel) {
         self.level
     }
 }

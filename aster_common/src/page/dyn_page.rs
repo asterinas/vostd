@@ -33,22 +33,12 @@ impl DynPage {
             * META_SLOT_SIZE() && addr % META_SLOT_SIZE() == 0
     }
 
-    #[verifier::inline]
-    pub open spec fn paddr_spec(&self) -> Paddr
-        recommends
-            self.inv_ptr(),
-    {
-        let addr = self.ptr.addr();
-        meta_to_frame(addr)
-    }
-
-    #[verifier::when_used_as_spec(paddr_spec)]
+    #[verifier::contrib::auto_spec]
     #[inline(always)]
     pub fn paddr(&self) -> (res: Paddr)
         requires
             self.inv_ptr(),
         ensures
-            res == self.paddr_spec(),
             res % PAGE_SIZE() == 0,
     {
         meta_to_frame(self.ptr.addr())
