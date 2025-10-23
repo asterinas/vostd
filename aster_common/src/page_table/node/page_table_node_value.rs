@@ -26,7 +26,7 @@ pub tracked struct PageTableNodeValue {
 }
 
 impl Inv for PageTableNodeValue {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         if self.paddr == 0 {
             &&& self.nr_raws == 0
             &&& self.is_locked == false

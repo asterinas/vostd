@@ -49,7 +49,7 @@ pub tracked struct MetaSlotOwner {
 }
 
 impl Inv for MetaSlotOwner {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.ref_count@.value() == REF_COUNT_UNUSED ==> {
             &&& self.vtable_ptr@.is_uninit()
             &&& self.in_list@.value() == 0
@@ -81,7 +81,7 @@ pub ghost struct MetaSlotModel {
 }
 
 impl Inv for MetaSlotModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         match self.ref_count {
             REF_COUNT_UNUSED => {
                 &&& self.vtable_ptr.is_uninit()
@@ -101,7 +101,7 @@ impl Inv for MetaSlotModel {
 impl InvView for MetaSlotOwner {
     type V = MetaSlotModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         let storage = self.storage@.mem_contents();
         let ref_count = self.ref_count@.value();
         let vtable_ptr = self.vtable_ptr@.mem_contents();
@@ -163,7 +163,7 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.meta_perm@.is_init()
         &&& self.meta_perm@.wf()
         &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm@.addr()))
@@ -176,7 +176,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -184,7 +184,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> InvView for UniqueFrameOwner<M> {
     type V = UniqueFrameModel<M>;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         UniqueFrameModel { meta: self.meta_own@@ }
     }
 

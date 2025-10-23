@@ -55,7 +55,7 @@ impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
 }
 
 impl<M: AnyFrameMeta> Inv for Frame<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.ptr.addr() % META_SLOT_SIZE() == 0
         &&& FRAME_METADATA_RANGE().start <= self.ptr.addr() < FRAME_METADATA_RANGE().start
             + MAX_NR_PAGES() * META_SLOT_SIZE()

@@ -9,13 +9,13 @@ use std::ops::Range;
 verus! {
 
 pub trait Inv {
-    spec fn inv(&self) -> bool;
+    spec fn inv(self) -> bool;
 }
 
 pub trait InvView: Inv {
     type V: Inv;
 
-    spec fn view(&self) -> Self::V
+    spec fn view(self) -> Self::V
         recommends
             self.inv(),
     ;

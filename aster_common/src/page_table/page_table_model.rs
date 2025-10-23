@@ -20,7 +20,7 @@ pub tracked struct PageMetaOwner {
 }
 
 impl Inv for PageMetaOwner {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.nr_children@.is_init()
         &&& self.stray@.is_init()
     }
@@ -32,7 +32,7 @@ pub ghost struct PageMetaModel {
 }
 
 impl Inv for PageMetaModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -40,7 +40,7 @@ impl Inv for PageMetaModel {
 impl InvView for PageMetaOwner {
     type V = PageMetaModel;
 
-    open spec fn view(&self) -> <Self as InvView>::V {
+    open spec fn view(self) -> <Self as InvView>::V {
         PageMetaModel { nr_children: self.nr_children@.value(), stray: self.stray@.value() }
     }
 
@@ -63,7 +63,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.meta_perm@.points_to@.is_init()
         &&& <PageTablePageMeta<C> as Repr<MetaSlotStorage>>::wf(self.meta_perm@.points_to@.value())
         &&& self.meta_own.inv()
@@ -76,7 +76,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 impl<C: PageTableConfig> InvView for NodeOwner<C> {
     type V = NodeModel<C>;
 
-    open spec fn view(&self) -> <Self as InvView>::V {
+    open spec fn view(self) -> <Self as InvView>::V {
         NodeModel { meta: self.meta_perm@.value() }
     }
 
@@ -89,7 +89,7 @@ pub ghost struct NodeModel<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> Inv for NodeModel<C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -110,7 +110,7 @@ pub tracked struct EntryOwner<'rcu, C: PageTableConfig> {
 }
 
 impl<'rcu, C: PageTableConfig> Inv for EntryOwner<'rcu, C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.guard_perm@.is_init()
         &&& self.guard_perm@.value().inner.inner.ptr == self.slot_perm@.pptr()
         &&& self.guard_perm@.value().inner.inner.wf(&self.node_own)
@@ -135,7 +135,7 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
 impl<'rcu, C: PageTableConfig> InvView for EntryOwner<'rcu, C> {
     type V = NodeModel<C>;
 
-    open spec fn view(&self) -> <Self as InvView>::V {
+    open spec fn view(self) -> <Self as InvView>::V {
         NodeModel { meta: self.node_own.meta_perm@.value() }
     }
 
@@ -159,7 +159,7 @@ pub tracked struct OwnerInTree<'rcu, C: PageTableConfig> {
 }
 
 impl<'rcu, C: PageTableConfig> Inv for OwnerInTree<'rcu, C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         match self.tree_node {
             Some(owner) => owner.inv(),
             None => true,
@@ -232,13 +232,13 @@ pub ghost struct PageTableNodeModel {
 }
 
 impl Inv for PageTableNodeOwner {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
 
 impl Inv for PageTableNodeModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -246,7 +246,7 @@ impl Inv for PageTableNodeModel {
 impl InvView for PageTableNodeOwner {
     type V = PageTableNodeModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         PageTableNodeModel {
             paddr: self.paddr,
             is_pt: self.is_pt,
@@ -305,7 +305,7 @@ pub tracked struct PageTableModel {
 }
 
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
         //        forall |path: TreePath|
         //            inv_at()
