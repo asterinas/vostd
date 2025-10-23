@@ -148,11 +148,7 @@ pub  /*(crate)*/
     /// A concrete trait implementation may require the caller to ensure that
     ///  - the [`super::PageFlags::AVAIL1`] flag is the same as that returned
     ///    from [`PageTableConfig::item_into_raw`].
-    unsafe fn item_from_raw(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> Self::Item;
+    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 }
 
 impl<C: PageTableConfig> PagingConstsTrait for C {

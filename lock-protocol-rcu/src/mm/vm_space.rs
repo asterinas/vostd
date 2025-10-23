@@ -158,7 +158,6 @@ impl AnyFrameMeta for UntypedFrameMeta {
 //     /// Marked with a [`Status`], without actually mapping a physical frame.
 //     Status(Status, PagingLevel),
 // }
-
 // #[derive(Clone, Debug)]
 pub(crate) struct UserPtConfig {}
 

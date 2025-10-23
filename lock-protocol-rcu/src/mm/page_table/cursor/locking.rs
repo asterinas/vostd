@@ -133,8 +133,12 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         inst: Tracked(pt.inst.borrow().clone()),
         g_level: Ghost(guard_level),
     };
-    assert(result.wf_va()) by { admit(); };
-    assert(result.wf_with_forgot_guards(forgot_guards)) by { admit(); };
+    assert(result.wf_va()) by {
+        admit();
+    };
+    assert(result.wf_with_forgot_guards(forgot_guards)) by {
+        admit();
+    };
 
     (result, Tracked(m), Tracked(forgot_guards))
 }
@@ -190,7 +194,9 @@ pub fn unlock_range<C: PageTableConfig>(
             cursor.inst =~= old(cursor).inst,
             cursor.wf_with_forgot_guards(forgot_guards),
             forgot_guards.wf(),
-            forgot_guards.is_root(old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid()),
+            forgot_guards.is_root(
+                old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid(),
+            ),
         decreases 4 - i,
     {
         assert(cursor.path[i as int] is Some) by {
@@ -253,12 +259,12 @@ pub fn unlock_range<C: PageTableConfig>(
                     assert forall|level: PagingLevel|
                         #![trigger cursor.path[level - 1]]
                         cursor.g_level@ <= level <= cursor.guard_level implies {
-                        !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+                        !forgot_guards.inner.dom().contains(
+                            cursor.get_guard_level_unwrap(level).nid(),
+                        )
                     } by {
-                        assert(
-                            cursor.get_guard_level_unwrap(level) =~= 
-                            _cursor.get_guard_level_unwrap(level)
-                        );
+                        assert(cursor.get_guard_level_unwrap(level)
+                            =~= _cursor.get_guard_level_unwrap(level));
                         assert(!_forgot_guards.inner.dom().contains(
                             _cursor.get_guard_level_unwrap(level).nid(),
                         ));
@@ -269,9 +275,8 @@ pub fn unlock_range<C: PageTableConfig>(
                     }
                 };
                 assert(cursor.guards_in_path_relation()) by {
-                    assert forall |level: PagingLevel| 
-                        cursor.g_level@ < level <= cursor.guard_level
-                    implies {
+                    assert forall|level: PagingLevel|
+                        cursor.g_level@ < level <= cursor.guard_level implies {
                         cursor.adjacent_guard_is_child(level)
                     } by {
                         assert(_cursor.adjacent_guard_is_child(level));

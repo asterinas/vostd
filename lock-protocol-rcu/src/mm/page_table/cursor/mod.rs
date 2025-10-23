@@ -44,9 +44,8 @@ use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
 use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::{
-        NodeId, valid_va_range, vaddr_is_aligned, 
-        va_level_to_trace, va_level_to_offset, va_level_to_nid,
-        lemma_va_level_to_trace_valid,
+        NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
+        va_level_to_nid, lemma_va_level_to_trace_valid,
     },
     utils::{NodeHelper, group_node_helper_lemmas},
     rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, PteArrayState},
@@ -170,7 +169,6 @@ pub open spec fn va_range_get_guard_nid(va: Range<Vaddr>) -> NodeId {
 }
 
 } // verus!
-
 verus! {
 
 /// The cursor for traversal over the page table.
@@ -242,8 +240,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         &&& forall|level: PagingLevel|
             #![trigger self.adjacent_guard_is_child(level)]
-            self.g_level@ < level <= self.guard_level ==> 
-                self.adjacent_guard_is_child(level)
+            self.g_level@ < level <= self.guard_level ==> self.adjacent_guard_is_child(level)
     }
 
     pub open spec fn wf_path(&self) -> bool {
@@ -258,7 +255,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& self.get_guard_level(level) is Some
                     &&& self.get_guard_level_unwrap(level).wf()
                     &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
-                    &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                    &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
+                        == false
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
                 } else {
                     self.get_guard_level(level) is None
@@ -271,17 +269,18 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub open spec fn wf_va(&self) -> bool {
         // &&& self.va < MAX_USERSPACE_VADDR
         &&& self.barrier_va.start < self.barrier_va.end
-            < MAX_USERSPACE_VADDR
-        // // We allow the cursor to be at the end of the range.
+            < MAX_USERSPACE_VADDR//
+        // We allow the cursor to be at the end of the range.
         &&& self.barrier_va.start <= self.va
-            <= self.barrier_va.end
-        // // The barrier range should be contained in the range of the frame at
+            <= self.barrier_va.end//
+        // The barrier range should be contained in the range of the frame at
         // // the guard level.
         // &&& align_down(self.barrier_va.start, page_size::<C>((self.guard_level + 1) as u8))
         //     == align_down(
         //     (self.barrier_va.end - 1) as usize,
         //     page_size::<C>((self.guard_level + 1) as u8),
         // )
+
     }
 
     /// Well-formedness of the cursor's level and guard level.
@@ -325,8 +324,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         level1: PagingLevel,
         level2: PagingLevel,
     ) -> bool {
-        self.get_guard_level_unwrap(level1).nid() != 
-        self.get_guard_level_unwrap(level2).nid()
+        self.get_guard_level_unwrap(level1).nid() != self.get_guard_level_unwrap(level2).nid()
     }
 
     pub proof fn lemma_guard_in_path_relation_implies_nid_diff(&self)
@@ -392,8 +390,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             cursor1.g_level == cursor2.g_level,
             cursor1.path =~= cursor2.path,
         ensures
-            cursor1.rec_put_guard_from_path(forgot_guards, cursor1.guard_level) =~=
-            cursor2.rec_put_guard_from_path(forgot_guards, cursor2.guard_level),
+            cursor1.rec_put_guard_from_path(forgot_guards, cursor1.guard_level)
+                =~= cursor2.rec_put_guard_from_path(forgot_guards, cursor2.guard_level),
     {
         admit();
     }
@@ -448,15 +446,14 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     // pub proof fn lemma_push_level_sustains_wf_with_forgot_guards(
-    //     pre: Self, 
-    //     post: Self, 
+    //     pre: Self,
+    //     post: Self,
     // )
     //     requires
     //     ensures
     // {
     //     admit();
     // }
-
     pub proof fn lemma_pop_level_sustains_wf_with_forgot_guards(
         pre: Self,
         post: Self,
@@ -469,13 +466,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             forgot_guards.wf(),
             pre.wf_with_forgot_guards(forgot_guards),
         ensures
-            post.wf_with_forgot_guards({
-                let guard = pre.get_guard_level_unwrap(pre.level);
-                let nid = guard.nid();
-                let inner = guard.guard->Some_0.inner@;
-                let spin_lock = guard.inner.deref().meta_spec().lock;
-                forgot_guards.put_spec(nid, inner, spin_lock)
-            }),
+            post.wf_with_forgot_guards(
+                {
+                    let guard = pre.get_guard_level_unwrap(pre.level);
+                    let nid = guard.nid();
+                    let inner = guard.guard->Some_0.inner@;
+                    let spin_lock = guard.inner.deref().meta_spec().lock;
+                    forgot_guards.put_spec(nid, inner, spin_lock)
+                },
+            ),
     {
         admit();
     }
@@ -499,7 +498,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             res =~= old(self).path[i as int],
             self.path[i as int] is None,
             // self.path.len() == old(self).path.len(),
-            forall |_i|
+            forall|_i|
                 #![trigger self.path[_i]]
                 0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
     {
@@ -523,7 +522,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.level == old(self).level,
             self.va == old(self).va,
             self.path[i as int] =~= Some(guard),
-            forall |_i|
+            forall|_i|
                 #![trigger self.path[_i]]
                 0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
     {
@@ -543,11 +542,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         guard: &'a DisabledPreemptGuard,
         va: &Range<Vaddr>,
         m: Tracked<LockProtocolModel>,
-    ) -> (res: (
-        Self,
-        Tracked<SubTreeForgotGuard<C>>,
-        Tracked<LockProtocolModel>,
-    ))
+    ) -> (res: (Self, Tracked<SubTreeForgotGuard<C>>, Tracked<LockProtocolModel>))
         requires
             pt.wf(),
             va_range_wf(*va),
@@ -571,7 +566,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     assert(false);
         // }
         // const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
-        
         let res = locking::lock_range(pt, guard, va, m);
         let cursor = res.0;
         let tracked model = res.1.get();
@@ -585,10 +579,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
     #[verifier::external_body]
-    pub fn query(
-        &mut self,
-        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
-    ) -> (res: (
+    pub fn query(&mut self, forgot_guards: Tracked<SubTreeForgotGuard<C>>) -> (res: (
         Result<Option<(Paddr, PagingLevel, PageProperty)>, PageTableError>,
         Tracked<SubTreeForgotGuard<C>>,
     ))
@@ -602,26 +593,26 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ == self.level,
             res.1@.wf(),
             self.wf_with_forgot_guards(res.1@),
-            // TODO
-            // match res.0 {
-            //     Ok(Some(item)) => {
-            //         exists|pte_pa: Paddr|
-            //             {
-            //                 &&& #[trigger] spt.ptes.value().contains_key(pte_pa as int)
-            //                 &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == item.0
-            //             }
-            //     },
-            //     Ok(None) => true,  // Maybe && forall spt.ptes.value()[pte_pa as int].va != self.va
-            //     Err(err) => {
-            //         &&& old(self).va >= self.barrier_va.end
-            //         &&& err == PageTableError::InvalidVaddr(old(self).va)
-            //     },
-            // },
+    // TODO
+    // match res.0 {
+    //     Ok(Some(item)) => {
+    //         exists|pte_pa: Paddr|
+    //             {
+    //                 &&& #[trigger] spt.ptes.value().contains_key(pte_pa as int)
+    //                 &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == item.0
+    //             }
+    //     },
+    //     Ok(None) => true,  // Maybe && forall spt.ptes.value()[pte_pa as int].va != self.va
+    //     Err(err) => {
+    //         &&& old(self).va >= self.barrier_va.end
+    //         &&& err == PageTableError::InvalidVaddr(old(self).va)
+    //     },
+    // },
+
     {
         if self.va >= self.barrier_va.end {
             return (Err(PageTableError::InvalidVaddr(self.va)), forgot_guards);
         }
-
         let tracked forgot_guards = forgot_guards.get();
 
         let ghost cur_va = self.va;
@@ -705,16 +696,21 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.level >= old(self).level,
             res@.wf(),
             self.wf_with_forgot_guards(res@),
-            forall |level: PagingLevel|
+            forall|level: PagingLevel|
                 #![trigger self.get_guard_level(level)]
-                self.level <= level <= self.guard_level ==> 
-                    self.get_guard_level(level) =~= old(self).get_guard_level(level),
+                self.level <= level <= self.guard_level ==> self.get_guard_level(level) =~= old(
+                    self,
+                ).get_guard_level(level),
     {
         let tracked forgot_guards = forgot_guards.get();
 
-        assert(1 <= self.level <= C::NR_LEVELS()) by { admit(); }; // We only target x86.
+        assert(1 <= self.level <= C::NR_LEVELS()) by {
+            admit();
+        };  // We only target x86.
         let cur_page_size = page_size::<C>(self.level);
-        assert(align_down(self.va, cur_page_size) <= self.va) by { admit(); }; // Strange bug.
+        assert(align_down(self.va, cur_page_size) <= self.va) by {
+            admit();
+        };  // Strange bug.
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
         assert(self.va < next_va <= self.va + cur_page_size) by {
             let aligned_va = align_down(self.va, cur_page_size) as int;
@@ -744,12 +740,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.constant_fields_unchanged(old(self)),
                 self.va == old(self).va,
                 self.level >= old(self).level,
-                forall |level: PagingLevel|
+                forall|level: PagingLevel|
                     #![trigger self.get_guard_level(level)]
-                    self.level <= level <= self.guard_level ==> 
-                        self.get_guard_level(level) =~= old(self).get_guard_level(level),
+                    self.level <= level <= self.guard_level ==> self.get_guard_level(level) =~= old(
+                        self,
+                    ).get_guard_level(level),
                 forgot_guards.wf(),
-                self.wf_with_forgot_guards(forgot_guards)
+                self.wf_with_forgot_guards(forgot_guards),
             decreases self.guard_level - self.level,
         {
             let ghost _cursor = *self;
@@ -760,13 +757,14 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             proof {
                 assert(next_va % page_size::<C>((self.level - 1) as u8) == 0);
                 assert(pte_index::<C>(next_va, (self.level - 1) as u8) == 0);
-                assert(1 <= self.level <= C::NR_LEVELS()) by { admit(); }; // We only target x86.
+                assert(1 <= self.level <= C::NR_LEVELS()) by {
+                    admit();
+                };  // We only target x86.
                 lemma_addr_aligned_propagate::<C>(next_va, self.level);
 
-                assert forall |level: PagingLevel|
+                assert forall|level: PagingLevel|
                     #![trigger self.get_guard_level(level)]
-                    self.level <= level <= self.guard_level
-                implies {
+                    self.level <= level <= self.guard_level implies {
                     self.get_guard_level(level) =~= old(self).get_guard_level(level)
                 } by {
                     assert(self.get_guard_level(level) =~= _cursor.get_guard_level(level));
@@ -780,18 +778,18 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         // Have no idea how to remove the redundant proofs.
         assert(self.wf()) by {
             assert(self.wf_path()) by {
-                assert forall |level: PagingLevel|
+                assert forall|level: PagingLevel|
                     #![trigger self.get_guard_level(level)]
                     #![trigger self.get_guard_level_unwrap(level)]
-                    1 <= level <= 4 
-                implies {
+                    1 <= level <= 4 implies {
                     if level > self.guard_level {
                         self.get_guard_level(level) is None
                     } else if level >= self.g_level@ {
                         &&& self.get_guard_level(level) is Some
                         &&& self.get_guard_level_unwrap(level).wf()
                         &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
-                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
+                            == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
                     } else {
                         self.get_guard_level(level) is None
@@ -805,9 +803,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         assert({
                             &&& _cursor.get_guard_level(level) is Some
                             &&& _cursor.get_guard_level_unwrap(level).wf()
-                            &&& _cursor.get_guard_level_unwrap(level).inst_id() == _cursor.inst@.id()
-                            &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
-                            &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                            &&& _cursor.get_guard_level_unwrap(level).inst_id()
+                                == _cursor.inst@.id()
+                            &&& _cursor.get_guard_level_unwrap(
+                                level,
+                            ).guard->Some_0.stray_perm().value() == false
+                            &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol()
+                                == true
                         });
                     } else {
                         assert(_cursor.get_guard_level(level) is None);
@@ -815,10 +817,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 }
             };
             assert(self.guards_in_path_relation()) by {
-                assert forall |level: PagingLevel|
+                assert forall|level: PagingLevel|
                     #![trigger self.adjacent_guard_is_child(level)]
-                    self.g_level@ < level <= self.guard_level
-                implies {
+                    self.g_level@ < level <= self.guard_level implies {
                     self.adjacent_guard_is_child(level)
                 } by {
                     assert(_cursor.adjacent_guard_is_child(level));
@@ -840,17 +841,17 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             });
             assert forall|level: PagingLevel|
                 #![trigger self.get_guard_level_unwrap(level)]
-                self.g_level@ <= level <= self.guard_level
-            implies {
+                self.g_level@ <= level <= self.guard_level implies {
                 !forgot_guards.inner.dom().contains(self.get_guard_level_unwrap(level).nid())
             } by {
-                assert(!forgot_guards.inner.dom().contains(_cursor.get_guard_level_unwrap(level).nid()))
+                assert(!forgot_guards.inner.dom().contains(
+                    _cursor.get_guard_level_unwrap(level).nid(),
+                ))
             }
         }
-        assert forall |level: PagingLevel|
+        assert forall|level: PagingLevel|
             #![trigger self.get_guard_level(level)]
-            self.level <= level <= self.guard_level
-        implies {
+            self.level <= level <= self.guard_level implies {
             self.get_guard_level(level) =~= old(self).get_guard_level(level)
         } by {
             assert(self.get_guard_level(level) =~= _cursor.get_guard_level(level));
@@ -859,8 +860,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         Tracked(forgot_guards)
     }
 
-    pub fn virt_addr(&self) -> Vaddr 
-        returns self.va,
+    pub fn virt_addr(&self) -> Vaddr
+        returns
+            self.va,
     {
         self.va
     }
@@ -868,24 +870,25 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub open spec fn wf_pop_level(self, post: Self) -> bool {
         &&& post.level == self.level + 1
         &&& post.g_level@ == self.g_level@ + 1
-        &&& forall |level: PagingLevel|
+        &&& forall|level: PagingLevel|
             #![trigger self.get_guard_level(level)]
             #![trigger self.get_guard_level_unwrap(level)]
             1 <= level <= self.guard_level && level != self.level ==> {
                 self.get_guard_level(level) =~= post.get_guard_level(level)
             }
         &&& self.get_guard_level(self.level) is Some
-        &&& post.get_guard_level(self.level) is None
+        &&& post.get_guard_level(
+            self.level,
+        ) is None
         // Other fields remain unchanged.
         &&& self.constant_fields_unchanged(&post)
         &&& self.va == post.va
     }
 
     /// Goes up a level.
-    fn pop_level(
-        &mut self,
-        forgot_guards: Tracked<SubTreeForgotGuard<C>>,
-    ) -> (res: Tracked<SubTreeForgotGuard<C>>)
+    fn pop_level(&mut self, forgot_guards: Tracked<SubTreeForgotGuard<C>>) -> (res: Tracked<
+        SubTreeForgotGuard<C>,
+    >)
         requires
             old(self).wf(),
             old(self).g_level@ == old(self).level,
@@ -914,11 +917,24 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let tracked inner = guard.guard.tracked_unwrap();
         let tracked forgot_guard = inner.inner.get();
         proof {
-            assert(!forgot_guards.inner.dom().contains(nid)) by { admit(); };
-            assert(forgot_guard.stray_perm.value() == false) by { admit(); };
-            assert(forgot_guard.in_protocol == true) by { admit(); };
-            assert(forgot_guards.is_sub_root(nid)) by { admit(); };
-            assert(forgot_guards.children_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by { admit(); };
+            assert(!forgot_guards.inner.dom().contains(nid)) by {
+                admit();
+            };
+            assert(forgot_guard.stray_perm.value() == false) by {
+                admit();
+            };
+            assert(forgot_guard.in_protocol == true) by {
+                admit();
+            };
+            assert(forgot_guards.is_sub_root(nid)) by {
+                admit();
+            };
+            assert(forgot_guards.children_are_contained(
+                nid,
+                forgot_guard.pte_token->Some_0.value(),
+            )) by {
+                admit();
+            };
             forgot_guards.tracked_put(nid, forgot_guard, spin_lock);
         }
 
@@ -928,18 +944,18 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 
         assert(self.wf()) by {
             assert(self.wf_path()) by {
-                assert forall |level: PagingLevel|
+                assert forall|level: PagingLevel|
                     #![trigger self.get_guard_level(level)]
                     #![trigger self.get_guard_level_unwrap(level)]
-                    1 <= level <= 4 
-                implies {
+                    1 <= level <= 4 implies {
                     if level > self.guard_level {
                         self.get_guard_level(level) is None
                     } else if level >= self.g_level@ {
                         &&& self.get_guard_level(level) is Some
                         &&& self.get_guard_level_unwrap(level).wf()
                         &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
-                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                        &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
+                            == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
                     } else {
                         self.get_guard_level(level) is None
@@ -962,10 +978,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 }
             };
             assert(self.guards_in_path_relation()) by {
-                assert forall |level: PagingLevel|
+                assert forall|level: PagingLevel|
                     #![trigger self.adjacent_guard_is_child(level)]
-                    self.g_level@ < level <= self.guard_level
-                implies {
+                    self.g_level@ < level <= self.guard_level implies {
                     self.adjacent_guard_is_child(level)
                 } by {
                     assert(old(self).adjacent_guard_is_child(level));
@@ -984,10 +999,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     /// Goes down a level to a child page table.
-    fn push_level(
-        &mut self,
-        child_pt: PageTableGuard<'a, C>,
-    )
+    fn push_level(&mut self, child_pt: PageTableGuard<'a, C>)
         requires
             old(self).wf(),
             old(self).level > 1,
@@ -1003,7 +1015,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.constant_fields_unchanged(old(self)),
             self.va == old(self).va,
             // Path remains unchanged except the one being set
-            forall |level: PagingLevel|
+            forall|level: PagingLevel|
                 #![trigger self.get_guard_level(level)]
                 #![trigger self.get_guard_level_unwrap(level)]
                 old(self).level <= level <= old(self).guard_level ==> {
@@ -1013,9 +1025,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         self.level = self.level - 1;
 
         self.path[(self.level - 1) as usize] = Some(child_pt);
-        
+
         assert(self.wf()) by {
-            assert(self.wf_path()) by { admit(); };
+            assert(self.wf_path()) by {
+                admit();
+            };
         };
     }
 
@@ -1054,62 +1068,55 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
 pub struct CursorMut<'a, C: PageTableConfig>(pub Cursor<'a, C>);
 
 impl<'a, C: PageTableConfig> CursorMut<'a, C> {
-//     /// Creates a cursor claiming exclusive access over the given range.
-//     ///
-//     /// The cursor created will only be able to map, query or jump within the given
-//     /// range. Out-of-bound accesses will result in panics or errors as return values,
-//     /// depending on the access method.
-//     // pub(super) fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
-//     //     Cursor::new(pt, va).map(|inner| Self(inner))
-//     // }
-//     /// Gets the current virtual address.
-//     pub fn virt_addr(&self) -> Vaddr {
-//         self.0.virt_addr()
-//     }
+    //     /// Creates a cursor claiming exclusive access over the given range.
+    //     ///
+    //     /// The cursor created will only be able to map, query or jump within the given
+    //     /// range. Out-of-bound accesses will result in panics or errors as return values,
+    //     /// depending on the access method.
+    //     // pub(super) fn new(pt: &'a PageTable<C>, va: &Range<Vaddr>) -> Result<Self, PageTableError> {
+    //     //     Cursor::new(pt, va).map(|inner| Self(inner))
+    //     // }
+    //     /// Gets the current virtual address.
+    //     pub fn virt_addr(&self) -> Vaddr {
+    //         self.0.virt_addr()
+    //     }
+    pub open spec fn path_contained(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
+        forall|level: PagingLevel|
+            1 <= level <= self.0.guard_level ==> {
+                #[trigger] forgot_guards.inner.dom().contains(va_level_to_nid(self.0.va, level))
+            }
+    }
 
-pub open spec fn path_contained(
-    &self, 
-    forgot_guards: SubTreeForgotGuard<C>,
-) -> bool {
-    forall |level: PagingLevel|
-        1 <= level <= self.0.guard_level ==> {
-            #[trigger] forgot_guards.inner.dom().contains(
-                va_level_to_nid(self.0.va, level)
-            )
-        }
-}
+    pub open spec fn new_item_relate(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        item: C::Item,
+    ) -> bool {
+        let nid = va_level_to_nid(self.0.va, 1);
+        let idx = pte_index::<C>(self.0.va, 1);
+        let guard = forgot_guards.get_guard_inner(nid);
 
-pub open spec fn new_item_relate(
-    &self, 
-    forgot_guards: SubTreeForgotGuard<C>,
-    item: C::Item,
-) -> bool {
-    let nid = va_level_to_nid(self.0.va, 1);
-    let idx = pte_index::<C>(self.0.va, 1);
-    let guard = forgot_guards.get_guard_inner(nid);
-    
-    C::item_into_raw_spec(item).0 == 
-    guard.perms.inner.value()[idx as int].inner.paddr()
-}
+        C::item_into_raw_spec(item).0 == guard.perms.inner.value()[idx as int].inner.paddr()
+    }
 
-//     /// Maps the range starting from the current address to an item.
-//     ///
-//     /// It returns the previously mapped item if that exists.
-//     ///
-//     /// Note that the item `C::Item`, when converted to a raw item, if the page property
-//     /// indicate that it is marked metadata, the function is essentially `mark`.
-//     ///
-//     /// # Panics
-//     ///
-//     /// This function will panic if
-//     ///  - the virtual address range to be mapped is out of the range;
-//     ///  - the alignment of the page is not satisfied by the virtual address;
-//     ///  - it is already mapped to a huge page while the caller wants to map a smaller one.
-//     ///
-//     /// # Safety
-//     ///
-//     /// The caller should ensure that the virtual range being mapped does
-//     /// not affect kernel's memory safety.
+    //     /// Maps the range starting from the current address to an item.
+    //     ///
+    //     /// It returns the previously mapped item if that exists.
+    //     ///
+    //     /// Note that the item `C::Item`, when converted to a raw item, if the page property
+    //     /// indicate that it is marked metadata, the function is essentially `mark`.
+    //     ///
+    //     /// # Panics
+    //     ///
+    //     /// This function will panic if
+    //     ///  - the virtual address range to be mapped is out of the range;
+    //     ///  - the alignment of the page is not satisfied by the virtual address;
+    //     ///  - it is already mapped to a huge page while the caller wants to map a smaller one.
+    //     ///
+    //     /// # Safety
+    //     ///
+    //     /// The caller should ensure that the virtual range being mapped does
+    //     /// not affect kernel's memory safety.
     #[verifier::spinoff_prover]
     #[verifier::external_body]
     pub fn map(
@@ -1139,9 +1146,7 @@ pub open spec fn new_item_relate(
             res.1@.wf(),
             self.0.wf_with_forgot_guards(res.1@),
             // The map succeeds.
-            old(self).path_contained(
-                self.0.rec_put_guard_from_path(res.1@, self.0.guard_level),
-            ),
+            old(self).path_contained(self.0.rec_put_guard_from_path(res.1@, self.0.guard_level)),
             // TODO: Post condition of res.0
             old(self).new_item_relate(
                 self.0.rec_put_guard_from_path(res.1@, self.0.guard_level),
@@ -1227,11 +1232,7 @@ pub open spec fn new_item_relate(
                 ChildRef::None => {
                     assert(self.0.cur_node_unwrap().level_spec() == cur_level);
                     let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
-                    let res = cur_entry.alloc_if_none(
-                        preempt_guard,
-                        &mut cur_node,
-                        Tracked(m),
-                    );
+                    let res = cur_entry.alloc_if_none(preempt_guard, &mut cur_node, Tracked(m));
                     let child_pt = res.unwrap();
                     self.0.put((self.0.level - 1) as usize, cur_node);
 
@@ -1316,40 +1317,36 @@ pub open spec fn new_item_relate(
                 prop: prop,
             },
             Child::None => PageTableItem::NotMapped { va: old_va, len: old_len },
-            Child::PageTable(pt) => PageTableItem::StrayPageTable {
-                pt,
-                va: old_va,
-                len: old_len,
-            },
+            Child::PageTable(pt) => PageTableItem::StrayPageTable { pt, va: old_va, len: old_len },
         };
 
         (res, Tracked(forgot_guards))
     }
 
-//     /// Find and remove the first page in the cursor's following range.
-//     ///
-//     /// The range to be found in is the current virtual address with the
-//     /// provided length.
-//     ///
-//     /// The function stops and yields the page if it has actually removed a
-//     /// page, no matter if the following pages are also required to be unmapped.
-//     /// The returned page is the virtual page that existed before the removal
-//     /// but having just been unmapped.
-//     ///
-//     /// It also makes the cursor moves forward to the next page after the
-//     /// removed one, when an actual page is removed. If no mapped pages exist
-//     /// in the following range, the cursor will stop at the end of the range
-//     /// and return [`PageTableItem::NotMapped`].
-//     ///
-//     /// # Safety
-//     ///
-//     /// The caller should ensure that the range being unmapped does not affect
-//     /// kernel's memory safety.
-//     ///
-//     /// # Panics
-//     ///
-//     /// This function will panic if the end range covers a part of a huge page
-//     /// and the next page is that huge page.
+    //     /// Find and remove the first page in the cursor's following range.
+    //     ///
+    //     /// The range to be found in is the current virtual address with the
+    //     /// provided length.
+    //     ///
+    //     /// The function stops and yields the page if it has actually removed a
+    //     /// page, no matter if the following pages are also required to be unmapped.
+    //     /// The returned page is the virtual page that existed before the removal
+    //     /// but having just been unmapped.
+    //     ///
+    //     /// It also makes the cursor moves forward to the next page after the
+    //     /// removed one, when an actual page is removed. If no mapped pages exist
+    //     /// in the following range, the cursor will stop at the end of the range
+    //     /// and return [`PageTableItem::NotMapped`].
+    //     ///
+    //     /// # Safety
+    //     ///
+    //     /// The caller should ensure that the range being unmapped does not affect
+    //     /// kernel's memory safety.
+    //     ///
+    //     /// # Panics
+    //     ///
+    //     /// This function will panic if the end range covers a part of a huge page
+    //     /// and the next page is that huge page.
     #[verifier::spinoff_prover]
     #[verifier::external_body]
     pub unsafe fn take_next(
@@ -1370,8 +1367,11 @@ pub open spec fn new_item_relate(
             self.0.g_level@ == self.0.level,
             self.0.constant_fields_unchanged(&old(self).0),
             res.1@.wf(),
-            self.0.wf_with_forgot_guards(res.1@),
-            // TODO: Post condition of res.0
+            self.0.wf_with_forgot_guards(
+                res.1@,
+            ),
+    // TODO: Post condition of res.0
+
     {
         let tracked forgot_guards = forgot_guards.get();
 
@@ -1388,14 +1388,17 @@ pub open spec fn new_item_relate(
                 self.0.g_level@ == self.0.level,
                 self.0.constant_fields_unchanged(&old(self).0),
                 forgot_guards.wf(),
-                self.0.wf_with_forgot_guards(forgot_guards),
-                // self.0.va + page_size::<C>(self.0.level) < end,
-                // self.0.va + len < MAX_USERSPACE_VADDR,
-                // end <= self.0.barrier_va.end,
+                self.0.wf_with_forgot_guards(
+                    forgot_guards,
+                ),
+        // self.0.va + page_size::<C>(self.0.level) < end,
+        // self.0.va + len < MAX_USERSPACE_VADDR,
+        // end <= self.0.barrier_va.end,
+
             decreases
-                end - self.0.va,
-                // for push_level, only level decreases
-                self.0.level,
+                    end - self.0.va,
+                    // for push_level, only level decreases
+                    self.0.level,
         {
             let cur_va = self.0.va;
             let cur_level = self.0.level;
@@ -1516,8 +1519,11 @@ pub open spec fn new_item_relate(
                     let ghost nid = pt.deref().nid@;
                     let ghost spin_lock = forgot_guards.get_lock(nid);
                     let tracked forgot_guard = forgot_guards.tracked_take(nid);
-                    let locked_pt = pt.deref().borrow()
-                        .make_guard_unchecked(preempt_guard, Tracked(forgot_guard), Ghost(spin_lock));
+                    let locked_pt = pt.deref().borrow().make_guard_unchecked(
+                        preempt_guard,
+                        Tracked(forgot_guard),
+                        Ghost(spin_lock),
+                    );
                     assert(locked_pt.va() == align_down(self.0.va, page_size::<C>(self.0.level)))
                         by {
                         admit();
@@ -1560,7 +1566,6 @@ pub open spec fn new_item_relate(
         // If the loop exits, we did not find any mapped pages in the range.
         (PageTableItem::NotMapped { va: start, len }, Tracked(forgot_guards))
     }
-
 }
 
 } // verus!

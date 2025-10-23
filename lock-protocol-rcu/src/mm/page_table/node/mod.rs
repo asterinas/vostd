@@ -26,10 +26,7 @@ use stray::{StrayFlag, StrayPerm};
 use crate::{
     mm::{
         NR_ENTRIES,
-        frame::{
-            self,
-            meta::AnyFrameMeta,
-        },
+        frame::{self, meta::AnyFrameMeta},
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size_spec,
