@@ -301,7 +301,7 @@ pub fn unlock_range<C: PageTableConfig>(
                         (_cursor.g_level@ - 1) as PagingLevel,
                     ));
                 };
-                assert(forgot_guards.childs_are_contained(
+                assert(forgot_guards.children_are_contained(
                     nid,
                     forgot_guard.pte_token->Some_0.value(),
                 )) by {
@@ -603,7 +603,7 @@ fn dfs_acquire_lock<C: PageTableConfig>(
         res.1@.wf(),
         !res.1@.inner.dom().contains(cur_node.nid()),
         res.1@.is_root(cur_node.nid()),
-        res.1@.childs_are_contained(
+        res.1@.children_are_contained(
             cur_node.nid(),
             cur_node.guard->Some_0.view_pte_token().value(),
         ),
@@ -849,7 +849,7 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
         forgot_guards@.wf(),
         forgot_guards@.is_root(cur_node.nid()),
         !forgot_guards@.inner.dom().contains(cur_node.nid()),
-        forgot_guards@.childs_are_contained(
+        forgot_guards@.children_are_contained(
             cur_node.nid(),
             cur_node.guard->Some_0.view_pte_token().value(),
         ),

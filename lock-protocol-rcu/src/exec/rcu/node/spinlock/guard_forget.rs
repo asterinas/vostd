@@ -31,7 +31,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             self.inner.dom().contains(nid) ==> {
                 &&& self.get_guard_inner(nid).stray_perm.value() == false
                 &&& self.get_guard_inner(nid).in_protocol == true
-                &&& self.childs_are_contained(
+                &&& self.children_are_contained(
                     nid,
                     self.get_guard_inner(nid).pte_token->Some_0.value(),
                 )
@@ -61,7 +61,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         &&& self.is_sub_root(nid)
     }
 
-    pub open spec fn childs_are_contained(&self, nid: NodeId, pte_array: PteArrayState) -> bool {
+    pub open spec fn children_are_contained(&self, nid: NodeId, pte_array: PteArrayState) -> bool {
         &&& NodeHelper::is_not_leaf(nid) ==> forall|i: nat|
             0 <= i < 512 ==> {
                 #[trigger] pte_array.is_alive(i) ==> self.inner.dom().contains(
@@ -129,7 +129,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             guard.stray_perm.value() == false,
             guard.in_protocol == true,
             old(self).is_sub_root(nid),
-            old(self).childs_are_contained(nid, guard.pte_token->Some_0.value()),
+            old(self).children_are_contained(nid, guard.pte_token->Some_0.value()),
         ensures
             *self =~= old(self).put_spec(nid, guard, spin_lock),
             self.wf(),
@@ -160,11 +160,11 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             res.in_protocol == true,
             !self.inner.dom().contains(nid),
             self.is_sub_root(nid),
-            self.childs_are_contained(nid, res.pte_token->Some_0.value()),
+            self.children_are_contained(nid, res.pte_token->Some_0.value()),
     {
         let tracked res = self.inner.tracked_remove(nid);
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
-            self.childs_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
+            self.children_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
             if NodeHelper::is_not_leaf(_nid) {
                 assert forall|i: nat|
@@ -244,7 +244,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     {
         let tracked out_inner = self.inner.tracked_remove_keys(old(self).get_sub_tree_dom(nid));
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
-            self.childs_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
+            self.children_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
             assert(!NodeHelper::in_subtree_range(nid, _nid));
             if NodeHelper::is_not_leaf(_nid) {
@@ -278,7 +278,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         };
         let tracked res = Self { inner: out_inner };
         assert forall|_nid: NodeId| #[trigger] res.inner.dom().contains(_nid) implies {
-            res.childs_are_contained(_nid, res.get_guard_inner(_nid).pte_token->Some_0.value())
+            res.children_are_contained(_nid, res.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
             assert(NodeHelper::in_subtree_range(nid, _nid));
             if NodeHelper::is_not_leaf(_nid) {

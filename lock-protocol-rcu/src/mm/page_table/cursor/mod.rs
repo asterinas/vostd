@@ -58,35 +58,7 @@ use super::{
     PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
-// use crate::exec;
 use crate::mm::NR_ENTRIES;
-
-/// A handy ghost mode macro to get the guard at a certain level in the path.
-// macro_rules! path_index {
-//     ($self: ident . path [$i:expr]) => {
-//         $self.path.view().index(path_index_at_level_local_spec($i))
-//     };
-//     ($self: ident . 0 . path [$i:expr]) => {
-//         $self
-//             .0
-//             .path
-//             .view()
-//             .index(path_index_at_level_local_spec($i))
-//     };
-//     (old($self: ident) . path [$i:expr]) => {
-//         old($self)
-//             .path
-//             .view()
-//             .index(path_index_at_level_local_spec($i))
-//     };
-//     (old($self: ident) . 0 . path [$i:expr]) => {
-//         old($self)
-//             .0
-//             .path
-//             .view()
-//             .index(path_index_at_level_local_spec($i))
-//     };
-// }
 
 verus! {
 
@@ -456,7 +428,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 {
                     &&& _forgot_guards.wf()
                     &&& _forgot_guards.is_sub_root(guard.nid())
-                    &&& _forgot_guards.childs_are_contained(
+                    &&& _forgot_guards.children_are_contained(
                         guard.nid(),
                         guard.guard->Some_0.view_pte_token().value(),
                     )
@@ -946,7 +918,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             assert(forgot_guard.stray_perm.value() == false) by { admit(); };
             assert(forgot_guard.in_protocol == true) by { admit(); };
             assert(forgot_guards.is_sub_root(nid)) by { admit(); };
-            assert(forgot_guards.childs_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by { admit(); };
+            assert(forgot_guards.children_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by { admit(); };
             forgot_guards.tracked_put(nid, forgot_guard, spin_lock);
         }
 

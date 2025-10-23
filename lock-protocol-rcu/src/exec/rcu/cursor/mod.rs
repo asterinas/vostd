@@ -166,7 +166,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 {
                     &&& _forgot_guards.wf()
                     &&& _forgot_guards.is_sub_root(guard.nid())
-                    &&& _forgot_guards.childs_are_contained(
+                    &&& _forgot_guards.children_are_contained(
                         guard.nid(),
                         guard.guard->Some_0.view_pte_token().value(),
                     )
