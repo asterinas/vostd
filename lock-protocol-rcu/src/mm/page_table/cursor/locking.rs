@@ -136,9 +136,6 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     assert(result.wf_va()) by {
         admit();
     };
-    assert(result.wf_with_forgot_guards(forgot_guards)) by {
-        admit();
-    };
 
     (result, Tracked(m), Tracked(forgot_guards))
 }
