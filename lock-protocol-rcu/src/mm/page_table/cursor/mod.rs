@@ -255,7 +255,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& self.get_guard_level(level) is Some
                     &&& self.get_guard_level_unwrap(level).wf()
                     &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
-                    // &&& self.get_guard_level_unwrap(level).inner.deref().level_spec() == level
+                    &&& level == NodeHelper::nid_to_level(self.get_guard_level_unwrap(level).nid())
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
@@ -482,15 +482,39 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         admit();
     }
 
-    // pub proof fn lemma_push_level_sustains_wf_with_forgot_guards(
-    //     pre: Self,
-    //     post: Self,
-    // )
-    //     requires
-    //     ensures
-    // {
-    //     admit();
-    // }
+    pub proof fn lemma_push_level_sustains_wf_with_forgot_guards(
+        pre: Self,
+        post: Self,
+        guard: PageTableGuard<C>,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            pre.wf(),
+            post.wf(),
+            pre.wf_push_level(post, guard),
+            guard.wf(),
+            guard.inst_id() == pre.inst@.id(),
+            guard.guard->Some_0.stray_perm().value() == false,
+            guard.guard->Some_0.in_protocol() == true,
+            guard.level_spec() == pre.level - 1,
+            forgot_guards.wf(),
+            pre.wf_with_forgot_guards({
+                let nid = guard.nid();
+                let inner = guard.guard->Some_0.inner@;
+                let spin_lock = guard.inner.deref().meta_spec().lock;
+                forgot_guards.put_spec(nid, inner, spin_lock)
+            }),
+            forgot_guards.is_sub_root(guard.nid()),
+            forgot_guards.children_are_contained(
+                guard.nid(), 
+                guard.guard->Some_0.inner@.pte_token->Some_0.value(),
+            ),
+        ensures
+            post.wf_with_forgot_guards(forgot_guards),
+    {
+        admit();
+    }
+
     pub proof fn lemma_pop_level_sustains_wf_with_forgot_guards(
         pre: Self,
         post: Self,
@@ -617,7 +641,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
-    #[verifier::external_body]
     pub fn query(&mut self, forgot_guards: Tracked<SubTreeForgotGuard<C>>) -> (res: (
         Result<Option<(Paddr, PagingLevel, PageProperty)>, PageTableError>,
         Tracked<SubTreeForgotGuard<C>>,
@@ -632,22 +655,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ == self.level,
             res.1@.wf(),
             self.wf_with_forgot_guards(res.1@),
-    // TODO
-    // match res.0 {
-    //     Ok(Some(item)) => {
-    //         exists|pte_pa: Paddr|
-    //             {
-    //                 &&& #[trigger] spt.ptes.value().contains_key(pte_pa as int)
-    //                 &&& #[trigger] spt.ptes.value()[pte_pa as int].map_to_pa == item.0
-    //             }
-    //     },
-    //     Ok(None) => true,  // Maybe && forall spt.ptes.value()[pte_pa as int].va != self.va
-    //     Err(err) => {
-    //         &&& old(self).va >= self.barrier_va.end
-    //         &&& err == PageTableError::InvalidVaddr(old(self).va)
-    //     },
-    // },
-
     {
         if self.va >= self.barrier_va.end {
             return (Err(PageTableError::InvalidVaddr(self.va)), forgot_guards);
@@ -668,6 +675,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.wf_with_forgot_guards(forgot_guards),
             decreases self.level,
         {
+            let ghost _cursor = *self;
+            let ghost _forgot_guards = forgot_guards;
+
             let level = self.level;
             let ghost cur_level = self.level;
 
@@ -678,35 +688,90 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 ChildRef::PageTable(pt) => {
                     let ghost nid = pt.nid@;
                     let ghost spin_lock = forgot_guards.get_lock(nid);
-                    assert(forgot_guards.wf()) by {
-                        admit();
-                    };
-                    assert(NodeHelper::valid_nid(nid)) by {
-                        admit();
-                    };
                     assert(forgot_guards.is_sub_root_and_contained(nid)) by {
-                        admit();
+                        self.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                        self.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                        let pa_guard = self.get_guard_level_unwrap(self.level);
+                        let pa_inner = pa_guard.guard->Some_0.inner@;
+                        let pa_spin_lock = pa_guard.meta_spec().lock;
+                        let pa_nid = pa_guard.nid();
+                        let idx = pte_index::<C>(self.va, self.level);
+                        assert(NodeHelper::is_child(pa_nid, nid)) by {
+                            assert(nid == NodeHelper::get_child(pa_nid, idx as nat));
+                            NodeHelper::lemma_get_child_sound(pa_nid, idx as nat);
+                        };
+                        assert(pa_inner.pte_token->Some_0.value().is_alive(idx as nat));
+                        let __forgot_guards = self.rec_put_guard_from_path(forgot_guards, self.level);
+                        assert(__forgot_guards.wf());
+                        assert(__forgot_guards.is_sub_root_and_contained(pa_nid));
+                        assert(__forgot_guards =~= forgot_guards.put_spec(pa_nid, pa_inner, pa_spin_lock));
+                        assert(forgot_guards.is_sub_root(nid)) by {
+                            assert forall |_nid: NodeId| 
+                                #[trigger] forgot_guards.inner.dom().contains(_nid) && 
+                                _nid != nid
+                            implies {
+                                !NodeHelper::in_subtree_range(_nid, nid)
+                            } by {
+                                assert(__forgot_guards.inner.dom().contains(_nid));
+                                assert(__forgot_guards.inner.dom().contains(nid));
+                                assert(__forgot_guards.is_sub_root(pa_nid));
+                                assert(!forgot_guards.inner.dom().contains(pa_nid));
+                                assert(_nid != pa_nid);
+                                assert(!NodeHelper::in_subtree_range(_nid, pa_nid));
+                                if NodeHelper::in_subtree_range(_nid, nid) {
+                                    assert(NodeHelper::in_subtree_range(_nid, pa_nid)) by {
+                                        NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(
+                                            _nid,
+                                            pa_nid,
+                                            nid,
+                                        );
+                                    };
+                                }
+                            };
+                        };
                     };
                     let tracked forgot_guard = forgot_guards.tracked_take(nid);
-                    assert(pt.wf()) by {
-                        admit();
-                    };
-                    assert(pt.deref().meta_spec().lock =~= spin_lock) by {
-                        admit();
-                    };
+                    // Admitted due to the same reason as PageTableNode::from_raw.
+                    assert(pt.deref().meta_spec().lock =~= spin_lock) by { admit(); }; 
                     let guard = pt.make_guard_unchecked(
                         rcu_guard,
                         Tracked(forgot_guard),
                         Ghost(spin_lock),
                     );
-                    assert(guard.va() == align_down(cur_va, page_size::<C>(cur_level))) by {
-                        admit();
+                    assert(self.level > 1) by {
+                        assert(self.level == self.get_guard_level_unwrap(self.level).level_spec());
                     };
-                    assert(self.level > 1) by { admit(); };
                     assert(guard.level_spec() == self.level - 1) by {
-
+                        assert(self.level == self.get_guard_level_unwrap(self.level).level_spec());
+                    };
+                    assert(NodeHelper::is_child(self.get_guard_level_unwrap(self.level).nid(), guard.nid())) by {
+                        let idx = pte_index::<C>(self.va, self.level);
+                        let _guard = self.get_guard_level_unwrap(self.level);
+                        assert(_guard.level_spec() > 1);
+                        NodeHelper::lemma_level_dep_relation(_guard.nid());
+                        NodeHelper::lemma_get_child_sound(_guard.nid(), idx as nat);
                     };
                     self.push_level(guard);
+                    assert(self.wf_with_forgot_guards(forgot_guards)) by {
+                        let _nid = guard.nid();
+                        let _inner = guard.guard->Some_0.inner@;
+                        let _spin_lock = guard.inner.deref().meta_spec().lock;
+                        assert(_nid == nid);
+                        assert(_spin_lock =~= spin_lock);
+                        assert(_inner =~= _forgot_guards.get_guard_inner(nid)) by {
+                            assert(_inner =~= forgot_guard);
+                        };
+                        assert(_forgot_guards =~= forgot_guards.put_spec(_nid, _inner, _spin_lock)) by {
+                            assert(forgot_guards =~= _forgot_guards.take_spec(_nid));
+                            _forgot_guards.lemma_take_put(_nid);
+                        };
+                        Self::lemma_push_level_sustains_wf_with_forgot_guards(
+                            _cursor,
+                            *self,
+                            guard,
+                            forgot_guards,
+                        );
+                    }
                     continue ;
                 },
                 ChildRef::None => return (Ok(None), Tracked(forgot_guards)),
@@ -830,6 +895,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     } else if level >= self.g_level@ {
                         &&& self.get_guard_level(level) is Some
                         &&& self.get_guard_level_unwrap(level).wf()
+                        &&& level == NodeHelper::nid_to_level(self.get_guard_level_unwrap(level).nid())
                         &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
@@ -848,6 +914,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                             &&& _cursor.get_guard_level_unwrap(level).wf()
                             &&& _cursor.get_guard_level_unwrap(level).inst_id()
                                 == _cursor.inst@.id()
+                            &&& level == NodeHelper::nid_to_level(_cursor.get_guard_level_unwrap(level).nid())
                             &&& _cursor.get_guard_level_unwrap(
                                 level,
                             ).guard->Some_0.stray_perm().value() == false
@@ -991,6 +1058,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         &&& self.get_guard_level(level) is Some
                         &&& self.get_guard_level_unwrap(level).wf()
                         &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                        &&& level == NodeHelper::nid_to_level(self.get_guard_level_unwrap(level).nid())
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
@@ -1090,6 +1158,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                             &&& self.get_guard_level(level) is Some
                             &&& self.get_guard_level_unwrap(level).wf()
                             &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                            &&& level == NodeHelper::nid_to_level(self.get_guard_level_unwrap(level).nid())
                             &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
                             &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
                         } else {

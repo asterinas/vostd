@@ -169,6 +169,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             old(self).is_sub_root_and_contained(nid),
         ensures
             *self =~= old(self).take_spec(nid),
+            res =~= old(self).get_guard_inner(nid),
             self.wf(),
             res.relate_nid(nid),
             res.wf(&old(self).get_lock(nid)),
@@ -224,6 +225,21 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             };
         }
         res.0
+    }
+
+    pub proof fn lemma_take_put(self, nid: NodeId)
+        requires
+            self.wf(),
+            NodeHelper::valid_nid(nid),
+            self.is_sub_root_and_contained(nid),
+        ensures
+            self =~= self.take_spec(nid).put_spec(
+                nid,
+                self.get_guard_inner(nid),
+                self.get_lock(nid),
+            ),
+    {
+        admit();
     }
 
     pub open spec fn union_spec(self, other: Self) -> Self {
