@@ -963,7 +963,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 old(self).lemma_wf_with_forgot_guards_sound(forgot_guards);
                 old(self).lemma_rec_put_guard_from_path_basic(forgot_guards);
             };
-            assert(forgot_guards.childs_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by {
+            assert(forgot_guards.children_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by {
                 old(self).lemma_wf_with_forgot_guards_sound(forgot_guards);
                 old(self).lemma_rec_put_guard_from_path_basic(forgot_guards);
             };
