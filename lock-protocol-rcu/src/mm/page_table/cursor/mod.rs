@@ -255,6 +255,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& self.get_guard_level(level) is Some
                     &&& self.get_guard_level_unwrap(level).wf()
                     &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                    // &&& self.get_guard_level_unwrap(level).inner.deref().level_spec() == level
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
@@ -700,6 +701,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     );
                     assert(guard.va() == align_down(cur_va, page_size::<C>(cur_level))) by {
                         admit();
+                    };
+                    assert(self.level > 1) by { admit(); };
+                    assert(guard.level_spec() == self.level - 1) by {
+
                     };
                     self.push_level(guard);
                     continue ;
