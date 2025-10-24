@@ -379,6 +379,18 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
     }
 
+    pub proof fn lemma_rec_put_guard_from_path_basic(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+            self.wf_with_forgot_guards(forgot_guards),
+        ensures
+            self.rec_put_guard_from_path(forgot_guards, (self.g_level@ - 1) as PagingLevel) =~= forgot_guards,
+    {}
+
     // Trivial but nontrivial for Verus.
     pub proof fn lemma_cursor_eq_implie_forgot_guards_eq(
         cursor1: Self,
@@ -442,6 +454,30 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ensures
             self.guards_in_path_wf_with_forgot_guards(forgot_guards),
     {
+        // assert forall |_nid: NodeId|
+        //             #[trigger] forgot_guards.inner.dom().contains(_nid) && _nid != nid
+        //         implies {
+        //             !NodeHelper::in_subtree_range(_nid, nid)
+        //         } by {
+        //             if NodeHelper::in_subtree_range(_nid, nid) {
+        //                 let sub_rt_nid = self.get_guard_level_unwrap(self.guard_level).nid();
+        //                 if NodeHelper::in_subtree_range(sub_rt_nid, _nid) {
+        //                     assert(
+        //                         exists |level: PagingLevel| 
+        //                             old(self).level < level <= old(self).guard_level &&
+        //                             _nid == #[trigger] old(self).get_guard_level_unwrap(level).nid()
+        //                     ) by { admit(); };
+        //                 } else {
+        //                     assert forall |__nid: NodeId|
+        //                         #[trigger] forgot_guards.inner.dom().contains(__nid)
+        //                     implies {
+        //                         NodeHelper::in_subtree_range(sub_rt_nid, __nid)
+        //                     } by {
+        //                         assert(forgot_guards.is_root(sub_rt_nid));
+        //                     };
+        //                 }
+        //             }
+        //         };
         admit();
     }
 
@@ -507,27 +543,29 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     // Trusted
-    #[verifier::external_body]
-    pub fn put(&mut self, i: usize, guard: PageTableGuard<'a, C>)
-        requires
-            old(self).wf_path(),
-            0 <= i < old(self).path.len(),
-            old(self).level <= i + 1 <= old(self).guard_level,
-            i + 1 == old(self).g_level@ - 1,
-            old(self).path[i as int] is None,
-        ensures
-            self.wf_path(),
-            self.g_level@ == old(self).g_level@ - 1,
-            self.constant_fields_unchanged(old(self)),
-            self.level == old(self).level,
-            self.va == old(self).va,
-            self.path[i as int] =~= Some(guard),
-            forall|_i|
-                #![trigger self.path[_i]]
-                0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
-    {
-        unimplemented!()
-    }
+    // #[verifier::external_body]
+    // pub fn put(&mut self, i: usize, guard: PageTableGuard<'a, C>)
+    //     requires
+    //         old(self).wf_path(),
+    //         0 <= i < old(self).path.len(),
+    //         old(self).level <= i + 1 <= old(self).guard_level,
+    //         i + 1 == old(self).g_level@ - 1,
+    //         old(self).path[i as int] is None,
+    //     ensures
+    //         self.wf_path(),
+    //         self.g_level@ == old(self).g_level@ - 1,
+    //         self.constant_fields_unchanged(old(self)),
+    //         self.level == old(self).level,
+    //         self.va == old(self).va,
+    //         self.path[i as int] =~= Some(guard),
+    //         forall |_i|
+    //             #![trigger self.path[_i]]
+    //             0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
+    // {
+    //     unimplemented!()
+    // }
+
+    fn no_op() {}
 }
 
 impl<'a, C: PageTableConfig> Cursor<'a, C> {
@@ -917,23 +955,17 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         let tracked inner = guard.guard.tracked_unwrap();
         let tracked forgot_guard = inner.inner.get();
         proof {
-            assert(!forgot_guards.inner.dom().contains(nid)) by {
-                admit();
-            };
-            assert(forgot_guard.stray_perm.value() == false) by {
-                admit();
-            };
-            assert(forgot_guard.in_protocol == true) by {
-                admit();
-            };
+            assert(forgot_guard =~= old(self).get_guard_level_unwrap(old(self).level).guard->Some_0.inner@);
+            assert(!forgot_guards.inner.dom().contains(nid));
+            assert(forgot_guard.stray_perm.value() == false);
+            assert(forgot_guard.in_protocol == true);
             assert(forgot_guards.is_sub_root(nid)) by {
-                admit();
+                old(self).lemma_wf_with_forgot_guards_sound(forgot_guards);
+                old(self).lemma_rec_put_guard_from_path_basic(forgot_guards);
             };
-            assert(forgot_guards.children_are_contained(
-                nid,
-                forgot_guard.pte_token->Some_0.value(),
-            )) by {
-                admit();
+            assert(forgot_guards.childs_are_contained(nid, forgot_guard.pte_token->Some_0.value())) by {
+                old(self).lemma_wf_with_forgot_guards_sound(forgot_guards);
+                old(self).lemma_rec_put_guard_from_path_basic(forgot_guards);
             };
             forgot_guards.tracked_put(nid, forgot_guard, spin_lock);
         }
@@ -998,6 +1030,22 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         Tracked(forgot_guards)
     }
 
+    pub open spec fn wf_push_level(self, post: Self, child_pt: PageTableGuard<'a, C>) -> bool {
+        &&& post.level == self.level - 1
+        &&& post.g_level@ == self.g_level@ - 1
+        &&& forall |level: PagingLevel|
+            #![trigger self.get_guard_level(level)]
+            #![trigger self.get_guard_level_unwrap(level)]
+            1 <= level <= post.guard_level && level != post.level ==> {
+                self.get_guard_level(level) =~= post.get_guard_level(level)
+            }
+        &&& self.get_guard_level(post.level) is None
+        &&& post.get_guard_level(post.level) =~= Some(child_pt)
+        // Other fields remain unchanged.
+        &&& self.constant_fields_unchanged(&post)
+        &&& self.va == post.va
+    }
+
     /// Goes down a level to a child page table.
     fn push_level(&mut self, child_pt: PageTableGuard<'a, C>)
         requires
@@ -1005,31 +1053,74 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             old(self).level > 1,
             old(self).g_level@ == old(self).level,
             child_pt.wf(),
+            child_pt.inst_id() == old(self).inst@.id(),
+            child_pt.guard->Some_0.stray_perm().value() == false,
+            child_pt.guard->Some_0.in_protocol() == true,
             child_pt.level_spec() == old(self).level - 1,
+            NodeHelper::is_child(
+                old(self).get_guard_level_unwrap(old(self).level).nid(),
+                child_pt.nid(),
+            )
         ensures
+            old(self).wf_push_level(*self, child_pt),
             self.wf(),
-            self.level == old(self).level - 1,
-            self.g_level@ == old(self).level,
-            self.get_guard_level(self.level) =~= Some(child_pt),
-            // Other fields remain unchanged.
-            self.constant_fields_unchanged(old(self)),
-            self.va == old(self).va,
-            // Path remains unchanged except the one being set
-            forall|level: PagingLevel|
-                #![trigger self.get_guard_level(level)]
-                #![trigger self.get_guard_level_unwrap(level)]
-                old(self).level <= level <= old(self).guard_level ==> {
-                    self.get_guard_level(level) =~= old(self).get_guard_level(level)
-                },
+            self.g_level@ == self.level,
     {
         self.level = self.level - 1;
+        self.g_level = Ghost(self.level);
 
         self.path[(self.level - 1) as usize] = Some(child_pt);
 
         assert(self.wf()) by {
             assert(self.wf_path()) by {
-                admit();
+                assert(self.wf_path()) by {
+                    assert forall |level: PagingLevel|
+                        #![trigger self.get_guard_level(level)]
+                        #![trigger self.get_guard_level_unwrap(level)]
+                        1 <= level <= 4 
+                    implies {
+                        if level > self.guard_level {
+                            self.get_guard_level(level) is None
+                        } else if level >= self.g_level@ {
+                            &&& self.get_guard_level(level) is Some
+                            &&& self.get_guard_level_unwrap(level).wf()
+                            &&& self.get_guard_level_unwrap(level).inst_id() == self.inst@.id()
+                            &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value() == false
+                            &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        } else {
+                            self.get_guard_level(level) is None
+                        }
+                    } by {
+                        assert(self.guard_level == old(self).guard_level);
+                        assert(self.g_level@ == old(self).g_level@ - 1);
+                        if level > self.guard_level {
+                            assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                        } else if level >= self.g_level@ {
+                            if level == self.g_level@ {
+                                assert(self.get_guard_level(level) is Some);
+                                assert(self.get_guard_level_unwrap(level) =~= child_pt);
+                            } else {
+                                assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                            }
+                        } else {
+                            assert(self.path[level - 1] =~= old(self).path[level - 1]);
+                            assert(old(self).get_guard_level(level) is None);
+                        }
+                    };
+                };
             };
+            assert(self.guards_in_path_relation()) by {
+                assert forall |level: PagingLevel|
+                    #![trigger self.adjacent_guard_is_child(level)]
+                    self.g_level@ < level <= self.guard_level
+                implies {
+                    self.adjacent_guard_is_child(level)
+                } by {
+                    if level > self.g_level@ + 1 {
+                        assert(old(self).adjacent_guard_is_child(level));
+                    }
+                }
+            }
         };
     }
 
@@ -1234,7 +1325,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
                     let res = cur_entry.alloc_if_none(preempt_guard, &mut cur_node, Tracked(m));
                     let child_pt = res.unwrap();
-                    self.0.put((self.0.level - 1) as usize, cur_node);
+                    // self.0.put((self.0.level - 1) as usize, cur_node);
+                    self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
 
                     // assert(self.0.wf_local(spt)) by {
                     //     assert forall|i: PagingLevel|
@@ -1297,7 +1389,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let mut cur_entry = self.0.cur_entry();
         let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
         let old_entry = cur_entry.replace(Child::Frame(pa, level, prop), &mut cur_node);
-        self.0.put((self.0.level - 1) as usize, cur_node);
+        // self.0.put((self.0.level - 1) as usize, cur_node);
+        self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
 
         // assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
         // assert(self.0.path_wf(spt));
@@ -1506,7 +1599,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             // TODO: prove the last level entry...
             let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
             let old = cur_entry.replace(Child::None, &mut cur_node);
-            self.0.put((self.0.level - 1) as usize, cur_node);
+            // self.0.put((self.0.level - 1) as usize, cur_node);
+            self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
 
             let item = match old {
                 Child::Frame(page, level, prop) => PageTableItem::Mapped {
