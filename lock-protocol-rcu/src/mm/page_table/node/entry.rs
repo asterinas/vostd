@@ -17,6 +17,7 @@ use crate::mm::page_table::{
 use crate::sync::rcu::RcuDrop;
 use crate::task::DisabledPreemptGuard;
 use crate::spec::lock_protocol::LockProtocolModel;
+use crate::spec::rcu::PteArrayState;
 
 verus! {
 
@@ -110,7 +111,12 @@ impl<C: PageTableConfig> Entry<C> {
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
             node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
+            node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
             res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
+            new_child is Frame ==> {
+                node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr() == new_child->Frame_0
+            },
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
 
@@ -141,7 +147,7 @@ impl<C: PageTableConfig> Entry<C> {
             node.wf(),
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
-            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
             !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
             res is Some ==> {
@@ -149,6 +155,7 @@ impl<C: PageTableConfig> Entry<C> {
                 &&& res->Some_0.inst_id() == node.inst_id()
                 &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                // &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
                 &&& res->Some_0.guard->Some_0.in_protocol() == false
             },
@@ -241,7 +248,7 @@ impl<C: PageTableConfig> Entry<C> {
             node.wf(),
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
-            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
             !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
             res is Some ==> {
@@ -249,6 +256,7 @@ impl<C: PageTableConfig> Entry<C> {
                 &&& res->Some_0.inst_id() == node.inst_id()
                 &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
                 &&& res->Some_0.guard->Some_0.in_protocol() == true
             },

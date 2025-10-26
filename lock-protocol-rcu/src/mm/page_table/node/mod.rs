@@ -50,7 +50,7 @@ use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::NodeId,
     utils::NodeHelper,
-    rcu::{SpecInstance, NodeToken, PteArrayToken, PteState, FreePaddrToken},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, PteArrayState, PteState, FreePaddrToken},
 };
 
 // use super::cursor::spec_helpers;
@@ -350,6 +350,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
+            // res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == false,
     {
@@ -425,11 +426,6 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
 pub struct PageTableGuard<'a, C: PageTableConfig> {
     pub inner: PageTableNodeRef<'a, C>,
     pub guard: Option<SpinGuard<C>>,
-    // pub va: Ghost<Vaddr>,
-}
-
-impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
-    pub uninterp spec fn va(&self) -> Vaddr;
 }
 
 impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {

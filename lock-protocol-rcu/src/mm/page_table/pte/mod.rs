@@ -130,6 +130,7 @@ impl<C: PageTableConfig> Pte<C> {
         &&& self.inner =~= C::E::new_page_spec(paddr, level, prop)
         &&& self.nid@ is None
         &&& self.inst@ is None
+        &&& self.inner.paddr() == paddr
     }
 
     #[verifier::external_body]
