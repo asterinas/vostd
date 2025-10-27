@@ -26,7 +26,7 @@ pub open spec fn between(low: usize, high: usize, i: usize) -> bool {
 }
 
 impl PageTableNodeModel {
-    pub open spec fn valid_ptrs(&self) -> bool {
+    pub open spec fn valid_ptrs(self) -> bool {
         forall|i: usize| #[trigger]
             between(0, CONST_NR_ENTRIES, i) ==> forall|
                 child: Node<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>,
@@ -63,7 +63,7 @@ impl PageTableTreeModel {
         &&& forall|node: PageTableNodeModel| #[trigger] self.inner.on_tree(node@) ==> node@.inv()
     }
 
-    pub open spec fn root_paddr(&self) -> Paddr {
+    pub open spec fn root_paddr(self) -> Paddr {
         self.inner.root.value.paddr
     }
 }

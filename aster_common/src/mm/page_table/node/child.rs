@@ -32,19 +32,9 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-    #[verifier::inline]
-    pub open spec fn is_none_spec(&self) -> bool {
-        match self {
-            Child::None => true,
-            _ => false,
-        }
-    }
-
     /// Returns whether the child is not present.
-    #[verifier::when_used_as_spec(is_none_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn is_none(&self) -> (b: bool)
-        ensures
-            b == self.is_none_spec(),
     {
         matches!(self, Child::None)
     }

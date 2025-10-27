@@ -73,18 +73,8 @@ impl PageUsage {
         *self as u8
     }
 
-    pub open spec fn as_state_spec(&self) -> (res: PageState) {
-        match &self {
-            PageUsage::Unused => PageState::Unused,
-            PageUsage::Frame => PageState::Untyped,
-            _ => PageState::Typed,
-        }
-    }
-
-    #[verifier::when_used_as_spec(as_state_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn as_state(&self) -> (res: PageState)
-        ensures
-            res == self.as_state_spec(),
     {
         match &self {
             PageUsage::Unused => PageState::Unused,

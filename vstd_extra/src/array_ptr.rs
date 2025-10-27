@@ -118,37 +118,37 @@ impl<T, const N: usize> View for PointsToArray<T, N> {
 
 impl<V, const N: usize> PointsToArray<V, N> {
     #[verifier::inline]
-    pub open spec fn ptr(&self) -> *mut [V; N] {
+    pub open spec fn ptr(self) -> *mut [V; N] {
         self@.ptr
     }
 
     #[verifier::inline]
-    pub open spec fn opt_value(&self) -> [raw_ptr::MemContents<V>; N] {
+    pub open spec fn opt_value(self) -> [raw_ptr::MemContents<V>; N] {
         self@.value
     }
 
     #[verifier::inline]
-    pub open spec fn is_init(&self, index: int) -> bool {
+    pub open spec fn is_init(self, index: int) -> bool {
         0 <= index < N && self.opt_value()[index].is_init()
     }
 
     #[verifier::inline]
-    pub open spec fn is_uninit(&self, index: int) -> bool {
+    pub open spec fn is_uninit(self, index: int) -> bool {
         0 <= index < N && self.opt_value()[index].is_uninit()
     }
 
     #[verifier::inline]
-    pub open spec fn is_init_all(&self) -> bool {
+    pub open spec fn is_init_all(self) -> bool {
         is_mem_contents_all_init(self.opt_value())
     }
 
     #[verifier::inline]
-    pub open spec fn is_uninit_all(&self) -> bool {
+    pub open spec fn is_uninit_all(self) -> bool {
         is_mem_contents_all_uninit(self.opt_value())
     }
 
     #[verifier::inline]
-    pub open spec fn value(&self) -> Seq<V>
+    pub open spec fn value(self) -> Seq<V>
         recommends
             self.is_init_all(),
     {
@@ -339,15 +339,9 @@ broadcast use {
 };
 
 impl<V, const N: usize> ArrayPtr<V, N> {
-    /// Spec: cast the pointer to an integer
-    #[verifier::inline]
-    pub open spec fn addr_spec(&self) -> usize {
-        self.addr
-    }
-
     /// Impl: cast the pointer to an integer
     #[inline(always)]
-    #[verifier::when_used_as_spec(addr_spec)]
+    #[vstd::contrib::auto_spec]
     pub exec fn addr(&self) -> usize
         returns
             self.addr,
@@ -365,17 +359,12 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         Self { addr, index: 0, _type: PhantomData }
     }
 
-    pub open spec fn add_spec(self, off: usize) -> Self {
-        Self { addr: self.addr, index: (self.index + off) as usize, _type: PhantomData }
-    }
-
+    #[vstd::contrib::auto_spec]
     pub exec fn add(self, off: usize) -> Self
         requires
             self.index + off
                 <= N  // C standard style: don't exceed one-past the end of the array
             ,
-        returns
-            self.add_spec(off),
     {
         Self { addr: self.addr, index: (self.index + off) as usize, _type: PhantomData }
     }
@@ -383,19 +372,19 @@ impl<V, const N: usize> ArrayPtr<V, N> {
 
 impl<V, const N: usize> PointsTo<V, N> {
     /// Spec: cast the permission to an integer
-    pub closed spec fn addr(&self) -> usize {
+    pub closed spec fn addr(self) -> usize {
         self.points_to.ptr()@.addr
     }
 
     /// Spec: cast the permission to a pointer
-    pub open spec fn is_pptr(&self, ptr: ArrayPtr<V, N>) -> bool {
+    pub open spec fn is_pptr(self, ptr: ArrayPtr<V, N>) -> bool {
         ptr.addr == self.addr()
     }
 
     /// Spec: invariants for the ArrayPtr permissions
     /// TODO: uncomment the below if "external_type_specification: Const params not yet supported" is fixed
     /// #[verifier::type_invariant]
-    pub closed spec fn wf(&self) -> bool {
+    pub closed spec fn wf(self) -> bool {
         /// The pointer is not a slice, so it is still thin
         &&& self.points_to.ptr()@.metadata == ()
         &&& self.points_to.ptr()@.provenance == self.exposed.provenance()
@@ -412,15 +401,15 @@ impl<V, const N: usize> PointsTo<V, N> {
         &&& self.addr() != 0
     }
 
-    pub closed spec fn points_to(&self) -> PointsToArray<V, N> {
+    pub closed spec fn points_to(self) -> PointsToArray<V, N> {
         self.points_to
     }
 
-    pub open spec fn opt_value(&self) -> [raw_ptr::MemContents<V>; N] {
+    pub open spec fn opt_value(self) -> [raw_ptr::MemContents<V>; N] {
         self.points_to().opt_value()
     }
 
-    pub open spec fn value(&self) -> Seq<V>
+    pub open spec fn value(self) -> Seq<V>
         recommends
             self.is_init_all(),
     {
@@ -428,22 +417,22 @@ impl<V, const N: usize> PointsTo<V, N> {
     }
 
     #[verifier::inline]
-    pub open spec fn is_init(&self, index: int) -> bool {
+    pub open spec fn is_init(self, index: int) -> bool {
         self.points_to().is_init(index)
     }
 
     #[verifier::inline]
-    pub open spec fn is_uninit(&self, index: int) -> bool {
+    pub open spec fn is_uninit(self, index: int) -> bool {
         !self.points_to().is_init(index)
     }
 
     #[verifier::inline]
-    pub open spec fn is_init_all(&self) -> bool {
+    pub open spec fn is_init_all(self) -> bool {
         self.points_to().is_init_all()
     }
 
     #[verifier::inline]
-    pub open spec fn is_uninit_all(&self) -> bool {
+    pub open spec fn is_uninit_all(self) -> bool {
         self.points_to().is_uninit_all()
     }
 

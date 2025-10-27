@@ -69,21 +69,15 @@ impl Clone for PageTableEntry {
 #[allow(non_snake_case)]
 impl PageTableEntry {
 
-    #[verifier::inline]
-    pub open spec fn PROP_MASK_spec() -> usize {
-        !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE())
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(PROP_MASK_spec)]
+    #[vstd::contrib::auto_spec]
     pub const fn PROP_MASK() -> (res: usize)
-        ensures res == Self::PROP_MASK_spec()
     {
         !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE())
     }
 
     #[verifier::inline]
-    pub open spec fn prop_assign_spec(&self, flags: usize) -> Self {
+    pub open spec fn prop_assign_spec(self, flags: usize) -> Self {
         Self((self.0 & !Self::PROP_MASK()) | flags as usize)
     }
 
@@ -94,17 +88,8 @@ impl PageTableEntry {
         self.0 = (self.0 & !Self::PROP_MASK()) | flags as usize;
     }
 
-    pub open spec fn encode_cache_spec(cache: CachePolicy) -> usize {
-        match cache {
-            CachePolicy::Uncacheable => PageTableFlags::NO_CACHE(),
-            CachePolicy::Writethrough => PageTableFlags::WRITE_THROUGH(),
-            _ => 0,
-        }
-    }
-
-    #[verifier::when_used_as_spec(encode_cache_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn encode_cache(cache: CachePolicy) -> (res: usize)
-        ensures res == Self::encode_cache_spec(cache)
     {
         match cache {
             CachePolicy::Uncacheable => PageTableFlags::NO_CACHE(),
@@ -137,19 +122,8 @@ impl PageTableEntry {
             | Self::encode_cache(prop.cache)
     }
 
-    pub open spec fn format_cache_spec(flags: usize) -> CachePolicy {
-        if flags & PageTableFlags::NO_CACHE() != 0 {
-            CachePolicy::Uncacheable
-        } else if flags & PageTableFlags::WRITE_THROUGH() != 0 {
-            CachePolicy::Writethrough
-        } else {
-            CachePolicy::Writeback
-        }
-    }
-
-    #[verifier::when_used_as_spec(format_cache_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn format_cache(flags: usize) -> (res: CachePolicy)
-        ensures res == Self::format_cache_spec(flags)
     {
         if flags & PageTableFlags::NO_CACHE() != 0 {
             CachePolicy::Uncacheable
@@ -188,19 +162,9 @@ impl PageTableEntry {
         }
     }
 
-    #[verifier::inline]
-    pub open spec fn format_huge_page_spec(level: PagingLevel) -> u64 {
-        if level == 1 {
-            0
-        } else {
-            PageTableFlags::HUGE() as u64
-        }
-    }
-
     #[inline(always)]
-    #[verifier::when_used_as_spec(format_huge_page_spec)]
+    #[vstd::contrib::auto_spec]
     pub fn format_huge_page(level: PagingLevel) -> (res: u64)
-        ensures res == Self::format_huge_page_spec(level)
     {
         if level == 1 {
             0

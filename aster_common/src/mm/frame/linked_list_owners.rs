@@ -62,7 +62,7 @@ pub ghost struct LinkedListModel {
 }
 
 impl LinkedListModel {
-    pub open spec fn front(&self) -> Option<LinkModel> {
+    pub open spec fn front(self) -> Option<LinkModel> {
         if self.list.len() > 0 {
             Some(self.list[0])
         } else {
@@ -70,7 +70,7 @@ impl LinkedListModel {
         }
     }
 
-    pub open spec fn back(&self) -> Option<LinkModel> {
+    pub open spec fn back(self) -> Option<LinkModel> {
         if self.list.len() > 0 {
             Some(self.list[self.list.len() - 1])
         } else {
