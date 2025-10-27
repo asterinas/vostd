@@ -1,5 +1,11 @@
 use vstd::prelude::*;
 
+use vstd::seq::*;
+use vstd::seq_lib::*;
+
+use super::ownership::Inv;
+use super::seq_extra::*;
+
 verus! {
 
 /// Path from the current node to the leaf of the tree
@@ -335,10 +341,8 @@ impl<const N: usize> TreePath<N> {
 } // verus!
 verus! {
 
-pub trait TreeNodeValue: Sized {
+pub trait TreeNodeValue: Sized + Inv {
     spec fn default() -> Self;
-
-    spec fn inv(&self) -> bool;
 
     proof fn default_preserves_inv()
         ensures

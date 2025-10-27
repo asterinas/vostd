@@ -25,20 +25,7 @@ pub tracked struct PageTableNodeValue {
     pub tracked perms: Option<array_ptr::PointsTo<PageTableEntry, CONST_NR_ENTRIES>>,
 }
 
-impl TreeNodeValue for PageTableNodeValue {
-    open spec fn default() -> Self {
-        Self {
-            paddr: 0,
-            is_pt: true,
-            is_tracked: true,
-            nr_raws: 0,
-            is_locked: false,
-            in_cpu: 0,
-            nr_parents: 0,
-            perms: None,
-        }
-    }
-
+impl Inv for PageTableNodeValue {
     open spec fn inv(&self) -> bool {
         if self.paddr == 0 {
             &&& self.nr_raws == 0
@@ -52,6 +39,21 @@ impl TreeNodeValue for PageTableNodeValue {
             &&& self.perms.unwrap().wf()
             &&& self.paddr % PAGE_SIZE_SPEC() == 0
             &&& self.paddr < MAX_PADDR_SPEC()
+        }
+    }
+}
+
+impl TreeNodeValue for PageTableNodeValue {
+    open spec fn default() -> Self {
+        Self {
+            paddr: 0,
+            is_pt: true,
+            is_tracked: true,
+            nr_raws: 0,
+            is_locked: false,
+            in_cpu: 0,
+            nr_parents: 0,
+            perms: None,
         }
     }
 

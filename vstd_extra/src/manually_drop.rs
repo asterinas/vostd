@@ -1,6 +1,6 @@
-use vstd::prelude::*;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
+use vstd::prelude::*;
 
 verus! {
 

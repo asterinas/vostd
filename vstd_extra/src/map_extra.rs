@@ -1,5 +1,5 @@
 use vstd::prelude::*;
-use vstd::{set::*, map::*};
+use vstd::{map::*, set::*};
 
 verus! {
 

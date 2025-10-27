@@ -2,11 +2,10 @@ use vstd::prelude::*;
 
 verus! {
 
-pub struct PageTableFlags { }
+pub struct PageTableFlags {}
 
 #[allow(non_snake_case)]
 impl PageTableFlags {
-
     /// Specifies whether the mapped frame or page table is loaded in memory.
     #[verifier::inline]
     pub open spec fn PRESENT_spec() -> usize {
@@ -16,7 +15,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(PRESENT_spec)]
     pub const fn PRESENT() -> (res: usize)
-        ensures res == Self::PRESENT_spec()
+        ensures
+            res == Self::PRESENT_spec(),
     {
         0b00000001
     }
@@ -30,7 +30,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(WRITABLE_spec)]
     pub const fn WRITABLE() -> (res: usize)
-        ensures res == Self::WRITABLE_spec()
+        ensures
+            res == Self::WRITABLE_spec(),
     {
         0b00000010
     }
@@ -44,7 +45,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(USER_spec)]
     pub const fn USER() -> (res: usize)
-        ensures res == Self::USER_spec()
+        ensures
+            res == Self::USER_spec(),
     {
         0b00000100
     }
@@ -58,7 +60,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(WRITE_THROUGH_spec)]
     pub const fn WRITE_THROUGH() -> (res: usize)
-        ensures res == Self::WRITE_THROUGH_spec()
+        ensures
+            res == Self::WRITE_THROUGH_spec(),
     {
         0b00001000
     }
@@ -72,7 +75,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(NO_CACHE_spec)]
     pub const fn NO_CACHE() -> (res: usize)
-        ensures res == Self::NO_CACHE_spec()
+        ensures
+            res == Self::NO_CACHE_spec(),
     {
         0b00010000
     }
@@ -86,7 +90,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(ACCESSED_spec)]
     pub const fn ACCESSED() -> (res: usize)
-        ensures res == Self::ACCESSED_spec()
+        ensures
+            res == Self::ACCESSED_spec(),
     {
         0b00100000
     }
@@ -100,7 +105,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(DIRTY_spec)]
     pub const fn DIRTY() -> (res: usize)
-        ensures res == Self::DIRTY_spec()
+        ensures
+            res == Self::DIRTY_spec(),
     {
         0b01000000
     }
@@ -114,7 +120,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(HUGE_spec)]
     pub const fn HUGE() -> (res: usize)
-        ensures res == Self::HUGE_spec()
+        ensures
+            res == Self::HUGE_spec(),
     {
         0b10000000
     }
@@ -128,7 +135,8 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(GLOBAL_spec)]
     pub const fn GLOBAL() -> (res: usize)
-        ensures res == Self::GLOBAL_spec()
+        ensures
+            res == Self::GLOBAL_spec(),
     {
         0b00000001_00000000
     }
@@ -142,12 +150,11 @@ impl PageTableFlags {
     #[inline(always)]
     #[verifier::when_used_as_spec(NO_EXECUTE_spec)]
     pub const fn NO_EXECUTE() -> (res: usize)
-        ensures res == Self::NO_EXECUTE_spec()
+        ensures
+            res == Self::NO_EXECUTE_spec(),
     {
         1usize << 63
     }
-
 }
 
-
-}
+} // verus!

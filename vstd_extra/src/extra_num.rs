@@ -1,9 +1,9 @@
-use vstd::prelude::*;
 use vstd::arithmetic::logarithm::*;
-use vstd::arithmetic::power2::*;
 use vstd::arithmetic::power::*;
+use vstd::arithmetic::power2::*;
 use vstd::bits::*;
 use vstd::layout::is_power_2;
+use vstd::prelude::*;
 
 verus! {
 

@@ -7,109 +7,96 @@ use vstd::arithmetic::{
 use vstd_extra::extra_num::*;
 
 verus! {
+
 #[verifier::ext_equal]
 #[repr(transparent)]
 #[derive(Copy, PartialEq, Eq, Clone, PartialOrd, Ord, Hash)]
-pub struct PageTableFlags{
+pub struct PageTableFlags {
     pub bits: usize,
 }
 
 #[allow(non_snake_case)]
 impl PageTableFlags {
-
-
     #[inline(always)]
     #[vostd::contrib::auto_spec]
-    pub const fn bits(&self) -> usize
-    {
+    pub const fn bits(&self) -> usize {
         self.bits
     }
 
     #[inline(always)]
     #[vostd::contrib::auto_spec]
     #[deprecated(note = "Use `bits()` instead. It is now aligned with asterinas.")]
-    pub const fn value(&self) -> usize
-    {
+    pub const fn value(&self) -> usize {
         self.bits
     }
 
     /// Specifies whether the mapped frame or page table is loaded in memory.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn PRESENT() -> Self
-    {
+    pub const fn PRESENT() -> Self {
         Self { bits: 0b00000001 }
     }
 
     /// Controls whether writes to the mapped frames are allowed.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn WRITABLE() -> Self
-    {
+    pub const fn WRITABLE() -> Self {
         Self { bits: 0b00000010 }
     }
 
     /// Controls whether accesses from userspace (i.e. ring 3) are permitted.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn USER() -> Self
-    {
+    pub const fn USER() -> Self {
         Self { bits: 0b00000100 }
     }
 
     /// If this bit is set, a “write-through” policy is used for the cache, else a “write-back” policy is used.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn WRITE_THROUGH() -> Self
-    {
+    pub const fn WRITE_THROUGH() -> Self {
         Self { bits: 0b00001000 }
     }
 
     /// Disables caching for the pointed entry if cacheable.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn NO_CACHE() -> Self
-    {
+    pub const fn NO_CACHE() -> Self {
         Self { bits: 0b00010000 }
     }
 
     /// Whether this entry has been used for linear-address translation.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn ACCESSED() -> Self
-    {
+    pub const fn ACCESSED() -> Self {
         Self { bits: 0b00100000 }
     }
 
     /// Whether the memory area represented by this entry is modified.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn DIRTY() -> Self
-    {
+    pub const fn DIRTY() -> Self {
         Self { bits: 0b01000000 }
     }
 
     /// Only in the non-starting and non-ending levels, indication of huge page.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn HUGE() -> Self
-    {
+    pub const fn HUGE() -> Self {
         Self { bits: 0b10000000 }
     }
 
     /// Indicates that the mapping is present in all address spaces, so it isn't flushed from the TLB on an address space switch.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn GLOBAL() -> Self
-    {
+    pub const fn GLOBAL() -> Self {
         Self { bits: 0b00000001_00000000 }
     }
 
     /// Forbid constute codes on the page. The NXE bits in EFER msr must be set.
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn NO_EXECUTE() -> Self
-    {
+    pub const fn NO_EXECUTE() -> Self {
         Self { bits: 1usize << 63 }
     }
 
@@ -131,8 +118,6 @@ impl PageTableFlags {
         assert(1usize << 63 == 0x8000_0000_0000_0000) by (bit_vector);
         assert(Self::NO_EXECUTE().bits() == 0x8000_0000_0000_0000);
     }
-
 }
 
-
-}
+} // verus!
