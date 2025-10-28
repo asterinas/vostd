@@ -6,7 +6,10 @@ use vstd::bits::{low_bits_mask, lemma_low_bits_mask_values};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use crate::mm::nr_subpage_per_huge;
-use crate::mm::{PagingLevel, Vaddr, page_table::{PageTableConfig, PagingConstsTrait}};
+use crate::mm::{
+    PagingLevel, Vaddr,
+    page_table::{PageTableConfig, PagingConstsTrait},
+};
 use crate::spec::node_helper::{self, group_node_helper_lemmas};
 
 verus! {
@@ -53,14 +56,22 @@ pub open spec fn va_level_to_trace<C: PageTableConfig>(va: Vaddr, level: PagingL
     recommends
         1 <= level <= C::NR_LEVELS_SPEC(),
 {
-    Seq::new((C::NR_LEVELS_SPEC() - level) as nat, |i| va_level_to_offset::<C>(va, (C::NR_LEVELS_SPEC() - i) as PagingLevel))
+    Seq::new(
+        (C::NR_LEVELS_SPEC() - level) as nat,
+        |i| va_level_to_offset::<C>(va, (C::NR_LEVELS_SPEC() - i) as PagingLevel),
+    )
 }
 
 pub open spec fn va_level_to_nid<C: PageTableConfig>(va: Vaddr, level: PagingLevel) -> NodeId {
     node_helper::trace_to_nid::<C>(va_level_to_trace::<C>(va, level))
 }
 
-pub proof fn lemma_va_level_to_nid_inc<C: PageTableConfig>(va: Vaddr, level: PagingLevel, nid: NodeId, idx: nat)
+pub proof fn lemma_va_level_to_nid_inc<C: PageTableConfig>(
+    va: Vaddr,
+    level: PagingLevel,
+    nid: NodeId,
+    idx: nat,
+)
     requires
         valid_vaddr::<C>(va),
         1 <= level < C::NR_LEVELS_SPEC(),

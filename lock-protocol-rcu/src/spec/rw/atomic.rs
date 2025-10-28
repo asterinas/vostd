@@ -160,10 +160,8 @@ pub proof fn lemma_mutual_exclusion<C: PageTableConfig>(
                 let _cpu = steps[i].get_lock_0();
                 let _nid = steps[i].get_lock_1();
 
-                cpu != _cpu && !node_helper::in_subtree::<C>(nid, _nid) && !node_helper::in_subtree::<C>(
-                    _nid,
-                    nid,
-                )
+                cpu != _cpu && !node_helper::in_subtree::<C>(nid, _nid)
+                    && !node_helper::in_subtree::<C>(_nid, nid)
             },
     decreases steps.len(),
 {

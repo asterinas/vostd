@@ -2,9 +2,14 @@ use vstd::prelude::*;
 
 use core::marker::PhantomData;
 
-use crate::{mm::page_table::PageTableConfig, spec::{
-    common::{valid_cpu, CpuId, NodeId}, rcu::{CursorState, CursorToken, SpecInstance}, node_helper
-}};
+use crate::{
+    mm::page_table::PageTableConfig,
+    spec::{
+        common::{valid_cpu, CpuId, NodeId},
+        rcu::{CursorState, CursorToken, SpecInstance},
+        node_helper,
+    },
+};
 use crate::configs::GLOBAL_CPU_NUM;
 
 verus! {

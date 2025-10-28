@@ -2,7 +2,10 @@ use vstd::{prelude::*, seq::*};
 
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::{mm::page_table::PageTableConfig, spec::{common::NodeId, node_helper}};
+use crate::{
+    mm::page_table::PageTableConfig,
+    spec::{common::NodeId, node_helper},
+};
 use super::wf_tree_path;
 
 verus! {

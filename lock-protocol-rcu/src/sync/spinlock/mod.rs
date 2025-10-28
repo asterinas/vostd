@@ -588,7 +588,8 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
             pa_pte_array_token@.instance_id() == self.pt_inst_id(),
             pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
             pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@)) == self.paddr@,
+            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
+                == self.paddr@,
         ensures
             res.wf(self),
             res.stray_perm().value() == false,
@@ -742,7 +743,8 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
             pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
             m@.node_is_locked(pa_pte_array_token@.key()),
             pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@)) == self.paddr@,
+            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
+                == self.paddr@,
         ensures
             res.0.wf(self),
             res.0.stray_perm().value() == false,

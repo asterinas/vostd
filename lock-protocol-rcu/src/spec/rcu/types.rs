@@ -92,7 +92,9 @@ impl CursorState {
         match *self {
             Self::Void => Set::<NodeId>::empty(),
             Self::Locking(rt, nid) => Set::new(|id| rt <= id < nid),
-            Self::Locked(rt) => Set::new(|id| rt <= id < node_helper::next_outside_subtree::<C>(rt)),
+            Self::Locked(rt) => Set::new(
+                |id| rt <= id < node_helper::next_outside_subtree::<C>(rt),
+            ),
         }
     }
 

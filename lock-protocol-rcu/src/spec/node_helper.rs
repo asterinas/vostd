@@ -219,7 +219,11 @@ pub open spec fn trace_lt<C: PageTableConfig>(t1: Seq<nat>, t2: Seq<nat>) -> boo
 }
 
 /// Returns the trace from cur_rt to the node with id `nid`.
-pub closed spec fn nid_to_trace_rec<C: PageTableConfig>(nid: NodeId, cur_level: nat, cur_rt: NodeId) -> Seq<nat>
+pub closed spec fn nid_to_trace_rec<C: PageTableConfig>(
+    nid: NodeId,
+    cur_level: nat,
+    cur_rt: NodeId,
+) -> Seq<nat>
     decreases cur_level,
 {
     if cur_level == 0 {
@@ -250,7 +254,11 @@ pub open spec fn nid_to_trace<C: PageTableConfig>(nid: NodeId) -> Seq<nat>
 
 /// Returns the node id from the trace.
 #[verifier::opaque]
-pub open spec fn trace_to_nid_rec<C: PageTableConfig>(trace: Seq<nat>, cur_rt: NodeId, cur_level: int) -> NodeId
+pub open spec fn trace_to_nid_rec<C: PageTableConfig>(
+    trace: Seq<nat>,
+    cur_rt: NodeId,
+    cur_level: int,
+) -> NodeId
     recommends
         valid_trace::<C>(trace),
         valid_nid::<C>(cur_rt),
@@ -277,7 +285,10 @@ pub open spec fn trace_to_nid<C: PageTableConfig>(trace: Seq<nat>) -> NodeId
 }
 
 /// Returns the child node id from the trace and offset.
-pub open spec fn child_nid_from_trace_offset<C: PageTableConfig>(trace: Seq<nat>, offset: nat) -> NodeId
+pub open spec fn child_nid_from_trace_offset<C: PageTableConfig>(
+    trace: Seq<nat>,
+    offset: nat,
+) -> NodeId
     recommends
         valid_trace::<C>(trace),
         0 <= offset < 512,
@@ -403,10 +414,15 @@ pub open spec fn get_subtree_traces<C: PageTableConfig>(trace: Seq<nat>) -> Set<
     valid_trace_set::<C>().filter(|subtree_trace| trace.is_prefix_of(subtree_trace))
 }
 
-proof fn lemma_trace_to_nid_rec_inductive<C: PageTableConfig>(trace: Seq<nat>, cur_rt: NodeId, cur_level: int)
+proof fn lemma_trace_to_nid_rec_inductive<C: PageTableConfig>(
+    trace: Seq<nat>,
+    cur_rt: NodeId,
+    cur_level: int,
+)
     ensures
-        trace.len() > 0 ==> trace_to_nid_rec::<C>(trace, cur_rt, cur_level)
-            == trace_to_nid_rec::<C>(
+        trace.len() > 0 ==> trace_to_nid_rec::<C>(trace, cur_rt, cur_level) == trace_to_nid_rec::<
+            C,
+        >(
             trace.drop_first(),
             cur_rt + trace[0] * tree_size_spec::<C>(cur_level - 1) + 1,
             cur_level - 1,
@@ -490,7 +506,11 @@ proof fn lemma_trace_to_nid_inner<C: PageTableConfig>(trace: Seq<nat>)
     }
 }
 
-proof fn lemma_trace_to_nid_rec_lower_bound<C: PageTableConfig>(trace: Seq<nat>, root: NodeId, level: int)
+proof fn lemma_trace_to_nid_rec_lower_bound<C: PageTableConfig>(
+    trace: Seq<nat>,
+    root: NodeId,
+    level: int,
+)
     ensures
         trace.len() > 0 ==> trace_to_nid_rec::<C>(trace, root, level) > root,
         trace.len() == 0 ==> trace_to_nid_rec::<C>(trace, root, level) == root,
@@ -506,7 +526,11 @@ proof fn lemma_trace_to_nid_rec_lower_bound<C: PageTableConfig>(trace: Seq<nat>,
     }
 }
 
-proof fn lemma_trace_to_nid_rec_upper_bound<C: PageTableConfig>(trace: Seq<nat>, root: NodeId, level: int)
+proof fn lemma_trace_to_nid_rec_upper_bound<C: PageTableConfig>(
+    trace: Seq<nat>,
+    root: NodeId,
+    level: int,
+)
     requires
         valid_trace::<C>(trace),
         trace.len() <= level,
@@ -555,11 +579,7 @@ proof fn lemma_trace_to_nid_rec_increasing<C: PageTableConfig>(
         trace2.len() <= level,
         trace1.len() <= level,
     ensures
-        trace_to_nid_rec::<C>(trace1, root, level) < trace_to_nid_rec::<C>(
-            trace2,
-            root,
-            level,
-        ),
+        trace_to_nid_rec::<C>(trace1, root, level) < trace_to_nid_rec::<C>(trace2, root, level),
     decreases trace1.len(),
 {
     reveal(trace_to_nid_rec);
@@ -573,25 +593,20 @@ proof fn lemma_trace_to_nid_rec_increasing<C: PageTableConfig>(
             let new_trace2 = trace2.subrange(1, trace2.len() as int);
             if trace1[0] == trace2[0] {
                 let new_rt = root + trace1[0] * tree_size_spec::<C>(level - 1) + 1;
-                lemma_trace_to_nid_rec_increasing::<C>(
-                    new_trace1,
-                    new_trace2,
-                    new_rt,
-                    level - 1,
-                );
+                lemma_trace_to_nid_rec_increasing::<C>(new_trace1, new_trace2, new_rt, level - 1);
             } else if trace1[0] < trace2[0] {
                 let new_rt1 = root + trace1[0] * tree_size_spec::<C>(level - 1) + 1;
                 let new_rt2 = root + trace2[0] * tree_size_spec::<C>(level - 1) + 1;
-                assert(trace_to_nid_rec::<C>(trace1, root, level) < new_rt1
-                    + tree_size_spec::<C>(level - 1)) by {
+                assert(trace_to_nid_rec::<C>(trace1, root, level) < new_rt1 + tree_size_spec::<C>(
+                    level - 1,
+                )) by {
                     lemma_trace_to_nid_rec_upper_bound::<C>(new_trace1, new_rt1, level - 1);
                 }
                 assert(trace_to_nid_rec::<C>(trace2, root, level) >= new_rt2) by {
                     lemma_trace_to_nid_rec_lower_bound::<C>(new_trace2, new_rt2, level - 1);
                 }
-                assert(trace1[0] * tree_size_spec::<C>(level - 1) + tree_size_spec::<C>(
-                    level - 1,
-                ) <= trace2[0] * tree_size_spec::<C>(level - 1)) by (nonlinear_arith)
+                assert(trace1[0] * tree_size_spec::<C>(level - 1) + tree_size_spec::<C>(level - 1)
+                    <= trace2[0] * tree_size_spec::<C>(level - 1)) by (nonlinear_arith)
                     requires
                         0 <= trace1[0] < trace2[0],
                 ;
@@ -602,14 +617,15 @@ proof fn lemma_trace_to_nid_rec_increasing<C: PageTableConfig>(
 
 /// `child_nid_from_trace_offset` correctly returns the child node id from the trace and offset,
 /// i.e. `child_nid_from_trace_offset(trace, offset) == trace_to_nid(trace.push(offset))`.
-pub proof fn lemma_child_nid_from_trace_offset_sound<C: PageTableConfig>(trace: Seq<nat>, offset: nat)
+pub proof fn lemma_child_nid_from_trace_offset_sound<C: PageTableConfig>(
+    trace: Seq<nat>,
+    offset: nat,
+)
     requires
         0 <= offset < 512,
         valid_trace::<C>(trace),
     ensures
-        child_nid_from_trace_offset::<C>(trace, offset) == trace_to_nid::<C>(
-            trace.push(offset),
-        ),
+        child_nid_from_trace_offset::<C>(trace, offset) == trace_to_nid::<C>(trace.push(offset)),
 {
     reveal(trace_to_nid_rec);
     let func = |param: (NodeId, int), offset: nat|
@@ -621,14 +637,14 @@ pub proof fn lemma_child_nid_from_trace_offset_sound<C: PageTableConfig>(trace: 
         };
 
     assert(trace.push(offset).drop_last() == trace);
-    assert(func(trace.fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func), offset) == trace.push(offset).fold_left_alt(
-        (0, C::NR_LEVELS_SPEC() - 1),
-        func,
-    )) by {
+    assert(func(trace.fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func), offset) == trace.push(
+        offset,
+    ).fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func)) by {
         trace.lemma_fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func);
         trace.push(offset).lemma_fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func);
     };
-    assert(trace.fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func).1 == C::NR_LEVELS_SPEC() - 1 - trace.len()) by {
+    assert(trace.fold_left_alt((0, C::NR_LEVELS_SPEC() - 1), func).1 == C::NR_LEVELS_SPEC() - 1
+        - trace.len()) by {
         lemma_trace_to_nid_inner::<C>(trace);
     };
 }
@@ -646,11 +662,7 @@ pub proof fn lemma_trace_to_nid_split<C: PageTableConfig>(
         cur_rt == trace_to_nid::<C>(trace1),
         cur_level == level_to_dep::<C>(trace1.len()) - 1,
     ensures
-        trace_to_nid::<C>(trace1.add(trace2)) == trace_to_nid_rec::<C>(
-            trace2,
-            cur_rt,
-            cur_level,
-        ),
+        trace_to_nid::<C>(trace1.add(trace2)) == trace_to_nid_rec::<C>(trace2, cur_rt, cur_level),
     decreases trace2.len(),
 {
     reveal(trace_to_nid_rec);
@@ -673,7 +685,11 @@ pub proof fn lemma_trace_to_nid_split<C: PageTableConfig>(
 /// `nid_to_trace_rec` correcly returns a trace from `cur_rt` to the node id `nid`.
 /// By applying `trace_to_nid_rec' to the trace produced by `nid_to_trace_rec`, we can
 /// reconstruct the original node id.
-pub proof fn lemma_nid_to_trace_rec_sound<C: PageTableConfig>(nid: NodeId, cur_level: nat, cur_rt: NodeId)
+pub proof fn lemma_nid_to_trace_rec_sound<C: PageTableConfig>(
+    nid: NodeId,
+    cur_level: nat,
+    cur_rt: NodeId,
+)
     requires
         valid_nid::<C>(nid),
         cur_level <= C::NR_LEVELS_SPEC() - 1,
@@ -751,10 +767,9 @@ pub proof fn lemma_nid_to_trace_left_inverse<C: PageTableConfig>()
             valid_trace_set::<C>(),
         ),
 {
-    assert forall|nid| #[trigger]
-        valid_nid_set::<C>().contains(nid) implies valid_trace_set::<C>().contains(
-        nid_to_trace::<C>(nid),
-    ) && trace_to_nid::<C>(nid_to_trace::<C>(nid)) == nid by {
+    assert forall|nid| #[trigger] valid_nid_set::<C>().contains(nid) implies valid_trace_set::<
+        C,
+    >().contains(nid_to_trace::<C>(nid)) && trace_to_nid::<C>(nid_to_trace::<C>(nid)) == nid by {
         lemma_nid_to_trace_sound::<C>(nid);
     };
 }
@@ -762,14 +777,19 @@ pub proof fn lemma_nid_to_trace_left_inverse<C: PageTableConfig>()
 /// `trace_to_nid_rec` correctly returns a node id from the trace starting from `cur_rt`.
 /// We can reconstruct the trace using `nid_to_trace_rec` with the trace given by `trace_to_nid_rec`.
 #[verifier::spinoff_prover]
-pub proof fn lemma_trace_to_nid_rec_sound<C: PageTableConfig>(trace: Seq<nat>, cur_rt: NodeId, cur_level: int)
+pub proof fn lemma_trace_to_nid_rec_sound<C: PageTableConfig>(
+    trace: Seq<nat>,
+    cur_rt: NodeId,
+    cur_level: int,
+)
     requires
         valid_trace::<C>(trace),
         cur_rt + tree_size_spec::<C>(cur_level) <= total_size::<C>(),
         trace.len() <= cur_level,
     ensures
-        cur_rt <= trace_to_nid_rec::<C>(trace, cur_rt, cur_level) < cur_rt
-            + tree_size_spec::<C>(cur_level),
+        cur_rt <= trace_to_nid_rec::<C>(trace, cur_rt, cur_level) < cur_rt + tree_size_spec::<C>(
+            cur_level,
+        ),
         trace_to_nid_rec::<C>(trace, cur_rt, cur_level) == cur_rt <==> trace.len() == 0,
         trace.len() != 0 ==> trace == nid_to_trace_rec::<C>(
             trace_to_nid_rec::<C>(trace, cur_rt, cur_level),
@@ -841,10 +861,10 @@ pub proof fn lemma_nid_to_trace_right_inverse<C: PageTableConfig>()
             valid_trace_set::<C>(),
         ),
 {
-    assert forall|trace| #[trigger]
-        valid_trace_set::<C>().contains(trace) implies valid_nid_set::<C>().contains(
-        trace_to_nid::<C>(trace),
-    ) && nid_to_trace::<C>(trace_to_nid::<C>(trace)) == trace by {
+    assert forall|trace| #[trigger] valid_trace_set::<C>().contains(trace) implies valid_nid_set::<
+        C,
+    >().contains(trace_to_nid::<C>(trace)) && nid_to_trace::<C>(trace_to_nid::<C>(trace))
+        == trace by {
         lemma_trace_to_nid_sound::<C>(trace);
     };
 }
@@ -852,11 +872,7 @@ pub proof fn lemma_nid_to_trace_right_inverse<C: PageTableConfig>()
 /// The function `nid_to_trace` is bijective between the valid node id set and the valid trace set.
 pub proof fn lemma_nid_to_trace_bijective<C: PageTableConfig>()
     ensures
-        bijective_on(
-            |nid| nid_to_trace::<C>(nid),
-            valid_nid_set::<C>(),
-            valid_trace_set::<C>(),
-        ),
+        bijective_on(|nid| nid_to_trace::<C>(nid), valid_nid_set::<C>(), valid_trace_set::<C>()),
 {
     lemma_nid_to_trace_left_inverse::<C>();
     lemma_nid_to_trace_right_inverse::<C>();
@@ -882,11 +898,16 @@ pub proof fn lemma_trace_to_nid_bijective<C: PageTableConfig>()
 }
 
 // Helper lemma: prove that the result length of nid_to_trace_rec does not exceed cur_level
-proof fn lemma_trace_rec_len_le_level<C: PageTableConfig>(nid: NodeId, cur_level: nat, cur_rt: NodeId)
+proof fn lemma_trace_rec_len_le_level<C: PageTableConfig>(
+    nid: NodeId,
+    cur_level: nat,
+    cur_rt: NodeId,
+)
     ensures
         nid_to_trace_rec::<C>(nid, cur_level, cur_rt).len() <= cur_level,
     decreases cur_level,
 // Induction proof on cur_level
+
 {
     if cur_level == 0 {
         assert(nid_to_trace_rec::<C>(nid, 0, cur_rt).len() == 0);
@@ -1005,9 +1026,7 @@ pub proof fn lemma_is_child_bound<C: PageTableConfig>(pa: NodeId, ch: NodeId)
                 assert(trace_ch.drop_last() == trace_pa);
                 assert(trace_ch.last() == offset) by {
                     assert(trace_ch == trace_pa.push(offset));
-                    assert(trace_to_nid::<C>(trace_ch) == trace_to_nid::<C>(
-                        trace_pa.push(offset),
-                    ));
+                    assert(trace_to_nid::<C>(trace_ch) == trace_to_nid::<C>(trace_pa.push(offset)));
                 }
                 assert(ch == pa + offset * sz + 1);
             };
@@ -1083,21 +1102,21 @@ pub proof fn lemma_parent_offset_uniqueness<C: PageTableConfig>(nid1: NodeId, ni
         nid2 != root_id::<C>(),
         nid1 != nid2,
     ensures
-        !(get_parent::<C>(nid1) == get_parent::<C>(nid2) && get_offset::<C>(nid1)
-            == get_offset::<C>(nid2)),
+        !(get_parent::<C>(nid1) == get_parent::<C>(nid2) && get_offset::<C>(nid1) == get_offset::<
+            C,
+        >(nid2)),
 {
     broadcast use {lemma_nid_to_trace_sound, lemma_trace_to_nid_sound};
 
-    if get_parent::<C>(nid1) == get_parent::<C>(nid2) && get_offset::<C>(nid1)
-        == get_offset::<C>(nid2) {
+    if get_parent::<C>(nid1) == get_parent::<C>(nid2) && get_offset::<C>(nid1) == get_offset::<C>(
+        nid2,
+    ) {
         let trace1 = nid_to_trace::<C>(nid1);
         let trace2 = nid_to_trace::<C>(nid2);
 
         lemma_nid_to_trace_left_inverse::<C>();
 
-        assert(trace_to_nid::<C>(trace1.drop_last()) == trace_to_nid::<C>(
-            trace2.drop_last(),
-        ));
+        assert(trace_to_nid::<C>(trace1.drop_last()) == trace_to_nid::<C>(trace2.drop_last()));
 
         assert(trace1 == trace2) by {
             assert(trace2 == trace1.drop_last().push(trace1.last()));
@@ -1207,7 +1226,9 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
     requires
         valid_trace::<C>(trace),
     ensures
-        get_subtree_traces::<C>(trace).len() == tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 1 - trace.len()),
+        get_subtree_traces::<C>(trace).len() == tree_size_spec::<C>(
+            C::NR_LEVELS_SPEC() - 1 - trace.len(),
+        ),
     decreases C::NR_LEVELS_SPEC() - 1 - trace.len(),
 {
     let subtree_trace_set = get_subtree_traces::<C>(trace);
@@ -1226,9 +1247,7 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
         // Split the set between the singleton `trace` and `child_trace_set`.
         let f = |child_trace: Seq<nat>| child_trace.len() > trace.len();
         let child_trace_set = subtree_trace_set.filter(f);
-        let trace_singleton_set = subtree_trace_set.filter(
-            |child_trace: Seq<nat>| !f(child_trace),
-        );
+        let trace_singleton_set = subtree_trace_set.filter(|child_trace: Seq<nat>| !f(child_trace));
         assert(trace_singleton_set.is_singleton()) by {
             assert(trace_singleton_set.contains(trace));
             assert forall|x, y|
@@ -1260,11 +1279,7 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
                 assert(trace.push(t1).last() == trace.push(t2).last());
             }
             lemma_injective_implies_injective_on(|offset| trace.push(offset), offset_set);
-            lemma_injective_map_cardinality(
-                |offset| trace.push(offset),
-                offset_set,
-                offset_set,
-            );
+            lemma_injective_map_cardinality(|offset| trace.push(offset), offset_set, offset_set);
         }
         assert(child_traces <= valid_trace_set::<C>());
         // The set of each child trace's subtree traces set
@@ -1274,9 +1289,8 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
         // Use induction hypothesis here, prove that each child trace's subtree traces set has the size of tree with a
         // height of C::NR_LEVELS_SPEC() - 2 - trace.len()
         assert forall|child_trace| #[trigger]
-            child_traces.contains(child_trace) implies get_subtree_traces::<C>(
-            child_trace,
-        ).len() == tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len()) by {
+            child_traces.contains(child_trace) implies get_subtree_traces::<C>(child_trace).len()
+            == tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len()) by {
             lemma_get_subtree_traces_cardinality::<C>(child_trace);
         };
         assert(child_subtree_trace_set.len() == 512 && child_subtree_trace_set.finite()) by {
@@ -1293,8 +1307,9 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
         // Show that the flatten of the child_subtree_trace_set is equal to the child_trace_set
         assert(child_trace_set == child_subtree_trace_set.flatten()) by {
             assert forall|child_trace: Seq<nat>| #[trigger]
-                child_trace_set.contains(child_trace)
-                    == child_subtree_trace_set.flatten().contains(child_trace) by {
+                child_trace_set.contains(child_trace) == child_subtree_trace_set.flatten().contains(
+                    child_trace,
+                ) by {
                 if child_trace_set.contains(child_trace) {
                     assert(trace.is_prefix_of(child_trace));
                     let trace_child = child_trace.subrange(0, (trace.len() + 1) as int);
@@ -1303,9 +1318,7 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
                     assert(offset_set.contains(offset));
                     // Definition of flatten
                     assert(child_traces.contains(trace_child));
-                    assert(child_subtree_trace_set.contains(
-                        get_subtree_traces::<C>(trace_child),
-                    ));
+                    assert(child_subtree_trace_set.contains(get_subtree_traces::<C>(trace_child)));
                 }
                 if child_subtree_trace_set.flatten().contains(child_trace) {
                     let child_subtree_trace = choose|t: Set<Seq<nat>>|
@@ -1319,7 +1332,9 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
             }
         }
 
-        assert(child_trace_set.len() == 512 * tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len())) by {
+        assert(child_trace_set.len() == 512 * tree_size_spec::<C>(
+            C::NR_LEVELS_SPEC() - 2 - trace.len(),
+        )) by {
             lemma_flatten_cardinality_under_disjointness_same_length(
                 child_subtree_trace_set,
                 tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len()),
@@ -1333,8 +1348,7 @@ pub proof fn lemma_in_subtree_cardinality<C: PageTableConfig>(nid: NodeId)
     requires
         valid_nid::<C>(nid),
     ensures
-        valid_nid_set::<C>().filter(|id| in_subtree::<C>(nid, id)).len()
-            == sub_tree_size::<C>(nid),
+        valid_nid_set::<C>().filter(|id| in_subtree::<C>(nid, id)).len() == sub_tree_size::<C>(nid),
 {
     broadcast use lemma_trace_to_nid_sound;
 
@@ -1351,9 +1365,9 @@ pub proof fn lemma_in_subtree_cardinality<C: PageTableConfig>(nid: NodeId)
         lemma_nid_to_trace_bijective::<C>();
         // Prove subtree_traces == subtree_ids.map(nid_to_trace)
         assert forall|trace| #[trigger]
-            subtree_traces.contains(trace) == subtree_ids.map(
-                |id| nid_to_trace::<C>(id),
-            ).contains(trace) by {
+            subtree_traces.contains(trace) == subtree_ids.map(|id| nid_to_trace::<C>(id)).contains(
+                trace,
+            ) by {
             if subtree_traces.contains(trace) {
                 let trace_id = trace_to_nid::<C>(trace);
                 assert(subtree_ids.contains(trace_id) && nid_to_trace::<C>(trace_id) == trace);
@@ -1389,10 +1403,7 @@ proof fn lemma_in_subtree_implies_in_subtree_range<C: PageTableConfig>(rt: NodeI
             } else {
                 if rt == nd {
                 } else {
-                    let suffix = nd_trace.subrange(
-                        rt_trace.len() as int,
-                        nd_trace.len() as int,
-                    );
+                    let suffix = nd_trace.subrange(rt_trace.len() as int, nd_trace.len() as int);
 
                     let cur_level = C::NR_LEVELS_SPEC() - 1 - rt_trace.len();
                     assert(valid_trace::<C>(suffix)) by {
@@ -1401,8 +1412,7 @@ proof fn lemma_in_subtree_implies_in_subtree_range<C: PageTableConfig>(rt: NodeI
                             0 <= i < suffix.len() ==> 0 <= suffix[i] < 512) by {
                             assert(forall|i: int|
                                 #![trigger nd_trace[i + rt_trace.len()]]
-                                0 <= i < suffix.len() ==> 0 <= nd_trace[i + rt_trace.len()]
-                                    < 512);
+                                0 <= i < suffix.len() ==> 0 <= nd_trace[i + rt_trace.len()] < 512);
                         }
                     }
 
@@ -1467,9 +1477,7 @@ proof fn lemma_in_subtree_range_implies_in_subtree<C: PageTableConfig>(rt: NodeI
             lemma_next_outside_subtree_bounded::<C>(rt);
         }
     }
-    assert(nid_set == valid_nid_set::<C>().filter(
-        |id| rt <= id < next_outside_subtree::<C>(rt),
-    ));
+    assert(nid_set == valid_nid_set::<C>().filter(|id| rt <= id < next_outside_subtree::<C>(rt)));
 
     // Shhowing there are exactly `sub_tree_size(rt)` node ids that are in the subtree
     let child_set = valid_nid_set::<C>().filter(|id| in_subtree::<C>(rt, id));
@@ -1494,7 +1502,10 @@ proof fn lemma_in_subtree_range_implies_in_subtree<C: PageTableConfig>(rt: NodeI
 }
 
 /// 'in_subtree' is equivalent to 'in_subtree_range' (nd in [rt, next_outside_subtree(rt)))
-pub broadcast proof fn lemma_in_subtree_iff_in_subtree_range<C: PageTableConfig>(rt: NodeId, nd: NodeId)
+pub broadcast proof fn lemma_in_subtree_iff_in_subtree_range<C: PageTableConfig>(
+    rt: NodeId,
+    nd: NodeId,
+)
     requires
         valid_nid::<C>(rt),
     ensures
@@ -1513,7 +1524,11 @@ pub broadcast proof fn lemma_in_subtree_iff_in_subtree_range<C: PageTableConfig>
 
 /// If `ch` is a child of `pa`, `ch` is in the subtree of `rt`, and `rt` is not equal to `ch`,
 /// then `pa` is in the subtree of `rt`.
-pub proof fn lemma_child_in_subtree_implies_in_subtree<C: PageTableConfig>(rt: NodeId, pa: NodeId, ch: NodeId)
+pub proof fn lemma_child_in_subtree_implies_in_subtree<C: PageTableConfig>(
+    rt: NodeId,
+    pa: NodeId,
+    ch: NodeId,
+)
     requires
         valid_nid::<C>(rt),
         valid_nid::<C>(pa),
@@ -1555,7 +1570,11 @@ pub proof fn lemma_not_in_subtree_range_implies_child_not_in_subtree_range<C: Pa
 }
 
 /// If `pa` is in the subtree of `rt`, `ch` is a child of `pa`, then `ch` is in the subtree of `rt`.
-pub proof fn lemma_in_subtree_is_child_in_subtree<C: PageTableConfig>(rt: NodeId, nd: NodeId, ch: NodeId)
+pub proof fn lemma_in_subtree_is_child_in_subtree<C: PageTableConfig>(
+    rt: NodeId,
+    nd: NodeId,
+    ch: NodeId,
+)
     requires
         in_subtree::<C>(rt, nd),
         valid_nid::<C>(ch),
@@ -1578,7 +1597,11 @@ pub broadcast proof fn lemma_is_child_nid_increasing<C: PageTableConfig>(pa: Nod
     lemma_in_subtree_iff_in_subtree_range::<C>(pa, ch);
 }
 
-pub proof fn lemma_brother_nid_increasing<C: PageTableConfig>(pa: NodeId, offset1: nat, offset2: nat)
+pub proof fn lemma_brother_nid_increasing<C: PageTableConfig>(
+    pa: NodeId,
+    offset1: nat,
+    offset2: nat,
+)
     requires
         valid_nid::<C>(pa),
         is_not_leaf::<C>(pa),
@@ -1609,7 +1632,12 @@ pub proof fn lemma_is_child_level_relation<C: PageTableConfig>(pa: NodeId, ch: N
     lemma_level_dep_relation::<C>(ch);
 }
 
-proof fn lemma_trace_to_nid_rec_push<C: PageTableConfig>(trace: Seq<nat>, offset: nat, rt: NodeId, level: int)
+proof fn lemma_trace_to_nid_rec_push<C: PageTableConfig>(
+    trace: Seq<nat>,
+    offset: nat,
+    rt: NodeId,
+    level: int,
+)
     requires
         valid_trace::<C>(trace),
         trace.len() < level,
@@ -1664,10 +1692,7 @@ pub proof fn lemma_brother_algebraic_relation<C: PageTableConfig>(nid: NodeId, o
         is_not_leaf::<C>(nid),
         0 <= offset < 511,
     ensures
-        next_outside_subtree::<C>(get_child::<C>(nid, offset)) == get_child::<C>(
-            nid,
-            offset + 1,
-        ),
+        next_outside_subtree::<C>(get_child::<C>(nid, offset)) == get_child::<C>(nid, offset + 1),
 {
     C::lemma_nr_subpage_per_huge_is_512();
     lemma_parent_child_algebraic_relation::<C>(nid, offset);
@@ -1683,9 +1708,7 @@ pub proof fn lemma_last_child_next_outside_subtree<C: PageTableConfig>(nid: Node
         valid_nid::<C>(nid),
         is_not_leaf::<C>(nid),
     ensures
-        next_outside_subtree::<C>(get_child::<C>(nid, 511)) == next_outside_subtree::<C>(
-            nid,
-        ),
+        next_outside_subtree::<C>(get_child::<C>(nid, 511)) == next_outside_subtree::<C>(nid),
 {
     assert(511 < nr_subpage_per_huge::<C>()) by {
         C::lemma_nr_subpage_per_huge_is_512();

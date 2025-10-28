@@ -10,8 +10,8 @@ use vstd_extra::manually_drop::*;
 use crate::mm::frame::meta::*;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::{
-    PagingConstsTrait,
-    PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel, pte_index,
+    PagingConstsTrait, PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel,
+    pte_index,
 };
 use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::mm::page_table::node::{
@@ -67,7 +67,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         C::lemma_nr_subpage_per_huge_is_512();
         C::lemma_consts_properties();
     }
-    
+
     let tracked mut m = m.get();
 
     // The re-try loop of finding the sub-tree root.
@@ -139,7 +139,9 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     assert(result.wf_va()) by {
         admit();
     };
-    assert(result.wf_with_forgot_guards(forgot_guards)) by { admit(); };
+    assert(result.wf_with_forgot_guards(forgot_guards)) by {
+        admit();
+    };
 
     (result, Tracked(m), Tracked(forgot_guards))
 }
@@ -166,6 +168,7 @@ pub fn unlock_range<C: PageTableConfig>(
         res@.state() is Void,
 {
     broadcast use group_node_helper_lemmas;
+
     proof {
         C::lemma_nr_subpage_per_huge_is_512();
         C::lemma_consts_properties();
@@ -191,7 +194,9 @@ pub fn unlock_range<C: PageTableConfig>(
             cursor.guard_level == old(cursor).guard_level,
             forall|level: PagingLevel|
                 #![trigger cursor.path[level - 1]]
-                i + 1 <= level <= C::NR_LEVELS_SPEC() ==> cursor.path[level - 1] =~= old(cursor).path[level - 1],
+                i + 1 <= level <= C::NR_LEVELS_SPEC() ==> cursor.path[level - 1] =~= old(
+                    cursor,
+                ).path[level - 1],
             forall|level: PagingLevel|
                 #![trigger cursor.get_guard_level(level)]
                 1 <= level < i + 1 ==> cursor.get_guard_level(level) is None,
@@ -563,6 +568,7 @@ fn dfs_acquire_lock<C: PageTableConfig>(
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+
     proof {
         C::lemma_nr_subpage_per_huge_is_512();
         C::lemma_consts_properties();
@@ -731,9 +737,13 @@ fn dfs_acquire_lock<C: PageTableConfig>(
                     );
                     m.token = res;
 
-                    assert(m.cur_node() <= node_helper::next_outside_subtree::<C>(m.sub_tree_rt())) by {
+                    assert(m.cur_node() <= node_helper::next_outside_subtree::<C>(m.sub_tree_rt()))
+                        by {
                         assert(node_helper::in_subtree::<C>(m.sub_tree_rt(), cur_node.nid())) by {
-                            assert(node_helper::in_subtree_range::<C>(m.sub_tree_rt(), cur_node.nid()));
+                            assert(node_helper::in_subtree_range::<C>(
+                                m.sub_tree_rt(),
+                                cur_node.nid(),
+                            ));
                         }
                         if i + 1 < 512 {
                             assert(m.cur_node() == node_helper::get_child::<C>(
@@ -753,12 +763,18 @@ fn dfs_acquire_lock<C: PageTableConfig>(
                             );
                         } else {
                             assert(i + 1 == 512);
-                            assert(m.cur_node() == node_helper::next_outside_subtree::<C>(cur_node.nid()))
-                                by {
+                            assert(m.cur_node() == node_helper::next_outside_subtree::<C>(
+                                cur_node.nid(),
+                            )) by {
                                 assert(m.cur_node() == node_helper::next_outside_subtree::<C>(nid));
-                                node_helper::lemma_last_child_next_outside_subtree::<C>(cur_node.nid())
+                                node_helper::lemma_last_child_next_outside_subtree::<C>(
+                                    cur_node.nid(),
+                                )
                             };
-                            node_helper::lemma_in_subtree_bounded::<C>(m.sub_tree_rt(), cur_node.nid());
+                            node_helper::lemma_in_subtree_bounded::<C>(
+                                m.sub_tree_rt(),
+                                cur_node.nid(),
+                            );
                         }
                     };
 
@@ -842,6 +858,7 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+
     proof {
         C::lemma_nr_subpage_per_huge_is_512();
         C::lemma_consts_properties();
@@ -905,9 +922,15 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
         match child {
             ChildRef::PageTable(pt) => {
                 assert(m.node_is_locked(pt.deref().nid@)) by {
-                    assert(pt.deref().nid@ == node_helper::get_child::<C>(cur_node.nid(), i as nat));
+                    assert(pt.deref().nid@ == node_helper::get_child::<C>(
+                        cur_node.nid(),
+                        i as nat,
+                    ));
                     assert(m.sub_tree_rt() <= pt.deref().nid@) by {
-                        node_helper::lemma_is_child_nid_increasing::<C>(cur_node.nid(), pt.deref().nid@);
+                        node_helper::lemma_is_child_nid_increasing::<C>(
+                            cur_node.nid(),
+                            pt.deref().nid@,
+                        );
                     };
                     if i + 1 < 512 {
                         assert(m.cur_node() == node_helper::get_child::<C>(
@@ -920,8 +943,11 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
                             (i + 1) as nat,
                         );
                     } else {
-                        assert(m.cur_node() == node_helper::next_outside_subtree::<C>(cur_node.nid()));
-                        assert(node_helper::in_subtree_range::<C>(cur_node.nid(), pt.deref().nid@)) by {
+                        assert(m.cur_node() == node_helper::next_outside_subtree::<C>(
+                            cur_node.nid(),
+                        ));
+                        assert(node_helper::in_subtree_range::<C>(cur_node.nid(), pt.deref().nid@))
+                            by {
                             node_helper::lemma_is_child_implies_in_subtree::<C>(
                                 cur_node.nid(),
                                 pt.deref().nid@,
@@ -947,9 +973,11 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
                             assert(node_helper::in_subtree_range::<C>(cur_node.nid(), _nid));
                             assert(_nid != cur_node.nid());
                             if node_helper::in_subtree_range::<C>(_nid, child_nid) {
-                                assert(node_helper::in_subtree_range::<C>(_nid, cur_node.nid())) by {
-                                    node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(
-                                    _nid, cur_node.nid(), child_nid);
+                                assert(node_helper::in_subtree_range::<C>(_nid, cur_node.nid()))
+                                    by {
+                                    node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<
+                                        C,
+                                    >(_nid, cur_node.nid(), child_nid);
                                 };
                             }
                         };
@@ -973,15 +1001,21 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
                 // SAFETY: The caller ensures that all the nodes in the sub-tree are locked and all
                 // guards are forgotten.
                 // unsafe { dfs_release_lock(guard, child_node, child_node_va, va_start..va_end) };
-                assert(m.cur_node() == node_helper::next_outside_subtree::<C>(child_node.nid())) by {
+                assert(m.cur_node() == node_helper::next_outside_subtree::<C>(child_node.nid()))
+                    by {
                     if i + 1 < 512 {
                         assert(m.cur_node() == node_helper::get_child::<C>(
                             cur_node.nid(),
                             (i + 1) as nat,
                         ));
-                        node_helper::lemma_brother_algebraic_relation::<C>(cur_node.nid(), i as nat);
+                        node_helper::lemma_brother_algebraic_relation::<C>(
+                            cur_node.nid(),
+                            i as nat,
+                        );
                     } else {
-                        assert(m.cur_node() == node_helper::next_outside_subtree::<C>(cur_node.nid()));
+                        assert(m.cur_node() == node_helper::next_outside_subtree::<C>(
+                            cur_node.nid(),
+                        ));
                         node_helper::lemma_last_child_next_outside_subtree::<C>(cur_node.nid());
                     }
                 };
@@ -1009,7 +1043,10 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
                                 cur_node.nid(),
                                 (i + 1) as nat,
                             ));
-                            node_helper::lemma_brother_algebraic_relation::<C>(cur_node.nid(), i as nat);
+                            node_helper::lemma_brother_algebraic_relation::<C>(
+                                cur_node.nid(),
+                                i as nat,
+                            );
                         } else {
                             assert(m.cur_node() == node_helper::next_outside_subtree::<C>(
                                 cur_node.nid(),

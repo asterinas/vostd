@@ -107,9 +107,9 @@ pub proof fn lemma_wf_tree_path_nid_to_trace_len<C: PageTableConfig>(path: Seq<N
         let last = path.last();
         let rest_last = path.drop_last().last();
         lemma_wf_tree_path_nid_to_trace_len::<C>(path.drop_last());
-        assert(node_helper::nid_to_trace::<C>(rest_last).len() + 1 == node_helper::nid_to_trace::<C>(
-            last,
-        ).len()) by { node_helper::lemma_is_child_implies_in_subtree::<C>(rest_last, last) };
+        assert(node_helper::nid_to_trace::<C>(rest_last).len() + 1 == node_helper::nid_to_trace::<
+            C,
+        >(last).len()) by { node_helper::lemma_is_child_implies_in_subtree::<C>(rest_last, last) };
 
     }
 }
@@ -130,7 +130,10 @@ pub proof fn lemma_wf_tree_path_in_subtree_range<C: PageTableConfig>(path: Seq<N
         wf_tree_path::<C>(path),
     ensures
         forall|i: int, j: int|
-            0 <= i <= j < path.len() ==> #[trigger] node_helper::in_subtree_range::<C>(path[i], path[j]),
+            0 <= i <= j < path.len() ==> #[trigger] node_helper::in_subtree_range::<C>(
+                path[i],
+                path[j],
+            ),
     decreases path.len(),
 {
     if path.len() == 0 {
@@ -141,7 +144,10 @@ pub proof fn lemma_wf_tree_path_in_subtree_range<C: PageTableConfig>(path: Seq<N
         let rest_last = rest.last();
         assert forall|i: int, j: int|
             #![trigger path[i],path[j]]
-            0 <= i <= j < path.len() implies node_helper::in_subtree_range::<C>(path[i], path[j]) by {
+            0 <= i <= j < path.len() implies node_helper::in_subtree_range::<C>(
+            path[i],
+            path[j],
+        ) by {
             lemma_wf_tree_path_in_subtree_range::<C>(rest);
             if j < rest.len() {
                 assert(path[i] == rest[i]);
@@ -151,7 +157,11 @@ pub proof fn lemma_wf_tree_path_in_subtree_range<C: PageTableConfig>(path: Seq<N
                 if (i == j) {
                 } else {
                     assert(path[i] == rest[i]);
-                    node_helper::lemma_in_subtree_is_child_in_subtree::<C>(path[i], rest_last, last);
+                    node_helper::lemma_in_subtree_is_child_in_subtree::<C>(
+                        path[i],
+                        rest_last,
+                        last,
+                    );
                 }
             }
         }

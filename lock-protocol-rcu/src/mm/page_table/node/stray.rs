@@ -4,7 +4,10 @@ use vstd::cell::{CellId, PCell, PointsTo};
 use core::marker::PhantomData;
 
 use crate::spec::{common::NodeId, rcu::StrayToken};
-use crate::mm::{page_table::{node::PageTableGuard, PageTableConfig}, Paddr};
+use crate::mm::{
+    page_table::{node::PageTableGuard, PageTableConfig},
+    Paddr,
+};
 
 verus! {
 

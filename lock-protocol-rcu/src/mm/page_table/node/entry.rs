@@ -8,13 +8,15 @@ use crate::spec::{
     common::NodeId,
 };
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
-use crate::mm::{page_table::{
-    PagingConstsTrait,
-    PageTableEntryTrait,
-    pte::Pte,
-    PageTableConfig,
-    node::child::{Child, ChildRef},
-}, nr_subpage_per_huge};
+use crate::mm::{
+    page_table::{
+        PagingConstsTrait, PageTableEntryTrait,
+        pte::Pte,
+        PageTableConfig,
+        node::child::{Child, ChildRef},
+    },
+    nr_subpage_per_huge,
+};
 use crate::sync::rcu::RcuDrop;
 use crate::task::DisabledPreemptGuard;
 use crate::spec::lock_protocol::LockProtocolModel;
@@ -116,7 +118,8 @@ impl<C: PageTableConfig> Entry<C> {
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
             res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
             new_child is Frame ==> {
-                node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr() == new_child->Frame_0
+                node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr()
+                    == new_child->Frame_0
             },
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
@@ -158,7 +161,8 @@ impl<C: PageTableConfig> Entry<C> {
                 &&& res->Some_0.wf()
                 &&& res->Some_0.inst_id() == node.inst_id()
                 &&& res->Some_0.nid() == node_helper::get_child::<C>(node.nid(), self.idx as nat)
-                &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
+                &&& res->Some_0.inner.deref().level_spec() + 1
+                    == node.inner.deref().level_spec()
                 // &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
                 &&& res->Some_0.guard->Some_0.in_protocol() == false
