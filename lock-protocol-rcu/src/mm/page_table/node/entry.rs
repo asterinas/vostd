@@ -37,7 +37,7 @@ pub struct Entry<C: PageTableConfig> {
 impl<C: PageTableConfig> Entry<C> {
     pub open spec fn wf(&self, node: PageTableGuard<C>) -> bool {
         &&& self.pte.wf_with_node(*(node.deref().deref()), self.idx as nat)
-        &&& 0 <= self.idx < 512
+        &&& 0 <= self.idx < nr_subpage_per_huge::<C>()
         &&& node.guard is Some ==> node.guard->Some_0.perms().relate_pte(self.pte, self.idx as nat)
     }
 

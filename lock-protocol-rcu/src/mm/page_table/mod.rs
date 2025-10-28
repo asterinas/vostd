@@ -199,6 +199,10 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
         C::C::VA_SIGN_EXT()
     }
 
+    proof fn lemma_nr_subpage_per_huge_is_512() {
+        C::C::lemma_nr_subpage_per_huge_is_512();
+    }
+
     proof fn lemma_consts_properties() {
         C::C::lemma_consts_properties();
     }
@@ -515,6 +519,13 @@ Sized {
             Self::VA_SIGN_EXT_SPEC(),
     ;
 
+    // FIXME: Some of the specs still use 512 directly. Make it generic and remove this lemma.
+    // This is likely to be hindered by Rust since we cannot use associated const expressions to define array size.
+    proof fn lemma_nr_subpage_per_huge_is_512()
+        ensures
+            Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == 512,
+    ;
+
     proof fn lemma_consts_properties()
         ensures
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
@@ -619,6 +630,12 @@ impl PagingConstsTrait for PagingConsts {
 
     fn VA_SIGN_EXT() -> bool {
         true
+    }
+
+    proof fn lemma_nr_subpage_per_huge_is_512() {
+        Self::lemma_consts_properties();
+        Self::lemma_consts_properties_derived();
+        assert(Self::BASE_PAGE_SIZE() / Self::PTE_SIZE() == 512);
     }
 
     proof fn lemma_consts_properties() {

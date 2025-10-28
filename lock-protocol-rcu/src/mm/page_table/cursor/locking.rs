@@ -42,10 +42,6 @@ use super::{Cursor, va_range_wf};
 
 verus! {
 
-
-} // verus!
-verus! {
-
 #[verifier::exec_allows_no_decreases_clause]
 pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     pt: &'rcu PageTable<C>,
@@ -367,6 +363,9 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
     let mut cur_pt_addr = pt.root.start_paddr();
     let ghost mut cur_nid: NodeId = node_helper::root_id::<C>();
     let mut cur_level: PagingLevel = C::NR_LEVELS();
+    assert(cur_level <= MAX_NR_LEVELS) by {
+        C::lemma_consts_properties();
+    };
     while cur_level >= 1
         invariant_except_break
             1 <= cur_level <= C::NR_LEVELS_SPEC() <= MAX_NR_LEVELS,

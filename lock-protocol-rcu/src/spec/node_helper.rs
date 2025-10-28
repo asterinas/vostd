@@ -9,6 +9,7 @@ use vstd::arithmetic::mul::*;
 use vstd::set::*;
 use vstd_extra::prelude::*;
 
+use crate::mm::nr_subpage_per_huge;
 use crate::spec::common::NodeId;
 
 use crate::mm::page_table::{node::child, PageTableConfig, PagingConstsTrait};
@@ -732,10 +733,10 @@ pub broadcast proof fn lemma_nid_to_trace_sound<C: PageTableConfig>(nid: NodeId)
         trace_to_nid::<C>(nid_to_trace::<C>(nid)) == nid,
 {
     reveal(trace_to_nid_rec);
+    assert(C::NR_LEVELS_SPEC() >= 1) by {
+        C::lemma_consts_properties();
+    };
     if nid != root_id::<C>() {
-        assert(C::NR_LEVELS_SPEC() >= 1) by {
-            C::lemma_consts_properties();
-        };
         lemma_nid_to_trace_rec_sound::<C>(nid, (C::NR_LEVELS_SPEC() - 1) as nat, 0)
     }
 }
@@ -906,6 +907,7 @@ pub proof fn lemma_nid_to_dep_up_bound<C: PageTableConfig>(nid: NodeId)
     ensures
         nid_to_dep::<C>(nid) <= C::NR_LEVELS_SPEC() - 1,
 {
+    C::lemma_consts_properties();
     if nid != root_id::<C>() {
         lemma_trace_rec_len_le_level::<C>(nid, (C::NR_LEVELS_SPEC() - 1) as nat, root_id::<C>());
     }
@@ -972,6 +974,7 @@ pub proof fn lemma_is_child_implies_in_subtree<C: PageTableConfig>(pa: NodeId, c
         in_subtree::<C>(pa, ch),
         nid_to_dep::<C>(pa) + 1 == nid_to_dep::<C>(ch),
 {
+    C::lemma_consts_properties();
 }
 
 pub proof fn lemma_is_child_bound<C: PageTableConfig>(pa: NodeId, ch: NodeId)
@@ -1113,13 +1116,16 @@ pub broadcast proof fn lemma_get_child_sound<C: PageTableConfig>(nid: NodeId, of
     requires
         valid_nid::<C>(nid),
         nid_to_dep::<C>(nid) < C::NR_LEVELS_SPEC() - 1,
-        0 <= offset < 512,
+        0 <= offset < nr_subpage_per_huge::<C>(),
     ensures
         valid_nid::<C>(#[trigger] get_child::<C>(nid, offset)),
         nid == get_parent::<C>(get_child::<C>(nid, offset)),
         offset == get_offset::<C>(get_child::<C>(nid, offset)),
         is_child::<C>(nid, get_child::<C>(nid, offset)),
 {
+    assert(offset < 512) by {
+        C::lemma_nr_subpage_per_huge_is_512();
+    };
     lemma_nid_to_trace_sound::<C>(nid);
     lemma_trace_to_nid_sound::<C>(nid_to_trace::<C>(nid).push(offset));
     assert(nid_to_trace::<C>(nid).push(offset).drop_last() == nid_to_trace::<C>(nid));
@@ -1266,11 +1272,11 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
             |child_trace| get_subtree_traces::<C>(child_trace),
         );
         // Use induction hypothesis here, prove that each child trace's subtree traces set has the size of tree with a
-        // height of 2 - trace.len()
+        // height of C::NR_LEVELS_SPEC() - 2 - trace.len()
         assert forall|child_trace| #[trigger]
             child_traces.contains(child_trace) implies get_subtree_traces::<C>(
             child_trace,
-        ).len() == tree_size_spec::<C>(2 - trace.len()) by {
+        ).len() == tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len()) by {
             lemma_get_subtree_traces_cardinality::<C>(child_trace);
         };
         assert(child_subtree_trace_set.len() == 512 && child_subtree_trace_set.finite()) by {
@@ -1313,10 +1319,10 @@ pub proof fn lemma_get_subtree_traces_cardinality<C: PageTableConfig>(trace: Seq
             }
         }
 
-        assert(child_trace_set.len() == 512 * tree_size_spec::<C>(2 - trace.len())) by {
+        assert(child_trace_set.len() == 512 * tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len())) by {
             lemma_flatten_cardinality_under_disjointness_same_length(
                 child_subtree_trace_set,
-                tree_size_spec::<C>(2 - trace.len()),
+                tree_size_spec::<C>(C::NR_LEVELS_SPEC() - 2 - trace.len()),
             );
         }
     }
@@ -1663,6 +1669,7 @@ pub proof fn lemma_brother_algebraic_relation<C: PageTableConfig>(nid: NodeId, o
             offset + 1,
         ),
 {
+    C::lemma_nr_subpage_per_huge_is_512();
     lemma_parent_child_algebraic_relation::<C>(nid, offset);
     lemma_parent_child_algebraic_relation::<C>(nid, offset + 1);
     lemma_get_child_sound::<C>(nid, offset);
@@ -1680,6 +1687,9 @@ pub proof fn lemma_last_child_next_outside_subtree<C: PageTableConfig>(nid: Node
             nid,
         ),
 {
+    assert(511 < nr_subpage_per_huge::<C>()) by {
+        C::lemma_nr_subpage_per_huge_is_512();
+    }
     lemma_parent_child_algebraic_relation::<C>(nid, 511);
     lemma_get_child_sound::<C>(nid, 511);
 }

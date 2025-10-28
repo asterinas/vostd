@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use crate::spec::{common::*, node_helper, rcu::*};
+use crate::{mm::nr_subpage_per_huge, spec::{common::*, node_helper, rcu::*}};
 use super::{PageTablePageSpinLock, SpinGuardGhostInner};
 use crate::mm::page_table::{PageTableConfig, PagingConstsTrait};
 
@@ -77,7 +77,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     // If the node specified by NID is not a leaf, all its alive children are contained in the map.
     pub open spec fn children_are_contained(&self, nid: NodeId, pte_array: PteArrayState) -> bool {
         &&& node_helper::is_not_leaf::<C>(nid) ==> forall|i: nat|
-            0 <= i < 512 ==> {
+            0 <= i < nr_subpage_per_huge::<C>() ==> {
                 #[trigger] pte_array.is_alive(i) <==> self.inner.dom().contains(
                     node_helper::get_child::<C>(nid, i),
                 )
@@ -240,7 +240,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         } by {
             if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
-                    0 <= i < 512 && #[trigger] self.get_guard_inner(
+                    0 <= i < nr_subpage_per_huge::<C>() && #[trigger] self.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
                     self.inner.dom().contains(node_helper::get_child::<C>(_nid, i))
@@ -269,7 +269,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         };
         if node_helper::is_not_leaf::<C>(nid) {
             assert forall|i: nat|
-                0 <= i < 512 && #[trigger] res.0.pte_token->Some_0.value().is_alive(i) implies {
+                0 <= i < nr_subpage_per_huge::<C>() && #[trigger] res.0.pte_token->Some_0.value().is_alive(i) implies {
                 self.inner.dom().contains(node_helper::get_child::<C>(nid, i))
             } by {
                 assert(old(self).inner.dom().contains(node_helper::get_child::<C>(nid, i)));
@@ -489,7 +489,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             assert(!node_helper::in_subtree_range::<C>(nid, _nid));
             if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
-                    0 <= i < 512 && #[trigger] self.get_guard_inner(
+                    0 <= i < nr_subpage_per_huge::<C>() && #[trigger] self.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
                     self.inner.dom().contains(node_helper::get_child::<C>(_nid, i))
@@ -523,7 +523,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             assert(node_helper::in_subtree_range::<C>(nid, _nid));
             if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
-                    0 <= i < 512 && #[trigger] res.get_guard_inner(
+                    0 <= i < nr_subpage_per_huge::<C>() && #[trigger] res.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
                     res.inner.dom().contains(node_helper::get_child::<C>(_nid, i))

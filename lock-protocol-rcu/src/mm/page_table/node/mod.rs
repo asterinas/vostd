@@ -487,7 +487,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn read_pte(&self, idx: usize) -> (res: Pte<C>)
         requires
             self.wf(),
-            0 <= idx < 512,
+            0 <= idx < nr_subpage_per_huge::<C>(),
         ensures
             res.wf_with_node(*self.deref().deref(), idx as nat),
             self.guard->Some_0.perms().relate_pte(res, idx as nat),
@@ -496,7 +496,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let ptr: ArrayPtr<Pte<C>, PTE_NUM> = ArrayPtr::from_addr(va);
         let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
         let tracked perms = &guard.inner.borrow().perms;
-        // assert(perms.inner.value()[idx as int].wf());
+        assert((idx as nat) < 512) by {
+            C::lemma_nr_subpage_per_huge_is_512();
+        };
         let pte: Pte<C> = ptr.get(Tracked(&perms.inner), idx);
         assert(self.guard->Some_0.perms().relate_pte(pte, idx as nat)) by {
             assert(pte =~= guard.perms().inner.opt_value()[idx as int]->Init_0);
