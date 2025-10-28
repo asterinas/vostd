@@ -46,8 +46,8 @@ jobs:
           git fetch origin phaseII/verified
           git checkout phaseII/verified
           cargo clean
-          cargo dv bootstrap --restart || true
-          cargo dv bootstrap --upgrade --test_branch || true
+          cargo dv bootstrap --restart
+          cargo dv bootstrap --upgrade --test_branch
           make 2>&1 | tee verus_phaseII.log
           if grep -q "error:" verus_phaseII.log; then
             echo "::error title=PhaseII Branch Verification Failed::Errors found in phaseII/verified"
