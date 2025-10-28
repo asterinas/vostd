@@ -17,11 +17,6 @@ jobs:
           ref: ${{ github.event.client_payload.branch }}
           submodules: recursive
 
-      - name: Configure Git for CI
-        run: |
-          git config user.name "Verus CI Bot"
-          git config user.email "ci@asterinas.verus"
-
       - name: Install dependencies
         run: |
           sudo apt update -qq
@@ -51,6 +46,8 @@ jobs:
           git fetch origin phaseII/verified
           git checkout phaseII/verified
           git submodule update --init --recursive
+          git config user.name "Verus CI Bot"
+          git config user.email "ci@asterinas.verus"
           cargo clean
           cargo dv bootstrap --restart
           cargo dv bootstrap --upgrade --test_branch
