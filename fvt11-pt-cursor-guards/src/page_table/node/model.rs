@@ -89,13 +89,13 @@ impl PageTableNodeValue {
             old(value).inv(),
             old(value).paddr != 0,
             old(value).is_locked,
-            old(value).perms.unwrap().pptr() == ptr,
+            old(value).perms.unwrap().is_pptr(ptr),
             index < NR_ENTRIES,
         ensures
             value.inv(),
             value.paddr == old(value).paddr,
             value.is_locked,
-            value.perms.unwrap().pptr() == ptr,
+            value.perms.unwrap().is_pptr(ptr),
             value.perms.unwrap().is_init(index as int),
             value.perms.unwrap().opt_value()[index as int].value() == entry,
             forall|i: int|
@@ -120,13 +120,13 @@ impl PageTableNodeValue {
             old(self).inv(),
             old(self).paddr != 0,
             old(self).is_locked,
-            old(self).perms.unwrap().pptr() == arr_ptr,
+            old(self).perms.unwrap().is_pptr(arr_ptr),
             index < NR_ENTRIES,
         ensures
             self.inv(),
             self.paddr == old(self).paddr,
             self.is_locked,
-            self.perms.unwrap().pptr() == arr_ptr,
+            self.perms.unwrap().is_pptr(arr_ptr),
             self.perms.unwrap().is_init(index as int),
             self.perms.unwrap().opt_value()[index as int].value() == entry,
             forall|i: int|
@@ -145,7 +145,7 @@ impl PageTableNodeValue {
             value.inv(),
             value.paddr != 0,
             value.is_locked,
-            value.perms.unwrap().pptr() == ptr,
+            value.perms.unwrap().is_pptr(ptr),
             value.perms.unwrap().is_uninit_all(),
     {
         ptr.free(Tracked(value.perms.tracked_unwrap()));
@@ -162,13 +162,13 @@ pub proof fn pt_node_tracked_write_pte(
         old(node)@.inv(),
         old(node)@.value.paddr != 0,
         old(node)@.value.is_locked,
-        old(node)@.value.perms.unwrap().pptr() == arr_ptr,
+        old(node)@.value.perms.unwrap().is_pptr(arr_ptr),
         index < NR_ENTRIES,
     ensures
         node@.inv(),
         node@.value.paddr == old(node)@.value.paddr,
         node@.value.is_locked,
-        node@.value.perms.unwrap().pptr() == arr_ptr,
+        node@.value.perms.unwrap().is_pptr(arr_ptr),
         node@.value.perms.unwrap().is_init(index as int),
         node@.value.perms.unwrap().opt_value()[index as int].value() == entry,
         forall|i: int|
@@ -190,13 +190,13 @@ pub fn pt_node_write_pte(
         old(node)@.inv(),
         old(node)@.value.paddr != 0,
         old(node)@.value.is_locked,
-        old(node)@.value.perms.unwrap().pptr() == arr_ptr,
+        old(node)@.value.perms.unwrap().is_pptr(arr_ptr),
         index < NR_ENTRIES,
     ensures
         node@.inv(),
         node@.value.paddr == old(node)@.value.paddr,
         node@.value.is_locked,
-        node@.value.perms.unwrap().pptr() == arr_ptr,
+        node@.value.perms.unwrap().is_pptr(arr_ptr),
         node@.value.perms.unwrap().is_init(index as int),
         node@.value.perms.unwrap().opt_value()[index as int].value() == entry,
         forall|i: int|
@@ -216,7 +216,7 @@ pub fn pt_node_free(
         node@.inv(),
         node@.value.paddr != 0,
         node@.value.is_locked,
-        node@.value.perms.unwrap().pptr() == ptr,
+        node@.value.perms.unwrap().is_pptr(ptr),
         node@.value.perms.unwrap().is_uninit_all(),
     ensures
         !node@.value.is_locked,
