@@ -1113,6 +1113,17 @@ impl NodeHelper {
         assert(Self::nid_to_trace(nid).push(offset).drop_last() == Self::nid_to_trace(nid));
     }
 
+    pub proof fn lemma_leaf_get_child_wrong(nid: NodeId, offset: nat)
+        requires
+            Self::valid_nid(nid),
+            Self::nid_to_dep(nid) == 3,
+            0 <= offset < 512,
+        ensures
+            !Self::valid_nid(Self::get_child(nid, offset)),
+    {
+        admit();
+    }
+
     /// The valid nid set's cardinality is `total_size`.
     pub proof fn lemma_valid_nid_set_cardinality()
         ensures

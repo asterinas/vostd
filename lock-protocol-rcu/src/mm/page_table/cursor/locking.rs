@@ -136,6 +136,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     assert(result.wf_va()) by {
         admit();
     };
+    assert(result.wf_with_forgot_guards(forgot_guards)) by { admit(); };
 
     (result, Tracked(m), Tracked(forgot_guards))
 }
@@ -216,6 +217,10 @@ pub fn unlock_range<C: PageTableConfig>(
                         forgot_guards,
                         (_cursor.g_level@ - 1) as PagingLevel,
                     ));
+                    assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
+                        forgot_guards,
+                        _cursor.g_level@,
+                    ));
                 };
                 assert(forgot_guards.children_are_contained(
                     nid,
@@ -226,6 +231,10 @@ pub fn unlock_range<C: PageTableConfig>(
                     assert(forgot_guards =~= _cursor.rec_put_guard_from_path(
                         forgot_guards,
                         (_cursor.g_level@ - 1) as PagingLevel,
+                    ));
+                    assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
+                        forgot_guards,
+                        _cursor.g_level@,
                     ));
                 };
                 forgot_guards.tracked_put(nid, forgot_guard, spin_lock);
@@ -670,7 +679,13 @@ fn dfs_acquire_lock<C: PageTableConfig>(
                             }
                         };
                     };
-                    forgot_guards.tracked_union(sub_forgot_guards);
+                    forgot_guards.tracked_union(
+                        sub_forgot_guards,
+                        cur_node.nid(),
+                        pt.nid@,
+                        entry.idx as nat,
+                        cur_node.guard->Some_0.view_pte_token().value(),
+                    );
                 }
             },
             ChildRef::Frame(_, _, _) => unreached(),
@@ -726,6 +741,20 @@ fn dfs_acquire_lock<C: PageTableConfig>(
                             };
                             NodeHelper::lemma_in_subtree_bounded(m.sub_tree_rt(), cur_node.nid());
                         }
+                    };
+
+                    assert(forgot_guards.childs_are_contained_constrained(
+                        cur_node.nid(),
+                        cur_node.guard->Some_0.view_pte_token().value(),
+                        (i + 1) as nat,
+                    )) by {
+                        let pte_array = cur_node.guard->Some_0.view_pte_token().value();
+                        assert(NodeHelper::is_not_leaf(cur_node.nid()));
+                        assert(pte_array.is_void(i as nat));
+                        let ch = NodeHelper::get_child(cur_node.nid(), i as nat);
+                        assert(!forgot_guards.inner.dom().contains(ch)) by {
+                            assert(forgot_guards.sub_tree_not_contained(ch));
+                        };
                     };
                 }
             },
