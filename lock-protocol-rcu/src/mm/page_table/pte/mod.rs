@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
-use crate::spec::utils::NodeHelper;
+use crate::spec::node_helper;
 
 use crate::mm::{PagingLevel, Paddr};
 use crate::spec::{rcu::SpecInstance, common::NodeId};
@@ -25,7 +25,7 @@ pub struct Pte<C: PageTableConfig> {
     // The nid and inst fields should be consistent
     // with the corresponding page table node.
     pub nid: Ghost<Option<NodeId>>,
-    pub inst: Tracked<Option<SpecInstance>>,
+    pub inst: Tracked<Option<SpecInstance<C>>>,
 }
 
 impl<C: PageTableConfig> Pte<C> {
@@ -51,14 +51,14 @@ impl<C: PageTableConfig> Pte<C> {
         } else {
             self.nid@ is None && self.inst@ is None
         }
-        &&& self.nid@ is Some ==> NodeHelper::valid_nid(self.nid@->Some_0)
+        &&& self.nid@ is Some ==> node_helper::valid_nid::<C>(self.nid@->Some_0)
         &&& self.inst@ is Some ==> self.inst@->Some_0.cpu_num() == GLOBAL_CPU_NUM
     }
 
     // TODO
     pub open spec fn wf_with_node(&self, node: PageTableNode<C>, offset: nat) -> bool {
         &&& self.wf(node.level_spec())
-        &&& self.nid@ is Some ==> self.nid@->Some_0 == NodeHelper::get_child(node.nid@, offset)
+        &&& self.nid@ is Some ==> self.nid@->Some_0 == node_helper::get_child::<C>(node.nid@, offset)
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == node.inst@.id()
     }
 
@@ -71,7 +71,7 @@ impl<C: PageTableConfig> Pte<C> {
         offset: nat,
     ) -> bool {
         &&& self.wf(level)
-        &&& self.nid@ is Some ==> self.nid@->Some_0 == NodeHelper::get_child(nid, offset)
+        &&& self.nid@ is Some ==> self.nid@->Some_0 == node_helper::get_child::<C>(nid, offset)
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == inst_id
     }
 
@@ -97,7 +97,7 @@ impl<C: PageTableConfig> Pte<C> {
         self.inst@->Some_0.id()
     }
 
-    pub proof fn tracked_inst(tracked &self) -> (tracked res: SpecInstance)
+    pub proof fn tracked_inst(tracked &self) -> (tracked res: SpecInstance<C>)
         requires
             self.inst@ is Some,
         ensures
@@ -146,7 +146,7 @@ impl<C: PageTableConfig> Pte<C> {
         Self { inner: C::E::new_page(paddr, level, prop), nid: Ghost(None), inst: Tracked(None) }
     }
 
-    pub open spec fn wf_new_pt(&self, paddr: Paddr, inst: SpecInstance, nid: NodeId) -> bool {
+    pub open spec fn wf_new_pt(&self, paddr: Paddr, inst: SpecInstance<C>, nid: NodeId) -> bool {
         &&& self.inner =~= C::E::new_pt_spec(paddr)
         &&& self.nid@ is Some
         &&& self.nid@->Some_0 == nid
@@ -155,12 +155,12 @@ impl<C: PageTableConfig> Pte<C> {
     }
 
     #[verifier::external_body]
-    pub fn new_pt(paddr: Paddr, inst: Tracked<SpecInstance>, nid: Ghost<NodeId>) -> (res: Self)
+    pub fn new_pt(paddr: Paddr, inst: Tracked<SpecInstance<C>>, nid: Ghost<NodeId>) -> (res: Self)
         requires
     // valid_paddr(paddr),
 
             inst@.cpu_num() == GLOBAL_CPU_NUM,
-            NodeHelper::valid_nid(nid@),
+            node_helper::valid_nid::<C>(nid@),
         ensures
             res.wf_new_pt(paddr, inst@, nid@),
             res.is_pt((PageTableNode::<C>::from_raw_spec(paddr).level_spec() + 1) as PagingLevel),

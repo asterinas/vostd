@@ -1,6 +1,5 @@
 pub mod cursor;
 pub mod node;
-// pub mod node_concurrent;
 pub mod pte;
 
 // use cursor::spec_helpers;
@@ -521,7 +520,7 @@ Sized {
             0 < Self::PTE_SIZE() <= Self::BASE_PAGE_SIZE(),
             is_power_2(Self::BASE_PAGE_SIZE() as int),
             is_power_2(Self::PTE_SIZE() as int),
-            1 <= Self::NR_LEVELS() <= 10,
+            3 <= Self::NR_LEVELS() <= 5,
             0 <= Self::BASE_PAGE_SIZE().ilog2() - Self::PTE_SIZE().ilog2() <= 16,
             Self::BASE_PAGE_SIZE().ilog2() + (Self::BASE_PAGE_SIZE().ilog2()
                 - Self::PTE_SIZE().ilog2()) * Self::NR_LEVELS() == Self::ADDRESS_WIDTH()
@@ -812,20 +811,12 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
 
 #[verifier::when_used_as_spec(pte_index_spec)]
 /// The index of a VA's PTE in a page table node at the given level.
-// const fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize
-#[verifier::external_body]
-// TODO
-pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
-    usize)  // TODO: type, const
+pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     requires
-// 0 < level <= C::NR_LEVELS_SPEC(),
-
-        1 <= level <= 4,
+        0 < level <= C::NR_LEVELS_SPEC(),
     ensures
         res == pte_index_spec::<C>(va, level),
-        res == va_level_to_offset(va, level) as usize,
         res < nr_subpage_per_huge::<C>(),
-        0 <= res < 512,  // TODO
 {
     let base_bits = C::BASE_PAGE_SIZE().ilog2();
     let index_bits = nr_pte_index_bits::<C>();
@@ -858,12 +849,6 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res:
     let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
     assert(res <= pte_index_mask::<C>()) by {
         lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
-    };
-    assert(res == va_level_to_offset(va, level) as usize) by {
-        lemma2_to64();
-        let num = (va >> (12 + (level - 1) * 9));
-        assert((num & 511) < 512) by (bit_vector);
-        admit();
     };
     res as usize
 }
@@ -1071,7 +1056,7 @@ proof fn lemma_usize_shr_is_div(x: usize, shift: int)
 // #[derive(Debug)]
 pub struct PageTable<C: PageTableConfig> {
     pub root: PageTableNode<C>,
-    pub inst: Tracked<SpecInstance>,
+    pub inst: Tracked<SpecInstance<C>>,
     pub _phantom: PhantomData<C>,
 }
 

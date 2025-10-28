@@ -104,7 +104,7 @@ impl<C: PageTableConfig> SubPageTable<C> {
     ) -> (tracked res: Self)
         requires
             forgot_guards.wf(),
-            forgot_guards.is_root_and_contained(va_range_get_guard_nid(va)),
+            forgot_guards.is_root_and_contained(va_range_get_guard_nid::<C>(va)),
         ensures
             res.wf(),
             res.root@.map_va <= va.start,

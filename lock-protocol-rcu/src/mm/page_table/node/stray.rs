@@ -1,8 +1,10 @@
 use vstd::prelude::*;
 use vstd::cell::{CellId, PCell, PointsTo};
 
+use core::marker::PhantomData;
+
 use crate::spec::{common::NodeId, rcu::StrayToken};
-use crate::mm::{page_table::node::PageTableGuard, Paddr};
+use crate::mm::{page_table::{node::PageTableGuard, PageTableConfig}, Paddr};
 
 verus! {
 
@@ -15,7 +17,7 @@ impl StrayFlag {
         self.inner.id()
     }
 
-    pub fn read(&self, perm: Tracked<&StrayPerm>) -> (res: bool)
+    pub fn read<C: PageTableConfig>(&self, perm: Tracked<&StrayPerm<C>>) -> (res: bool)
         requires
             perm@.wf_with_cell_id(self.id()),
             perm@.perm.is_init(),
@@ -27,12 +29,13 @@ impl StrayFlag {
     }
 }
 
-pub tracked struct StrayPerm {
+pub tracked struct StrayPerm<C: PageTableConfig> {
     pub perm: PointsTo<bool>,
-    pub token: StrayToken,
+    pub token: StrayToken<C>,
+    pub _phantom: PhantomData<C>,
 }
 
-impl StrayPerm {
+impl<C: PageTableConfig> StrayPerm<C> {
     pub open spec fn wf(&self) -> bool {
         self.perm.value() == self.token.value()
     }

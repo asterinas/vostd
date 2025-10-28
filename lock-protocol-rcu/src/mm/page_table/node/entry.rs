@@ -4,16 +4,16 @@ use std::marker::PhantomData;
 use vstd::prelude::*;
 
 use crate::spec::{
-    utils::{NodeHelper, group_node_helper_lemmas},
+    node_helper::{self, group_node_helper_lemmas},
     common::NodeId,
 };
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
-use crate::mm::page_table::{
+use crate::mm::{page_table::{
     PageTableEntryTrait,
     pte::Pte,
     PageTableConfig,
     node::child::{Child, ChildRef},
-};
+}, nr_subpage_per_huge};
 use crate::sync::rcu::RcuDrop;
 use crate::task::DisabledPreemptGuard;
 use crate::spec::lock_protocol::LockProtocolModel;
@@ -42,7 +42,7 @@ impl<C: PageTableConfig> Entry<C> {
     }
 
     pub open spec fn nid(&self, node: PageTableGuard<C>) -> NodeId {
-        NodeHelper::get_child(node.nid(), self.idx as nat)
+        node_helper::get_child::<C>(node.nid(), self.idx as nat)
     }
 
     pub open spec fn is_none_spec(&self) -> bool {
@@ -138,7 +138,7 @@ impl<C: PageTableConfig> Entry<C> {
         requires
             old(self).wf(*old(node)),
             old(node).wf(),
-            NodeHelper::is_not_leaf(old(node).nid()),
+            node_helper::is_not_leaf::<C>(old(node).nid()),
             old(node).guard->Some_0.stray_perm().value() == false,
             old(node).guard->Some_0.in_protocol() == false,
         ensures
@@ -153,7 +153,7 @@ impl<C: PageTableConfig> Entry<C> {
             res is Some ==> {
                 &&& res->Some_0.wf()
                 &&& res->Some_0.inst_id() == node.inst_id()
-                &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
+                &&& res->Some_0.nid() == node_helper::get_child::<C>(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
                 // &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
@@ -173,15 +173,15 @@ impl<C: PageTableConfig> Entry<C> {
         let tracked pte_token = lock_guard_inner.pte_token.tracked_unwrap();
         assert(node_token.value() is LockedOutside);
         assert(pte_token.value().is_void(self.idx as nat));
-        assert(cur_nid != NodeHelper::root_id()) by {
-            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
+        assert(cur_nid != node_helper::root_id::<C>()) by {
+            assert(cur_nid == node_helper::get_child::<C>(node.nid(), self.idx as nat));
+            node_helper::lemma_is_child_nid_increasing::<C>(node.nid(), cur_nid);
         };
 
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
-        assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
-            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
+        assert(level - 1 == node_helper::nid_to_level::<C>(cur_nid)) by {
+            node_helper::lemma_is_child_level_relation::<C>(node.nid(), cur_nid);
         };
         let res = PageTableNode::normal_alloc(
             level - 1,
@@ -210,7 +210,7 @@ impl<C: PageTableConfig> Entry<C> {
         );
         // Lock before writing the PTE, so no one else can operate on it.
         let tracked pa_pte_array_token = node.tracked_borrow_guard().tracked_borrow_pte_token();
-        assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
+        assert(pt_ref.nid@ == node_helper::get_child::<C>(node.nid(), self.idx as nat));
         let pt_lock_guard = pt_ref.normal_lock_new_allocated_node(
             guard,
             Tracked(pa_pte_array_token),
@@ -230,12 +230,12 @@ impl<C: PageTableConfig> Entry<C> {
         &mut self,
         guard: &'rcu DisabledPreemptGuard,
         node: &mut PageTableGuard<'rcu, C>,
-        Tracked(m): Tracked<&LockProtocolModel>,
+        Tracked(m): Tracked<&LockProtocolModel<C>>,
     ) -> (res: Option<PageTableGuard<'rcu, C>>)
         requires
             old(self).wf(*old(node)),
             old(node).wf(),
-            NodeHelper::is_not_leaf(old(node).nid()),
+            node_helper::is_not_leaf::<C>(old(node).nid()),
             old(node).guard->Some_0.stray_perm().value() == false,
             old(node).guard->Some_0.in_protocol() == true,
             m.inv(),
@@ -254,7 +254,7 @@ impl<C: PageTableConfig> Entry<C> {
             res is Some ==> {
                 &&& res->Some_0.wf()
                 &&& res->Some_0.inst_id() == node.inst_id()
-                &&& res->Some_0.nid() == NodeHelper::get_child(node.nid(), self.idx as nat)
+                &&& res->Some_0.nid() == node_helper::get_child::<C>(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
                 &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
@@ -267,7 +267,7 @@ impl<C: PageTableConfig> Entry<C> {
     /// Create a new entry at the node with guard.
     pub fn new_at(idx: usize, node: &PageTableGuard<C>) -> (res: Self)
         requires
-            0 <= idx < 512,
+            0 <= idx < nr_subpage_per_huge::<C>(),
             node.wf(),
         ensures
             res.wf(*node),

@@ -3,20 +3,25 @@ use vstd::prelude::*;
 use vstd::map::*;
 
 use crate::spec::{
-    utils::NodeHelper,
+    node_helper,
     common::{CpuId, NodeId, valid_cpu},
 };
 use super::types::AtomicCursorState;
+
+use core::marker::PhantomData;
+
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
 state_machine!{
 
-AtomicSpec {
+AtomicSpec<C: PageTableConfig> {
 
 fields {
     pub cpu_num: CpuId,
     pub cursors: Map<CpuId, AtomicCursorState>,
+    pub _phantom: PhantomData<C>,
 }
 
 #[invariant]
@@ -27,7 +32,7 @@ pub fn inv_cursors(&self) -> bool {
     &&& forall |cpu: CpuId| #![auto]
         self.cursors.contains_key(cpu) &&
         self.cursors[cpu] is Locked ==>
-            NodeHelper::valid_nid(self.cursors[cpu]->Locked_0)
+            node_helper::valid_nid::<C>(self.cursors[cpu]->Locked_0)
 }
 
 #[invariant]
@@ -41,22 +46,22 @@ pub fn inv_non_overlapping(&self) -> bool {
             let nid1 = self.cursors[cpu1]->Locked_0;
             let nid2 = self.cursors[cpu2]->Locked_0;
 
-            !NodeHelper::in_subtree(nid1, nid2) &&
-            !NodeHelper::in_subtree(nid2, nid1)
+            !node_helper::in_subtree::<C>(nid1, nid2) &&
+            !node_helper::in_subtree::<C>(nid2, nid1)
         }
 }
 
 pub open spec fn all_non_overlapping(&self, nid: NodeId) -> bool
     recommends
-        NodeHelper::valid_nid(nid),
+        node_helper::valid_nid::<C>(nid),
 {
     forall |cpu: CpuId| #![auto]
         self.cursors.contains_key(cpu) &&
         self.cursors[cpu] is Locked ==> {
             let _nid = self.cursors[cpu]->Locked_0;
 
-            !NodeHelper::in_subtree(nid, _nid) &&
-            !NodeHelper::in_subtree(_nid, nid)
+            !node_helper::in_subtree::<C>(nid, _nid) &&
+            !node_helper::in_subtree::<C>(_nid, nid)
         }
 }
 
@@ -67,13 +72,14 @@ init!{
             |cpu| valid_cpu(cpu_num, cpu),
             |cpu| AtomicCursorState::Void,
         );
+        init _phantom = PhantomData;
     }
 }
 
 transition!{
     lock(cpu: CpuId, nid: NodeId) {
         require(valid_cpu(pre.cpu_num, cpu));
-        require(NodeHelper::valid_nid(nid));
+        require(node_helper::valid_nid::<C>(nid));
 
         require(pre.cursors[cpu] is Void);
         require(pre.all_non_overlapping(nid));
@@ -112,14 +118,14 @@ fn no_op_inductive(pre: Self, post: Self) {}
 
 }
 
-type State = AtomicSpec::State;
+type State<C> = AtomicSpec::State<C>;
 
-type Step = AtomicSpec::Step;
+type Step<C> = AtomicSpec::Step<C>;
 
 // Lemmas
-pub proof fn lemma_mutual_exclusion(
-    states: Seq<State>,
-    steps: Seq<Step>,
+pub proof fn lemma_mutual_exclusion<C: PageTableConfig>(
+    states: Seq<State<C>>,
+    steps: Seq<Step<C>>,
     cpu_num: CpuId,
     cpu: CpuId,
     nid: NodeId,
@@ -135,8 +141,8 @@ pub proof fn lemma_mutual_exclusion(
             },
         forall|i|
             #![auto]
-            0 <= i < steps.len() ==> State::next_by(states[i], states[i + 1], steps[i]),
-        steps[0] =~= Step::lock(cpu, nid),
+            0 <= i < steps.len() ==> State::<C>::next_by(states[i], states[i + 1], steps[i]),
+        steps[0] =~= Step::<C>::lock(cpu, nid),
         forall|i|
             #![auto]
             0 < i < steps.len() && steps[i].is_unlock() ==> {
@@ -154,7 +160,7 @@ pub proof fn lemma_mutual_exclusion(
                 let _cpu = steps[i].get_lock_0();
                 let _nid = steps[i].get_lock_1();
 
-                cpu != _cpu && !NodeHelper::in_subtree(nid, _nid) && !NodeHelper::in_subtree(
+                cpu != _cpu && !node_helper::in_subtree::<C>(nid, _nid) && !node_helper::in_subtree::<C>(
                     _nid,
                     nid,
                 )

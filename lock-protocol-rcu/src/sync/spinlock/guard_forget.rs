@@ -1,9 +1,8 @@
 use vstd::prelude::*;
 
-use crate::spec::{common::*, utils::*, rcu::*};
+use crate::spec::{common::*, node_helper, rcu::*};
 use super::{PageTablePageSpinLock, SpinGuardGhostInner};
-use crate::mm::page_table::PageTableConfig;
-// use crate::configs::{};
+use crate::mm::page_table::{PageTableConfig, PagingConstsTrait};
 
 verus! {
 
@@ -24,7 +23,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         // NIDs match the guards.
         &&& forall|nid: NodeId| #[trigger]
             self.inner.dom().contains(nid) ==> {
-                &&& NodeHelper::valid_nid(nid)
+                &&& node_helper::valid_nid::<C>(nid)
                 &&& self.get_guard_inner(nid).relate_nid(nid)
                 &&& self.get_guard_inner(nid).wf(&self.get_lock(nid))
                 &&& self.get_guard_inner(nid).stray_perm.value() == false
@@ -41,11 +40,11 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         //     {
         //         &&& #[trigger] self.inner.dom().contains(nid1)
         //         &&& #[trigger] self.inner.dom().contains(nid2)
-        //         &&& #[trigger] NodeHelper::in_subtree_range(nid1, nid2)
+        //         &&& #[trigger] node_helper::in_subtree_range::<C>(nid1, nid2)
         //         &&& nid1 != nid2
         //     } ==> {
-        //         let parent = NodeHelper::get_parent(nid2);
-        //         let idx = NodeHelper::get_offset(nid2);
+        //         let parent = node_helper::get_parent::<C>(nid2);
+        //         let idx = node_helper::get_offset::<C>(nid2);
         //         (nid1 == parent || self.inner.dom().contains(parent)) && self.get_guard_inner(
         //             parent,
         //         ).pte_token->Some_0.value().is_alive(idx)
@@ -54,7 +53,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
 
     pub open spec fn is_root(&self, nid: NodeId) -> bool {
         forall|_nid: NodeId| #[trigger]
-            self.inner.dom().contains(_nid) ==> NodeHelper::in_subtree_range(nid, _nid)
+            self.inner.dom().contains(_nid) ==> node_helper::in_subtree_range::<C>(nid, _nid)
     }
 
     pub open spec fn is_root_and_contained(&self, nid: NodeId) -> bool {
@@ -64,7 +63,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
 
     pub open spec fn is_sub_root(&self, nid: NodeId) -> bool {
         forall|_nid: NodeId| #[trigger]
-            self.inner.dom().contains(_nid) && _nid != nid ==> !NodeHelper::in_subtree_range(
+            self.inner.dom().contains(_nid) && _nid != nid ==> !node_helper::in_subtree_range::<C>(
                 _nid,
                 nid,
             )
@@ -77,13 +76,13 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
 
     // If the node specified by NID is not a leaf, all its alive children are contained in the map.
     pub open spec fn children_are_contained(&self, nid: NodeId, pte_array: PteArrayState) -> bool {
-        &&& NodeHelper::is_not_leaf(nid) ==> forall|i: nat|
+        &&& node_helper::is_not_leaf::<C>(nid) ==> forall|i: nat|
             0 <= i < 512 ==> {
                 #[trigger] pte_array.is_alive(i) <==> self.inner.dom().contains(
-                    NodeHelper::get_child(nid, i),
+                    node_helper::get_child::<C>(nid, i),
                 )
             }
-        &&& !NodeHelper::is_not_leaf(nid) ==> pte_array =~= PteArrayState::empty()
+        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty()
     }
 
     pub open spec fn childs_are_contained_constrained(
@@ -92,18 +91,18 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         pte_array: PteArrayState,
         idx: nat,
     ) -> bool {
-        &&& NodeHelper::is_not_leaf(nid) ==> forall|i: nat|
+        &&& node_helper::is_not_leaf::<C>(nid) ==> forall|i: nat|
             0 <= i < idx ==> {
                 #[trigger] pte_array.is_alive(i) <==> self.inner.dom().contains(
-                    NodeHelper::get_child(nid, i),
+                    node_helper::get_child::<C>(nid, i),
                 )
             }
-        &&& !NodeHelper::is_not_leaf(nid) ==> pte_array =~= PteArrayState::empty()
+        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty()
     }
 
     pub open spec fn sub_tree_not_contained(&self, nid: NodeId) -> bool {
         forall|_nid: NodeId| #[trigger]
-            self.inner.dom().contains(_nid) ==> !NodeHelper::in_subtree_range(nid, _nid)
+            self.inner.dom().contains(_nid) ==> !node_helper::in_subtree_range::<C>(nid, _nid)
     }
 }
 
@@ -138,7 +137,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         requires
             old(self).wf(),
             !old(self).inner.dom().contains(nid),
-            NodeHelper::valid_nid(nid),
+            node_helper::valid_nid::<C>(nid),
             guard.relate_nid(nid),
             guard.wf(&spin_lock),
             guard.stray_perm.value() == false,
@@ -163,17 +162,17 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             } by {
                 if _nid == nid {
                     let pte_array = guard.pte_token->Some_0.value();
-                    if NodeHelper::is_not_leaf(nid) {
+                    if node_helper::is_not_leaf::<C>(nid) {
                         assert forall|i: nat|
                             0 <= i < 512 
                         implies {
                             #[trigger] pte_array.is_alive(i) <==> 
-                                self.inner.dom().contains(NodeHelper::get_child(nid, i))
+                                self.inner.dom().contains(node_helper::get_child::<C>(nid, i))
                         } by {
-                            assert(NodeHelper::get_child(nid, i) != nid) by {
-                                let ch = NodeHelper::get_child(nid, i);
-                                NodeHelper::lemma_get_child_sound(nid, i);
-                                NodeHelper::lemma_is_child_nid_increasing(nid, ch);
+                            assert(node_helper::get_child::<C>(nid, i) != nid) by {
+                                let ch = node_helper::get_child::<C>(nid, i);
+                                node_helper::lemma_get_child_sound::<C>(nid, i);
+                                node_helper::lemma_is_child_nid_increasing::<C>(nid, ch);
                             };
                         };
                     }
@@ -182,27 +181,27 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                     assert forall |idx: nat|
                         0 <= idx < 512
                     implies {
-                        nid != NodeHelper::get_child(_nid, idx)
+                        nid != node_helper::get_child::<C>(_nid, idx)
                     } by {
                         assert(old(self).is_sub_root(nid));
-                        assert(NodeHelper::valid_nid(_nid));
-                        assert(1 <= NodeHelper::nid_to_level(_nid) <= 4) by {
-                            NodeHelper::lemma_nid_to_dep_le_3(_nid);
-                            NodeHelper::lemma_level_dep_relation(_nid);
+                        assert(node_helper::valid_nid::<C>(_nid));
+                        assert(1 <= node_helper::nid_to_level::<C>(_nid) <= C::NR_LEVELS_SPEC()) by {
+                            node_helper::lemma_nid_to_dep_up_bound::<C>(_nid);
+                            node_helper::lemma_level_dep_relation::<C>(_nid);
                         };
-                        if NodeHelper::nid_to_level(_nid) == 1 {
-                            assert(NodeHelper::valid_nid(nid));
-                            assert(!NodeHelper::valid_nid(NodeHelper::get_child(_nid, idx))) by {
-                                NodeHelper::lemma_level_dep_relation(_nid);
-                                NodeHelper::lemma_leaf_get_child_wrong(_nid, idx);
+                        if node_helper::nid_to_level::<C>(_nid) == 1 {
+                            assert(node_helper::valid_nid::<C>(nid));
+                            assert(!node_helper::valid_nid::<C>(node_helper::get_child::<C>(_nid, idx))) by {
+                                node_helper::lemma_level_dep_relation::<C>(_nid);
+                                node_helper::lemma_leaf_get_child_wrong::<C>(_nid, idx);
                             };
-                        } else if nid == NodeHelper::get_child(_nid, idx) {
-                            assert(NodeHelper::nid_to_level(_nid) > 1);
-                            assert(NodeHelper::in_subtree_range(_nid, nid)) by {
-                                NodeHelper::lemma_level_dep_relation(_nid);
-                                NodeHelper::lemma_get_child_sound(_nid, idx);
-                                NodeHelper::lemma_is_child_implies_in_subtree(_nid, nid);
-                                NodeHelper::lemma_in_subtree_iff_in_subtree_range(_nid, nid);
+                        } else if nid == node_helper::get_child::<C>(_nid, idx) {
+                            assert(node_helper::nid_to_level::<C>(_nid) > 1);
+                            assert(node_helper::in_subtree_range::<C>(_nid, nid)) by {
+                                node_helper::lemma_level_dep_relation::<C>(_nid);
+                                node_helper::lemma_get_child_sound::<C>(_nid, idx);
+                                node_helper::lemma_is_child_implies_in_subtree::<C>(_nid, nid);
+                                node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(_nid, nid);
                             }
                         }
                     }
@@ -221,7 +220,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     >)
         requires
             old(self).wf(),
-            NodeHelper::valid_nid(nid),
+            node_helper::valid_nid::<C>(nid),
             old(self).is_sub_root_and_contained(nid),
         ensures
             *self =~= old(self).take_spec(nid),
@@ -239,44 +238,44 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
             self.children_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
-            if NodeHelper::is_not_leaf(_nid) {
+            if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
                     0 <= i < 512 && #[trigger] self.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
-                    self.inner.dom().contains(NodeHelper::get_child(_nid, i))
+                    self.inner.dom().contains(node_helper::get_child::<C>(_nid, i))
                 } by {
                     if _nid != nid {
-                        assert(old(self).inner.dom().contains(NodeHelper::get_child(_nid, i)));
-                        assert(!NodeHelper::in_subtree_range(_nid, nid));
-                        assert(NodeHelper::get_child(_nid, i) != nid) by {
-                            NodeHelper::lemma_get_child_sound(_nid, i);
-                            NodeHelper::lemma_is_child_nid_increasing(
+                        assert(old(self).inner.dom().contains(node_helper::get_child::<C>(_nid, i)));
+                        assert(!node_helper::in_subtree_range::<C>(_nid, nid));
+                        assert(node_helper::get_child::<C>(_nid, i) != nid) by {
+                            node_helper::lemma_get_child_sound::<C>(_nid, i);
+                            node_helper::lemma_is_child_nid_increasing::<C>(
                                 _nid,
-                                NodeHelper::get_child(_nid, i),
+                                node_helper::get_child::<C>(_nid, i),
                             );
-                            NodeHelper::lemma_is_child_implies_in_subtree(
+                            node_helper::lemma_is_child_implies_in_subtree::<C>(
                                 _nid,
-                                NodeHelper::get_child(_nid, i),
+                                node_helper::get_child::<C>(_nid, i),
                             );
-                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(
+                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(
                                 _nid,
-                                NodeHelper::get_child(_nid, i),
+                                node_helper::get_child::<C>(_nid, i),
                             );
                         };
                     }
                 }
             }
         };
-        if NodeHelper::is_not_leaf(nid) {
+        if node_helper::is_not_leaf::<C>(nid) {
             assert forall|i: nat|
                 0 <= i < 512 && #[trigger] res.0.pte_token->Some_0.value().is_alive(i) implies {
-                self.inner.dom().contains(NodeHelper::get_child(nid, i))
+                self.inner.dom().contains(node_helper::get_child::<C>(nid, i))
             } by {
-                assert(old(self).inner.dom().contains(NodeHelper::get_child(nid, i)));
-                assert(NodeHelper::get_child(nid, i) != nid) by {
-                    NodeHelper::lemma_get_child_sound(nid, i);
-                    NodeHelper::lemma_is_child_nid_increasing(nid, NodeHelper::get_child(nid, i));
+                assert(old(self).inner.dom().contains(node_helper::get_child::<C>(nid, i)));
+                assert(node_helper::get_child::<C>(nid, i) != nid) by {
+                    node_helper::lemma_get_child_sound::<C>(nid, i);
+                    node_helper::lemma_is_child_nid_increasing::<C>(nid, node_helper::get_child::<C>(nid, i));
                 };
             };
         }
@@ -286,7 +285,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     pub proof fn lemma_take_put(self, nid: NodeId)
         requires
             self.wf(),
-            NodeHelper::valid_nid(nid),
+            node_helper::valid_nid::<C>(nid),
             self.is_sub_root_and_contained(nid),
         ensures
             self =~= self.take_spec(nid).put_spec(
@@ -314,13 +313,13 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             old(self).wf(),
             other.wf(),
             old(self).inner.dom().disjoint(other.inner.dom()),
-            NodeHelper::valid_nid(pa),
-            NodeHelper::is_not_leaf(pa),
-            NodeHelper::valid_nid(ch),
+            node_helper::valid_nid::<C>(pa),
+            node_helper::is_not_leaf::<C>(pa),
+            node_helper::valid_nid::<C>(ch),
             0 <= offset < 512,
             pte_array.wf(),
             pte_array.is_alive(offset),
-            ch == NodeHelper::get_child(pa, offset),
+            ch == node_helper::get_child::<C>(pa, offset),
             !old(self).inner.dom().contains(pa),
             old(self).is_root(pa),
             old(self).childs_are_contained_constrained(pa, pte_array, offset),
@@ -345,38 +344,38 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             } by {
                 if old(self).inner.dom().contains(nid) {
                     let pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
-                    if NodeHelper::is_not_leaf(nid) {
+                    if node_helper::is_not_leaf::<C>(nid) {
                         assert(!other.inner.dom().contains(nid));
                         assert forall|i: nat|
                             0 <= i < 512
                         implies {
                             #[trigger] pte_array.is_alive(i) <==> self.inner.dom().contains(
-                                NodeHelper::get_child(nid, i),
+                                node_helper::get_child::<C>(nid, i),
                             )
                         } by {
                             if pte_array.is_alive(i) {
                                 assert(self.inner.dom().contains(
-                                    NodeHelper::get_child(nid, i),
+                                    node_helper::get_child::<C>(nid, i),
                                 ));
                             }
-                            if self.inner.dom().contains(NodeHelper::get_child(nid, i)) {
+                            if self.inner.dom().contains(node_helper::get_child::<C>(nid, i)) {
                                 assert(pte_array.is_alive(i)) by {
-                                    let _ch = NodeHelper::get_child(nid, i);
+                                    let _ch = node_helper::get_child::<C>(nid, i);
                                     assert(old(self).inner.dom().contains(_ch)) by {
                                         assert(other.is_root(ch));
                                         assert(_ch != ch) by {
                                             if _ch == ch {
                                                 assert(nid == pa) by {
-                                                    NodeHelper::lemma_get_child_sound(pa, offset);
-                                                    assert(pa == NodeHelper::get_parent(ch));
-                                                    NodeHelper::lemma_get_child_sound(nid, i);
-                                                    assert(nid == NodeHelper::get_parent(_ch));
+                                                    node_helper::lemma_get_child_sound::<C>(pa, offset);
+                                                    assert(pa == node_helper::get_parent::<C>(ch));
+                                                    node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                    assert(nid == node_helper::get_parent::<C>(_ch));
                                                 };
                                             }
                                         };
-                                        assert(!NodeHelper::in_subtree_range(ch, nid));
-                                        NodeHelper::lemma_get_child_sound(nid, i);
-                                        NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(ch, nid, _ch);
+                                        assert(!node_helper::in_subtree_range::<C>(ch, nid));
+                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                        node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(ch, nid, _ch);
                                     };
                                 };
                             }
@@ -385,28 +384,28 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                 } else {
                     let pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
                     assert(other.inner.dom().contains(nid));
-                    if NodeHelper::is_not_leaf(nid) {
+                    if node_helper::is_not_leaf::<C>(nid) {
                         assert forall|i: nat|
                             0 <= i < 512
                         implies {
                             #[trigger] pte_array.is_alive(i) <==> self.inner.dom().contains(
-                                NodeHelper::get_child(nid, i),
+                                node_helper::get_child::<C>(nid, i),
                             )
                         } by {
                             if pte_array.is_alive(i) {
                                 assert(self.inner.dom().contains(
-                                    NodeHelper::get_child(nid, i),
+                                    node_helper::get_child::<C>(nid, i),
                                 ));
                             }
-                            if self.inner.dom().contains(NodeHelper::get_child(nid, i)) {
+                            if self.inner.dom().contains(node_helper::get_child::<C>(nid, i)) {
                                 assert(pte_array.is_alive(i)) by {
-                                    let _ch = NodeHelper::get_child(nid, i);
+                                    let _ch = node_helper::get_child::<C>(nid, i);
                                     assert(other.inner.dom().contains(_ch)) by {
-                                        assert(NodeHelper::in_subtree_range(ch, nid));
-                                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(ch, nid);
-                                        NodeHelper::lemma_get_child_sound(nid, i);
-                                        NodeHelper::lemma_in_subtree_is_child_in_subtree(ch, nid, _ch);
-                                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(ch, _ch);
+                                        assert(node_helper::in_subtree_range::<C>(ch, nid));
+                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(ch, nid);
+                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                        node_helper::lemma_in_subtree_is_child_in_subtree::<C>(ch, nid, _ch);
+                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(ch, _ch);
                                     };
                                 };
                             }
@@ -423,9 +422,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                 implies {
                     nid != pa
                 } by {
-                    assert(NodeHelper::in_subtree_range(ch, nid));
-                    NodeHelper::lemma_get_child_sound(pa, offset);
-                    NodeHelper::lemma_is_child_nid_increasing(pa, ch);
+                    assert(node_helper::in_subtree_range::<C>(ch, nid));
+                    node_helper::lemma_get_child_sound::<C>(pa, offset);
+                    node_helper::lemma_is_child_nid_increasing::<C>(pa, ch);
                 };
             };
         };
@@ -433,13 +432,13 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             assert forall |nid: NodeId|
                 #[trigger] self.inner.dom().contains(nid)
             implies {
-                NodeHelper::in_subtree_range(pa, nid)
+                node_helper::in_subtree_range::<C>(pa, nid)
             } by {
                 if other.inner.dom().contains(nid) {
-                    assert(NodeHelper::in_subtree_range(ch, nid));
-                    NodeHelper::lemma_get_child_sound(pa, offset);
-                    NodeHelper::lemma_is_child_bound(pa, ch);
-                    NodeHelper::lemma_is_child_nid_increasing(pa, ch);
+                    assert(node_helper::in_subtree_range::<C>(ch, nid));
+                    node_helper::lemma_get_child_sound::<C>(pa, offset);
+                    node_helper::lemma_is_child_bound::<C>(pa, ch);
+                    node_helper::lemma_is_child_nid_increasing::<C>(pa, ch);
                 }
             };
         };
@@ -448,17 +447,17 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                 0 <= i < offset + 1
             implies {
                 #[trigger] pte_array.is_alive(i) <==> 
-                    self.inner.dom().contains(NodeHelper::get_child(pa, i))
+                    self.inner.dom().contains(node_helper::get_child::<C>(pa, i))
             } by {
                 if 0 <= i < offset {
                     if pte_array.is_alive(i) {
-                        assert(self.inner.dom().contains(NodeHelper::get_child(pa, i)));
+                        assert(self.inner.dom().contains(node_helper::get_child::<C>(pa, i)));
                     }
-                    if self.inner.dom().contains(NodeHelper::get_child(pa, i)) {
+                    if self.inner.dom().contains(node_helper::get_child::<C>(pa, i)) {
                         assert(pte_array.is_alive(i)) by {
-                            let _ch = NodeHelper::get_child(pa, i);
+                            let _ch = node_helper::get_child::<C>(pa, i);
                             assert(_ch < ch) by {
-                                NodeHelper::lemma_brother_nid_increasing(pa, i, offset);
+                                node_helper::lemma_brother_nid_increasing::<C>(pa, i, offset);
                             };
                         };
                     }
@@ -468,13 +467,13 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 
     pub open spec fn get_sub_tree_dom(&self, nid: NodeId) -> Set<NodeId> {
-        self.inner.dom().intersect(Set::new(|_nid: NodeId| NodeHelper::in_subtree_range(nid, _nid)))
+        self.inner.dom().intersect(Set::new(|_nid: NodeId| node_helper::in_subtree_range::<C>(nid, _nid)))
     }
 
     pub proof fn tracked_take_sub_tree(tracked &mut self, nid: NodeId) -> (tracked res: Self)
         requires
             old(self).wf(),
-            NodeHelper::valid_nid(nid),
+            node_helper::valid_nid::<C>(nid),
             old(self).is_sub_root_and_contained(nid),
         ensures
             self.inner =~= old(self).inner.remove_keys(old(self).get_sub_tree_dom(nid)),
@@ -487,28 +486,28 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         assert forall|_nid: NodeId| #[trigger] self.inner.dom().contains(_nid) implies {
             self.children_are_contained(_nid, self.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
-            assert(!NodeHelper::in_subtree_range(nid, _nid));
-            if NodeHelper::is_not_leaf(_nid) {
+            assert(!node_helper::in_subtree_range::<C>(nid, _nid));
+            if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
                     0 <= i < 512 && #[trigger] self.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
-                    self.inner.dom().contains(NodeHelper::get_child(_nid, i))
+                    self.inner.dom().contains(node_helper::get_child::<C>(_nid, i))
                 } by {
-                    let child_nid = NodeHelper::get_child(_nid, i);
-                    NodeHelper::lemma_get_child_sound(_nid, i);
+                    let child_nid = node_helper::get_child::<C>(_nid, i);
+                    node_helper::lemma_get_child_sound::<C>(_nid, i);
                     assert(nid != child_nid) by {
                         assert(self.is_sub_root(nid));
                         if nid == child_nid {
-                            assert(NodeHelper::in_subtree_range(_nid, nid)) by {
-                                NodeHelper::lemma_is_child_implies_in_subtree(_nid, nid);
-                                NodeHelper::lemma_in_subtree_iff_in_subtree_range(_nid, nid);
+                            assert(node_helper::in_subtree_range::<C>(_nid, nid)) by {
+                                node_helper::lemma_is_child_implies_in_subtree::<C>(_nid, nid);
+                                node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(_nid, nid);
                             };
                         }
                     };
-                    assert(!NodeHelper::in_subtree_range(nid, child_nid)) by {
-                        NodeHelper::lemma_get_child_sound(_nid, i);
-                        NodeHelper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range(
+                    assert(!node_helper::in_subtree_range::<C>(nid, child_nid)) by {
+                        node_helper::lemma_get_child_sound::<C>(_nid, i);
+                        node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(
                             nid,
                             _nid,
                             child_nid,
@@ -521,27 +520,27 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         assert forall|_nid: NodeId| #[trigger] res.inner.dom().contains(_nid) implies {
             res.children_are_contained(_nid, res.get_guard_inner(_nid).pte_token->Some_0.value())
         } by {
-            assert(NodeHelper::in_subtree_range(nid, _nid));
-            if NodeHelper::is_not_leaf(_nid) {
+            assert(node_helper::in_subtree_range::<C>(nid, _nid));
+            if node_helper::is_not_leaf::<C>(_nid) {
                 assert forall|i: nat|
                     0 <= i < 512 && #[trigger] res.get_guard_inner(
                         _nid,
                     ).pte_token->Some_0.value().is_alive(i) implies {
-                    res.inner.dom().contains(NodeHelper::get_child(_nid, i))
+                    res.inner.dom().contains(node_helper::get_child::<C>(_nid, i))
                 } by {
-                    let child_nid = NodeHelper::get_child(_nid, i);
-                    NodeHelper::lemma_get_child_sound(_nid, i);
-                    assert(NodeHelper::in_subtree_range(nid, child_nid)) by {
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, _nid);
-                        NodeHelper::lemma_in_subtree_is_child_in_subtree(nid, _nid, child_nid);
-                        NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child_nid);
+                    let child_nid = node_helper::get_child::<C>(_nid, i);
+                    node_helper::lemma_get_child_sound::<C>(_nid, i);
+                    assert(node_helper::in_subtree_range::<C>(nid, child_nid)) by {
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(nid, _nid);
+                        node_helper::lemma_in_subtree_is_child_in_subtree::<C>(nid, _nid, child_nid);
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(nid, child_nid);
                     };
                 };
             }
         };
         assert(res.inner.dom().contains(nid)) by {
-            assert(NodeHelper::in_subtree_range(nid, nid)) by {
-                NodeHelper::lemma_sub_tree_size_lower_bound(nid);
+            assert(node_helper::in_subtree_range::<C>(nid, nid)) by {
+                node_helper::lemma_sub_tree_size_lower_bound::<C>(nid);
             };
         };
         res

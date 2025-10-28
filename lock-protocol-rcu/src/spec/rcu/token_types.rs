@@ -3,16 +3,16 @@ use crate::spec::rcu::TreeSpec;
 
 verus! {
 
-pub type SpecInstance = TreeSpec::Instance;
+pub type SpecInstance<C> = TreeSpec::Instance<C>;
 
-pub type NodeToken = TreeSpec::nodes;
+pub type NodeToken<C> = TreeSpec::nodes<C>;
 
-pub type PteArrayToken = TreeSpec::pte_arrays;
+pub type PteArrayToken<C> = TreeSpec::pte_arrays<C>;
 
-pub type CursorToken = TreeSpec::cursors;
+pub type CursorToken<C> = TreeSpec::cursors<C>;
 
-pub type StrayToken = TreeSpec::strays;
+pub type StrayToken<C> = TreeSpec::strays<C>;
 
-pub type FreePaddrToken = TreeSpec::free_paddrs;
+pub type FreePaddrToken<C> = TreeSpec::free_paddrs<C>;
 
 } // verus!

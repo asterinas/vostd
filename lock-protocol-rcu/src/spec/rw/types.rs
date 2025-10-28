@@ -2,7 +2,7 @@ use vstd::{prelude::*, seq::*};
 
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::spec::{common::NodeId, utils::NodeHelper};
+use crate::{mm::page_table::PageTableConfig, spec::{common::NodeId, node_helper}};
 use super::wf_tree_path;
 
 verus! {
@@ -69,23 +69,23 @@ pub enum CursorState {
 }
 
 impl CursorState {
-    pub open spec fn inv(&self) -> bool {
+    pub open spec fn inv<C: PageTableConfig>(&self) -> bool {
         match *self {
             Self::Void => true,
             Self::ReadLocking(path) => {
                 &&& 0 <= path.len() <= 3
-                &&& wf_tree_path(path)
+                &&& wf_tree_path::<C>(path)
             },
             Self::WriteLocked(path) => {
                 &&& 1 <= path.len() <= 4
-                &&& wf_tree_path(path)
+                &&& wf_tree_path::<C>(path)
             },
         }
     }
 
-    pub open spec fn get_path(&self) -> Seq<NodeId>
+    pub open spec fn get_path<C: PageTableConfig>(&self) -> Seq<NodeId>
         recommends
-            self.inv(),
+            self.inv::<C>(),
     {
         match *self {
             Self::Void => Seq::empty(),
@@ -93,9 +93,9 @@ impl CursorState {
         }
     }
 
-    pub open spec fn hold_write_lock(&self) -> bool
+    pub open spec fn hold_write_lock<C: PageTableConfig>(&self) -> bool
         recommends
-            self.inv(),
+            self.inv::<C>(),
     {
         match *self {
             Self::Void | Self::ReadLocking(_) => false,
@@ -103,10 +103,10 @@ impl CursorState {
         }
     }
 
-    pub open spec fn get_write_lock_node(&self) -> NodeId
+    pub open spec fn get_write_lock_node<C: PageTableConfig>(&self) -> NodeId
         recommends
-            self.inv(),
-            self.hold_write_lock(),
+            self.inv::<C>(),
+            self.hold_write_lock::<C>(),
     {
         match *self {
             Self::Void | Self::ReadLocking(_) => arbitrary(),
@@ -114,9 +114,9 @@ impl CursorState {
         }
     }
 
-    pub open spec fn get_read_lock_path(&self) -> Seq<NodeId>
+    pub open spec fn get_read_lock_path<C: PageTableConfig>(&self) -> Seq<NodeId>
         recommends
-            self.inv(),
+            self.inv::<C>(),
     {
         match *self {
             Self::Void => Seq::empty(),
@@ -125,20 +125,20 @@ impl CursorState {
         }
     }
 
-    pub open spec fn hold_read_lock(&self, nid: NodeId) -> bool
+    pub open spec fn hold_read_lock<C: PageTableConfig>(&self, nid: NodeId) -> bool
         recommends
-            self.inv(),
-            NodeHelper::valid_nid(nid),
+            self.inv::<C>(),
+            node_helper::valid_nid::<C>(nid),
     {
-        let path = self.get_read_lock_path();
+        let path = self.get_read_lock_path::<C>();
         path.contains(nid)
     }
 
-    pub proof fn lemma_get_read_lock_path_is_prefix_of_get_path(&self)
+    pub proof fn lemma_get_read_lock_path_is_prefix_of_get_path<C: PageTableConfig>(&self)
         requires
-            self.inv(),
+            self.inv::<C>(),
         ensures
-            self.get_read_lock_path().is_prefix_of(self.get_path()),
+            self.get_read_lock_path::<C>().is_prefix_of(self.get_path::<C>()),
     {
     }
 }

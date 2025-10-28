@@ -7,11 +7,11 @@ use vstd::vpanic;
 
 use crate::spec::{
     common::{valid_pte_offset, NodeId},
-    utils::{NodeHelper, group_node_helper_lemmas},
+    node_helper::{self, group_node_helper_lemmas},
 };
 use crate::mm::{Paddr, PagingLevel};
 use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::{PageTableEntryTrait, pte::Pte, GLOBAL_CPU_NUM};
+use crate::mm::page_table::{PagingConstsTrait, PageTableEntryTrait, pte::Pte, GLOBAL_CPU_NUM};
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use crate::sync::rcu::RcuDrop;
 use crate::mm::page_table::PageTableConfig;
@@ -54,7 +54,7 @@ impl<C: PageTableConfig> Child<C> {
             Child::PageTable(pt) => {
                 &&& node.deref().deref().level_spec() == (pt.level_spec() + 1) as PagingLevel
                 &&& node.inst_id() == pt.inst@.id()
-                &&& NodeHelper::get_child(node.nid(), idx) == pt.nid@
+                &&& node_helper::get_child::<C>(node.nid(), idx) == pt.nid@
             },
             Child::Frame(paddr, level, prop) => { &&& node.deref().deref().level_spec() == level },
             Child::None => true,
@@ -125,7 +125,7 @@ impl<C: PageTableConfig> Child<C> {
     pub fn from_pte(pte: Pte<C>, level: PagingLevel) -> (res: Self)
         requires
             pte.wf(level),
-            1 <= level <= 4,
+            1 <= level <= C::NR_LEVELS_SPEC(),
         ensures
             res.wf(),
             res.wf_from_pte(pte, level),
@@ -206,7 +206,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     pub fn from_pte<'a>(pte: &Pte<C>, level: PagingLevel) -> (res: ChildRef<'a, C>)
         requires
             pte.wf(level),
-            1 <= level <= 4,
+            1 <= level <= C::NR_LEVELS_SPEC(),
         ensures
             res.wf(),
             res.wf_from_pte(*pte, level),

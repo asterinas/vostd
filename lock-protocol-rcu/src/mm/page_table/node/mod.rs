@@ -1,7 +1,5 @@
 pub mod child;
-// pub mod child_local;
 pub mod entry;
-// pub mod entry_local;
 pub mod stray;
 
 use std::cell::Cell;
@@ -49,7 +47,7 @@ use crate::configs::PTE_NUM;
 use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::NodeId,
-    utils::NodeHelper,
+    node_helper,
     rcu::{SpecInstance, NodeToken, PteArrayToken, PteArrayState, PteState, FreePaddrToken},
 };
 
@@ -62,7 +60,7 @@ pub struct PageTableNode<C: PageTableConfig> {
     pub ptr: *const MetaSlot<C>,
     pub perm: Tracked<MetaSlotPerm<C>>,
     pub nid: Ghost<NodeId>,
-    pub inst: Tracked<SpecInstance>,
+    pub inst: Tracked<SpecInstance<C>>,
 }
 
 // Functions defined in struct 'Frame'.
@@ -160,7 +158,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         &&& self.perm@.wf()
         &&& self.perm@.relate(self.ptr)
         &&& self.perm@.is_pt()
-        &&& NodeHelper::valid_nid(self.nid@)
+        &&& node_helper::valid_nid::<C>(self.nid@)
         &&& self.nid@ == self.meta_spec().nid@
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
         &&& self.inst@.id() == self.meta_spec().inst@.id()
@@ -183,7 +181,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
     // Allocator is trusted so we can assume the paddr is free.
     #[verifier::external_body]
-    pub proof fn assume_free_paddr_token(inst: SpecInstance) -> (res: FreePaddrToken)
+    pub proof fn assume_free_paddr_token(inst: SpecInstance<C>) -> (res: FreePaddrToken<C>)
         ensures
             res.instance_id() == inst.id(),
     {
@@ -195,20 +193,20 @@ impl<C: PageTableConfig> PageTableNode<C> {
     pub fn normal_alloc(
         level: PagingLevel,
         nid: Ghost<NodeId>,
-        inst: Tracked<SpecInstance>,
+        inst: Tracked<SpecInstance<C>>,
         pa_nid: Ghost<NodeId>,
         offset: Ghost<nat>,
-        node_token: Tracked<&NodeToken>,
-        pte_token: Tracked<PteArrayToken>,
-    ) -> (res: (PageTableNode<C>, Tracked<PteArrayToken>))
+        node_token: Tracked<&NodeToken<C>>,
+        pte_token: Tracked<PteArrayToken<C>>,
+    ) -> (res: (PageTableNode<C>, Tracked<PteArrayToken<C>>))
         requires
-            level as nat == NodeHelper::nid_to_level(nid@),
-            NodeHelper::valid_nid(nid@),
-            nid@ != NodeHelper::root_id(),
+            level as nat == node_helper::nid_to_level::<C>(nid@),
+            node_helper::valid_nid::<C>(nid@),
+            nid@ != node_helper::root_id::<C>(),
             inst@.cpu_num() == GLOBAL_CPU_NUM,
-            NodeHelper::valid_nid(pa_nid@),
-            NodeHelper::is_not_leaf(pa_nid@),
-            nid@ == NodeHelper::get_child(pa_nid@, offset@),
+            node_helper::valid_nid::<C>(pa_nid@),
+            node_helper::is_not_leaf::<C>(pa_nid@),
+            nid@ == node_helper::get_child::<C>(pa_nid@, offset@),
             0 <= offset@ < 512,
             node_token@.instance_id() == inst@.id(),
             node_token@.key() == pa_nid@,
@@ -232,11 +230,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
         let tracked mut pte_token = pte_token.get();
         let paddr: Paddr = 0;
 
-        assert(pa_nid@ == NodeHelper::get_parent(nid@)) by {
-            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
+        assert(pa_nid@ == node_helper::get_parent::<C>(nid@)) by {
+            node_helper::lemma_get_child_sound::<C>(pa_nid@, offset@);
         };
-        assert(offset@ == NodeHelper::get_offset(nid@)) by {
-            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
+        assert(offset@ == node_helper::get_offset::<C>(nid@)) by {
+            node_helper::lemma_get_child_sound::<C>(pa_nid@, offset@);
         };
 
         let tracked ch_node_token;
@@ -337,15 +335,15 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub fn normal_lock_new_allocated_node<'rcu>(
         self,
         guard: &'rcu DisabledPreemptGuard,
-        pa_pte_array_token: Tracked<&PteArrayToken>,
+        pa_pte_array_token: Tracked<&PteArrayToken<C>>,
     ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
         requires
             self.wf(),
-            self.nid@ != NodeHelper::root_id(),
+            self.nid@ != node_helper::root_id::<C>(),
             pa_pte_array_token@.instance_id() == self.inst@.id(),
-            pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
-            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
+            pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
+            pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
                 == self.deref().start_paddr(),
         ensures
             res.wf(),
@@ -361,21 +359,21 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     pub fn lock<'rcu>(
         self,
         guard: &'rcu DisabledPreemptGuard,
-        m: Tracked<LockProtocolModel>,
-        pa_pte_array_token: Tracked<&PteArrayToken>,
-    ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel>)) where 'a: 'rcu
+        m: Tracked<LockProtocolModel<C>>,
+        pa_pte_array_token: Tracked<&PteArrayToken<C>>,
+    ) -> (res: (PageTableGuard<'rcu, C>, Tracked<LockProtocolModel<C>>)) where 'a: 'rcu
         requires
             self.wf(),
             m@.inv(),
             m@.inst_id() == self.inst@.id(),
             m@.state() is Locking,
             m@.cur_node() == self.nid@,
-            NodeHelper::in_subtree_range(m@.sub_tree_rt(), self.nid@),
+            node_helper::in_subtree_range::<C>(m@.sub_tree_rt(), self.nid@),
             pa_pte_array_token@.instance_id() == self.inst@.id(),
-            pa_pte_array_token@.key() == NodeHelper::get_parent(self.nid@),
+            pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
             m@.node_is_locked(pa_pte_array_token@.key()),
-            pa_pte_array_token@.value().is_alive(NodeHelper::get_offset(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(NodeHelper::get_offset(self.nid@))
+            pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
                 == self.deref().start_paddr(),
         ensures
             res.0.wf(),
@@ -441,7 +439,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         &&& self.guard->Some_0.wf_except(&self.deref().deref().meta_spec().lock, idx)
     }
 
-    pub open spec fn inst(&self) -> SpecInstance {
+    pub open spec fn inst(&self) -> SpecInstance<C> {
         self.deref().deref().inst@
     }
 
@@ -453,7 +451,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         self.deref().deref().nid@
     }
 
-    pub fn tracked_pt_inst(&self) -> (res: Tracked<SpecInstance>)
+    pub fn tracked_pt_inst(&self) -> (res: Tracked<SpecInstance<C>>)
         requires
             self.inner.wf(),
         ensures
@@ -466,7 +464,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn entry(&self, idx: usize) -> (res: Entry<C>)
         requires
             self.wf(),
-            0 <= idx < 512,
+            0 <= idx < nr_subpage_per_huge::<C>(),
         ensures
             res.wf(*self),
             res.idx == idx,
@@ -643,13 +641,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     //Although this function has mode exec, its operations are pure logical
-    pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken>)
+    pub fn take_node_token(&mut self) -> (res: Tracked<NodeToken<C>>)
         requires
             old(self).guard is Some,
             old(self).guard->Some_0.node_token() is Some,
         ensures
             res@ == old(self).guard->Some_0.node_token()->Some_0,
-            self.guard->Some_0.node_token() == None::<NodeToken>,
+            self.guard->Some_0.node_token() == None::<NodeToken<C>>,
             self.guard->Some_0.pte_token() == old(self).guard->Some_0.pte_token(),
             self.guard->Some_0.stray_perm() == old(self).guard->Some_0.stray_perm(),
             self.guard->Some_0.perms() == old(self).guard->Some_0.perms(),
@@ -665,7 +663,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     //Although this function has mode exec, its operations are pure logical
-    pub fn put_node_token(&mut self, token: Tracked<NodeToken>)
+    pub fn put_node_token(&mut self, token: Tracked<NodeToken<C>>)
         requires
             old(self).guard is Some,
             old(self).guard->Some_0.node_token() is None,
@@ -748,8 +746,8 @@ impl<C: PageTableConfig> PageTableGuard<'_, C> {
         self.inner.deref().meta().lock.normal_unlock(guard);
     }
 
-    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel>) -> (res: Tracked<
-        LockProtocolModel,
+    pub fn drop<'a>(&'a mut self, m: Tracked<LockProtocolModel<C>>) -> (res: Tracked<
+        LockProtocolModel<C>,
     >)
         requires
             old(self).wf(),
@@ -788,7 +786,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
     pub level: PagingLevel,
     pub frame_paddr: Paddr,  // TODO: should be a ghost type
     pub nid: Ghost<NodeId>,
-    pub inst: Tracked<SpecInstance>,
+    pub inst: Tracked<SpecInstance<C>>,
 }
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
@@ -803,12 +801,12 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         &&& self.level
             == self.lock.level_spec()
         // &&& valid_paddr(self.frame_paddr)
-        &&& 1 <= self.level <= 4
-        &&& NodeHelper::valid_nid(self.nid@)
+        &&& 1 <= self.level <= C::NR_LEVELS_SPEC()
+        &&& node_helper::valid_nid::<C>(self.nid@)
         &&& self.nid@ == self.lock.nid@
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
         &&& self.inst@.id() == self.lock.pt_inst_id()
-        &&& self.level as nat == NodeHelper::nid_to_level(self.nid@)
+        &&& self.level as nat == node_helper::nid_to_level::<C>(self.nid@)
         &&& self.stray.id() == self.lock.stray_cell_id@
     }
 }

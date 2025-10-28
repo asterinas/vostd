@@ -1,8 +1,9 @@
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
+use crate::mm::page_table::PageTableConfig;
 use crate::mm::Paddr;
-use crate::spec::{common::NodeId, utils::NodeHelper};
+use crate::spec::{common::NodeId, node_helper};
 
 verus! {
 
@@ -72,26 +73,26 @@ pub enum CursorState {
 }
 
 impl CursorState {
-    pub open spec fn wf(&self) -> bool {
+    pub open spec fn wf<C: PageTableConfig>(&self) -> bool {
         match *self {
             Self::Void => true,
             Self::Locking(rt, nid) => {
-                &&& NodeHelper::valid_nid(rt)
-                &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
+                &&& node_helper::valid_nid::<C>(rt)
+                &&& rt <= nid <= node_helper::next_outside_subtree::<C>(rt)
             },
-            Self::Locked(rt) => NodeHelper::valid_nid(rt),
+            Self::Locked(rt) => node_helper::valid_nid::<C>(rt),
             // Self::UnLocking(rt, nid) => {
-            //     &&& NodeHelper::valid_nid(rt)
-            //     &&& rt <= nid <= NodeHelper::next_outside_subtree(rt)
+            //     &&& node_helper::valid_nid::<C>(rt)
+            //     &&& rt <= nid <= node_helper::next_outside_subtree::<C>(rt)
             // },
         }
     }
 
-    pub open spec fn locked_range(&self) -> Set<NodeId> {
+    pub open spec fn locked_range<C: PageTableConfig>(&self) -> Set<NodeId> {
         match *self {
             Self::Void => Set::<NodeId>::empty(),
             Self::Locking(rt, nid) => Set::new(|id| rt <= id < nid),
-            Self::Locked(rt) => Set::new(|id| rt <= id < NodeHelper::next_outside_subtree(rt)),
+            Self::Locked(rt) => Set::new(|id| rt <= id < node_helper::next_outside_subtree::<C>(rt)),
         }
     }
 

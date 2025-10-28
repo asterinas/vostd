@@ -6,7 +6,7 @@ use verus_state_machines_macros::case_on_next;
 
 use crate::spec::{
     common::{valid_cpu, CpuId},
-    utils::{NodeHelper, group_node_helper_lemmas},
+    node_helper::{self, group_node_helper_lemmas},
 };
 use super::{
     types::{AtomicCursorState, CursorState},
@@ -14,11 +14,15 @@ use super::{
     atomic::AtomicSpec,
 };
 
+use core::marker::PhantomData;
+
+use crate::mm::page_table::PageTableConfig;
+
 verus! {
 
-type StateC = TreeSpec::State;
+type StateC<C> = TreeSpec::State<C>;
 
-type StateA = AtomicSpec::State;
+type StateA<C> = AtomicSpec::State<C>;
 
 pub open spec fn interp_cursor_state(s: CursorState) -> AtomicCursorState {
     match s {
@@ -28,20 +32,21 @@ pub open spec fn interp_cursor_state(s: CursorState) -> AtomicCursorState {
     }
 }
 
-pub open spec fn interp(s: StateC) -> StateA {
+pub open spec fn interp<C: PageTableConfig>(s: StateC<C>) -> StateA<C> {
     StateA {
         cpu_num: s.cpu_num,
         cursors: Map::new(
             |cpu| valid_cpu(s.cpu_num, cpu),
             |cpu| interp_cursor_state(s.cursors[cpu]),
         ),
+        _phantom: PhantomData,
     }
 }
 
-pub proof fn init_refines_init(post: StateC) {
+pub proof fn init_refines_init<C: PageTableConfig>(post: StateC<C>) {
     requires(post.invariant() && StateC::init(post));
     ensures(StateA::init(interp(post)));
-    case_on_init!{post, TreeSpec => {
+    case_on_init!{post, TreeSpec::<C> => {
         initialize(cpu_num) => {
             let cursors = Map::new(
                 |cpu: CpuId| valid_cpu(post.cpu_num, cpu),
@@ -53,17 +58,17 @@ pub proof fn init_refines_init(post: StateC) {
     }}
 }
 
-pub proof fn next_refines_next(pre: StateC, post: StateC) {
+pub proof fn next_refines_next<C: PageTableConfig>(pre: StateC<C>, post: StateC<C>) {
     requires(
         {
             &&& pre.invariant()
             &&& post.invariant()
             &&& interp(pre).invariant()
-            &&& StateC::next(pre, post)
+            &&& StateC::<C>::next(pre, post)
         },
     );
     ensures(StateA::next(interp(pre), interp(post)));
-    case_on_next!{pre, post, TreeSpec => {
+    case_on_next!{pre, post, TreeSpec::<C> => {
 
         locking_start(cpu) => {
             assert_maps_equal!(interp(pre).cursors, interp(post).cursors);
@@ -86,7 +91,7 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
         }
 
         write_lock(cpu, nid) => {
-            broadcast use NodeHelper::lemma_in_subtree_iff_in_subtree_range;
+            broadcast use node_helper::lemma_in_subtree_iff_in_subtree_range;
             assert(
                 interp(post).cursors =~=
                 interp(pre).cursors.insert(
@@ -99,13 +104,13 @@ pub proof fn next_refines_next(pre: StateC, post: StateC) {
                 interp(pre).cursors[_cpu] is Locked
             implies {
                 let _nid = interp(pre).cursors[_cpu]->Locked_0;
-                !NodeHelper::in_subtree(nid, _nid) &&
-                !NodeHelper::in_subtree(_nid, nid)
+                !node_helper::in_subtree::<C>(nid, _nid) &&
+                !node_helper::in_subtree::<C>(_nid, nid)
             } by {
                 let _nid = interp(pre).cursors[_cpu]->Locked_0;
                 assert(pre.cursors.contains_key(_cpu));
                 assert(pre.cursors[_cpu] is WriteLocked);
-                assert(pre.cursors[_cpu].get_write_lock_node() == _nid);
+                assert(pre.cursors[_cpu].get_write_lock_node::<C>() == _nid);
                 if _cpu != cpu {
                     assert(post.cursors[_cpu] =~= pre.cursors[_cpu]);
                     assert(post.inv_non_overlapping()) by {

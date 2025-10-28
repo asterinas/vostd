@@ -1,21 +1,22 @@
 use vstd::prelude::*;
 
-use crate::spec::{
-    rcu::{CursorState, CursorToken, SpecInstance},
-    utils::NodeHelper,
-    common::{CpuId, NodeId, valid_cpu},
-};
+use core::marker::PhantomData;
+
+use crate::{mm::page_table::PageTableConfig, spec::{
+    common::{valid_cpu, CpuId, NodeId}, rcu::{CursorState, CursorToken, SpecInstance}, node_helper
+}};
 use crate::configs::GLOBAL_CPU_NUM;
 
 verus! {
 
-pub tracked struct LockProtocolModel {
+pub tracked struct LockProtocolModel<C: PageTableConfig> {
     pub cpu: CpuId,
-    pub token: CursorToken,
-    pub inst: SpecInstance,
+    pub token: CursorToken<C>,
+    pub inst: SpecInstance<C>,
+    pub _phantom: PhantomData<C>,
 }
 
-impl LockProtocolModel {
+impl<C: PageTableConfig> LockProtocolModel<C> {
     pub open spec fn inst_id(&self) -> InstanceId {
         self.inst.id()
     }
@@ -49,7 +50,7 @@ impl LockProtocolModel {
         &&& self.token.instance_id() == self.inst.id()
         &&& self.token.key() == self.cpu
         &&& self.inst.cpu_num() == GLOBAL_CPU_NUM
-        &&& self.state().wf()
+        &&& self.state().wf::<C>()
     }
 
     pub open spec fn node_is_locked(&self, nid: NodeId) -> bool
@@ -59,7 +60,7 @@ impl LockProtocolModel {
         match self.state() {
             CursorState::Void => arbitrary(),
             CursorState::Locking(rt, _nid) => rt <= nid < _nid,
-            CursorState::Locked(rt) => NodeHelper::in_subtree_range(rt, nid),
+            CursorState::Locked(rt) => node_helper::in_subtree_range::<C>(rt, nid),
         }
     }
 }
