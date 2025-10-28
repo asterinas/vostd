@@ -17,6 +17,11 @@ jobs:
           ref: ${{ github.event.client_payload.branch }}
           submodules: recursive
 
+      - name: Configure Git for CI
+        run: |
+          git config user.name "Verus CI Bot"
+          git config user.email "ci@asterinas.verus"
+
       - name: Install dependencies
         run: |
           sudo apt update -qq
