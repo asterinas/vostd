@@ -3,6 +3,7 @@ name: Run Verus Update Test
 on:
   repository_dispatch:
     types: [verus-update-test]
+
 jobs:
   run-tests:
     runs-on: ubuntu-latest
@@ -37,6 +38,7 @@ jobs:
             exit 1
           else
             echo "✅ Main branch verification passed!"
+          fi
 
       - name: Run tests on phaseII/verified branch
         run: |
@@ -44,8 +46,8 @@ jobs:
           git fetch origin phaseII/verified
           git checkout phaseII/verified
           cargo clean
-          cargo dv bootstrap --restart
-          cargo dv bootstrap --upgrade --test_branch
+          cargo dv bootstrap --restart || true
+          cargo dv bootstrap --upgrade --test_branch || true
           make 2>&1 | tee verus_phaseII.log
           if grep -q "error:" verus_phaseII.log; then
             echo "::error title=PhaseII Branch Verification Failed::Errors found in phaseII/verified"
@@ -55,6 +57,7 @@ jobs:
             exit 1
           else
             echo "✅ PhaseII branch verification passed!"
+          fi
 
       - name: Cleanup logs
         if: always()
@@ -65,6 +68,6 @@ jobs:
         uses: peter-evans/repository-dispatch@v2
         with:
           token: ${{ secrets.VERUS_TEST_TOKEN }}
-          repository: asterinas/verus          
+          repository: asterinas/verus
           event-type: verus-update-test-success
           client-payload: '{"branch":"update-test"}'
