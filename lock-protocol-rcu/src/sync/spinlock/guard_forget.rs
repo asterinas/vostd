@@ -150,6 +150,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             self.inner.dom().contains(nid),
             self.is_sub_root_and_contained(nid),
     {
+        C::lemma_consts_properties();
+        C::lemma_nr_subpage_per_huge_is_512();
+
         self.inner.tracked_insert(nid, (guard, Ghost(spin_lock)));
         assert(self.wf()) by {
             assert forall |_nid: NodeId| 
@@ -332,6 +335,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             self.is_root(pa),
             self.childs_are_contained_constrained(pa, pte_array, (offset + 1) as nat),
     {
+        C::lemma_consts_properties();
+        C::lemma_nr_subpage_per_huge_is_512();
+
         self.inner.tracked_union_prefer_right(other.inner);
         assert(self.wf()) by {
             assert forall |nid: NodeId| 

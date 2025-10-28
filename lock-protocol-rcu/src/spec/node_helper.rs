@@ -184,7 +184,7 @@ pub proof fn lemma_root_id<C: PageTableConfig>()
 
 // Lemmas about trace.
 // A trace is a sequence of offsets from the root to a node.
-// The length of the trace is at most 3.
+// The length of the trace is at most C::NR_LEVELS_SPEC() - 1.
 pub open spec fn valid_trace<C: PageTableConfig>(trace: Seq<nat>) -> bool {
     &&& 0 <= trace.len() < C::NR_LEVELS_SPEC()
     &&& trace.all(|offset: nat| 0 <= offset < 512)
@@ -1134,7 +1134,7 @@ pub broadcast proof fn lemma_get_child_sound<C: PageTableConfig>(nid: NodeId, of
 pub proof fn lemma_leaf_get_child_wrong<C: PageTableConfig>(nid: NodeId, offset: nat)
     requires
         valid_nid::<C>(nid),
-        nid_to_dep::<C>(nid) == 3,
+        nid_to_dep::<C>(nid) == C::NR_LEVELS_SPEC() - 1,
         0 <= offset < 512,
     ensures
         !valid_nid::<C>(get_child::<C>(nid, offset)),

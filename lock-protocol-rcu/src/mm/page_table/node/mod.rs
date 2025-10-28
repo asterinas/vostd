@@ -481,7 +481,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let stray_cell: &StrayFlag = &self.deref().deref().meta().stray;
         let guard: &SpinGuard<C> = self.guard.as_ref().unwrap();
         let tracked stray_perm = &guard.inner.borrow().stray_perm;
-        stray_cell.read(Tracked(stray_perm))
+        stray_cell.read::<C>(Tracked(stray_perm))
     }
 
     pub fn read_pte(&self, idx: usize) -> (res: Pte<C>)

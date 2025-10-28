@@ -9,6 +9,7 @@ use crate::spec::{
 };
 use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
 use crate::mm::{page_table::{
+    PagingConstsTrait,
     PageTableEntryTrait,
     pte::Pte,
     PageTableConfig,
@@ -121,6 +122,9 @@ impl<C: PageTableConfig> Entry<C> {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
 
         self.pte = new_child.into_pte();
+        assert(self.idx < 512) by {
+            C::lemma_nr_subpage_per_huge_is_512();
+        };
         node.write_pte(self.idx, self.pte);
 
         old_child

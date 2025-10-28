@@ -24,11 +24,11 @@ pub open spec fn valid_pte_offset<C: PageTableConfig>(offset: nat) -> bool {
 }
 
 pub open spec fn valid_vaddr<C: PageTableConfig>(va: Vaddr) -> bool {
-    0 <= va < (1u64 << C::ADDRESS_WIDTH_SPEC())
+    0 <= va < (1u64 << C::ADDRESS_WIDTH())
 }
 
 pub open spec fn valid_va_range<C: PageTableConfig>(va: Range<Vaddr>) -> bool {
-    0 <= va.start <= va.end <= (1u64 << C::ADDRESS_WIDTH_SPEC())
+    0 <= va.start <= va.end <= (1u64 << C::ADDRESS_WIDTH())
 }
 
 pub open spec fn vaddr_is_aligned<C: PageTableConfig>(va: Vaddr) -> (res: bool)

@@ -8,6 +8,7 @@ use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
 use crate::mm::frame::meta::*;
+use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::{
     PagingConstsTrait,
     PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel, pte_index,
@@ -62,6 +63,11 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         res.1@.inst_id() == pt.inst@.id(),
         res.1@.state() is Locked,
 {
+    proof {
+        C::lemma_nr_subpage_per_huge_is_512();
+        C::lemma_consts_properties();
+    }
+    
     let tracked mut m = m.get();
 
     // The re-try loop of finding the sub-tree root.
@@ -154,13 +160,16 @@ pub fn unlock_range<C: PageTableConfig>(
         forgot_guards@.wf(),
         forgot_guards@.is_root(old(cursor).get_guard_level_unwrap(old(cursor).guard_level).nid()),
     ensures
-        cursor.path.len() == old(cursor).path.len(),
-        forall|i| 0 <= i < cursor.path.len() ==> cursor.path[i] is None,
+        forall|i| 0 <= i < C::NR_LEVELS_SPEC() ==> cursor.path[i] is None,
         res@.inv(),
         res@.inst_id() == old(cursor).inst@.id(),
         res@.state() is Void,
 {
     broadcast use group_node_helper_lemmas;
+    proof {
+        C::lemma_nr_subpage_per_huge_is_512();
+        C::lemma_consts_properties();
+    }
 
     let tracked mut m = m.get();
     proof {
@@ -294,7 +303,7 @@ pub fn unlock_range<C: PageTableConfig>(
     }
     let guard_level = cursor.guard_level;
     let guard_node = cursor.take(guard_level as usize - 1).unwrap();
-    assert forall|i| 0 <= i < cursor.path@.len() implies { cursor.path[i] is None } by {
+    assert forall|i| 0 <= i < C::NR_LEVELS_SPEC() implies { cursor.path[i] is None } by {
         let level = (i + 1) as PagingLevel;
         assert(cursor.get_guard_level(level) is None);
     }
@@ -554,6 +563,10 @@ fn dfs_acquire_lock<C: PageTableConfig>(
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    proof {
+        C::lemma_nr_subpage_per_huge_is_512();
+        C::lemma_consts_properties();
+    }
 
     let tracked mut forgot_guards = SubTreeForgotGuard::empty();
 
@@ -612,6 +625,9 @@ fn dfs_acquire_lock<C: PageTableConfig>(
         decreases 512 - i,
     {
         assert(0 <= i < 512);
+        assert(i < nr_subpage_per_huge::<C>()) by {
+            C::lemma_nr_subpage_per_huge_is_512();
+        };
         let entry = cur_node.entry(i);
         let child = entry.to_ref(cur_node);
         assert(!(child is Frame)) by {
@@ -826,6 +842,10 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
     decreases cur_node.deref().deref().level_spec(),
 {
     broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    proof {
+        C::lemma_nr_subpage_per_huge_is_512();
+        C::lemma_consts_properties();
+    }
 
     let tracked mut forgot_guards = forgot_guards.get();
 

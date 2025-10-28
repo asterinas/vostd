@@ -148,8 +148,8 @@ pub proof fn lemma_va_range_get_tree_path<C: PageTableConfig>(va: Range<Vaddr>)
     broadcast use group_node_helper_lemmas;
 
     let guard_level = va_range_get_guard_level::<C>(va);
-    let trace = va_level_to_trace::<C>(va.start, guard_level);
     lemma_va_range_get_guard_level::<C>(va);
+    let trace = va_level_to_trace::<C>(va.start, guard_level);
     let path = va_range_get_tree_path::<C>(va);
     assert forall|i| 0 <= i < path.len() implies #[trigger] node_helper::valid_nid::<C>(path[i]) by {
         let nid = path[i];
@@ -170,9 +170,6 @@ pub open spec fn va_range_get_guard_nid<C: PageTableConfig>(va: Range<Vaddr>) ->
     let idx = C::NR_LEVELS_SPEC() - level;
     path[idx]
 }
-
-} // verus!
-verus! {
 
 /// The cursor for traversal over the page table.
 ///
@@ -308,7 +305,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     pub open spec fn wf_path(&self) -> bool {
-        &&& self.path.len() == C::NR_LEVELS_SPEC()
+        &&& C::NR_LEVELS_SPEC() <= self.path.len()
         &&& forall|level: PagingLevel|
             #![trigger self.get_guard_level(level)]
             #![trigger self.get_guard_level_unwrap(level)]
@@ -617,7 +614,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     pub fn take(&mut self, i: usize) -> (res: Option<PageTableGuard<'a, C>>)
         requires
             old(self).wf_path(),
-            0 <= i < old(self).path.len(),
+            0 <= i < C::NR_LEVELS_SPEC(),
             old(self).level <= i + 1 <= old(self).guard_level,
             i + 1 == old(self).g_level@,
         ensures
@@ -628,37 +625,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.va == old(self).va,
             res =~= old(self).path[i as int],
             self.path[i as int] is None,
-            // self.path.len() == old(self).path.len(),
             forall|_i|
                 #![trigger self.path[_i]]
-                0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
+                0 <= _i < C::NR_LEVELS_SPEC() && _i != i ==> self.path[_i] =~= old(self).path[_i],
     {
         self.g_level = Ghost((self.g_level@ + 1) as PagingLevel);
         self.path[i].take()
     }
-
-    // Trusted
-    // #[verifier::external_body]
-    // pub fn put(&mut self, i: usize, guard: PageTableGuard<'a, C>)
-    //     requires
-    //         old(self).wf_path(),
-    //         0 <= i < old(self).path.len(),
-    //         old(self).level <= i + 1 <= old(self).guard_level,
-    //         i + 1 == old(self).g_level@ - 1,
-    //         old(self).path[i as int] is None,
-    //     ensures
-    //         self.wf_path(),
-    //         self.g_level@ == old(self).g_level@ - 1,
-    //         self.constant_fields_unchanged(old(self)),
-    //         self.level == old(self).level,
-    //         self.va == old(self).va,
-    //         self.path[i as int] =~= Some(guard),
-    //         forall |_i|
-    //             #![trigger self.path[_i]]
-    //             0 <= _i < self.path.len() && _i != i ==> self.path[_i] =~= old(self).path[_i],
-    // {
-    //     unimplemented!()
-    // }
 
     fn no_op() {}
 }
@@ -725,7 +698,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ == self.level,
             res.1@.wf(),
             self.wf_with_forgot_guards(res.1@),
-    {
+    {   
         if self.va >= self.barrier_va.end {
             return (Err(PageTableError::InvalidVaddr(self.va)), forgot_guards);
         }
@@ -759,6 +732,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     let ghost nid = pt.nid@;
                     let ghost spin_lock = forgot_guards.get_lock(nid);
                     assert(forgot_guards.is_sub_root_and_contained(nid)) by {
+                        C::lemma_consts_properties();
+                        C::lemma_nr_subpage_per_huge_is_512();
                         self.lemma_wf_with_forgot_guards_sound(forgot_guards);
                         self.lemma_rec_put_guard_from_path_basic(forgot_guards);
                         let pa_guard = self.get_guard_level_unwrap(self.level);
@@ -1483,6 +1458,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.level == 1,
             decreases self.0.level,
         {
+            proof {
+                C::lemma_nr_subpage_per_huge_is_512();
+                C::lemma_consts_properties();
+            }
+
             let ghost _forgot_guards = forgot_guards;
             let ghost _cursor = self.0;
 
