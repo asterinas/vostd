@@ -405,9 +405,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.g_level@ <= level1 < level2 <= self.guard_level && self.g_level@ <= level2
                     <= self.guard_level && level1 != level2
                     ==> #[trigger] self.guard_in_path_nid_diff(level1, level2),
-    {
-        admit();
-    }
+    {}
 
     pub proof fn lemma_guard_in_path_relation_implies_in_subtree_range(&self)
         requires
@@ -928,9 +926,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     {
         let tracked forgot_guards = forgot_guards.get();
 
-        assert(1 <= self.level <= C::NR_LEVELS()) by {
-            admit();
-        };  // We only target x86.
+        assert(1 <= self.level <= C::NR_LEVELS());
         let cur_page_size = page_size::<C>(self.level);
         assert(align_down(self.va, cur_page_size) <= self.va) by {
             admit();
@@ -981,9 +977,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             proof {
                 assert(next_va % page_size::<C>((self.level - 1) as u8) == 0);
                 assert(pte_index::<C>(next_va, (self.level - 1) as u8) == 0);
-                assert(1 <= self.level <= C::NR_LEVELS()) by {
-                    admit();
-                };  // We only target x86.
+                assert(1 <= self.level <= C::NR_LEVELS());
                 lemma_addr_aligned_propagate::<C>(next_va, self.level);
 
                 assert forall|level: PagingLevel|
