@@ -53,7 +53,7 @@ use crate::spec::{
 
 use super::{
     lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
-    lemma_pte_index_alternative_spec, pte_index, pte_index_mask, PageTable, PageTableConfig,
+    lemma_pte_index_alternative_spec, node, pte_index, pte_index_mask, PageTable, PageTableConfig,
     PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
 };
 
@@ -405,7 +405,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.g_level@ <= level1 < level2 <= self.guard_level && self.g_level@ <= level2
                     <= self.guard_level && level1 != level2
                     ==> #[trigger] self.guard_in_path_nid_diff(level1, level2),
-    {}
+    {
+    }
 
     pub proof fn lemma_guard_in_path_relation_implies_in_subtree_range(&self)
         requires
@@ -418,7 +419,60 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     self.get_guard_level_unwrap(level).nid(),
                 ),
     {
-        admit();
+        assert forall|level: PagingLevel| self.g_level@ <= level <= self.guard_level implies {
+            #[trigger] node_helper::in_subtree_range::<C>(
+                self.get_guard_level_unwrap(self.guard_level).nid(),
+                self.get_guard_level_unwrap(level).nid(),
+            )
+        } by {
+            let guard_nid = self.get_guard_level_unwrap(self.guard_level).nid();
+            let nid = self.get_guard_level_unwrap(level).nid();
+            self.guard_in_path_relation_implies_in_subtree_induction(level);
+            assert(node_helper::in_subtree::<C>(guard_nid, nid));
+            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(guard_nid, nid);
+        }
+    }
+
+    pub proof fn guard_in_path_relation_implies_in_subtree_induction(&self, level: PagingLevel)
+        requires
+            self.wf(),
+            self.g_level@ <= level <= self.guard_level,
+        ensures
+            forall|inter_level: PagingLevel|
+                level <= inter_level <= self.guard_level ==> #[trigger] node_helper::in_subtree::<
+                    C,
+                >(
+                    self.get_guard_level_unwrap(self.guard_level).nid(),
+                    self.get_guard_level_unwrap(inter_level).nid(),
+                ),
+        decreases self.guard_level - level,
+    {
+        let guard_nid = self.get_guard_level_unwrap(self.guard_level).nid();
+        if level == self.guard_level {
+            node_helper::lemma_in_subtree_self::<C>(guard_nid);
+        } else {
+            assert forall|inter_level: PagingLevel|
+                level <= inter_level < self.guard_level implies {
+                #[trigger] node_helper::in_subtree::<C>(
+                    guard_nid,
+                    self.get_guard_level_unwrap(inter_level).nid(),
+                )
+            } by {
+                assert(self.adjacent_guard_is_child((inter_level + 1) as PagingLevel)) by {
+                    self.guards_in_path_relation();
+                };
+                let inter_parent_nid = self.get_guard_level_unwrap(
+                    (inter_level + 1) as PagingLevel,
+                ).nid();
+                let inter_nid = self.get_guard_level_unwrap(inter_level).nid();
+                self.guard_in_path_relation_implies_in_subtree_induction(
+                    (inter_level + 1) as PagingLevel,
+                );
+                assert(node_helper::in_subtree::<C>(guard_nid, inter_parent_nid));
+                assert(node_helper::in_subtree::<C>(inter_parent_nid, inter_nid));
+                assert(node_helper::in_subtree::<C>(guard_nid, inter_nid));
+            };
+        }
     }
 
     pub open spec fn rec_put_guard_from_path(
