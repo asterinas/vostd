@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
+use aster_common::prelude::MAX_PADDR;
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
+use ostd_specs::MemRegionModel;
 
 use core::ops::Deref;
 
@@ -32,9 +35,10 @@ pub enum MemoryRegionType {
     /// Directly usable by the frame allocator.
     Usable = 8,
 }
-/* 
+
 /// The information of initial memory regions that are needed by the kernel.
 /// The sections are **not** guaranteed to not overlap. The region must be page aligned.
+#[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct MemoryRegion {
     base: usize,
@@ -42,6 +46,47 @@ pub struct MemoryRegion {
     typ: MemoryRegionType,
 }
 
+verus!{
+
+impl MemoryRegionType {
+
+pub open spec fn to_int(self) -> int {
+    match self {
+        MemoryRegionType::BadMemory => 0,
+        MemoryRegionType::Unknown => 1,
+        MemoryRegionType::NonVolatileSleep => 2,
+        MemoryRegionType::Reserved => 3,
+        MemoryRegionType::Kernel => 4,
+        MemoryRegionType::Module => 5,
+        MemoryRegionType::Framebuffer => 6,
+        MemoryRegionType::Reclaimable => 7,
+        MemoryRegionType::Usable => 8,
+    }
+}
+}
+
+impl Inv for MemoryRegion {
+    closed spec fn inv(&self) -> bool {
+        &&& self.base + self.len <= MAX_PADDR()
+    }
+}
+
+impl InvView for MemoryRegion {
+    type V = MemRegionModel;
+
+    closed spec fn view(&self) -> Self::V {
+        MemRegionModel {
+            base: self.base as int,
+            end: self.base as int + self.len as int,
+            typ: self.typ.to_int(),
+        }
+    }
+
+    proof fn view_preserves_inv(&self){}
+}
+}
+
+/* 
 impl MemoryRegion {
     /// Constructs a valid memory region.
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
