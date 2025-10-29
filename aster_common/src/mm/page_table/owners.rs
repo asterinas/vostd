@@ -51,7 +51,7 @@ impl<'rcu, C: PageTableConfig> Deref for OwnerAsTreeNode<'rcu, C> {
 
 impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
     pub open spec fn valid_ptrs(self) -> bool {
-        forall|i: usize|
+        forall|i: usize| #![auto]
             0 <= i < NR_ENTRIES() ==> self.inner.children[i as int] is Some ==> {
                 &&& self.inner.value.tree_node.unwrap().children_perm.unwrap().is_init(i as int)
                 &&& self.inner.children[i as int].unwrap().value.tree_node is Some

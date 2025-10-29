@@ -343,7 +343,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
             Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlotStorage, PageTablePageMeta<C>>>
     )]
-    fn nr_children_mut<'a>(&'a mut self) -> &PCell<u16>
+    fn nr_children_mut<'a>(&'a mut self) -> &'a PCell<u16>
         requires
             old(self).inner.inner.ptr == slot_perm.pptr(),
             slot_perm.is_init(),

@@ -112,7 +112,7 @@ impl StoredPageTablePageMeta {
     }
 }
 
-spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
     PageTablePageMeta<C>,
 >;
 
@@ -171,7 +171,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         false
     }
 
-    spec fn vtable_ptr(&self) -> usize;
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 } // verus!
