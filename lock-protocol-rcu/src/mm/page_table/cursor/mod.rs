@@ -330,6 +330,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    // &&& va_level_to_nid(self.va, level) == self.get_guard_level_unwrap(level).nid() // TODO: Add this
                 } else {
                     self.get_guard_level(level) is None
                 }
@@ -350,7 +351,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         //     (self.barrier_va.end - 1) as usize,
         //     page_size::<C>((self.guard_level + 1) as u8),
         // )
-
     }
 
     /// Well-formedness of the cursor's level and guard level.
@@ -466,7 +466,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         cur_level: PagingLevel,
     ) -> SubTreeForgotGuard<C>
         recommends
-            self.g_level@ <= cur_level <= self.guard_level,
+            self.g_level@ - 1 <= cur_level <= self.guard_level,
         decreases cur_level - self.g_level@,
     {
         if cur_level < self.g_level@ {
@@ -490,12 +490,152 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         requires
             self.wf(),
             forgot_guards.wf(),
-            self.wf_with_forgot_guards(forgot_guards),
         ensures
-            self.rec_put_guard_from_path(forgot_guards, (self.g_level@ - 1) as PagingLevel)
-                =~= forgot_guards,
-    {
+            self.rec_put_guard_from_path(forgot_guards, (self.g_level@ - 1) as PagingLevel) =~= forgot_guards,
+    {}
+
+    pub open spec fn put_guard_from_path_bottom_up(
+        &self, 
+        forgot_guards: SubTreeForgotGuard<C>,
+        max_level: PagingLevel,
+    ) -> SubTreeForgotGuard<C> {
+        SubTreeForgotGuard {
+            inner: forgot_guards.inner.union_prefer_right(
+                Map::new(
+                    |nid: NodeId| {
+                        exists |level: PagingLevel|
+                            self.g_level@ <= level <= max_level &&
+                            #[trigger] self.get_guard_level_unwrap(level).nid() == nid
+                    },
+                    |nid: NodeId| {
+                        let level = choose |level: PagingLevel|
+                            self.g_level@ <= level <= max_level &&
+                            #[trigger] self.get_guard_level_unwrap(level).nid() == nid;
+                        let guard = self.get_guard_level_unwrap(level);
+                        let inner = guard.guard->Some_0.inner@;
+                        let spin_lock = guard.meta_spec().lock;
+                        (inner, Ghost(spin_lock))
+                    },
+                )
+            )
+        }
     }
+
+    pub proof fn lemma_put_guard_from_path_bottom_up_basic(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+        ensures
+            self.put_guard_from_path_bottom_up(
+                forgot_guards, 
+                (self.g_level@ - 1) as PagingLevel,
+            ) =~= forgot_guards,
+    {
+        admit();
+    }
+
+    pub proof fn lemma_put_guard_from_path_bottom_up_eq_with_rec(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        cur_level: PagingLevel,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+            self.wf_with_forgot_guards_nid_not_contained(forgot_guards),
+            self.g_level@ - 1 <= cur_level <= self.guard_level,
+        ensures
+            self.rec_put_guard_from_path(forgot_guards, cur_level) =~=
+                self.put_guard_from_path_bottom_up(forgot_guards, cur_level),
+    {
+        if cur_level < self.g_level@ {
+            self.lemma_rec_put_guard_from_path_basic(forgot_guards);
+            self.lemma_put_guard_from_path_bottom_up_basic(forgot_guards);
+        } else {
+            admit();
+        }
+    }
+
+    pub open spec fn put_guard_from_path_top_down(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        min_level: PagingLevel,
+    ) -> SubTreeForgotGuard<C> {
+        SubTreeForgotGuard {
+            inner: forgot_guards.inner.union_prefer_right(
+                Map::new(
+                    |nid: NodeId| {
+                        exists |level: PagingLevel|
+                            min_level <= level <= self.guard_level &&
+                            #[trigger] self.get_guard_level_unwrap(level).nid() == nid
+                    },
+                    |nid: NodeId| {
+                        let level = choose |level: PagingLevel|
+                            min_level <= level <= self.guard_level &&
+                            #[trigger] self.get_guard_level_unwrap(level).nid() == nid;
+                        let guard = self.get_guard_level_unwrap(level);
+                        let inner = guard.guard->Some_0.inner@;
+                        let spin_lock = guard.meta_spec().lock;
+                        (inner, Ghost(spin_lock))
+                    },
+                )
+            )
+        }
+    }
+
+    pub proof fn lemma_put_guard_from_path_top_down_basic(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+        ensures
+            self.put_guard_from_path_top_down(
+                forgot_guards, 
+                (self.guard_level + 1) as PagingLevel,
+            ) =~= forgot_guards,
+    {
+        admit();
+    }
+
+    pub proof fn lemma_put_guard_from_path_top_down_basic1(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+            self.wf_with_forgot_guards_nid_not_contained(forgot_guards),
+        ensures
+            self.put_guard_from_path_top_down(forgot_guards, self.g_level@) =~= {
+                let guard = self.get_guard_level_unwrap(self.g_level@);
+                let inner = guard.guard->Some_0.inner@;
+                let spin_lock = guard.meta_spec().lock;
+                self.put_guard_from_path_top_down(
+                    forgot_guards, 
+                    (self.g_level@ + 1) as PagingLevel,
+                ).put_spec(guard.nid(), inner, spin_lock)
+            },
+    {
+        admit();
+    }
+
+    pub proof fn lemma_put_guard_from_path_bottom_up_eq_with_top_down(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    )
+        requires
+            self.wf(),
+            forgot_guards.wf(),
+            self.wf_with_forgot_guards_nid_not_contained(forgot_guards),
+        ensures
+            self.put_guard_from_path_bottom_up(forgot_guards, self.guard_level) =~=
+                self.put_guard_from_path_top_down(forgot_guards, self.g_level@),
+    {}
 
     // Trivial but nontrivial for Verus.
     pub proof fn lemma_cursor_eq_implie_forgot_guards_eq(
@@ -514,6 +654,17 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         admit();
     }
 
+    pub open spec fn wf_with_forgot_guards_nid_not_contained(
+        &self,
+        forgot_guards: SubTreeForgotGuard<C>,
+    ) -> bool {
+        forall|level: PagingLevel|
+            #![trigger self.get_guard_level_unwrap(level)]
+            self.g_level@ <= level <= self.guard_level ==> {
+                !forgot_guards.inner.dom().contains(self.get_guard_level_unwrap(level).nid())
+            }
+    }
+
     pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
         &&& {
             let res = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
@@ -522,11 +673,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 &&& res.is_root_and_contained(self.get_guard_level_unwrap(self.guard_level).nid())
             }
         }
-        &&& forall|level: PagingLevel|
-            #![trigger self.get_guard_level_unwrap(level)]
-            self.g_level@ <= level <= self.guard_level ==> {
-                !forgot_guards.inner.dom().contains(self.get_guard_level_unwrap(level).nid())
-            }
+        &&& self.wf_with_forgot_guards_nid_not_contained(forgot_guards)
     }
 
     pub open spec fn guards_in_path_wf_with_forgot_guards_singleton(
@@ -1659,7 +1806,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 ChildRef::None => {
                     assert(self.0.cur_node_unwrap().level_spec() == cur_level);
                     let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
-                    assert(node_helper::is_not_leaf::<C>(cur_node.nid())) by {
+                    let ghost _cur_node = cur_node;
+                    assert(NodeHelper::is_not_leaf(cur_node.nid())) by {
                         assert(cur_node.level_spec() > 1);
                         node_helper::lemma_level_dep_relation::<C>(cur_node.nid());
                     };
@@ -1754,26 +1902,167 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         node_helper::lemma_get_child_sound::<C>(cur_node.nid(), idx as nat);
                     }
                     let ghost __cursor = self.0;
+                    assert(__cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
+                        admit();
+                    };
                     self.0.push_level(child_pt);
                     assert(self.0.wf_with_forgot_guards(forgot_guards)) by {
-                        assert(__cursor.wf_with_forgot_guards(
-                            {
-                                let nid = child_pt.nid();
-                                let inner = child_pt.guard->Some_0.inner@;
-                                let spin_lock = child_pt.inner.deref().meta_spec().lock;
-                                forgot_guards.put_spec(nid, inner, spin_lock)
-                            },
-                        )) by {
+                        assert(__cursor.wf_with_forgot_guards({
                             let nid = child_pt.nid();
-                            assert(!forgot_guards.inner.dom().contains(nid)) by {
-                                assert(_cursor.wf_with_forgot_guards(forgot_guards));
+                            let inner = child_pt.guard->Some_0.inner@;
+                            let spin_lock = child_pt.inner.deref().meta_spec().lock;
+                            forgot_guards.put_spec(nid, inner, spin_lock)
+                        })) by {
+                            // let nid = child_pt.nid();
+                            // assert(!forgot_guards.inner.dom().contains(nid)) by {
+                            //     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                            //     assert(_cursor.g_level@ == _cursor.level);
+                            //     assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
+                            //         forgot_guards, 
+                            //         _cursor.g_level@,
+                            //     ));
+                            //     _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                            //     let pte_array = _cur_node.guard->Some_0.inner@.pte_token->Some_0.value();
+                            //     assert(forgot_guards.children_are_contained(
+                            //         _cur_node.nid(),
+                            //         pte_array,
+                            //     ));
+                            //     let idx = pte_index::<C>(_cursor.va, _cursor.level);
+                            //     assert(pte_array.is_void(idx as nat));
+                            //     assert(!forgot_guards.inner.dom().contains(nid));
+                            // };
+                            // assert(forall |level: PagingLevel|
+                            //     __cursor.g_level@ <= level <= __cursor.guard_level ==> 
+                            //         #[trigger] __cursor.get_guard_level_unwrap(level).nid() != nid
+                            // );
+                            let __forgot_guards = forgot_guards.put_spec(
+                                child_pt.nid(),
+                                child_pt.guard->Some_0.inner@,
+                                child_pt.inner.deref().meta_spec().lock,
+                            );
+                            assert(__forgot_guards.wf()) by {
+                                assert(!forgot_guards.inner.dom().contains(child_pt.nid())) by { admit(); };
+                                assert(forgot_guards.is_sub_root(child_pt.nid())) by { admit(); };
+                                assert(forgot_guards.children_are_contained(
+                                    child_pt.nid(), 
+                                    child_pt.guard->Some_0.view_pte_token().value(),
+                                )) by { admit(); };
                                 admit();
                             };
-                            assert(forall|level: PagingLevel|
+                            let full_forgot_guards_pre =
+                                _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level);
+                            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, _cursor.guard_level);
+                            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+                            assert(full_forgot_guards_pre.get_guard_inner(cur_node.nid()) =~= _cur_node.guard->Some_0.inner@) by {
+                                _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                            };
+                            assert(full_forgot_guards_pre.get_lock(cur_node.nid()) =~= _cur_node.meta_spec().lock) by {
+                                _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                            };
+                            let full_forgot_guards_post =
+                                __cursor.rec_put_guard_from_path(forgot_guards, __cursor.guard_level); 
+                            __cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, __cursor.guard_level);
+                            __cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+                            let full_forgot_guard_target = 
+                                __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
+                            __cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(__forgot_guards, __cursor.guard_level);
+                            __cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(__forgot_guards);
+                            assert(full_forgot_guards_post =~= full_forgot_guards_pre.put_spec(
+                                cur_node.nid(),
+                                cur_node.guard->Some_0.inner@,
+                                cur_node.meta_spec().lock,
+                            )) by {
+                                let forgot_guards1 = _cursor.put_guard_from_path_top_down(forgot_guards, (_cursor.g_level@ + 1) as PagingLevel);
+                                let forgot_guards2 = __cursor.put_guard_from_path_top_down(forgot_guards, (__cursor.g_level@ + 1) as PagingLevel);
+                                assert(forgot_guards1 =~= forgot_guards2) by { admit(); };
+                                _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                                __cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                                assert(full_forgot_guards_pre =~= forgot_guards1.put_spec(
+                                    _cur_node.nid(),
+                                    _cur_node.guard->Some_0.inner@,
+                                    _cur_node.meta_spec().lock,
+                                ));
+                                assert(full_forgot_guards_post =~= forgot_guards2.put_spec(
+                                    cur_node.nid(),
+                                    cur_node.guard->Some_0.inner@,
+                                    cur_node.meta_spec().lock,
+                                ));
+                                assert(forgot_guards1.put_spec(
+                                        _cur_node.nid(),
+                                        _cur_node.guard->Some_0.inner@,
+                                        _cur_node.meta_spec().lock,
+                                    ).put_spec(
+                                        cur_node.nid(),
+                                        cur_node.guard->Some_0.inner@,
+                                        cur_node.meta_spec().lock,
+                                    ) =~= forgot_guards1.put_spec(
+                                        cur_node.nid(),
+                                        cur_node.guard->Some_0.inner@,
+                                        cur_node.meta_spec().lock,
+                                    )
+                                ) by {
+                                    assert(_cur_node.nid() == cur_node.nid());
+                                    admit(); // TODO: add an extra lemma for Map.
+                                };
+                            };
+                            assert(full_forgot_guard_target =~= full_forgot_guards_post.put_spec(
+                                child_pt.nid(),
+                                child_pt.guard->Some_0.inner@,
+                                child_pt.inner.deref().meta_spec().lock,
+                            )) by { admit(); };
+
+                            assert(full_forgot_guards_pre.inner.dom().contains(cur_node.nid()));
+                            assert(!full_forgot_guards_pre.inner.dom().contains(child_pt.nid()));
+                            full_forgot_guards_pre.lemma_alloc_hold_wf(
+                                cur_node.nid(),
+                                child_pt.nid(),
+                                pte_index::<C>(_cursor.va, _cursor.level) as nat,
+                                cur_node.guard->Some_0.inner@,
+                                cur_node.meta_spec().lock,
+                                child_pt.guard->Some_0.inner@,
+                                child_pt.meta_spec().lock,
+                            );
+
+                            assert(full_forgot_guard_target.is_root_and_contained(
+                                __cursor.get_guard_level_unwrap(__cursor.guard_level).nid()
+                            )) by {
+                                let nid = __cursor.get_guard_level_unwrap(__cursor.guard_level).nid();
+                                assert forall |_nid: NodeId|
+                                    #[trigger] full_forgot_guard_target.inner.dom().contains(_nid) 
+                                implies {
+                                    NodeHelper::in_subtree_range(nid, _nid)
+                                } by {
+                                    if __forgot_guards.inner.dom().contains(_nid) {
+                                        if _nid == child_pt.nid() {
+                                            assert(NodeHelper::in_subtree_range(nid, cur_node.nid())) by {
+                                                _cursor.lemma_guard_in_path_relation_implies_in_subtree_range();
+                                            };
+                                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, cur_node.nid());
+                                            assert(NodeHelper::is_child(cur_node.nid(), child_pt.nid()));
+                                            NodeHelper::lemma_in_subtree_is_child_in_subtree(nid, cur_node.nid(), child_pt.nid());
+                                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child_pt.nid());
+                                        }
+                                    } else {
+                                        assert(exists |level: PagingLevel|
+                                            __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                            #[trigger] __cursor.get_guard_level_unwrap(level).nid() == _nid
+                                        );
+                                        let level = choose |level: PagingLevel|
+                                            __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                            #[trigger] __cursor.get_guard_level_unwrap(level).nid() == _nid;
+                                        __cursor.lemma_guard_in_path_relation_implies_in_subtree_range();
+                                    }
+                                };
+                            };
+
+                            assert forall |level: PagingLevel|
+                                #![trigger __cursor.get_guard_level_unwrap(level)]
                                 __cursor.g_level@ <= level <= __cursor.guard_level
-                                    ==> #[trigger] __cursor.get_guard_level_unwrap(level).nid()
-                                    != nid);
-                            admit();
+                            implies {
+                                !__forgot_guards.inner.dom().contains(
+                                    __cursor.get_guard_level_unwrap(level).nid()
+                                )
+                            } by {};
                         };
                         assert(forgot_guards.is_sub_root(child_pt.nid())) by {
                             assert(forgot_guards =~= _forgot_guards);
@@ -1887,7 +2176,88 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             }
         };
         assert(self.0.wf_with_forgot_guards(forgot_guards)) by {
-            admit();
+            let cursor = self.0;
+            assert(self.0.level == 1);
+            assert(cursor.g_level@ == _cursor.g_level@);
+            assert(cursor.guard_level == _cursor.guard_level);
+            assert(cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
+                assert forall |level: PagingLevel|
+                    #![trigger cursor.get_guard_level_unwrap(level)]
+                    cursor.g_level@ <= level <= cursor.guard_level
+                implies {
+                    !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+                } by {
+                    assert(
+                        cursor.get_guard_level_unwrap(level).nid() ==
+                            _cursor.get_guard_level_unwrap(level).nid()
+                    );
+                };
+            };
+            let full_forgot_guards_pre =
+                _cursor.rec_put_guard_from_path(_forgot_guards, _cursor.guard_level);
+            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(_forgot_guards);
+            let full_forgot_guards_post =
+                cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+            assert(full_forgot_guards_post.wf()) by {
+                assert(full_forgot_guards_post =~= full_forgot_guards_pre.put_spec(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.inner@,
+                    cur_node.meta_spec().lock,
+                )) by { admit(); };
+
+                assert(full_forgot_guards_pre.get_lock(cur_node.nid()) =~= _cur_node.meta_spec().lock) by {
+                    _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                };
+
+                full_forgot_guards_pre.lemma_replace_with_equal_guard_hold_wf(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.inner@,
+                    cur_node.meta_spec().lock,
+                );
+            };
+            assert(full_forgot_guards_pre.inner.dom() =~= full_forgot_guards_post.inner.dom()) by {
+                _cursor.lemma_put_guard_from_path_top_down_basic1(_forgot_guards);
+                cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                assert forall |nid: NodeId|
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                } by {
+                    if nid == cur_node.nid() {
+                    } else if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+                assert forall |nid: NodeId|
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                } by {
+                    if nid == cur_node.nid() {
+                    } else if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+            };
         };
 
         let old_va = self.0.va;
@@ -1915,28 +2285,29 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             self.0.rec_put_guard_from_path(forgot_guards, self.0.guard_level),
         )) by {
             let cursor = self.0;
-            let full_forgot_guard_pre = _cursor.rec_put_guard_from_path(
-                _forgot_guards,
-                _cursor.guard_level,
-            );
-            let full_forgot_guard_post = cursor.rec_put_guard_from_path(
-                forgot_guards,
-                cursor.guard_level,
-            );
-            assert(full_forgot_guard_pre =~= full_forgot_guard_post) by {
-                admit();
-            };
-            assert forall|level: PagingLevel| 1 <= level <= self.0.guard_level implies {
-                #[trigger] full_forgot_guard_pre.inner.dom().contains(
-                    va_level_to_nid::<C>(_cursor.va, level),
-                )
+            let full_forgot_guards_pre = _cursor.rec_put_guard_from_path(_forgot_guards, _cursor.guard_level);
+            let full_forgot_guards_mid = __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
+            let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+
+            assert(full_forgot_guards_mid =~= full_forgot_guards_post) by { admit(); };
+
+            assert forall|level: PagingLevel|
+                1 <= level <= self.0.guard_level 
+            implies {
+                #[trigger] full_forgot_guards_mid.inner.dom().contains(va_level_to_nid(_cursor.va, level))
             } by {
-                admit();
+                let nid = va_level_to_nid(_cursor.va, level);
+                assert(full_forgot_guards_pre.inner.dom().contains(nid)) by { admit(); };
+                assert(full_forgot_guards_mid =~= full_forgot_guards_pre.put_spec(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.inner@,
+                    cur_node.meta_spec().lock,
+                )) by { admit(); };
             };
-            assert forall|level: PagingLevel| 1 <= level <= self.0.guard_level implies {
-                #[trigger] full_forgot_guard_post.inner.dom().contains(
-                    va_level_to_nid::<C>(_cursor.va, level),
-                )
+            assert forall|level: PagingLevel|
+                1 <= level <= self.0.guard_level 
+            implies {
+                #[trigger] full_forgot_guards_post.inner.dom().contains(va_level_to_nid(_cursor.va, level))
             } by {};
         };
         assert(old(self).new_item_relate(
@@ -1949,31 +2320,25 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             assert(_cursor.va == __cursor.va);
             assert(__cursor.get_guard_level(1) is Some);
             let guard = __cursor.get_guard_level_unwrap(1);
-            assert(C::item_into_raw_spec(item).0
-                == guard.guard->Some_0.inner@.perms.inner.value()[idx as int].inner.paddr());
+            assert(guard.nid() == nid) by { admit(); };
+            assert(C::item_into_raw_spec(item).0 == 
+                guard.guard->Some_0.inner@.perms.inner.value()[idx as int].inner.paddr()
+            );
             assert(old(self).new_item_relate(
                 __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level),
                 item,
             )) by {
-                let full_forgot_guard = __cursor.rec_put_guard_from_path(
-                    __forgot_guards,
-                    __cursor.guard_level,
-                );
+                let full_forgot_guard = __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
                 assert(guard.guard->Some_0.inner@ =~= full_forgot_guard.get_guard_inner(nid)) by {
-                    admit();
+                    __cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(__forgot_guards, __cursor.guard_level);
+                    __cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(__forgot_guards);
+                    __cursor.lemma_put_guard_from_path_top_down_basic1(__forgot_guards);
+                    assert(__cursor.g_level@ == 1);
                 };
             };
-            let full_forgot_guard_pre = __cursor.rec_put_guard_from_path(
-                __forgot_guards,
-                __cursor.guard_level,
-            );
-            let full_forgot_guard_post = cursor.rec_put_guard_from_path(
-                forgot_guards,
-                cursor.guard_level,
-            );
-            assert(full_forgot_guard_pre =~= full_forgot_guard_post) by {
-                admit();
-            };
+            let full_forgot_guards_pre = __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
+            let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            assert(full_forgot_guards_pre =~= full_forgot_guards_post) by { admit(); };
         };
 
         (res, Tracked(forgot_guards))
@@ -2026,8 +2391,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             self.0.wf_with_forgot_guards(
                 res.1@,
             ),
-    // TODO: Post condition of res.0
-
     {
         let tracked forgot_guards = forgot_guards.get();
 
@@ -2047,15 +2410,16 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.wf_with_forgot_guards(
                     forgot_guards,
                 ),
-        // self.0.va + page_size::<C>(self.0.level) < end,
-        // self.0.va + len < MAX_USERSPACE_VADDR,
-        // end <= self.0.barrier_va.end,
-
+                self.0.va + page_size::<C>(self.0.level) < end,
+                self.0.va + len < MAX_USERSPACE_VADDR,
+                end <= self.0.barrier_va.end,
             decreases
-                    end - self.0.va,
-                    // for push_level, only level decreases
-                    self.0.level,
+                end - self.0.va,
+                // for push_level, only level decreases
+                self.0.level,
         {
+            assert(C::NR_LEVELS() == 4) by { admit(); };
+
             let cur_va = self.0.va;
             let cur_level = self.0.level;
             let mut cur_entry = self.0.cur_entry();

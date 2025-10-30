@@ -116,10 +116,11 @@ impl<C: PageTableConfig> Entry<C> {
             node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
             node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
+            node.meta_spec().lock =~= old(node).meta_spec().lock,
             res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
             new_child is Frame ==> {
-                node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr()
-                    == new_child->Frame_0
+                &&& node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr() == new_child->Frame_0
+                &&& node.guard->Some_0.view_pte_token().value() =~= old(node).guard->Some_0.view_pte_token().value()
             },
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());
@@ -156,6 +157,7 @@ impl<C: PageTableConfig> Entry<C> {
             node.nid() == old(node).nid(),
             node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
+            node.meta_spec().lock =~= old(node).meta_spec().lock,
             !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
             res is Some ==> {
                 &&& res->Some_0.wf()
@@ -256,8 +258,10 @@ impl<C: PageTableConfig> Entry<C> {
             node.wf(),
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
+            node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat),
             node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
+            node.meta_spec().lock =~= old(node).meta_spec().lock,
             !(old(self).is_none() && old(node).inner.deref().level_spec() > 1) <==> res is None,
             res is Some ==> {
                 &&& res->Some_0.wf()

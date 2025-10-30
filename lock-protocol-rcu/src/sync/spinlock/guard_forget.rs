@@ -571,4 +571,77 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     }
 }
 
+impl<C: PageTableConfig> SubTreeForgotGuard<C> {
+    pub proof fn lemma_replace_with_equal_guard_hold_wf(
+        &self,
+        nid: NodeId,
+        new_guard: SpinGuardGhostInner<C>,
+        new_spin_lock: PageTablePageSpinLock<C>,
+    )
+        requires
+            self.wf(),
+            self.inner.dom().contains(nid),
+            NodeHelper::valid_nid(nid),
+            new_guard.relate_nid(nid),
+            new_guard.wf(&new_spin_lock),
+            new_guard.stray_perm.value() == false,
+            new_guard.in_protocol == true,
+            new_guard.pte_token->Some_0.value() =~= self.get_guard_inner(nid).pte_token->Some_0.value(),
+            new_spin_lock =~= self.get_lock(nid),
+        ensures
+            self.put_spec(
+                nid,
+                new_guard,
+                new_spin_lock,
+            ).wf(),
+    {
+        admit();
+    }
+
+    pub proof fn lemma_alloc_hold_wf(
+        &self,
+        pa: NodeId,
+        ch: NodeId,
+        offset: nat,
+        new_pa_guard: SpinGuardGhostInner<C>,
+        new_pa_spin_lock: PageTablePageSpinLock<C>,
+        new_ch_guard: SpinGuardGhostInner<C>,
+        new_ch_spin_lock: PageTablePageSpinLock<C>,
+    )
+        requires
+            self.wf(),
+            NodeHelper::valid_nid(pa),
+            NodeHelper::valid_nid(ch),
+            NodeHelper::is_not_leaf(pa),
+            0 <= offset < 512,
+            ch == NodeHelper::get_child(pa, offset),
+            self.inner.dom().contains(pa),
+            !self.inner.dom().contains(ch),
+            new_pa_guard.relate_nid(pa),
+            new_pa_guard.wf(&new_pa_spin_lock),
+            new_pa_guard.stray_perm.value() == false,
+            new_pa_guard.in_protocol == true,
+            new_pa_spin_lock =~= self.get_lock(pa),
+            self.get_guard_inner(pa).pte_token->Some_0.value().is_void(offset),
+            new_pa_guard.pte_token->Some_0.value().is_alive(offset),
+            new_ch_guard.relate_nid(ch),
+            new_ch_guard.wf(&new_ch_spin_lock),
+            new_ch_guard.stray_perm.value() == false,
+            new_ch_guard.in_protocol == true,
+            new_ch_guard.pte_token->Some_0.value() =~= PteArrayState::empty(),
+        ensures
+            self.put_spec(
+                pa,
+                new_pa_guard,
+                new_pa_spin_lock,
+            ).put_spec(
+                ch,
+                new_ch_guard,
+                new_ch_spin_lock,
+            ).wf(),
+    {
+        admit();
+    }
+}
+
 } // verus!
