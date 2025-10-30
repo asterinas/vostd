@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
-use aster_common::prelude::MAX_PADDR;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
+
+use aster_common::prelude::*;
 use ostd_specs::MemRegionModel;
 
 use core::ops::Deref;
@@ -77,7 +78,7 @@ impl InvView for MemoryRegion {
     closed spec fn view(&self) -> Self::V {
         MemRegionModel {
             base: self.base as int,
-            end: self.base as int + self.len as int,
+            end: self.base + self.len,
             typ: self.typ.to_int(),
         }
     }
@@ -86,13 +87,20 @@ impl InvView for MemoryRegion {
 }
 }
 
-/* 
+#[verus_verify]
 impl MemoryRegion {
     /// Constructs a valid memory region.
-    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
+    #[verus_spec(res =>
+        requires
+            base + len <= MAX_PADDR(),
+        ensures
+            res.inv(),
+    )]
+    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
+    {
         MemoryRegion { base, len, typ }
     }
-
+    /* 
     /// Constructs a bad memory region.
     pub const fn bad() -> Self {
         MemoryRegion {
@@ -185,9 +193,10 @@ impl MemoryRegion {
             len: end - base,
             typ: self.typ,
         }
-    }
+    }*/
 }
 
+/*
 /// The maximum number of regions that can be handled.
 ///
 /// The choice of 512 is probably fine since old Linux boot protocol only
