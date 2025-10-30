@@ -581,7 +581,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         requires
             self.wf(),
             self.inner.dom().contains(nid),
-            NodeHelper::valid_nid(nid),
+            node_helper::valid_nid::<C>(nid),
             new_guard.relate_nid(nid),
             new_guard.wf(&new_spin_lock),
             new_guard.stray_perm.value() == false,
@@ -610,11 +610,11 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
     )
         requires
             self.wf(),
-            NodeHelper::valid_nid(pa),
-            NodeHelper::valid_nid(ch),
-            NodeHelper::is_not_leaf(pa),
+            node_helper::valid_nid::<C>(pa),
+            node_helper::valid_nid::<C>(ch),
+            node_helper::is_not_leaf::<C>(pa),
             0 <= offset < 512,
-            ch == NodeHelper::get_child(pa, offset),
+            ch == node_helper::get_child::<C>(pa, offset),
             self.inner.dom().contains(pa),
             !self.inner.dom().contains(ch),
             new_pa_guard.relate_nid(pa),

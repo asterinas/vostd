@@ -1807,7 +1807,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     assert(self.0.cur_node_unwrap().level_spec() == cur_level);
                     let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
                     let ghost _cur_node = cur_node;
-                    assert(NodeHelper::is_not_leaf(cur_node.nid())) by {
+                    assert(node_helper::is_not_leaf::<C>(cur_node.nid())) by {
                         assert(cur_node.level_spec() > 1);
                         node_helper::lemma_level_dep_relation::<C>(cur_node.nid());
                     };
@@ -2030,17 +2030,17 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 assert forall |_nid: NodeId|
                                     #[trigger] full_forgot_guard_target.inner.dom().contains(_nid) 
                                 implies {
-                                    NodeHelper::in_subtree_range(nid, _nid)
+                                    node_helper::in_subtree_range::<C>(nid, _nid)
                                 } by {
                                     if __forgot_guards.inner.dom().contains(_nid) {
                                         if _nid == child_pt.nid() {
-                                            assert(NodeHelper::in_subtree_range(nid, cur_node.nid())) by {
+                                            assert(node_helper::in_subtree_range::<C>(nid, cur_node.nid())) by {
                                                 _cursor.lemma_guard_in_path_relation_implies_in_subtree_range();
                                             };
-                                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, cur_node.nid());
-                                            assert(NodeHelper::is_child(cur_node.nid(), child_pt.nid()));
-                                            NodeHelper::lemma_in_subtree_is_child_in_subtree(nid, cur_node.nid(), child_pt.nid());
-                                            NodeHelper::lemma_in_subtree_iff_in_subtree_range(nid, child_pt.nid());
+                                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(nid, cur_node.nid());
+                                            assert(node_helper::is_child::<C>(cur_node.nid(), child_pt.nid()));
+                                            node_helper::lemma_in_subtree_is_child_in_subtree::<C>(nid, cur_node.nid(), child_pt.nid());
+                                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(nid, child_pt.nid());
                                         }
                                     } else {
                                         assert(exists |level: PagingLevel|
@@ -2294,9 +2294,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             assert forall|level: PagingLevel|
                 1 <= level <= self.0.guard_level 
             implies {
-                #[trigger] full_forgot_guards_mid.inner.dom().contains(va_level_to_nid(_cursor.va, level))
+                #[trigger] full_forgot_guards_mid.inner.dom().contains(va_level_to_nid::<C>(_cursor.va, level))
             } by {
-                let nid = va_level_to_nid(_cursor.va, level);
+                let nid = va_level_to_nid::<C>(_cursor.va, level);
                 assert(full_forgot_guards_pre.inner.dom().contains(nid)) by { admit(); };
                 assert(full_forgot_guards_mid =~= full_forgot_guards_pre.put_spec(
                     cur_node.nid(),
@@ -2307,7 +2307,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             assert forall|level: PagingLevel|
                 1 <= level <= self.0.guard_level 
             implies {
-                #[trigger] full_forgot_guards_post.inner.dom().contains(va_level_to_nid(_cursor.va, level))
+                #[trigger] full_forgot_guards_post.inner.dom().contains(va_level_to_nid::<C>(_cursor.va, level))
             } by {};
         };
         assert(old(self).new_item_relate(
@@ -2426,6 +2426,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
             // Skip if it is already absent.
             if cur_entry.is_none() {
+                assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by { admit(); };
                 if self.0.va + page_size::<C>(self.0.level) > end {
                     self.0.va = end;
                     break ;
