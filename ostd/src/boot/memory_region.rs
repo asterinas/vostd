@@ -89,7 +89,7 @@ impl InvView for MemoryRegion {
 
 #[verus_verify]
 impl MemoryRegion {
-    /// Constructs a valid memory region.
+    /* /// Constructs a valid memory region.
     #[verus_spec(res =>
         requires
             base + len <= MAX_PADDR(),
@@ -99,7 +99,7 @@ impl MemoryRegion {
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
     {
         MemoryRegion { base, len, typ }
-    }
+    }*/
     /* 
     /// Constructs a bad memory region.
     pub const fn bad() -> Self {
@@ -155,28 +155,33 @@ impl MemoryRegion {
     /// The physical address of the base of the region.
     pub fn base(&self) -> Paddr {
         self.base
-    }
+    }*/
 
     /// The length in bytes of the region.
+    #[verus_verify(dual_spec)]
     pub fn len(&self) -> usize {
         self.len
     }
-
+    
     /// The physical address of the end of the region.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(requires self.inv())]
     pub fn end(&self) -> Paddr {
         self.base + self.len
     }
-
+    
     /// Checks whether the region is empty
+    #[verus_verify(dual_spec)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The type of the region.
+    #[verus_verify(dual_spec)]
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-
+    /* 
     fn as_aligned(&self) -> Self {
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
