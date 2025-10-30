@@ -68,7 +68,7 @@ pub open spec fn to_int(self) -> int {
 
 impl Inv for MemoryRegion {
     closed spec fn inv(&self) -> bool {
-        &&& self.base + self.len <= MAX_PADDR()
+        self.base + self.len <= MAX_PADDR()
     }
 }
 
@@ -89,7 +89,7 @@ impl InvView for MemoryRegion {
 
 #[verus_verify]
 impl MemoryRegion {
-    /* /// Constructs a valid memory region.
+    /// Constructs a valid memory region.
     #[verus_spec(res =>
         requires
             base + len <= MAX_PADDR(),
@@ -99,9 +99,13 @@ impl MemoryRegion {
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
     {
         MemoryRegion { base, len, typ }
-    }*/
-    /* 
+    }
+    
     /// Constructs a bad memory region.
+    #[verus_spec(res =>
+        ensures
+            res.inv(),
+    )]
     pub const fn bad() -> Self {
         MemoryRegion {
             base: 0,
@@ -110,6 +114,7 @@ impl MemoryRegion {
         }
     }
 
+    /*
     /// Constructs a memory region where kernel sections are loaded.
     ///
     /// Most boot protocols do not mark the place where the kernel loads as unusable. In this case,
@@ -150,12 +155,13 @@ impl MemoryRegion {
             len: bytes.len(),
             typ: MemoryRegionType::Reclaimable,
         }
-    }
+    } */
 
     /// The physical address of the base of the region.
+    #[verus_verify(dual_spec)]
     pub fn base(&self) -> Paddr {
         self.base
-    }*/
+    }
 
     /// The length in bytes of the region.
     #[verus_verify(dual_spec)]
