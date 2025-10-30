@@ -438,40 +438,25 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.wf(),
             self.g_level@ <= level <= self.guard_level,
         ensures
-            forall|inter_level: PagingLevel|
-                level <= inter_level <= self.guard_level ==> #[trigger] node_helper::in_subtree::<
-                    C,
-                >(
-                    self.get_guard_level_unwrap(self.guard_level).nid(),
-                    self.get_guard_level_unwrap(inter_level).nid(),
-                ),
+            node_helper::in_subtree::<C>(
+                self.get_guard_level_unwrap(self.guard_level).nid(),
+                self.get_guard_level_unwrap(level).nid(),
+            ),
         decreases self.guard_level - level,
     {
         let guard_nid = self.get_guard_level_unwrap(self.guard_level).nid();
         if level == self.guard_level {
             node_helper::lemma_in_subtree_self::<C>(guard_nid);
         } else {
-            assert forall|inter_level: PagingLevel|
-                level <= inter_level < self.guard_level implies {
-                #[trigger] node_helper::in_subtree::<C>(
-                    guard_nid,
-                    self.get_guard_level_unwrap(inter_level).nid(),
-                )
-            } by {
-                assert(self.adjacent_guard_is_child((inter_level + 1) as PagingLevel)) by {
-                    self.guards_in_path_relation();
-                };
-                let inter_parent_nid = self.get_guard_level_unwrap(
-                    (inter_level + 1) as PagingLevel,
-                ).nid();
-                let inter_nid = self.get_guard_level_unwrap(inter_level).nid();
-                self.guard_in_path_relation_implies_in_subtree_induction(
-                    (inter_level + 1) as PagingLevel,
-                );
-                assert(node_helper::in_subtree::<C>(guard_nid, inter_parent_nid));
-                assert(node_helper::in_subtree::<C>(inter_parent_nid, inter_nid));
-                assert(node_helper::in_subtree::<C>(guard_nid, inter_nid));
+            assert(self.adjacent_guard_is_child((level + 1) as PagingLevel)) by {
+                self.guards_in_path_relation();
             };
+            let parent_nid = self.get_guard_level_unwrap((level + 1) as PagingLevel).nid();
+            let nid = self.get_guard_level_unwrap(level).nid();
+            self.guard_in_path_relation_implies_in_subtree_induction((level + 1) as PagingLevel);
+            assert(node_helper::in_subtree::<C>(guard_nid, parent_nid));
+            assert(node_helper::in_subtree::<C>(parent_nid, nid));
+            assert(node_helper::in_subtree::<C>(guard_nid, nid));
         }
     }
 
