@@ -34,8 +34,8 @@ pub mod arch;
 //#[cfg(target_arch = "riscv64")]
 //#[path = "arch/riscv/mod.rs"]
 //pub mod arch;
-/*pub mod boot;
-pub mod bus;
+pub mod boot;
+/*pub mod bus;
 pub mod console;
 pub mod cpu;
 mod error;

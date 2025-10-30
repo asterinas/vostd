@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
+use vstd::prelude::*;
+use vstd_extra::prelude::*;
+
+use aster_common::prelude::*;
+use ostd_specs::MemRegionModel;
+
 use core::ops::Deref;
 
-use align_ext::AlignExt;
+//use align_ext::AlignExt;
 
-use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
+//use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
 
 /// The type of initial memory regions that are needed for the kernel.
+#[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum MemoryRegionType {
     /// Maybe points to an unplugged DIMM module. It's bad anyway.
@@ -32,6 +39,7 @@ pub enum MemoryRegionType {
 
 /// The information of initial memory regions that are needed by the kernel.
 /// The sections are **not** guaranteed to not overlap. The region must be page aligned.
+#[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct MemoryRegion {
     base: usize,
@@ -39,13 +47,65 @@ pub struct MemoryRegion {
     typ: MemoryRegionType,
 }
 
-impl MemoryRegion {
-    /// Constructs a valid memory region.
-    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
-        MemoryRegion { base, len, typ }
+verus!{
+
+impl MemoryRegionType {
+
+pub open spec fn to_int(self) -> int {
+    match self {
+        MemoryRegionType::BadMemory => 0,
+        MemoryRegionType::Unknown => 1,
+        MemoryRegionType::NonVolatileSleep => 2,
+        MemoryRegionType::Reserved => 3,
+        MemoryRegionType::Kernel => 4,
+        MemoryRegionType::Module => 5,
+        MemoryRegionType::Framebuffer => 6,
+        MemoryRegionType::Reclaimable => 7,
+        MemoryRegionType::Usable => 8,
+    }
+}
+}
+
+impl Inv for MemoryRegion {
+    closed spec fn inv(&self) -> bool {
+        self.base + self.len <= MAX_PADDR()
+    }
+}
+
+impl InvView for MemoryRegion {
+    type V = MemRegionModel;
+
+    closed spec fn view(&self) -> Self::V {
+        MemRegionModel {
+            base: self.base as int,
+            end: self.base + self.len,
+            typ: self.typ.to_int(),
+        }
     }
 
+    proof fn view_preserves_inv(&self){}
+}
+}
+
+#[verus_verify]
+impl MemoryRegion {
+    /// Constructs a valid memory region.
+    #[verus_spec(res =>
+        requires
+            base + len <= MAX_PADDR(),
+        ensures
+            res.inv(),
+    )]
+    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
+    {
+        MemoryRegion { base, len, typ }
+    }
+    
     /// Constructs a bad memory region.
+    #[verus_spec(res =>
+        ensures
+            res.inv(),
+    )]
     pub const fn bad() -> Self {
         MemoryRegion {
             base: 0,
@@ -54,6 +114,7 @@ impl MemoryRegion {
         }
     }
 
+    /*
     /// Constructs a memory region where kernel sections are loaded.
     ///
     /// Most boot protocols do not mark the place where the kernel loads as unusable. In this case,
@@ -94,33 +155,39 @@ impl MemoryRegion {
             len: bytes.len(),
             typ: MemoryRegionType::Reclaimable,
         }
-    }
+    } */
 
     /// The physical address of the base of the region.
+    #[verus_verify(dual_spec)]
     pub fn base(&self) -> Paddr {
         self.base
     }
 
     /// The length in bytes of the region.
+    #[verus_verify(dual_spec)]
     pub fn len(&self) -> usize {
         self.len
     }
-
+    
     /// The physical address of the end of the region.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(requires self.inv())]
     pub fn end(&self) -> Paddr {
         self.base + self.len
     }
-
+    
     /// Checks whether the region is empty
+    #[verus_verify(dual_spec)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The type of the region.
+    #[verus_verify(dual_spec)]
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-
+    /* 
     fn as_aligned(&self) -> Self {
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
@@ -137,9 +204,10 @@ impl MemoryRegion {
             len: end - base,
             typ: self.typ,
         }
-    }
+    }*/
 }
 
+/*
 /// The maximum number of regions that can be handled.
 ///
 /// The choice of 512 is probably fine since old Linux boot protocol only
@@ -342,3 +410,4 @@ mod test {
         assert_eq!(regions[4].typ(), MemoryRegionType::Usable);
     }
 }
+*/
