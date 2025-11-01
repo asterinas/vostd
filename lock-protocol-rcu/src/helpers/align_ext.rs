@@ -212,6 +212,19 @@ pub fn align_down(x: usize, align: usize) -> (res: usize)
     res_ as usize
 }
 
+pub proof fn lemma_align_down_basic(x: usize, align: usize)
+    requires
+        is_power_2(align as int),
+        align < usize::MAX as usize,
+    ensures
+        align_down(x, align) > x - align,
+        align_down(x, align) <= x,
+        align_down(x, align) % align == 0,
+        x % align == 0 ==> align_down(x, align) == x,
+{
+    admit(); // Refer to above.
+}
+
 pub proof fn lemma_align_down_properties(x: usize, align: usize)
     by (nonlinear_arith)
     requires

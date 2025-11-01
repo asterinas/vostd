@@ -1039,6 +1039,23 @@ pub proof fn lemma_is_child_bound<C: PageTableConfig>(pa: NodeId, ch: NodeId)
     };
 }
 
+pub proof fn lemma_is_child_implies_same_pa<C: PageTableConfig>(
+    pa1: NodeId,
+    pa2: NodeId,
+    ch: NodeId,
+)
+    requires
+        valid_nid::<C>(pa1),
+        valid_nid::<C>(pa2),
+        valid_nid::<C>(ch),
+        is_child::<C>(pa1, ch),
+        is_child::<C>(pa2, ch),
+    ensures
+        pa1 == pa2,
+{
+    admit();
+}
+
 // If 'nd' is in the subtree of 'rt', then `next_outside_subtree(nd)` (the next node id outside the subtree of 'nd') is less than or equal to
 // `next_outside_subtree(rt)`.
 pub proof fn lemma_in_subtree_bounded<C: PageTableConfig>(rt: NodeId, nd: NodeId)

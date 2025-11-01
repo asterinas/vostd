@@ -12,13 +12,14 @@ use std::{
 use core::ops::Deref;
 
 use vstd::{
-    arithmetic::{div_mod::*, power::*, power2::*},
+    arithmetic::{mul::*, div_mod::*, power::*, power2::*},
     calc,
     layout::is_power_2,
     invariant,
     pervasive::VecAdditionalExecFns,
     prelude::*,
     raw_ptr::MemContents,
+    seq::axiom_seq_update_different,
 };
 use vstd::bits::*;
 use vstd::tokens::SetToken;
@@ -48,7 +49,7 @@ use crate::spec::{
         va_level_to_nid, lemma_va_level_to_trace_valid,
     },
     node_helper::{self, group_node_helper_lemmas},
-    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, PteArrayState},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, PteArrayState, PteState, TreeSpec},
 };
 
 use super::{
@@ -253,26 +254,26 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ < level <= self.guard_level ==> self.adjacent_guard_is_child(level)
     }
 
-    proof fn lemma_guards_in_path_relation_rec(&self, level: PagingLevel)
+    proof fn lemma_guards_in_path_relation_rec(&self, max_level: PagingLevel, level: PagingLevel)
         requires
             self.wf(),
-            self.g_level@ <= level <= self.guard_level,
+            self.g_level@ <= level <= max_level <= self.guard_level,
         ensures
             node_helper::in_subtree_range::<C>(
-                self.get_guard_level_unwrap(self.guard_level).nid(),
+                self.get_guard_level_unwrap(max_level).nid(),
                 self.get_guard_level_unwrap(level).nid(),
             ),
-        decreases self.guard_level - level,
+        decreases max_level - level,
     {
-        if level == self.guard_level {
-            let rt = self.get_guard_level_unwrap(self.guard_level).nid();
+        if level == max_level {
+            let rt = self.get_guard_level_unwrap(max_level).nid();
             assert(node_helper::in_subtree_range::<C>(rt, rt)) by {
                 assert(node_helper::valid_nid::<C>(rt));
                 node_helper::lemma_tree_size_spec_table::<C>();
             };
         } else {
-            self.lemma_guards_in_path_relation_rec((level + 1) as PagingLevel);
-            let rt = self.get_guard_level_unwrap(self.guard_level).nid();
+            self.lemma_guards_in_path_relation_rec(max_level, (level + 1) as PagingLevel);
+            let rt = self.get_guard_level_unwrap(max_level).nid();
             let pa = self.get_guard_level_unwrap((level + 1) as PagingLevel).nid();
             let ch = self.get_guard_level_unwrap(level).nid();
             assert(node_helper::in_subtree::<C>(rt, pa)) by {
@@ -289,26 +290,28 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
     }
 
-    pub proof fn lemma_guards_in_path_relation(&self)
+    pub proof fn lemma_guards_in_path_relation(&self, max_level: PagingLevel)
         requires
             self.wf(),
+            self.g_level@ <= max_level <= self.guard_level
         ensures
             forall|level: PagingLevel|
                 #![trigger self.get_guard_level_unwrap(level)]
-                self.g_level@ <= level <= self.guard_level ==> node_helper::in_subtree_range::<C>(
-                    self.get_guard_level_unwrap(self.guard_level).nid(),
+                self.g_level@ <= level <= max_level ==> node_helper::in_subtree_range::<C>(
+                    self.get_guard_level_unwrap(max_level).nid(),
                     self.get_guard_level_unwrap(level).nid(),
                 ),
     {
         assert forall|level: PagingLevel|
             #![trigger self.get_guard_level_unwrap(level)]
-            self.g_level@ <= level <= self.guard_level implies {
+            self.g_level@ <= level <= max_level 
+        implies {
             node_helper::in_subtree_range::<C>(
-                self.get_guard_level_unwrap(self.guard_level).nid(),
+                self.get_guard_level_unwrap(max_level).nid(),
                 self.get_guard_level_unwrap(level).nid(),
             )
         } by {
-            self.lemma_guards_in_path_relation_rec(level);
+            self.lemma_guards_in_path_relation_rec(max_level, level);
         }
     }
 
@@ -340,17 +343,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     // TODO
     /// Well-formedness of the cursor's virtual address.
     pub open spec fn wf_va(&self) -> bool {
-        // &&& self.va < MAX_USERSPACE_VADDR
-        &&& self.barrier_va.start < self.barrier_va.end < MAX_USERSPACE_VADDR  //
+        &&& self.barrier_va.start < self.barrier_va.end < MAX_USERSPACE_VADDR
         // We allow the cursor to be at the end of the range.
-        &&& self.barrier_va.start <= self.va <= self.barrier_va.end  //
-        // The barrier range should be contained in the range of the frame at
-        // // the guard level.
-        // &&& align_down(self.barrier_va.start, page_size::<C>((self.guard_level + 1) as u8))
-        //     == align_down(
-        //     (self.barrier_va.end - 1) as usize,
-        //     page_size::<C>((self.guard_level + 1) as u8),
-        // )
+        &&& self.barrier_va.start <= self.va <= self.barrier_va.end
+        &&& self.va % page_size::<C>(1) == 0
     }
 
     /// Well-formedness of the cursor's level and guard level.
@@ -1100,7 +1096,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.wf(),
             self.g_level@ == self.level,
             self.constant_fields_unchanged(old(self)),
-            self.va > old(self).va,
+            self.va == align_down(old(self).va, page_size::<C>(old(self).level)) + page_size::<C>(old(self).level),
             self.level >= old(self).level,
             res@.wf(),
             self.wf_with_forgot_guards(res@),
@@ -1109,14 +1105,14 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.level <= level <= self.guard_level ==> self.get_guard_level(level) =~= old(
                     self,
                 ).get_guard_level(level),
+            self.rec_put_guard_from_path(res@, self.guard_level) =~= 
+                old(self).rec_put_guard_from_path(forgot_guards@, old(self).guard_level),
     {
         let tracked forgot_guards = forgot_guards.get();
+        let ghost _forgot_guards = forgot_guards;
 
         assert(1 <= self.level <= C::NR_LEVELS());
         let cur_page_size = page_size::<C>(self.level);
-        assert(align_down(self.va, cur_page_size) <= self.va) by {
-            admit();
-        };  // Strange bug.
         let next_va = align_down(self.va, cur_page_size) + cur_page_size;
         assert(self.va < next_va <= self.va + cur_page_size) by {
             let aligned_va = align_down(self.va, cur_page_size) as int;
@@ -1153,6 +1149,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     ).get_guard_level(level),
                 forgot_guards.wf(),
                 self.wf_with_forgot_guards(forgot_guards),
+                self.rec_put_guard_from_path(forgot_guards, self.guard_level) =~= 
+                    old(self).rec_put_guard_from_path(_forgot_guards, old(self).guard_level)
             decreases self.guard_level - self.level,
         {
             let ghost _cursor = *self;
@@ -1235,6 +1233,24 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     assert(_cursor.adjacent_guard_is_child(level));
                 }
             }
+            assert(self.wf_va()) by {
+                lemma_page_size_spec_properties::<C>(1);
+                lemma_page_size_spec_properties::<C>(old(self).level);
+                assert(cur_page_size % page_size::<C>(1) == 0) by { admit(); };
+                let k1 = cur_page_size / page_size::<C>(1);
+                assert(cur_page_size == k1 * page_size::<C>(1)) by { admit(); };
+                assert(next_va % cur_page_size == 0) by {
+                    lemma_align_down_basic(old(self).va, cur_page_size);
+                };
+                let k2 = next_va / cur_page_size;
+                assert(next_va == k2 * cur_page_size) by { admit(); };
+                assert(next_va % page_size::<C>(1) == 0) by {
+                    assert(k2 * k1 * page_size::<C>(1) == next_va) by {
+                        lemma_mul_is_associative(k2 as int, k1 as int, page_size::<C>(1) as int);
+                    };
+                    lemma_mod_multiples_basic(k2 * k1, page_size::<C>(1) as int);
+                };
+            };
         }
         assert(self.wf_with_forgot_guards(forgot_guards)) by {
             let res1 = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
@@ -1265,6 +1281,52 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.get_guard_level(level) =~= old(self).get_guard_level(level)
         } by {
             assert(self.get_guard_level(level) =~= _cursor.get_guard_level(level));
+        };
+        let ghost cursor = *self;
+        assert(
+            cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level) =~=
+            _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level)
+        ) by {
+            let full_forgot_guards_pre = _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level);
+            let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            assert(full_forgot_guards_pre.inner =~= full_forgot_guards_post.inner) by {
+                _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, _cursor.guard_level);
+                cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+                assert forall |nid: NodeId|
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                } by {
+                    if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+                assert forall |nid: NodeId|
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                } by {
+                    if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+            };
         };
 
         Tracked(forgot_guards)
@@ -1311,9 +1373,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.g_level@ == self.level,
             res@.wf(),
             self.wf_with_forgot_guards(res@),
+            self.rec_put_guard_from_path(res@, self.guard_level) =~= 
+                old(self).rec_put_guard_from_path(forgot_guards@, old(self).guard_level),
     {
         let ghost init_forgot_guards = forgot_guards@;
         let tracked mut forgot_guards = forgot_guards.get();
+
+        let ghost _cursor = *self;
 
         let guard_opt = self.take((self.level - 1) as usize);
         assert(guard_opt is Some) by {
@@ -1413,6 +1479,57 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 *self,
                 init_forgot_guards,
             );
+        };
+
+        let ghost cursor = *self;
+
+        assert(
+            cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level) =~= 
+            _cursor.rec_put_guard_from_path(init_forgot_guards, _cursor.guard_level)
+        ) by {
+            let full_forgot_guards_pre = _cursor.rec_put_guard_from_path(init_forgot_guards, _cursor.guard_level);
+            let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            let _nid = _cursor.get_guard_level_unwrap(_cursor.level).nid();
+            assert(full_forgot_guards_pre.inner =~= full_forgot_guards_post.inner) by {
+                _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(init_forgot_guards, _cursor.guard_level);
+                cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+                assert forall |nid: NodeId|
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                } by {
+                    if nid == _nid {} 
+                    else if init_forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+                assert forall |nid: NodeId|
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                } by {
+                    if nid == _nid {} 
+                    else if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+            }
         };
 
         Tracked(forgot_guards)
@@ -1825,7 +1942,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             cur_node.nid(),
                         )) by {
                             assert(_cursor.wf());
-                            _cursor.lemma_guards_in_path_relation();
+                            _cursor.lemma_guards_in_path_relation(_cursor.guard_level);
                         };
                     };
                     let res = cur_entry.alloc_if_none(preempt_guard, &mut cur_node, Tracked(m));
@@ -1903,7 +2020,17 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     }
                     let ghost __cursor = self.0;
                     assert(__cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
-                        admit();
+                        assert forall |level: PagingLevel|
+                            #![trigger __cursor.get_guard_level_unwrap(level)]
+                            __cursor.g_level@ <= level <= __cursor.guard_level
+                        implies {
+                            !(forgot_guards.inner.dom().contains(__cursor.get_guard_level_unwrap(level).nid()))
+                        } by {
+                            assert(
+                                __cursor.get_guard_level_unwrap(level).nid() ==
+                                _cursor.get_guard_level_unwrap(level).nid()
+                            );
+                        };
                     };
                     self.0.push_level(child_pt);
                     assert(self.0.wf_with_forgot_guards(forgot_guards)) by {
@@ -1913,41 +2040,97 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             let spin_lock = child_pt.inner.deref().meta_spec().lock;
                             forgot_guards.put_spec(nid, inner, spin_lock)
                         })) by {
-                            // let nid = child_pt.nid();
-                            // assert(!forgot_guards.inner.dom().contains(nid)) by {
-                            //     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
-                            //     assert(_cursor.g_level@ == _cursor.level);
-                            //     assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
-                            //         forgot_guards, 
-                            //         _cursor.g_level@,
-                            //     ));
-                            //     _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
-                            //     let pte_array = _cur_node.guard->Some_0.inner@.pte_token->Some_0.value();
-                            //     assert(forgot_guards.children_are_contained(
-                            //         _cur_node.nid(),
-                            //         pte_array,
-                            //     ));
-                            //     let idx = pte_index::<C>(_cursor.va, _cursor.level);
-                            //     assert(pte_array.is_void(idx as nat));
-                            //     assert(!forgot_guards.inner.dom().contains(nid));
-                            // };
-                            // assert(forall |level: PagingLevel|
-                            //     __cursor.g_level@ <= level <= __cursor.guard_level ==> 
-                            //         #[trigger] __cursor.get_guard_level_unwrap(level).nid() != nid
-                            // );
                             let __forgot_guards = forgot_guards.put_spec(
                                 child_pt.nid(),
                                 child_pt.guard->Some_0.inner@,
                                 child_pt.inner.deref().meta_spec().lock,
                             );
                             assert(__forgot_guards.wf()) by {
-                                assert(!forgot_guards.inner.dom().contains(child_pt.nid())) by { admit(); };
-                                assert(forgot_guards.is_sub_root(child_pt.nid())) by { admit(); };
+                                let idx = pte_index::<C>(_cursor.va, _cursor.level);
+                                assert(_cursor.wf_with_forgot_guards(forgot_guards));
+                                _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, _cursor.level));
+                                _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                                assert(!forgot_guards.inner.dom().contains(child_pt.nid())) by {
+                                    assert(forgot_guards.children_are_contained(
+                                        _cur_node.nid(),
+                                        _cur_node.guard->Some_0.view_pte_token().value(),
+                                    ));
+                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(idx as nat));
+                                };
+                                assert(forgot_guards.is_sub_root(child_pt.nid())) by {
+                                    assert(forgot_guards.is_sub_root(_cur_node.nid()));
+                                    assert(node_helper::is_child::<C>(_cur_node.nid(), child_pt.nid()));
+                                    assert(!forgot_guards.inner.dom().contains(_cur_node.nid()));
+                                    assert forall |nid: NodeId|
+                                        #[trigger] forgot_guards.inner.dom().contains(nid) && nid != child_pt.nid()
+                                    implies {
+                                        !node_helper::in_subtree_range::<C>(nid, child_pt.nid())
+                                    } by {
+                                        assert(nid != _cur_node.nid());
+                                        assert(!node_helper::in_subtree_range::<C>(nid, _cur_node.nid()));
+                                        node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(
+                                            nid,
+                                            _cur_node.nid(),
+                                            child_pt.nid(),
+                                        );
+                                    };
+                                };
                                 assert(forgot_guards.children_are_contained(
                                     child_pt.nid(), 
                                     child_pt.guard->Some_0.view_pte_token().value(),
-                                )) by { admit(); };
-                                admit();
+                                )) by {
+                                    admit(); // Special
+                                };
+                                assert forall |nid: NodeId| 
+                                    #[trigger] __forgot_guards.inner.dom().contains(nid) 
+                                implies {
+                                    __forgot_guards.children_are_contained(
+                                        nid,
+                                        __forgot_guards.get_guard_inner(nid).pte_token->Some_0.value(),
+                                    )
+                                } by {
+                                    let pte_array = __forgot_guards.get_guard_inner(nid).pte_token->Some_0.value();
+                                    if node_helper::is_not_leaf::<C>(nid) {
+                                        assert forall |i: nat|
+                                            0 <= i < nr_subpage_per_huge::<C>() 
+                                        implies {
+                                            #[trigger] pte_array.is_alive(i) <==> __forgot_guards.inner.dom().contains(
+                                                node_helper::get_child::<C>(nid, i),
+                                            )
+                                        } by {
+                                            let ch = node_helper::get_child::<C>(nid, i);
+                                            if nid == _cur_node.nid() {} 
+                                            else if nid == child_pt.nid() {
+                                                if __forgot_guards.inner.dom().contains(ch) {
+                                                    assert(pte_array.is_alive(i)) by {
+                                                        assert(ch != child_pt.nid()) by {
+                                                            node_helper::lemma_get_child_sound::<C>(child_pt.nid(), i);
+                                                            node_helper::lemma_is_child_nid_increasing::<C>(child_pt.nid(), ch);
+                                                        };
+                                                        assert(forgot_guards.inner.dom().contains(ch));
+                                                    };
+                                                }
+                                            } else {
+                                                if pte_array.is_alive(i) {
+                                                    assert(__forgot_guards.inner.dom().contains(ch));
+                                                }
+                                                if __forgot_guards.inner.dom().contains(ch) {
+                                                    assert(pte_array.is_alive(i)) by {
+                                                        if ch == child_pt.nid() {
+                                                            node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                            node_helper::lemma_is_child_implies_same_pa::<C>(
+                                                                _cur_node.nid(),
+                                                                nid,
+                                                                child_pt.nid(),
+                                                            );
+                                                        }
+                                                    };
+                                                }
+                                            }
+                                        };
+                                    } else {}
+                                };
                             };
                             let full_forgot_guards_pre =
                                 _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level);
@@ -1974,7 +2157,44 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             )) by {
                                 let forgot_guards1 = _cursor.put_guard_from_path_top_down(forgot_guards, (_cursor.g_level@ + 1) as PagingLevel);
                                 let forgot_guards2 = __cursor.put_guard_from_path_top_down(forgot_guards, (__cursor.g_level@ + 1) as PagingLevel);
-                                assert(forgot_guards1 =~= forgot_guards2) by { admit(); };
+                                assert(forgot_guards1.inner =~= forgot_guards2.inner) by { 
+                                    assert forall |nid: NodeId|
+                                        #[trigger] forgot_guards1.inner.dom().contains(nid)
+                                    implies {
+                                        &&& forgot_guards2.inner.dom().contains(nid)
+                                        &&& forgot_guards2.inner[nid] =~= forgot_guards1.inner[nid]
+                                    } by {
+                                        if forgot_guards.inner.dom().contains(nid) {} 
+                                        else {
+                                            assert(exists |level: PagingLevel|
+                                                _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                                #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                                            );
+                                            let level = choose |level: PagingLevel|
+                                                _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                                #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                                            assert(__cursor.get_guard_level_unwrap(level).nid() == nid);
+                                        }
+                                    };
+                                    assert forall |nid: NodeId|
+                                        #[trigger] forgot_guards2.inner.dom().contains(nid)
+                                    implies {
+                                        &&& forgot_guards1.inner.dom().contains(nid)
+                                        &&& forgot_guards1.inner[nid] =~= forgot_guards2.inner[nid]
+                                    } by {
+                                        if forgot_guards.inner.dom().contains(nid) {} 
+                                        else {
+                                            assert(exists |level: PagingLevel|
+                                                __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                                #[trigger] __cursor.get_guard_level_unwrap(level).nid() == nid
+                                            );
+                                            let level = choose |level: PagingLevel|
+                                                __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                                #[trigger] __cursor.get_guard_level_unwrap(level).nid() == nid;
+                                            assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                                        }
+                                    };
+                                };
                                 _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
                                 __cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
                                 assert(full_forgot_guards_pre =~= forgot_guards1.put_spec(
@@ -2009,7 +2229,41 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 child_pt.nid(),
                                 child_pt.guard->Some_0.inner@,
                                 child_pt.inner.deref().meta_spec().lock,
-                            )) by { admit(); };
+                            )) by {
+                                let _full_forgot_guards_post = full_forgot_guards_post.put_spec(
+                                    child_pt.nid(),
+                                    child_pt.guard->Some_0.inner@,
+                                    child_pt.inner.deref().meta_spec().lock,
+                                );
+                                assert(!full_forgot_guards_post.inner.dom().contains(child_pt.nid())) by {
+                                    let idx = pte_index::<C>(_cursor.va, _cursor.level);
+                                    assert(!forgot_guards.inner.dom().contains(child_pt.nid())) by {
+                                        assert(forgot_guards.children_are_contained(
+                                            _cur_node.nid(),
+                                            _cur_node.guard->Some_0.view_pte_token().value(),
+                                        )) by {
+                                            assert(_cursor.wf_with_forgot_guards(forgot_guards));
+                                            _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                                            assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, _cursor.level));
+                                            _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                                        };
+                                        assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(idx as nat));
+                                    };
+                                    assert forall |level: PagingLevel|
+                                        #![trigger __cursor.get_guard_level_unwrap(level)]
+                                        __cursor.g_level@ <= level <= __cursor.guard_level
+                                    implies {
+                                        __cursor.get_guard_level_unwrap(level).nid() != child_pt.nid()
+                                    } by {
+                                        if __cursor.get_guard_level_unwrap(level).nid() == child_pt.nid() {
+                                            __cursor.lemma_guards_in_path_relation(level);
+                                            assert(node_helper::in_subtree_range::<C>(child_pt.nid(), _cur_node.nid()));
+                                            node_helper::lemma_is_child_nid_increasing::<C>(_cur_node.nid(), child_pt.nid());
+                                        }
+                                    }
+                                };
+                                assert(full_forgot_guard_target.inner =~= _full_forgot_guards_post.inner);
+                            };
 
                             assert(full_forgot_guards_pre.inner.dom().contains(cur_node.nid()));
                             assert(!full_forgot_guards_pre.inner.dom().contains(child_pt.nid()));
@@ -2067,7 +2321,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         assert(forgot_guards.is_sub_root(child_pt.nid())) by {
                             assert(forgot_guards =~= _forgot_guards);
                             assert(_forgot_guards.is_sub_root(cur_node.nid())) by {
-                                admit();
+                                assert(_cursor.wf_with_forgot_guards(forgot_guards));
+                                _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, _cursor.level));
+                                _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
                             };
                             assert forall|_nid: NodeId| #[trigger]
                                 forgot_guards.inner.dom().contains(_nid) && _nid
@@ -2114,7 +2371,13 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let ghost _cur_node = cur_node;
         let old_entry = cur_entry.replace(Child::Frame(pa, level, prop), &mut cur_node);
         assert(old_entry !is PageTable) by {
-            admit();
+            if old_entry is PageTable {
+                let ch = old_entry->PageTable_0.deref().nid@;
+                assert(node_helper::is_child::<C>(cur_node.nid(), ch));
+                node_helper::lemma_is_child_level_relation::<C>(cur_node.nid(), ch);
+                node_helper::lemma_nid_to_dep_up_bound::<C>(ch);
+                node_helper::lemma_level_dep_relation::<C>(ch);
+            }
         };
         self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
         self.0.g_level = Ghost((self.0.g_level@ - 1) as PagingLevel);
@@ -2206,7 +2469,55 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     cur_node.nid(),
                     cur_node.guard->Some_0.inner@,
                     cur_node.meta_spec().lock,
-                )) by { admit(); };
+                )) by {
+                    let _full_forgot_guards_pre = full_forgot_guards_pre.put_spec(
+                        cur_node.nid(),
+                        cur_node.guard->Some_0.inner@,
+                        cur_node.meta_spec().lock,
+                    );
+                    assert(full_forgot_guards_post.inner =~= _full_forgot_guards_pre.inner) by {
+                        assert forall |nid: NodeId|
+                            #[trigger] full_forgot_guards_post.inner.dom().contains(nid)
+                        implies {
+                            &&& _full_forgot_guards_pre.inner.dom().contains(nid)
+                            &&& _full_forgot_guards_pre.inner[nid] =~= full_forgot_guards_post.inner[nid]
+                        } by {
+                            if nid == cur_node.nid() {} 
+                            else if forgot_guards.inner.dom().contains(nid) {} 
+                            else {
+                                assert(exists |level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level &&
+                                    #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                                );
+                                let level = choose |level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level &&
+                                    #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                                assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                        assert forall |nid: NodeId|
+                            #[trigger] _full_forgot_guards_pre.inner.dom().contains(nid)
+                        implies {
+                            &&& full_forgot_guards_post.inner.dom().contains(nid)
+                            &&& full_forgot_guards_post.inner[nid] =~= _full_forgot_guards_pre.inner[nid]
+                        } by {
+                            if nid == cur_node.nid() {
+                                assert(cursor.get_guard_level_unwrap(cursor.level).nid() == nid);
+                            } 
+                            else if forgot_guards.inner.dom().contains(nid) {} 
+                            else {
+                                assert(exists |level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                    #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                                );
+                                let level = choose |level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                    #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                                assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                    };
+                };
 
                 assert(full_forgot_guards_pre.get_lock(cur_node.nid()) =~= _cur_node.meta_spec().lock) by {
                     _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
@@ -2289,7 +2600,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let full_forgot_guards_mid = __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
             let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
 
-            assert(full_forgot_guards_mid =~= full_forgot_guards_post) by { admit(); };
+            assert(full_forgot_guards_mid =~= full_forgot_guards_post);
 
             assert forall|level: PagingLevel|
                 1 <= level <= self.0.guard_level 
@@ -2297,12 +2608,63 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 #[trigger] full_forgot_guards_mid.inner.dom().contains(va_level_to_nid::<C>(_cursor.va, level))
             } by {
                 let nid = va_level_to_nid::<C>(_cursor.va, level);
-                assert(full_forgot_guards_pre.inner.dom().contains(nid)) by { admit(); };
+                assert(nid == _cursor.get_guard_level_unwrap(level).nid()) by { admit(); };
+                assert(full_forgot_guards_pre.inner.dom().contains(nid)) by {
+                    _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+                };
                 assert(full_forgot_guards_mid =~= full_forgot_guards_pre.put_spec(
                     cur_node.nid(),
                     cur_node.guard->Some_0.inner@,
                     cur_node.meta_spec().lock,
-                )) by { admit(); };
+                )) by {
+                    let _full_forgot_guards_pre = full_forgot_guards_pre.put_spec(
+                        cur_node.nid(),
+                        cur_node.guard->Some_0.inner@,
+                        cur_node.meta_spec().lock,
+                    );
+                    assert(full_forgot_guards_mid.inner =~= _full_forgot_guards_pre.inner) by {
+                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+                        __cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(__forgot_guards, __cursor.guard_level);
+                        assert forall |nid: NodeId|
+                            #[trigger] full_forgot_guards_mid.inner.dom().contains(nid)
+                        implies {
+                            &&& _full_forgot_guards_pre.inner.dom().contains(nid)
+                            &&& _full_forgot_guards_pre.inner[nid] =~= full_forgot_guards_mid.inner[nid]
+                        } by {
+                            if nid == cur_node.nid() {} 
+                            else if __forgot_guards.inner.dom().contains(nid) {} 
+                            else {
+                                assert(exists |level: PagingLevel|
+                                    __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                    #[trigger] __cursor.get_guard_level_unwrap(level).nid() == nid
+                                );
+                                let level = choose |level: PagingLevel|
+                                    __cursor.g_level@ <= level <= __cursor.guard_level &&
+                                    #[trigger] __cursor.get_guard_level_unwrap(level).nid() == nid;
+                                assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                        assert forall |nid: NodeId|
+                            #[trigger] _full_forgot_guards_pre.inner.dom().contains(nid)
+                        implies {
+                            &&& full_forgot_guards_mid.inner.dom().contains(nid)
+                            &&& full_forgot_guards_mid.inner[nid] =~= _full_forgot_guards_pre.inner[nid]
+                        } by {
+                            if nid == cur_node.nid() {} 
+                            else if _forgot_guards.inner.dom().contains(nid) {} 
+                            else {
+                                assert(exists |level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                    #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                                );
+                                let level = choose |level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level &&
+                                    #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                                assert(__cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                    };
+                };
             };
             assert forall|level: PagingLevel|
                 1 <= level <= self.0.guard_level 
@@ -2316,11 +2678,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         )) by {
             let cursor = self.0;
             let nid = va_level_to_nid::<C>(_cursor.va, 1);
+            assert(nid == __cursor.get_guard_level_unwrap(1).nid()) by { admit(); };
             let idx = pte_index::<C>(_cursor.va, 1);
             assert(_cursor.va == __cursor.va);
             assert(__cursor.get_guard_level(1) is Some);
             let guard = __cursor.get_guard_level_unwrap(1);
-            assert(guard.nid() == nid) by { admit(); };
             assert(C::item_into_raw_spec(item).0 == 
                 guard.guard->Some_0.inner@.perms.inner.value()[idx as int].inner.paddr()
             );
@@ -2338,7 +2700,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             };
             let full_forgot_guards_pre = __cursor.rec_put_guard_from_path(__forgot_guards, __cursor.guard_level);
             let full_forgot_guards_post = cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
-            assert(full_forgot_guards_pre =~= full_forgot_guards_post) by { admit(); };
+            assert(full_forgot_guards_pre =~= full_forgot_guards_post);
         };
 
         (res, Tracked(forgot_guards))
@@ -2369,20 +2731,23 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
     //     /// This function will panic if the end range covers a part of a huge page
     //     /// and the next page is that huge page.
     #[verifier::spinoff_prover]
-    #[verifier::external_body]
     pub unsafe fn take_next(
         &mut self,
         len: usize,
         forgot_guards: Tracked<SubTreeForgotGuard<C>>,
+        Tracked(m): Tracked<&LockProtocolModel<C>>,
     ) -> (res: (PageTableItem<C>, Tracked<SubTreeForgotGuard<C>>))
         requires
             old(self).0.wf(),
             old(self).0.g_level@ == old(self).0.level,
             old(self).0.va as int + len as int <= old(self).0.barrier_va.end as int,
-            len % page_size::<C>(1) == 0,
-            len > page_size::<C>(old(self).0.level),
+            len > 0 && len % page_size::<C>(1) == 0,
             forgot_guards@.wf(),
             old(self).0.wf_with_forgot_guards(forgot_guards@),
+            m.inv(),
+            m.inst_id() == old(self).0.inst@.id(),
+            m.state() is Locked,
+            m.sub_tree_rt() == old(self).0.get_guard_level_unwrap(old(self).0.guard_level).nid(),
         ensures
             self.0.wf(),
             self.0.g_level@ == self.0.level,
@@ -2397,22 +2762,30 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         let preempt_guard = self.0.preempt_guard;
 
         let start = self.0.va;
+        assert(start % page_size::<C>(1) == 0);
         assert(len % page_size::<C>(1) == 0);
         let end = start + len;
+        assert(end % page_size::<C>(1) == 0) by { admit(); };
         assert(end <= self.0.barrier_va.end);
 
-        while self.0.va < end && self.0.level > 1
+        while self.0.va < end
             invariant
                 self.0.wf(),
                 self.0.g_level@ == self.0.level,
                 self.0.constant_fields_unchanged(&old(self).0),
+                self.0.get_guard_level_unwrap(self.0.guard_level).nid() =~= old(
+                    self,
+                ).0.get_guard_level_unwrap(self.0.guard_level).nid(),
                 forgot_guards.wf(),
-                self.0.wf_with_forgot_guards(
-                    forgot_guards,
-                ),
-                self.0.va + page_size::<C>(self.0.level) < end,
-                self.0.va + len < MAX_USERSPACE_VADDR,
-                end <= self.0.barrier_va.end,
+                self.0.wf_with_forgot_guards(forgot_guards),
+                start <= self.0.va <= end <= self.0.barrier_va.end,
+                end % page_size::<C>(1) == 0,
+                m.inv(),
+                m.inst_id() == old(self).0.inst@.id(),
+                m.state() is Locked,
+                m.sub_tree_rt() == old(self).0.get_guard_level_unwrap(old(self).0.guard_level).nid(),
+            ensures
+                self.0.va == end,
             decreases
                 end - self.0.va,
                 // for push_level, only level decreases
@@ -2424,47 +2797,137 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let cur_level = self.0.level;
             let mut cur_entry = self.0.cur_entry();
 
+            assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by { admit(); };
+
             // Skip if it is already absent.
             if cur_entry.is_none() {
-                assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by { admit(); };
                 if self.0.va + page_size::<C>(self.0.level) > end {
+                    let ghost _cursor = self.0;
                     self.0.va = end;
+                    proof {
+                        take_next_change_va_hold_wf(
+                            _cursor,
+                            self.0,
+                            forgot_guards,
+                        );
+                    }
                     break ;
                 }
-                assert(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);
+                assert(self.0.va + page_size::<C>(self.0.level) <= end);
+                let ghost _cursor = self.0;
                 let res = self.0.move_forward(Tracked(forgot_guards));
                 proof {
                     forgot_guards = res.get();
                 }
-                // assert(self.0.path_wf(spt));
-
-                // assume(self.0.va + page_size::<C>(self.0.level) < end);
-                // assume(self.0.va + len < MAX_USERSPACE_VADDR);
+                let ghost pg_size = page_size::<C>(_cursor.level);
+                assert(self.0.va == align_down(_cursor.va, pg_size) + pg_size);
+                assert(_cursor.va <= self.0.va <= end) by {
+                    assert(align_down(_cursor.va, pg_size) <= _cursor.va) by {
+                        lemma_align_down_basic(_cursor.va, pg_size);
+                    };
+                };
                 continue ;
             }
             // Go down if not applicable.
 
+            assert(!cur_entry.is_none_spec());
+
             if cur_va % page_size::<C>(cur_level) != 0 || cur_va + page_size::<C>(cur_level) > end {
-                assert(!cur_entry.is_none_spec());
+                assert(cur_va % page_size::<C>(1) == 0);
+                proof {
+                    if cur_level == 1 {
+                        assert(cur_va % page_size::<C>(cur_level) == 0);
+                        assert(cur_va + page_size::<C>(cur_level) <= end) by {
+                            assert(cur_va < end);
+                            let k = page_size::<C>(1);
+                            assert(cur_va % k == 0);
+                            assert(end % k == 0);
+                            if cur_va + k > end {
+                                assert(cur_va >= end) by {
+                                    let t1 = cur_va / k;
+                                    assert(cur_va == t1 * k) by { admit(); };
+                                    let t2 = end / k;
+                                    assert(end == t2 * k) by { admit(); };
+                                    assert(t1 + 1 > t2) by { admit(); };
+                                    assert(t1 >= t2);
+                                    assert(cur_va >= end) by { admit(); };
+                                }
+                            }
+                        }
+                    }
+                }
+
+                assert(cur_level > 1);
+
                 let cur_node = self.0.path[(self.0.level - 1) as usize].as_ref().unwrap();
                 let child = cur_entry.to_ref(cur_node);
                 match child {
                     ChildRef::PageTable(pt) => {
+                        let ghost _forgot_guards = forgot_guards;
                         let ghost nid = pt.nid@;
                         let ghost spin_lock = forgot_guards.get_lock(nid);
-                        assert(forgot_guards.wf()) by {
-                            admit();
-                        };
-                        assert(node_helper::valid_nid::<C>(nid)) by {
-                            admit();
-                        };
                         assert(forgot_guards.is_sub_root_and_contained(nid)) by {
-                            admit();
+                            C::lemma_consts_properties();
+                            C::lemma_nr_subpage_per_huge_is_512();
+                            self.0.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                            self.0.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                            let pa_guard = self.0.get_guard_level_unwrap(self.0.level);
+                            let pa_inner = pa_guard.guard->Some_0.inner@;
+                            let pa_spin_lock = pa_guard.meta_spec().lock;
+                            let pa_nid = pa_guard.nid();
+                            let idx = pte_index::<C>(self.0.va, self.0.level);
+                            assert(node_helper::is_child::<C>(pa_nid, nid)) by {
+                                assert(nid == node_helper::get_child::<C>(pa_nid, idx as nat));
+                                node_helper::lemma_level_dep_relation::<C>(pa_nid);
+                                node_helper::lemma_get_child_sound::<C>(pa_nid, idx as nat);
+                            };
+                            assert(pa_inner.pte_token->Some_0.value().is_alive(idx as nat));
+                            let __forgot_guards = self.0.rec_put_guard_from_path(
+                                forgot_guards,
+                                self.0.level,
+                            );
+                            assert(__forgot_guards.wf()) by {
+                                if self.0.level < self.0.guard_level {
+                                    assert(self.0.guards_in_path_wf_with_forgot_guards_singleton(
+                                        forgot_guards,
+                                        (self.0.level + 1) as PagingLevel,
+                                    ));
+                                }
+                            };
+                            assert(__forgot_guards.is_sub_root_and_contained(pa_nid)) by {
+                                assert(self.0.guards_in_path_wf_with_forgot_guards_singleton(
+                                    forgot_guards,
+                                    self.0.level,
+                                ));
+                            };
+                            assert(__forgot_guards =~= forgot_guards.put_spec(
+                                pa_nid,
+                                pa_inner,
+                                pa_spin_lock,
+                            ));
+                            assert(forgot_guards.is_sub_root(nid)) by {
+                                assert forall|_nid: NodeId| #[trigger]
+                                    forgot_guards.inner.dom().contains(_nid) && _nid != nid implies {
+                                    !node_helper::in_subtree_range::<C>(_nid, nid)
+                                } by {
+                                    assert(__forgot_guards.inner.dom().contains(_nid));
+                                    assert(__forgot_guards.inner.dom().contains(nid));
+                                    assert(__forgot_guards.is_sub_root(pa_nid));
+                                    assert(!forgot_guards.inner.dom().contains(pa_nid));
+                                    assert(_nid != pa_nid);
+                                    assert(!node_helper::in_subtree_range::<C>(_nid, pa_nid));
+                                    if node_helper::in_subtree_range::<C>(_nid, nid) {
+                                        assert(node_helper::in_subtree_range::<C>(_nid, pa_nid)) by {
+                                            node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<
+                                                C,
+                                            >(_nid, pa_nid, nid);
+                                        };
+                                    }
+                                };
+                            };
                         };
                         let tracked forgot_guard = forgot_guards.tracked_take(nid);
-                        assert(pt.wf()) by {
-                            admit();
-                        };
+                        // Admitted due to the same reason as PageTableNode::from_raw.
                         assert(pt.deref().meta_spec().lock =~= spin_lock) by {
                             admit();
                         };
@@ -2473,17 +2936,63 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             Tracked(forgot_guard),
                             Ghost(spin_lock),
                         );
+                        assert(node_helper::is_child::<C>(cur_node.nid(), pt.nid())) by {
+                            node_helper::lemma_level_dep_relation::<C>(cur_node.nid());
+                            let idx = pte_index::<C>(self.0.va, self.0.level);
+                            assert(pt.nid() == node_helper::get_child::<C>(cur_node.nid(), idx as nat));
+                            node_helper::lemma_get_child_sound::<C>(cur_node.nid(), idx as nat);
+                        };
                         // If there's no mapped PTEs in the next level, we can
                         // skip to save time.
                         if pt.nr_children() != 0 {
+                            let ghost _cursor = self.0;
                             self.0.push_level(pt);
+                            assert(self.0.wf_with_forgot_guards(forgot_guards)) by {
+                                let _nid = pt.nid();
+                                let _inner = pt.guard->Some_0.inner@;
+                                let _spin_lock = pt.inner.deref().meta_spec().lock;
+                                assert(_nid == nid);
+                                assert(_spin_lock =~= spin_lock);
+                                assert(_inner =~= _forgot_guards.get_guard_inner(nid)) by {
+                                    assert(_inner =~= forgot_guard);
+                                };
+                                assert(_forgot_guards =~= forgot_guards.put_spec(_nid, _inner, _spin_lock)) by {
+                                    assert(forgot_guards =~= _forgot_guards.take_spec(_nid));
+                                    _forgot_guards.lemma_take_put(_nid);
+                                };
+                                Cursor::lemma_push_level_sustains_wf_with_forgot_guards(
+                                    _cursor,
+                                    self.0,
+                                    pt,
+                                    forgot_guards,
+                                );
+                            };
                         } else {
+                            let ghost nid = pt.nid();
+                            let ghost spin_lock = pt.inner.deref().meta_spec().lock;
+                            let tracked guard = pt.guard.tracked_unwrap().inner.get();
+                            proof {
+                                forgot_guards.tracked_put(nid, guard, spin_lock);
+                            }
+                            assert(self.0.wf_with_forgot_guards(forgot_guards)) by {
+                                assert(forgot_guards.inner =~= _forgot_guards.inner);
+                            };
                             if self.0.va + page_size::<C>(self.0.level) > end {
+                                let ghost _cursor = self.0;
                                 self.0.va = end;
+                                proof {
+                                    take_next_change_va_hold_wf(
+                                        _cursor,
+                                        self.0,
+                                        forgot_guards,
+                                    );
+                                }
                                 break ;
                             }
-                            assert(self.0.va + page_size::<C>(self.0.level)
-                                <= self.0.barrier_va.end);
+                            assert(self.0.va + page_size::<C>(self.0.level) <= end);
+                            assert(align_down(self.0.va, page_size::<C>(self.0.level)) <= self.0.va) by {
+                                lemma_align_down_basic(self.0.va, page_size::<C>(self.0.level));
+                            };
                             let res = self.0.move_forward(Tracked(forgot_guards));
                             proof {
                                 forgot_guards = res.get();
@@ -2500,8 +3009,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     },
                 }
 
-                // assume(self.0.va + page_size::<C>(self.0.level) < end);
-                // assume(self.0.va + len < MAX_USERSPACE_VADDR);
                 continue ;
             }
             // Unmap the current page and return it.
@@ -2510,66 +3017,241 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let old_pte_paddr = cur_entry.pte.inner.pte_paddr();
             assert(old_pte_paddr == cur_entry.pte.inner.pte_paddr());
 
-            // proof {
-            //     let child_frame_addr = spt.i_ptes.value()[index_pte_paddr(
-            //         cur_entry.node.paddr_local() as int,
-            //         cur_entry.idx as int,
-            //     ) as int].map_to_pa;
-            //     let child_frame_level = spt.frames.value()[child_frame_addr].level as int;
-            //     // TODO: enhance path_wf or spt_wf
-            //     assume(forall|i: int| #[trigger]
-            //         self.0.path[i].is_some() ==> #[trigger] self.0.path[i].unwrap().paddr_local()
-            //             != child_frame_addr);
-            // }
-            // TODO: prove the last level entry...
+            let ghost _cursor = self.0;
+            let ghost _forgot_guards = forgot_guards;
+
             let mut cur_node = self.0.take((self.0.level - 1) as usize).unwrap();
+            let ghost _cur_node = cur_node;
             let old = cur_entry.replace(Child::None, &mut cur_node);
-            // self.0.put((self.0.level - 1) as usize, cur_node);
-            self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
+            // assert(cur_node.wf());
+            assert(cur_node.inst_id() == self.0.inst@.id());
+            assert(cur_node.guard->Some_0.stray_perm().value() == false);
+            assert(cur_node.guard->Some_0.in_protocol() == true);
 
             let item = match old {
-                Child::Frame(page, level, prop) => PageTableItem::Mapped {
-                    va: self.0.va,
-                    page,
-                    prop,
+                Child::Frame(page, level, prop) => {
+                    self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
+                    self.0.g_level = Ghost((self.0.g_level@ - 1) as PagingLevel);
+
+                    PageTableItem::Mapped {
+                        va: self.0.va,
+                        page,
+                        prop,
+                    }
                 },
                 Child::PageTable(pt) => {
+                    assert(
+                        cur_node.guard->Some_0.view_pte_token().value() =~=
+                        _cur_node.guard->Some_0.view_pte_token().value()
+                    );
+
                     // SAFETY: We must have locked this node.
                     let ghost nid = pt.deref().nid@;
-                    let ghost spin_lock = forgot_guards.get_lock(nid);
-                    let tracked forgot_guard = forgot_guards.tracked_take(nid);
+                    assert(forgot_guards.is_sub_root_and_contained(nid)) by {
+                        C::lemma_consts_properties();
+                        C::lemma_nr_subpage_per_huge_is_512();
+                        _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
+                        _cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                        let pa_guard = _cursor.get_guard_level_unwrap(_cursor.level);
+                        let pa_inner = pa_guard.guard->Some_0.inner@;
+                        let pa_spin_lock = pa_guard.meta_spec().lock;
+                        let pa_nid = pa_guard.nid();
+                        let idx = pte_index::<C>(_cursor.va, _cursor.level);
+                        assert(node_helper::is_child::<C>(pa_nid, nid)) by {
+                            assert(nid == node_helper::get_child::<C>(pa_nid, idx as nat));
+                            node_helper::lemma_level_dep_relation::<C>(pa_nid);
+                            node_helper::lemma_get_child_sound::<C>(pa_nid, idx as nat);
+                        };
+                        assert(pa_inner.pte_token->Some_0.value().is_alive(idx as nat));
+                        let __forgot_guards = _cursor.rec_put_guard_from_path(
+                            forgot_guards,
+                            _cursor.level,
+                        );
+                        assert(__forgot_guards.wf()) by {
+                            if _cursor.level < _cursor.guard_level {
+                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
+                                    forgot_guards,
+                                    (_cursor.level + 1) as PagingLevel,
+                                ));
+                            }
+                        };
+                        assert(__forgot_guards.is_sub_root_and_contained(pa_nid)) by {
+                            assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
+                                forgot_guards,
+                                _cursor.level,
+                            ));
+                        };
+                        assert(__forgot_guards =~= forgot_guards.put_spec(
+                            pa_nid,
+                            pa_inner,
+                            pa_spin_lock,
+                        ));
+                        assert(forgot_guards.is_sub_root(nid)) by {
+                            assert forall|_nid: NodeId| #[trigger]
+                                forgot_guards.inner.dom().contains(_nid) && _nid != nid implies {
+                                !node_helper::in_subtree_range::<C>(_nid, nid)
+                            } by {
+                                assert(__forgot_guards.inner.dom().contains(_nid));
+                                assert(__forgot_guards.inner.dom().contains(nid));
+                                assert(__forgot_guards.is_sub_root(pa_nid));
+                                assert(!forgot_guards.inner.dom().contains(pa_nid));
+                                assert(_nid != pa_nid);
+                                assert(!node_helper::in_subtree_range::<C>(_nid, pa_nid));
+                                if node_helper::in_subtree_range::<C>(_nid, nid) {
+                                    assert(node_helper::in_subtree_range::<C>(_nid, pa_nid)) by {
+                                        node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<
+                                            C,
+                                        >(_nid, pa_nid, nid);
+                                    };
+                                }
+                            };
+                        };
+                    };
+                    let tracked sub_forgot_guards = forgot_guards.tracked_take_sub_tree(nid);
+
+                    let ghost spin_lock = sub_forgot_guards.get_lock(nid);
+                    let tracked forgot_guard = sub_forgot_guards.tracked_take(nid);
+                    // Admitted due to the same reason as PageTableNode::from_raw.
+                    assert(pt.meta_spec().lock =~= spin_lock) by { admit(); };
                     let locked_pt = pt.deref().borrow().make_guard_unchecked(
                         preempt_guard,
                         Tracked(forgot_guard),
                         Ghost(spin_lock),
                     );
-                    // assert!(
-                    //     !(TypeId::of::<M>() == TypeId::of::<KernelMode>()
-                    //         && self.0.level == C::NR_LEVELS()),
-                    //     "Unmapping shared kernel page table nodes"
-                    // ); // TODO
-                    // SAFETY:
-                    //  - We checked that we are not unmapping shared kernel page table nodes.
-                    //  - We must have locked the entire sub-tree since the range is locked.
-                    // let unlocked_pt = locking::dfs_mark_astray(locked_pt);
-                    // See `locking.rs` for why we need this. // TODO
-                    // let drop_after_grace = unlocked_pt.clone();
-                    // crate::sync::after_grace_period(|| {
-                    //     drop(drop_after_grace);
-                    // });
+
+                    let mut pa_node = cur_node;
+                    let mut pa_guard = pa_node.guard.unwrap();
+                    let tracked mut pa_inner = pa_guard.inner.get();
+                    let tracked pa_node_token = pa_inner.node_token.tracked_borrow();
+                    let tracked mut pa_pte_array_token = pa_inner.pte_token.tracked_unwrap();
+                    let mut ch_node = locked_pt;
+                    let mut ch_guard = ch_node.guard.unwrap();
+                    let tracked mut ch_inner = ch_guard.inner.get();
+                    let tracked ch_node_token = ch_inner.node_token.tracked_unwrap();
+                    let tracked ch_pte_array_token = ch_inner.pte_token.tracked_unwrap();
+                    let tracked mut ch_stray_perm = ch_inner.stray_perm;
+                    let tracked mut ch_stray_token = ch_stray_perm.token;
+                    proof {
+                        let idx = pte_index::<C>(self.0.va, self.0.level);
+                        assert(0 <= idx < 512) by { admit(); }; // TODO
+                        assert(node_helper::is_child::<C>(pa_node.nid(), ch_node.nid()));
+                        assert(node_helper::get_offset::<C>(ch_node.nid()) == idx) by {
+                            assert(node_helper::is_not_leaf::<C>(pa_node.nid())) by {
+                                node_helper::lemma_nid_to_dep_up_bound::<C>(ch_node.nid());
+                                node_helper::lemma_level_dep_relation::<C>(ch_node.nid());
+                                node_helper::lemma_is_child_level_relation::<C>(pa_node.nid(), ch_node.nid());
+                                node_helper::lemma_level_dep_relation::<C>(pa_node.nid());
+                            };
+                            node_helper::lemma_get_child_sound::<C>(pa_node.nid(), idx as nat);
+                        };
+                        assert(ch_node.level_spec() >= 1) by {
+                            assert(node_helper::valid_nid::<C>(ch_node.nid()));
+                            node_helper::lemma_nid_to_dep_up_bound::<C>(ch_node.nid());
+                            node_helper::lemma_level_dep_relation::<C>(ch_node.nid());
+                        };
+                        assert(pa_node.level_spec() > 1) by {
+                            node_helper::lemma_is_child_level_relation::<C>(pa_node.nid(), ch_node.nid());
+                        };
+                        node_helper::lemma_level_dep_relation::<C>(pa_node.nid());
+                        node_helper::lemma_get_child_sound::<C>(pa_node.nid(), idx as nat);
+                        assert(ch_node.nid() != node_helper::root_id::<C>()) by {
+                            node_helper::lemma_is_child_nid_increasing::<C>(pa_node.nid(), ch_node.nid());
+                        };
+
+                        assert(node_helper::in_subtree_range::<C>(
+                            _cursor.get_guard_level_unwrap(_cursor.guard_level).nid(),
+                            pa_node.nid(),
+                        )) by {
+                            assert(pa_node.nid() == _cursor.get_guard_level_unwrap(_cursor.level).nid());
+                            assert(_cursor.guards_in_path_relation());
+                            _cursor.lemma_guards_in_path_relation(_cursor.guard_level);
+                            if _cursor.level == _cursor.guard_level {
+                                node_helper::lemma_tree_size_spec_table::<C>();
+                            }
+                        };
+
+                        assert(ch_pte_array_token.value() =~= PteArrayState::empty()) by { admit(); };
+
+                        assert(pa_pte_array_token.value().get_paddr(idx as nat) == ch_stray_token.key().1) by { admit(); };
+
+                        let _pa_pte_array_token = pa_pte_array_token;
+                        let tracked res = self.0.inst.borrow().clone().protocol_deallocate(
+                            m.cpu,
+                            ch_node.nid(),
+                            ch_node_token,
+                            pa_node_token,
+                            pa_pte_array_token,
+                            ch_pte_array_token,
+                            &m.token,
+                            ch_stray_token,
+                        );
+                        pa_pte_array_token = res.0.get();
+                        ch_stray_token = res.1.get();
+                        
+                        assert(
+                            pa_pte_array_token.value().inner =~= 
+                            _pa_pte_array_token.value().inner.update(idx as int, PteState::None)
+                        );
+
+                        ch_stray_perm.token = ch_stray_token;
+                        ch_inner.node_token = None;
+                        ch_inner.pte_token = None;
+                        ch_inner.stray_perm = ch_stray_perm;
+
+                        pa_inner.pte_token = Some(pa_pte_array_token);
+                    }
+                    ch_guard.inner = Tracked(ch_inner);
+                    ch_node.guard = Some(ch_guard);
+                    pa_guard.inner = Tracked(pa_inner);
+                    pa_node.guard = Some(pa_guard);
+                    cur_node = pa_node;
+                    self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
+                    self.0.g_level = Ghost((self.0.g_level@ - 1) as PagingLevel);
+
+                    assert(cur_node.wf());
+
                     PageTableItem::StrayPageTable {
                         pt,
                         va: self.0.va,
                         len: page_size::<C>(self.0.level),
                     }
                 },
-                Child::None => { PageTableItem::NotMapped { va: 0, len: 0 } },
+                Child::None => {
+                    self.0.path[(self.0.level - 1) as usize] = Some(cur_node);
+                    self.0.g_level = Ghost((self.0.g_level@ - 1) as PagingLevel);
+
+                    PageTableItem::NotMapped { va: 0, len: 0 } 
+                },
             };
 
-            // assume(self.0.va + page_size::<C>(self.0.level) <= self.0.barrier_va.end);  // TODO
-            // assert(self.0.path_wf(spt)) by {
-            //     admit();
-            // };
+            let ghost idx = pte_index::<C>(_cursor.va, _cursor.level);
+            assert(
+                cur_node.guard->Some_0.view_pte_token().value() =~=
+                _cur_node.guard->Some_0.view_pte_token().value().update(idx as nat, PteState::None)
+            ) by {
+                assert(0 <= idx < 512) by { admit(); }; // TODO
+                if old !is PageTable {
+                    assert(
+                        cur_node.guard->Some_0.view_pte_token().value() =~=
+                        _cur_node.guard->Some_0.view_pte_token().value()
+                    );
+                    let seq = _cur_node.guard->Some_0.view_pte_token().value().inner;
+                    assert(seq[idx as int] is None);
+                    assert(seq.update(idx as int, PteState::None) =~= seq);
+                }
+            };
+
+            proof {
+                assert(cur_node.guard->Some_0.view_pte_token().value().is_void(idx as nat)) by {
+                    assert(0 <= idx < 512) by { admit(); }; // TODO
+                };
+                take_next_inner_proof_cursor_wf_final(
+                    _cursor,
+                    self.0,
+                    _forgot_guards,
+                    forgot_guards,
+                );
+            }
             let res = self.0.move_forward(Tracked(forgot_guards));
             proof {
                 forgot_guards = res.get();
@@ -2581,6 +3263,721 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         // If the loop exits, we did not find any mapped pages in the range.
         (PageTableItem::NotMapped { va: start, len }, Tracked(forgot_guards))
     }
+}
+
+proof fn take_next_change_va_hold_wf<C: PageTableConfig>(
+    pre_cursor: Cursor<C>,
+    post_cursor: Cursor<C>,
+    forgot_guards: SubTreeForgotGuard<C>,
+)
+    requires
+        pre_cursor.wf(),
+        pre_cursor.g_level@ == pre_cursor.level,
+        forgot_guards.wf(),
+        pre_cursor.wf_with_forgot_guards(forgot_guards),
+        post_cursor.constant_fields_unchanged(&pre_cursor),
+        post_cursor.level == pre_cursor.level,
+        post_cursor.g_level == pre_cursor.g_level,
+        forall |level: PagingLevel|
+            #![trigger post_cursor.get_guard_level(level)]
+            #![trigger post_cursor.get_guard_level_unwrap(level)]
+            1 <= level <= C::NR_LEVELS_SPEC() ==> {
+                post_cursor.get_guard_level(level) =~= 
+                pre_cursor.get_guard_level(level)
+            },
+        post_cursor.wf_va(),
+    ensures
+        post_cursor.wf(),
+        post_cursor.wf_with_forgot_guards(forgot_guards),
+{
+    let _cursor = pre_cursor;
+    let cursor = post_cursor;
+
+    assert(cursor.wf()) by {
+        assert(cursor.wf_path()) by {
+            assert forall |level: PagingLevel|
+                #![trigger cursor.get_guard_level(level)]
+                #![trigger cursor.get_guard_level_unwrap(level)]
+                1 <= level <= C::NR_LEVELS_SPEC() implies {
+                if level > cursor.guard_level {
+                    cursor.get_guard_level(level) is None
+                } else if level >= cursor.g_level@ {
+                    &&& cursor.get_guard_level(level) is Some
+                    &&& cursor.get_guard_level_unwrap(level).wf()
+                    &&& cursor.get_guard_level_unwrap(level).inst_id() == cursor.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(
+                        cursor.get_guard_level_unwrap(level).nid(),
+                    )
+                    &&& cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
+                        == false
+                    &&& cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                } else {
+                    cursor.get_guard_level(level) is None
+                }
+            } by {
+                assert(cursor.guard_level == _cursor.guard_level);
+                assert(cursor.g_level@ == _cursor.g_level@);
+                if level > cursor.guard_level {
+                    assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                } else if level >= cursor.g_level@ {
+                    assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                } else {
+                    assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                    assert(_cursor.get_guard_level(level) is None);
+                }
+            };
+        };
+        assert(cursor.guards_in_path_relation()) by {
+            assert(_cursor.guards_in_path_relation());
+            assert forall |level: PagingLevel|
+                cursor.g_level@ < level <= cursor.guard_level
+            implies {
+                cursor.adjacent_guard_is_child(level)
+            } by {
+                assert(_cursor.adjacent_guard_is_child(level));
+            };
+        };
+    };
+    assert(cursor.wf_with_forgot_guards(forgot_guards)) by {
+        let full_forgot_guards_pre = 
+            _cursor.rec_put_guard_from_path(forgot_guards, _cursor.guard_level);
+        let full_forgot_guards_post =
+            cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+        assert(cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
+            assert forall |level: PagingLevel|
+                #![trigger cursor.get_guard_level_unwrap(level)]
+                cursor.g_level@ <= level <= cursor.guard_level
+            implies {
+                !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+            } by {
+                assert(!forgot_guards.inner.dom().contains(_cursor.get_guard_level_unwrap(level).nid()));
+            };
+        };
+        assert(full_forgot_guards_pre.inner =~= full_forgot_guards_post.inner) by {
+            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, _cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+            assert forall |nid: NodeId|
+                #[trigger] full_forgot_guards_pre.inner.dom().contains(nid)
+            implies {
+                &&& full_forgot_guards_post.inner.dom().contains(nid)
+                &&& full_forgot_guards_post.inner[nid] =~= full_forgot_guards_pre.inner[nid]
+            } by {
+                if forgot_guards.inner.dom().contains(nid) {}
+                else {
+                    assert(exists |level: PagingLevel|
+                        _cursor.g_level@ <= level <= _cursor.guard_level &&
+                        #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                    );
+                    let level = choose |level: PagingLevel|
+                        _cursor.g_level@ <= level <= _cursor.guard_level &&
+                        #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                    assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                }
+            };
+            assert forall |nid: NodeId|
+                #[trigger] full_forgot_guards_post.inner.dom().contains(nid)
+            implies {
+                &&& full_forgot_guards_pre.inner.dom().contains(nid)
+                &&& full_forgot_guards_pre.inner[nid] =~= full_forgot_guards_post.inner[nid]
+            } by {
+                if forgot_guards.inner.dom().contains(nid) {}
+                else {
+                    assert(exists |level: PagingLevel|
+                        cursor.g_level@ <= level <= cursor.guard_level &&
+                        #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                    );
+                    let level = choose |level: PagingLevel|
+                        cursor.g_level@ <= level <= cursor.guard_level &&
+                        #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                    assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                }
+            };
+        };
+    };
+}
+
+proof fn take_next_inner_proof_cursor_wf_final<C: PageTableConfig>(
+    pre_cursor: Cursor<C>,
+    post_cursor: Cursor<C>,
+    pre_forgot_guards: SubTreeForgotGuard<C>,
+    post_forgot_guards: SubTreeForgotGuard<C>,
+)
+    requires
+        pre_cursor.wf(),
+        pre_cursor.g_level@ == pre_cursor.level,
+        pre_forgot_guards.wf(),
+        pre_cursor.wf_with_forgot_guards(pre_forgot_guards),
+        post_cursor.g_level@ == post_cursor.level,
+        post_cursor.constant_fields_unchanged(&pre_cursor),
+        post_cursor.level == pre_cursor.level,
+        post_cursor.va == pre_cursor.va,
+        forall |level: PagingLevel|
+            #![trigger post_cursor.get_guard_level(level)]
+            #![trigger post_cursor.get_guard_level_unwrap(level)]
+            1 <= level <= C::NR_LEVELS_SPEC() && level != post_cursor.level ==> {
+                post_cursor.get_guard_level(level) =~= 
+                pre_cursor.get_guard_level(level)
+            },
+        post_cursor.get_guard_level(post_cursor.level) is Some,
+        post_cursor.get_guard_level_unwrap(post_cursor.level).wf(),
+        post_cursor.get_guard_level_unwrap(post_cursor.level).inst_id() == post_cursor.inst@.id(),
+        post_cursor.level == node_helper::nid_to_level::<C>(
+            post_cursor.get_guard_level_unwrap(post_cursor.level).nid(),
+        ),
+        post_cursor.get_guard_level_unwrap(post_cursor.level).guard->Some_0.stray_perm().value() == false,
+        post_cursor.get_guard_level_unwrap(post_cursor.level).guard->Some_0.in_protocol() == true,
+        ({
+            let level = post_cursor.level;
+            let pre_guard = pre_cursor.get_guard_level_unwrap(level);
+            let post_guard = post_cursor.get_guard_level_unwrap(level);
+            let idx = pte_index::<C>(pre_cursor.va, pre_cursor.level);
+            let pte = pre_guard.guard->Some_0.perms().inner.value()[idx as int];
+            {
+                &&& post_guard.nid() == pre_guard.nid()
+                &&& post_guard.meta_spec().lock =~= pre_guard.meta_spec().lock
+                &&& post_guard.guard->Some_0.view_pte_token().value().wf()
+                &&& post_guard.guard->Some_0.view_pte_token().value().is_void(idx as nat)
+                &&& if pte.is_pt(pre_cursor.level) {
+                    &&& node_helper::is_not_leaf::<C>(pre_guard.nid())
+                    &&& post_guard.guard->Some_0.view_pte_token().value() =~=
+                        pre_guard.guard->Some_0.view_pte_token().value().update(idx as nat, PteState::None)
+                    &&& pre_guard.guard->Some_0.view_pte_token().value().is_alive(idx as nat)
+                } else {
+                    post_guard.guard->Some_0.view_pte_token().value() =~=
+                    pre_guard.guard->Some_0.view_pte_token().value()
+                }
+            }
+        }),
+        post_forgot_guards.wf(),
+        ({
+            let _cur_node = pre_cursor.get_guard_level_unwrap(pre_cursor.level);
+            let idx = pte_index::<C>(pre_cursor.va, pre_cursor.level);
+            let pte = _cur_node.guard->Some_0.perms().inner.value()[idx as int];
+            if pte.is_pt(pre_cursor.level) {
+                post_forgot_guards.inner =~= pre_forgot_guards.inner.remove_keys({
+                    let pa = pre_cursor.get_guard_level_unwrap(pre_cursor.level).nid();
+                    let idx = pte_index::<C>(pre_cursor.va, pre_cursor.level);
+                    let ch = node_helper::get_child::<C>(pa, idx as nat);
+                    pre_forgot_guards.get_sub_tree_dom(ch)
+                })
+            } else {
+                post_forgot_guards =~= pre_forgot_guards
+            }
+        }),
+    ensures
+        post_cursor.wf(),
+        post_cursor.wf_with_forgot_guards(post_forgot_guards),
+{
+    let _cursor = pre_cursor;
+    let cursor = post_cursor;
+    let _forgot_guards = pre_forgot_guards;
+    let forgot_guards = post_forgot_guards;
+    let _cur_node = pre_cursor.get_guard_level_unwrap(pre_cursor.level);
+    let cur_node = post_cursor.get_guard_level_unwrap(post_cursor.level);
+    let idx = pte_index::<C>(pre_cursor.va, pre_cursor.level);
+    let pte = _cur_node.guard->Some_0.perms().inner.value()[idx as int];
+    assert(cursor.wf()) by {
+        assert(cursor.wf_path()) by {
+            assert forall|level: PagingLevel|
+                #![trigger cursor.get_guard_level(level)]
+                #![trigger cursor.get_guard_level_unwrap(level)]
+                1 <= level <= C::NR_LEVELS_SPEC() 
+            implies {
+                if level > cursor.guard_level {
+                    cursor.get_guard_level(level) is None
+                } else if level >= cursor.g_level@ {
+                    &&& cursor.get_guard_level(level) is Some
+                    &&& cursor.get_guard_level_unwrap(level).wf()
+                    &&& cursor.get_guard_level_unwrap(level).inst_id() == cursor.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(
+                        cursor.get_guard_level_unwrap(level).nid(),
+                    )
+                    &&& cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
+                        == false
+                    &&& cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                } else {
+                    cursor.get_guard_level(level) is None
+                }
+            } by {
+                assert(cursor.guard_level == _cursor.guard_level);
+                assert(cursor.g_level@ == _cursor.g_level@);
+                if level > cursor.guard_level {
+                    assert(cursor.path[level - 1] =~= _cursor.path[level - 1]) by {
+                        assert(cursor.get_guard_level(level) is None);
+                        assert(_cursor.get_guard_level(level) is None);
+                    };
+                } else if level >= cursor.g_level@ {
+                    if level == cursor.g_level@ {
+                        assert(cursor.get_guard_level(level) is Some);
+                        assert(cursor.get_guard_level_unwrap(level) =~= cur_node);
+                    } else {
+                        assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                    }
+                } else {
+                    assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                    assert(_cursor.get_guard_level(level) is None);
+                }
+            };
+        };
+        assert(cursor.guards_in_path_relation()) by {
+            assert forall|level: PagingLevel|
+                #![trigger cursor.adjacent_guard_is_child(level)]
+                cursor.g_level@ < level <= cursor.guard_level implies {
+                cursor.adjacent_guard_is_child(level)
+            } by {
+                assert(_cursor.adjacent_guard_is_child(level));
+            }
+        }
+    };
+    assert(cursor.wf_with_forgot_guards(forgot_guards)) by {
+        assert(cursor.g_level@ == _cursor.g_level@);
+        assert(cursor.guard_level == _cursor.guard_level);
+        assert(cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
+            assert forall |level: PagingLevel|
+                #![trigger cursor.get_guard_level_unwrap(level)]
+                cursor.g_level@ <= level <= cursor.guard_level
+            implies {
+                !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+            } by {
+                assert(
+                    cursor.get_guard_level_unwrap(level).nid() ==
+                        _cursor.get_guard_level_unwrap(level).nid()
+                );
+            };
+        };
+        if !pte.is_pt(_cursor.level) {
+            let full_forgot_guards_pre =
+                _cursor.rec_put_guard_from_path(_forgot_guards, _cursor.guard_level);
+            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(_forgot_guards);
+            let full_forgot_guards_post =
+                cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+            assert(full_forgot_guards_post.wf()) by {
+                assert(full_forgot_guards_post =~= full_forgot_guards_pre.put_spec(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.inner@,
+                    cur_node.meta_spec().lock,
+                )) by { admit(); }; // Special
+
+                assert(full_forgot_guards_pre.get_lock(cur_node.nid()) =~= _cur_node.meta_spec().lock) by {
+                    _cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                };
+
+                assert(full_forgot_guards_pre.get_guard_inner(cur_node.nid()) =~= _cur_node.guard->Some_0.inner@);
+
+                full_forgot_guards_pre.lemma_replace_with_equal_guard_hold_wf(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.inner@,
+                    cur_node.meta_spec().lock,
+                );
+            };
+            assert(full_forgot_guards_pre.inner.dom() =~= full_forgot_guards_post.inner.dom()) by {
+                _cursor.lemma_put_guard_from_path_top_down_basic1(_forgot_guards);
+                cursor.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+                assert forall |nid: NodeId|
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                } by {
+                    if nid == cur_node.nid() {
+                    } else if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            _cursor.g_level@ <= level <= _cursor.guard_level &&
+                            #[trigger] _cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+                assert forall |nid: NodeId|
+                    full_forgot_guards_post.inner.dom().contains(nid)
+                implies {
+                    full_forgot_guards_pre.inner.dom().contains(nid)
+                } by {
+                    if nid == cur_node.nid() {
+                    } else if forgot_guards.inner.dom().contains(nid) {
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                        assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                    }
+                };
+            };
+        } else {
+            let full_forgot_guards = 
+                cursor.rec_put_guard_from_path(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+            cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+            assert(full_forgot_guards.wf()) by {
+                assert forall |nid: NodeId| 
+                    #[trigger] full_forgot_guards.inner.dom().contains(nid) 
+                implies {
+                    full_forgot_guards.children_are_contained(
+                        nid,
+                        full_forgot_guards.get_guard_inner(nid).pte_token->Some_0.value(),
+                    )
+                } by {
+                    let pte_array = full_forgot_guards.get_guard_inner(nid).pte_token->Some_0.value();
+                    if forgot_guards.inner.dom().contains(nid) {
+                        if node_helper::is_not_leaf::<C>(nid) {
+                            assert forall |i: nat|
+                                0 <= i < nr_subpage_per_huge::<C>() 
+                            implies {
+                                #[trigger] pte_array.is_alive(i) <==> full_forgot_guards.inner.dom().contains(
+                                    node_helper::get_child::<C>(nid, i),
+                                )
+                            } by {
+                                let ch = node_helper::get_child::<C>(nid, i);
+                                if pte_array.is_alive(i) {
+                                    assert(full_forgot_guards.inner.dom().contains(ch));
+                                }
+                                if full_forgot_guards.inner.dom().contains(ch) {
+                                    assert(pte_array.is_alive(i)) by {
+                                        assert(forgot_guards.inner.dom().contains(ch)) by {
+                                            if !forgot_guards.inner.dom().contains(ch) {
+                                                assert(exists |level: PagingLevel|
+                                                    cursor.g_level@ <= level <= cursor.guard_level &&
+                                                    #[trigger] cursor.get_guard_level_unwrap(level).nid() == ch
+                                                );
+                                                let level = choose |level: PagingLevel|
+                                                    cursor.g_level@ <= level <= cursor.guard_level &&
+                                                    #[trigger] cursor.get_guard_level_unwrap(level).nid() == ch;
+                                                if level != cursor.guard_level {
+                                                    let pa = cursor.get_guard_level_unwrap((level + 1) as PagingLevel).nid();
+                                                    assert(node_helper::is_child::<C>(pa, ch)) by {
+                                                        assert(cursor.adjacent_guard_is_child((level + 1) as PagingLevel));
+                                                    };
+                                                    assert(pa == nid) by {
+                                                        assert(node_helper::is_child::<C>(nid, ch)) by {
+                                                            node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                        };
+                                                        node_helper::lemma_is_child_implies_same_pa::<C>(pa, nid, ch);
+                                                    };
+                                                } else {
+                                                    let _full_forgot_guards =
+                                                        _cursor.rec_put_guard_from_path(_forgot_guards, _cursor.guard_level);
+                                                    assert(_full_forgot_guards.is_root_and_contained(ch));
+                                                    assert(_full_forgot_guards.inner.dom().contains(nid)) by {
+                                                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+                                                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(_forgot_guards);
+                                                    };
+                                                    assert(!node_helper::in_subtree_range::<C>(ch, nid)) by {
+                                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                        node_helper::lemma_is_child_nid_increasing::<C>(nid, ch);
+                                                    };
+                                                }
+                                            }
+                                        };
+                                        assert(forgot_guards.wf());
+                                    };
+                                }
+                            };
+                        }
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == nid;
+                        if node_helper::is_not_leaf::<C>(nid) {
+                            assert forall |i: nat|
+                                0 <= i < nr_subpage_per_huge::<C>() 
+                            implies {
+                                #[trigger] pte_array.is_alive(i) <==> full_forgot_guards.inner.dom().contains(
+                                    node_helper::get_child::<C>(nid, i),
+                                )
+                            } by {
+                                let ch = node_helper::get_child::<C>(nid, i);
+                                if pte_array.is_alive(i) {
+                                    assert(full_forgot_guards.inner.dom().contains(ch)) by {
+                                        if level == cursor.level {
+                                            assert(nid == cur_node.nid());
+                                            assert(pte_array =~= cursor.get_guard_level_unwrap(cursor.level).guard->Some_0.view_pte_token().value());
+                                            let _idx = pte_index::<C>(_cursor.va, _cursor.level);
+                                            assert(0 <= _idx < 512) by { admit(); }; // TODO
+                                            let _ch = node_helper::get_child::<C>(nid, _idx as nat);
+                                            assert(i != _idx) by {
+                                                assert(pte_array.is_void(_idx as nat));
+                                            };
+                                            assert(forgot_guards.inner =~= _forgot_guards.inner.remove_keys(
+                                                _forgot_guards.get_sub_tree_dom(_ch),
+                                            ));
+                                            assert forall |_nid: NodeId|
+                                                #[trigger] _forgot_guards.inner.dom().contains(_nid) &&
+                                                !node_helper::in_subtree_range::<C>(_ch, _nid)
+                                            implies {
+                                                forgot_guards.inner.dom().contains(_nid)
+                                            } by {};
+                                            _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                            assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, _cursor.level));
+                                            _cursor.lemma_rec_put_guard_from_path_basic(_forgot_guards);
+                                            assert(_forgot_guards.inner.dom().contains(ch)) by {
+                                                let _pte_array = 
+                                                    _cursor.get_guard_level_unwrap(_cursor.level).guard->Some_0.view_pte_token().value();
+                                                assert(_pte_array.is_alive(i)) by {
+                                                    assert(0 <= i < 512) by { admit(); }; // TODO
+                                                };
+                                                assert(_forgot_guards.children_are_contained(nid, _pte_array));
+                                            };
+                                            assert(!node_helper::in_subtree_range::<C>(_ch, ch)) by {
+                                                assert(!node_helper::in_subtree_range::<C>(_ch, nid)) by {
+                                                    assert(0 <= _idx < nr_subpage_per_huge::<C>()) by { admit(); }; // TODO
+                                                    node_helper::lemma_get_child_sound::<C>(nid, _idx as nat);
+                                                    node_helper::lemma_is_child_nid_increasing::<C>(nid, _ch);
+                                                };
+                                                assert(_ch != ch) by {
+                                                    assert(0 <= i < 512) by { admit(); }; // TODO
+                                                    assert(0 <= idx < 512) by { admit(); }; // TODO
+                                                    if i < idx {
+                                                        node_helper::lemma_brother_nid_increasing::<C>(nid, i, idx as nat);
+                                                    } else {
+                                                        node_helper::lemma_brother_nid_increasing::<C>(nid, idx as nat, i);
+                                                    }
+                                                };
+                                                node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(
+                                                    _ch,
+                                                    nid,
+                                                    ch,
+                                                );
+                                            };
+                                        } else {
+                                            let __ch = cursor.get_guard_level_unwrap((level - 1) as PagingLevel).nid();
+                                            if ch == __ch {} 
+                                            else {
+                                                let _idx = pte_index::<C>(_cursor.va, _cursor.level);
+                                                let _ch = node_helper::get_child::<C>(cur_node.nid(), _idx as nat);
+                                                assert forall |_nid: NodeId|
+                                                    #[trigger] _forgot_guards.inner.dom().contains(_nid) &&
+                                                    !node_helper::in_subtree_range::<C>(_ch, _nid)
+                                                implies {
+                                                    forgot_guards.inner.dom().contains(_nid)
+                                                } by {};
+                                                _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, level));
+                                                let _full_forgot_guards =
+                                                    _cursor.rec_put_guard_from_path(_forgot_guards, (level - 1) as PagingLevel);
+                                                assert(_full_forgot_guards.inner.dom().contains(ch)) by {
+                                                    let _pte_array = 
+                                                        _cursor.get_guard_level_unwrap(level).guard->Some_0.view_pte_token().value();
+                                                    assert(_pte_array.is_alive(i)) by {
+                                                        assert(0 <= i < 512) by { admit(); }; // TODO
+                                                    };
+                                                    assert(_full_forgot_guards.children_are_contained(nid, _pte_array));
+                                                };
+                                                assert(_forgot_guards.inner.dom().contains(ch)) by {
+                                                    _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, (level - 1) as PagingLevel);
+                                                    assert forall |_level: PagingLevel|
+                                                        _cursor.g_level@ <= _level < level
+                                                    implies {
+                                                        #[trigger] _cursor.get_guard_level_unwrap(_level).nid() != ch
+                                                    } by {
+                                                        if _level != level - 1 {
+                                                            assert(node_helper::nid_to_level::<C>(ch) == level - 1) by {
+                                                                node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                                node_helper::lemma_is_child_level_relation::<C>(nid, ch);
+                                                            };
+                                                        }
+                                                    };
+                                                };
+                                                assert(!node_helper::in_subtree_range::<C>(_ch, ch)) by {
+                                                    assert(node_helper::in_subtree_range::<C>(__ch, cur_node.nid())) by {
+                                                        _cursor.lemma_guards_in_path_relation((level - 1) as PagingLevel);
+                                                    };
+                                                    assert(node_helper::in_subtree_range::<C>(__ch, _ch)) by {
+                                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, cur_node.nid());
+                                                        assert(node_helper::is_not_leaf::<C>(cur_node.nid()));
+                                                        assert(0 <= _idx < nr_subpage_per_huge::<C>()) by { admit(); }; // TODO
+                                                        node_helper::lemma_get_child_sound::<C>(cur_node.nid(), _idx as nat);
+                                                        node_helper::lemma_in_subtree_is_child_in_subtree::<C>(__ch, cur_node.nid(), _ch);
+                                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, _ch);
+                                                    };
+                                                    assert(!node_helper::in_subtree_range::<C>(__ch, ch)) by {
+                                                        assert(!node_helper::in_subtree_range::<C>(__ch, nid)) by {
+                                                            assert(cursor.adjacent_guard_is_child(level));
+                                                            node_helper::lemma_is_child_nid_increasing::<C>(nid, __ch);
+                                                        };
+                                                        assert(__ch != ch);
+                                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                        node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<C>(
+                                                            __ch,
+                                                            nid,
+                                                            ch,
+                                                        );
+                                                    };
+                                                    if node_helper::in_subtree_range::<C>(_ch, ch) {
+                                                        assert(node_helper::in_subtree_range::<C>(__ch, ch)) by {
+                                                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, _ch);
+                                                            node_helper::lemma_in_subtree_bounded::<C>(__ch, _ch);
+                                                        };
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    };
+                                }
+                                if full_forgot_guards.inner.dom().contains(ch) {
+                                    assert(pte_array.is_alive(i)) by {
+                                        if level == cursor.level {              
+                                            assert(nid == cur_node.nid());
+                                            assert(pte_array =~= cur_node.guard->Some_0.view_pte_token().value());
+                                            let _idx = pte_index::<C>(_cursor.va, _cursor.level);
+                                            let _ch = node_helper::get_child::<C>(nid, _idx as nat);
+                                            assert(i != _idx) by {
+                                                assert(!full_forgot_guards.inner.dom().contains(_ch)) by {
+                                                    assert(!forgot_guards.inner.dom().contains(_ch)) by {
+                                                        assert(_forgot_guards.inner.dom().contains(_ch)) by {
+                                                            assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(_idx as nat));
+                                                            _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                                            assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, _cursor.level));
+                                                            _cursor.lemma_rec_put_guard_from_path_basic(_forgot_guards);
+                                                            assert(_forgot_guards.children_are_contained(
+                                                                _cur_node.nid(),
+                                                                _cur_node.guard->Some_0.view_pte_token().value(),
+                                                            ));
+                                                            assert(_cur_node.nid() == nid);
+                                                            assert(node_helper::is_not_leaf::<C>(nid));
+                                                            assert(_ch == node_helper::get_child::<C>(_cur_node.nid(), _idx as nat));
+                                                            assert(0 <= _idx < nr_subpage_per_huge::<C>()) by { admit(); }; // TODO
+                                                        };
+                                                        assert(forgot_guards.inner =~= _forgot_guards.inner.remove_keys(
+                                                            _forgot_guards.get_sub_tree_dom(_ch)
+                                                        ));
+                                                        assert(node_helper::in_subtree_range::<C>(_ch, _ch)) by {
+                                                            assert(node_helper::valid_nid::<C>(_ch));
+                                                            node_helper::lemma_sub_tree_size_lower_bound::<C>(_ch);
+                                                        };
+                                                    };
+                                                    assert forall |_level: PagingLevel|
+                                                        cursor.g_level@ <= _level <= cursor.guard_level
+                                                    implies {
+                                                        #[trigger] cursor.get_guard_level_unwrap(_level).nid() != _ch
+                                                    } by {
+                                                        cursor.lemma_guards_in_path_relation(_level);
+                                                        assert(0 <= _idx < nr_subpage_per_huge::<C>()) by { admit(); }; // TODO
+                                                        node_helper::lemma_get_child_sound::<C>(cur_node.nid(), _idx as nat);
+                                                        node_helper::lemma_is_child_nid_increasing::<C>(cur_node.nid(), _ch);
+                                                    };
+                                                };
+                                            };
+                                            assert(forgot_guards.inner.dom().contains(ch)) by {
+                                                assert forall |_level: PagingLevel|
+                                                    cursor.g_level@ <= _level <= cursor.guard_level
+                                                implies {
+                                                    #[trigger] cursor.get_guard_level_unwrap(_level).nid != ch
+                                                } by {
+                                                    node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                    node_helper::lemma_is_child_level_relation::<C>(nid, ch);
+                                                };
+                                            };
+                                            assert(_forgot_guards.inner.dom().contains(ch));
+                                            let _pte_array = 
+                                                _cursor.get_guard_level_unwrap(_cursor.level).guard->Some_0.view_pte_token().value();
+                                            assert(_pte_array =~= _cur_node.guard->Some_0.view_pte_token().value());
+                                            assert(_forgot_guards.children_are_contained(nid, _pte_array)) by {
+                                                _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, level));
+                                                _cursor.lemma_rec_put_guard_from_path_basic(_forgot_guards);
+                                            };
+                                            assert(_pte_array.is_alive(i));
+                                            assert(pte_array.inner[i as int] =~= _pte_array.inner[i as int]) by {
+                                                assert(0 <= i < 512) by { admit(); }; // TODO
+                                                assert(0 <= _idx < 512) by { admit(); }; // TODO
+                                                axiom_seq_update_different(
+                                                    _pte_array.inner,
+                                                    i as int,
+                                                    _idx as int,
+                                                    PteState::None,
+                                                );
+                                            };
+                                        } else {
+                                            let __ch = cursor.get_guard_level_unwrap((level - 1) as PagingLevel).nid();
+                                            if ch == __ch {
+                                                let _full_forgot_guards =
+                                                    _cursor.rec_put_guard_from_path(_forgot_guards, (level - 1) as PagingLevel);
+                                                _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, level));
+                                                assert(_full_forgot_guards.children_are_contained(nid, pte_array));
+                                            } 
+                                            else {
+                                                assert(forgot_guards.inner.dom().contains(ch)) by {
+                                                    assert forall |_level: PagingLevel|
+                                                        cursor.g_level@ <= _level <= cursor.guard_level
+                                                    implies {
+                                                        #[trigger] cursor.get_guard_level_unwrap(_level).nid != ch
+                                                    } by {
+                                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                        node_helper::lemma_is_child_level_relation::<C>(nid, ch);
+                                                    };
+                                                };
+                                                assert(_forgot_guards.inner.dom().contains(ch));
+                                                let _full_forgot_guards =
+                                                    _cursor.rec_put_guard_from_path(_forgot_guards, (level - 1) as PagingLevel);
+                                                _cursor.lemma_wf_with_forgot_guards_sound(_forgot_guards);
+                                                assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(_forgot_guards, level));
+                                                assert(_full_forgot_guards.children_are_contained(nid, pte_array));
+                                                assert(_full_forgot_guards.inner.dom().contains(ch)) by {
+                                                    _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, (level - 1) as PagingLevel);
+                                                };
+                                            }
+                                        }
+                                    };
+                                }
+                            };
+                        } else {
+                            assert(node_helper::nid_to_level::<C>(nid) == 1) by {
+                                node_helper::lemma_level_dep_relation::<C>(nid);
+                            };
+                            assert(node_helper::nid_to_level::<C>(nid) == level);
+                        }
+                    }
+                };
+            };
+            assert(full_forgot_guards.is_root_and_contained(
+                cursor.get_guard_level_unwrap(cursor.guard_level).nid(),
+            )) by {
+                let nid = cursor.get_guard_level_unwrap(cursor.guard_level).nid();
+                assert forall|_nid: NodeId| 
+                    #[trigger] full_forgot_guards.inner.dom().contains(_nid) 
+                implies {
+                    node_helper::in_subtree_range::<C>(nid, _nid)
+                } by {
+                    if forgot_guards.inner.dom().contains(_nid) {
+                        assert(_forgot_guards.inner.dom().contains(_nid));
+                        let _full_forgot_guards =
+                            _cursor.rec_put_guard_from_path(_forgot_guards, _cursor.guard_level);
+                        assert(_full_forgot_guards.is_sub_root_and_contained(nid));
+                        assert(_full_forgot_guards.inner.dom().contains(_nid)) by {
+                            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+                            _cursor.lemma_put_guard_from_path_bottom_up_eq_with_top_down(_forgot_guards);
+                        };
+                    } else {
+                        assert(exists |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid
+                        );
+                        let level = choose |level: PagingLevel|
+                            cursor.g_level@ <= level <= cursor.guard_level &&
+                            #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid;
+                        assert(_cursor.get_guard_level_unwrap(level).nid() == _nid);
+                        _cursor.lemma_guard_in_path_relation_implies_in_subtree_range();
+                    }
+                };
+            };
+        }
+    };
 }
 
 } // verus!

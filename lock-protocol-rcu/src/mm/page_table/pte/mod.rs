@@ -58,10 +58,10 @@ impl<C: PageTableConfig> Pte<C> {
     // TODO
     pub open spec fn wf_with_node(&self, node: PageTableNode<C>, offset: nat) -> bool {
         &&& self.wf(node.level_spec())
-        &&& self.nid@ is Some ==> self.nid@->Some_0 == node_helper::get_child::<C>(
-            node.nid@,
-            offset,
-        )
+        &&& self.nid@ is Some ==> {
+            &&& self.nid@->Some_0 == node_helper::get_child::<C>(node.nid@, offset)
+            &&& node_helper::is_child::<C>(node.nid@, self.nid@->Some_0)
+        }
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == node.inst@.id()
     }
 
@@ -74,7 +74,10 @@ impl<C: PageTableConfig> Pte<C> {
         offset: nat,
     ) -> bool {
         &&& self.wf(level)
-        &&& self.nid@ is Some ==> self.nid@->Some_0 == node_helper::get_child::<C>(nid, offset)
+        &&& self.nid@ is Some ==> {
+            &&& self.nid@->Some_0 == node_helper::get_child::<C>(nid, offset)
+            &&& node_helper::is_child::<C>(nid, self.nid@->Some_0)
+        }
         &&& self.inst@ is Some ==> self.inst@->Some_0.id() == inst_id
     }
 
