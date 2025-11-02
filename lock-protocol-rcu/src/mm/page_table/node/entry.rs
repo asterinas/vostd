@@ -109,7 +109,9 @@ impl<C: PageTableConfig> Entry<C> {
             if res is PageTable {
                 &&& node.wf_except(self.idx as nat)
                 &&& node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat)
-                &&& node.guard->Some_0.view_pte_token().value() =~= old(node).guard->Some_0.view_pte_token().value()
+                &&& node.guard->Some_0.view_pte_token().value() =~= old(
+                    node,
+                ).guard->Some_0.view_pte_token().value()
             } else {
                 node.wf()
             },
@@ -122,11 +124,16 @@ impl<C: PageTableConfig> Entry<C> {
             res.wf(),
             res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
             new_child is Frame ==> {
-                &&& node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr() == new_child->Frame_0
-                &&& node.guard->Some_0.view_pte_token().value() =~= old(node).guard->Some_0.view_pte_token().value()
+                &&& node.guard->Some_0.perms().inner.value()[self.idx as int].inner.paddr()
+                    == new_child->Frame_0
+                &&& node.guard->Some_0.view_pte_token().value() =~= old(
+                    node,
+                ).guard->Some_0.view_pte_token().value()
             },
             res is Frame ==> {
-                &&& node.guard->Some_0.view_pte_token().value() =~= old(node).guard->Some_0.view_pte_token().value()
+                &&& node.guard->Some_0.view_pte_token().value() =~= old(
+                    node,
+                ).guard->Some_0.view_pte_token().value()
             },
     {
         let old_child = Child::from_pte(self.pte, node.inner.deref().level());

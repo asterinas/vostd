@@ -222,7 +222,7 @@ pub proof fn lemma_align_down_basic(x: usize, align: usize)
         align_down(x, align) % align == 0,
         x % align == 0 ==> align_down(x, align) == x,
 {
-    admit(); // Refer to above.
+    admit();  // Refer to above.
 }
 
 pub proof fn lemma_align_down_properties(x: usize, align: usize)

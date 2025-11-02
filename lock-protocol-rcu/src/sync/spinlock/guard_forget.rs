@@ -592,14 +592,12 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             new_guard.wf(&new_spin_lock),
             new_guard.stray_perm.value() == false,
             new_guard.in_protocol == true,
-            new_guard.pte_token->Some_0.value() =~= self.get_guard_inner(nid).pte_token->Some_0.value(),
+            new_guard.pte_token->Some_0.value() =~= self.get_guard_inner(
+                nid,
+            ).pte_token->Some_0.value(),
             new_spin_lock =~= self.get_lock(nid),
         ensures
-            self.put_spec(
-                nid,
-                new_guard,
-                new_spin_lock,
-            ).wf(),
+            self.put_spec(nid, new_guard, new_spin_lock).wf(),
     {
         admit();
     }
@@ -636,11 +634,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             new_ch_guard.in_protocol == true,
             new_ch_guard.pte_token->Some_0.value() =~= PteArrayState::empty(),
         ensures
-            self.put_spec(
-                pa,
-                new_pa_guard,
-                new_pa_spin_lock,
-            ).put_spec(
+            self.put_spec(pa, new_pa_guard, new_pa_spin_lock).put_spec(
                 ch,
                 new_ch_guard,
                 new_ch_spin_lock,
