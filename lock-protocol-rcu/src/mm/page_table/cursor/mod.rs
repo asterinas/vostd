@@ -3000,7 +3000,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         assert(len % page_size::<C>(1) == 0);
         let end = start + len;
         assert(end % page_size::<C>(1) == 0) by {
-            admit();
+            admit();  // TODO
         };
         assert(end <= self.0.barrier_va.end);
 
@@ -3030,7 +3030,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     self.0.level,
         {
             assert(C::NR_LEVELS() == 4) by {
-                admit();
+                admit();  // TODO
             };
 
             let cur_va = self.0.va;
@@ -3038,7 +3038,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let mut cur_entry = self.0.cur_entry();
 
             assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by {
-                admit();
+                admit();  // TODO
             };
 
             // Skip if it is already absent.
@@ -3084,18 +3084,18 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 assert(cur_va >= end) by {
                                     let t1 = cur_va / k;
                                     assert(cur_va == t1 * k) by {
-                                        admit();
+                                        admit();  // TODO
                                     };
                                     let t2 = end / k;
                                     assert(end == t2 * k) by {
-                                        admit();
+                                        admit();  // TODO
                                     };
                                     assert(t1 + 1 > t2) by {
-                                        admit();
+                                        admit();  // TODO
                                     };
                                     assert(t1 >= t2);
                                     assert(cur_va >= end) by {
-                                        admit();
+                                        admit();  // TODO
                                     };
                                 }
                             }
@@ -3857,8 +3857,59 @@ proof fn take_next_inner_proof_cursor_wf_final<C: PageTableConfig>(
                     cur_node.guard->Some_0.inner@,
                     cur_node.meta_spec().lock,
                 )) by {
-                    admit();
-                };  // Special
+                    assert(_forgot_guards.inner =~= forgot_guards.inner);
+                    let _full_forgot_guards_pre = full_forgot_guards_pre.put_spec(
+                        cur_node.nid(),
+                        cur_node.guard->Some_0.inner@,
+                        cur_node.meta_spec().lock,
+                    );
+                    assert(full_forgot_guards_post.inner =~= _full_forgot_guards_pre.inner) by {
+                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                            _forgot_guards,
+                            _cursor.guard_level,
+                        );
+                        cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                            forgot_guards,
+                            cursor.guard_level,
+                        );
+                        assert forall|nid: NodeId|
+                            _full_forgot_guards_pre.inner.dom().contains(nid) implies {
+                            full_forgot_guards_post.inner.dom().contains(nid)
+                        } by {
+                            if nid == cur_node.nid() {
+                            } else if forgot_guards.inner.dom().contains(nid) {
+                            } else {
+                                assert(exists|level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid()
+                                        == nid);
+                                let level = choose|level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid()
+                                        == nid;
+                                assert(cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                        assert forall|nid: NodeId|
+                            full_forgot_guards_post.inner.dom().contains(nid) implies {
+                            _full_forgot_guards_pre.inner.dom().contains(nid)
+                        } by {
+                            if nid == cur_node.nid() {
+                            } else if forgot_guards.inner.dom().contains(nid) {
+                            } else {
+                                assert(exists|level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid()
+                                        == nid);
+                                let level = choose|level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid()
+                                        == nid;
+                                assert(_cursor.get_guard_level_unwrap(level).nid() == nid);
+                            }
+                        };
+                    };
+                };
 
                 assert(full_forgot_guards_pre.get_lock(cur_node.nid())
                     =~= _cur_node.meta_spec().lock) by {
