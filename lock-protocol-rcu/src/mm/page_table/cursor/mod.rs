@@ -530,7 +530,22 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 (self.g_level@ - 1) as PagingLevel,
             ) =~= forgot_guards,
     {
-        admit();
+        let ghost _forgot_guards = self.put_guard_from_path_bottom_up(
+            forgot_guards, 
+            (self.g_level@ - 1) as PagingLevel,
+        );
+        assert(_forgot_guards.inner =~= forgot_guards.inner) by {
+            assert forall |nid: NodeId|
+                forgot_guards.inner.dom().contains(nid)
+            implies {
+                _forgot_guards.inner.dom().contains(nid)
+            } by {};
+            assert forall |nid: NodeId|
+                _forgot_guards.inner.dom().contains(nid)
+            implies {
+                forgot_guards.inner.dom().contains(nid)
+            } by {};
+        }
     }
 
     pub proof fn lemma_put_guard_from_path_bottom_up_eq_with_rec(
