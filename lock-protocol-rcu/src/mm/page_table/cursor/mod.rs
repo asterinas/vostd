@@ -563,12 +563,40 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ensures
             self.rec_put_guard_from_path(forgot_guards, cur_level)
                 =~= self.put_guard_from_path_bottom_up(forgot_guards, cur_level),
+        decreases cur_level,
     {
         if cur_level < self.g_level@ {
             self.lemma_rec_put_guard_from_path_basic(forgot_guards);
             self.lemma_put_guard_from_path_bottom_up_basic(forgot_guards);
         } else {
-            admit();
+            let rec_res = self.rec_put_guard_from_path(
+                forgot_guards,
+                (cur_level - 1) as PagingLevel,
+            );
+            let bottom_up_res = self.put_guard_from_path_bottom_up(
+                forgot_guards,
+                (cur_level - 1) as PagingLevel,
+            );
+            assert(rec_res =~= bottom_up_res) by {
+                self.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                    forgot_guards,
+                    (cur_level - 1) as PagingLevel,
+                );
+            };
+            let guard = self.get_guard_level_unwrap(cur_level);
+            let res_put_cur_level = rec_res.put_spec(
+                guard.nid(),
+                guard.guard->Some_0.inner@,
+                guard.inner.deref().meta_spec().lock,
+            );
+            assert(res_put_cur_level.inner =~= self.rec_put_guard_from_path(
+                forgot_guards,
+                cur_level,
+            ).inner);
+            assert(res_put_cur_level.inner =~= self.put_guard_from_path_bottom_up(
+                forgot_guards,
+                cur_level,
+            ).inner);
         }
     }
 
