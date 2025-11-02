@@ -333,10 +333,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     )
                     &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
-                    &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol()
-                        == true// &&& va_level_to_nid(self.va, level) == self.get_guard_level_unwrap(level).nid()
-                    // TODO: Add this
-
+                    &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
+                        level,
+                    ).nid()
                 } else {
                     self.get_guard_level(level) is None
                 }
@@ -1227,7 +1227,6 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         assert(self.wf_with_forgot_guards(forgot_guards));
         let ghost _cursor = *self;
         self.va = next_va;
-        // Have no idea how to remove the redundant proofs.
         assert(self.wf()) by {
             assert(self.wf_path()) by {
                 assert forall|level: PagingLevel|
@@ -1246,6 +1245,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
+                            level,
+                        ).nid()
                     } else {
                         self.get_guard_level(level) is None
                     }
@@ -1269,6 +1271,11 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                             &&& _cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol()
                                 == true
                         });
+                        assert(va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
+                            level,
+                        ).nid()) by {
+                            admit();
+                        };  // TODO
                     } else {
                         assert(_cursor.get_guard_level(level) is None);
                     }
@@ -1506,6 +1513,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
+                            level,
+                        ).nid()
                     } else {
                         self.get_guard_level(level) is None
                     }
@@ -1665,6 +1675,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
                         &&& self.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
+                            level,
+                        ).nid()
                     } else {
                         self.get_guard_level(level) is None
                     }
@@ -1677,6 +1690,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         if level == self.g_level@ {
                             assert(self.get_guard_level(level) is Some);
                             assert(self.get_guard_level_unwrap(level) =~= child_pt);
+                            assert(va_level_to_nid::<C>(self.va, level) == child_pt.nid()) by {
+                                admit();
+                            };  // TODO
                         } else {
                             assert(self.path[level - 1] =~= old(self).path[level - 1]);
                         }
@@ -2051,6 +2067,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                     &&& cursor.get_guard_level_unwrap(
                                         level,
                                     ).guard->Some_0.in_protocol() == true
+                                    &&& va_level_to_nid::<C>(cursor.va, level)
+                                        == cursor.get_guard_level_unwrap(level).nid()
                                 } else {
                                     cursor.get_guard_level(level) is None
                                 }
@@ -2349,7 +2367,21 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                     cur_node.meta_spec().lock,
                                 )) by {
                                     assert(_cur_node.nid() == cur_node.nid());
-                                    admit();  // TODO: add an extra lemma for Map.
+                                    let map1 = forgot_guards1.put_spec(
+                                        _cur_node.nid(),
+                                        _cur_node.guard->Some_0.inner@,
+                                        _cur_node.meta_spec().lock,
+                                    ).put_spec(
+                                        cur_node.nid(),
+                                        cur_node.guard->Some_0.inner@,
+                                        cur_node.meta_spec().lock,
+                                    ).inner;
+                                    let map2 = forgot_guards1.put_spec(
+                                        cur_node.nid(),
+                                        cur_node.guard->Some_0.inner@,
+                                        cur_node.meta_spec().lock,
+                                    ).inner;
+                                    assert(map1 =~= map2);
                                 };
                             };
                             assert(full_forgot_guard_target =~= full_forgot_guards_post.put_spec(
@@ -2571,6 +2603,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         &&& cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                             == false
                         &&& cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                        &&& va_level_to_nid::<C>(cursor.va, level) == cursor.get_guard_level_unwrap(
+                            level,
+                        ).nid()
                     } else {
                         cursor.get_guard_level(level) is None
                     }
@@ -2787,9 +2822,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 )
             } by {
                 let nid = va_level_to_nid::<C>(_cursor.va, level);
-                assert(nid == _cursor.get_guard_level_unwrap(level).nid()) by {
-                    admit();
-                };
+                assert(nid == _cursor.get_guard_level_unwrap(level).nid());
                 assert(full_forgot_guards_pre.inner.dom().contains(nid)) by {
                     _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(
                         _forgot_guards,
@@ -2870,9 +2903,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
         )) by {
             let cursor = self.0;
             let nid = va_level_to_nid::<C>(_cursor.va, 1);
-            assert(nid == __cursor.get_guard_level_unwrap(1).nid()) by {
-                admit();
-            };
+            assert(nid == __cursor.get_guard_level_unwrap(1).nid());
             let idx = pte_index::<C>(_cursor.va, 1);
             assert(_cursor.va == __cursor.va);
             assert(__cursor.get_guard_level(1) is Some);
@@ -3549,6 +3580,9 @@ proof fn take_next_change_va_hold_wf<C: PageTableConfig>(
                     &&& cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
                     &&& cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    &&& va_level_to_nid::<C>(cursor.va, level) == cursor.get_guard_level_unwrap(
+                        level,
+                    ).nid()
                 } else {
                     cursor.get_guard_level(level) is None
                 }
@@ -3557,8 +3591,12 @@ proof fn take_next_change_va_hold_wf<C: PageTableConfig>(
                 assert(cursor.g_level@ == _cursor.g_level@);
                 if level > cursor.guard_level {
                     assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                    assert(_cursor.get_guard_level(level) is None);
                 } else if level >= cursor.g_level@ {
                     assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
+                    assert(va_level_to_nid::<C>(cursor.va, level) == cursor.get_guard_level_unwrap(
+                        level,
+                    ).nid()) by { admit() }  // TODO
                 } else {
                     assert(cursor.path[level - 1] =~= _cursor.path[level - 1]);
                     assert(_cursor.get_guard_level(level) is None);
@@ -3743,6 +3781,9 @@ proof fn take_next_inner_proof_cursor_wf_final<C: PageTableConfig>(
                     &&& cursor.get_guard_level_unwrap(level).guard->Some_0.stray_perm().value()
                         == false
                     &&& cursor.get_guard_level_unwrap(level).guard->Some_0.in_protocol() == true
+                    &&& va_level_to_nid::<C>(cursor.va, level) == cursor.get_guard_level_unwrap(
+                        level,
+                    ).nid()
                 } else {
                     cursor.get_guard_level(level) is None
                 }

@@ -306,11 +306,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             ),
     {
         let taken = self.take_spec(nid);
-        let put_back = taken.put_spec(
-            nid,
-            self.get_guard_inner(nid),
-            self.get_lock(nid),
-        );
+        let put_back = taken.put_spec(nid, self.get_guard_inner(nid), self.get_lock(nid));
         assert(self.inner =~= put_back.inner);
     }
 
