@@ -35,7 +35,7 @@ use crate::spec::{
         lemma_va_level_to_trace_valid,
     },
     node_helper::{self, group_node_helper_lemmas},
-    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken},
     rcu::{PteArrayState},
 };
 
@@ -1114,6 +1114,46 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
     }
 
     Tracked(m)
+}
+
+// TODO: Similar to dfs_release_lock.
+#[verifier::external_body]
+pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
+    guard: &'rcu DisabledPreemptGuard,
+    mut cur_node: PageTableGuard<'rcu, C>,
+    Tracked(m): Tracked<&LockProtocolModel<C>>,
+    forgot_guards: Tracked<SubTreeForgotGuard<C>>,
+) -> (res: (
+        Tracked<NodeToken<C>>,
+        Tracked<PteArrayToken<C>>,
+        Tracked<StrayToken<C>>,
+    ))
+    requires
+        cur_node.wf(),
+        cur_node.guard->Some_0.stray_perm().value() == false,
+        cur_node.guard->Some_0.in_protocol() == true,
+        m.inv(),
+        m.inst_id() == cur_node.inst_id(),
+        m.state() is Locked,
+        m.node_is_locked(cur_node.nid()),
+        forgot_guards@.wf(),
+        forgot_guards@.is_root(cur_node.nid()),
+        !forgot_guards@.inner.dom().contains(cur_node.nid()),
+        forgot_guards@.children_are_contained(
+            cur_node.nid(),
+            cur_node.guard->Some_0.view_pte_token().value(),
+        ),
+    ensures
+        res.0@ =~= cur_node.guard->Some_0.view_node_token(),
+        res.1@.instance_id() == cur_node.guard->Some_0.view_pte_token().instance_id(),
+        res.1@.key() == cur_node.nid(),
+        res.1@.value() =~= PteArrayState::empty(),
+        res.2@.instance_id() == cur_node.guard->Some_0.stray_perm().token.instance_id(),
+        res.2@.key() =~= cur_node.guard->Some_0.stray_perm().token.key(),
+        res.2@.value() == false,
+    decreases cur_node.deref().deref().level_spec(),
+{
+    unimplemented!()
 }
 
 } // verus!

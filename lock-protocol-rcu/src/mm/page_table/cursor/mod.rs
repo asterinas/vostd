@@ -1892,12 +1892,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 self.0.constant_fields_unchanged(&old(self).0),
                 // VA should be unchanged in the loop.
                 self.0.va == old(self).0.va,
-                // forall |_level: PagingLevel|
-                //     #![trigger old(self).0.get_guard_level(_level)]
-                //     #![trigger old(self).0.get_guard_level_unwrap(_level)]
-                //     old(self).0.level <= _level <= old(self).0.guard_level ==> {
-                //         self.0.get_guard_level(_level) =~= old(self).0.get_guard_level(_level)
-                //     },
                 self.0.get_guard_level_unwrap(self.0.guard_level).nid() =~= old(
                     self,
                 ).0.get_guard_level_unwrap(self.0.guard_level).nid(),
@@ -3660,18 +3654,38 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         Ghost(spin_lock),
                     );
 
+                    let ghost ch_node = locked_pt;
+                    let ghost ch_guard = ch_node.guard->Some_0;
+
+                    assert(m.node_is_locked(cur_node.nid())) by {
+                        assert(m.sub_tree_rt() == _cursor.get_guard_level_unwrap(_cursor.guard_level).nid());
+                        _cursor.lemma_guards_in_path_relation(_cursor.guard_level);
+                    };
+                    assert(m.node_is_locked(locked_pt.nid())) by {
+                        assert(node_helper::is_child::<C>(cur_node.nid(), locked_pt.nid()));
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(m.sub_tree_rt(), cur_node.nid());
+                        node_helper::lemma_in_subtree_is_child_in_subtree::<C>(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                            locked_pt.nid(),
+                        );
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(m.sub_tree_rt(), locked_pt.nid());
+                    };
+                    let res = locking::dfs_mark_stray_and_unlock(
+                        self.0.preempt_guard,
+                        locked_pt,
+                        Tracked(m),
+                        Tracked(sub_forgot_guards),
+                    );
+                    let tracked ch_node_token = res.0.get();
+                    let tracked ch_pte_array_token = res.1.get();
+                    let tracked mut ch_stray_token = res.2.get();
+
                     let mut pa_node = cur_node;
                     let mut pa_guard = pa_node.guard.unwrap();
                     let tracked mut pa_inner = pa_guard.inner.get();
                     let tracked pa_node_token = pa_inner.node_token.tracked_borrow();
                     let tracked mut pa_pte_array_token = pa_inner.pte_token.tracked_unwrap();
-                    let mut ch_node = locked_pt;
-                    let mut ch_guard = ch_node.guard.unwrap();
-                    let tracked mut ch_inner = ch_guard.inner.get();
-                    let tracked ch_node_token = ch_inner.node_token.tracked_unwrap();
-                    let tracked ch_pte_array_token = ch_inner.pte_token.tracked_unwrap();
-                    let tracked mut ch_stray_perm = ch_inner.stray_perm;
-                    let tracked mut ch_stray_token = ch_stray_perm.token;
                     proof {
                         let idx = pte_index::<C>(self.0.va, self.0.level);
                         assert(0 <= idx < 512) by {
@@ -3724,13 +3738,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             }
                         };
 
-                        assert(ch_pte_array_token.value() =~= PteArrayState::empty()) by {
-                            admit();
-                        };
+                        assert(ch_pte_array_token.value() =~= PteArrayState::empty());
 
                         assert(pa_pte_array_token.value().get_paddr(idx as nat)
                             == ch_stray_token.key().1) by {
-                            admit();
+                            assert(_cur_node.guard->Some_0.perms().inner.value()[idx as int].is_pt(_cur_node.level_spec()));
                         };
 
                         let _pa_pte_array_token = pa_pte_array_token;
@@ -3753,15 +3765,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             PteState::None,
                         ));
 
-                        ch_stray_perm.token = ch_stray_token;
-                        ch_inner.node_token = None;
-                        ch_inner.pte_token = None;
-                        ch_inner.stray_perm = ch_stray_perm;
-
                         pa_inner.pte_token = Some(pa_pte_array_token);
                     }
-                    ch_guard.inner = Tracked(ch_inner);
-                    ch_node.guard = Some(ch_guard);
                     pa_guard.inner = Tracked(pa_inner);
                     pa_node.guard = Some(pa_guard);
                     cur_node = pa_node;
