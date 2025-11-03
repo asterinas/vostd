@@ -1573,6 +1573,39 @@ pub proof fn lemma_child_in_subtree_implies_in_subtree<C: PageTableConfig>(
     }
 }
 
+/// Similar to `lemma_child_in_subtree_implies_in_subtree`, but for descendants.
+pub proof fn lemma_decendant_in_subtree_implies_in_subtree<C: PageTableConfig>(
+    rt: NodeId,
+    anc: NodeId,
+    dec: NodeId,
+)
+    requires
+        valid_nid::<C>(rt),
+        valid_nid::<C>(anc),
+        in_subtree::<C>(rt, dec),
+        in_subtree::<C>(anc, dec),
+        nid_to_level::<C>(anc) < nid_to_level::<C>(rt),
+    ensures
+        in_subtree::<C>(rt, anc),
+{
+    broadcast use {lemma_nid_to_trace_sound, lemma_trace_to_nid_sound};
+
+    let rt_trace = nid_to_trace::<C>(rt);
+    let anc_trace = nid_to_trace::<C>(anc);
+    let dec_trace = nid_to_trace::<C>(dec);
+
+    assert(rt_trace.len() < anc_trace.len()) by {
+        if rt_trace.len() == anc_trace.len() {
+            assert(rt_trace == anc_trace);
+            assert(rt == anc);
+        }
+    };
+    assert(anc_trace.is_prefix_of(dec_trace));
+    assert(rt_trace.is_prefix_of(dec_trace));
+
+    assert(rt_trace.is_prefix_of(anc_trace));
+}
+
 /// If `pa` is not in the subtree of `rt`, `ch` is a child of `pa`, and `rt` is not equal to `ch`,
 /// then `ch` is not in the subtree of `rt`.
 pub proof fn lemma_not_in_subtree_range_implies_child_not_in_subtree_range<C: PageTableConfig>(
