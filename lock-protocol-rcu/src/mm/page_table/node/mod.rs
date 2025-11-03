@@ -257,6 +257,83 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
         unimplemented!();
     }
+
+    #[verifier::external_body]
+    pub fn protocol_alloc(
+        level: PagingLevel,
+        nid: Ghost<NodeId>,
+        inst: Tracked<SpecInstance<C>>,
+        pa_nid: Ghost<NodeId>,
+        offset: Ghost<nat>,
+        node_token: Tracked<&NodeToken<C>>,
+        pte_token: Tracked<PteArrayToken<C>>,
+        Tracked(m): Tracked<&LockProtocolModel<C>>,
+    ) -> (res: (PageTableNode<C>, Tracked<PteArrayToken<C>>))
+        requires
+            level as nat == node_helper::nid_to_level::<C>(nid@),
+            node_helper::valid_nid::<C>(nid@),
+            nid@ != node_helper::root_id::<C>(),
+            inst@.cpu_num() == GLOBAL_CPU_NUM,
+            node_helper::valid_nid::<C>(pa_nid@),
+            node_helper::is_not_leaf::<C>(pa_nid@),
+            nid@ == node_helper::get_child::<C>(pa_nid@, offset@),
+            0 <= offset@ < 512,
+            node_token@.instance_id() == inst@.id(),
+            node_token@.key() == pa_nid@,
+            node_token@.value() is Locked,
+            pte_token@.instance_id() == inst@.id(),
+            pte_token@.key() == pa_nid@,
+            pte_token@.value().is_void(offset@),
+            m.inv(),
+            m.inst_id() == inst@.id(),
+            m.state() is Locked,
+            m.node_is_locked(pa_nid@),
+        ensures
+            res.0.wf(),
+            res.0.nid@ == nid@,
+            res.0.inst@ =~= inst@,
+            res.0.level_spec() == level,
+            res.1@.instance_id() == inst@.id(),
+            res.1@.key() == pa_nid@,
+            res.1@.value() =~= pte_token@.value().update(
+                offset@,
+                PteState::Alive(res.0.start_paddr()),
+            ),
+    {
+        let tracked node_token = node_token.get();
+        let tracked mut pte_token = pte_token.get();
+        let paddr: Paddr = 0;
+
+        assert(pa_nid@ == node_helper::get_parent::<C>(nid@)) by {
+            node_helper::lemma_get_child_sound::<C>(pa_nid@, offset@);
+        };
+        assert(offset@ == node_helper::get_offset::<C>(nid@)) by {
+            node_helper::lemma_get_child_sound::<C>(pa_nid@, offset@);
+        };
+
+        let tracked ch_node_token;
+        let tracked ch_pte_token;
+        let tracked stray_token;
+        let tracked free_paddr_token = Self::assume_free_paddr_token(inst@);
+
+        proof {
+            let tracked res = inst.borrow().protocol_allocate(
+                m.cpu,
+                nid@,
+                paddr,
+                &node_token,
+                pte_token,
+                &m.token,
+                free_paddr_token,
+            );
+            ch_node_token = res.0.get();
+            pte_token = res.1.get();
+            ch_pte_token = res.2.get();
+            stray_token = res.3.get();
+        }
+
+        unimplemented!()
+    }
 }
 
 pub struct PageTableNodeRef<'a, C: PageTableConfig> {
@@ -348,7 +425,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            // res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
+            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == false,
     {
@@ -393,6 +470,38 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         }
         let guard = PageTableGuard { inner: self, guard: Some(res.0) };
         (guard, Tracked(m))
+    }
+
+    pub fn lock_new_allocated_node<'rcu>(
+        self,
+        guard: &'rcu DisabledPreemptGuard,
+        Tracked(m): Tracked<&LockProtocolModel<C>>,
+        pa_pte_array_token: Tracked<&PteArrayToken<C>>,
+    ) -> (res: PageTableGuard<'rcu, C>) where 'a: 'rcu
+        requires
+            self.wf(),
+            self.nid@ != node_helper::root_id::<C>(),
+            m.inv(),
+            m.inst_id() == self.inst@.id(),
+            m.state() is Locked,
+            m.node_is_locked(pa_pte_array_token@.key()),
+            pa_pte_array_token@.instance_id() == self.inst@.id(),
+            pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
+            pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
+            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
+                == self.deref().start_paddr(),
+        ensures
+            res.wf(),
+            res.inner =~= self,
+            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
+            res.guard->Some_0.stray_perm().value() == false,
+            res.guard->Some_0.in_protocol() == true,
+    {
+        let guard = self.deref().meta().lock.lock_new_allocated_node(
+            Tracked(m),
+            pa_pte_array_token,
+        );
+        PageTableGuard { inner: self, guard: Some(guard) }
     }
 
     pub fn make_guard_unchecked<'rcu>(

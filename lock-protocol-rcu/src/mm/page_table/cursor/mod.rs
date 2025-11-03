@@ -2065,7 +2065,11 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             _cursor.lemma_guards_in_path_relation(_cursor.guard_level);
                         };
                     };
-                    let res = cur_entry.alloc_if_none(preempt_guard, &mut cur_node, Tracked(m));
+                    let res = cur_entry.protocol_alloc_if_none(
+                        preempt_guard,
+                        &mut cur_node,
+                        Tracked(m),
+                    );
                     assert(cur_node.wf());
                     assert(cur_node.inst_id() == self.0.inst@.id());
                     assert(node_helper::nid_to_level::<C>(cur_node.nid()) == self.0.level);
