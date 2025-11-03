@@ -673,7 +673,31 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 ).put_spec(guard.nid(), inner, spin_lock)
             },
     {
-        admit();
+        let top_down_g_level = self.put_guard_from_path_top_down(forgot_guards, self.g_level@);
+        let top_down_p1 = self.put_guard_from_path_top_down(
+            forgot_guards,
+            (self.g_level@ + 1) as PagingLevel,
+        );
+        let guard = self.get_guard_level_unwrap(self.g_level@);
+        let guard_nid = guard.nid();
+        let inner = guard.guard->Some_0.inner@;
+        let spin_lock = guard.inner.deref().meta_spec().lock;
+        let top_down_p1_put = top_down_p1.put_spec(guard_nid, inner, spin_lock);
+        if self.g_level@ == self.guard_level {
+            assert(top_down_p1.inner =~= forgot_guards.inner) by {
+                self.lemma_put_guard_from_path_top_down_basic(forgot_guards);
+            };
+            assert(top_down_p1_put.inner =~= top_down_g_level.inner);
+        } else {
+            assert(top_down_g_level.inner =~= top_down_p1_put.inner) by {
+                assert forall |nid: NodeId| top_down_g_level.inner.dom().contains(nid) implies {
+                    top_down_p1_put.inner.dom().contains(nid)
+                } by {};
+                assert forall |nid: NodeId| top_down_p1_put.inner.dom().contains(nid) implies {
+                    top_down_g_level.inner.dom().contains(nid)
+                } by {};
+            };
+        }
     }
 
     pub proof fn lemma_put_guard_from_path_bottom_up_eq_with_top_down(
