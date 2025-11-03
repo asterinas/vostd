@@ -414,6 +414,17 @@ pub open spec fn get_subtree_traces<C: PageTableConfig>(trace: Seq<nat>) -> Set<
     valid_trace_set::<C>().filter(|subtree_trace| trace.is_prefix_of(subtree_trace))
 }
 
+pub open spec fn get_ancestor_at_level<C: PageTableConfig>(nid: NodeId, level: nat) -> NodeId
+    recommends
+        valid_nid::<C>(nid),
+        nid_to_level::<C>(nid) <= level <= C::NR_LEVELS_SPEC(),
+{
+    let trace = nid_to_trace::<C>(nid);
+    let dep = dep_to_level::<C>(level);
+    let ancestor_trace = trace.subrange(0, dep as int);
+    trace_to_nid::<C>(ancestor_trace)
+}
+
 proof fn lemma_trace_to_nid_rec_inductive<C: PageTableConfig>(
     trace: Seq<nat>,
     cur_rt: NodeId,
@@ -1649,6 +1660,32 @@ pub proof fn lemma_is_child_level_relation<C: PageTableConfig>(pa: NodeId, ch: N
     lemma_level_dep_relation::<C>(ch);
 }
 
+pub proof fn lemma_in_subtree_level_relation<C: PageTableConfig>(rt: NodeId, nd: NodeId)
+    requires
+        valid_nid::<C>(rt),
+        valid_nid::<C>(nd),
+        in_subtree::<C>(rt, nd),
+        rt != nd,
+    ensures
+        nid_to_level::<C>(nd) < nid_to_level::<C>(rt),
+{
+    broadcast use lemma_nid_to_trace_sound;
+
+    let rt_trace = nid_to_trace::<C>(rt);
+    let nd_trace = nid_to_trace::<C>(nd);
+
+    assert(rt_trace.len() < nd_trace.len()) by {
+        if rt_trace.len() > nd_trace.len() {
+            assert(!(rt_trace.is_prefix_of(nd_trace)));
+        } else if rt_trace.len() == nd_trace.len() {
+            assert(rt_trace == nd_trace);
+            assert(rt == nd);
+        }
+    };
+    lemma_level_dep_relation::<C>(rt);
+    lemma_level_dep_relation::<C>(nd);
+}
+
 proof fn lemma_trace_to_nid_rec_push<C: PageTableConfig>(
     trace: Seq<nat>,
     offset: nat,
@@ -1790,6 +1827,80 @@ pub proof fn lemma_brothers_have_different_offset<C: PageTableConfig>(nid1: Node
 {
     lemma_get_parent_get_offset_sound::<C>(nid1);
     lemma_get_parent_get_offset_sound::<C>(nid2);
+}
+
+pub proof fn lemma_get_ancestor_at_level_implies_in_subtree<C: PageTableConfig>(
+    nid: NodeId,
+    level: nat,
+)
+    requires
+        valid_nid::<C>(nid),
+        nid_to_level::<C>(nid) <= level <= C::NR_LEVELS_SPEC(),
+    ensures
+        in_subtree::<C>(get_ancestor_at_level::<C>(nid, level), nid),
+{
+    assert(1 <= nid_to_level::<C>(nid)) by {
+        lemma_nid_to_dep_up_bound::<C>(nid);
+    };
+
+    let nid_trace = nid_to_trace::<C>(nid);
+    assert(valid_trace::<C>(nid_trace)) by {
+        lemma_nid_to_trace_sound::<C>(nid);
+    };
+    let dep = level_to_dep::<C>(level);
+    assert(0 <= dep as int <= nid_trace.len() as int) by {
+        lemma_level_dep_relation::<C>(nid);
+    };
+    let ancestor_trace = nid_trace.subrange(0, dep as int);
+    assert(valid_trace::<C>(ancestor_trace));
+    let anc = trace_to_nid::<C>(ancestor_trace);
+    assert(valid_nid::<C>(anc)) by {
+        lemma_trace_to_nid_sound::<C>(ancestor_trace);
+    };
+    assert(get_ancestor_at_level::<C>(nid, level) == anc);
+    assert(in_subtree::<C>(anc, nid)) by {
+        assert(ancestor_trace =~= nid_to_trace::<C>(anc)) by {
+            lemma_trace_to_nid_sound::<C>(ancestor_trace);
+        };
+        assert(ancestor_trace.is_prefix_of(nid_trace));
+    };
+}
+
+pub proof fn lemma_get_ancestor_at_level_uniqueness<C: PageTableConfig>(nid: NodeId, level: nat)
+    requires
+        valid_nid::<C>(nid),
+        nid_to_level::<C>(nid) <= level <= C::NR_LEVELS_SPEC(),
+    ensures
+        forall|anc: NodeId|
+            {
+                &&& #[trigger] valid_nid::<C>(anc)
+                &&& #[trigger] nid_to_level::<C>(anc) == level
+                &&& #[trigger] in_subtree::<C>(anc, nid)
+            } ==> anc == #[trigger] get_ancestor_at_level::<C>(nid, level),
+{
+    assert forall|anc: NodeId|
+        {
+            &&& #[trigger] valid_nid::<C>(anc)
+            &&& #[trigger] nid_to_level::<C>(anc) == level
+            &&& #[trigger] in_subtree::<C>(anc, nid)
+        } implies anc == get_ancestor_at_level::<C>(nid, level) by {
+        let nid_trace = nid_to_trace::<C>(nid);
+        lemma_nid_to_trace_sound::<C>(nid);
+        let dep = level_to_dep::<C>(level);
+        let ancestor_trace = nid_trace.subrange(0, dep as int);
+        let expected_anc = trace_to_nid::<C>(ancestor_trace);
+
+        lemma_nid_to_trace_sound::<C>(anc);
+        let anc_trace = nid_to_trace::<C>(anc);
+
+        assert(ancestor_trace =~= anc_trace) by {
+            assert(ancestor_trace.is_prefix_of(nid_trace));
+            assert(anc_trace.is_prefix_of(nid_trace));
+            assert(ancestor_trace.len() == anc_trace.len());
+        };
+        lemma_trace_to_nid_sound::<C>(ancestor_trace);
+        assert(expected_anc == anc);
+    };
 }
 
 } // verus!

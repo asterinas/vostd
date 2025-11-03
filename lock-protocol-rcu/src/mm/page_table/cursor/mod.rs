@@ -11,10 +11,9 @@ use std::{
 use core::ops::Deref;
 
 use vstd::{
-    arithmetic::{mul::*, div_mod::*, power::*, power2::*},
-    calc,
+    arithmetic::{div_mod::*, mul::*, power::*, power2::*},
+    assert_by_contradiction, calc, invariant,
     layout::is_power_2,
-    invariant,
     pervasive::VecAdditionalExecFns,
     prelude::*,
     raw_ptr::MemContents,
@@ -22,6 +21,7 @@ use vstd::{
 };
 use vstd::bits::*;
 use vstd::tokens::SetToken;
+use vstd_extra::ghost_tree::Node;
 
 use crate::helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add};
 use crate::mm::{
@@ -821,6 +821,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 &&& res.is_root_and_contained(self.get_guard_level_unwrap(self.guard_level).nid())
             }
         }
+        &&& forall|nid: NodeId| #[trigger]
+            forgot_guards.inner.dom().contains(nid) ==> node_helper::nid_to_level::<C>(nid)
+                <= self.guard_level
         &&& self.wf_with_forgot_guards_nid_not_contained(forgot_guards)
     }
 
@@ -864,31 +867,112 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         ensures
             self.guards_in_path_wf_with_forgot_guards(forgot_guards),
     {
-        // assert forall |_nid: NodeId|
-        //             #[trigger] forgot_guards.inner.dom().contains(_nid) && _nid != nid
-        //         implies {
-        //             !node_helper::in_subtree_range::<C>(_nid, nid)
-        //         } by {
-        //             if node_helper::in_subtree_range::<C>(_nid, nid) {
-        //                 let sub_rt_nid = self.get_guard_level_unwrap(self.guard_level).nid();
-        //                 if node_helper::in_subtree_range::<C>(sub_rt_nid, _nid) {
-        //                     assert(
-        //                         exists |level: PagingLevel|
-        //                             old(self).level < level <= old(self).guard_level &&
-        //                             _nid == #[trigger] old(self).get_guard_level_unwrap(level).nid()
-        //                     ) by { admit(); };
-        //                 } else {
-        //                     assert forall |__nid: NodeId|
-        //                         #[trigger] forgot_guards.inner.dom().contains(__nid)
-        //                     implies {
-        //                         node_helper::in_subtree_range::<C>(sub_rt_nid, __nid)
-        //                     } by {
-        //                         assert(forgot_guards.is_root(sub_rt_nid));
-        //                     };
-        //                 }
-        //             }
-        //         };
-        admit();
+        assert forall|level: PagingLevel| self.g_level@ <= level <= self.guard_level implies {
+            #[trigger] self.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, level)
+        } by {
+            let guard = self.get_guard_level_unwrap(level);
+            let _forgot_guards = self.put_guard_from_path_bottom_up(
+                forgot_guards,
+                (level - 1) as PagingLevel,
+            );
+            self.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                forgot_guards,
+                (level - 1) as PagingLevel,
+            );
+            assert(_forgot_guards.wf()) by {
+                admit();
+            };
+            let nid = guard.nid();
+            assert(_forgot_guards.is_sub_root(guard.nid())) by {
+                assert forall|other: NodeId| #[trigger]
+                    _forgot_guards.inner.dom().contains(other) && other != nid implies {
+                    !node_helper::in_subtree_range::<C>(other, nid)
+                } by {
+                    assert_by_contradiction!(!node_helper::in_subtree_range::<C>(other, nid), {
+                        // The contradiction is that, all nodes that are ancestors of nid are in the path.
+                        // But `wf_with_forgot_guards` requires that nodes in the path are not in `forgot_guards`.
+                        assert(node_helper::in_subtree::<C>(other, nid)) by {
+                            assert(node_helper::in_subtree_range::<C>(other, nid));
+                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(other, nid);
+                        };
+
+                        let anc_level = node_helper::nid_to_level::<C>(other);
+                        assert(level == node_helper::nid_to_level::<C>(nid)) by {
+                            self.wf_path();
+                        };
+                        assert(level < anc_level) by {
+                            node_helper::lemma_in_subtree_level_relation::<C>(other, nid);
+                        };
+
+                        assert(anc_level <= self.guard_level) by {
+                            assert(_forgot_guards.inner.dom().contains(other));
+                            assert forall|nid: NodeId| #[trigger] _forgot_guards.inner.dom().contains(nid) implies {
+                                node_helper::nid_to_level::<C>(nid) <= self.guard_level
+                            } by {
+                                if forgot_guards.inner.dom().contains(nid) {
+                                    assert(node_helper::nid_to_level::<C>(nid) <= self.guard_level) by {
+                                        self.wf_with_forgot_guards(forgot_guards);
+                                    };
+                                } else {
+                                    let l = choose |l: PagingLevel| self.g_level@ <= l <= level - 1 && #[trigger] self.get_guard_level_unwrap(l).nid() == nid;
+                                    assert(l <= self.guard_level) by {
+                                        assert(level - 1 <= self.guard_level);
+                                    };
+                                }
+                            };
+                        };
+
+                        assert(node_helper::valid_nid::<C>(other));
+
+                        let anc_level_guard = self.get_guard_level_unwrap(anc_level as PagingLevel);
+                        let anc_level_guard_nid = anc_level_guard.nid();
+                        assert(node_helper::valid_nid::<C>(anc_level_guard_nid)) by {
+                            self.wf_path();
+                        };
+                        assert(node_helper::nid_to_level::<C>(anc_level_guard_nid) == anc_level) by {
+                            self.wf_path();
+                        };
+                        assert(node_helper::in_subtree::<C>(anc_level_guard_nid, nid)) by {
+                            assert(node_helper::in_subtree_range::<C>(anc_level_guard_nid, nid)) by {
+                                self.lemma_guards_in_path_relation(anc_level as PagingLevel);
+                            };
+                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(anc_level_guard_nid, nid);
+                        };
+
+                        assert(anc_level_guard_nid == other) by {
+                            assert(node_helper::get_ancestor_at_level::<C>(nid, anc_level) == other) by {
+                                node_helper::lemma_get_ancestor_at_level_uniqueness::<C>(nid, anc_level);
+                            };
+                            assert(node_helper::get_ancestor_at_level::<C>(nid, anc_level) == anc_level_guard_nid) by {
+                                node_helper::lemma_get_ancestor_at_level_uniqueness::<C>(nid, anc_level);
+                            };
+                        };
+
+                        assert(self.wf_with_forgot_guards_nid_not_contained(forgot_guards));
+                        assert(!self.wf_with_forgot_guards_nid_not_contained(forgot_guards) /* which is false */) by {
+                            assert(forgot_guards.inner.dom().contains(self.get_guard_level_unwrap(anc_level as PagingLevel).nid())) by {
+                                assert(self.get_guard_level_unwrap(anc_level as PagingLevel).nid() == other);
+                                // o in A union B and o not in A => o in B
+                                assert(forgot_guards.inner.dom().contains(other)) by {
+                                    // o in A union B
+                                    assert(_forgot_guards.inner.dom().contains(other));
+                                    // o not in A
+                                    assert forall|l: PagingLevel| self.g_level@ <= l <= level - 1 implies #[trigger] self.get_guard_level_unwrap(l).nid() != other by {
+                                        assert(l < anc_level);
+                                    };
+                                };
+                            };
+                        };
+                    });
+                };
+            };
+            assert(_forgot_guards.children_are_contained(
+                guard.nid(),
+                guard.guard->Some_0.view_pte_token().value(),
+            )) by {
+                admit();
+            };
+        };
     }
 
     pub proof fn lemma_push_level_sustains_wf_with_forgot_guards(

@@ -150,6 +150,11 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         };
     };
     assert(result.wf_with_forgot_guards(forgot_guards)) by {
+        assert forall|_nid: NodeId| #[trigger]
+            forgot_guards.inner.dom().contains(_nid) implies {
+            node_helper::nid_to_level::<C>(_nid) <= guard_level
+        } by { admit(); }; // TODO
+
         let full_forgot_guards = result.rec_put_guard_from_path(forgot_guards, result.guard_level);
         result.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, result.guard_level);
         result.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
