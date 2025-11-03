@@ -312,7 +312,10 @@ pub fn unlock_range<C: PageTableConfig>(
         assert(cursor.g_level@ == cursor.guard_level);
         let guard = cursor.get_guard_level_unwrap(cursor.guard_level);
         cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
-        assert(cursor.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, cursor.guard_level));
+        assert(cursor.guards_in_path_wf_with_forgot_guards_singleton(
+            forgot_guards,
+            cursor.guard_level,
+        ));
         cursor.lemma_rec_put_guard_from_path_basic(forgot_guards);
         assert(forgot_guards.children_are_contained(
             guard.nid(),

@@ -1721,7 +1721,7 @@ pub proof fn lemma_brother_algebraic_relation<C: PageTableConfig>(nid: NodeId, o
 }
 
 pub proof fn lemma_brother_sub_tree_range_disjoint<C: PageTableConfig>(
-    nid: NodeId, 
+    nid: NodeId,
     offset1: nat,
     offset2: nat,
 )
@@ -1730,13 +1730,13 @@ pub proof fn lemma_brother_sub_tree_range_disjoint<C: PageTableConfig>(
         is_not_leaf::<C>(nid),
         0 <= offset1 < offset2 < 512,
     ensures
-        next_outside_subtree::<C>(get_child::<C>(nid, offset1)) <= get_child::<C>(nid, offset2)
+        next_outside_subtree::<C>(get_child::<C>(nid, offset1)) <= get_child::<C>(nid, offset2),
     decreases offset2 - offset1,
 {
     assert(511 < nr_subpage_per_huge::<C>()) by {
         C::lemma_nr_subpage_per_huge_is_512();
     };
-    
+
     if offset2 == offset1 + 1 {
         lemma_brother_algebraic_relation::<C>(nid, offset1);
     } else {
