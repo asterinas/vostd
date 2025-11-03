@@ -25,4 +25,9 @@ impl MemRegionModel {
         self.end <= region.base || region.end <= self.base
     }
 }
+
+pub ghost struct MemoryRegionArrayModel<const LEN: usize> {
+    pub ghost regions: Seq<MemRegionModel>,
+    pub ghost count: int,
+}
 }

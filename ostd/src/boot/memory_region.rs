@@ -95,6 +95,11 @@ impl MemoryRegion {
             base + len <= MAX_PADDR(),
         ensures
             res.inv(),
+            res@ == (MemRegionModel {
+                base: base as int,
+                end: base + len,
+                typ: typ.to_int(),
+            }),
     )]
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
     {
@@ -105,6 +110,11 @@ impl MemoryRegion {
     #[verus_spec(res =>
         ensures
             res.inv(),
+            res@ == (MemRegionModel {
+                base: 0,
+                end: 0,
+                typ: 0,
+            }),
     )]
     pub const fn bad() -> Self {
         MemoryRegion {
@@ -207,7 +217,7 @@ impl MemoryRegion {
     }*/
 }
 
-/*
+
 /// The maximum number of regions that can be handled.
 ///
 /// The choice of 512 is probably fine since old Linux boot protocol only
@@ -219,11 +229,12 @@ pub const MAX_REGIONS: usize = 512;
 /// A heapless set of memory regions.
 ///
 /// The set cannot contain more than `LEN` regions.
+#[verus_verify]
 pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
     regions: [MemoryRegion; LEN],
     count: usize,
 }
-
+/*
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     fn default() -> Self {
         Self::new()
