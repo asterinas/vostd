@@ -356,7 +356,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     /// Well-formedness of the cursor's level and guard level.
     pub open spec fn wf_level(&self) -> bool {
         &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS_SPEC() <= MAX_NR_LEVELS
-        &&& self.level <= self.g_level@ <= self.guard_level + 1
+        &&& self.level <= self.g_level@ <= self.guard_level
     }
 
     pub open spec fn get_guard_idx(&self, idx: int) -> Option<PageTableGuard<C>> {
