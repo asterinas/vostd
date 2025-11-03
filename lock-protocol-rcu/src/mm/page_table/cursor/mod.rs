@@ -715,12 +715,15 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
     }
 
     // Trivial but nontrivial for Verus.
-    pub proof fn lemma_cursor_eq_implie_forgot_guards_eq(
+    pub proof fn lemma_cursor_eq_implies_forgot_guards_eq(
         cursor1: Self,
         cursor2: Self,
         forgot_guards: SubTreeForgotGuard<C>,
     )
         requires
+            cursor1.wf(),
+            cursor2.wf(),
+            forgot_guards.wf(),
             cursor1.guard_level == cursor2.guard_level,
             cursor1.g_level == cursor2.g_level,
             cursor1.path =~= cursor2.path,
@@ -728,7 +731,76 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             cursor1.rec_put_guard_from_path(forgot_guards, cursor1.guard_level)
                 =~= cursor2.rec_put_guard_from_path(forgot_guards, cursor2.guard_level),
     {
-        admit();
+        Self::lemma_cursor_eq_implies_forgot_guards_eq_rec(
+            cursor1,
+            cursor2,
+            forgot_guards,
+            cursor1.guard_level,
+        );
+    }
+
+    pub proof fn lemma_cursor_eq_implies_forgot_guards_eq_rec(
+        cursor1: Self,
+        cursor2: Self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        cur_level: PagingLevel,
+    )
+        requires
+            cursor1.wf(),
+            cursor2.wf(),
+            forgot_guards.wf(),
+            cursor1.guard_level == cursor2.guard_level,
+            cursor1.g_level == cursor2.g_level,
+            cursor1.path =~= cursor2.path,
+            cursor1.g_level@ - 1 <= cur_level <= cursor1.guard_level,
+        ensures
+            cursor1.rec_put_guard_from_path(forgot_guards, cur_level)
+                =~= cursor2.rec_put_guard_from_path(forgot_guards, cur_level),
+        decreases cur_level - (cursor1.g_level@ - 1),
+    {
+        let put1 = cursor1.rec_put_guard_from_path(forgot_guards, cur_level);
+        let put2 = cursor2.rec_put_guard_from_path(forgot_guards, cur_level);
+        if cur_level == cursor1.g_level@ - 1 {
+            assert(put1.inner =~= put2.inner) by {
+                assert(put1.inner =~= forgot_guards.inner) by {
+                    cursor1.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                };
+                assert(put2.inner =~= forgot_guards.inner) by {
+                    cursor2.lemma_rec_put_guard_from_path_basic(forgot_guards);
+                };
+            };
+        } else {
+            let cursor1_pop_guards = cursor1.rec_put_guard_from_path(
+                forgot_guards,
+                (cur_level - 1) as PagingLevel,
+            );
+            let cursor2_pop_guards = cursor2.rec_put_guard_from_path(
+                forgot_guards,
+                (cur_level - 1) as PagingLevel,
+            );
+            assert(cursor1_pop_guards.inner =~= cursor2_pop_guards.inner) by {
+                Self::lemma_cursor_eq_implies_forgot_guards_eq_rec(
+                    cursor1,
+                    cursor2,
+                    forgot_guards,
+                    (cur_level - 1) as PagingLevel,
+                );
+            };
+            let guard1 = cursor1.get_guard_level_unwrap(cur_level);
+            let guard2 = cursor2.get_guard_level_unwrap(cur_level);
+            assert(guard1 =~= guard2);
+            assert(put1.inner =~= cursor1_pop_guards.put_spec(
+                guard1.nid(),
+                guard1.guard->Some_0.inner@,
+                guard1.inner.deref().meta_spec().lock,
+            ).inner);
+            assert(put2.inner =~= cursor1_pop_guards.put_spec(
+                guard1.nid(),
+                guard1.guard->Some_0.inner@,
+                guard1.inner.deref().meta_spec().lock,
+            ).inner);
+            assert(put1.inner =~= put2.inner);
+        }
     }
 
     pub open spec fn wf_with_forgot_guards_nid_not_contained(
@@ -1357,7 +1429,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 assert(self.guard_level == _cursor.guard_level);
                 assert(self.g_level@ == _cursor.g_level@);
                 assert(self.path =~= _cursor.path);
-                Self::lemma_cursor_eq_implie_forgot_guards_eq(*self, _cursor, forgot_guards);
+                Self::lemma_cursor_eq_implies_forgot_guards_eq(*self, _cursor, forgot_guards);
             };
             assert({
                 &&& res1.wf()
@@ -3658,18 +3730,26 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     let ghost ch_guard = ch_node.guard->Some_0;
 
                     assert(m.node_is_locked(cur_node.nid())) by {
-                        assert(m.sub_tree_rt() == _cursor.get_guard_level_unwrap(_cursor.guard_level).nid());
+                        assert(m.sub_tree_rt() == _cursor.get_guard_level_unwrap(
+                            _cursor.guard_level,
+                        ).nid());
                         _cursor.lemma_guards_in_path_relation(_cursor.guard_level);
                     };
                     assert(m.node_is_locked(locked_pt.nid())) by {
                         assert(node_helper::is_child::<C>(cur_node.nid(), locked_pt.nid()));
-                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(m.sub_tree_rt(), cur_node.nid());
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(
+                            m.sub_tree_rt(),
+                            cur_node.nid(),
+                        );
                         node_helper::lemma_in_subtree_is_child_in_subtree::<C>(
                             m.sub_tree_rt(),
                             cur_node.nid(),
                             locked_pt.nid(),
                         );
-                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(m.sub_tree_rt(), locked_pt.nid());
+                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(
+                            m.sub_tree_rt(),
+                            locked_pt.nid(),
+                        );
                     };
                     let res = locking::dfs_mark_stray_and_unlock(
                         self.0.preempt_guard,
@@ -3742,7 +3822,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 
                         assert(pa_pte_array_token.value().get_paddr(idx as nat)
                             == ch_stray_token.key().1) by {
-                            assert(_cur_node.guard->Some_0.perms().inner.value()[idx as int].is_pt(_cur_node.level_spec()));
+                            assert(_cur_node.guard->Some_0.perms().inner.value()[idx as int].is_pt(
+                                _cur_node.level_spec(),
+                            ));
                         };
 
                         let _pa_pte_array_token = pa_pte_array_token;

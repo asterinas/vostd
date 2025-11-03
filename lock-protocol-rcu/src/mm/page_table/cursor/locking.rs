@@ -1123,11 +1123,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
     mut cur_node: PageTableGuard<'rcu, C>,
     Tracked(m): Tracked<&LockProtocolModel<C>>,
     forgot_guards: Tracked<SubTreeForgotGuard<C>>,
-) -> (res: (
-        Tracked<NodeToken<C>>,
-        Tracked<PteArrayToken<C>>,
-        Tracked<StrayToken<C>>,
-    ))
+) -> (res: (Tracked<NodeToken<C>>, Tracked<PteArrayToken<C>>, Tracked<StrayToken<C>>))
     requires
         cur_node.wf(),
         cur_node.guard->Some_0.stray_perm().value() == false,
