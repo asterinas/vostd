@@ -67,7 +67,7 @@ pub open spec fn to_int(self) -> int {
 }
 
 impl Inv for MemoryRegion {
-    closed spec fn inv(&self) -> bool {
+    closed spec fn inv(self) -> bool {
         self.base + self.len <= MAX_PADDR()
     }
 }
@@ -75,7 +75,7 @@ impl Inv for MemoryRegion {
 impl InvView for MemoryRegion {
     type V = MemRegionModel;
 
-    closed spec fn view(&self) -> Self::V {
+    closed spec fn view(self) -> Self::V {
         MemRegionModel {
             base: self.base as int,
             end: self.base + self.len,
@@ -83,7 +83,7 @@ impl InvView for MemoryRegion {
         }
     }
 
-    proof fn view_preserves_inv(&self){}
+    proof fn view_preserves_inv(self){}
 }
 }
 

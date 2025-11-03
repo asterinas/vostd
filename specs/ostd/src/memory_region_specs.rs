@@ -11,7 +11,7 @@ pub ghost struct MemRegionModel {
 }
 
 impl Inv for MemRegionModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         0 <= self.base <= self.end <= MAX_PADDR() && 0 <= self.typ < 9
     }
 }
