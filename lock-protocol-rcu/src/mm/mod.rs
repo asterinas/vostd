@@ -1,5 +1,4 @@
 pub mod frame;
-// pub mod lock_protocol_utils;
 pub(crate) mod page_prop;
 pub mod page_table;
 pub mod vm_space;

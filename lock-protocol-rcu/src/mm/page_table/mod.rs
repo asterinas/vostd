@@ -2,8 +2,6 @@ pub mod cursor;
 pub mod node;
 pub mod pte;
 
-// use cursor::spec_helpers;
-
 use node::*;
 use core::fmt::Debug;
 use std::{marker::PhantomData, ops::Range};
