@@ -7,6 +7,7 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
+use crate::mm::page_size;
 use crate::mm::frame::meta::*;
 use crate::mm::nr_subpage_per_huge;
 use crate::mm::page_table::{
@@ -32,7 +33,7 @@ use crate::spec::{
     lock_protocol::LockProtocolModel,
     common::{
         NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
-        lemma_va_level_to_trace_valid,
+        va_level_to_nid, lemma_va_level_to_trace_valid,
     },
     node_helper::{self, group_node_helper_lemmas},
     rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken},
@@ -137,10 +138,175 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         g_level: Ghost(guard_level),
     };
     assert(result.wf()) by {
-        admit();
+        assert(result.wf_path()) by {
+            assert(subtree_root.nid() == va_level_to_nid::<C>(va.start, guard_level)) by {
+                admit();
+            };  // TODO
+        };
+        assert(result.wf_va()) by {
+            assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by {
+                admit();
+            };  // TODO
+        };
     };
     assert(result.wf_with_forgot_guards(forgot_guards)) by {
-        admit();
+        let full_forgot_guards = result.rec_put_guard_from_path(forgot_guards, result.guard_level);
+        result.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, result.guard_level);
+        result.lemma_put_guard_from_path_bottom_up_eq_with_top_down(forgot_guards);
+        result.lemma_put_guard_from_path_top_down_basic1(forgot_guards);
+        assert(full_forgot_guards =~= forgot_guards.put_spec(
+            subtree_root.nid(),
+            subtree_root.guard->Some_0.inner@,
+            subtree_root.meta_spec().lock,
+        ));
+        assert forall|_nid: NodeId| #[trigger]
+            full_forgot_guards.inner.dom().contains(_nid) implies {
+            full_forgot_guards.children_are_contained(
+                _nid,
+                full_forgot_guards.get_guard_inner(_nid).pte_token->Some_0.value(),
+            )
+        } by {
+            let nid = subtree_root.nid();
+            let pte_array = full_forgot_guards.get_guard_inner(nid).pte_token->Some_0.value();
+            if _nid == nid {
+                if node_helper::is_not_leaf::<C>(nid) {
+                    assert forall|i: nat| 0 <= i < 512 implies {
+                        #[trigger] pte_array.is_alive(i)
+                            <==> full_forgot_guards.inner.dom().contains(
+                            node_helper::get_child::<C>(nid, i),
+                        )
+                    } by {
+                        assert(node_helper::get_child::<C>(nid, i) != nid) by {
+                            let ch = node_helper::get_child::<C>(nid, i);
+                            node_helper::lemma_get_child_sound::<C>(nid, i);
+                            node_helper::lemma_is_child_nid_increasing::<C>(nid, ch);
+                        };
+                    };
+                    assert forall|i: nat| 0 <= i < 512 implies {
+                        #[trigger] pte_array.is_void(i)
+                            ==> full_forgot_guards.sub_tree_not_contained(
+                            node_helper::get_child::<C>(nid, i),
+                        )
+                    } by {
+                        let ch = node_helper::get_child::<C>(nid, i);
+                        assert(node_helper::get_child::<C>(nid, i) != nid) by {
+                            let ch = node_helper::get_child::<C>(nid, i);
+                            node_helper::lemma_get_child_sound::<C>(nid, i);
+                            node_helper::lemma_is_child_nid_increasing::<C>(nid, ch);
+                        };
+                        if pte_array.is_void(i) {
+                            assert forall|__nid: NodeId| #[trigger]
+                                full_forgot_guards.inner.dom().contains(__nid) implies {
+                                !node_helper::in_subtree_range::<C>(ch, __nid)
+                            } by {
+                                if __nid == nid {
+                                    node_helper::lemma_get_child_sound::<C>(nid, i);
+                                    node_helper::lemma_is_child_nid_increasing::<C>(nid, ch);
+                                } else {
+                                }
+                            }
+                        }
+                    };
+                }
+            } else {
+                assert(forgot_guards.inner.dom().contains(_nid));
+                assert forall|idx: nat| 0 <= idx < 512 implies {
+                    nid != node_helper::get_child::<C>(_nid, idx)
+                } by {
+                    assert(forgot_guards.is_sub_root(nid));
+                    assert(node_helper::valid_nid::<C>(_nid));
+                    assert(1 <= node_helper::nid_to_level::<C>(_nid) <= C::NR_LEVELS_SPEC()) by {
+                        node_helper::lemma_nid_to_dep_up_bound::<C>(_nid);
+                        node_helper::lemma_level_dep_relation::<C>(_nid);
+                    };
+                    if node_helper::nid_to_level::<C>(_nid) == 1 {
+                        assert(node_helper::valid_nid::<C>(nid));
+                        assert(!node_helper::valid_nid::<C>(node_helper::get_child::<C>(_nid, idx)))
+                            by {
+                            node_helper::lemma_level_dep_relation::<C>(_nid);
+                            node_helper::lemma_leaf_get_child_wrong::<C>(_nid, idx);
+                        };
+                    } else if nid == node_helper::get_child::<C>(_nid, idx) {
+                        assert(node_helper::nid_to_level::<C>(_nid) > 1);
+                        assert(node_helper::in_subtree_range::<C>(_nid, nid)) by {
+                            node_helper::lemma_level_dep_relation::<C>(_nid);
+                            node_helper::lemma_get_child_sound::<C>(_nid, idx);
+                            node_helper::lemma_is_child_implies_in_subtree::<C>(_nid, nid);
+                            node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(_nid, nid);
+                        }
+                    }
+                }
+                if node_helper::is_not_leaf::<C>(_nid) {
+                    let pte_array = full_forgot_guards.get_guard_inner(
+                        _nid,
+                    ).pte_token->Some_0.value();
+                    assert forall|i: nat| 0 <= i < 512 implies {
+                        #[trigger] pte_array.is_void(i)
+                            ==> full_forgot_guards.sub_tree_not_contained(
+                            node_helper::get_child::<C>(_nid, i),
+                        )
+                    } by {
+                        let ch = node_helper::get_child::<C>(_nid, i);
+                        if pte_array.is_void(i) {
+                            assert forall|__nid: NodeId| #[trigger]
+                                full_forgot_guards.inner.dom().contains(__nid) implies {
+                                !node_helper::in_subtree_range::<C>(ch, __nid)
+                            } by {
+                                if __nid == nid {
+                                    assert(!node_helper::in_subtree_range::<C>(ch, nid)) by {
+                                        if node_helper::in_subtree_range::<C>(nid, _nid) {
+                                            assert(node_helper::in_subtree_range::<C>(nid, ch)) by {
+                                                node_helper::lemma_get_child_sound::<C>(_nid, i);
+                                                node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                    C,
+                                                >(nid, _nid);
+                                                node_helper::lemma_in_subtree_is_child_in_subtree::<
+                                                    C,
+                                                >(nid, _nid, ch);
+                                                node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                    C,
+                                                >(nid, ch);
+                                            }
+                                        } else {
+                                            assert(!node_helper::in_subtree_range::<C>(_nid, nid));
+                                            if node_helper::in_subtree_range::<C>(ch, nid) {
+                                                assert(node_helper::in_subtree_range::<C>(
+                                                    _nid,
+                                                    nid,
+                                                )) by {
+                                                    assert(node_helper::in_subtree_range::<C>(
+                                                        _nid,
+                                                        ch,
+                                                    )) by {
+                                                        node_helper::lemma_get_child_sound::<C>(
+                                                            _nid,
+                                                            i,
+                                                        );
+                                                        node_helper::lemma_is_child_implies_in_subtree::<
+                                                            C,
+                                                        >(_nid, ch);
+                                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                            C,
+                                                        >(_nid, ch);
+                                                    };
+                                                    node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                        C,
+                                                    >(_nid, ch);
+                                                    node_helper::lemma_in_subtree_bounded::<C>(
+                                                        _nid,
+                                                        ch,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    };
+                                }
+                            };
+                        }
+                    };
+                }
+            }
+        };
     };
 
     (result, Tracked(m), Tracked(forgot_guards))
@@ -255,6 +421,14 @@ pub fn unlock_range<C: PageTableConfig>(
                         _cursor.lemma_guard_in_path_relation_implies_in_subtree_range();
                     };
                 };
+                assert(cursor.guards_in_path_relation()) by {
+                    assert forall|level: PagingLevel|
+                        cursor.g_level@ < level <= cursor.guard_level implies {
+                        cursor.adjacent_guard_is_child(level)
+                    } by {
+                        assert(_cursor.adjacent_guard_is_child(level));
+                    };
+                };
                 assert(cursor.wf_with_forgot_guards(forgot_guards)) by {
                     assert(cursor.guard_level == _cursor.guard_level);
                     let merged_forgot_guards1 = cursor.rec_put_guard_from_path(
@@ -265,9 +439,9 @@ pub fn unlock_range<C: PageTableConfig>(
                         _forgot_guards,
                         _cursor.guard_level,
                     );
-                    assert(merged_forgot_guards1 =~= merged_forgot_guards2) by {
+                    assert(merged_forgot_guards1.inner =~= merged_forgot_guards2.inner) by {
                         admit();
-                    };  // Need induction
+                    };  // TODO
                     assert(merged_forgot_guards1.wf());
                     assert(merged_forgot_guards1.is_root_and_contained(
                         cursor.get_guard_level_unwrap(cursor.guard_level).nid(),
@@ -290,14 +464,6 @@ pub fn unlock_range<C: PageTableConfig>(
                         ));
                         assert(_cursor.guard_in_path_nid_diff(_cursor.g_level@, level));
                     }
-                };
-                assert(cursor.guards_in_path_relation()) by {
-                    assert forall|level: PagingLevel|
-                        cursor.g_level@ < level <= cursor.guard_level implies {
-                        cursor.adjacent_guard_is_child(level)
-                    } by {
-                        assert(_cursor.adjacent_guard_is_child(level));
-                    };
                 };
             }
             let _ = ManuallyDrop::new(guard);
@@ -599,7 +765,7 @@ fn dfs_acquire_lock<C: PageTableConfig>(
             node_helper::lemma_tree_size_spec_table::<C>();
         }
         assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()) by {
-            admit();
+            admit();  // TODO
         };
         return (m, Tracked(forgot_guards));
     }

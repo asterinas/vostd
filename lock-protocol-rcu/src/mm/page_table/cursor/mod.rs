@@ -66,7 +66,7 @@ verus! {
 
 pub open spec fn va_range_wf<C: PageTableConfig>(va: Range<Vaddr>) -> bool {
     &&& valid_va_range::<C>(va)
-    &&& va.start < va.end
+    &&& va.start < va.end < MAX_USERSPACE_VADDR
     &&& vaddr_is_aligned::<C>(va.start)
     &&& vaddr_is_aligned::<C>(va.end)
 }
@@ -2519,8 +2519,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                                                             C,
                                                                         >(ch, cur_node.nid());
                                                                     };
+                                                                    admit();  // TODO: Need a tricky proof.
                                                                 }
-                                                                admit();  // Special
                                                             }
                                                         }
                                                     }

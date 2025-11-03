@@ -521,6 +521,8 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                             } else {
                                 if other.inner.dom().contains(nid) {
                                 } else {
+                                    assert(nid != pa);
+                                    assert(old(self).inner.dom().contains(nid));
                                     let _ch = node_helper::get_child::<C>(nid, i);
                                     assert(old(self).inner.dom().contains(nid));
                                     assert forall|_nid: NodeId| #[trigger]
@@ -528,7 +530,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                                         !node_helper::in_subtree_range::<C>(_ch, _nid)
                                     } by {
                                         assert(node_helper::in_subtree_range::<C>(ch, _nid));
-                                        admit();  // TODO
+                                        admit();  // TODO: Need a tricky proof.
                                     }
                                 }
                             }
@@ -577,7 +579,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                             )
                         } by {
                             if nid == pa {
-                                admit();
+                                assert(node_helper::in_subtree_range::<C>(ch, pa));
+                                node_helper::lemma_get_child_sound::<C>(pa, offset);
+                                node_helper::lemma_is_child_nid_increasing::<C>(pa, ch);
                             } else {
                                 if other.inner.dom().contains(nid) {
                                     let _ch = node_helper::get_child::<C>(nid, i);
