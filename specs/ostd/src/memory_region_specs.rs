@@ -1,6 +1,6 @@
+use aster_common::prelude::CONST_MAX_PADDR;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
-use aster_common::prelude::CONST_MAX_PADDR;
 
 verus! {
 
@@ -26,11 +26,7 @@ impl MemRegionModel {
     }
 
     pub open spec fn bad() -> Self {
-        MemRegionModel {
-            base: 0,
-            end: 0,
-            typ: 0,
-        }
+        MemRegionModel { base: 0, end: 0, typ: 0 }
     }
 }
 
@@ -53,5 +49,5 @@ impl<const LEN: usize> MemoryRegionArrayModel<LEN> {
         }
     }
 }
-            
-}
+
+} // verus!

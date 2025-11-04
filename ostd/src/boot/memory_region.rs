@@ -47,23 +47,22 @@ pub struct MemoryRegion {
     typ: MemoryRegionType,
 }
 
-verus!{
+verus! {
 
 impl MemoryRegionType {
-
-pub open spec fn to_int(self) -> int {
-    match self {
-        MemoryRegionType::BadMemory => 0,
-        MemoryRegionType::Unknown => 1,
-        MemoryRegionType::NonVolatileSleep => 2,
-        MemoryRegionType::Reserved => 3,
-        MemoryRegionType::Kernel => 4,
-        MemoryRegionType::Module => 5,
-        MemoryRegionType::Framebuffer => 6,
-        MemoryRegionType::Reclaimable => 7,
-        MemoryRegionType::Usable => 8,
+    pub open spec fn to_int(self) -> int {
+        match self {
+            MemoryRegionType::BadMemory => 0,
+            MemoryRegionType::Unknown => 1,
+            MemoryRegionType::NonVolatileSleep => 2,
+            MemoryRegionType::Reserved => 3,
+            MemoryRegionType::Kernel => 4,
+            MemoryRegionType::Module => 5,
+            MemoryRegionType::Framebuffer => 6,
+            MemoryRegionType::Reclaimable => 7,
+            MemoryRegionType::Usable => 8,
+        }
     }
-}
 }
 
 impl Inv for MemoryRegion {
@@ -76,17 +75,14 @@ impl InvView for MemoryRegion {
     type V = MemRegionModel;
 
     closed spec fn view(self) -> Self::V {
-        MemRegionModel {
-            base: self.base as int,
-            end: self.base + self.len,
-            typ: self.typ.to_int(),
-        }
+        MemRegionModel { base: self.base as int, end: self.base + self.len, typ: self.typ.to_int() }
     }
 
-    proof fn view_preserves_inv(self){}
-}
+    proof fn view_preserves_inv(self) {
+    }
 }
 
+} // verus!
 #[verus_verify]
 impl MemoryRegion {
     /// Constructs a valid memory region.
@@ -101,11 +97,10 @@ impl MemoryRegion {
                 typ: typ.to_int(),
             }),
     )]
-    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self
-    {
+    pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
         MemoryRegion { base, len, typ }
     }
-    
+
     /// Constructs a bad memory region.
     #[verus_spec(ret =>
         ensures
@@ -174,14 +169,14 @@ impl MemoryRegion {
     pub fn len(&self) -> usize {
         self.len
     }
-    
+
     /// The physical address of the end of the region.
     #[verus_verify(dual_spec)]
     #[verus_spec(requires self.inv())]
     pub fn end(&self) -> Paddr {
         self.base + self.len
     }
-    
+
     /// Checks whether the region is empty
     #[verus_verify(dual_spec)]
     pub fn is_empty(&self) -> bool {
@@ -193,7 +188,7 @@ impl MemoryRegion {
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-    /* 
+    /*
     fn as_aligned(&self) -> Self {
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
@@ -213,7 +208,6 @@ impl MemoryRegion {
     }*/
 }
 
-
 /// The maximum number of regions that can be handled.
 ///
 /// The choice of 512 is probably fine since old Linux boot protocol only
@@ -231,8 +225,9 @@ pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
     count: usize,
 }
 
-verus!{
-impl <const LEN: usize> Inv for MemoryRegionArray<LEN> {
+verus! {
+
+impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
     open spec fn inv(self) -> bool {
         true
     }
@@ -240,7 +235,7 @@ impl <const LEN: usize> Inv for MemoryRegionArray<LEN> {
 
 impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
     type V = MemoryRegionArrayModel<LEN>;
-    
+
     closed spec fn view(self) -> MemoryRegionArrayModel<LEN> {
         MemoryRegionArrayModel {
             regions: Seq::new(LEN as nat, |i: int| self.regions[i]@),
@@ -248,10 +243,11 @@ impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
         }
     }
 
-    proof fn view_preserves_inv(self) {}
-}
+    proof fn view_preserves_inv(self) {
+    }
 }
 
+} // verus!
 /*
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
     fn default() -> Self {
@@ -266,7 +262,6 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
         &self.regions[..self.count]
     }
 }*/
-
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
@@ -281,13 +276,13 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             count: 0,
         };
 
-        proof!{
+        proof! {
             assert(Seq::new(LEN as nat, |i: int| ret.regions[i]@) == MemoryRegionArrayModel::<LEN>::new().regions);
         };
-        
+
         ret
     }
-    /*     
+    /*
     /// Appends a region to the set.
     ///
     /// If the set is full, an error is returned.
