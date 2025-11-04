@@ -1936,4 +1936,23 @@ pub proof fn lemma_get_ancestor_at_level_uniqueness<C: PageTableConfig>(nid: Nod
     };
 }
 
+pub proof fn lemma_in_subtree_implies_in_subtree_of_one_child<C: PageTableConfig>(
+    nid1: NodeId,
+    nid2: NodeId,
+)
+    requires
+        valid_nid::<C>(nid1),
+        valid_nid::<C>(nid2),
+        in_subtree::<C>(nid1, nid2),
+        nid1 != nid2,
+    ensures
+        exists |offset: nat|
+            #![trigger get_child::<C>(nid1, offset)]
+            0 <= offset < nr_subpage_per_huge::<C>() ==>
+                in_subtree::<C>(get_child::<C>(nid1, offset), nid2),
+{
+    assert(is_not_leaf::<C>(nid1)) by { admit(); };
+    admit();
+}
+
 } // verus!
