@@ -32,21 +32,29 @@ impl MemRegionModel {
 
 pub ghost struct MemoryRegionArrayModel<const LEN: usize> {
     pub ghost regions: Seq<MemRegionModel>,
-    pub ghost count: nat,
 }
 
 impl<const LEN: usize> Inv for MemoryRegionArrayModel<LEN> {
     open spec fn inv(self) -> bool {
-        self.regions.len() == LEN
+        &&& self.regions.len() <= LEN
     }
 }
 
 impl<const LEN: usize> MemoryRegionArrayModel<LEN> {
     pub open spec fn new() -> Self {
         MemoryRegionArrayModel {
-            regions: Seq::new(LEN as nat, |_i: int| MemRegionModel::bad()),
-            count: 0,
+            regions: Seq::empty(),
         }
+    }
+
+    pub open spec fn push(self, region: MemRegionModel) -> Self {
+        MemoryRegionArrayModel {
+            regions: self.regions.push(region),
+        }
+    }
+
+    pub open spec fn full(self) -> bool {
+        self.regions.len() == LEN
     }
 }
 

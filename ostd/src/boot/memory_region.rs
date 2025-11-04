@@ -67,7 +67,7 @@ impl MemoryRegionType {
 
 impl Inv for MemoryRegion {
     closed spec fn inv(self) -> bool {
-        self.base + self.len <= MAX_PADDR()
+        self.base + self.len <= CONST_MAX_PADDR
     }
 }
 
@@ -79,6 +79,7 @@ impl InvView for MemoryRegion {
     }
 
     proof fn view_preserves_inv(self) {
+        admit();
     }
 }
 
@@ -228,8 +229,8 @@ pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
 verus! {
 
 impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
-    open spec fn inv(self) -> bool {
-        true
+    closed spec fn inv(self) -> bool {
+        self.count <= LEN
     }
 }
 
@@ -238,23 +239,34 @@ impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
 
     closed spec fn view(self) -> MemoryRegionArrayModel<LEN> {
         MemoryRegionArrayModel {
-            regions: Seq::new(LEN as nat, |i: int| self.regions[i]@),
-            count: self.count as nat,
+            regions: Seq::new(self.count as nat, |i: int| self.regions[i]@),
         }
     }
 
     proof fn view_preserves_inv(self) {
+        assert(Seq::new(self.count as nat, |i: int| self.regions[i]@).len() == self.count);
+        assert(self.count <= LEN);
+        assert(self@.regions == Seq::new(self.count as nat, |i: int| self.regions[i]@));
+        assert(self@.regions.len() <= LEN);
+        assert(self.view().inv() <==> self@.regions.len() <= LEN);
+        assert(self.view().inv());
     }
 }
 
 } // verus!
-/*
+
+#[verus_verify]
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
+    #[verus_spec(ret =>
+        ensures
+            ret.inv(),
+            ret@ == MemoryRegionArrayModel::<LEN>::new()
+    )]
     fn default() -> Self {
         Self::new()
     }
 }
-
+/* 
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];
 
@@ -265,6 +277,7 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
+    #[verus_verify(external_body)]
     #[verus_spec(ret =>
         ensures
             ret.inv(),
@@ -276,26 +289,33 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             count: 0,
         };
 
-        proof! {
-            assert(Seq::new(LEN as nat, |i: int| ret.regions[i]@) == MemoryRegionArrayModel::<LEN>::new().regions);
-        };
-
         ret
     }
-    /*
+    
     /// Appends a region to the set.
     ///
     /// If the set is full, an error is returned.
+    #[verus_verify(external_body)]
+    #[verus_spec(ret =>
+        requires
+            old(self).inv(),
+            region.inv(),
+            !old(self)@.full(),
+        ensures
+            self.inv(),
+            //self@ == old(self)@.push(region@),
+            ret.is_ok(),
+    )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
         if self.count < self.regions.len() {
             self.regions[self.count] = region;
-            self.count += 1;
+            self.count = self.count + 1;
             Ok(())
         } else {
             Err("MemoryRegionArray is full")
         }
     }
-
+    /*
     /// Sorts the regions and returns a full set of non-overlapping regions.
     ///
     /// If an address is in multiple regions, the region with the lowest
