@@ -283,7 +283,6 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             regions: [MemoryRegion::bad(); LEN],
             count: 0,
         };
-
         ret
     }
     
@@ -298,7 +297,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             !old(self)@.full(),
         ensures
             self.inv(),
-            //self@ == old(self)@.push(region@),
+            self@ == old(self)@.push(region@),
             ret.is_ok(),
     )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
