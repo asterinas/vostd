@@ -2683,74 +2683,35 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                                             assert(forgot_guards.sub_tree_not_contained(
                                                             ch));
                                                             if _nid == child_pt.nid() {
+                                                                assert(forgot_guards.inner.dom().contains(
+                                                                nid));
                                                                 _cursor.lemma_wf_with_forgot_guards_sound(
                                                                 forgot_guards);
                                                                 assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
                                                                 forgot_guards, _cursor.level));
-                                                                _cursor.lemma_rec_put_guard_from_path_basic(
-                                                                forgot_guards);
-                                                                assert(forgot_guards.children_are_contained(
-
-                                                                    _cur_node.nid(),
-                                                                    _cur_node.guard->Some_0.view_pte_token().value(),
+                                                                assert(forgot_guards.is_sub_root(
+                                                                    cur_node.nid(),
                                                                 ));
-                                                                let idx = pte_index::<C>(
-                                                                    _cursor.va,
-                                                                    _cursor.level,
-                                                                );
-                                                                let _pte_array =
-                                                                    _cur_node.guard->Some_0.view_pte_token().value();
-                                                                assert(_pte_array.is_void(
-                                                                    idx as nat,
-                                                                ));
-                                                                assert(forgot_guards.sub_tree_not_contained(
-                                                                child_pt.nid()));
                                                                 if node_helper::in_subtree_range::<
                                                                     C,
                                                                 >(ch, child_pt.nid()) {
                                                                     assert(node_helper::in_subtree_range::<
                                                                         C,
-                                                                    >(ch, cur_node.nid())) by {
-                                                                        assert(ch != child_pt.nid())
-                                                                            by {
-                                                                            if ch
-                                                                                == child_pt.nid() {
-                                                                                node_helper::lemma_get_child_sound::<
-                                                                                    C,
-                                                                                >(nid, i);
-                                                                                assert(node_helper::is_child::<
-                                                                                    C,
-                                                                                >(nid, ch));
-                                                                                assert(node_helper::is_child::<
-                                                                                    C,
-                                                                                >(
-                                                                                    cur_node.nid(),
-                                                                                    child_pt.nid(),
-                                                                                ));
-                                                                                node_helper::lemma_is_child_implies_same_pa::<
-                                                                                    C,
-                                                                                >(
-                                                                                    nid,
-                                                                                    cur_node.nid(),
-                                                                                    ch,
-                                                                                );
-                                                                            }
-                                                                        };
-                                                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                                    >(nid, child_pt.nid())) by {
+                                                                        node_helper::lemma_get_child_sound::<
                                                                             C,
-                                                                        >(ch, child_pt.nid());
-                                                                        node_helper::lemma_child_in_subtree_implies_in_subtree::<
+                                                                        >(nid, i);
+                                                                        node_helper::lemma_is_child_bound::<
                                                                             C,
-                                                                        >(
-                                                                            ch,
-                                                                            cur_node.nid(),
-                                                                            child_pt.nid(),
-                                                                        );
-                                                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<
+                                                                        >(nid, ch);
+                                                                        node_helper::lemma_is_child_nid_increasing::<
                                                                             C,
-                                                                        >(ch, cur_node.nid());
+                                                                        >(nid, ch);
                                                                     };
-                                                                    admit();  // TODO: Need a tricky proof.
+                                                                    assert(nid != child_pt.nid());
+                                                                    assert(node_helper::in_subtree_range::<
+                                                                        C,
+                                                                    >(nid, cur_node.nid()));
                                                                 }
                                                             }
                                                         }
