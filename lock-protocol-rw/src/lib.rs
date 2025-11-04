@@ -12,4 +12,3 @@ extern crate alloc;
 
 pub mod mm;
 pub mod spec;
-pub mod sync;

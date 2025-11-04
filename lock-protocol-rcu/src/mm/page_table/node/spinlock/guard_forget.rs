@@ -3,10 +3,7 @@ use vstd::prelude::*;
 use common::{
     mm::nr_subpage_per_huge,
     mm::page_table::{PageTableConfig, PagingConstsTrait},
-    spec::{
-        common::NodeId, 
-        node_helper,
-    },
+    spec::{common::NodeId, node_helper},
 };
 
 use crate::spec::rcu::PteArrayState;

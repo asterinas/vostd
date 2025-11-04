@@ -12,4 +12,4 @@ impl AnyFrameMeta for () {
 
 }
 
-}
+} // verus!

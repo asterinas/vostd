@@ -1,9 +1,6 @@
 use vstd::prelude::*;
 
-use common::mm::{
-    page_table::PageTableConfig,
-    Vaddr,
-};
+use common::mm::{page_table::PageTableConfig, Vaddr};
 
 use crate::mm::page_table::{node::PageTableNode, pte::Pte};
 
@@ -23,4 +20,4 @@ pub fn rcu_load_pte<C: PageTableConfig>(
     unimplemented!()
 }
 
-}
+} // verus!

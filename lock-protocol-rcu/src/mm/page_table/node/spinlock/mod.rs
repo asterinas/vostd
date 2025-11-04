@@ -17,10 +17,7 @@ use common::{
     x86_64::kspace::paddr_to_vaddr,
     configs::{PTE_NUM, GLOBAL_CPU_NUM},
 };
-use common::spec::{
-    node_helper,
-    common::NodeId,
-};
+use common::spec::{node_helper, common::NodeId};
 
 use crate::mm::page_table::node::PageTableGuard;
 use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};

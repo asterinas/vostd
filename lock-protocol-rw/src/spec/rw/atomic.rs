@@ -1,16 +1,17 @@
-use verus_state_machines_macros::state_machine;
+use core::marker::PhantomData;
+
 use vstd::prelude::*;
 use vstd::map::*;
 
-use crate::spec::{
+use verus_state_machines_macros::state_machine;
+
+use common::mm::page_table::PageTableConfig;
+use common::spec::{
     node_helper,
     common::{CpuId, NodeId, valid_cpu},
 };
-use super::types::AtomicCursorState;
 
-use core::marker::PhantomData;
-
-use crate::mm::page_table::PageTableConfig;
+use crate::spec::rw::types::AtomicCursorState;
 
 verus! {
 

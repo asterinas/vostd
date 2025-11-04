@@ -5,10 +5,7 @@ use vstd::prelude::*;
 
 use common::{
     mm::{
-        page_table::{
-            PagingConstsTrait, PageTableEntryTrait,
-            PageTableConfig,
-        },
+        page_table::{PagingConstsTrait, PageTableEntryTrait, PageTableConfig},
         nr_subpage_per_huge,
     },
     sync::rcu::RcuDrop,
@@ -24,10 +21,7 @@ use crate::mm::page_table::node::{
     PageTableNode, PageTableNodeRef, PageTableGuard,
 };
 use crate::mm::page_table::pte::Pte;
-use crate::spec::{
-    lock_protocol::LockProtocolModel,
-    rcu::PteArrayState,
-};
+use crate::spec::{lock_protocol::LockProtocolModel, rcu::PteArrayState};
 
 verus! {
 

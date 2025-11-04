@@ -1,0 +1,9 @@
+[package]
+name = "lock-protocol-rw"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+vstd = { path = "../tools/verus/source/vstd" }
+vstd_extra = { path = "../vstd_extra" }
+common = { path = "../common" }

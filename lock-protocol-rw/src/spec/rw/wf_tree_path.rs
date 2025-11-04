@@ -3,9 +3,8 @@ use std::{io::Write, path, result};
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::spec::{common::NodeId, node_helper};
-
-use crate::mm::page_table::PageTableConfig;
+use common::mm::page_table::PageTableConfig;
+use common::spec::{common::NodeId, node_helper};
 
 verus! {
 
@@ -36,7 +35,7 @@ verus! {
 
 broadcast use {
     vstd_extra::seq_extra::group_forall_seq_lemmas,
-    crate::spec::node_helper::group_node_helper_lemmas,
+    node_helper::group_node_helper_lemmas,
 };
 
 pub proof fn lemma_wf_tree_path_nid_increasing<C: PageTableConfig>(path: Seq<NodeId>)

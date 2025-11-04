@@ -1,22 +1,23 @@
-use verus_state_machines_macros::tokenized_state_machine;
-use vstd::prelude::*;
-
-use vstd::{set::*, seq::*, set_lib::*, map_lib::*};
-use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
-
-use crate::spec::{
-    common::{CpuId, NodeId, valid_cpu},
-    node_helper::{self, group_node_helper_lemmas},
-    rw::{
-        wf_tree_path, lemma_wf_tree_path_contains_descendant_implies_contains_ancestor, PteState,
-        NodeState, PteArrayState, lemma_wf_tree_path_inversion, lemma_wf_tree_path_push_inversion,
-    },
-};
-use super::types::{AtomicCursorState, CursorState};
-
 use core::marker::PhantomData;
 
-use crate::mm::page_table::PageTableConfig;
+use vstd::prelude::*;
+use vstd::{set::*, seq::*, set_lib::*, map_lib::*};
+
+use verus_state_machines_macros::tokenized_state_machine;
+
+use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
+
+use common::mm::page_table::PageTableConfig;
+use common::spec::{
+    common::{CpuId, NodeId, valid_cpu},
+    node_helper::{self, group_node_helper_lemmas},
+};
+
+use crate::spec::rw::{
+    types::{AtomicCursorState, CursorState},
+    wf_tree_path, lemma_wf_tree_path_contains_descendant_implies_contains_ancestor, PteState,
+    NodeState, PteArrayState, lemma_wf_tree_path_inversion, lemma_wf_tree_path_push_inversion,
+};
 
 verus! {
 
@@ -429,7 +430,7 @@ transition!{
 
 #[inductive(initialize)]
 fn initialize_inductive(post: Self, cpu_num: CpuId) {
-    broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    broadcast use node_helper::group_node_helper_lemmas;
     assert(post.inv_nodes()) by {
         assert(post.nodes.dom() == Set::empty().insert(node_helper::root_id::<C>()));
         assert(node_helper::valid_nid::<C>(node_helper::root_id::<C>())) by {
@@ -490,7 +491,7 @@ fn unlocking_end_inductive(pre: Self, post: Self, cpu: CpuId) {
 
 #[inductive(read_lock)]
 fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    broadcast use {crate::spec::node_helper::group_node_helper_lemmas,
+    broadcast use {node_helper::group_node_helper_lemmas,
         vstd_extra::seq_extra::group_forall_seq_lemmas,
     };
     let path = pre.cursors[cpu].get_read_lock_path::<C>();
@@ -584,7 +585,7 @@ fn read_unlock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
 
 #[inductive(write_lock)]
 fn write_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
-    broadcast use {crate::spec::node_helper::group_node_helper_lemmas,
+    broadcast use {node_helper::group_node_helper_lemmas,
         vstd_extra::seq_extra::group_forall_seq_lemmas,
     };
     let path = pre.cursors[cpu].get_read_lock_path::<C>();
@@ -1040,7 +1041,7 @@ ensures
 {
     broadcast use {
                 vstd_extra::seq_extra::group_forall_seq_lemmas,
-                crate::spec::node_helper::group_node_helper_lemmas,
+                node_helper::group_node_helper_lemmas,
                 vstd_extra::map_extra::group_value_filter_lemmas,
             };
     let f = |cursor: CursorState| cursor.hold_read_lock::<C>(child);
@@ -1107,7 +1108,7 @@ requires
 ensures
     self.subtree_locked(child),
 {
-    broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    broadcast use node_helper::group_node_helper_lemmas;
     assert forall |id: NodeId|
         #[trigger] self.nodes.contains_key(id) &&
         #[trigger] node_helper::in_subtree_range::<C>(child, id) && id != child

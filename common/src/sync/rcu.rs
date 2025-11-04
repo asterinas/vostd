@@ -3,10 +3,7 @@ use core::mem::ManuallyDrop;
 
 use vstd::prelude::*;
 
-use crate::mm::{
-    page_table::PageTableConfig,
-    Vaddr,
-};
+use crate::mm::{page_table::PageTableConfig, Vaddr};
 
 verus! {
 

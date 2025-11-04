@@ -24,10 +24,7 @@ use vstd::tokens::SetToken;
 use vstd_extra::ghost_tree::Node;
 
 use common::helpers::{
-    align_ext::{
-        align_down,
-        lemma_align_down_basic,
-    }, 
+    align_ext::{align_down, lemma_align_down_basic},
     math::lemma_usize_mod_0_maintain_after_add,
 };
 use common::mm::{

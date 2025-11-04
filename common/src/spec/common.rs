@@ -134,4 +134,16 @@ pub proof fn lemma_va_level_to_trace_valid<C: PageTableConfig>(va: Vaddr, level:
     }
 }
 
+pub proof fn lemma_va_level_to_nid_valid<C: PageTableConfig>(va: Vaddr, level: PagingLevel)
+    requires
+        valid_vaddr::<C>(va),
+        1 <= level <= C::NR_LEVELS_SPEC(),
+    ensures
+        node_helper::valid_nid::<C>(va_level_to_nid::<C>(va, level)),
+{
+    broadcast use group_node_helper_lemmas;
+
+    lemma_va_level_to_trace_valid::<C>(va, level);
+}
+
 } // verus!

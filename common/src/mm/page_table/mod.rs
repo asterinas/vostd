@@ -1057,4 +1057,4 @@ proof fn lemma_usize_shr_is_div(x: usize, shift: int)
     }
 }
 
-}
+} // verus!

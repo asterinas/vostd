@@ -10,7 +10,7 @@ use common::mm::page_table::PageTableConfig;
 use common::configs::GLOBAL_CPU_NUM;
 
 use crate::mm::page_table::node::PageTableNode;
-use crate::spec::rcu::SpecInstance;
+use crate::spec::rw::SpecInstance;
 
 verus! {
 

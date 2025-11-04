@@ -2,7 +2,7 @@ use vstd::{prelude::*, seq::*};
 
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::{
+use common::{
     mm::page_table::PageTableConfig,
     spec::{common::NodeId, node_helper},
 };

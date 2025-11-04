@@ -1,7 +1,7 @@
 pub mod child;
 pub mod entry;
-pub mod stray;
 pub mod spinlock;
+pub mod stray;
 
 use std::cell::Cell;
 use std::cell::SyncUnsafeCell;
@@ -34,10 +34,7 @@ use common::{
     x86_64::kspace::paddr_to_vaddr,
 };
 use common::configs::{PTE_NUM, GLOBAL_CPU_NUM};
-use common::spec::{
-    common::NodeId,
-    node_helper,
-};
+use common::spec::{common::NodeId, node_helper};
 
 use crate::mm::frame::meta::{MetaSlot, MetaSlotPerm};
 use crate::mm::page_table::node::entry::Entry;

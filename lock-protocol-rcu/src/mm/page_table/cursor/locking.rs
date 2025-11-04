@@ -9,10 +9,7 @@ use vstd_extra::manually_drop::*;
 
 use common::{
     mm::{page_size, nr_subpage_per_huge, PagingLevel, Paddr, Vaddr},
-    mm::page_table::{
-        PagingConstsTrait, PageTableConfig, PageTableEntryTrait,
-        pte_index,
-    },
+    mm::page_table::{PagingConstsTrait, PageTableConfig, PageTableEntryTrait, pte_index},
     task::DisabledPreemptGuard,
     x86_64::kspace::paddr_to_vaddr,
     configs::{PTE_NUM, GLOBAL_CPU_NUM},
