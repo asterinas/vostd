@@ -33,7 +33,7 @@ impl<C: PageTableConfig> Child<C> {
                 &&& slot_perm is Some
                 &&& slot_perm.unwrap()@.pptr() == self.get_node().unwrap().ptr
                 &&& slot_perm.unwrap()@.is_init()
-                &&& slot_perm.unwrap()@.value().wf(&slot_own.unwrap()@)
+                &&& slot_perm.unwrap()@.value().wf(*slot_own.unwrap()@)
                 &&& slot_perm.unwrap()@.addr() == slot_own.unwrap()@.self_addr
             },
         ensures

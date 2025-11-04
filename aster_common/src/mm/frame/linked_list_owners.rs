@@ -14,7 +14,7 @@ pub ghost struct LinkModel {
 }
 
 impl Inv for LinkModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -25,7 +25,7 @@ pub tracked struct LinkOwner {
 }
 
 impl Inv for LinkOwner {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -33,18 +33,18 @@ impl Inv for LinkOwner {
 impl InvView for LinkOwner {
     type V = LinkModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         LinkModel { paddr: self.paddr }
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
     }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> OwnerOf for Link<M> {
     type Owner = LinkOwner;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         true
         //        &&& owner.self_perm@.mem_contents().value() == self
         //        &&& owner.next == self.next
@@ -80,7 +80,7 @@ impl LinkedListModel {
 }
 
 impl Inv for LinkedListModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -93,7 +93,7 @@ pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotInner>> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> Inv for LinkedListOwner<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
     }
 }
@@ -108,7 +108,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> LinkedListOwner<M> {
         &&& FRAME_METADATA_RANGE().start <= self.perms[i]@.addr() < FRAME_METADATA_RANGE().start
             + MAX_NR_PAGES() * META_SLOT_SIZE()
         &&& self.perms[i]@.is_init()
-        &&& self.perms[i]@.value().wf(&self.list[i])
+        &&& self.perms[i]@.value().wf(self.list[i])
         &&& i == 0 <==> self.perms[i]@.mem_contents().value().prev is None
         &&& i == self.list.len() - 1 <==> self.perms[i]@.value().next is None
         &&& 0 < i ==> self.perms[i]@.value().prev is Some && self.perms[i]@.value().prev.unwrap()
@@ -144,11 +144,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> LinkedListOwner<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for LinkedListOwner<M> {
     type V = LinkedListModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         LinkedListModel { list: Self::view_helper(self.list) }
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
     }
 }
 
@@ -174,7 +174,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> LinkedListOwner<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> OwnerOf for LinkedList<M> {
     type Owner = LinkedListOwner<M>;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.front is None <==> owner.list.len() == 0
         &&& self.back is None <==> owner.list.len() == 0
         &&& owner.list.len() > 0 ==> self.front is Some && self.front.unwrap().addr()
@@ -198,7 +198,7 @@ pub ghost struct CursorModel {
 }
 
 impl Inv for CursorModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         self.list_model.inv()
     }
 }
@@ -211,7 +211,7 @@ pub tracked struct CursorOwner<M: AnyFrameMeta + Repr<MetaSlotInner>> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> Inv for CursorOwner<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& 0 <= self.index <= self.length()
         &&& self.list_own.inv()
     }
@@ -220,7 +220,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> Inv for CursorOwner<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for CursorOwner<M> {
     type V = CursorModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         let list = self.list_own.view();
         CursorModel {
             fore: list.list.take(self.index),
@@ -229,21 +229,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for CursorOwner<M> {
         }
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
     }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotInner>> OwnerOf for CursorMut<M> {
     type Owner = CursorOwner<M>;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& 0 <= owner.index < owner.length() ==> self.current.is_some()
             && self.current.unwrap().addr() == owner.list_own.list[owner.index].paddr
             && owner.list_own.perms[owner.index]@.pptr() == self.current.unwrap()
         &&& owner.index == owner.list_own.list.len() ==> self.current.is_none()
         &&& owner.list_perm@.pptr() == self.list
         &&& owner.list_perm@.is_init()
-        &&& owner.list_perm@.mem_contents().value().wf(&owner.list_own)
+        &&& owner.list_perm@.mem_contents().value().wf(owner.list_own)
     }
 }
 

@@ -24,7 +24,7 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.meta_perm@.is_init()
         &&& self.meta_perm@.wf()
         &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm@.addr()))
@@ -36,7 +36,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel<M> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         true
     }
 }
@@ -44,22 +44,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> InvView for UniqueFrameOwner<M> {
     type V = UniqueFrameModel<M>;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         UniqueFrameModel { meta: self.meta_own@@ }
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
     }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
-    pub open spec fn perm_inv(&self, perm: PointsTo<MetaSlot>) -> bool {
+    pub open spec fn perm_inv(self, perm: PointsTo<MetaSlot>) -> bool {
         &&& perm.is_init()
         &&& perm.value().storage.addr() == self.meta_perm@.addr()
         &&& perm.value().storage.addr() == self.meta_perm@.points_to@.addr()
     }
 
-    pub open spec fn global_inv(&self, regions: MetaRegionOwners) -> bool {
+    pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
         &&& regions.slots.contains_key(self.slot_index) ==> self.perm_inv(
             regions.slots[self.slot_index]@,
         )
@@ -72,7 +72,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> OwnerOf for UniqueFrame<M> {
     type Owner = UniqueFrameOwner<M>;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.ptr.addr() == owner.meta_perm@.addr()
     }
 }

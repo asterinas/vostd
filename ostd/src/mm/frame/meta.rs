@@ -179,7 +179,7 @@ impl MetaSlot {
     #[verifier::external_body]
     pub fn addr_of(&self) -> (i: usize)
         requires
-            self.wf(owner),
+            self.wf(*owner),
         ensures
             i == owner.self_addr,
     {
@@ -194,7 +194,7 @@ impl MetaSlot {
     #[verifier::external_body]
     pub fn storage_addr_of(&self) -> (i: usize)
         requires
-            self.wf(owner),
+            self.wf(*owner),
         ensures
             i == owner.storage@.addr(),
     {
@@ -397,7 +397,7 @@ impl MetaSlot {
     pub fn frame_paddr(&self) -> (pa: Paddr)
         requires
             owner.inv(),
-            self.wf(owner),
+            self.wf(*owner),
         returns
             self.frame_paddr_spec(owner@),
     {
@@ -452,7 +452,7 @@ impl MetaSlot {
     >)
         requires
             owner.inv(),
-            self.wf(owner),
+            self.wf(*owner),
         ensures
             res.ptr.addr() == owner.storage@.addr(),
             res.addr == owner.storage@.addr(),

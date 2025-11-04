@@ -43,7 +43,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     pub fn is_node(&self) -> bool
         requires
             owner.inv(),
-            self.wf(&owner),
+            self.wf(owner),
             owner.relate_slot_owner(slot_own),
     {
         let guard = self.node.borrow(Tracked(owner.guard_perm.borrow()));
@@ -67,12 +67,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     )]
     pub fn to_ref(&self) -> ChildRef<'rcu, C>
         requires
-            self.wf(&owner),
+            self.wf(owner),
             owner.inv(),
             old(regions).inv(),
             self.pte.paddr() == meta_to_frame(owner.slot_perm@.addr()),
             owner.slot_perm@.value().wf(
-                &old(regions).slot_owners[frame_to_index(self.pte.paddr())],
+                old(regions).slot_owners[frame_to_index(self.pte.paddr())],
             ),
             old(regions).dropped_slots.contains_key(frame_to_index(self.pte.paddr())),
             !old(regions).slots.contains_key(frame_to_index(self.pte.paddr())),
@@ -104,7 +104,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     pub fn protect(&mut self, op: impl FnOnce(PageProperty) -> PageProperty)
         requires
             old(owner).inv(),
-            old(self).wf(&*old(owner)),
+            old(self).wf(*old(owner)),
             old(owner).relate_slot_owner(slot_own),
             op.requires((old(self).pte.prop(),)),
     {
@@ -150,7 +150,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     )]
     pub fn replace(&mut self, new_child: Child<C>) -> Child<C>
         requires
-            old(self).wf(old(owner)),
+            old(self).wf(*old(owner)),
             old(owner).inv(),
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),

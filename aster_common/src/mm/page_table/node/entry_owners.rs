@@ -15,10 +15,10 @@ pub tracked struct EntryOwner<'rcu, C: PageTableConfig> {
 }
 
 impl<'rcu, C: PageTableConfig> Inv for EntryOwner<'rcu, C> {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.guard_perm@.is_init()
         &&& self.guard_perm@.value().inner.inner.ptr == self.slot_perm@.pptr()
-        &&& self.guard_perm@.value().inner.inner.wf(&self.node_own)
+        &&& self.guard_perm@.value().inner.inner.wf(self.node_own)
         &&& self.node_own.inv()
         &&& self.slot_perm@.is_init()
         &&& self.slot_perm@.value().storage == self.node_own.meta_perm@.points_to@.pptr()
@@ -32,7 +32,7 @@ impl<'rcu, C: PageTableConfig> Inv for EntryOwner<'rcu, C> {
 impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
     pub open spec fn relate_slot_owner(self, slot_own: &MetaSlotOwner) -> bool {
         &&& slot_own.inv()
-        &&& self.slot_perm@.value().wf(&slot_own)
+        &&& self.slot_perm@.value().wf(*slot_own)
         &&& self.slot_perm@.addr() == slot_own.self_addr
     }
 }
@@ -41,18 +41,18 @@ impl<'rcu, C: PageTableConfig> InvView for EntryOwner<'rcu, C> {
     type V = EntryView<C>;
 
     #[verifier::external_body]
-    open spec fn view(&self) -> <Self as InvView>::V {
+    open spec fn view(self) -> <Self as InvView>::V {
         unimplemented!()
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
     }
 }
 
 impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
     type Owner = EntryOwner<'rcu, C>;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES()
         &&& self.pte.paddr() % PAGE_SIZE() == 0
         &&& self.pte.paddr() < MAX_PADDR()

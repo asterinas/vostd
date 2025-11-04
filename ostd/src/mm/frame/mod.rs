@@ -130,7 +130,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         requires
             self.ptr == slot_perm.pptr(),
             slot_perm.is_init(),
-            slot_perm.value().wf(&slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_own.inv(),
             perm.pptr().ptr.0 == slot_own.storage@.addr(),
             perm.pptr().addr == slot_own.storage@.addr(),
@@ -179,7 +179,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         requires
             slot_perm.pptr() == self.ptr,
             slot_perm.is_init(),
-            slot_perm.value().wf(&slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_own.inv(),
         returns
             slot_perm.value().frame_paddr_spec(slot_own@),

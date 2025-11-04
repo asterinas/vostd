@@ -103,7 +103,7 @@ pub tracked struct MetaSlotOwner {
 }
 
 impl Inv for MetaSlotOwner {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         &&& self.ref_count@.value() == REF_COUNT_UNUSED ==> {
             &&& self.vtable_ptr@.is_uninit()
             &&& self.in_list@.value() == 0
@@ -135,7 +135,7 @@ pub ghost struct MetaSlotModel {
 }
 
 impl Inv for MetaSlotModel {
-    open spec fn inv(&self) -> bool {
+    open spec fn inv(self) -> bool {
         match self.ref_count {
             REF_COUNT_UNUSED => {
                 &&& self.vtable_ptr.is_uninit()
@@ -155,7 +155,7 @@ impl Inv for MetaSlotModel {
 impl InvView for MetaSlotOwner {
     type V = MetaSlotModel;
 
-    open spec fn view(&self) -> Self::V {
+    open spec fn view(self) -> Self::V {
         let storage = self.storage@.mem_contents();
         let ref_count = self.ref_count@.value();
         let vtable_ptr = self.vtable_ptr@.mem_contents();
@@ -172,7 +172,7 @@ impl InvView for MetaSlotOwner {
         MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }
     }
 
-    proof fn view_preserves_inv(&self) {
+    proof fn view_preserves_inv(self) {
         admit()
     }
 }
@@ -180,7 +180,7 @@ impl InvView for MetaSlotOwner {
 impl OwnerOf for MetaSlot {
     type Owner = MetaSlotOwner;
 
-    open spec fn wf(&self, owner: &Self::Owner) -> bool {
+    open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.storage == owner.storage@.pptr()
         &&& self.ref_count.id() == owner.ref_count@.id()
         &&& self.vtable_ptr == owner.vtable_ptr@.pptr()

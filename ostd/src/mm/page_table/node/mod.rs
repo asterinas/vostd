@@ -66,7 +66,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         requires
             self.ptr == slot_perm.pptr(),
             slot_perm.is_init(),
-            slot_perm.value().wf(slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_own.inv(),
             perm.pptr().ptr.0 == slot_own.storage@.addr(),
             perm.pptr().addr == slot_own.storage@.addr(),
@@ -270,7 +270,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.inv(),
             slot_own.inv(),
             slot_perm.is_init(),
-            slot_perm.value().wf(&slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_perm.addr() == slot_own.self_addr,
             meta_to_frame(slot_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
@@ -316,7 +316,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(owner).inv(),
             slot_own.inv(),
             slot_perm.is_init(),
-            slot_perm.value().wf(&slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_perm.addr() == slot_own.self_addr,
             meta_to_frame(slot_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
@@ -343,11 +343,11 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>,
             Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlotStorage, PageTablePageMeta<C>>>
     )]
-    fn nr_children_mut<'a>(&'a mut self) -> &PCell<u16>
+    fn nr_children_mut<'a>(&'a mut self) -> &'a PCell<u16>
         requires
             old(self).inner.inner.ptr == slot_perm.pptr(),
             slot_perm.is_init(),
-            slot_perm.value().wf(slot_own),
+            slot_perm.value().wf(*slot_own),
             slot_own.inv(),
             meta_perm.pptr().ptr.0 == slot_own.storage@.addr(),
             meta_perm.pptr().addr == slot_own.storage@.addr(),

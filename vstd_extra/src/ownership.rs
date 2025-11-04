@@ -9,18 +9,18 @@ use std::ops::Range;
 verus! {
 
 pub trait Inv {
-    spec fn inv(&self) -> bool;
+    spec fn inv(self) -> bool;
 }
 
 pub trait InvView: Inv {
     type V: Inv;
 
-    spec fn view(&self) -> Self::V
+    spec fn view(self) -> Self::V
         recommends
             self.inv(),
     ;
 
-    proof fn view_preserves_inv(&self)
+    proof fn view_preserves_inv(self)
         requires
             self.inv(),
         ensures
@@ -32,16 +32,16 @@ pub trait OwnerOf {
     /// The owner of the concrete type.
     /// The Owner must implement `Inv`, indicating that it must
     /// has a consistent state.
-    type Owner: InvView;
+    type Owner: InvView + Sized;
 
-    spec fn wf(&self, owner: &Self::Owner) -> bool
+    spec fn wf(self, owner: Self::Owner) -> bool
         recommends
             owner.inv(),
     ;
 }
 
-pub trait ModelOf: OwnerOf {
-    open spec fn model(&self, owner: &Self::Owner) -> <Self::Owner as InvView>::V
+pub trait ModelOf: OwnerOf + Sized {
+    open spec fn model(self, owner: Self::Owner) -> <Self::Owner as InvView>::V
         recommends
             self.wf(owner),
     {

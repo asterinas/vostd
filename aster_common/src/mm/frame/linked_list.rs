@@ -240,7 +240,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> AnyFrameMeta for Link<M> {
         false
     }
 
-    spec fn vtable_ptr(&self) -> usize;
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 } // verus!

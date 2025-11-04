@@ -192,7 +192,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).dropped_slots.contains_key(frame_to_index(paddr)),
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),
-            res.0.wf(&res.1@),
+            res.0.wf(res.1@),
             res.1@.meta_own@ == meta_own,
             res.1@.meta_perm@ == meta_perm,
             regions.slots[frame_to_index(paddr)] == old(regions).dropped_slots[frame_to_index(

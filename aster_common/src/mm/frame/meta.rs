@@ -139,7 +139,7 @@ impl MetaSlot {
         Tracked(owner): Tracked<&MetaSlotOwner>,
     ) -> (res: ReprPtr<MetaSlotStorage, T>)
         requires
-            self.wf(owner),
+            self.wf(*owner),
             owner.inv(),
             addr == owner.storage@.addr(),
         ensures

@@ -187,7 +187,7 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
 
     pub broadcast proof fn pptr_implies_addr(&self)
         ensures
-            self.addr() == self.pptr().addr(),
+            self.addr() == #[trigger] self.pptr().addr(),
     {
     }
 }

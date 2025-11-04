@@ -607,7 +607,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut entry_own = pt_own.tree.root.value.tree_node.tracked_take();
         assert(entry_own.inv()) by { admit() };
         assert(entry_own.relate_slot_owner(slot_own)) by { admit() };
-        assert(entry.wf(&entry_own)) by { admit() };
+        assert(entry.wf(entry_own)) by { admit() };
         assert(op.requires((entry.pte.prop(),))) by { admit() };
 
         #[verus_spec(with Tracked(&mut entry_own), Tracked(slot_own))]
