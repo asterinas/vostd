@@ -530,7 +530,49 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                                         !node_helper::in_subtree_range::<C>(_ch, _nid)
                                     } by {
                                         assert(node_helper::in_subtree_range::<C>(ch, _nid));
-                                        admit();  // TODO: Need a tricky proof.
+                                        assert(node_helper::in_subtree_range::<C>(pa, nid));
+                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(
+                                            pa,
+                                            nid,
+                                        );
+                                        node_helper::lemma_in_subtree_implies_in_subtree_of_one_child::<
+                                            C,
+                                        >(pa, nid);
+                                        let _offset = choose|_offset: nat|
+                                            #![trigger node_helper::get_child::<C>(pa, _offset)]
+                                            0 <= _offset < nr_subpage_per_huge::<C>()
+                                                && node_helper::in_subtree::<C>(
+                                                node_helper::get_child::<C>(pa, _offset),
+                                                nid,
+                                            );
+                                        let __ch = node_helper::get_child::<C>(pa, _offset);
+                                        node_helper::lemma_get_child_sound::<C>(pa, _offset);
+                                        node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(
+                                            __ch,
+                                            nid,
+                                        );
+                                        assert(_offset != offset);
+                                        assert(__ch != ch);
+                                        if node_helper::in_subtree_range::<C>(_ch, _nid) {
+                                            assert(node_helper::in_subtree_range::<C>(__ch, _nid))
+                                                by {
+                                                admit();
+                                            };
+                                            assert(__ch != _nid) by {
+                                                admit();
+                                            };
+
+                                            if _offset < offset {
+                                                node_helper::lemma_brother_sub_tree_range_disjoint::<
+                                                    C,
+                                                >(pa, _offset, offset);
+                                            } else {
+                                                node_helper::lemma_brother_sub_tree_range_disjoint::<
+                                                    C,
+                                                >(pa, offset, _offset);
+                                            }
+                                            admit();
+                                        }
                                     }
                                 }
                             }
