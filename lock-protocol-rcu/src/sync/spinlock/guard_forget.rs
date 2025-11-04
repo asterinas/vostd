@@ -554,14 +554,17 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                                         assert(_offset != offset);
                                         assert(__ch != ch);
                                         if node_helper::in_subtree_range::<C>(_ch, _nid) {
-                                            assert(node_helper::in_subtree_range::<C>(__ch, _nid))
-                                                by {
-                                                admit();
+                                            assert(node_helper::in_subtree_range::<C>(__ch, _nid)) by {
+                                                assert(node_helper::in_subtree_range::<C>(__ch, _ch)) by {
+                                                    node_helper::lemma_get_child_sound::<C>(nid, i);
+                                                    node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, nid);
+                                                    node_helper::lemma_in_subtree_is_child_in_subtree::<C>(__ch, nid, _ch);
+                                                    node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, _ch);
+                                                };
+                                                node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(__ch, _ch);
+                                                node_helper::lemma_in_subtree_bounded::<C>(__ch, _ch);
                                             };
-                                            assert(__ch != _nid) by {
-                                                admit();
-                                            };
-
+                                            assert(node_helper::in_subtree_range::<C>(ch, _nid));
                                             if _offset < offset {
                                                 node_helper::lemma_brother_sub_tree_range_disjoint::<
                                                     C,
@@ -571,7 +574,6 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                                                     C,
                                                 >(pa, offset, _offset);
                                             }
-                                            admit();
                                         }
                                     }
                                 }
