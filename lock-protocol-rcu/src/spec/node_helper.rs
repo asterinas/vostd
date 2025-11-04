@@ -1948,10 +1948,8 @@ pub proof fn lemma_in_subtree_implies_in_subtree_of_one_child<C: PageTableConfig
     ensures
         exists|offset: nat|
             #![trigger get_child::<C>(nid1, offset)]
-            0 <= offset < nr_subpage_per_huge::<C>() ==> in_subtree::<C>(
-                get_child::<C>(nid1, offset),
-                nid2,
-            ),
+            0 <= offset < nr_subpage_per_huge::<C>() &&
+            in_subtree::<C>(get_child::<C>(nid1, offset), nid2),
 {
     assert(is_not_leaf::<C>(nid1)) by {
         admit();
