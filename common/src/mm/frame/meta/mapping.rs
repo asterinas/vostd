@@ -4,7 +4,6 @@ use core::mem::size_of;
 use vstd::prelude::*;
 
 use crate::mm::{Paddr, Vaddr, PAGE_SIZE};
-use super::MetaSlot;
 
 verus! {
 

@@ -9,18 +9,26 @@ use vstd::cell::CellId;
 
 use vstd_extra::array_ptr::*;
 
-use crate::spec::{
-    rcu::{NodeToken, PteArrayToken, SpecInstance, PteArrayState},
-    lock_protocol::LockProtocolModel,
+use common::{
+    mm::{
+        page_table::{PageTableEntryTrait, PageTableConfig},
+        PagingLevel, Paddr, Vaddr,
+    },
+    x86_64::kspace::paddr_to_vaddr,
+    configs::{PTE_NUM, GLOBAL_CPU_NUM},
+};
+use common::spec::{
     node_helper,
     common::NodeId,
 };
-use crate::mm::{PagingLevel, Paddr, Vaddr};
-use crate::mm::page_table::{PageTableEntryTrait, pte::Pte, PageTableConfig};
-use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
+
 use crate::mm::page_table::node::PageTableGuard;
-use crate::x86_64::kspace::paddr_to_vaddr;
-use crate::configs::{PTE_NUM, GLOBAL_CPU_NUM};
+use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
+use crate::mm::page_table::pte::Pte;
+use crate::spec::{
+    rcu::{NodeToken, PteArrayToken, SpecInstance, PteArrayState},
+    lock_protocol::LockProtocolModel,
+};
 
 tokenized_state_machine! {
 

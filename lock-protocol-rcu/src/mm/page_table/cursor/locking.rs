@@ -7,37 +7,40 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
 
-use crate::mm::page_size;
-use crate::mm::frame::meta::*;
-use crate::mm::nr_subpage_per_huge;
-use crate::mm::page_table::{
-    PagingConstsTrait, PageTable, PageTableConfig, PageTableEntryTrait, Paddr, Vaddr, PagingLevel,
-    pte_index,
+use common::{
+    mm::{page_size, nr_subpage_per_huge, PagingLevel, Paddr, Vaddr},
+    mm::page_table::{
+        PagingConstsTrait, PageTableConfig, PageTableEntryTrait,
+        pte_index,
+    },
+    task::DisabledPreemptGuard,
+    x86_64::kspace::paddr_to_vaddr,
+    configs::{PTE_NUM, GLOBAL_CPU_NUM},
 };
-use crate::mm::page_table::cursor::MAX_NR_LEVELS;
-use crate::mm::page_table::node::{
-    PageTableNode, PageTableNodeRef, PageTableGuard,
-    child::{Child, ChildRef},
-    entry::Entry,
-    stray::{StrayFlag, StrayPerm},
-};
-use crate::mm::page_table::pte::Pte;
-use crate::sync::rcu::rcu_load_pte;
-use crate::sync::spinlock::{PageTablePageSpinLock, SpinGuard};
-use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
-use crate::task::DisabledPreemptGuard;
-use crate::x86_64::kspace::paddr_to_vaddr;
-
-use crate::configs::{PTE_NUM, GLOBAL_CPU_NUM};
-use crate::spec::{
-    lock_protocol::LockProtocolModel,
+use common::spec::{
     common::{
         NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
         va_level_to_nid, lemma_va_level_to_trace_valid,
     },
     node_helper::{self, group_node_helper_lemmas},
-    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken},
-    rcu::{PteArrayState},
+};
+
+use crate::mm::frame::meta::*;
+use crate::mm::page_table::PageTable;
+use crate::mm::page_table::node::{
+    PageTableNode, PageTableNodeRef, PageTableGuard,
+    child::{Child, ChildRef},
+    entry::Entry,
+    stray::{StrayFlag, StrayPerm},
+    spinlock::{PageTablePageSpinLock, SpinGuard},
+    spinlock::guard_forget::SubTreeForgotGuard,
+};
+use crate::mm::page_table::pte::Pte;
+use crate::mm::page_table::cursor::MAX_NR_LEVELS;
+use crate::sync::rcu::rcu_load_pte;
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken, PteArrayState},
 };
 
 use super::{Cursor, va_range_wf};
@@ -750,7 +753,7 @@ fn dfs_acquire_lock<C: PageTableConfig>(
         ),
     decreases cur_node.deref().deref().level_spec(),
 {
-    broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    broadcast use node_helper::group_node_helper_lemmas;
 
     proof {
         C::lemma_nr_subpage_per_huge_is_512();
@@ -1040,7 +1043,7 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
         res@.cur_node() == cur_node.nid(),
     decreases cur_node.deref().deref().level_spec(),
 {
-    broadcast use crate::spec::node_helper::group_node_helper_lemmas;
+    broadcast use node_helper::group_node_helper_lemmas;
 
     proof {
         C::lemma_nr_subpage_per_huge_is_512();

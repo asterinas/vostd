@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 vstd = { path = "../tools/verus/source/vstd" }
 vstd_extra = { path = "../vstd_extra" }
-# aster_common = { path = "../aster_common" }
+common = { path = "../common" }

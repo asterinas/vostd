@@ -1,13 +1,11 @@
-pub mod mapping;
-
 use vstd::prelude::*;
 use vstd::raw_ptr::PointsTo;
 
-use crate::mm::{Paddr, Vaddr};
-use crate::mm::page_table::node::PageTablePageMeta;
-use crate::mm::page_table::PageTableConfig;
+use common::mm::{Paddr, Vaddr};
+use common::mm::page_table::PageTableConfig;
+use common::mm::frame::meta::mapping::{frame_to_meta, meta_to_frame};
 
-pub use mapping::{frame_to_meta, meta_to_frame};
+use crate::mm::page_table::node::PageTablePageMeta;
 
 verus! {
 
@@ -89,14 +87,6 @@ impl<C: PageTableConfig> MetaSlotPerm<C> {
     pub open spec fn value(&self) -> MetaSlot<C> {
         self.inner.value()
     }
-}
-
-pub trait AnyFrameMeta {
-
-}
-
-impl AnyFrameMeta for () {
-
 }
 
 } // verus!

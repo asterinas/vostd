@@ -12,7 +12,7 @@ use vstd::arithmetic::mul::lemma_mul_is_commutative;
 verus! {
 
 // Power-of-2 bitwise alignment produces modular alignment
-proof fn lemma_power2_and_alignment(x: u64, align_: u64)
+pub proof fn lemma_power2_and_alignment(x: u64, align_: u64)
     requires
         align_ > 0,
         is_power_2(align_ as int),
@@ -79,14 +79,14 @@ proof fn lemma_power2_and_alignment(x: u64, align_: u64)
     assert((x as int - (x as int % align_ as int)) % align_ as int == 0);
 }
 
-proof fn lemma_mask_bound_preservation(x: u64, mask: u64)
+pub proof fn lemma_mask_bound_preservation(x: u64, mask: u64)
     ensures
         x & !mask >= x - mask,
 {
     assert(x & !mask >= x - mask) by (bit_vector);
 }
 
-proof fn lemma_aligned_identity(x: u64, align_: u64)
+pub proof fn lemma_aligned_identity(x: u64, align_: u64)
     requires
         align_ > 0,
         is_power_2(align_ as int),

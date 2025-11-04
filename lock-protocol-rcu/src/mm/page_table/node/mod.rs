@@ -1,6 +1,7 @@
 pub mod child;
 pub mod entry;
 pub mod stray;
+pub mod spinlock;
 
 use std::cell::Cell;
 use std::cell::SyncUnsafeCell;
@@ -18,41 +19,35 @@ use vstd::simple_pptr;
 
 use vstd_extra::{manually_drop::*, array_ptr::*};
 
-// use entry_local::EntryLocal;
-use entry::Entry;
-use stray::{StrayFlag, StrayPerm};
-use crate::{
+use common::{
     mm::{
         NR_ENTRIES,
-        frame::{self, meta::AnyFrameMeta},
+        frame::meta::AnyFrameMeta,
+        frame::meta::mapping::meta_to_frame,
         nr_subpage_per_huge,
         page_prop::PageProperty,
         page_size_spec,
-        page_table::PageTableEntryTrait,
-        Paddr, PagingConsts, PagingConstsTrait, PagingLevel, Vaddr, PAGE_SIZE,
+        page_table::{PagingConsts, PageTableEntryTrait, PagingConstsTrait, PageTableConfig},
+        Paddr, PagingLevel, Vaddr, PAGE_SIZE,
     },
-    sync::spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner},
     task::DisabledPreemptGuard,
     x86_64::kspace::paddr_to_vaddr,
 };
-use crate::mm::frame::meta::{MetaSlot, meta_to_frame, MetaSlotPerm};
-use crate::mm::page_table::{pte::Pte, GLOBAL_CPU_NUM};
-
-// use crate::exec::{
-//     self, MAX_FRAME_NUM, get_pte_from_addr_spec, SIZEOF_PAGETABLEENTRY, frame_addr_to_index,
-//     frame_addr_to_index_spec, MockPageTableEntry, MockPageTablePage,
-// };
-use crate::configs::PTE_NUM;
-// use crate::spec::sub_pt::{pa_is_valid_pt_address, SubPageTable, level_is_in_range, index_pte_paddr};
-use crate::spec::{
-    lock_protocol::LockProtocolModel,
+use common::configs::{PTE_NUM, GLOBAL_CPU_NUM};
+use common::spec::{
     common::NodeId,
     node_helper,
-    rcu::{SpecInstance, NodeToken, PteArrayToken, PteArrayState, PteState, FreePaddrToken},
 };
 
-// use super::cursor::spec_helpers;
-use super::PageTableConfig;
+use crate::mm::frame::meta::{MetaSlot, MetaSlotPerm};
+use crate::mm::page_table::node::entry::Entry;
+use crate::mm::page_table::node::stray::{StrayFlag, StrayPerm};
+use crate::mm::page_table::node::spinlock::{PageTablePageSpinLock, SpinGuard, SpinGuardGhostInner};
+use crate::mm::page_table::pte::Pte;
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    rcu::{SpecInstance, NodeToken, PteArrayToken, PteArrayState, PteState, FreePaddrToken},
+};
 
 verus! {
 

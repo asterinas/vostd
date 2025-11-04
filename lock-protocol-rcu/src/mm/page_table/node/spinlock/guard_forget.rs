@@ -1,11 +1,17 @@
 use vstd::prelude::*;
 
-use crate::{
+use common::{
     mm::nr_subpage_per_huge,
-    spec::{common::*, node_helper, rcu::*},
+    mm::page_table::{PageTableConfig, PagingConstsTrait},
+    spec::{
+        common::NodeId, 
+        node_helper,
+    },
 };
+
+use crate::spec::rcu::PteArrayState;
+
 use super::{PageTablePageSpinLock, SpinGuardGhostInner};
-use crate::mm::page_table::{PageTableConfig, PagingConstsTrait};
 
 verus! {
 

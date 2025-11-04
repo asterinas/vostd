@@ -1,17 +1,16 @@
-use core::marker::PhantomData;
-
+use verus_state_machines_macros::state_machine;
 use vstd::prelude::*;
 use vstd::map::*;
 
-use verus_state_machines_macros::state_machine;
-
-use common::mm::page_table::PageTableConfig;
-use common::spec::{
+use crate::spec::{
     node_helper,
     common::{CpuId, NodeId, valid_cpu},
 };
+use super::types::AtomicCursorState;
 
-use crate::spec::rcu::AtomicCursorState;
+use core::marker::PhantomData;
+
+use crate::mm::page_table::PageTableConfig;
 
 verus! {
 
@@ -28,10 +27,10 @@ fields {
 #[invariant]
 pub fn inv_cursors(&self) -> bool {
     &&& forall |cpu: CpuId| #![auto]
-        self.cursors.dom().contains(cpu) <==> valid_cpu(self.cpu_num, cpu)
+        self.cursors.contains_key(cpu) <==> valid_cpu(self.cpu_num, cpu)
 
     &&& forall |cpu: CpuId| #![auto]
-        self.cursors.dom().contains(cpu) &&
+        self.cursors.contains_key(cpu) &&
         self.cursors[cpu] is Locked ==>
             node_helper::valid_nid::<C>(self.cursors[cpu]->Locked_0)
 }
@@ -40,9 +39,9 @@ pub fn inv_cursors(&self) -> bool {
 pub fn inv_non_overlapping(&self) -> bool {
     forall |cpu1: CpuId, cpu2: CpuId| #![auto]
         cpu1 != cpu2 &&
-        self.cursors.dom().contains(cpu1) &&
+        self.cursors.contains_key(cpu1) &&
         self.cursors[cpu1] is Locked &&
-        self.cursors.dom().contains(cpu2) &&
+        self.cursors.contains_key(cpu2) &&
         self.cursors[cpu2] is Locked ==> {
             let nid1 = self.cursors[cpu1]->Locked_0;
             let nid2 = self.cursors[cpu2]->Locked_0;
@@ -57,7 +56,7 @@ pub open spec fn all_non_overlapping(&self, nid: NodeId) -> bool
         node_helper::valid_nid::<C>(nid),
 {
     forall |cpu: CpuId| #![auto]
-        self.cursors.dom().contains(cpu) &&
+        self.cursors.contains_key(cpu) &&
         self.cursors[cpu] is Locked ==> {
             let _nid = self.cursors[cpu]->Locked_0;
 
@@ -142,8 +141,8 @@ pub proof fn lemma_mutual_exclusion<C: PageTableConfig>(
             },
         forall|i|
             #![auto]
-            0 <= i < steps.len() ==> State::next_by(states[i], states[i + 1], steps[i]),
-        steps[0] =~= Step::lock(cpu, nid),
+            0 <= i < steps.len() ==> State::<C>::next_by(states[i], states[i + 1], steps[i]),
+        steps[0] =~= Step::<C>::lock(cpu, nid),
         forall|i|
             #![auto]
             0 < i < steps.len() && steps[i].is_unlock() ==> {

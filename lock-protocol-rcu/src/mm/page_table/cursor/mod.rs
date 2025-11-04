@@ -23,43 +23,52 @@ use vstd::bits::*;
 use vstd::tokens::SetToken;
 use vstd_extra::ghost_tree::Node;
 
-use crate::helpers::{align_ext::*, math::lemma_usize_mod_0_maintain_after_add};
-use crate::mm::{
-    page_table::GLOBAL_CPU_NUM,
-    page_table::node::{PageTableNode, PageTableGuard},
-    page_table::node::entry::Entry,
-    page_table::node::child::{Child, ChildRef},
-    frame::{self, meta::AnyFrameMeta},
+use common::helpers::{
+    align_ext::{
+        align_down,
+        lemma_align_down_basic,
+    }, 
+    math::lemma_usize_mod_0_maintain_after_add,
+};
+use common::mm::{
     nr_subpage_per_huge,
     page_prop::PageProperty,
     page_size, page_size_spec, lemma_page_size_spec_properties, lemma_page_size_increases,
     lemma_page_size_geometric, lemma_page_size_adjacent_levels,
     vm_space::Token,
     Paddr, Vaddr, MAX_USERSPACE_VADDR, PAGE_SIZE,
+    frame::meta::AnyFrameMeta,
+    page_table::{
+        lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
+        lemma_pte_index_alternative_spec, pte_index, pte_index_mask, PageTableConfig,
+        PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait,
+    },
+    NR_ENTRIES, PagingLevel,
 };
-use crate::task::DisabledPreemptGuard;
-use crate::sync::rcu::RcuDrop;
-use crate::sync::spinlock::guard_forget::SubTreeForgotGuard;
-
-use crate::spec::{
-    lock_protocol::LockProtocolModel,
+use common::task::DisabledPreemptGuard;
+use common::sync::rcu::RcuDrop;
+use common::spec::{
     common::{
         NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
         va_level_to_nid, lemma_va_level_to_trace_valid,
     },
     node_helper::{self, group_node_helper_lemmas},
+};
+use common::configs::GLOBAL_CPU_NUM;
+
+use crate::mm::{
+    page_table::{node, PageTable},
+    page_table::node::{PageTableNode, PageTableGuard},
+    page_table::node::entry::Entry,
+    page_table::node::child::{Child, ChildRef},
+    page_table::node::spinlock::guard_forget::SubTreeForgotGuard,
+};
+use crate::spec::{
     rcu::{
         SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, PteArrayState, PteState, TreeSpec,
     },
+    lock_protocol::LockProtocolModel,
 };
-
-use super::{
-    lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
-    lemma_pte_index_alternative_spec, node, pte_index, pte_index_mask, PageTable, PageTableConfig,
-    PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait, PagingLevel,
-};
-
-use crate::mm::NR_ENTRIES;
 
 verus! {
 

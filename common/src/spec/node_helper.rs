@@ -12,7 +12,7 @@ use vstd_extra::prelude::*;
 use crate::mm::nr_subpage_per_huge;
 use crate::spec::common::NodeId;
 
-use crate::mm::page_table::{node::child, PageTableConfig, PagingConstsTrait};
+use crate::mm::page_table::{PageTableConfig, PagingConstsTrait};
 
 verus! {
 

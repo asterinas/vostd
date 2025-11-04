@@ -7,10 +7,11 @@ use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 use core::marker::PhantomData;
 
-use crate::mm::{Paddr, page_table::PageTableConfig};
-use crate::spec::common::{CpuId, NodeId, valid_cpu};
+use common::mm::{Paddr, page_table::PageTableConfig};
+use common::spec::common::{CpuId, NodeId, valid_cpu};
+use common::spec::node_helper::{self, group_node_helper_lemmas};
+
 use crate::spec::rcu::types::{CursorState, NodeState, PteState, PteArrayState};
-use crate::spec::node_helper::{self, group_node_helper_lemmas};
 
 tokenized_state_machine! {
 

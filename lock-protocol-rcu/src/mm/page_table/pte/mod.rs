@@ -2,12 +2,14 @@ use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
-use crate::spec::node_helper;
+use common::mm::{PagingLevel, Paddr};
+use common::spec::{common::NodeId, node_helper};
+use common::mm::page_table::{PageTableEntryTrait, PageTableConfig};
+use common::mm::page_prop::PageProperty;
+use common::configs::GLOBAL_CPU_NUM;
 
-use crate::mm::{PagingLevel, Paddr};
-use crate::spec::{rcu::SpecInstance, common::NodeId};
-use crate::mm::page_table::{PageTableEntryTrait, node::PageTableNode, PageTableConfig, GLOBAL_CPU_NUM};
-use crate::mm::page_prop::PageProperty;
+use crate::mm::page_table::node::PageTableNode;
+use crate::spec::rcu::SpecInstance;
 
 verus! {
 

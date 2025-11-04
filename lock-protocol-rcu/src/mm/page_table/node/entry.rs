@@ -3,24 +3,31 @@ use std::marker::PhantomData;
 
 use vstd::prelude::*;
 
-use crate::spec::{
+use common::{
+    mm::{
+        page_table::{
+            PagingConstsTrait, PageTableEntryTrait,
+            PageTableConfig,
+        },
+        nr_subpage_per_huge,
+    },
+    sync::rcu::RcuDrop,
+    task::DisabledPreemptGuard,
+};
+use common::spec::{
     node_helper::{self, group_node_helper_lemmas},
     common::NodeId,
 };
-use super::{PageTableNode, PageTableNodeRef, PageTableGuard};
-use crate::mm::{
-    page_table::{
-        PagingConstsTrait, PageTableEntryTrait,
-        pte::Pte,
-        PageTableConfig,
-        node::child::{Child, ChildRef},
-    },
-    nr_subpage_per_huge,
+
+use crate::mm::page_table::node::{
+    child::{Child, ChildRef},
+    PageTableNode, PageTableNodeRef, PageTableGuard,
 };
-use crate::sync::rcu::RcuDrop;
-use crate::task::DisabledPreemptGuard;
-use crate::spec::lock_protocol::LockProtocolModel;
-use crate::spec::rcu::PteArrayState;
+use crate::mm::page_table::pte::Pte;
+use crate::spec::{
+    lock_protocol::LockProtocolModel,
+    rcu::PteArrayState,
+};
 
 verus! {
 

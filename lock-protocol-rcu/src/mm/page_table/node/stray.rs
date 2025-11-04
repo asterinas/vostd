@@ -3,11 +3,12 @@ use vstd::cell::{CellId, PCell, PointsTo};
 
 use core::marker::PhantomData;
 
-use crate::spec::{common::NodeId, rcu::StrayToken};
-use crate::mm::{
-    page_table::{node::PageTableGuard, PageTableConfig},
-    Paddr,
-};
+use common::mm::page_table::PageTableConfig;
+use common::mm::Paddr;
+use common::spec::common::NodeId;
+
+use crate::mm::page_table::node::PageTableGuard;
+use crate::spec::rcu::StrayToken;
 
 verus! {
 

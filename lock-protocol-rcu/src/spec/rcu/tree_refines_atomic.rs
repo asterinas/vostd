@@ -1,19 +1,18 @@
+use core::marker::PhantomData;
+
 use vstd::prelude::*;
 use vstd::map::*;
 
 use verus_state_machines_macros::case_on_init;
 use verus_state_machines_macros::case_on_next;
 
-use crate::spec::{
+use common::mm::page_table::PageTableConfig;
+use common::spec::{
     common::{valid_cpu, CpuId},
-    rcu::{AtomicCursorState, CursorState},
     node_helper::{self, group_node_helper_lemmas},
 };
-use super::{tree::TreeSpec, atomic::AtomicSpec};
 
-use core::marker::PhantomData;
-
-use crate::mm::page_table::PageTableConfig;
+use super::{tree::TreeSpec, atomic::AtomicSpec, AtomicCursorState, CursorState};
 
 verus! {
 

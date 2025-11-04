@@ -1,9 +1,9 @@
 use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
-use crate::mm::page_table::PageTableConfig;
-use crate::mm::Paddr;
-use crate::spec::{common::NodeId, node_helper};
+use common::mm::page_table::PageTableConfig;
+use common::mm::Paddr;
+use common::spec::{common::NodeId, node_helper};
 
 verus! {
 

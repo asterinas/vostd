@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vstd_extra",
+    "common",
     "lock-protocol-rcu",
 ]
 exclude = ["xtask", "tools/verus", "tools/verus-analyzer"]
