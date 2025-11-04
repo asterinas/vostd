@@ -244,12 +244,7 @@ impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
     }
 
     proof fn view_preserves_inv(self) {
-        assert(Seq::new(self.count as nat, |i: int| self.regions[i]@).len() == self.count);
-        assert(self.count <= LEN);
-        assert(self@.regions == Seq::new(self.count as nat, |i: int| self.regions[i]@));
-        assert(self@.regions.len() <= LEN);
-        assert(self.view().inv() <==> self@.regions.len() <= LEN);
-        assert(self.view().inv());
+        assert(self@.inv());
     }
 }
 
