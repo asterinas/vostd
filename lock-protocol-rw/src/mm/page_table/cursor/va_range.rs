@@ -3,7 +3,7 @@ use std::ops::Range;
 use vstd::prelude::*;
 
 use common::mm::{Vaddr, PagingLevel};
-use common::mm::page_table::{PageTableConfig, PagingConstsTrait};
+use common::mm::page_table::{PageTableConfig, PagingConstsTrait, pte_index_spec};
 use common::spec::{common::*, node_helper::self};
 
 verus! {
@@ -31,7 +31,7 @@ pub open spec fn va_range_get_guard_level_rec<C: PageTableConfig>(
         let st = va.start;
         let en = (va.end - 1) as usize;
 
-        if va_level_to_offset::<C>(st, level) == va_level_to_offset::<C>(en, level) {
+        if pte_index_spec::<C>(st, level) == pte_index_spec::<C>(en, level) {
             va_range_get_guard_level_rec::<C>(va, (level - 1) as PagingLevel)
         } else {
             level
@@ -54,9 +54,9 @@ pub proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal<C: PageTabl
         va_range_wf::<C>(va),
         1 <= level <= C::NR_LEVELS_SPEC(),
         forall|l|
-            level < l <= C::NR_LEVELS_SPEC() ==> va_level_to_offset::<C>(va.start, l)
-                == va_level_to_offset::<C>((va.end - 1) as usize, l),
-        level == 1 || va_level_to_offset::<C>(va.start, level) != va_level_to_offset::<C>(
+            level < l <= C::NR_LEVELS_SPEC() ==> pte_index_spec::<C>(va.start, l)
+                == pte_index_spec::<C>((va.end - 1) as usize, l),
+        level == 1 || pte_index_spec::<C>(va.start, level) != pte_index_spec::<C>(
             (va.end - 1) as usize,
             level,
         ),
@@ -79,10 +79,10 @@ proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal_induction<C: Pa
         va_range_wf::<C>(va),
         1 <= level <= top_level <= C::NR_LEVELS_SPEC(),
         forall|l|
-            level < l <= top_level ==> va_level_to_offset::<C>(va.start, l) == va_level_to_offset::<
+            level < l <= top_level ==> pte_index_spec::<C>(va.start, l) == pte_index_spec::<
                 C,
             >((va.end - 1) as usize, l),
-        level == 1 || va_level_to_offset::<C>(va.start, level) != va_level_to_offset::<C>(
+        level == 1 || pte_index_spec::<C>(va.start, level) != pte_index_spec::<C>(
             (va.end - 1) as usize,
             level,
         ),
@@ -92,7 +92,7 @@ proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal_induction<C: Pa
 {
     if (top_level == 1) {
     } else {
-        if va_level_to_offset::<C>(va.start, top_level) == va_level_to_offset::<C>(
+        if pte_index_spec::<C>(va.start, top_level) == pte_index_spec::<C>(
             (va.end - 1) as usize,
             top_level,
         ) {
@@ -112,13 +112,13 @@ pub proof fn lemma_va_range_get_guard_level_implies_offsets_equal<C: PageTableCo
         va_range_wf::<C>(va),
     ensures
         forall|l: PagingLevel| #[trigger]
-            va_range_get_guard_level::<C>(va) < l <= C::NR_LEVELS_SPEC() ==> va_level_to_offset::<
+            va_range_get_guard_level::<C>(va) < l <= C::NR_LEVELS_SPEC() ==> pte_index_spec::<
                 C,
-            >(va.start, l) == va_level_to_offset::<C>((va.end - 1) as usize, l),
-        va_range_get_guard_level::<C>(va) == 1 || va_level_to_offset::<C>(
+            >(va.start, l) == pte_index_spec::<C>((va.end - 1) as usize, l),
+        va_range_get_guard_level::<C>(va) == 1 || pte_index_spec::<C>(
             va.start,
             va_range_get_guard_level::<C>(va),
-        ) != va_level_to_offset::<C>((va.end - 1) as usize, va_range_get_guard_level::<C>(va)),
+        ) != pte_index_spec::<C>((va.end - 1) as usize, va_range_get_guard_level::<C>(va)),
 {
     C::lemma_consts_properties();
     lemma_va_range_get_guard_level_implies_offsets_equal_induction::<C>(va, C::NR_LEVELS_SPEC());
@@ -134,14 +134,14 @@ proof fn lemma_va_range_get_guard_level_implies_offsets_equal_induction<C: PageT
     ensures
         forall|l: PagingLevel| #[trigger]
             va_range_get_guard_level_rec::<C>(va, top_level) < l <= top_level
-                ==> va_level_to_offset::<C>(va.start, l) == va_level_to_offset::<C>(
+                ==> pte_index_spec::<C>(va.start, l) == pte_index_spec::<C>(
                 (va.end - 1) as usize,
                 l,
             ),
-        va_range_get_guard_level_rec::<C>(va, top_level) == 1 || va_level_to_offset::<C>(
+        va_range_get_guard_level_rec::<C>(va, top_level) == 1 || pte_index_spec::<C>(
             va.start,
             va_range_get_guard_level_rec::<C>(va, top_level),
-        ) != va_level_to_offset::<C>(
+        ) != pte_index_spec::<C>(
             (va.end - 1) as usize,
             va_range_get_guard_level_rec::<C>(va, top_level),
         ),
@@ -149,7 +149,7 @@ proof fn lemma_va_range_get_guard_level_implies_offsets_equal_induction<C: PageT
 {
     if top_level == 1 {
     } else {
-        if va_level_to_offset::<C>(va.start, top_level) == va_level_to_offset::<C>(
+        if pte_index_spec::<C>(va.start, top_level) == pte_index_spec::<C>(
             (va.end - 1) as usize,
             top_level,
         ) {
@@ -175,7 +175,7 @@ pub proof fn lemma_va_range_get_guard_level_rec<C: PageTableConfig>(
     if level > 1 {
         let st = va.start;
         let en = (va.end - 1) as usize;
-        if va_level_to_offset::<C>(st, level) == va_level_to_offset::<C>(en, level) {
+        if pte_index_spec::<C>(st, level) == pte_index_spec::<C>(en, level) {
             lemma_va_range_get_guard_level_rec::<C>(va, (level - 1) as PagingLevel);
         }
     }

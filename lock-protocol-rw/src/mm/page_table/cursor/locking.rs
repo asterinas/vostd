@@ -15,7 +15,7 @@ use vstd_extra::manually_drop::*;
 
 use common::{
     mm::{Paddr, Vaddr, PagingLevel},
-    mm::page_table::{PageTableConfig, PagingConstsTrait, pte_index},
+    mm::page_table::{PageTableConfig, PagingConstsTrait, pte_index, pte_index_spec},
     spec::{common::*, node_helper::self},
     task::DisabledPreemptGuard,
 };
@@ -114,7 +114,7 @@ pub fn lock_range<'a, C: PageTableConfig>(
             cur_pt.deref().level_spec() >= va_range_get_guard_level::<C>(*va),
             forall|l: PagingLevel|
                 cur_pt.deref().level_spec() < l <= C::NR_LEVELS() ==> {
-                    #[trigger] va_level_to_offset::<C>(va.start, l) == va_level_to_offset::<C>(
+                    #[trigger] pte_index_spec::<C>(va.start, l) == pte_index_spec::<C>(
                         (va.end - 1) as usize,
                         l,
                     )

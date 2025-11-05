@@ -79,7 +79,7 @@ pub proof fn lemma_va_level_to_nid_inc<C: PageTableConfig>(
         node_helper::valid_nid::<C>(nid),
         nid == va_level_to_nid::<C>(va, (level + 1) as PagingLevel),
         valid_pte_offset::<C>(idx),
-        idx == va_level_to_offset::<C>(va, (level + 1) as PagingLevel),
+        idx == pte_index_spec::<C>(va, (level + 1) as PagingLevel),
     ensures
         node_helper::get_child::<C>(nid, idx) == va_level_to_nid::<C>(va, level),
 {
