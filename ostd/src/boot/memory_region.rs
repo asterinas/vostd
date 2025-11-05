@@ -360,7 +360,6 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Appends a region to the set.
     ///
     /// If the set is full, an error is returned.
-    #[verus_verify(external_body)]
     #[verus_spec(ret =>
         requires
             old(self).inv(),
@@ -375,6 +374,59 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
         if self.count < self.regions.len() {
             self.regions[self.count] = region;
             self.count = self.count + 1;
+            proof! {
+                let old_count = old(self).count;
+                let old_regions = old(self).regions;
+
+                // show invariant: count increased by 1 and was < len before
+                assert(old(self)@.regions.len() == old_count as nat);
+                assert(old(self).inv());
+                assert(old_count < self.regions.len());
+                assert(self.count == old_count + 1);
+                assert(self.count <= self.regions.len());
+                assert(self.count <= LEN);
+
+                // relate model sequences
+                let new_seq = self@.regions;
+                let old_seq = old(self)@.regions;
+
+                // for indices before old_count, elements unchanged
+                assert forall |i: int|
+                    0 <= i && i < old_count as int implies #[trigger] new_seq[i] == old_seq[i]
+                by {
+                    let ui = i as usize;
+                    // elements at indices < old_count were not modified
+                    assert(old_regions[ui as int]@ == old_seq[i]);
+                    assert(new_seq[i] == old_regions[ui as int]@);
+                };
+
+                // last element equals pushed region
+                // the newly written element equals the pushed region
+                assert(new_seq[old_count as int] == region@);
+
+                // lengths match
+                assert(new_seq.len() == old_seq.len() + 1);
+
+                // extensionality: new_seq == old_seq.push(region@)
+                assert(new_seq == old_seq.push(region@)) by {
+                    assert(new_seq.len() == old_seq.push(region@).len());
+                    assert forall |i: int|
+                        0 <= i && i < new_seq.len() implies #[trigger] new_seq[i] == old_seq.push(region@)[i]
+                    by {
+                        if i < old_seq.len() {
+                            assert(new_seq[i] == old_seq[i]);
+                            assert(old_seq.push(region@)[i] == old_seq[i]);
+                        } else {
+                            assert(i == old_seq.len());
+                            assert(new_seq[i] == region@);
+                            assert(old_seq.push(region@)[i] == region@);
+                        }
+                    };
+                };
+
+                assert(self@ == old(self)@.push(region@));
+                assert(self.inv());
+            };
             Ok(())
         } else {
             Err("MemoryRegionArray is full")
