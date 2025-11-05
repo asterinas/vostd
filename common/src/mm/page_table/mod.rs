@@ -25,7 +25,6 @@ use super::{
     lemma_page_size_spec_properties, Paddr, PagingLevel, Vaddr, NR_ENTRIES,
 };
 
-use crate::spec::common::{va_level_to_offset};
 use crate::configs::GLOBAL_CPU_NUM;
 
 verus! {
@@ -825,13 +824,30 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: u
         res == pte_index_spec::<C>(va, level),
         res < nr_subpage_per_huge::<C>(),
 {
+    proof {
+        lemma_pte_index_spec_in_range::<C>(va, level);
+    }
+    let base_bits = C::BASE_PAGE_SIZE().ilog2();
+    let index_bits = nr_pte_index_bits::<C>();
+    let shift = base_bits + (level - 1) as u32 * index_bits as u32;
+    let res = (va >> shift) as u64 & pte_index_mask::<C>() as u64;
+    res as usize
+}
+
+pub proof fn lemma_pte_index_spec_in_range<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel)
+    requires
+        0 < level <= C::NR_LEVELS_SPEC(),
+    ensures
+        pte_index_spec::<C>(va, level) < nr_subpage_per_huge::<C>(),
+        C::BASE_PAGE_SIZE().ilog2() < usize::BITS,
+        C::BASE_PAGE_SIZE().ilog2() + ((level - 1) as u32) * (nr_pte_index_bits::<C>() as u32)
+            < usize::BITS,
+{
     let base_bits = C::BASE_PAGE_SIZE().ilog2();
     let index_bits = nr_pte_index_bits::<C>();
     assert(index_bits == (C::BASE_PAGE_SIZE().ilog2() - C::PTE_SIZE().ilog2()) as usize);
-    proof {
-        C::lemma_consts_properties();
-        C::lemma_consts_properties_derived();
-    }
+    C::lemma_consts_properties();
+    C::lemma_consts_properties_derived();
     assert(1 <= level as u32 <= 10);
     assert(index_bits as u32 <= 16);
     assert(base_bits < usize::BITS);
@@ -857,7 +873,6 @@ pub fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: u
     assert(res <= pte_index_mask::<C>()) by {
         lemma_u64_and_less_than((va >> shift) as u64, pte_index_mask::<C>() as u64);
     };
-    res as usize
 }
 
 pub proof fn lemma_addr_aligned_propagate<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel)

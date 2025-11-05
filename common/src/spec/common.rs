@@ -6,6 +6,7 @@ use vstd::bits::{low_bits_mask, lemma_low_bits_mask_values};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use crate::mm::nr_subpage_per_huge;
+use crate::mm::page_table::{lemma_pte_index_spec_in_range, pte_index_spec};
 use crate::mm::{
     PagingLevel, Vaddr,
     page_table::{PageTableConfig, PagingConstsTrait},
@@ -46,7 +47,7 @@ pub open spec fn va_level_to_offset<C: PageTableConfig>(va: Vaddr, level: Paging
         valid_vaddr::<C>(va),
         1 <= level <= C::NR_LEVELS_SPEC(),
 {
-    ((va >> (12 + (level - 1) * 9)) & low_bits_mask(9) as usize) as nat
+    pte_index_spec::<C>(va, level) as nat
 }
 
 } // verus!
@@ -102,21 +103,6 @@ pub proof fn lemma_va_level_to_nid_inc<C: PageTableConfig>(
     };
 }
 
-pub proof fn lemma_va_level_to_offset_range<C: PageTableConfig>(va: Vaddr, level: PagingLevel)
-    requires
-        1 <= level <= C::NR_LEVELS_SPEC(),
-    ensures
-        0 <= va_level_to_offset::<C>(va, level) < 512,
-{
-    let offset = va_level_to_offset::<C>(va, level);
-    assert(offset < 512) by {
-        assert(low_bits_mask(9) == 511) by {
-            lemma_low_bits_mask_values();
-        };
-        assert((va >> (12 + (level - 1) as usize * 9)) & 511 <= 511) by (bit_vector);
-    }
-}
-
 pub proof fn lemma_va_level_to_trace_valid<C: PageTableConfig>(va: Vaddr, level: PagingLevel)
     requires
         1 <= level <= C::NR_LEVELS_SPEC(),
@@ -126,7 +112,8 @@ pub proof fn lemma_va_level_to_trace_valid<C: PageTableConfig>(va: Vaddr, level:
 {
     if level < C::NR_LEVELS_SPEC() {
         lemma_va_level_to_trace_valid::<C>(va, (level + 1) as PagingLevel);
-        lemma_va_level_to_offset_range::<C>(va, (level + 1) as PagingLevel);
+        lemma_pte_index_spec_in_range::<C>(va, (level + 1) as PagingLevel);
+        C::lemma_nr_subpage_per_huge_is_512();
         assert(va_level_to_trace::<C>(va, level) == va_level_to_trace::<C>(
             va,
             (level + 1) as PagingLevel,
