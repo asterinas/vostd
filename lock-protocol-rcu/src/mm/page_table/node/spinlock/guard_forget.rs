@@ -6,7 +6,7 @@ use common::{
     spec::{common::NodeId, node_helper},
 };
 
-use crate::spec::rcu::PteArrayState;
+use crate::{mm::page_table::pte, spec::rcu::PteArrayState};
 
 use super::{PageTablePageSpinLock, SpinGuardGhostInner};
 
@@ -913,7 +913,72 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                 new_ch_spin_lock,
             ).wf(),
     {
-        admit();
+        let put_parent = self.put_spec(pa, new_pa_guard, new_pa_spin_lock);
+        let put_child = put_parent.put_spec(ch, new_ch_guard, new_ch_spin_lock);
+        // NIDs match the guards.
+        assert forall|nid: NodeId| #[trigger] put_child.inner.dom().contains(nid) implies {
+            &&& node_helper::valid_nid::<C>(nid)
+            &&& put_child.get_guard_inner(nid).relate_nid(nid)
+            &&& put_child.get_guard_inner(nid).wf(&put_child.get_lock(nid))
+            &&& put_child.get_guard_inner(nid).stray_perm.value() == false
+            &&& put_child.get_guard_inner(nid).in_protocol == true
+        } by {};
+        // Children are contained.
+        assert forall|nid: NodeId| #[trigger] put_child.inner.dom().contains(nid) implies {
+            put_child.children_are_contained(
+                nid,
+                put_child.get_guard_inner(nid).pte_token->Some_0.value(),
+            )
+        } by {
+            let pte_array = put_child.get_guard_inner(nid).pte_token->Some_0.value();
+            let old_pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty());
+
+            admit();
+            if nid != pa && nid != ch {
+                assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
+                    &&& #[trigger] pte_array.is_alive(i) <==> put_child.inner.dom().contains(
+                        node_helper::get_child::<C>(nid, i),
+                    )
+                    &&& #[trigger] pte_array.is_void(i) ==> put_child.sub_tree_not_contained(
+                        node_helper::get_child::<C>(nid, i),
+                    )
+                } by {
+                    assert(pte_array =~= old_pte_array);
+                    let child_nid = node_helper::get_child::<C>(nid, i);
+                    assert(self.inner.dom().contains(child_nid) <==> put_child.inner.dom().contains(child_nid)) by {
+                        if !self.inner.dom().contains(child_nid) {
+                            assert(child_nid != ch) by {
+                                admit();
+                            }
+                            assert(!put_child.inner.dom().contains(child_nid));
+                        }
+                    };
+                    assert(self.sub_tree_not_contained(child_nid) <==> put_child.sub_tree_not_contained(child_nid)) by {
+                        admit();
+                    };
+                    assert(self.wf());
+                    if pte_array.is_alive(i) {
+                        assert(put_child.inner.dom().contains(child_nid)) by {
+                            admit();
+                        };
+                    }
+                    if put_child.inner.dom().contains(child_nid) {
+                        assert(pte_array.is_alive(i)) by {
+                            admit();
+                        };
+                    }
+                    if pte_array.is_void(i) {
+                        assert(put_child.sub_tree_not_contained(child_nid)) by {
+                            admit();
+                        };
+                    }
+                };
+            } else {
+                admit();
+            }
+        };
+        assert(put_child.wf());
     }
 }
 
