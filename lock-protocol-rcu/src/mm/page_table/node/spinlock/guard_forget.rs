@@ -934,51 +934,54 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             let old_pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
             assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty());
 
-            admit();
-            if nid != pa && nid != ch {
-                assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
-                    &&& #[trigger] pte_array.is_alive(i) <==> put_child.inner.dom().contains(
-                        node_helper::get_child::<C>(nid, i),
-                    )
-                    &&& #[trigger] pte_array.is_void(i) ==> put_child.sub_tree_not_contained(
-                        node_helper::get_child::<C>(nid, i),
-                    )
-                } by {
+            if node_helper::is_not_leaf::<C>(nid) {
+                if nid != pa && nid != ch {
                     assert(pte_array =~= old_pte_array);
-                    let child_nid = node_helper::get_child::<C>(nid, i);
-                    assert(self.inner.dom().contains(child_nid) <==> put_child.inner.dom().contains(child_nid)) by {
-                        if !self.inner.dom().contains(child_nid) {
-                            assert(child_nid != ch) by {
-                                admit();
+                    assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
+                        #[trigger] pte_array.is_alive(i) <==> put_child.inner.dom().contains(
+                            node_helper::get_child::<C>(nid, i),
+                        )
+                    } by {
+                        let child_nid = node_helper::get_child::<C>(nid, i);
+                        assert(self.inner.dom().contains(child_nid) <==> put_child.inner.dom().contains(child_nid)) by {
+                            if !self.inner.dom().contains(child_nid) {
+                                assert(child_nid != ch) by {
+                                    admit();
+                                }
+                                assert(!put_child.inner.dom().contains(child_nid));
                             }
-                            assert(!put_child.inner.dom().contains(child_nid));
+                        };
+                        if pte_array.is_alive(i) {
+                            assert(put_child.inner.dom().contains(child_nid)) by {
+                                admit();
+                            };
+                        }
+                        if put_child.inner.dom().contains(child_nid) {
+                            assert(pte_array.is_alive(i)) by {
+                                admit();
+                            };
                         }
                     };
-                    assert(self.sub_tree_not_contained(child_nid) <==> put_child.sub_tree_not_contained(child_nid)) by {
-                        admit();
+                    assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
+                        #[trigger] pte_array.is_void(i) ==> put_child.sub_tree_not_contained(
+                            node_helper::get_child::<C>(nid, i),
+                        )
+                    } by {
+                        let child_nid = node_helper::get_child::<C>(nid, i);
+                        assert(self.sub_tree_not_contained(child_nid) <==> put_child.sub_tree_not_contained(child_nid)) by {
+                            admit();
+                        };
+                        if pte_array.is_void(i) {
+                            assert(put_child.sub_tree_not_contained(child_nid)) by {
+                                admit();
+                            };
+                        }
                     };
-                    assert(self.wf());
-                    if pte_array.is_alive(i) {
-                        assert(put_child.inner.dom().contains(child_nid)) by {
-                            admit();
-                        };
-                    }
-                    if put_child.inner.dom().contains(child_nid) {
-                        assert(pte_array.is_alive(i)) by {
-                            admit();
-                        };
-                    }
-                    if pte_array.is_void(i) {
-                        assert(put_child.sub_tree_not_contained(child_nid)) by {
-                            admit();
-                        };
-                    }
-                };
-            } else {
-                admit();
+                } else {
+                    admit();
+                }
             }
         };
-        assert(put_child.wf());
     }
 }
 
