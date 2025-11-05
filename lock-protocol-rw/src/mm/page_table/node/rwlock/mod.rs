@@ -12,7 +12,7 @@ use vstd_extra::array_ptr::*;
 
 use common::{
     mm::{
-        page_table::{PageTableEntryTrait, PageTableConfig},
+        page_table::{PageTableEntryTrait, PagingConstsTrait, PageTableConfig},
         nr_subpage_per_huge, PagingLevel, Paddr, Vaddr,
     },
     x86_64::kspace::paddr_to_vaddr,
@@ -460,7 +460,7 @@ struct_with_invariants! {
     pub open spec fn wf(&self) -> bool {
         predicate {
             // &&& valid_paddr(self.paddr@)
-            &&& 1 <= self.level@ <= 4
+            &&& 1 <= self.level@ <= C::NR_LEVELS()
             &&& self.inst@.k() ==
                 (self.pt_inst@.id(), self.nid@, self.paddr@, self.level@)
             &&& self.pt_inst@.cpu_num() == GLOBAL_CPU_NUM
@@ -850,7 +850,7 @@ impl<C: PageTableConfig> PageTablePageRwLock<C> {
             m@.inv(),
             m@.inst_id() == self.pt_inst_id(),
             m@.state() is ReadLocking,
-            m@.path().len() < 3,
+            m@.path().len() < C::NR_LEVELS() - 1,
             wf_tree_path::<C>(m@.path().push(self.nid())),
         ensures
             res.0.wf(self),
@@ -869,7 +869,7 @@ impl<C: PageTableConfig> PageTablePageRwLock<C> {
                 m.inv(),
                 m.inst_id() == self.pt_inst_id(),
                 m.state() is ReadLocking,
-                m.path().len() < 3,
+                m.path().len() < C::NR_LEVELS() - 1,
                 wf_tree_path::<C>(m.path().push(self.nid())),
                 path =~= m.path(),
             ensures
@@ -937,7 +937,7 @@ impl<C: PageTableConfig> PageTablePageRwLock<C> {
                                     m.inv(),
                                     m.inst_id() == self.pt_inst_id(),
                                     m.state() is ReadLocking,
-                                    m.path().len() < 3,
+                                    m.path().len() < C::NR_LEVELS() - 1,
                                     wf_tree_path::<C>(m.path().push(self.nid())),
                                     path =~= m.path(),
                                 ensures

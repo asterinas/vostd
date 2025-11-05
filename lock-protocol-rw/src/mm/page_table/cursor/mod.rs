@@ -18,7 +18,7 @@ use vstd_extra::manually_drop::*;
 
 use common::{
     mm::{Paddr, Vaddr, PagingLevel},
-    mm::page_table::PageTableConfig,
+    mm::page_table::{PageTableConfig, PagingConstsTrait},
     spec::{common::*, node_helper::self},
     task::DisabledPreemptGuard,
     configs::GLOBAL_CPU_NUM,
@@ -74,11 +74,11 @@ pub const MAX_NR_LEVELS: usize = 5;
 
 impl<C: PageTableConfig> Cursor<'_, C> {
     pub open spec fn wf(&self) -> bool {
-        &&& self.path@.len() == 4
-        &&& 1 <= self.level <= self.guard_level <= 4
+        &&& self.path@.len() == C::NR_LEVELS()
+        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS()
         &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
-            1 <= level <= 4 ==> {
+            1 <= level <= C::NR_LEVELS() ==> {
                 if level < self.level {
                     self.path[level - 1] is Unlocked
                 } else if level < self.guard_level {
@@ -103,11 +103,11 @@ impl<C: PageTableConfig> Cursor<'_, C> {
 
     // Used for `unlock_range`
     pub open spec fn wf_unlocking(&self) -> bool {
-        &&& self.path@.len() == 4
-        &&& 1 <= self.level <= self.guard_level <= 4
+        &&& self.path@.len() == C::NR_LEVELS()
+        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS()
         &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
-            1 <= level <= 4 ==> {
+            1 <= level <= C::NR_LEVELS() ==> {
                 if level < self.unlock_level@ {
                     self.path[level - 1] is Unlocked
                 } else if level < self.guard_level {
@@ -127,7 +127,7 @@ impl<C: PageTableConfig> Cursor<'_, C> {
                 }
             }
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-        &&& self.level <= self.unlock_level@ <= 5
+        &&& self.level <= self.unlock_level@ <= C::NR_LEVELS() + 1
     }
 
     pub open spec fn wf_init(&self, va: Range<Vaddr>) -> bool
@@ -141,36 +141,40 @@ impl<C: PageTableConfig> Cursor<'_, C> {
     }
 
     pub open spec fn wf_unlock(&self) -> bool {
-        &&& self.unlock_level@ == 5
+        &&& self.unlock_level@ == C::NR_LEVELS() + 1
         &&& forall|level: int|
             #![trigger self.path@[level - 1]]
-            1 <= level <= 4 ==> self.path@[level - 1] is Unlocked
+            1 <= level <= C::NR_LEVELS() ==> self.path@[level - 1] is Unlocked
     }
 
     pub open spec fn wf_with_lock_protocol_model(&self, m: LockProtocolModel<C>) -> bool {
         &&& m.inst_id() == self.inst@.id()
         &&& if self.unlock_level@ >= self.guard_level {
-            &&& m.path().len() == 5 - self.unlock_level@
+            &&& m.path().len() == C::NR_LEVELS() + 1 - self.unlock_level@
             &&& forall|level: int|
                 #![trigger self.path[level - 1]]
-                self.unlock_level@ <= level <= 4 ==> {
+                self.unlock_level@ <= level <= C::NR_LEVELS() ==> {
                     &&& !(self.path[level - 1] is Unlocked)
                     &&& match self.path[level - 1] {
-                        GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
-                        GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
+                        GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
+                            == rguard.nid(),
+                        GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
+                            == wguard.nid(),
                         GuardInPath::ImplicitWrite(wguard) => true,
                         GuardInPath::Unlocked => true,
                     }
                 }
         } else {
-            &&& m.path().len() == 5 - self.guard_level@
+            &&& m.path().len() == C::NR_LEVELS() + 1 - self.guard_level@
             &&& forall|level: int|
                 #![trigger self.path[level - 1]]
-                self.guard_level@ <= level <= 4 ==> {
+                self.guard_level@ <= level <= C::NR_LEVELS() ==> {
                     &&& !(self.path[level - 1] is Unlocked)
                     &&& match self.path[level - 1] {
-                        GuardInPath::Read(rguard) => m.path()[4 - level] == rguard.nid(),
-                        GuardInPath::Write(wguard) => m.path()[4 - level] == wguard.nid(),
+                        GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
+                            == rguard.nid(),
+                        GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
+                            == wguard.nid(),
                         GuardInPath::ImplicitWrite(wguard) => true,
                         GuardInPath::Unlocked => true,
                     }

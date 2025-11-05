@@ -3,7 +3,7 @@ use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use common::{
-    mm::page_table::PageTableConfig,
+    mm::page_table::{PageTableConfig, PagingConstsTrait},
     spec::{common::NodeId, node_helper},
 };
 use super::wf_tree_path;
@@ -76,11 +76,11 @@ impl CursorState {
         match *self {
             Self::Void => true,
             Self::ReadLocking(path) => {
-                &&& 0 <= path.len() <= 3
+                &&& 0 <= path.len() <= C::NR_LEVELS() - 1
                 &&& wf_tree_path::<C>(path)
             },
             Self::WriteLocked(path) => {
-                &&& 1 <= path.len() <= 4
+                &&& 1 <= path.len() <= C::NR_LEVELS()
                 &&& wf_tree_path::<C>(path)
             },
         }

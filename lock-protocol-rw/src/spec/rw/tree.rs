@@ -7,7 +7,7 @@ use verus_state_machines_macros::tokenized_state_machine;
 
 use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
-use common::mm::page_table::PageTableConfig;
+use common::mm::page_table::{PageTableConfig, PagingConstsTrait};
 use common::spec::{
     common::{CpuId, NodeId, valid_cpu},
     node_helper::{self, group_node_helper_lemmas},
@@ -290,7 +290,7 @@ transition!{
         add reader_counts += [ nid => rc + 1 ];
 
         remove cursors -= [ cpu => let CursorState::ReadLocking(path) ];
-        require(path.len()<3);
+        require(path.len() < C::NR_LEVELS() - 1);
         require(wf_tree_path::<C>(path.push(nid)));
         add cursors += [ cpu => CursorState::ReadLocking(path.push(nid)) ];
     }
@@ -444,15 +444,16 @@ fn initialize_inductive(post: Self, cpu_num: CpuId) {
     assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger]post.reader_counts.contains_key(nid) implies
          post.reader_counts.index(nid) == value_filter(post.cursors, |cursor: CursorState| cursor.hold_read_lock::<C>(nid)).len() by {
-                    lemma_value_filter_all_false(
-                        post.cursors, |cursor: CursorState| cursor.hold_read_lock::<C>(nid)
-                    );
+            lemma_value_filter_all_false(
+                post.cursors, |cursor: CursorState| cursor.hold_read_lock::<C>(nid)
+            );
         }
     };
 }
 
 #[inductive(locking_start)]
 fn locking_start_inductive(pre: Self, post: Self, cpu: CpuId) {
+    C::lemma_consts_properties();
     assert(post.inv_reader_counts_cursors_relation()) by {
         assert forall |nid: NodeId| #[trigger] post.reader_counts.contains_key(nid) implies
         post.reader_counts[nid] == value_filter(
@@ -494,6 +495,7 @@ fn read_lock_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId) {
     broadcast use {node_helper::group_node_helper_lemmas,
         vstd_extra::seq_extra::group_forall_seq_lemmas,
     };
+    C::lemma_consts_properties();
     let path = pre.cursors[cpu].get_read_lock_path::<C>();
     lemma_wf_tree_path_push_inversion::<C>(path, nid);
     assert(post.cursors== pre.cursors.insert(cpu, CursorState::ReadLocking(path.push(nid))));

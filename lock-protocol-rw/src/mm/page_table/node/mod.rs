@@ -317,7 +317,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             m@.inv(),
             m@.inst_id() == self.inst@.id(),
             m@.state() is ReadLocking,
-            m@.path().len() < 3,
+            m@.path().len() < C::NR_LEVELS() - 1,
             wf_tree_path::<C>(m@.path().push(self.nid@)),
         ensures
             res.0.wf(),

@@ -15,7 +15,7 @@ use vstd_extra::manually_drop::*;
 
 use common::{
     mm::{Paddr, Vaddr, PagingLevel},
-    mm::page_table::{PageTableConfig, pte_index},
+    mm::page_table::{PageTableConfig, PagingConstsTrait, pte_index},
     spec::{common::*, node_helper::self},
     task::DisabledPreemptGuard,
 };
@@ -97,8 +97,8 @@ pub fn lock_range<'a, C: PageTableConfig>(
             m.state() is ReadLocking,
             m.path().len() > 0 ==> node_helper::is_child::<C>(m.cur_node(), cur_nid),
             m.path() =~= Seq::new(
-                (4 - cur_pt.deref().level_spec()) as nat,
-                |i| va_level_to_nid::<C>(va.start, (4 - i) as PagingLevel),
+                (C::NR_LEVELS() - cur_pt.deref().level_spec()) as nat,
+                |i| va_level_to_nid::<C>(va.start, (C::NR_LEVELS() - i) as PagingLevel),
             ),
             cur_pt.wf(),
             cur_pt.deref().inst@.id() == pt.inst@.id(),
@@ -106,20 +106,20 @@ pub fn lock_range<'a, C: PageTableConfig>(
             cur_nid == va_level_to_nid::<C>(va.start, cur_pt.deref().level_spec()),
             cur_pt.deref().level_spec() >= va_range_get_guard_level::<C>(*va),
             forall|l: PagingLevel|
-                cur_pt.deref().level_spec() < l <= 4 ==> {
+                cur_pt.deref().level_spec() < l <= C::NR_LEVELS() ==> {
                     #[trigger] va_level_to_offset::<C>(va.start, l) == va_level_to_offset::<C>(
                         (va.end - 1) as usize,
                         l,
                     )
                 },
-            1 <= va_range_get_guard_level::<C>(*va) <= 4,
+            1 <= va_range_get_guard_level::<C>(*va) <= C::NR_LEVELS(),
             forall|i: int|
                 #![trigger path@[i - 1]]
-                cur_pt.deref().level_spec() < i <= 4 ==> {
+                cur_pt.deref().level_spec() < i <= C::NR_LEVELS() ==> {
                     &&& path@[i - 1] is Read
                     &&& path@[i - 1]->Read_0.wf()
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
-                    &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
+                    &&& m.path()[C::NR_LEVELS() - i] == path@[i - 1]->Read_0.nid()
                 },
             forall|i: int|
                 #![trigger path@[i - 1]]
@@ -128,12 +128,12 @@ pub fn lock_range<'a, C: PageTableConfig>(
             cur_wlock_opt is None,
             m.inv(),
             m.inst_id() == pt.inst@.id(),
-            m.path().len() == 4 - cur_pt.deref().level_spec(),
+            m.path().len() == C::NR_LEVELS() - cur_pt.deref().level_spec(),
             m.state() is ReadLocking,
             m.path().len() > 0 ==> node_helper::is_child::<C>(m.cur_node(), cur_nid),
             m.path() == Seq::new(
-                (4 - cur_pt.deref().level_spec()) as nat,
-                |i| va_level_to_nid::<C>(va.start, (4 - i) as PagingLevel),
+                (C::NR_LEVELS() - cur_pt.deref().level_spec()) as nat,
+                |i| va_level_to_nid::<C>(va.start, (C::NR_LEVELS() - i) as PagingLevel),
             ),
             cur_pt.wf(),
             cur_pt.deref().inst@.id() == pt.inst@.id(),
@@ -142,11 +142,11 @@ pub fn lock_range<'a, C: PageTableConfig>(
             cur_pt.deref().level_spec() == va_range_get_guard_level::<C>(*va),
             forall|i: int|
                 #![trigger path@[i - 1]]
-                cur_pt.deref().level_spec() < i <= 4 ==> {
+                cur_pt.deref().level_spec() < i <= C::NR_LEVELS() ==> {
                     &&& path@[i - 1] is Read
                     &&& path@[i - 1]->Read_0.wf()
                     &&& path@[i - 1]->Read_0.inst_id() == pt.inst@.id()
-                    &&& m.path()[4 - i] == path@[i - 1]->Read_0.nid()
+                    &&& m.path()[C::NR_LEVELS() - i] == path@[i - 1]->Read_0.nid()
                 },
             forall|i: int|
                 #![trigger path@[i - 1]]
@@ -321,6 +321,10 @@ pub fn unlock_range<C: PageTableConfig>(
         res@.inv(),
         res@.state() is Void,
 {
+    proof {
+        C::lemma_consts_properties();
+    }
+
     let tracked mut m = m.get();
 
     let mut i = cursor.level;
@@ -358,9 +362,9 @@ pub fn unlock_range<C: PageTableConfig>(
     cursor.unlock_level = Ghost((cursor.unlock_level@ + 1) as PagingLevel);
 
     let mut i = guard_level + 1;
-    while i <= 4
+    while i <= C::NR_LEVELS()
         invariant
-            guard_level + 1 <= i <= 5,
+            guard_level + 1 <= i <= C::NR_LEVELS() + 1,
             i == cursor.unlock_level@,
             m.inv(),
             m.state() is ReadLocking,
@@ -370,7 +374,7 @@ pub fn unlock_range<C: PageTableConfig>(
             cursor.guard_level == guard_level,
             forall|level: int|
                 #![trigger cursor.path@[level - 1] is Read]
-                i <= level <= 4 ==> {
+                i <= level <= C::NR_LEVELS() ==> {
                     &&& cursor.path@[level - 1] is Read
                     &&& cursor.path@[level - 1]->Read_0.wf()
                     &&& cursor.path@[level - 1]->Read_0.inst_id() == cursor.inst@.id()
@@ -378,7 +382,7 @@ pub fn unlock_range<C: PageTableConfig>(
             forall|level: int|
                 #![trigger cursor.path@[level - 1]]
                 1 <= level < i ==> cursor.path@[level - 1] is Unlocked,
-        decreases 5 - i,
+        decreases C::NR_LEVELS() + 1 - i,
     {
         match cursor.take_guard(i as usize - 1) {
             GuardInPath::Unlocked => unreached(),
