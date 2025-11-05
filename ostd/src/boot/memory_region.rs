@@ -322,7 +322,6 @@ impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
 #[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
-    #[verus_verify(external_body)]
     #[verus_spec(ret =>
         ensures
             ret.inv(),
@@ -333,6 +332,30 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
             regions: [MemoryRegion::bad(); LEN],
             count: 0,
         };
+
+        proof! {
+            assert(ret.inv());
+            assert(ret.count == 0);
+            assert(ret@.regions.len() == ret.count as nat);
+            assert(ret@.regions.len() == 0);
+            assert(Seq::<MemRegionModel>::empty().len() == 0);
+
+            assert(ret@.regions == Seq::<MemRegionModel>::empty()) by {
+                assert(ret@.regions.len() == Seq::<MemRegionModel>::empty().len());
+                assert forall |i: int|
+                    0 <= i && i < ret@.regions.len() ==> #[trigger] ret@.regions[i] == Seq::<MemRegionModel>::empty()[i]
+                by {
+                    assume(0 <= i && i < ret@.regions.len());
+                    assert(ret@.regions.len() == 0);
+                    assert(false);
+                };
+            };
+
+            assert(ret@ == MemoryRegionArrayModel::<LEN>::new()) by {
+                assert(MemoryRegionArrayModel::<LEN>::new().regions == Seq::<MemRegionModel>::empty());
+            };
+        };
+
         ret
     }
     
