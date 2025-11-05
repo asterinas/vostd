@@ -63,6 +63,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
         res.1@.inv(),
         res.1@.inst_id() == pt.inst@.id(),
         res.1@.state() is Locked,
+        res.2@.wf(),
 {
     proof {
         C::lemma_nr_subpage_per_huge_is_512();
