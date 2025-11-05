@@ -7,6 +7,7 @@ use std::ops::Range;
 
 use vstd::invariant;
 use vstd::prelude::*;
+use vstd::seq::axiom_seq_update_different;
 use vstd::atomic_with_ghost;
 use vstd::bits::*;
 use vstd::rwlock::{ReadHandle, WriteHandle};
@@ -17,7 +18,7 @@ use vstd::pervasive::unreached;
 use vstd_extra::manually_drop::*;
 
 use common::{
-    mm::{Paddr, Vaddr, PagingLevel},
+    mm::{Paddr, Vaddr, PagingLevel, page_size, MAX_USERSPACE_VADDR},
     mm::page_table::{PageTableConfig, PagingConstsTrait},
     spec::{common::*, node_helper::self},
     task::DisabledPreemptGuard,
@@ -59,146 +60,392 @@ impl<'a, C: PageTableConfig> GuardInPath<'a, C> {
 
 pub struct Cursor<'a, C: PageTableConfig> {
     pub path: [GuardInPath<'a, C>; MAX_NR_LEVELS],
-    pub rcu_guard: &'a DisabledPreemptGuard,
+    pub preempt_guard: &'a DisabledPreemptGuard,
     pub level: PagingLevel,
     pub guard_level: PagingLevel,
     pub va: Vaddr,
     pub barrier_va: Range<Vaddr>,
     pub inst: Tracked<SpecInstance<C>>,
     // Used for `unlock_range`
-    pub unlock_level: Ghost<PagingLevel>,
+    pub g_level: Ghost<PagingLevel>,
 }
 
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
 pub const MAX_NR_LEVELS: usize = 5;
 
-impl<C: PageTableConfig> Cursor<'_, C> {
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
+    pub broadcast group group_cursor_lemmas {
+        Cursor::lemma_get_guard_nid_sound,
+    }
+
     pub open spec fn wf(&self) -> bool {
-        &&& self.path@.len() == MAX_NR_LEVELS
-        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS() <= MAX_NR_LEVELS
-        &&& forall|level: PagingLevel|
-            #![trigger self.path[level - 1]]
-            1 <= level <= C::NR_LEVELS() ==> {
-                if level < self.level {
-                    self.path[level - 1] is Unlocked
-                } else if level < self.guard_level {
-                    &&& self.path[level - 1] is ImplicitWrite
-                    &&& self.path[level - 1]->ImplicitWrite_0.wf()
-                    &&& self.path[level - 1]->ImplicitWrite_0.inst_id() == self.inst@.id()
-                    &&& self.path[level - 1]->ImplicitWrite_0.guard->Some_0.in_protocol@ == true
-                } else if level == self.guard_level {
-                    &&& self.path[level - 1] is Write
-                    &&& self.path[level - 1]->Write_0.wf()
-                    &&& self.path[level - 1]->Write_0.inst_id() == self.inst@.id()
-                    &&& self.path[level - 1]->Write_0.guard->Some_0.in_protocol@ == false
-                } else {
-                    &&& self.path[level - 1] is Read
-                    &&& self.path[level - 1]->Read_0.wf()
-                    &&& self.path[level - 1]->Read_0.inst_id() == self.inst@.id()
-                }
-            }
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-        &&& self.unlock_level@ == self.level
+        &&& self.guards_in_path_relation()
+        &&& self.wf_path()
+        &&& self.wf_va()
+        &&& self.wf_level()
     }
 
-    // Used for `unlock_range`
-    pub open spec fn wf_unlocking(&self) -> bool {
-        &&& self.path@.len() == MAX_NR_LEVELS
-        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS() <= MAX_NR_LEVELS
-        &&& forall|level: PagingLevel|
-            #![trigger self.path[level - 1]]
-            1 <= level <= C::NR_LEVELS() ==> {
-                if level < self.unlock_level@ {
-                    self.path[level - 1] is Unlocked
-                } else if level < self.guard_level {
-                    &&& self.path[level - 1] is ImplicitWrite
-                    &&& self.path[level - 1]->ImplicitWrite_0.wf()
-                    &&& self.path[level - 1]->ImplicitWrite_0.inst_id() == self.inst@.id()
-                    &&& self.path[level - 1]->ImplicitWrite_0.guard->Some_0.in_protocol@ == true
-                } else if level == self.guard_level {
-                    &&& self.path[level - 1] is Write
-                    &&& self.path[level - 1]->Write_0.wf()
-                    &&& self.path[level - 1]->Write_0.inst_id() == self.inst@.id()
-                    &&& self.path[level - 1]->Write_0.guard->Some_0.in_protocol@ == false
-                } else {
-                    &&& self.path[level - 1] is Read
-                    &&& self.path[level - 1]->Read_0.wf()
-                    &&& self.path[level - 1]->Read_0.inst_id() == self.inst@.id()
-                }
-            }
-        &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
-        &&& self.level <= self.unlock_level@ <= C::NR_LEVELS() + 1
+    pub open spec fn adjacent_guard_is_child(&self, level: PagingLevel) -> bool
+        recommends
+            self.get_guard_level(level) !is Unlocked,
+            self.get_guard_level((level - 1) as PagingLevel) !is Unlocked,
+    {
+        let nid1 = self.get_guard_nid(level);
+        let nid2 = self.get_guard_nid((level - 1) as PagingLevel);
+        node_helper::is_child::<C>(nid1, nid2)
     }
 
-    pub open spec fn wf_init(&self, va: Range<Vaddr>) -> bool
+    pub open spec fn guards_in_path_relation(&self) -> bool
+        recommends
+            self.wf_path(),
+    {
+        &&& forall|level: PagingLevel|
+            #![trigger self.adjacent_guard_is_child(level)]
+            self.g_level@ < level <= C::NR_LEVELS() ==> 
+                self.adjacent_guard_is_child(level)
+    }
+
+    proof fn lemma_guards_in_path_relation_rec(&self, max_level: PagingLevel, level: PagingLevel)
+        requires
+            self.wf(),
+            self.g_level@ <= level <= max_level <= C::NR_LEVELS(),
+        ensures
+            node_helper::in_subtree_range::<C>(
+                self.get_guard_nid(max_level),
+                self.get_guard_nid(level),
+            ),
+        decreases max_level - level,
+    {
+        broadcast use Cursor::group_cursor_lemmas;
+
+        if level == max_level {
+            let rt = self.get_guard_nid(max_level);
+            assert(node_helper::in_subtree_range::<C>(rt, rt)) by {
+                assert(node_helper::valid_nid::<C>(rt));
+                node_helper::lemma_sub_tree_size_lower_bound::<C>(rt);
+            };
+        } else {
+            self.lemma_guards_in_path_relation_rec(max_level, (level + 1) as PagingLevel);
+            let rt = self.get_guard_nid(max_level);
+            let pa = self.get_guard_nid((level + 1) as PagingLevel);
+            let ch = self.get_guard_nid(level);
+            assert(node_helper::in_subtree::<C>(rt, pa)) by {
+                assert(node_helper::in_subtree_range::<C>(rt, pa));
+                node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(rt, pa);
+            };
+            assert(node_helper::is_child::<C>(pa, ch)) by {
+                assert(self.adjacent_guard_is_child((level + 1) as PagingLevel));
+            };
+            node_helper::lemma_in_subtree_is_child_in_subtree::<C>(rt, pa, ch);
+            assert(node_helper::in_subtree_range::<C>(rt, ch)) by {
+                node_helper::lemma_in_subtree_iff_in_subtree_range::<C>(rt, ch);
+            };
+        }
+    }
+
+    pub proof fn lemma_guards_in_path_relation(&self, max_level: PagingLevel)
+        requires
+            self.wf(),
+            self.g_level@ <= max_level <= C::NR_LEVELS(),
+        ensures
+            forall|level: PagingLevel|
+                #![trigger self.get_guard_level(level)]
+                #![trigger self.get_guard_nid(level)]
+                self.g_level@ <= level <= max_level ==> node_helper::in_subtree_range::<C>(
+                    self.get_guard_nid(max_level),
+                    self.get_guard_nid(level),
+                ),
+    {
+        assert forall|level: PagingLevel|
+            #![trigger self.get_guard_nid(level)]
+            self.g_level@ <= level <= max_level implies {
+            node_helper::in_subtree_range::<C>(
+                self.get_guard_nid(max_level),
+                self.get_guard_nid(level),
+            )
+        } by {
+            self.lemma_guards_in_path_relation_rec(max_level, level);
+        }
+    }
+
+    pub open spec fn wf_path(&self) -> bool {
+        &&& self.path@.len() == MAX_NR_LEVELS
+        &&& forall|level: PagingLevel|
+            #![trigger self.get_guard_level(level)]
+            #![trigger self.get_guard_level_implicit_write(level)]
+            #![trigger self.get_guard_level_write(level)]
+            #![trigger self.get_guard_level_read(level)]
+            #![trigger self.get_guard_nid(level)]
+            1 <= level <= C::NR_LEVELS() ==> {
+                // Notice that the order is necessary.
+                if level < self.g_level@ {
+                    self.get_guard_level(level) is Unlocked
+                } else if level < self.guard_level {
+                    &&& self.get_guard_level(level) is ImplicitWrite
+                    &&& self.get_guard_level_implicit_write(level).wf()
+                    &&& self.get_guard_level_implicit_write(level).inst_id() == self.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(self.get_guard_level_implicit_write(level).nid())
+                    &&& self.get_guard_level_implicit_write(level).guard->Some_0.in_protocol@ == true
+                    // &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_implicit_write(level).nid()
+                } else if level == self.guard_level {
+                    &&& self.get_guard_level(level) is Write
+                    &&& self.get_guard_level_write(level).wf()
+                    &&& self.get_guard_level_write(level).inst_id() == self.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(self.get_guard_level_write(level).nid())
+                    &&& self.get_guard_level_write(level).guard->Some_0.in_protocol@ == false
+                    // &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_write(level).nid()
+                } else {
+                    &&& self.get_guard_level(level) is Read
+                    &&& self.get_guard_level_read(level).wf()
+                    &&& self.get_guard_level_read(level).inst_id() == self.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(self.get_guard_level_read(level).nid())
+                    // &&& va_level_to_nid::<C>(self.va, level) == self.get_guard_level_read(level).nid()
+                }
+            }
+    }
+
+    // TODO
+    /// Well-formedness of the cursor's virtual address.
+    pub open spec fn wf_va(&self) -> bool {
+        &&& self.barrier_va.start < self.barrier_va.end
+            < MAX_USERSPACE_VADDR
+        // We allow the cursor to be at the end of the range.
+        &&& self.barrier_va.start <= self.va <= self.barrier_va.end
+        &&& self.va % page_size::<C>(1) == 0
+    }
+
+    pub open spec fn wf_level(&self) -> bool {
+        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS() <= MAX_NR_LEVELS
+        &&& self.level <= self.g_level@ <= C::NR_LEVELS() + 1
+    }
+
+    pub open spec fn wf_init_state(&self, va: Range<Vaddr>) -> bool
         recommends
             va_range_wf::<C>(va),
     {
         &&& self.level == self.guard_level
+        &&& self.g_level@ == self.level
         &&& self.va == va.start
         &&& self.barrier_va =~= (va.start..va.end)
         &&& self.level == va_range_get_guard_level::<C>(va)
     }
 
-    pub open spec fn wf_unlock(&self) -> bool {
-        &&& self.unlock_level@ == C::NR_LEVELS() + 1
-        &&& forall|level: int|
-            #![trigger self.path@[level - 1]]
-            1 <= level <= C::NR_LEVELS() ==> self.path@[level - 1] is Unlocked
-    }
-
     pub open spec fn wf_with_lock_protocol_model(&self, m: LockProtocolModel<C>) -> bool {
         &&& m.inst_id() == self.inst@.id()
-        &&& if self.unlock_level@ >= self.guard_level {
-            &&& m.path().len() == C::NR_LEVELS() + 1 - self.unlock_level@
-            &&& forall|level: int|
-                #![trigger self.path[level - 1]]
-                self.unlock_level@ <= level <= C::NR_LEVELS() ==> {
-                    &&& !(self.path[level - 1] is Unlocked)
-                    &&& match self.path[level - 1] {
-                        GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
-                            == rguard.nid(),
-                        GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
-                            == wguard.nid(),
-                        GuardInPath::ImplicitWrite(wguard) => true,
-                        GuardInPath::Unlocked => true,
-                    }
+        &&& if self.g_level@ > self.guard_level {
+            &&& m.path().len() == C::NR_LEVELS() + 1 - self.g_level@
+            &&& forall|level: PagingLevel|
+                #![trigger self.get_guard_level(level)]
+                #![trigger self.get_guard_nid(level)]
+                self.g_level@ <= level <= C::NR_LEVELS() ==> {
+                    &&& self.get_guard_level(level) !is Unlocked
+                    &&& self.get_guard_nid(level) == m.path()[C::NR_LEVELS() - level]
                 }
         } else {
             &&& m.path().len() == C::NR_LEVELS() + 1 - self.guard_level@
-            &&& forall|level: int|
-                #![trigger self.path[level - 1]]
+            &&& forall|level: PagingLevel|
+                #![trigger self.get_guard_level(level)]
+                #![trigger self.get_guard_nid(level)]
                 self.guard_level@ <= level <= C::NR_LEVELS() ==> {
-                    &&& !(self.path[level - 1] is Unlocked)
-                    &&& match self.path[level - 1] {
-                        GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
-                            == rguard.nid(),
-                        GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
-                            == wguard.nid(),
-                        GuardInPath::ImplicitWrite(wguard) => true,
-                        GuardInPath::Unlocked => true,
-                    }
+                    &&& self.get_guard_level(level) !is Unlocked
+                    &&& self.get_guard_nid(level) == m.path()[C::NR_LEVELS() - level]
                 }
         }
     }
 
+    pub open spec fn get_guard_level(
+        &self, 
+        level: PagingLevel,
+    ) -> GuardInPath<'a, C> {
+        self.path[level - 1]
+    }
+
+    pub open spec fn get_guard_level_read(
+        &self, 
+        level: PagingLevel,
+    ) -> PageTableReadLock<'a, C> {
+        self.get_guard_level(level)->Read_0
+    }
+
+    pub open spec fn get_guard_level_write(
+        &self, 
+        level: PagingLevel,
+    ) -> PageTableWriteLock<'a, C> {
+        self.get_guard_level(level)->Write_0
+    }
+
+    pub open spec fn get_guard_level_implicit_write(
+        &self, 
+        level: PagingLevel,
+    ) -> PageTableWriteLock<'a, C> {
+        self.get_guard_level(level)->ImplicitWrite_0
+    }
+
+    pub open spec fn get_guard_nid(&self, level: PagingLevel) -> NodeId {
+        let guard = self.get_guard_level(level);
+        match guard {
+            GuardInPath::<'a, C>::Read(inner) => inner.nid(),
+            GuardInPath::<'a, C>::Write(inner) => inner.nid(),
+            GuardInPath::<'a, C>::ImplicitWrite(inner) => inner.nid(),
+            GuardInPath::<'a, C>::Unlocked => arbitrary(),
+        }
+    }
+
+    pub broadcast proof fn lemma_get_guard_nid_sound(&self, level: PagingLevel)
+        requires
+            self.wf(),
+            self.g_level@ <= level <= C::NR_LEVELS_SPEC(),
+        ensures
+            node_helper::valid_nid::<C>(#[trigger] self.get_guard_nid(level)),
+    {
+        assert(self.get_guard_level(level) !is Unlocked);
+        match self.get_guard_level(level) {
+            GuardInPath::<'a, C>::Read(inner) => {
+                assert(inner.wf());
+            },
+            GuardInPath::<'a, C>::Write(inner) => {
+                assert(inner.wf());
+            },
+            GuardInPath::<'a, C>::ImplicitWrite(inner) => {
+                assert(inner.wf());
+            },
+            GuardInPath::<'a, C>::Unlocked => (),
+        };
+    }
+
+    pub open spec fn constant_fields_unchanged(&self, old: &Self) -> bool {
+        &&& self.guard_level == old.guard_level
+        &&& self.barrier_va =~= old.barrier_va
+        &&& self.inst =~= old.inst
+    }
+}
+
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
+    pub uninterp spec fn take_guard_spec(self, idx: usize) -> (Self, GuardInPath<'a, C>);
+
     /// Verus does not support index for &mut.
     #[verifier::external_body]
-    pub fn take_guard(&mut self, idx: usize) -> (res: GuardInPath<'_, C>)
+    pub fn take_guard(&mut self, idx: usize) -> (res: GuardInPath<'a, C>)
         requires
-            0 <= idx < old(self).path@.len(),
+            0 <= idx < C::NR_LEVELS_SPEC(),
         ensures
-            res =~= old(self).path@[idx as int],
-            self.path@ =~= old(self).path@.update(idx as int, GuardInPath::Unlocked),
-            self.level == old(self).level,
-            self.guard_level == old(self).guard_level,
-            self.va =~= old(self).va,
-            self.barrier_va =~= old(self).barrier_va,
-            self.inst@ =~= old(self).inst@,
-            self.unlock_level@ == old(self).unlock_level@,
+            *self =~= old(self).take_guard_spec(idx).0,
+            res =~= old(self).take_guard_spec(idx).1,
     {
+        self.g_level = Ghost((self.g_level@ + 1) as PagingLevel);
         self.path[idx].take()
     }
+
+    // We put the spec of take_guard here.
+    #[verifier::external_body]
+    pub proof fn lemma_take_guard_sound(self, idx: usize)
+        requires
+            0 <= idx < C::NR_LEVELS_SPEC(),
+        ensures
+            ({
+                let pre_cursor = self;
+                let post_cursor = self.take_guard_spec(idx).0;
+                let guard = self.take_guard_spec(idx).1;
+
+                &&& guard =~= pre_cursor.path@[idx as int]
+                &&& post_cursor.constant_fields_unchanged(&pre_cursor)
+                &&& post_cursor.path@ =~= pre_cursor.path@.update(idx as int, GuardInPath::Unlocked)
+                &&& post_cursor.level == pre_cursor.level
+                &&& post_cursor.va == pre_cursor.va
+                &&& post_cursor.g_level@ == pre_cursor.g_level@ + 1
+            }),
+    {}
+
+    pub proof fn lemma_take_guard_sustain_wf(self, idx: usize)
+        requires
+            self.wf(),
+            0 <= idx < C::NR_LEVELS_SPEC(),
+            idx == self.g_level@ - 1,
+        ensures
+            self.take_guard_spec(idx).0.wf(),
+    {
+        self.lemma_take_guard_sound(idx);
+
+        let pre_cursor = self;
+        let post_cursor = self.take_guard_spec(idx).0;
+        assert(self.take_guard_spec(idx).0.wf_path()) by {
+            // assert(post_cursor.g_level)
+            assert forall|level: PagingLevel|
+                #![trigger post_cursor.get_guard_level(level)]
+                #![trigger post_cursor.get_guard_level_implicit_write(level)]
+                #![trigger post_cursor.get_guard_level_write(level)]
+                #![trigger post_cursor.get_guard_level_read(level)]
+                1 <= level <= C::NR_LEVELS() 
+            implies {
+                // Notice that the order is necessary.
+                if level < post_cursor.g_level@ {
+                    post_cursor.get_guard_level(level) is Unlocked
+                } else if level < post_cursor.guard_level {
+                    &&& post_cursor.get_guard_level(level) is ImplicitWrite
+                    &&& post_cursor.get_guard_level_implicit_write(level).wf()
+                    &&& post_cursor.get_guard_level_implicit_write(level).inst_id() == post_cursor.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(post_cursor.get_guard_level_implicit_write(level).nid())
+                    &&& post_cursor.get_guard_level_implicit_write(level).guard->Some_0.in_protocol@ == true
+                    // &&& va_level_to_nid::<C>(post_cursor.va, level) == post_cursor.get_guard_level_implicit_write(level).nid()
+                } else if level == post_cursor.guard_level {
+                    &&& post_cursor.get_guard_level(level) is Write
+                    &&& post_cursor.get_guard_level_write(level).wf()
+                    &&& post_cursor.get_guard_level_write(level).inst_id() == post_cursor.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(post_cursor.get_guard_level_write(level).nid())
+                    &&& post_cursor.get_guard_level_write(level).guard->Some_0.in_protocol@ == false
+                    // &&& va_level_to_nid::<C>(post_cursor.va, level) == post_cursor.get_guard_level_write(level).nid()
+                } else {
+                    &&& post_cursor.get_guard_level(level) is Read
+                    &&& post_cursor.get_guard_level_read(level).wf()
+                    &&& post_cursor.get_guard_level_read(level).inst_id() == post_cursor.inst@.id()
+                    &&& level == node_helper::nid_to_level::<C>(post_cursor.get_guard_level_read(level).nid())
+                    // &&& va_level_to_nid::<C>(post_cursor.va, level) == post_cursor.get_guard_level_read(level).nid()
+                }
+            } by {
+                if level == pre_cursor.g_level@ {} 
+                else {
+                    assert(post_cursor.get_guard_level(level) =~= pre_cursor.get_guard_level(level)) by {
+                        assert(post_cursor.path@ =~= pre_cursor.path@.update(idx as int, GuardInPath::Unlocked));
+                        assert(post_cursor.path@[level - 1] =~= pre_cursor.path@[level - 1]) by {
+                            axiom_seq_update_different(pre_cursor.path@, level - 1, idx as int, GuardInPath::Unlocked);
+                        };
+                    };
+                }
+            };
+        };
+        assert(self.take_guard_spec(idx).0.guards_in_path_relation()) by {
+            assert forall|level: PagingLevel|
+                #![trigger post_cursor.adjacent_guard_is_child(level)]
+                post_cursor.g_level@ < level <= C::NR_LEVELS() 
+            implies {
+                post_cursor.adjacent_guard_is_child(level)
+            } by {
+                assert(post_cursor.get_guard_level(level) =~= pre_cursor.get_guard_level(level)) by {
+                    assert(post_cursor.path@ =~= pre_cursor.path@.update(idx as int, GuardInPath::Unlocked));
+                    assert(post_cursor.path@[level - 1] =~= pre_cursor.path@[level - 1]) by {
+                        axiom_seq_update_different(pre_cursor.path@, level - 1, idx as int, GuardInPath::Unlocked);
+                    };
+                };
+                assert(post_cursor.get_guard_level((level - 1) as PagingLevel) =~= pre_cursor.get_guard_level((level - 1) as PagingLevel)) by {
+                    assert(post_cursor.path@ =~= pre_cursor.path@.update(idx as int, GuardInPath::Unlocked));
+                    assert(post_cursor.path@[level - 2] =~= pre_cursor.path@[level - 2]) by {
+                        axiom_seq_update_different(pre_cursor.path@, level - 2, idx as int, GuardInPath::Unlocked);
+                    };
+                };
+                assert(pre_cursor.adjacent_guard_is_child(level));
+            };
+        };
+    }
+}
+
+impl<'a, C: PageTableConfig> Cursor<'a, C> {
+    
+}
+
+pub struct CursorMut<'a, C: PageTableConfig>(pub Cursor<'a, C>);
+
+impl<'a, C: PageTableConfig> CursorMut<'a, C> {
 }
 
 } // verus!

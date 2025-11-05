@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use vstd::prelude::*;
 
-use common::mm::{Vaddr, PagingLevel};
+use common::mm::{Vaddr, PagingLevel, MAX_USERSPACE_VADDR};
 use common::mm::page_table::{PageTableConfig, PagingConstsTrait, pte_index_spec};
 use common::spec::{common::*, node_helper::self};
 
@@ -10,7 +10,7 @@ verus! {
 
 pub open spec fn va_range_wf<C: PageTableConfig>(va: Range<Vaddr>) -> bool {
     &&& valid_va_range::<C>(va)
-    &&& va.start < va.end
+    &&& va.start < va.end < MAX_USERSPACE_VADDR
     &&& vaddr_is_aligned::<C>(va.start)
     &&& vaddr_is_aligned::<C>(va.end)
 }
