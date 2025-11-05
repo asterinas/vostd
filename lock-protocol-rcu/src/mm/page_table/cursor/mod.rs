@@ -871,19 +871,13 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             self.wf(),
             forgot_guards.wf(),
             self.wf_with_forgot_guards(forgot_guards),
-            self.g_level@ <= level <= self.guard_level,
+            self.g_level@ - 1 <= level <= self.guard_level,
         ensures
-            self.rec_put_guard_from_path(forgot_guards, (level - 1) as PagingLevel).wf(),
+            self.rec_put_guard_from_path(forgot_guards, level).wf(),
     {
         let guard = self.get_guard_level_unwrap(level);
-        let _forgot_guards = self.put_guard_from_path_bottom_up(
-            forgot_guards,
-            (level - 1) as PagingLevel,
-        );
-        self.lemma_put_guard_from_path_bottom_up_eq_with_rec(
-            forgot_guards,
-            (level - 1) as PagingLevel,
-        );
+        let _forgot_guards = self.put_guard_from_path_bottom_up(forgot_guards, level);
+        self.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, level);
         assert forall|nid: NodeId| #[trigger] _forgot_guards.inner.dom().contains(nid) implies {
             _forgot_guards.children_are_contained(
                 nid,
@@ -981,7 +975,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
             (level - 1) as PagingLevel,
         );
         assert(_forgot_guards.wf()) by {
-            self.lemma_wf_with_forgot_guards_implies_singleton_wf(forgot_guards, level);
+            self.lemma_wf_with_forgot_guards_implies_singleton_wf(
+                forgot_guards,
+                (level - 1) as PagingLevel,
+            );
         };
         let nid = guard.nid();
         assert(_forgot_guards.is_sub_root(guard.nid())) by {
@@ -1106,7 +1103,61 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 self.get_guard_level_unwrap(level).guard->Some_0.view_pte_token().value(),
             ),
     {
-        admit();
+        self.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+            forgot_guards,
+            (level - 1) as PagingLevel,
+        );
+        let guards_put = self.put_guard_from_path_bottom_up(
+            forgot_guards,
+            (level - 1) as PagingLevel,
+        );
+        let guard = self.get_guard_level_unwrap(level);
+        let nid = guard.nid();
+        let pte_array = guard.guard->Some_0.view_pte_token().value();
+
+        assert(guards_put.children_are_contained(nid, pte_array)) by {
+            let guards_put_put = guards_put.put_spec(
+                nid,
+                guard.guard->Some_0.inner@,
+                guard.inner.deref().meta_spec().lock,
+            );
+            assert(guards_put_put.children_are_contained(nid, pte_array)) by {
+                let guards_put_from_level = self.put_guard_from_path_bottom_up(
+                    forgot_guards,
+                    level,
+                );
+                assert(guards_put_from_level =~= guards_put_put) by {
+                    self.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, level);
+                };
+                assert(guards_put_put.wf()) by {
+                    self.lemma_wf_with_forgot_guards_implies_singleton_wf(forgot_guards, level);
+                };
+                assert(guards_put_put.inner.dom().contains(nid));
+            };
+            assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
+                #[trigger] pte_array.is_alive(i) <==> guards_put.inner.dom().contains(
+                    node_helper::get_child::<C>(nid, i),
+                )
+            } by {
+                let array_i_child_nid = node_helper::get_child::<C>(nid, i);
+                assert(pte_array.is_alive(i) <==> guards_put_put.inner.dom().contains(
+                    array_i_child_nid,
+                )) by {
+                    assert(guards_put_put.children_are_contained(nid, pte_array));
+                    admit();  // What?
+                };
+                admit();  // TODO
+            };
+            assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
+                #[trigger] pte_array.is_void(i) ==> guards_put.sub_tree_not_contained(
+                    node_helper::get_child::<C>(nid, i),
+                )
+            } by {
+                let array_i_child_nid = node_helper::get_child::<C>(nid, i);
+                admit();
+            };
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty());
+        }
     }
 
     pub proof fn lemma_wf_with_forgot_guards_sound(&self, forgot_guards: SubTreeForgotGuard<C>)
@@ -1120,7 +1171,10 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         assert forall|level: PagingLevel| self.g_level@ <= level <= self.guard_level implies {
             #[trigger] self.guards_in_path_wf_with_forgot_guards_singleton(forgot_guards, level)
         } by {
-            self.lemma_wf_with_forgot_guards_implies_singleton_wf(forgot_guards, level);
+            self.lemma_wf_with_forgot_guards_implies_singleton_wf(
+                forgot_guards,
+                (level - 1) as PagingLevel,
+            );
             self.lemma_wf_with_forgot_guards_implies_singleton_is_sub_root(forgot_guards, level);
             self.lemma_wf_with_forgot_guards_implies_singleton_children_are_contained(
                 forgot_guards,

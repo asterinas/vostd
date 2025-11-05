@@ -15,7 +15,7 @@ COMPILE_TARGETS := vstd_extra common
 fvt%:
 	cargo xtask verify --targets $(filter fvt$*-%, $(VERIFICATION_TARGETS))
 
-PHONY: lock-protocol-rcu
+.PHONY: lock-protocol-rcu
 lock-protocol-rcu:
 	cargo xtask verify --targets lock-protocol-rcu
 
