@@ -79,7 +79,57 @@ impl InvView for MemoryRegion {
     }
 
     proof fn view_preserves_inv(self) {
-        admit();
+        assert(self.view().inv()) by {
+            let view = self.view();
+
+            assert(view.base == self.base as int);
+            assert(0 <= view.base);
+
+            assert(view.end == self.base + self.len);
+            assert(view.base <= view.end) by {
+                assert(view.base == self.base as int);
+                assert(view.end == self.base + self.len);
+                assert(self.base <= self.base + self.len);
+            };
+
+            assert(view.end <= CONST_MAX_PADDR) by {
+                assert(view.end == self.base + self.len);
+                assert(self.base + self.len <= CONST_MAX_PADDR);
+            };
+
+            assert(view.typ == self.typ.to_int());
+            match self.typ {
+                MemoryRegionType::BadMemory => {
+                    assert(view.typ == 0);
+                }
+                MemoryRegionType::Unknown => {
+                    assert(view.typ == 1);
+                }
+                MemoryRegionType::NonVolatileSleep => {
+                    assert(view.typ == 2);
+                }
+                MemoryRegionType::Reserved => {
+                    assert(view.typ == 3);
+                }
+                MemoryRegionType::Kernel => {
+                    assert(view.typ == 4);
+                }
+                MemoryRegionType::Module => {
+                    assert(view.typ == 5);
+                }
+                MemoryRegionType::Framebuffer => {
+                    assert(view.typ == 6);
+                }
+                MemoryRegionType::Reclaimable => {
+                    assert(view.typ == 7);
+                }
+                MemoryRegionType::Usable => {
+                    assert(view.typ == 8);
+                }
+            }
+            assert(0 <= view.typ);
+            assert(view.typ < 9);
+        };
     }
 }
 
