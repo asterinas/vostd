@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use vstd::prelude::*;
 
 use common::mm::page_table::{PageTableConfig, PagingConstsTrait};
+use common::spec::node_helper::{self};
 use common::configs::GLOBAL_CPU_NUM;
 
 use crate::mm::page_table::node::PageTableNode;
@@ -27,7 +28,9 @@ pub struct PageTable<C: PageTableConfig> {
 impl<C: PageTableConfig> PageTable<C> {
     pub open spec fn wf(&self) -> bool {
         &&& self.root.wf()
+        &&& self.root.nid@ == node_helper::root_id::<C>()
         &&& self.root.level_spec() == C::NR_LEVELS()
+        &&& self.root.inst@.id() == self.inst@.id()
         &&& self.inst@.cpu_num() == GLOBAL_CPU_NUM
     }
 }
