@@ -345,9 +345,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
                 assert forall |i: int|
                     0 <= i && i < ret@.regions.len() ==> #[trigger] ret@.regions[i] == Seq::<MemRegionModel>::empty()[i]
                 by {
-                    assume(0 <= i && i < ret@.regions.len());
                     assert(ret@.regions.len() == 0);
-                    assert(false);
                 };
             };
 
