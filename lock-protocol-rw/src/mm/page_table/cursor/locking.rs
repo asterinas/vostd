@@ -80,7 +80,13 @@ pub fn lock_range<'a, C: PageTableConfig>(
         assert(m.state() is ReadLocking);
     }
     proof {
+        assert(C::NR_LEVELS() <= MAX_NR_LEVELS) by {
+            C::lemma_consts_properties();
+        }
+    }
+    proof {
         assert(cur_nid == va_level_to_nid::<C>(va.start, cur_pt.deref().level_spec())) by {
+            assert(cur_pt.deref().level_spec() == C::NR_LEVELS());
             reveal(node_helper::trace_to_nid_rec);
         };
         lemma_va_range_get_guard_level::<C>(*va);
@@ -89,6 +95,7 @@ pub fn lock_range<'a, C: PageTableConfig>(
     let mut cur_wlock_opt: Option<PageTableWriteLock<C>> = None;
     while cur_pt.deref().level() > 1
         invariant_except_break
+            cur_pt.deref().level_spec() <= C::NR_LEVELS() <= MAX_NR_LEVELS,
             cur_wlock_opt is None,
             pt.wf(),
             va_range_wf::<C>(*va),

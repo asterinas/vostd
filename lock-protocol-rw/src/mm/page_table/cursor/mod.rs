@@ -74,8 +74,8 @@ pub const MAX_NR_LEVELS: usize = 5;
 
 impl<C: PageTableConfig> Cursor<'_, C> {
     pub open spec fn wf(&self) -> bool {
-        &&& self.path@.len() == C::NR_LEVELS()
-        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS()
+        &&& self.path@.len() == MAX_NR_LEVELS
+        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS() <= MAX_NR_LEVELS
         &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
             1 <= level <= C::NR_LEVELS() ==> {
@@ -103,8 +103,8 @@ impl<C: PageTableConfig> Cursor<'_, C> {
 
     // Used for `unlock_range`
     pub open spec fn wf_unlocking(&self) -> bool {
-        &&& self.path@.len() == C::NR_LEVELS()
-        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS()
+        &&& self.path@.len() == MAX_NR_LEVELS
+        &&& 1 <= self.level <= self.guard_level <= C::NR_LEVELS() <= MAX_NR_LEVELS
         &&& forall|level: PagingLevel|
             #![trigger self.path[level - 1]]
             1 <= level <= C::NR_LEVELS() ==> {
