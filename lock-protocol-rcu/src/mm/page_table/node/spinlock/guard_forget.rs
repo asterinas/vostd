@@ -873,7 +873,6 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         ensures
             self.put_spec(nid, new_guard, new_spin_lock).wf(),
     {
-        admit();
     }
 
     pub proof fn lemma_alloc_hold_wf(
