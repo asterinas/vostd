@@ -30,13 +30,15 @@ impl Inv for LinkOwner {
     }
 }
 
-impl InvView for LinkOwner {
+impl View for LinkOwner {
     type V = LinkModel;
 
-    open spec fn view(self) -> Self::V {
+    open spec fn view(&self) -> Self::V {
         LinkModel { paddr: self.paddr }
     }
+}
 
+impl InvView for LinkOwner {
     proof fn view_preserves_inv(self) {
     }
 }
@@ -141,13 +143,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for LinkedListOwner<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotInner>> View for LinkedListOwner<M> {
     type V = LinkedListModel;
 
-    open spec fn view(self) -> Self::V {
+    open spec fn view(&self) -> Self::V {
         LinkedListModel { list: Self::view_helper(self.list) }
     }
+}
 
+impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for LinkedListOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }
@@ -217,10 +221,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> Inv for CursorOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for CursorOwner<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotInner>> View for CursorOwner<M> {
     type V = CursorModel;
 
-    open spec fn view(self) -> Self::V {
+    open spec fn view(&self) -> Self::V {
         let list = self.list_own.view();
         CursorModel {
             fore: list.list.take(self.index),
@@ -228,7 +232,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for CursorOwner<M> {
             list_model: list,
         }
     }
+}
 
+impl<M: AnyFrameMeta + Repr<MetaSlotInner>> InvView for CursorOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }

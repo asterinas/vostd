@@ -30,13 +30,15 @@ impl Inv for PageMetaModel {
     }
 }
 
-impl InvView for PageMetaOwner {
+impl View for PageMetaOwner {
     type V = PageMetaModel;
 
-    open spec fn view(self) -> <Self as InvView>::V {
+    open spec fn view(&self) -> <Self as View>::V {
         PageMetaModel { nr_children: self.nr_children@.value(), stray: self.stray@.value() }
     }
+}
 
+impl InvView for PageMetaOwner {
     proof fn view_preserves_inv(self) {
     }
 }
@@ -76,13 +78,15 @@ impl<C: PageTableConfig> Inv for NodeModel<C> {
     }
 }
 
-impl<C: PageTableConfig> InvView for NodeOwner<C> {
+impl<C: PageTableConfig> View for NodeOwner<C> {
     type V = NodeModel<C>;
 
-    open spec fn view(self) -> <Self as InvView>::V {
+    open spec fn view(&self) -> <Self as View>::V {
         NodeModel { meta: self.meta_perm@.value() }
     }
+}
 
+impl<C: PageTableConfig> InvView for NodeOwner<C> {
     proof fn view_preserves_inv(self) {
     }
 }
