@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "vstd_extra",
+    "temporal_logic",
     "aster_common",
     "demo",
     "ostd",
