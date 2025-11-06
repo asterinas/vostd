@@ -646,6 +646,11 @@ impl<'a, C: PageTableConfig> PageTableWriteLock<'a, C> {
             }
         }
     }
+
+    #[verifier::external_body]
+    pub fn nr_children(&self) -> u16 {
+        unimplemented!("nr_children")
+    }
 }
 
 pub open spec fn pt_write_guard_deref_spec<'a, 'b, C: PageTableConfig>(

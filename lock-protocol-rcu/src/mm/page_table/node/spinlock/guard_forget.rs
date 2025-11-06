@@ -943,7 +943,8 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                         )
                     } by {
                         let child_nid = node_helper::get_child::<C>(nid, i);
-                        assert(self.inner.dom().contains(child_nid) <==> put_child.inner.dom().contains(child_nid)) by {
+                        assert(self.inner.dom().contains(child_nid)
+                            <==> put_child.inner.dom().contains(child_nid)) by {
                             if !self.inner.dom().contains(child_nid) {
                                 assert(child_nid != ch) by {
                                     admit();
@@ -970,7 +971,8 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                         )
                     } by {
                         let child_nid = node_helper::get_child::<C>(nid, i);
-                        assert(self.sub_tree_not_contained(child_nid) <==> put_child.sub_tree_not_contained(child_nid)) by {
+                        assert(self.sub_tree_not_contained(child_nid)
+                            <==> put_child.sub_tree_not_contained(child_nid)) by {
                             admit();
                         };
                         if pte_array.is_void(i) {

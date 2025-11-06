@@ -79,9 +79,10 @@ proof fn lemma_va_range_get_guard_level_implied_by_offsets_equal_induction<C: Pa
         va_range_wf::<C>(va),
         1 <= level <= top_level <= C::NR_LEVELS_SPEC(),
         forall|l|
-            level < l <= top_level ==> pte_index_spec::<C>(va.start, l) == pte_index_spec::<
-                C,
-            >((va.end - 1) as usize, l),
+            level < l <= top_level ==> pte_index_spec::<C>(va.start, l) == pte_index_spec::<C>(
+                (va.end - 1) as usize,
+                l,
+            ),
         level == 1 || pte_index_spec::<C>(va.start, level) != pte_index_spec::<C>(
             (va.end - 1) as usize,
             level,
@@ -112,9 +113,10 @@ pub proof fn lemma_va_range_get_guard_level_implies_offsets_equal<C: PageTableCo
         va_range_wf::<C>(va),
     ensures
         forall|l: PagingLevel| #[trigger]
-            va_range_get_guard_level::<C>(va) < l <= C::NR_LEVELS_SPEC() ==> pte_index_spec::<
-                C,
-            >(va.start, l) == pte_index_spec::<C>((va.end - 1) as usize, l),
+            va_range_get_guard_level::<C>(va) < l <= C::NR_LEVELS_SPEC() ==> pte_index_spec::<C>(
+                va.start,
+                l,
+            ) == pte_index_spec::<C>((va.end - 1) as usize, l),
         va_range_get_guard_level::<C>(va) == 1 || pte_index_spec::<C>(
             va.start,
             va_range_get_guard_level::<C>(va),
@@ -133,11 +135,9 @@ proof fn lemma_va_range_get_guard_level_implies_offsets_equal_induction<C: PageT
         1 <= top_level <= C::NR_LEVELS_SPEC(),
     ensures
         forall|l: PagingLevel| #[trigger]
-            va_range_get_guard_level_rec::<C>(va, top_level) < l <= top_level
-                ==> pte_index_spec::<C>(va.start, l) == pte_index_spec::<C>(
-                (va.end - 1) as usize,
-                l,
-            ),
+            va_range_get_guard_level_rec::<C>(va, top_level) < l <= top_level ==> pte_index_spec::<
+                C,
+            >(va.start, l) == pte_index_spec::<C>((va.end - 1) as usize, l),
         va_range_get_guard_level_rec::<C>(va, top_level) == 1 || pte_index_spec::<C>(
             va.start,
             va_range_get_guard_level_rec::<C>(va, top_level),

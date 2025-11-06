@@ -152,34 +152,54 @@ impl<'g, C: PageTableConfig> Entry<C> {
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
-    // pub fn replace(&mut self, new_child: Child, node: &mut PageTableWriteLock<'g>) -> (res: Child)
-    //     requires
-    //         old(self).wf_write(*old(node)),
-    //         new_child.wf(),
-    //         new_child.wf_with_node(old(self).idx as nat, *(old(node).inner.deref())),
-    //         !(new_child is PageTable),
-    //         old(node).wf(),
-    //         old(node).guard->Some_0.stray_perm@.value() == false,
-    //     ensures
-    //         self.wf_write(*node),
-    //         new_child.wf_into_pte(self.pte),
-    //         self.idx == old(self).idx,
-    //         if res is PageTable {
-    //             &&& node.wf_except(self.idx as nat)
-    //             &&& node.guard->Some_0.pte_token@->Some_0.value().is_alive(self.idx as nat)
-    //         } else {
-    //             node.wf()
-    //         },
-    //         node.inst_id() == old(node).inst_id(),
-    //         node.nid() == old(node).nid(),
-    //         node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
-    //         res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
-    // {
-    //     let old_child = Child::from_pte(self.pte, node.inner.deref().level());
-    //     self.pte = new_child.into_pte();
-    //     node.write_pte(self.idx, self.pte);
-    //     old_child
-    // }
+    #[verifier::external_body]
+    pub fn replace(&mut self, new_child: Child<C>, node: &mut PageTableWriteLock<'g, C>) -> (res:
+        Child<C>)
+        requires
+            old(self).wf_write(*old(node)),
+            new_child.wf(),
+            new_child.wf_with_node(old(self).idx as nat, *(old(node).inner.deref())),
+            !(new_child is PageTable),
+            old(node).wf(),
+        ensures
+            self.wf_write(*node),
+            new_child.wf_into_pte(self.pte),
+            self.idx == old(self).idx,
+            if res is PageTable {
+                &&& node.wf_except(self.idx as nat)
+                &&& node.guard->Some_0.pte_array_token@.value().is_alive(self.idx as nat)
+                &&& node.guard->Some_0.pte_array_token@.value() =~= old(
+                    node,
+                ).guard->Some_0.pte_array_token@.value()
+            } else {
+                node.wf()
+            },
+            node.inst_id() == old(node).inst_id(),
+            node.nid() == old(node).nid(),
+            node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
+            node.guard->Some_0.in_protocol@ == old(node).guard->Some_0.in_protocol@,
+            node.meta_spec().lock =~= old(node).meta_spec().lock,
+            res.wf(),
+            res.wf_from_pte(old(self).pte, old(node).inner.deref().level_spec()),
+            new_child is Frame ==> {
+                &&& node.guard->Some_0.perms@.inner.value()[self.idx as int].inner.paddr()
+                    == new_child->Frame_0
+                &&& node.guard->Some_0.pte_array_token@.value() =~= old(
+                    node,
+                ).guard->Some_0.pte_array_token@.value()
+            },
+            res is Frame ==> {
+                &&& node.guard->Some_0.pte_array_token@.value() =~= old(
+                    node,
+                ).guard->Some_0.pte_array_token@.value()
+            },
+    {
+        let old_child = Child::from_pte(self.pte, node.inner.deref().level());
+        self.pte = new_child.into_pte();
+        node.write_pte(self.idx, self.pte);
+        old_child
+    }
+
     /// Allocates a new child page table node and replaces the entry with it.
     ///
     /// If the old entry is not none, the operation will fail and return `None`.

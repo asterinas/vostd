@@ -311,8 +311,12 @@ pub fn lock_range<'a, C: PageTableConfig>(
         inst: Tracked(inst),
         g_level: Ghost(cur_level),
     };
-    assert(cursor.wf()) by { admit(); };
-    assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by { admit(); }; // TODO
+    assert(cursor.wf()) by {
+        admit();
+    };
+    assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by {
+        admit();
+    };  // TODO
 
     (cursor, Tracked(m))
 }
@@ -329,10 +333,9 @@ pub fn unlock_range<C: PageTableConfig>(
         m@.state() is WriteLocked,
     ensures
         cursor.g_level@ == C::NR_LEVELS() + 1,
-        forall |level: PagingLevel|
+        forall|level: PagingLevel|
             #![trigger cursor.get_guard_level(level)]
-            1 <= level <= C::NR_LEVELS() ==> 
-                cursor.get_guard_level(level) is Unlocked,
+            1 <= level <= C::NR_LEVELS() ==> cursor.get_guard_level(level) is Unlocked,
         res@.inv(),
         res@.state() is Void,
 {
@@ -365,28 +368,35 @@ pub fn unlock_range<C: PageTableConfig>(
             cursor.lemma_take_guard_sound((cur_level - 1) as usize);
             cursor.lemma_take_guard_sustain_wf((cur_level - 1) as usize);
         }
-        let GuardInPath::ImplicitWrite(guard) = cursor.take_guard(cur_level as usize - 1) else { unreached() };
+        let GuardInPath::ImplicitWrite(guard) = cursor.take_guard(cur_level as usize - 1) else {
+            unreached()
+        };
         assert(cursor.wf_path());
         assert(cursor.wf_with_lock_protocol_model(m)) by {
             assert(cursor.g_level@ <= cursor.guard_level);
             assert forall|level: PagingLevel|
                 #![trigger cursor.get_guard_level(level)]
-                cursor.guard_level@ <= level <= C::NR_LEVELS() 
-            implies {
+                cursor.guard_level@ <= level <= C::NR_LEVELS() implies {
                 &&& cursor.get_guard_level(level) !is Unlocked
                 &&& match cursor.get_guard_level(level) {
-                    GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
-                        == rguard.nid(),
-                    GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
-                        == wguard.nid(),
+                    GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level] == rguard.nid(),
+                    GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level] == wguard.nid(),
                     GuardInPath::ImplicitWrite(wguard) => true,
                     GuardInPath::Unlocked => true,
                 }
             } by {
                 assert(cursor.get_guard_level(level) =~= _cursor.get_guard_level(level)) by {
-                    assert(cursor.path@ =~= _cursor.path@.update(cur_level - 1, GuardInPath::Unlocked));
+                    assert(cursor.path@ =~= _cursor.path@.update(
+                        cur_level - 1,
+                        GuardInPath::Unlocked,
+                    ));
                     assert(cursor.path@[level - 1] =~= _cursor.path@[level - 1]) by {
-                        axiom_seq_update_different(_cursor.path@, level - 1, cur_level - 1, GuardInPath::Unlocked);
+                        axiom_seq_update_different(
+                            _cursor.path@,
+                            level - 1,
+                            cur_level - 1,
+                            GuardInPath::Unlocked,
+                        );
                     };
                 };
             };
@@ -418,22 +428,27 @@ pub fn unlock_range<C: PageTableConfig>(
         assert(cursor.g_level@ == cursor.guard_level + 1);
         assert forall|level: PagingLevel|
             #![trigger cursor.get_guard_level(level)]
-            cursor.g_level@ <= level <= C::NR_LEVELS() 
-        implies {
+            cursor.g_level@ <= level <= C::NR_LEVELS() implies {
             &&& cursor.get_guard_level(level) !is Unlocked
             &&& match cursor.get_guard_level(level) {
-                GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
-                    == rguard.nid(),
-                GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
-                    == wguard.nid(),
+                GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level] == rguard.nid(),
+                GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level] == wguard.nid(),
                 GuardInPath::ImplicitWrite(wguard) => true,
                 GuardInPath::Unlocked => true,
             }
         } by {
             assert(cursor.get_guard_level(level) =~= _cursor.get_guard_level(level)) by {
-                assert(cursor.path@ =~= _cursor.path@.update(guard_level - 1, GuardInPath::Unlocked));
+                assert(cursor.path@ =~= _cursor.path@.update(
+                    guard_level - 1,
+                    GuardInPath::Unlocked,
+                ));
                 assert(cursor.path@[level - 1] =~= _cursor.path@[level - 1]) by {
-                    axiom_seq_update_different(_cursor.path@, level - 1, guard_level - 1, GuardInPath::Unlocked);
+                    axiom_seq_update_different(
+                        _cursor.path@,
+                        level - 1,
+                        guard_level - 1,
+                        GuardInPath::Unlocked,
+                    );
                 };
             };
         };
@@ -469,28 +484,33 @@ pub fn unlock_range<C: PageTableConfig>(
             },
             GuardInPath::Write(_) => unreached(),
             GuardInPath::ImplicitWrite(_) => unreached(),
-        } 
+        }
         assert(cursor.wf());
         assert(cursor.wf_with_lock_protocol_model(m)) by {
             assert(cursor.g_level@ > cursor.guard_level);
             assert forall|level: PagingLevel|
                 #![trigger cursor.get_guard_level(level)]
-                cursor.g_level@ <= level <= C::NR_LEVELS() 
-            implies {
+                cursor.g_level@ <= level <= C::NR_LEVELS() implies {
                 &&& cursor.get_guard_level(level) !is Unlocked
                 &&& match cursor.get_guard_level(level) {
-                    GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level]
-                        == rguard.nid(),
-                    GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level]
-                        == wguard.nid(),
+                    GuardInPath::Read(rguard) => m.path()[C::NR_LEVELS() - level] == rguard.nid(),
+                    GuardInPath::Write(wguard) => m.path()[C::NR_LEVELS() - level] == wguard.nid(),
                     GuardInPath::ImplicitWrite(wguard) => true,
                     GuardInPath::Unlocked => true,
                 }
             } by {
                 assert(cursor.get_guard_level(level) =~= _cursor.get_guard_level(level)) by {
-                    assert(cursor.path@ =~= _cursor.path@.update(cur_level - 1, GuardInPath::Unlocked));
+                    assert(cursor.path@ =~= _cursor.path@.update(
+                        cur_level - 1,
+                        GuardInPath::Unlocked,
+                    ));
                     assert(cursor.path@[level - 1] =~= _cursor.path@[level - 1]) by {
-                        axiom_seq_update_different(_cursor.path@, level - 1, cur_level - 1, GuardInPath::Unlocked);
+                        axiom_seq_update_different(
+                            _cursor.path@,
+                            level - 1,
+                            cur_level - 1,
+                            GuardInPath::Unlocked,
+                        );
                     };
                 };
             };
