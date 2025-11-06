@@ -62,6 +62,7 @@ impl<T> TempPred<T> {
     // iff it is always the case that `self` getting satisfied implies `other` eventually getting satisfied.
     //
     // Defined in 3.2.3.
+    // |ex| forall |i: nat| self.satisfied_by(ex.suffix(i)) ==> exists |j: nat| other.satisfied_by(ex.suffix(i + j)) 
     pub open spec fn leads_to(self, other: Self) -> Self {
         always(self.implies(eventually(other)))
     }
@@ -123,6 +124,17 @@ pub open spec fn tla_exists<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>) -> 
 
 pub open spec fn stable<T>(temp_pred: TempPred<T>) -> TempPred<T> {
     TempPred::new(|ex: Execution<T>| temp_pred.implies(always(temp_pred)).satisfied_by(ex))
+}
+
+pub open spec fn stable2<T>(temp_pred: TempPred<T>) -> TempPred<T> {
+    temp_pred.implies(later(temp_pred))
+}
+
+pub proof fn stable_equiv<T>(temp_pred: TempPred<T>, ex: Execution<T>) 
+ensures
+    stable(temp_pred).satisfied_by(ex) == stable2(temp_pred).satisfied_by(ex),
+{
+    admit();
 }
 
 // Returns a state predicate that is satisfied
