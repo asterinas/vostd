@@ -12,14 +12,10 @@ pub trait Inv {
     spec fn inv(self) -> bool;
 }
 
-pub trait InvView: Inv {
-    type V: Inv;
-
-    spec fn view(self) -> Self::V
-        recommends
-            self.inv(),
-    ;
-
+pub trait InvView: Inv + View 
+where
+    <Self as View>::V: Inv,
+{
     proof fn view_preserves_inv(self)
         requires
             self.inv(),
@@ -28,7 +24,10 @@ pub trait InvView: Inv {
     ;
 }
 
-pub trait OwnerOf {
+pub trait OwnerOf 
+where
+    <<Self as OwnerOf>::Owner as View>::V : Inv,
+{
     /// The owner of the concrete type.
     /// The Owner must implement `Inv`, indicating that it must
     /// has a consistent state.
@@ -41,7 +40,7 @@ pub trait OwnerOf {
 }
 
 pub trait ModelOf: OwnerOf + Sized {
-    open spec fn model(self, owner: Self::Owner) -> <Self::Owner as InvView>::V
+    open spec fn model(self, owner: Self::Owner) -> <Self::Owner as View>::V
         recommends
             self.wf(owner),
     {

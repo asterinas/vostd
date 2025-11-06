@@ -20,7 +20,7 @@ pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + Repr<MetaSlotStorage> + Ow
 }
 
 pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
-    pub meta: <M::Owner as InvView>::V,
+    pub meta: <M::Owner as View>::V,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
@@ -41,13 +41,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameModel
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> InvView for UniqueFrameOwner<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> View for UniqueFrameOwner<M> {
     type V = UniqueFrameModel<M>;
 
-    open spec fn view(self) -> Self::V {
+    open spec fn view(&self) -> Self::V {
         UniqueFrameModel { meta: self.meta_own@@ }
     }
+}
 
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> InvView for UniqueFrameOwner<M> {
     proof fn view_preserves_inv(self) {
     }
 }

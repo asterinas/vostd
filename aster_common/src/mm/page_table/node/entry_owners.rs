@@ -37,14 +37,16 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig> InvView for EntryOwner<'rcu, C> {
+impl <'rcu, C: PageTableConfig> View for EntryOwner<'rcu, C> {
     type V = EntryView<C>;
 
     #[verifier::external_body]
-    open spec fn view(self) -> <Self as InvView>::V {
+    open spec fn view(&self) -> <Self as View>::V {
         unimplemented!()
-    }
+    }   
+}
 
+impl<'rcu, C: PageTableConfig> InvView for EntryOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
     }
 }

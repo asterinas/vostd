@@ -152,10 +152,10 @@ impl Inv for MetaSlotModel {
     }
 }
 
-impl InvView for MetaSlotOwner {
+impl View for MetaSlotOwner {
     type V = MetaSlotModel;
 
-    open spec fn view(self) -> Self::V {
+    open spec fn view(&self) -> Self::V {
         let storage = self.storage@.mem_contents();
         let ref_count = self.ref_count@.value();
         let vtable_ptr = self.vtable_ptr@.mem_contents();
@@ -171,7 +171,9 @@ impl InvView for MetaSlotOwner {
         };
         MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }
     }
+}
 
+impl InvView for MetaSlotOwner {
     proof fn view_preserves_inv(self) {
         admit()
     }

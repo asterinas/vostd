@@ -70,14 +70,16 @@ impl Inv for MetaRegionModel {
     }
 }
 
-impl InvView for MetaRegionOwners {
+impl View for MetaRegionOwners {
     type V = MetaRegionModel;
 
-    open spec fn view(self) -> Self::V {
-        let slots = self.slot_owners.map_values(|s: MetaSlotOwner| s.view());
+    open spec fn view(&self) -> <Self as View>::V {
+        let slots = self.slot_owners.map_values(|s: MetaSlotOwner| s@);
         MetaRegionModel { slots }
     }
+}
 
+impl InvView for MetaRegionOwners {
     // XXX: verus `map_values` does not preserves the `finite()` attribute.
     axiom fn view_preserves_inv(self);
 }
