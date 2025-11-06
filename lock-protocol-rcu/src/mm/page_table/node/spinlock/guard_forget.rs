@@ -952,14 +952,16 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                             }
                         };
                         if pte_array.is_alive(i) {
-                            assert(put_child.inner.dom().contains(child_nid)) by {
-                                admit();
-                            };
+                            assert(self.inner.dom().contains(child_nid)) by {
+                                assert(self.wf());
+                            }
+                            assert(put_child.inner.dom().contains(child_nid));
                         }
                         if put_child.inner.dom().contains(child_nid) {
-                            assert(pte_array.is_alive(i)) by {
-                                admit();
-                            };
+                            assert(old_pte_array.is_alive(i)) by {
+                                assert(self.wf());
+                            }
+                            assert(pte_array.is_alive(i));
                         }
                     };
                     assert forall|i: nat| 0 <= i < nr_subpage_per_huge::<C>() implies {
