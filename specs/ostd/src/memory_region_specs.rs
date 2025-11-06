@@ -42,15 +42,11 @@ impl<const LEN: usize> Inv for MemoryRegionArrayModel<LEN> {
 
 impl<const LEN: usize> MemoryRegionArrayModel<LEN> {
     pub open spec fn new() -> Self {
-        MemoryRegionArrayModel {
-            regions: Seq::empty(),
-        }
+        MemoryRegionArrayModel { regions: Seq::empty() }
     }
 
     pub open spec fn push(self, region: MemRegionModel) -> Self {
-        MemoryRegionArrayModel {
-            regions: self.regions.push(region),
-        }
+        MemoryRegionArrayModel { regions: self.regions.push(region) }
     }
 
     pub open spec fn full(self) -> bool {
