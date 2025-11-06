@@ -175,7 +175,6 @@ impl View for MetaSlotOwner {
 
 impl InvView for MetaSlotOwner {
     proof fn view_preserves_inv(self) {
-        admit()
     }
 }
 

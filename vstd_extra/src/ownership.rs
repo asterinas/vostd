@@ -12,10 +12,7 @@ pub trait Inv {
     spec fn inv(self) -> bool;
 }
 
-pub trait InvView: Inv + View 
-where
-    <Self as View>::V: Inv,
-{
+pub trait InvView: Inv + View where <Self as View>::V: Inv {
     proof fn view_preserves_inv(self)
         requires
             self.inv(),
@@ -24,10 +21,7 @@ where
     ;
 }
 
-pub trait OwnerOf 
-where
-    <<Self as OwnerOf>::Owner as View>::V : Inv,
-{
+pub trait OwnerOf where <<Self as OwnerOf>::Owner as View>::V: Inv {
     /// The owner of the concrete type.
     /// The Owner must implement `Inv`, indicating that it must
     /// has a consistent state.
