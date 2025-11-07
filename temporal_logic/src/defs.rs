@@ -28,6 +28,7 @@ pub type StatePred<T> = spec_fn(T) -> bool;
 
 pub type ActionPred<T> = spec_fn(T, T) -> bool;
 
+#[verifier::ext_equal]
 #[verifier(reject_recursive_types(T))]
 pub struct TempPred<T> {
     pub pred: spec_fn(Execution<T>) -> bool,

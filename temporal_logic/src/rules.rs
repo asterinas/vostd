@@ -6,6 +6,40 @@ use vstd::map_lib::*;
 use vstd::prelude::*;
 
 verus! {
+broadcast proof fn lemma_execution_sufix_0<T>(ex: Execution<T>)
+    ensures
+        #[trigger] ex.suffix(0) == ex,
+{}
+
+broadcast proof fn lemma_execution_sufix_sufix<T>(ex: Execution<T>, i: nat, j: nat)
+    ensures
+        #[trigger] ex.suffix(i).suffix(j) == ex.suffix(i + j),
+{}
+
+broadcast group group_execution_suffix_lemmas {
+    lemma_execution_sufix_0,
+    lemma_execution_sufix_sufix,
+}
+}
+
+verus! {
+
+pub proof fn temp_pred_equality<T>(p: TempPred<T>, q: TempPred<T>)
+    requires
+        p.entails(q),
+        q.entails(p),
+    ensures
+        p == q,
+{
+    assert forall|ex: Execution<T>| #[trigger] (p.pred)(ex) == (q.pred)(ex) by {
+        if (p.pred)(ex) {
+            implies_apply::<T>(ex, p, q);
+        } else {
+            implies_contraposition_apply::<T>(ex, q, p);
+        }
+    };
+    assert(p.pred =~= q.pred);
+}
 
 proof fn later_unfold<T>(ex: Execution<T>, p: TempPred<T>)
     requires
@@ -183,9 +217,7 @@ proof fn always_propagate_forwards<T>(ex: Execution<T>, p: TempPred<T>, i: nat)
         always(p).satisfied_by(ex.suffix(i)),
 {
     broadcast use always_unfold;
-    assert forall|j| p.satisfied_by(#[trigger] ex.suffix(i).suffix(j)) by {
-        assert(ex.suffix(i + j) == ex.suffix(i).suffix(j));
-    };
+    broadcast use group_execution_suffix_lemmas;
 }
 
 proof fn always_double<T>(ex: Execution<T>, p: TempPred<T>)
@@ -225,9 +257,7 @@ proof fn eventually_propagate_backwards<T>(ex: Execution<T>, p: TempPred<T>, i: 
     ensures
         eventually(p).satisfied_by(ex),
 {
-    eventually_unfold::<T>(ex.suffix(i), p);
-    let witness_idx = eventually_choose_witness(ex.suffix(i), p);
-    assert(ex.suffix(i).suffix(witness_idx) == ex.suffix(i + witness_idx));
+    broadcast use group_execution_suffix_lemmas;
 }
 
 proof fn eventually_proved_by_witness<T>(ex: Execution<T>, p: TempPred<T>, witness_idx: nat)
@@ -288,8 +318,8 @@ proof fn init_invariant_rec<T>(
         inv(ex.suffix(i).head()),
     decreases i,
 {
+    broadcast use group_execution_suffix_lemmas;
     if i == 0 {
-        assert(init(ex.suffix(0).head()));
     } else {
         init_invariant_rec::<T>(ex, init, next, inv, (i - 1) as nat);
     }
@@ -314,8 +344,8 @@ proof fn always_p_or_eventually_q_rec<T>(
         p.satisfied_by(ex.suffix(i)),
     decreases i,
 {
+    broadcast use group_execution_suffix_lemmas;
     if i == 0 {
-        assert (ex == ex.suffix(0));
     } else {
         always_p_or_eventually_q_rec::<T>(ex, next, p, q, (i - 1) as nat);
     }
@@ -333,36 +363,21 @@ proof fn always_p_or_eventually_q<T>(
     ensures
         always(p.implies(always(p).or(eventually(q)))).satisfied_by(ex),
 {
+    broadcast use always_unfold;
+    broadcast use group_execution_suffix_lemmas;
     assert forall|i| p.satisfied_by(#[trigger] ex.suffix(i)) implies always(p).satisfied_by(
         ex.suffix(i),
     ) || eventually(q).satisfied_by(ex.suffix(i)) by {
-        always_propagate_forwards::<T>(ex, next, i);
-        always_unfold::<T>(ex.suffix(i), next);
-
         assert forall|idx|
             p.satisfied_by(#[trigger] ex.suffix(i).suffix(idx)) && next.satisfied_by(
                 ex.suffix(i).suffix(idx),
             ) implies p.satisfied_by(ex.suffix(i).suffix(idx + 1)) || q.satisfied_by(
             ex.suffix(i).suffix(idx + 1),
         ) by {
-            always_propagate_forwards::<T>(ex, p.and(next).implies(later(p).or(later(q))), i);
-            always_propagate_forwards::<T>(
-                ex.suffix(i),
-                p.and(next).implies(later(p).or(later(q))),
-                idx,
-            );
             implies_apply::<T>(ex.suffix(i).suffix(idx), p.and(next), later(p).or(later(q)));
-            if later(p).satisfied_by(ex.suffix(i).suffix(idx)) {
-                later_unfold::<T>(ex.suffix(i).suffix(idx), p);
-                assert (ex.suffix(i).suffix(idx).suffix(1) == ex.suffix(i).suffix(idx + 1));
-            } else {
-                later_unfold::<T>(ex.suffix(i).suffix(idx), q);
-                assert (ex.suffix(i).suffix(idx).suffix(1) == ex.suffix(i).suffix(idx + 1));
-            }
         };
 
         if !eventually(q).satisfied_by(ex.suffix(i)) {
-            not_eventually_unfold::<T>(ex.suffix(i), q);
             assert forall|j| p.satisfied_by(#[trigger] ex.suffix(i).suffix(j)) by {
                 always_p_or_eventually_q_rec::<T>(ex.suffix(i), next, p, q, j);
             };
@@ -381,8 +396,8 @@ proof fn next_preserves_inv_rec<T>(ex: Execution<T>, next: TempPred<T>, inv: Tem
         inv.satisfied_by(ex.suffix(i)),
     decreases i,
 {
+    broadcast use group_execution_suffix_lemmas;
     if i == 0 {
-        assert (ex == ex.suffix(0));
     } else {
         next_preserves_inv_rec::<T>(ex, next, inv, (i - 1) as nat);
     }
@@ -395,8 +410,8 @@ proof fn instantiate_entailed_always<T>(ex: Execution<T>, i: nat, spec: TempPred
     ensures
         p.satisfied_by(ex.suffix(i)),
 {
+    broadcast use always_unfold;
     implies_apply::<T>(ex, spec, always(p));
-    always_unfold::<T>(ex, p);
 }
 
 proof fn instantiate_entailed_leads_to<T>(
@@ -436,37 +451,17 @@ pub proof fn always_implies_to_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q:
     };
 }
 
-pub proof fn temp_pred_equality<T>(p: TempPred<T>, q: TempPred<T>)
-    requires
-        p.entails(q),
-        q.entails(p),
-    ensures
-        p == q,
-{
-    assert forall|ex: Execution<T>| #[trigger] (p.pred)(ex) == (q.pred)(ex) by {
-        if (p.pred)(ex) {
-            implies_apply::<T>(ex, p, q);
-        } else {
-            implies_contraposition_apply::<T>(ex, q, p);
-        }
-    };
-    assert(p.pred =~= q.pred);
-    // fun_ext::<Execution<T>, bool>(p.pred, q.pred);
-}
-
 pub proof fn always_to_always_later<T>(spec: TempPred<T>, p: TempPred<T>)
     requires
         spec.entails(always(p)),
     ensures
         spec.entails(always(later(p))),
 {
+    broadcast use group_execution_suffix_lemmas;
     assert forall|ex| #[trigger] always(p).satisfied_by(ex) implies always(later(p)).satisfied_by(
         ex,
     ) by {
         always_propagate_forwards(ex, p, 1);
-        assert forall|i| #[trigger] later(p).satisfied_by(ex.suffix(i)) by {
-            assert(ex.suffix(i).suffix(1) == ex.suffix(1).suffix(i));
-        }
     }
     entails_trans(spec, always(p), always(later(p)));
 }
@@ -475,20 +470,11 @@ proof fn always_double_equality<T>(p: TempPred<T>)
     ensures
         always(always(p)) == always(p),
 {
-    assert forall|ex| #[trigger] always(p).satisfied_by(ex) implies always(always(p)).satisfied_by(
-        ex,
-    ) by {
-        assert forall|i| #[trigger] always(p).satisfied_by(ex.suffix(i)) by {
-            assert forall|j| #[trigger] p.satisfied_by(ex.suffix(i).suffix(j)) by {
-                assert(ex.suffix(i).suffix(j) == ex.suffix(i + j));
-                assert(p.satisfied_by(ex.suffix(i + j)));
-            }
-        }
-    }
+    broadcast use always_unfold;
+    broadcast use group_execution_suffix_lemmas;
     assert forall|ex| #[trigger] always(always(p)).satisfied_by(ex) implies always(p).satisfied_by(
         ex,
     ) by {
-        assert(ex.suffix(0) == ex);
         assert(always(p).satisfied_by(ex.suffix(0)));
     }
     temp_pred_equality::<T>(always(always(p)), always(p));
