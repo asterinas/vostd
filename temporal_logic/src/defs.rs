@@ -123,18 +123,8 @@ pub open spec fn tla_exists<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>) -> 
 }
 
 pub open spec fn stable<T>(temp_pred: TempPred<T>) -> TempPred<T> {
-    TempPred::new(|ex: Execution<T>| temp_pred.implies(always(temp_pred)).satisfied_by(ex))
-}
-
-pub open spec fn stable2<T>(temp_pred: TempPred<T>) -> TempPred<T> {
-    temp_pred.implies(later(temp_pred))
-}
-
-pub proof fn stable_equiv<T>(temp_pred: TempPred<T>, ex: Execution<T>) 
-ensures
-    stable(temp_pred).satisfied_by(ex) == stable2(temp_pred).satisfied_by(ex),
-{
-    admit();
+    //TempPred::new(|ex: Execution<T>| temp_pred.implies(always(temp_pred)).satisfied_by(ex))
+    temp_pred.implies(always(temp_pred))
 }
 
 // Returns a state predicate that is satisfied
