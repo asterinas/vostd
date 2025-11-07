@@ -3,6 +3,18 @@ use vstd::seq::*;
 
 verus! {
 
+pub proof fn axiom_two_seq_eq<T>(seq1: Seq<T>, seq2: Seq<T>)
+    requires
+        seq1.len() == seq2.len(),
+        forall |i: int|
+            #![trigger seq1[i]]
+            #![trigger seq2[i]]
+            0 <= i < seq1.len() ==>
+                seq1[i] =~= seq2[i],
+    ensures
+        seq1 =~= seq2
+{}
+
 #[verifier::external_body]
 pub proof fn seq_tracked_new<T>(len: nat, f: impl Fn(int) -> T) -> (tracked res: Seq<T>)
     ensures

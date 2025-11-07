@@ -433,6 +433,7 @@ impl<C: PageTableConfig> SpinGuard<C> {
         Tracked(res)
     }
 
+    // Should be a ghost function.
     #[verifier::external_body]
     pub fn put_node_token(&mut self, token: Tracked<NodeToken<C>>)
         requires
@@ -882,32 +883,6 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
         }
         let guard = guard_opt.unwrap();
         (guard, Tracked(m))
-    }
-
-    #[verifier::external_body]
-    pub fn lock_new_allocated_node(
-        &self,
-        Tracked(m): Tracked<&LockProtocolModel<C>>,
-        pa_pte_array_token: Tracked<&PteArrayToken<C>>,
-    ) -> (res: SpinGuard<C>)
-        requires
-            self.wf(),
-            m.inv(),
-            m.inst_id() == self.pt_inst_id(),
-            m.state() is Locked,
-            m.node_is_locked(pa_pte_array_token@.key()),
-            pa_pte_array_token@.instance_id() == self.pt_inst_id(),
-            pa_pte_array_token@.key() == node_helper::get_parent::<C>(self.nid@),
-            pa_pte_array_token@.value().is_alive(node_helper::get_offset::<C>(self.nid@)),
-            pa_pte_array_token@.value().get_paddr(node_helper::get_offset::<C>(self.nid@))
-                == self.paddr@,
-        ensures
-            res.wf(self),
-            res.view_pte_token().value() =~= PteArrayState::empty(),
-            res.stray_perm().value() == false,
-            res.in_protocol() == true,
-    {
-        unimplemented!()
     }
 
     pub fn unlock(&self, guard: SpinGuard<C>, m: Tracked<LockProtocolModel<C>>) -> (res: Tracked<

@@ -110,16 +110,15 @@ impl<C: PageTableConfig> Entry<C> {
             if res is PageTable {
                 &&& node.wf_except(self.idx as nat)
                 &&& node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat)
-                &&& node.guard->Some_0.view_pte_token().value() =~= old(
-                    node,
-                ).guard->Some_0.view_pte_token().value()
             } else {
                 node.wf()
             },
             node.inst_id() == old(node).inst_id(),
             node.nid() == old(node).nid(),
             node.inner.deref().level_spec() == old(node).inner.deref().level_spec(),
-            node.guard->Some_0.stray_perm().value() == old(node).guard->Some_0.stray_perm().value(),
+            node.guard->Some_0.view_node_token() =~= old(node).guard->Some_0.view_node_token(),
+            node.guard->Some_0.view_pte_token() =~= old(node).guard->Some_0.view_pte_token(),
+            node.guard->Some_0.stray_perm() =~= old(node).guard->Some_0.stray_perm(),
             node.guard->Some_0.in_protocol() == old(node).guard->Some_0.in_protocol(),
             node.meta_spec().lock =~= old(node).meta_spec().lock,
             res.wf(),

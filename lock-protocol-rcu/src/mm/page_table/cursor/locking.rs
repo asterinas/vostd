@@ -3,9 +3,11 @@ use core::ops::Deref;
 use std::ops::Range;
 
 use vstd::prelude::*;
+use vstd::seq::axiom_seq_update_different;
 
 use vstd_extra::ghost_tree::Node;
 use vstd_extra::manually_drop::*;
+use vstd_extra::seq_extra::axiom_two_seq_eq;
 
 use common::{
     mm::{page_size, nr_subpage_per_huge, PagingLevel, Paddr, Vaddr},
@@ -37,7 +39,7 @@ use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::sync::rcu::rcu_load_pte;
 use crate::spec::{
     lock_protocol::LockProtocolModel,
-    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken, PteArrayState},
+    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken, PteArrayState, PteState},
 };
 
 use super::{Cursor, va_range_wf};
@@ -1283,8 +1285,7 @@ fn dfs_release_lock<'rcu, C: PageTableConfig>(
     Tracked(m)
 }
 
-// TODO: Similar to dfs_release_lock.
-#[verifier::external_body]
+#[verifier::loop_isolation(false)]
 pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
     guard: &'rcu DisabledPreemptGuard,
     mut cur_node: PageTableGuard<'rcu, C>,
@@ -1316,7 +1317,348 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
         res.2@.value() == false,
     decreases cur_node.deref().deref().level_spec(),
 {
-    unimplemented!()
+    broadcast use node_helper::group_node_helper_lemmas;
+
+    proof {
+        C::lemma_nr_subpage_per_huge_is_512();
+        C::lemma_consts_properties();
+    }
+
+    let tracked mut forgot_guards = forgot_guards.get();
+
+    let cur_level = cur_node.deref().deref().level();
+    if cur_level == 1 {
+        let guard = cur_node.guard.unwrap();
+        let tracked inner = guard.inner.get();
+        let tracked node_token = inner.node_token.tracked_unwrap();
+        let tracked pte_array_token = inner.pte_token.tracked_unwrap();
+        let tracked stray_token = inner.stray_perm.token;
+        return (Tracked(node_token), Tracked(pte_array_token), Tracked(stray_token));
+    }
+    let ghost sub_tree_rt = m.sub_tree_rt();
+
+    assert(node_helper::is_not_leaf::<C>(cur_node.nid())) by {
+        assert(node_helper::nid_to_level::<C>(cur_node.nid()) > 1);
+        node_helper::lemma_level_dep_relation::<C>(cur_node.nid());
+    }
+
+    let ghost init_cur_node = cur_node;
+    let mut i = 512;
+    while i >= 1
+        invariant
+            0 <= i <= 512,
+            cur_node.wf(),
+            cur_node.guard->Some_0.stray_perm().value() == false,
+            cur_node.guard->Some_0.in_protocol() == true,
+            m.inv(),
+            m.inst_id() == cur_node.inst_id(),
+            m.state() is Locked,
+            m.node_is_locked(cur_node.nid()),
+            forgot_guards.wf(),
+            forgot_guards.is_root(cur_node.nid()),
+            !forgot_guards.inner.dom().contains(cur_node.nid()),
+            forgot_guards.childs_are_contained_constrained(
+                cur_node.nid(),
+                cur_node.guard->Some_0.view_pte_token().value(),
+                i as nat,
+            ),
+            cur_node.guard->Some_0.view_node_token() =~= init_cur_node.guard->Some_0.view_node_token(),
+            forall |_i: nat|
+                #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(_i)]
+                i <= _i < 512 ==>
+                    cur_node.guard->Some_0.view_pte_token().value().is_void(_i),
+            cur_node.guard->Some_0.stray_perm() =~= init_cur_node.guard->Some_0.stray_perm(),
+        decreases i,
+    {
+        let ghost _cur_node = cur_node;
+        let ghost _forgot_guards = forgot_guards;
+
+        i -= 1;
+        let entry = cur_node.entry(i);
+        let child = entry.to_ref(&cur_node);
+        match child {
+            ChildRef::PageTable(pt) => {
+                // Inorder to ganrantee the cur_node.wf().
+                let mut entry = cur_node.entry(i);
+                let _ = entry.replace(Child::None, &mut cur_node);
+
+                assert(m.node_is_locked(pt.deref().nid@)) by {
+                    assert(pt.deref().nid@ == node_helper::get_child::<C>(
+                        cur_node.nid(),
+                        i as nat,
+                    ));
+                    assert(m.sub_tree_rt() <= pt.deref().nid@) by {
+                        node_helper::lemma_is_child_nid_increasing::<C>(
+                            cur_node.nid(),
+                            pt.deref().nid@,
+                        );
+                    };
+                    if i + 1 < 512 {
+                        node_helper::lemma_brother_nid_increasing::<C>(
+                            cur_node.nid(),
+                            i as nat,
+                            (i + 1) as nat,
+                        );
+                    } else {
+                        assert(node_helper::in_subtree_range::<C>(cur_node.nid(), pt.deref().nid@))
+                            by {
+                            node_helper::lemma_is_child_implies_in_subtree::<C>(
+                                cur_node.nid(),
+                                pt.deref().nid@,
+                            );
+                        };
+                    }
+                };
+                let tracked mut sub_forgot_guards;
+                let tracked child_guard;
+                let ghost mut child_spin_lock;
+                proof {
+                    let child_nid = node_helper::get_child::<C>(cur_node.nid(), i as nat);
+                    assert(forgot_guards.is_sub_root_and_contained(child_nid)) by {
+                        assert(forgot_guards.inner.dom().contains(child_nid));
+                        assert(forgot_guards.is_root(cur_node.nid()));
+                        assert forall|_nid: NodeId| #[trigger]
+                            forgot_guards.inner.dom().contains(_nid) && _nid != child_nid implies {
+                            !node_helper::in_subtree_range::<C>(_nid, child_nid)
+                        } by {
+                            assert(node_helper::in_subtree_range::<C>(cur_node.nid(), _nid));
+                            assert(_nid != cur_node.nid());
+                            if node_helper::in_subtree_range::<C>(_nid, child_nid) {
+                                assert(node_helper::in_subtree_range::<C>(_nid, cur_node.nid()))
+                                    by {
+                                    node_helper::lemma_not_in_subtree_range_implies_child_not_in_subtree_range::<
+                                        C,
+                                    >(_nid, cur_node.nid(), child_nid);
+                                };
+                            }
+                        };
+                    };
+                    sub_forgot_guards = forgot_guards.tracked_take_sub_tree(child_nid);
+                    child_spin_lock = sub_forgot_guards.get_lock(child_nid);
+                    child_guard = sub_forgot_guards.tracked_take(child_nid);
+                }
+                assert(pt.deref().meta_spec().lock =~= child_spin_lock) by {
+                    admit();
+                };  // Should be guaranteed by 'from_raw'.
+                let child_node = pt.make_guard_unchecked(
+                    guard,
+                    Tracked(child_guard),
+                    Ghost(child_spin_lock),
+                );
+                let res = dfs_mark_stray_and_unlock(
+                    guard,
+                    child_node,
+                    Tracked(m),
+                    Tracked(sub_forgot_guards),
+                );
+                let tracked ch_node_token = res.0.get();
+                let tracked ch_pte_array_token = res.1.get();
+                let tracked mut ch_stray_token = res.2.get();
+
+                let tracked_inst = cur_node.tracked_pt_inst();
+                let mut pa_node = cur_node;
+                let mut pa_guard = pa_node.guard.unwrap();
+                let tracked mut pa_inner = pa_guard.inner.get();
+                let tracked pa_node_token = pa_inner.node_token.tracked_borrow();
+                let tracked mut pa_pte_array_token = pa_inner.pte_token.tracked_unwrap();
+                let ghost _pa_pte_array_token = pa_pte_array_token;
+                proof {
+                    let idx = i;
+                    assert(node_helper::is_child::<C>(pa_node.nid(), child_node.nid()));
+                    assert(node_helper::get_offset::<C>(child_node.nid()) == idx) by {
+                        assert(node_helper::is_not_leaf::<C>(pa_node.nid())) by {
+                            node_helper::lemma_nid_to_dep_up_bound::<C>(child_node.nid());
+                            node_helper::lemma_level_dep_relation::<C>(child_node.nid());
+                            node_helper::lemma_is_child_level_relation::<C>(
+                                pa_node.nid(),
+                                child_node.nid(),
+                            );
+                            node_helper::lemma_level_dep_relation::<C>(pa_node.nid());
+                        };
+                        node_helper::lemma_get_child_sound::<C>(pa_node.nid(), idx as nat);
+                    };
+                    assert(child_node.level_spec() >= 1) by {
+                        assert(node_helper::valid_nid::<C>(child_node.nid()));
+                        node_helper::lemma_nid_to_dep_up_bound::<C>(child_node.nid());
+                        node_helper::lemma_level_dep_relation::<C>(child_node.nid());
+                    };
+                    assert(pa_node.level_spec() > 1) by {
+                        node_helper::lemma_is_child_level_relation::<C>(
+                            pa_node.nid(),
+                            child_node.nid(),
+                        );
+                    };
+                    node_helper::lemma_level_dep_relation::<C>(pa_node.nid());
+                    node_helper::lemma_get_child_sound::<C>(pa_node.nid(), idx as nat);
+                    assert(child_node.nid() != node_helper::root_id::<C>()) by {
+                        node_helper::lemma_is_child_nid_increasing::<C>(
+                            pa_node.nid(),
+                            child_node.nid(),
+                        );
+                    };
+
+                    assert(ch_pte_array_token.value() =~= PteArrayState::empty());
+                    
+                    let tracked res = tracked_inst.borrow().protocol_deallocate(
+                        m.cpu,
+                        child_node.nid(),
+                        ch_node_token,
+                        pa_node_token,
+                        pa_pte_array_token,
+                        ch_pte_array_token,
+                        &m.token,
+                        ch_stray_token,
+                    );
+                    pa_pte_array_token = res.0.get();
+                    ch_stray_token = res.1.get();
+
+                    assert(pa_pte_array_token.value().inner
+                        =~= _pa_pte_array_token.value().inner.update(
+                        idx as int,
+                        PteState::None,
+                    ));
+
+                    pa_inner.pte_token = Some(pa_pte_array_token);
+                }
+                pa_guard.inner = Tracked(pa_inner);
+                pa_node.guard = Some(pa_guard);
+                cur_node = pa_node;
+
+                assert(
+                    cur_node.guard->Some_0.view_pte_token().value().inner =~=
+                    _cur_node.guard->Some_0.view_pte_token().value().inner.update(i as int, PteState::None)
+                ) by {
+                    assert(cur_node.guard->Some_0.view_pte_token() =~= pa_pte_array_token);
+                    assert(_cur_node.guard->Some_0.view_pte_token() =~= _pa_pte_array_token);
+                };
+                assert forall |_i: nat|
+                    #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(_i)]
+                    i <= _i < 512 
+                implies {
+                    cur_node.guard->Some_0.view_pte_token().value().is_void(_i)
+                } by {
+                    if _i == i {}
+                    else {
+                        assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(_i));
+                        axiom_seq_update_different(
+                            _cur_node.guard->Some_0.view_pte_token().value().inner,
+                            _i as int,
+                            i as int,
+                            PteState::None,
+                        );
+                    }
+                };
+                assert(forgot_guards.childs_are_contained_constrained(
+                    cur_node.nid(),
+                    cur_node.guard->Some_0.view_pte_token().value(),
+                    i as nat,
+                )) by {
+                    assert(node_helper::is_not_leaf::<C>(cur_node.nid()));
+                    let nid = cur_node.nid();
+                    let pte_array = cur_node.guard->Some_0.view_pte_token().value();
+                    let idx = i as nat;
+                    let ch = node_helper::get_child::<C>(nid, idx);
+                    assert(forgot_guards.inner =~= _forgot_guards.inner.remove_keys(_forgot_guards.get_sub_tree_dom(ch)));
+                    assert forall|_i: nat|
+                        0 <= _i < idx 
+                    implies {
+                        #[trigger] pte_array.is_alive(_i) <==> forgot_guards.inner.dom().contains(
+                            node_helper::get_child::<C>(nid, _i),
+                        )
+                    } by {
+                        let _ch = node_helper::get_child::<C>(nid, _i);
+                        if pte_array.is_alive(_i) {
+                            assert(forgot_guards.inner.dom().contains(_ch)) by {
+                                assert(_ch != ch);
+                                assert(!node_helper::in_subtree_range::<C>(ch, _ch));
+                                assert(_forgot_guards.inner.dom().contains(_ch)) by {
+                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(_i)) by {
+                                        axiom_seq_update_different(
+                                            _cur_node.guard->Some_0.view_pte_token().value().inner,
+                                            _i as int,
+                                            i as int,
+                                            PteState::None,
+                                        );
+                                    };
+                                };
+                            };
+                        }
+                        if forgot_guards.inner.dom().contains(_ch) {
+                            assert(pte_array.is_alive(_i)) by {
+                                assert(_ch != ch);
+                                assert(_forgot_guards.inner.dom().contains(_ch));
+                                assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(_i));
+                                axiom_seq_update_different(
+                                    _cur_node.guard->Some_0.view_pte_token().value().inner,
+                                    _i as int,
+                                    i as int,
+                                    PteState::None,
+                                );
+                            };
+                        }
+                    };
+                    assert forall|_i: nat|
+                        0 <= _i < idx 
+                    implies {
+                        #[trigger] pte_array.is_void(_i) ==> forgot_guards.sub_tree_not_contained(
+                            node_helper::get_child::<C>(nid, _i),
+                        )
+                    } by {
+                        let _ch = node_helper::get_child::<C>(nid, _i);
+                        if pte_array.is_void(_i) {
+                            assert forall |_nid: NodeId| 
+                                #[trigger] forgot_guards.inner.dom().contains(_nid) 
+                            implies {
+                                !node_helper::in_subtree_range::<C>(_ch, _nid)
+                            } by {
+                                if _i == i {} 
+                                else {
+                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(_i)) by {
+                                        axiom_seq_update_different(
+                                            _cur_node.guard->Some_0.view_pte_token().value().inner,
+                                            _i as int,
+                                            i as int,
+                                            PteState::None,
+                                        );
+                                    };
+                                }
+                            };
+                        }
+                    };
+                };                
+            },
+            ChildRef::Frame(_, _, _) => unreached(),
+            ChildRef::None => {},
+        }
+    }
+
+    assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()) by {
+        assert forall |i: nat|
+            #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(i)]
+            0 <= i < 512 
+        implies {
+            cur_node.guard->Some_0.view_pte_token().value().is_void(i)
+        } by {};
+        assert forall |i: int|
+            #![trigger cur_node.guard->Some_0.view_pte_token().value().inner[i]]
+            0 <= i < 512 
+        implies {
+            cur_node.guard->Some_0.view_pte_token().value().inner[i] =~= PteArrayState::empty().inner[i]
+        } by {
+            assert(cur_node.guard->Some_0.view_pte_token().value().is_void(i as nat));
+        };
+        axiom_two_seq_eq(
+            cur_node.guard->Some_0.view_pte_token().value().inner,
+            PteArrayState::empty().inner,
+        );
+    };
+
+    let guard = cur_node.guard.unwrap();
+    let tracked inner = guard.inner.get();
+    let tracked node_token = inner.node_token.tracked_unwrap();
+    let tracked pte_array_token = inner.pte_token.tracked_unwrap();
+    let tracked stray_token = inner.stray_perm.token;
+    return (Tracked(node_token), Tracked(pte_array_token), Tracked(stray_token));
 }
 
 } // verus!

@@ -464,6 +464,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         (guard, Tracked(m))
     }
 
+    #[verifier::external_body]
     pub fn lock_new_allocated_node<'rcu>(
         self,
         guard: &'rcu DisabledPreemptGuard,
@@ -489,11 +490,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == true,
     {
-        let guard = self.deref().meta().lock.lock_new_allocated_node(
-            Tracked(m),
-            pa_pte_array_token,
-        );
-        PageTableGuard { inner: self, guard: Some(guard) }
+        unimplemented!()
     }
 
     pub fn make_guard_unchecked<'rcu>(
@@ -631,8 +628,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             },
             self.inner =~= old(self).inner,
             self.guard->Some_0.perms().relate_pte(pte, idx as nat),
+            self.guard->Some_0.node_token() =~= old(self).guard->Some_0.node_token(),
             self.guard->Some_0.pte_token() =~= old(self).guard->Some_0.pte_token(),
-            self.guard->Some_0.stray_perm().value() == old(self).guard->Some_0.stray_perm().value(),
+            self.guard->Some_0.stray_perm() =~= old(self).guard->Some_0.stray_perm(),
             self.guard->Some_0.in_protocol() == old(self).guard->Some_0.in_protocol(),
     {
         let va = paddr_to_vaddr(self.inner.deref().start_paddr());
