@@ -767,9 +767,17 @@ fn dfs_acquire_lock<C: PageTableConfig>(
         assert(m@.cur_node() == node_helper::next_outside_subtree::<C>(cur_node.nid())) by {
             node_helper::lemma_tree_size_spec_table::<C>();
         }
-        assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()) by {
-            admit();  // TODO
-        };
+        let tracked_inst = cur_node.tracked_pt_inst();
+        let tracked guard = cur_node.guard.tracked_borrow();
+        let tracked inner = guard.inner.borrow();
+        let tracked pte_array_token = inner.pte_token.tracked_borrow();
+        proof {
+            tracked_inst.borrow().is_leaf_implies_pte_array_is_empty(
+                cur_node.nid(),
+                pte_array_token,
+            );
+        }
+        assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty());
         return (m, Tracked(forgot_guards));
     }
     let tracked mut m = m.get();

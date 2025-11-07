@@ -7,7 +7,7 @@ use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 use core::marker::PhantomData;
 
-use common::mm::{Paddr, page_table::PageTableConfig};
+use common::mm::{Paddr, page_table::{PageTableConfig, PagingConstsTrait}};
 use common::spec::common::{CpuId, NodeId, valid_cpu};
 use common::spec::node_helper::{self, group_node_helper_lemmas};
 
@@ -227,6 +227,16 @@ pub fn inv_cursor_root_in_nodes(&self) -> bool {
         !cursor.locked_range::<C>().is_empty() ==> self.nodes.contains_key(cursor.root()))
 }
 
+#[invariant]
+pub fn inv_is_leaf_implies_pte_array_is_empty(&self) -> bool {
+    forall |nid: NodeId|
+        #![trigger self.pte_arrays.contains_key(nid)]
+        node_helper::valid_nid::<C>(nid) &&
+        !node_helper::is_not_leaf::<C>(nid) &&
+        self.pte_arrays.contains_key(nid) ==>
+            self.pte_arrays[nid] =~= PteArrayState::empty()
+}
+
 property! {
     stray_is_false(nid: NodeId, paddr: Paddr) {
         require(node_helper::valid_nid::<C>(nid));
@@ -239,6 +249,16 @@ property! {
         require(pte_array.is_alive(offset));
         require(pte_array.get_paddr(offset) == paddr);
         assert(stray == false);
+    }
+}
+
+property! {
+    is_leaf_implies_pte_array_is_empty(nid: NodeId) {
+        require(node_helper::valid_nid::<C>(nid));
+        require(!node_helper::is_not_leaf::<C>(nid));
+
+        have pte_arrays >= [ nid => let pte_array ];
+        assert(pte_array =~= PteArrayState::empty());
     }
 }
 
@@ -661,6 +681,16 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
                 }
             };
     }
+
+    assert(post.inv_is_leaf_implies_pte_array_is_empty()) by {
+        assert(post.pte_arrays.contains_key(nid));
+        assert(post.pte_arrays[nid] =~= PteArrayState::empty());
+        assert(node_helper::is_not_leaf::<C>(pa)) by {
+            node_helper::lemma_get_parent_sound::<C>(nid);
+            node_helper::lemma_is_child_level_relation::<C>(pa, nid);
+            node_helper::lemma_level_dep_relation::<C>(pa);
+        };
+    };
 }
 
 #[inductive(protocol_deallocate)]
@@ -810,6 +840,16 @@ fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
                 }
             };
     }
+
+    assert(post.inv_is_leaf_implies_pte_array_is_empty()) by {
+        assert(post.pte_arrays.contains_key(nid));
+        assert(post.pte_arrays[nid] =~= PteArrayState::empty());
+        assert(node_helper::is_not_leaf::<C>(pa)) by {
+            node_helper::lemma_get_parent_sound::<C>(nid);
+            node_helper::lemma_is_child_level_relation::<C>(pa, nid);
+            node_helper::lemma_level_dep_relation::<C>(pa);
+        };
+    };
 }
 
 #[inductive(normal_deallocate)]
