@@ -1653,6 +1653,9 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
         );
     };
 
+    // Mark through the stray flag.
+    cur_node.mark_stray();
+
     let guard = cur_node.guard.unwrap();
     let tracked inner = guard.inner.get();
     let tracked node_token = inner.node_token.tracked_unwrap();

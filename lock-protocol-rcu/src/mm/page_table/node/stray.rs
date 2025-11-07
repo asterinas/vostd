@@ -31,6 +31,21 @@ impl StrayFlag {
         let tracked perm = perm.get();
         *self.inner.borrow(Tracked(&perm.perm))
     }
+
+    pub fn write<C: PageTableConfig>(
+        &self, 
+        Tracked(perm): Tracked<&mut StrayPerm<C>>,
+        value: bool,
+    )
+        requires
+            old(perm).wf_with_cell_id(self.id()),
+            old(perm).perm.is_init(),
+        ensures
+            perm.perm.value() == value,
+            perm.token =~= old(perm).token,
+    {
+        self.inner.replace(Tracked(&mut perm.perm), value);
+    }
 }
 
 pub tracked struct StrayPerm<C: PageTableConfig> {

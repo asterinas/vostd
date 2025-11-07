@@ -582,6 +582,31 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         stray_cell.read::<C>(Tracked(stray_perm))
     }
 
+    pub fn mark_stray(&mut self)
+        requires
+            old(self).wf(),
+            old(self).guard->Some_0.stray_perm().value() == false,
+        ensures
+            self.guard->Some_0.stray_perm().value() == true,
+            self.guard is Some,
+            self.guard->Some_0.inner@.node_token is Some,
+            self.guard->Some_0.inner@.pte_token is Some,
+            self.guard->Some_0.view_node_token() =~= old(self).guard->Some_0.view_node_token(),
+            self.guard->Some_0.view_pte_token() =~= old(self).guard->Some_0.view_pte_token(),
+            self.guard->Some_0.stray_perm().token =~= old(self).guard->Some_0.stray_perm().token,
+    {
+        let stray_cell: &StrayFlag = &self.inner.deref().meta().stray;
+        let mut guard: SpinGuard<C> = self.guard.take().unwrap();
+        let tracked mut inner = guard.inner.get();
+        let tracked mut stray_perm = inner.stray_perm;
+        stray_cell.write::<C>(Tracked(&mut stray_perm), true);
+        proof {
+            inner.stray_perm = stray_perm;
+        }
+        guard.inner = Tracked(inner);
+        self.guard = Some(guard);
+    }
+
     pub fn read_pte(&self, idx: usize) -> (res: Pte<C>)
         requires
             self.wf(),
