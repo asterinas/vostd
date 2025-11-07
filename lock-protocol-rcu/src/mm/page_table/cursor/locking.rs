@@ -18,8 +18,9 @@ use common::{
 };
 use common::spec::{
     common::{
-        NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
-        va_level_to_nid, lemma_va_level_to_trace_valid,
+        NodeId, valid_va_range, vaddr_is_aligned, 
+        va_level_to_trace, va_level_to_offset, va_level_to_nid, 
+        lemma_va_level_to_trace_valid, lemma_va_level_to_nid_basic, lemma_va_level_to_nid_inc,
     },
     node_helper::{self, group_node_helper_lemmas},
 };
@@ -94,6 +95,10 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
             subtree_root_opt->Some_0.wf(),
             subtree_root_opt->Some_0.inst().cpu_num() == GLOBAL_CPU_NUM,
             subtree_root_opt->Some_0.inst_id() == pt.inst@.id(),
+            subtree_root_opt->Some_0.nid() == va_level_to_nid::<C>(
+                va.start,
+                node_helper::nid_to_level::<C>(subtree_root_opt->Some_0.nid()) as PagingLevel,
+            ),
             subtree_root_opt->Some_0.guard->Some_0.stray_perm().value() == false,
             subtree_root_opt->Some_0.guard->Some_0.in_protocol() == true,
             m.inv(),
@@ -142,9 +147,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
     };
     assert(result.wf()) by {
         assert(result.wf_path()) by {
-            assert(subtree_root.nid() == va_level_to_nid::<C>(va.start, guard_level)) by {
-                admit();
-            };  // TODO
+            assert(subtree_root.nid() == va_level_to_nid::<C>(va.start, guard_level));
         };
         assert(result.wf_va()) by {
             assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by { admit(); }; // TODO
@@ -601,6 +604,10 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             &&& res.0->Some_0.wf()
             &&& res.0->Some_0.inst().cpu_num() == GLOBAL_CPU_NUM
             &&& res.0->Some_0.inst_id() == pt.inst@.id()
+            &&& res.0->Some_0.nid() == va_level_to_nid::<C>(
+                va.start, 
+                node_helper::nid_to_level::<C>(res.0->Some_0.nid()) as PagingLevel,
+            )
             &&& res.0->Some_0.guard->Some_0.stray_perm().value() == false
             &&& res.0->Some_0.guard->Some_0.in_protocol() == true
             &&& res.1@.inv()
@@ -621,11 +628,15 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
     assert(cur_level <= MAX_NR_LEVELS) by {
         C::lemma_consts_properties();
     };
+    assert(cur_nid == va_level_to_nid::<C>(va.start, cur_level)) by {
+        lemma_va_level_to_nid_basic::<C>(va.start);
+    };
     while cur_level >= 1
         invariant_except_break
             1 <= cur_level <= C::NR_LEVELS_SPEC() <= MAX_NR_LEVELS,
             node_helper::valid_nid::<C>(cur_nid),
             cur_level == node_helper::nid_to_level::<C>(cur_nid),
+            cur_nid == va_level_to_nid::<C>(va.start, cur_level),
             pt.wf(),
             va_range_wf::<C>(*va),
             m.inv(),
@@ -642,6 +653,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             1 <= cur_level <= C::NR_LEVELS_SPEC() <= MAX_NR_LEVELS,
             node_helper::valid_nid::<C>(cur_nid),
             cur_level == node_helper::nid_to_level::<C>(cur_nid),
+            cur_nid == va_level_to_nid::<C>(va.start, cur_level),
             m.inv(),
             m.inst_id() == pt.inst@.id(),
             m.state() is Void,
@@ -666,10 +678,10 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             };
             break ;
         }
-        let va = paddr_to_vaddr(cur_pt_addr);
+        let _va = paddr_to_vaddr(cur_pt_addr);
         // let ptr = (va + start_idx * 64) as *const Pte;
         let cur_pte: Pte<C> = rcu_load_pte(
-            va,
+            _va,
             start_idx,
             Ghost(PageTableNode::from_raw_spec(cur_pt_addr)),
             Ghost(start_idx as nat),
@@ -732,6 +744,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             node_helper::lemma_level_dep_relation::<C>(cur_nid);
             node_helper::lemma_get_child_sound::<C>(cur_nid, start_idx as nat);
             node_helper::lemma_is_child_level_relation::<C>(cur_nid, nxt_nid);
+            lemma_va_level_to_nid_inc::<C>(va.start, cur_level, cur_nid, start_idx as nat);
             cur_nid = nxt_nid;
         }
     }
