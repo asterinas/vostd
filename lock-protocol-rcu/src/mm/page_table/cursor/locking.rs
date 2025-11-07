@@ -147,9 +147,7 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
             };  // TODO
         };
         assert(result.wf_va()) by {
-            assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by {
-                admit();
-            };  // TODO
+            assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by { admit(); }; // TODO
         };
     };
     assert(result.wf_with_forgot_guards(forgot_guards)) by {
@@ -443,8 +441,65 @@ pub fn unlock_range<C: PageTableConfig>(
                         _cursor.guard_level,
                     );
                     assert(merged_forgot_guards1.inner =~= merged_forgot_guards2.inner) by {
-                        admit();
-                    };  // TODO
+                        assert(cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
+                            assert forall|level: PagingLevel|
+                                #![trigger cursor.get_guard_level_unwrap(level)]
+                                cursor.g_level@ <= level <= cursor.guard_level 
+                            implies {
+                                !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+                            } by {
+                                assert(
+                                    _cursor.get_guard_level_unwrap(level).nid() == 
+                                    cursor.get_guard_level_unwrap(level).nid()
+                                );
+                                assert(
+                                    _cursor.get_guard_level_unwrap(_cursor.g_level@).nid() !=
+                                    cursor.get_guard_level_unwrap(level).nid()
+                                );
+                            };
+                        };
+                        cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
+                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
+                        assert forall |_nid: NodeId|
+                            #[trigger] merged_forgot_guards1.inner.dom().contains(_nid)
+                        implies {
+                            &&& merged_forgot_guards2.inner.dom().contains(_nid)
+                            &&& merged_forgot_guards2.inner[_nid] =~= merged_forgot_guards1.inner[_nid]
+                        } by {
+                            if forgot_guards.inner.dom().contains(_nid) {} 
+                            else {
+                                assert(exists|level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                let level = choose|level: PagingLevel|
+                                    cursor.g_level@ <= level <= cursor.guard_level
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid;
+                                assert(cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                assert(_cursor.get_guard_level_unwrap(level).nid() == _nid);
+                            }
+                        };
+                        assert forall |_nid: NodeId|
+                            #[trigger] merged_forgot_guards2.inner.dom().contains(_nid)
+                        implies {
+                            &&& merged_forgot_guards1.inner.dom().contains(_nid)
+                            &&& merged_forgot_guards1.inner[_nid] =~= merged_forgot_guards2.inner[_nid]
+                        } by {
+                            if _forgot_guards.inner.dom().contains(_nid) {} 
+                            else {
+                                assert(exists|level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                let level = choose|level: PagingLevel|
+                                    _cursor.g_level@ <= level <= _cursor.guard_level
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid() == _nid;
+                                assert(_cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                if level == _cursor.g_level@ {} 
+                                else {
+                                    assert(cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                }
+                            }
+                        };
+                    };
                     assert(merged_forgot_guards1.wf());
                     assert(merged_forgot_guards1.is_root_and_contained(
                         cursor.get_guard_level_unwrap(cursor.guard_level).nid(),
@@ -623,8 +678,8 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
         if cur_pte.inner.is_present() {
             if cur_pte.inner.is_last(cur_level) {
                 assert(cur_level == 1) by {
-                    admit();
-                };  // TODO: Have no idea how to handle this.
+                    cur_pte.inner.lemma_is_last_properties(cur_level);
+                };
                 unreached::<()>();
             }
             cur_pt_addr = cur_pte.inner.paddr();
