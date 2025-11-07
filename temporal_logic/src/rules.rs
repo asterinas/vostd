@@ -66,7 +66,7 @@ proof fn weak_fairness_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
 {
 }
 
-proof fn always_lift_state_unfold<T>(ex: Execution<T>, p: StatePred<T>)
+broadcast proof fn always_lift_state_unfold<T>(ex: Execution<T>, p: StatePred<T>)
     requires
         always(lift_state(p)).satisfied_by(ex),
     ensures
@@ -75,7 +75,7 @@ proof fn always_lift_state_unfold<T>(ex: Execution<T>, p: StatePred<T>)
     always_unfold::<T>(ex, lift_state(p));
 }
 
-proof fn always_lift_action_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
+broadcast proof fn always_lift_action_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
     requires
         always(lift_action(p)).satisfied_by(ex),
     ensures
@@ -308,6 +308,7 @@ proof fn always_p_or_eventually_q_rec<T>(
             p.satisfied_by(ex.suffix(idx)) && next.satisfied_by(ex.suffix(idx)) ==> p.satisfied_by(
                 ex.suffix(idx + 1),
             ) || q.satisfied_by(ex.suffix(idx + 1)),
+        always(p.and(next).implies(later(p).or(later(q)))).satisfied_by(ex),
         forall|idx| next.satisfied_by(#[trigger] ex.suffix(idx)),
         forall|idx| !q.satisfied_by(#[trigger] ex.suffix(idx)),
         p.satisfied_by(ex),
