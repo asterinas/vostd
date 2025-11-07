@@ -122,6 +122,7 @@ pub open spec fn tla_exists<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>) -> 
     TempPred::new(|ex: Execution<T>| exists|a: A| #[trigger] a_to_temp_pred(a).satisfied_by(ex))
 }
 
+// |ex| temp_pred.satisfied_by(ex) ==> forall |i: nat| temp_pred.satisfied_by(ex.suffix(i))
 pub open spec fn stable<T>(temp_pred: TempPred<T>) -> TempPred<T> {
     //TempPred::new(|ex: Execution<T>| temp_pred.implies(always(temp_pred)).satisfied_by(ex))
     temp_pred.implies(always(temp_pred))
