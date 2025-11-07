@@ -5,6 +5,7 @@ use vstd::prelude::*;
 
 verus! {
 
+#[verifier::ext_equal]
 pub struct Execution<T> {
     pub nat_to_state: spec_fn(nat) -> T,
 }
