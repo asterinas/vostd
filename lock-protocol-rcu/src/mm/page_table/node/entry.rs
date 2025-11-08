@@ -177,7 +177,9 @@ impl<C: PageTableConfig> Entry<C> {
                 &&& res->Some_0.inst_id() == node.inst_id()
                 &&& res->Some_0.nid() == node_helper::get_child::<C>(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
-                &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>()
+                &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<
+                    C,
+                >()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
                 &&& res->Some_0.guard->Some_0.in_protocol() == false
                 &&& node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat)
@@ -282,7 +284,9 @@ impl<C: PageTableConfig> Entry<C> {
                 &&& res->Some_0.inst_id() == node.inst_id()
                 &&& res->Some_0.nid() == node_helper::get_child::<C>(node.nid(), self.idx as nat)
                 &&& res->Some_0.inner.deref().level_spec() + 1 == node.inner.deref().level_spec()
-                &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>()
+                &&& res->Some_0.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<
+                    C,
+                >()
                 &&& res->Some_0.guard->Some_0.stray_perm().value() == false
                 &&& res->Some_0.guard->Some_0.in_protocol() == true
                 &&& node.guard->Some_0.view_pte_token().value().is_alive(self.idx as nat)

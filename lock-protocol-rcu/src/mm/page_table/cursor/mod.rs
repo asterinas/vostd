@@ -37,9 +37,8 @@ use common::mm::{
     frame::meta::AnyFrameMeta,
     page_table::{
         lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
-        lemma_pte_index_alternative_spec, lemma_pte_index_spec_in_range, 
-        pte_index, pte_index_mask, PageTableConfig,
-        PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait,
+        lemma_pte_index_alternative_spec, lemma_pte_index_spec_in_range, pte_index, pte_index_mask,
+        PageTableConfig, PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait,
     },
     NR_ENTRIES, PagingLevel,
 };
@@ -47,8 +46,9 @@ use common::task::DisabledPreemptGuard;
 use common::sync::rcu::RcuDrop;
 use common::spec::{
     common::{
-        NodeId, valid_vaddr, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
-        va_level_to_nid, lemma_va_level_to_trace_valid, lemma_va_level_to_nid_eq, lemma_va_level_to_nid_inc,
+        NodeId, valid_vaddr, valid_va_range, vaddr_is_aligned, va_level_to_trace,
+        va_level_to_offset, va_level_to_nid, lemma_va_level_to_trace_valid,
+        lemma_va_level_to_nid_eq, lemma_va_level_to_nid_inc,
     },
     node_helper::{self, group_node_helper_lemmas},
 };
@@ -1162,7 +1162,9 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 let array_i_child_nid = node_helper::get_child::<C>(nid, i);
                 admit();
             };
-            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>());
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<
+                C,
+            >());
         }
     }
 
@@ -1462,7 +1464,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         node_helper::lemma_level_dep_relation::<C>(_guard.nid());
                         node_helper::lemma_get_child_sound::<C>(_guard.nid(), idx as nat);
                     };
-                    assert(va_level_to_nid::<C>(self.va, (self.level - 1) as PagingLevel) == guard.nid()) by {
+                    assert(va_level_to_nid::<C>(self.va, (self.level - 1) as PagingLevel)
+                        == guard.nid()) by {
                         lemma_va_level_to_nid_inc::<C>(
                             self.va,
                             (self.level - 1) as PagingLevel,
@@ -1605,10 +1608,12 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         assert(self.wf_with_forgot_guards(forgot_guards));
         let ghost _cursor = *self;
         self.va = next_va;
-        assert(
-            align_down(self.va, page_size::<C>((self.level + 1) as PagingLevel)) ==
-            align_down(_cursor.va, page_size::<C>((self.level + 1) as PagingLevel))
-        ) by { admit(); }; // TODO1
+        assert(align_down(self.va, page_size::<C>((self.level + 1) as PagingLevel)) == align_down(
+            _cursor.va,
+            page_size::<C>((self.level + 1) as PagingLevel),
+        )) by {
+            admit();
+        };  // TODO1
         assert(self.wf()) by {
             assert(self.wf_path()) by {
                 assert forall|level: PagingLevel|
@@ -1656,16 +1661,19 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         assert(va_level_to_nid::<C>(self.va, level) == self.get_guard_level_unwrap(
                             level,
                         ).nid()) by {
-                            assert(
-                                align_down(self.va, page_size::<C>((level + 1) as PagingLevel)) == 
-                                align_down(_cursor.va, page_size::<C>((level + 1) as PagingLevel))
-                            ) by {
+                            assert(align_down(self.va, page_size::<C>((level + 1) as PagingLevel))
+                                == align_down(
+                                _cursor.va,
+                                page_size::<C>((level + 1) as PagingLevel),
+                            )) by {
                                 assert(level >= self.level);
                                 lemma_page_size_relation::<C>(
                                     (self.level + 1) as PagingLevel,
                                     (level + 1) as PagingLevel,
                                 );
-                                lemma_page_size_spec_properties::<C>((self.level + 1) as PagingLevel);
+                                lemma_page_size_spec_properties::<C>(
+                                    (self.level + 1) as PagingLevel,
+                                );
                                 lemma_page_size_spec_properties::<C>((level + 1) as PagingLevel);
                                 lemma_alignd_down_eq(
                                     self.va,
@@ -2049,7 +2057,8 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 old(self).get_guard_level_unwrap(old(self).level).nid(),
                 child_pt.nid(),
             ),
-            va_level_to_nid::<C>(old(self).va, (old(self).level - 1) as PagingLevel) == child_pt.nid(),
+            va_level_to_nid::<C>(old(self).va, (old(self).level - 1) as PagingLevel)
+                == child_pt.nid(),
         ensures
             old(self).wf_push_level(*self, child_pt),
             self.wf(),
@@ -2374,7 +2383,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         node_helper::lemma_level_dep_relation::<C>(_guard.nid());
                         node_helper::lemma_get_child_sound::<C>(_guard.nid(), idx as nat);
                     };
-                    assert(va_level_to_nid::<C>(self.0.va, (self.0.level - 1) as PagingLevel) == child_pt.nid()) by {
+                    assert(va_level_to_nid::<C>(self.0.va, (self.0.level - 1) as PagingLevel)
+                        == child_pt.nid()) by {
                         lemma_va_level_to_nid_inc::<C>(
                             self.0.va,
                             (self.0.level - 1) as PagingLevel,
@@ -2525,7 +2535,8 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 == _cursor.get_guard_level_unwrap(level).nid());
                         };
                     };
-                    assert(va_level_to_nid::<C>(self.0.va, (self.0.level - 1) as PagingLevel) == child_pt.nid()) by {
+                    assert(va_level_to_nid::<C>(self.0.va, (self.0.level - 1) as PagingLevel)
+                        == child_pt.nid()) by {
                         lemma_va_level_to_nid_inc::<C>(
                             self.0.va,
                             (self.0.level - 1) as PagingLevel,
@@ -3668,18 +3679,19 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             let cur_level = self.0.level;
             let mut cur_entry = self.0.cur_entry();
 
-            assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by { admit(); };
+            assert(self.0.va + page_size::<C>(self.0.level) < MAX_USERSPACE_VADDR) by {
+                admit();
+            };
 
             // Skip if it is already absent.
             if cur_entry.is_none() {
                 if self.0.va + page_size::<C>(self.0.level) > end {
                     let ghost _cursor = self.0;
                     self.0.va = end;
-                    assert(
-                        align_down(_cursor.va, page_size::<C>((self.0.level + 1) as PagingLevel)) ==
-                        align_down(self.0.va, page_size::<C>((self.0.level + 1) as PagingLevel))
-                    ) by {
-                        admit(); // TODO1
+                    assert(align_down(_cursor.va, page_size::<C>((self.0.level + 1) as PagingLevel))
+                        == align_down(self.0.va, page_size::<C>((self.0.level + 1) as PagingLevel)))
+                        by {
+                        admit();  // TODO1
                     };
                     proof {
                         take_next_change_va_hold_wf(_cursor, self.0, forgot_guards);
@@ -3729,10 +3741,20 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                         assert((t1 + 1) * k == cur_va + k) by {
                                             lemma_mul_is_distributive_add(k as int, t1 as int, 1);
                                         };
-                                        lemma_div_by_multiple_is_strongly_ordered(end as int, cur_va + k, t1 + 1, k as int);
+                                        lemma_div_by_multiple_is_strongly_ordered(
+                                            end as int,
+                                            cur_va + k,
+                                            t1 + 1,
+                                            k as int,
+                                        );
                                         assert(end / k == t2);
                                         assert((cur_va + k) / k as int == t1 + 1) by {
-                                            lemma_fundamental_div_mod_converse_div(cur_va + k, k as int, t1 + 1, 0);
+                                            lemma_fundamental_div_mod_converse_div(
+                                                cur_va + k,
+                                                k as int,
+                                                t1 + 1,
+                                                0,
+                                            );
                                         };
                                     };
                                     assert(t1 >= t2);
@@ -3839,7 +3861,10 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                         // skip to save time.
                         if pt.nr_children() != 0 {
                             let ghost _cursor = self.0;
-                            assert(va_level_to_nid::<C>(self.0.va, (self.0.level - 1) as PagingLevel) == pt.nid()) by {
+                            assert(va_level_to_nid::<C>(
+                                self.0.va,
+                                (self.0.level - 1) as PagingLevel,
+                            ) == pt.nid()) by {
                                 lemma_va_level_to_nid_inc::<C>(
                                     self.0.va,
                                     (self.0.level - 1) as PagingLevel,
@@ -3885,11 +3910,14 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             if self.0.va + page_size::<C>(self.0.level) > end {
                                 let ghost _cursor = self.0;
                                 self.0.va = end;
-                                assert(
-                                    align_down(_cursor.va, page_size::<C>((self.0.level + 1) as PagingLevel)) ==
-                                    align_down(self.0.va, page_size::<C>((self.0.level + 1) as PagingLevel))
-                                ) by {
-                                    admit(); // TODO1
+                                assert(align_down(
+                                    _cursor.va,
+                                    page_size::<C>((self.0.level + 1) as PagingLevel),
+                                ) == align_down(
+                                    self.0.va,
+                                    page_size::<C>((self.0.level + 1) as PagingLevel),
+                                )) by {
+                                    admit();  // TODO1
                                 };
                                 proof {
                                     take_next_change_va_hold_wf(_cursor, self.0, forgot_guards);
@@ -4247,8 +4275,8 @@ proof fn take_next_change_va_hold_wf<C: PageTableConfig>(
                 post_cursor.get_guard_level(level) =~= pre_cursor.get_guard_level(level)
             },
         post_cursor.wf_va(),
-        align_down(post_cursor.va, page_size::<C>((post_cursor.level + 1) as PagingLevel)) == 
-            align_down(pre_cursor.va, page_size::<C>((post_cursor.level + 1) as PagingLevel)),
+        align_down(post_cursor.va, page_size::<C>((post_cursor.level + 1) as PagingLevel))
+            == align_down(pre_cursor.va, page_size::<C>((post_cursor.level + 1) as PagingLevel)),
     ensures
         post_cursor.wf(),
         post_cursor.wf_with_forgot_guards(forgot_guards),
@@ -4291,10 +4319,11 @@ proof fn take_next_change_va_hold_wf<C: PageTableConfig>(
                     assert(va_level_to_nid::<C>(cursor.va, level) == cursor.get_guard_level_unwrap(
                         level,
                     ).nid()) by {
-                        assert(
-                            align_down(post_cursor.va, page_size::<C>((level + 1) as PagingLevel)) == 
-                            align_down(pre_cursor.va, page_size::<C>((level + 1) as PagingLevel))
-                        ) by {
+                        assert(align_down(
+                            post_cursor.va,
+                            page_size::<C>((level + 1) as PagingLevel),
+                        ) == align_down(pre_cursor.va, page_size::<C>((level + 1) as PagingLevel)))
+                            by {
                             assert(level >= cursor.level);
                             lemma_page_size_relation::<C>(
                                 (cursor.level + 1) as PagingLevel,
@@ -4811,7 +4840,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                         ).guard->Some_0.view_pte_token().value());
                                         let _idx = pte_index::<C>(_cursor.va, _cursor.level);
                                         assert(0 <= _idx < 512) by {
-                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                            lemma_pte_index_spec_in_range::<C>(
+                                                _cursor.va,
+                                                _cursor.level,
+                                            );
                                             C::lemma_nr_subpage_per_huge_is_512();
                                         };
                                         let _ch = node_helper::get_child::<C>(nid, _idx as nat);
@@ -4851,7 +4883,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                             assert(!node_helper::in_subtree_range::<C>(_ch, nid))
                                                 by {
                                                 assert(0 <= _idx < nr_subpage_per_huge::<C>()) by {
-                                                    lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                    lemma_pte_index_spec_in_range::<C>(
+                                                        _cursor.va,
+                                                        _cursor.level,
+                                                    );
                                                 };
                                                 node_helper::lemma_get_child_sound::<C>(
                                                     nid,
@@ -4867,7 +4902,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     C::lemma_nr_subpage_per_huge_is_512();
                                                 };
                                                 assert(0 <= idx < 512) by {
-                                                    lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                    lemma_pte_index_spec_in_range::<C>(
+                                                        _cursor.va,
+                                                        _cursor.level,
+                                                    );
                                                     C::lemma_nr_subpage_per_huge_is_512();
                                                 };
                                                 if i < idx {
@@ -4977,7 +5015,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     ));
                                                     assert(0 <= _idx < nr_subpage_per_huge::<C>())
                                                         by {
-                                                        lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                        lemma_pte_index_spec_in_range::<C>(
+                                                            _cursor.va,
+                                                            _cursor.level,
+                                                        );
                                                     };
                                                     node_helper::lemma_get_child_sound::<C>(
                                                         cur_node.nid(),
@@ -5069,7 +5110,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                         assert(0 <= _idx < nr_subpage_per_huge::<
                                                             C,
                                                         >()) by {
-                                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                            lemma_pte_index_spec_in_range::<C>(
+                                                                _cursor.va,
+                                                                _cursor.level,
+                                                            );
                                                         };
                                                     };
                                                     assert(forgot_guards.inner
@@ -5096,7 +5140,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     cursor.lemma_guards_in_path_relation(_level);
                                                     assert(0 <= _idx < nr_subpage_per_huge::<C>())
                                                         by {
-                                                        lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                        lemma_pte_index_spec_in_range::<C>(
+                                                            _cursor.va,
+                                                            _cursor.level,
+                                                        );
                                                     };
                                                     node_helper::lemma_get_child_sound::<C>(
                                                         cur_node.nid(),
@@ -5149,7 +5196,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                 C::lemma_nr_subpage_per_huge_is_512();
                                             };
                                             assert(0 <= _idx < 512) by {
-                                                lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                lemma_pte_index_spec_in_range::<C>(
+                                                    _cursor.va,
+                                                    _cursor.level,
+                                                );
                                                 C::lemma_nr_subpage_per_huge_is_512();
                                             };
                                             axiom_seq_update_different(
@@ -5282,7 +5332,10 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                             C::lemma_nr_subpage_per_huge_is_512();
                                                         };
                                                         assert(0 <= idx < 512) by {
-                                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                            lemma_pte_index_spec_in_range::<C>(
+                                                                _cursor.va,
+                                                                _cursor.level,
+                                                            );
                                                             C::lemma_nr_subpage_per_huge_is_512();
                                                         };
                                                         assert(pte_array.inner

@@ -7,7 +7,10 @@ use vstd_extra::{seq_extra::*, set_extra::*, map_extra::*};
 
 use core::marker::PhantomData;
 
-use common::mm::{Paddr, page_table::{PageTableConfig, PagingConstsTrait}};
+use common::mm::{
+    Paddr,
+    page_table::{PageTableConfig, PagingConstsTrait},
+};
 use common::spec::common::{CpuId, NodeId, valid_cpu};
 use common::spec::node_helper::{self, group_node_helper_lemmas};
 

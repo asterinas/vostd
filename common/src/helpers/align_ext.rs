@@ -279,9 +279,9 @@ pub proof fn lemma_alignd_down_eq(x: usize, y: usize, align1: usize, align2: usi
         is_power_2(align1 as int),
         is_power_2(align2 as int),
         align2 % align1 == 0,
-        align_down(x, align1) == align_down(y, align1)
+        align_down(x, align1) == align_down(y, align1),
     ensures
-        align_down(x, align2) == align_down(y, align2)
+        align_down(x, align2) == align_down(y, align2),
 {
     admit();
 }

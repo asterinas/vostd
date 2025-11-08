@@ -32,11 +32,7 @@ impl StrayFlag {
         *self.inner.borrow(Tracked(&perm.perm))
     }
 
-    pub fn write<C: PageTableConfig>(
-        &self, 
-        Tracked(perm): Tracked<&mut StrayPerm<C>>,
-        value: bool,
-    )
+    pub fn write<C: PageTableConfig>(&self, Tracked(perm): Tracked<&mut StrayPerm<C>>, value: bool)
         requires
             old(perm).wf_with_cell_id(self.id()),
             old(perm).perm.is_init(),

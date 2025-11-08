@@ -18,9 +18,9 @@ use common::{
 };
 use common::spec::{
     common::{
-        NodeId, valid_va_range, vaddr_is_aligned, 
-        va_level_to_trace, va_level_to_offset, va_level_to_nid, 
-        lemma_va_level_to_trace_valid, lemma_va_level_to_nid_basic, lemma_va_level_to_nid_inc,
+        NodeId, valid_va_range, vaddr_is_aligned, va_level_to_trace, va_level_to_offset,
+        va_level_to_nid, lemma_va_level_to_trace_valid, lemma_va_level_to_nid_basic,
+        lemma_va_level_to_nid_inc,
     },
     node_helper::{self, group_node_helper_lemmas},
 };
@@ -40,7 +40,9 @@ use crate::mm::page_table::cursor::MAX_NR_LEVELS;
 use crate::sync::rcu::rcu_load_pte;
 use crate::spec::{
     lock_protocol::LockProtocolModel,
-    rcu::{SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken, PteArrayState, PteState},
+    rcu::{
+        SpecInstance, NodeToken, PteArrayToken, FreePaddrToken, StrayToken, PteArrayState, PteState,
+    },
 };
 
 use super::{Cursor, va_range_wf};
@@ -150,7 +152,9 @@ pub(super) fn lock_range<'rcu, C: PageTableConfig>(
             assert(subtree_root.nid() == va_level_to_nid::<C>(va.start, guard_level));
         };
         assert(result.wf_va()) by {
-            assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by { admit(); }; // TODO
+            assert(C::BASE_PAGE_SIZE_SPEC() == page_size::<C>(1)) by {
+                admit();
+            };  // TODO
         };
     };
     assert(result.wf_with_forgot_guards(forgot_guards)) by {
@@ -447,57 +451,64 @@ pub fn unlock_range<C: PageTableConfig>(
                         assert(cursor.wf_with_forgot_guards_nid_not_contained(forgot_guards)) by {
                             assert forall|level: PagingLevel|
                                 #![trigger cursor.get_guard_level_unwrap(level)]
-                                cursor.g_level@ <= level <= cursor.guard_level 
-                            implies {
-                                !forgot_guards.inner.dom().contains(cursor.get_guard_level_unwrap(level).nid())
+                                cursor.g_level@ <= level <= cursor.guard_level implies {
+                                !forgot_guards.inner.dom().contains(
+                                    cursor.get_guard_level_unwrap(level).nid(),
+                                )
                             } by {
-                                assert(
-                                    _cursor.get_guard_level_unwrap(level).nid() == 
-                                    cursor.get_guard_level_unwrap(level).nid()
-                                );
-                                assert(
-                                    _cursor.get_guard_level_unwrap(_cursor.g_level@).nid() !=
-                                    cursor.get_guard_level_unwrap(level).nid()
-                                );
+                                assert(_cursor.get_guard_level_unwrap(level).nid()
+                                    == cursor.get_guard_level_unwrap(level).nid());
+                                assert(_cursor.get_guard_level_unwrap(_cursor.g_level@).nid()
+                                    != cursor.get_guard_level_unwrap(level).nid());
                             };
                         };
-                        cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(forgot_guards, cursor.guard_level);
-                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(_forgot_guards, _cursor.guard_level);
-                        assert forall |_nid: NodeId|
-                            #[trigger] merged_forgot_guards1.inner.dom().contains(_nid)
-                        implies {
+                        cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                            forgot_guards,
+                            cursor.guard_level,
+                        );
+                        _cursor.lemma_put_guard_from_path_bottom_up_eq_with_rec(
+                            _forgot_guards,
+                            _cursor.guard_level,
+                        );
+                        assert forall|_nid: NodeId| #[trigger]
+                            merged_forgot_guards1.inner.dom().contains(_nid) implies {
                             &&& merged_forgot_guards2.inner.dom().contains(_nid)
-                            &&& merged_forgot_guards2.inner[_nid] =~= merged_forgot_guards1.inner[_nid]
+                            &&& merged_forgot_guards2.inner[_nid]
+                                =~= merged_forgot_guards1.inner[_nid]
                         } by {
-                            if forgot_guards.inner.dom().contains(_nid) {} 
-                            else {
+                            if forgot_guards.inner.dom().contains(_nid) {
+                            } else {
                                 assert(exists|level: PagingLevel|
                                     cursor.g_level@ <= level <= cursor.guard_level
-                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid()
+                                        == _nid);
                                 let level = choose|level: PagingLevel|
                                     cursor.g_level@ <= level <= cursor.guard_level
-                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid() == _nid;
+                                        && #[trigger] cursor.get_guard_level_unwrap(level).nid()
+                                        == _nid;
                                 assert(cursor.get_guard_level_unwrap(level).nid() == _nid);
                                 assert(_cursor.get_guard_level_unwrap(level).nid() == _nid);
                             }
                         };
-                        assert forall |_nid: NodeId|
-                            #[trigger] merged_forgot_guards2.inner.dom().contains(_nid)
-                        implies {
+                        assert forall|_nid: NodeId| #[trigger]
+                            merged_forgot_guards2.inner.dom().contains(_nid) implies {
                             &&& merged_forgot_guards1.inner.dom().contains(_nid)
-                            &&& merged_forgot_guards1.inner[_nid] =~= merged_forgot_guards2.inner[_nid]
+                            &&& merged_forgot_guards1.inner[_nid]
+                                =~= merged_forgot_guards2.inner[_nid]
                         } by {
-                            if _forgot_guards.inner.dom().contains(_nid) {} 
-                            else {
+                            if _forgot_guards.inner.dom().contains(_nid) {
+                            } else {
                                 assert(exists|level: PagingLevel|
                                     _cursor.g_level@ <= level <= _cursor.guard_level
-                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid() == _nid);
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid()
+                                        == _nid);
                                 let level = choose|level: PagingLevel|
                                     _cursor.g_level@ <= level <= _cursor.guard_level
-                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid() == _nid;
+                                        && #[trigger] _cursor.get_guard_level_unwrap(level).nid()
+                                        == _nid;
                                 assert(_cursor.get_guard_level_unwrap(level).nid() == _nid);
-                                if level == _cursor.g_level@ {} 
-                                else {
+                                if level == _cursor.g_level@ {
+                                } else {
                                     assert(cursor.get_guard_level_unwrap(level).nid() == _nid);
                                 }
                             }
@@ -605,7 +616,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig>(
             &&& res.0->Some_0.inst().cpu_num() == GLOBAL_CPU_NUM
             &&& res.0->Some_0.inst_id() == pt.inst@.id()
             &&& res.0->Some_0.nid() == va_level_to_nid::<C>(
-                va.start, 
+                va.start,
                 node_helper::nid_to_level::<C>(res.0->Some_0.nid()) as PagingLevel,
             )
             &&& res.0->Some_0.guard->Some_0.stray_perm().value() == false
@@ -1438,11 +1449,11 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                 cur_node.guard->Some_0.view_pte_token().value(),
                 i as nat,
             ),
-            cur_node.guard->Some_0.view_node_token() =~= init_cur_node.guard->Some_0.view_node_token(),
-            forall |_i: nat|
+            cur_node.guard->Some_0.view_node_token()
+                =~= init_cur_node.guard->Some_0.view_node_token(),
+            forall|_i: nat|
                 #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(_i)]
-                i <= _i < 512 ==>
-                    cur_node.guard->Some_0.view_pte_token().value().is_void(_i),
+                i <= _i < 512 ==> cur_node.guard->Some_0.view_pte_token().value().is_void(_i),
             cur_node.guard->Some_0.stray_perm() =~= init_cur_node.guard->Some_0.stray_perm(),
         decreases i,
     {
@@ -1574,7 +1585,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                     };
 
                     assert(ch_pte_array_token.value() =~= PteArrayState::empty::<C>());
-                    
+
                     let tracked res = tracked_inst.borrow().protocol_deallocate(
                         m.cpu,
                         child_node.nid(),
@@ -1589,10 +1600,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                     ch_stray_token = res.1.get();
 
                     assert(pa_pte_array_token.value().inner
-                        =~= _pa_pte_array_token.value().inner.update(
-                        idx as int,
-                        PteState::None,
-                    ));
+                        =~= _pa_pte_array_token.value().inner.update(idx as int, PteState::None));
 
                     pa_inner.pte_token = Some(pa_pte_array_token);
                 }
@@ -1600,21 +1608,21 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                 pa_node.guard = Some(pa_guard);
                 cur_node = pa_node;
 
-                assert(
-                    cur_node.guard->Some_0.view_pte_token().value().inner =~=
-                    _cur_node.guard->Some_0.view_pte_token().value().inner.update(i as int, PteState::None)
-                ) by {
+                assert(cur_node.guard->Some_0.view_pte_token().value().inner
+                    =~= _cur_node.guard->Some_0.view_pte_token().value().inner.update(
+                    i as int,
+                    PteState::None,
+                )) by {
                     assert(cur_node.guard->Some_0.view_pte_token() =~= pa_pte_array_token);
                     assert(_cur_node.guard->Some_0.view_pte_token() =~= _pa_pte_array_token);
                 };
-                assert forall |_i: nat|
+                assert forall|_i: nat|
                     #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(_i)]
-                    i <= _i < 512 
-                implies {
+                    i <= _i < 512 implies {
                     cur_node.guard->Some_0.view_pte_token().value().is_void(_i)
                 } by {
-                    if _i == i {}
-                    else {
+                    if _i == i {
+                    } else {
                         assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(_i));
                         axiom_seq_update_different(
                             _cur_node.guard->Some_0.view_pte_token().value().inner,
@@ -1634,10 +1642,10 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                     let pte_array = cur_node.guard->Some_0.view_pte_token().value();
                     let idx = i as nat;
                     let ch = node_helper::get_child::<C>(nid, idx);
-                    assert(forgot_guards.inner =~= _forgot_guards.inner.remove_keys(_forgot_guards.get_sub_tree_dom(ch)));
-                    assert forall|_i: nat|
-                        0 <= _i < idx 
-                    implies {
+                    assert(forgot_guards.inner =~= _forgot_guards.inner.remove_keys(
+                        _forgot_guards.get_sub_tree_dom(ch),
+                    ));
+                    assert forall|_i: nat| 0 <= _i < idx implies {
                         #[trigger] pte_array.is_alive(_i) <==> forgot_guards.inner.dom().contains(
                             node_helper::get_child::<C>(nid, _i),
                         )
@@ -1648,7 +1656,8 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                                 assert(_ch != ch);
                                 assert(!node_helper::in_subtree_range::<C>(ch, _ch));
                                 assert(_forgot_guards.inner.dom().contains(_ch)) by {
-                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(_i)) by {
+                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(
+                                    _i)) by {
                                         axiom_seq_update_different(
                                             _cur_node.guard->Some_0.view_pte_token().value().inner,
                                             _i as int,
@@ -1663,7 +1672,9 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                             assert(pte_array.is_alive(_i)) by {
                                 assert(_ch != ch);
                                 assert(_forgot_guards.inner.dom().contains(_ch));
-                                assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(_i));
+                                assert(_cur_node.guard->Some_0.view_pte_token().value().is_alive(
+                                    _i,
+                                ));
                                 axiom_seq_update_different(
                                     _cur_node.guard->Some_0.view_pte_token().value().inner,
                                     _i as int,
@@ -1673,23 +1684,22 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                             };
                         }
                     };
-                    assert forall|_i: nat|
-                        0 <= _i < idx 
-                    implies {
+                    assert forall|_i: nat| 0 <= _i < idx implies {
                         #[trigger] pte_array.is_void(_i) ==> forgot_guards.sub_tree_not_contained(
                             node_helper::get_child::<C>(nid, _i),
                         )
                     } by {
                         let _ch = node_helper::get_child::<C>(nid, _i);
                         if pte_array.is_void(_i) {
-                            assert forall |_nid: NodeId| 
-                                #[trigger] forgot_guards.inner.dom().contains(_nid) 
-                            implies {
+                            assert forall|_nid: NodeId| #[trigger]
+                                forgot_guards.inner.dom().contains(_nid) implies {
                                 !node_helper::in_subtree_range::<C>(_ch, _nid)
                             } by {
-                                if _i == i {} 
-                                else {
-                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(_i)) by {
+                                if _i == i {
+                                } else {
+                                    assert(_cur_node.guard->Some_0.view_pte_token().value().is_void(
+                                        _i,
+                                    )) by {
                                         axiom_seq_update_different(
                                             _cur_node.guard->Some_0.view_pte_token().value().inner,
                                             _i as int,
@@ -1701,7 +1711,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                             };
                         }
                     };
-                };                
+                };
             },
             ChildRef::Frame(_, _, _) => unreached(),
             ChildRef::None => {},
@@ -1709,17 +1719,16 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
     }
 
     assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>()) by {
-        assert forall |i: nat|
+        assert forall|i: nat|
             #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(i)]
-            0 <= i < 512 
-        implies {
-            cur_node.guard->Some_0.view_pte_token().value().is_void(i)
+            0 <= i < 512 implies { cur_node.guard->Some_0.view_pte_token().value().is_void(i)
         } by {};
-        assert forall |i: int|
+        assert forall|i: int|
             #![trigger cur_node.guard->Some_0.view_pte_token().value().inner[i]]
-            0 <= i < 512 
-        implies {
-            cur_node.guard->Some_0.view_pte_token().value().inner[i] =~= PteArrayState::empty::<C>().inner[i]
+            0 <= i < 512 implies {
+            cur_node.guard->Some_0.view_pte_token().value().inner[i] =~= PteArrayState::empty::<
+                C,
+            >().inner[i]
         } by {
             assert(cur_node.guard->Some_0.view_pte_token().value().is_void(i as nat));
         };

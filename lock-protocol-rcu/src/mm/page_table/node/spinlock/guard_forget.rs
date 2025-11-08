@@ -932,7 +932,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         } by {
             let pte_array = put_child.get_guard_inner(nid).pte_token->Some_0.value();
             let old_pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
-            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>());
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<
+                C,
+            >());
 
             if node_helper::is_not_leaf::<C>(nid) {
                 if nid != pa && nid != ch {

@@ -127,7 +127,7 @@ pub proof fn lemma_page_size_increases<C: PagingConstsTrait>(i: PagingLevel, j: 
 
 pub proof fn lemma_page_size_relation<C: PagingConstsTrait>(i: PagingLevel, j: PagingLevel)
     requires
-        1 <= i <= j <= C::NR_LEVELS() + 1
+        1 <= i <= j <= C::NR_LEVELS() + 1,
     ensures
         page_size_spec::<C>(j) % page_size_spec::<C>(i) == 0,
         page_size_spec::<C>(j) as nat % page_size_spec::<C>(i) as nat == 0,

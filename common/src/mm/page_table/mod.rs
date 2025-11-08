@@ -352,7 +352,8 @@ Sized {
 
     proof fn lemma_is_last_properties(&self, level: PagingLevel)
         ensures
-            self.is_last_spec(level) == (level == self@.level && self@.level == 1);
+            self.is_last_spec(level) == (level == self@.level && self@.level == 1),
+    ;
 
     /// Specify the requirement for the PTE implementation to be valid
     proof fn lemma_page_table_entry_properties()

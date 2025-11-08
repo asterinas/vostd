@@ -7,8 +7,7 @@ use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use crate::helpers::align_ext::*;
 use crate::mm::{
-    nr_subpage_per_huge, page_size, 
-    lemma_page_size_spec_properties, lemma_page_size_relation,
+    nr_subpage_per_huge, page_size, lemma_page_size_spec_properties, lemma_page_size_relation,
 };
 use crate::mm::page_table::{lemma_pte_index_spec_in_range, pte_index_spec};
 use crate::mm::{
@@ -54,7 +53,11 @@ pub open spec fn va_level_to_offset<C: PageTableConfig>(va: Vaddr, level: Paging
     pte_index_spec::<C>(va, level) as nat
 }
 
-pub proof fn lemma_va_level_to_offset_eq<C: PageTableConfig>(va1: Vaddr, va2: Vaddr, level: PagingLevel)
+pub proof fn lemma_va_level_to_offset_eq<C: PageTableConfig>(
+    va1: Vaddr,
+    va2: Vaddr,
+    level: PagingLevel,
+)
     requires
         valid_vaddr::<C>(va1),
         valid_vaddr::<C>(va2),
@@ -62,7 +65,9 @@ pub proof fn lemma_va_level_to_offset_eq<C: PageTableConfig>(va1: Vaddr, va2: Va
         align_down(va1, page_size::<C>(level)) == align_down(va2, page_size::<C>(level)),
     ensures
         va_level_to_offset::<C>(va1, level) == va_level_to_offset::<C>(va2, level),
-{ admit(); }
+{
+    admit();
+}
 
 } // verus!
 verus! {
@@ -77,30 +82,40 @@ pub open spec fn va_level_to_trace<C: PageTableConfig>(va: Vaddr, level: PagingL
     )
 }
 
-pub proof fn lemma_va_level_to_trace_eq<C: PageTableConfig>(va1: Vaddr, va2: Vaddr, level: PagingLevel)
+pub proof fn lemma_va_level_to_trace_eq<C: PageTableConfig>(
+    va1: Vaddr,
+    va2: Vaddr,
+    level: PagingLevel,
+)
     requires
         valid_vaddr::<C>(va1),
         valid_vaddr::<C>(va2),
         1 <= level <= C::NR_LEVELS_SPEC(),
         level < C::NR_LEVELS_SPEC() ==> {
-            align_down(va1, page_size::<C>((level + 1) as PagingLevel)) == 
-            align_down(va2, page_size::<C>((level + 1) as PagingLevel))
+            align_down(va1, page_size::<C>((level + 1) as PagingLevel)) == align_down(
+                va2,
+                page_size::<C>((level + 1) as PagingLevel),
+            )
         },
     ensures
-        va_level_to_trace::<C>(va1, level) == va_level_to_trace::<C>(va2, level)
+        va_level_to_trace::<C>(va1, level) == va_level_to_trace::<C>(va2, level),
 {
-    if level == C::NR_LEVELS_SPEC() {}
-    else {
+    if level == C::NR_LEVELS_SPEC() {
+    } else {
         let seq1 = va_level_to_trace::<C>(va1, level);
         let seq2 = va_level_to_trace::<C>(va2, level);
         assert(seq1.len() == seq2.len());
-        assert forall |i: int|
-            0 <= i < seq1.len()
-        implies {
+        assert forall|i: int| 0 <= i < seq1.len() implies {
             #[trigger] seq1[i] == seq2[i]
         } by {
-            assert(seq1[i] == va_level_to_offset::<C>(va1, (C::NR_LEVELS_SPEC() - i) as PagingLevel));
-            assert(seq2[i] == va_level_to_offset::<C>(va2, (C::NR_LEVELS_SPEC() - i) as PagingLevel));
+            assert(seq1[i] == va_level_to_offset::<C>(
+                va1,
+                (C::NR_LEVELS_SPEC() - i) as PagingLevel,
+            ));
+            assert(seq2[i] == va_level_to_offset::<C>(
+                va2,
+                (C::NR_LEVELS_SPEC() - i) as PagingLevel,
+            ));
             let pg_size_1 = page_size::<C>((level + 1) as PagingLevel);
             lemma_page_size_spec_properties::<C>((level + 1) as PagingLevel);
             let pg_size_2 = page_size::<C>((C::NR_LEVELS_SPEC() - i) as PagingLevel);
@@ -126,7 +141,8 @@ pub proof fn lemma_va_level_to_trace_basic<C: PageTableConfig>(va: Vaddr)
         valid_vaddr::<C>(va),
     ensures
         va_level_to_trace::<C>(va, C::NR_LEVELS_SPEC()) =~= Seq::empty(),
-{}
+{
+}
 
 pub open spec fn va_level_to_nid<C: PageTableConfig>(va: Vaddr, level: PagingLevel) -> NodeId {
     node_helper::trace_to_nid::<C>(va_level_to_trace::<C>(va, level))
@@ -142,13 +158,19 @@ pub proof fn lemma_va_level_to_nid_basic<C: PageTableConfig>(va: Vaddr)
     node_helper::lemma_trace_to_nid_basic::<C>();
 }
 
-pub proof fn lemma_va_level_to_nid_eq<C: PageTableConfig>(va1: Vaddr, va2: Vaddr, level: PagingLevel)
+pub proof fn lemma_va_level_to_nid_eq<C: PageTableConfig>(
+    va1: Vaddr,
+    va2: Vaddr,
+    level: PagingLevel,
+)
     requires
         valid_vaddr::<C>(va1),
         valid_vaddr::<C>(va2),
         1 <= level <= C::NR_LEVELS_SPEC(),
-        align_down(va1, page_size::<C>((level + 1) as PagingLevel)) == 
-        align_down(va2, page_size::<C>((level + 1) as PagingLevel)),
+        align_down(va1, page_size::<C>((level + 1) as PagingLevel)) == align_down(
+            va2,
+            page_size::<C>((level + 1) as PagingLevel),
+        ),
     ensures
         va_level_to_nid::<C>(va1, level) == va_level_to_nid::<C>(va2, level),
 {
