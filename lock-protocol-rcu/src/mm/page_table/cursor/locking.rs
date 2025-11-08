@@ -845,7 +845,7 @@ fn dfs_acquire_lock<C: PageTableConfig>(
                 pte_array_token,
             );
         }
-        assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty());
+        assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>());
         return (m, Tracked(forgot_guards));
     }
     let tracked mut m = m.get();
@@ -1387,7 +1387,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
         res.0@ =~= cur_node.guard->Some_0.view_node_token(),
         res.1@.instance_id() == cur_node.guard->Some_0.view_pte_token().instance_id(),
         res.1@.key() == cur_node.nid(),
-        res.1@.value() =~= PteArrayState::empty(),
+        res.1@.value() =~= PteArrayState::empty::<C>(),
         res.2@.instance_id() == cur_node.guard->Some_0.stray_perm().token.instance_id(),
         res.2@.key() =~= cur_node.guard->Some_0.stray_perm().token.key(),
         res.2@.value() == false,
@@ -1573,7 +1573,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
                         );
                     };
 
-                    assert(ch_pte_array_token.value() =~= PteArrayState::empty());
+                    assert(ch_pte_array_token.value() =~= PteArrayState::empty::<C>());
                     
                     let tracked res = tracked_inst.borrow().protocol_deallocate(
                         m.cpu,
@@ -1708,7 +1708,7 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
         }
     }
 
-    assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty()) by {
+    assert(cur_node.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>()) by {
         assert forall |i: nat|
             #![trigger cur_node.guard->Some_0.view_pte_token().value().is_void(i)]
             0 <= i < 512 
@@ -1719,13 +1719,13 @@ pub fn dfs_mark_stray_and_unlock<'rcu, C: PageTableConfig>(
             #![trigger cur_node.guard->Some_0.view_pte_token().value().inner[i]]
             0 <= i < 512 
         implies {
-            cur_node.guard->Some_0.view_pte_token().value().inner[i] =~= PteArrayState::empty().inner[i]
+            cur_node.guard->Some_0.view_pte_token().value().inner[i] =~= PteArrayState::empty::<C>().inner[i]
         } by {
             assert(cur_node.guard->Some_0.view_pte_token().value().is_void(i as nat));
         };
         axiom_two_seq_eq(
             cur_node.guard->Some_0.view_pte_token().value().inner,
-            PteArrayState::empty().inner,
+            PteArrayState::empty::<C>().inner,
         );
     };
 

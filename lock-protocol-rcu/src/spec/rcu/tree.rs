@@ -48,7 +48,7 @@ pub fn wf_nodes(&self) -> bool {
 
 #[invariant]
 pub fn wf_pte_arrays(&self) -> bool {
-    self.pte_arrays.dom().all(|nid: NodeId| node_helper::valid_nid::<C>(nid) && self.pte_arrays[nid].wf())
+    self.pte_arrays.dom().all(|nid: NodeId| node_helper::valid_nid::<C>(nid) && self.pte_arrays[nid].wf::<C>())
 }
 
 #[invariant]
@@ -234,7 +234,7 @@ pub fn inv_is_leaf_implies_pte_array_is_empty(&self) -> bool {
         node_helper::valid_nid::<C>(nid) &&
         !node_helper::is_not_leaf::<C>(nid) &&
         self.pte_arrays.contains_key(nid) ==>
-            self.pte_arrays[nid] =~= PteArrayState::empty()
+            self.pte_arrays[nid] =~= PteArrayState::empty::<C>()
 }
 
 property! {
@@ -258,7 +258,7 @@ property! {
         require(!node_helper::is_not_leaf::<C>(nid));
 
         have pte_arrays >= [ nid => let pte_array ];
-        assert(pte_array =~= PteArrayState::empty());
+        assert(pte_array =~= PteArrayState::empty::<C>());
     }
 }
 
@@ -273,7 +273,7 @@ init!{
         );
         init pte_arrays = Map::new(
             |nid| nid == node_helper::root_id::<C>(),
-            |nid| PteArrayState::empty(),
+            |nid| PteArrayState::empty::<C>(),
         );
         init cursors = Map::new(
             |cpu| valid_cpu(cpu_num, cpu),
@@ -402,7 +402,7 @@ transition!{
         require(pte_array.is_void(offset));
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Locked ];
-        add pte_arrays += [ nid => PteArrayState::empty() ];
+        add pte_arrays += [ nid => PteArrayState::empty::<C>() ];
         add strays += [ (nid, paddr) => false ];
     }
 }
@@ -420,7 +420,7 @@ transition!{
         remove pte_arrays -= [ pa => let pte_array ];
         require(pte_array.is_alive(offset));
         let paddr = pte_array.get_paddr(offset);
-        remove pte_arrays -= [ nid => PteArrayState::empty() ];
+        remove pte_arrays -= [ nid => PteArrayState::empty::<C>() ];
         add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
         remove strays -= [ (nid, paddr) => false ];
         add strays += [ (nid, paddr) => true ];
@@ -458,7 +458,7 @@ transition!{
         require(pte_array.is_void(offset));
         add pte_arrays += [ pa => pte_array.update(offset, PteState::Alive(paddr)) ];
         add nodes += [ nid => NodeState::Free ];
-        add pte_arrays += [ nid => PteArrayState::empty() ];
+        add pte_arrays += [ nid => PteArrayState::empty::<C>() ];
         add strays += [ (nid, paddr) => false ];
     }
 }
@@ -475,7 +475,7 @@ transition!{
         remove pte_arrays -= [ pa => let pte_array ];
         require(pte_array.is_alive(offset));
         let paddr = pte_array.get_paddr(offset);
-        remove pte_arrays -= [ nid => PteArrayState::empty() ];
+        remove pte_arrays -= [ nid => PteArrayState::empty::<C>() ];
         add pte_arrays += [ pa => pte_array.update(offset, PteState::None) ];
         remove strays -= [ (nid, paddr) => false ];
         add strays += [ (nid, paddr) => true ];
@@ -684,7 +684,7 @@ fn protocol_allocate_inductive(pre: Self, post: Self, cpu: CpuId, nid: NodeId, p
 
     assert(post.inv_is_leaf_implies_pte_array_is_empty()) by {
         assert(post.pte_arrays.contains_key(nid));
-        assert(post.pte_arrays[nid] =~= PteArrayState::empty());
+        assert(post.pte_arrays[nid] =~= PteArrayState::empty::<C>());
         assert(node_helper::is_not_leaf::<C>(pa)) by {
             node_helper::lemma_get_parent_sound::<C>(nid);
             node_helper::lemma_is_child_level_relation::<C>(pa, nid);
@@ -843,7 +843,7 @@ fn normal_allocate_inductive(pre: Self, post: Self, nid: NodeId, paddr: Paddr) {
 
     assert(post.inv_is_leaf_implies_pte_array_is_empty()) by {
         assert(post.pte_arrays.contains_key(nid));
-        assert(post.pte_arrays[nid] =~= PteArrayState::empty());
+        assert(post.pte_arrays[nid] =~= PteArrayState::empty::<C>());
         assert(node_helper::is_not_leaf::<C>(pa)) by {
             node_helper::lemma_get_parent_sound::<C>(nid);
             node_helper::lemma_is_child_level_relation::<C>(pa, nid);
@@ -936,7 +936,7 @@ requires
     pre.inv_pte_is_void_implies_no_node(),
     pre.inv_pt_node_pte_array_relationship(),
     pre.nodes.contains_key(nid),
-    pre.pte_arrays[nid] == PteArrayState::empty(),
+    pre.pte_arrays[nid] == PteArrayState::empty::<C>(),
     post.nodes == pre.nodes.remove(nid),
 ensures
     post.inv_not_allocated_subtree(),
@@ -980,7 +980,7 @@ requires
     pre.nodes.contains_key(node_helper::get_parent::<C>(nid)),
     pre.pte_arrays.contains_key(node_helper::get_parent::<C>(nid)),
     pre.pte_arrays[node_helper::get_parent::<C>(nid)].is_void(node_helper::get_offset::<C>(nid)),
-    post.pte_arrays =~= pre.pte_arrays.insert(node_helper::get_parent::<C>(nid), pre.pte_arrays[node_helper::get_parent::<C>(nid)].update(node_helper::get_offset::<C>(nid), PteState::Alive(paddr))).insert(nid,PteArrayState::empty()),
+    post.pte_arrays =~= pre.pte_arrays.insert(node_helper::get_parent::<C>(nid), pre.pte_arrays[node_helper::get_parent::<C>(nid)].update(node_helper::get_offset::<C>(nid), PteState::Alive(paddr))).insert(nid,PteArrayState::empty::<C>()),
     post.nodes.dom() == pre.nodes.dom().insert(nid),
     post.strays == pre.strays.insert((nid, paddr), false),
     post.inv_pt_node_pte_relationship(),

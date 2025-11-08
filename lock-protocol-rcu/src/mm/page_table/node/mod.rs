@@ -417,7 +417,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
+            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>(),
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == false,
     {
@@ -486,7 +486,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         ensures
             res.wf(),
             res.inner =~= self,
-            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty(),
+            res.guard->Some_0.view_pte_token().value() =~= PteArrayState::empty::<C>(),
             res.guard->Some_0.stray_perm().value() == false,
             res.guard->Some_0.in_protocol() == true,
     {

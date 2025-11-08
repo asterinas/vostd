@@ -204,7 +204,7 @@ impl<C: PageTableConfig> InvariantPredicate<
         &&& v.1 is Some ==> {
             &&& v.1->Some_0.instance_id() == k.0
             &&& v.1->Some_0.key() == k.1
-            &&& v.1->Some_0.value().wf()
+            &&& v.1->Some_0.value().wf::<C>()
             &&& v.3.relate_pte_state(k.3, v.1->Some_0.value())
         }
         &&& v.2.wf_with_cell_id(k.4)
@@ -292,7 +292,7 @@ impl<C: PageTableConfig> SpinGuardGhostInner<C> {
         &&& self.pte_token is Some ==> {
             &&& self.pte_token->Some_0.instance_id() == spinlock.pt_inst@.id()
             &&& self.pte_token->Some_0.key() == spinlock.nid@
-            &&& self.pte_token->Some_0.value().wf()
+            &&& self.pte_token->Some_0.value().wf::<C>()
             &&& self.perms.relate_pte_state(spinlock.level@, self.pte_token->Some_0.value())
         }
         &&& self.stray_perm.wf_with_cell_id(spinlock.stray_cell_id@)
@@ -321,7 +321,7 @@ impl<C: PageTableConfig> SpinGuardGhostInner<C> {
         &&& self.pte_token is Some ==> {
             &&& self.pte_token->Some_0.instance_id() == spinlock.pt_inst@.id()
             &&& self.pte_token->Some_0.key() == spinlock.nid@
-            &&& self.pte_token->Some_0.value().wf()
+            &&& self.pte_token->Some_0.value().wf::<C>()
             &&& self.perms.relate_pte_state_except(
                 spinlock.level@,
                 self.pte_token->Some_0.value(),
@@ -598,7 +598,7 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                 == self.paddr@,
         ensures
             res.wf(self),
-            res.view_pte_token().value() =~= PteArrayState::empty(),
+            res.view_pte_token().value() =~= PteArrayState::empty::<C>(),
             res.stray_perm().value() == false,
             res.in_protocol() == false,
     {
@@ -698,7 +698,7 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
             };
         }
         let guard = guard_opt.unwrap();
-        assert(guard.view_pte_token().value() =~= PteArrayState::empty()) by {
+        assert(guard.view_pte_token().value() =~= PteArrayState::empty::<C>()) by {
             admit();
         };
         guard

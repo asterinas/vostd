@@ -97,7 +97,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                     )
                 }
         }
-        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty()
+        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>()
     }
 
     pub open spec fn childs_are_contained_constrained(
@@ -120,7 +120,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                     )
                 }
         }
-        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty()
+        &&& !node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>()
     }
 
     pub open spec fn sub_tree_not_contained(&self, nid: NodeId) -> bool {
@@ -446,7 +446,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             node_helper::is_not_leaf::<C>(pa),
             node_helper::valid_nid::<C>(ch),
             0 <= offset < 512,
-            pte_array.wf(),
+            pte_array.wf::<C>(),
             pte_array.is_alive(offset),
             ch == node_helper::get_child::<C>(pa, offset),
             !old(self).inner.dom().contains(pa),
@@ -905,7 +905,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
             new_ch_guard.wf(&new_ch_spin_lock),
             new_ch_guard.stray_perm.value() == false,
             new_ch_guard.in_protocol == true,
-            new_ch_guard.pte_token->Some_0.value() =~= PteArrayState::empty(),
+            new_ch_guard.pte_token->Some_0.value() =~= PteArrayState::empty::<C>(),
         ensures
             self.put_spec(pa, new_pa_guard, new_pa_spin_lock).put_spec(
                 ch,
@@ -932,7 +932,7 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
         } by {
             let pte_array = put_child.get_guard_inner(nid).pte_token->Some_0.value();
             let old_pte_array = self.get_guard_inner(nid).pte_token->Some_0.value();
-            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty());
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>());
 
             if node_helper::is_not_leaf::<C>(nid) {
                 if nid != pa && nid != ch {

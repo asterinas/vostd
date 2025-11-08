@@ -2,7 +2,7 @@ use vstd::{prelude::*, seq::*};
 use vstd_extra::{ghost_tree::Node, seq_extra::*};
 
 use common::mm::page_table::PageTableConfig;
-use common::mm::Paddr;
+use common::mm::{Paddr, nr_subpage_per_huge};
 use common::spec::{common::NodeId, node_helper};
 
 verus! {
@@ -25,27 +25,19 @@ pub ghost struct PteArrayState {
 }
 
 impl PteArrayState {
-    pub open spec fn wf(&self) -> bool {
+    pub open spec fn wf<C: PageTableConfig>(&self) -> bool {
         self.inner.len() == 512
     }
 
-    pub open spec fn empty() -> Self {
+    pub open spec fn empty<C: PageTableConfig>() -> Self {
         Self { inner: Seq::new(512, |i: int| PteState::None) }
     }
 
-    pub open spec fn is_void(&self, idx: nat) -> bool
-        recommends
-            self.wf(),
-            0 <= idx < 512,
-    {
+    pub open spec fn is_void(&self, idx: nat) -> bool {
         self.inner[idx as int] is None
     }
 
-    pub open spec fn is_alive(&self, idx: nat) -> bool
-        recommends
-            self.wf(),
-            0 <= idx < 512,
-    {
+    pub open spec fn is_alive(&self, idx: nat) -> bool {
         self.inner[idx as int] is Alive
     }
 
@@ -56,11 +48,7 @@ impl PteArrayState {
         self.inner[idx as int]->Alive_0
     }
 
-    pub open spec fn update(self, idx: nat, v: PteState) -> Self
-        recommends
-            self.wf(),
-            0 <= idx < 512,
-    {
+    pub open spec fn update(self, idx: nat, v: PteState) -> Self {
         Self { inner: self.inner.update(idx as int, v) }
     }
 }

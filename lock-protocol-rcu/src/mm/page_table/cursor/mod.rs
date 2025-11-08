@@ -37,7 +37,8 @@ use common::mm::{
     frame::meta::AnyFrameMeta,
     page_table::{
         lemma_addr_aligned_propagate, lemma_carry_ends_at_nonzero_result_bits,
-        lemma_pte_index_alternative_spec, pte_index, pte_index_mask, PageTableConfig,
+        lemma_pte_index_alternative_spec, lemma_pte_index_spec_in_range, 
+        pte_index, pte_index_mask, PageTableConfig,
         PageTableEntryTrait, PageTableError, PagingConsts, PagingConstsTrait,
     },
     NR_ENTRIES, PagingLevel,
@@ -926,7 +927,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                         admit();  // TODO.
                     };
                 } else {
-                    assert(_pte_array =~= PteArrayState::empty())
+                    assert(_pte_array =~= PteArrayState::empty::<C>())
                 }
             } else {
                 assert(node_helper::is_not_leaf::<C>(nid) ==> {
@@ -948,7 +949,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                     admit();  // TODO.
                 };
                 assert(!node_helper::is_not_leaf::<C>(nid) ==> _pte_array
-                    =~= PteArrayState::empty()) by {
+                    =~= PteArrayState::empty::<C>()) by {
                     admit();  // TODO.
                 };
             }
@@ -1161,7 +1162,7 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 let array_i_child_nid = node_helper::get_child::<C>(nid, i);
                 admit();
             };
-            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty());
+            assert(!node_helper::is_not_leaf::<C>(nid) ==> pte_array =~= PteArrayState::empty::<C>());
         }
     }
 
@@ -1693,18 +1694,20 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
                 lemma_page_size_spec_properties::<C>(1);
                 lemma_page_size_spec_properties::<C>(old(self).level);
                 assert(cur_page_size % page_size::<C>(1) == 0) by {
-                    admit(); // TODO3
+                    lemma_page_size_relation::<C>(1, old(self).level);
                 };
                 let k1 = cur_page_size / page_size::<C>(1);
                 assert(cur_page_size == k1 * page_size::<C>(1)) by {
-                    admit();
+                    lemma_fundamental_div_mod(cur_page_size as int, page_size::<C>(1) as int);
                 };
                 assert(next_va % cur_page_size == 0) by {
                     lemma_align_down_basic(old(self).va, cur_page_size);
                 };
                 let k2 = next_va / cur_page_size;
                 assert(next_va == k2 * cur_page_size) by {
-                    admit();
+                    lemma_fundamental_div_mod(next_va as int, cur_page_size as int);
+                    assert(k2 == (next_va as int) / (cur_page_size as int));
+                    assert((next_va as int) % (cur_page_size as int) == 0);
                 };
                 assert(next_va % page_size::<C>(1) == 0) by {
                     assert(k2 * k1 * page_size::<C>(1) == next_va) by {
@@ -2590,7 +2593,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                     child_pt.guard->Some_0.view_pte_token().value(),
                                 )) by {
                                     assert(child_pt.guard->Some_0.inner@.pte_token->Some_0.value()
-                                        =~= PteArrayState::empty());
+                                        =~= PteArrayState::empty::<C>());
                                     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
                                     assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
                                         forgot_guards,
@@ -3096,7 +3099,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             child_pt.guard->Some_0.inner@.pte_token->Some_0.value(),
                         )) by {
                             assert(child_pt.guard->Some_0.inner@.pte_token->Some_0.value()
-                                =~= PteArrayState::empty());
+                                =~= PteArrayState::empty::<C>());
                             _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
                             assert(_cursor.guards_in_path_wf_with_forgot_guards_singleton(
                                 forgot_guards,
@@ -3661,10 +3664,6 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     // for push_level, only level decreases
                     self.0.level,
         {
-            assert(C::NR_LEVELS() == 4) by {
-                admit();  // TODO2
-            };
-
             let cur_va = self.0.va;
             let cur_level = self.0.level;
             let mut cur_entry = self.0.cur_entry();
@@ -3720,18 +3719,25 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                                 assert(cur_va >= end) by {
                                     let t1 = cur_va / k;
                                     assert(cur_va == t1 * k) by {
-                                        admit();  // TODO
+                                        lemma_fundamental_div_mod(cur_va as int, k as int);
                                     };
                                     let t2 = end / k;
                                     assert(end == t2 * k) by {
-                                        admit();  // TODO
+                                        lemma_fundamental_div_mod(end as int, k as int);
                                     };
                                     assert(t1 + 1 > t2) by {
-                                        admit();  // TODO
+                                        assert((t1 + 1) * k == cur_va + k) by {
+                                            lemma_mul_is_distributive_add(k as int, t1 as int, 1);
+                                        };
+                                        lemma_div_by_multiple_is_strongly_ordered(end as int, cur_va + k, t1 + 1, k as int);
+                                        assert(end / k == t2);
+                                        assert((cur_va + k) / k as int == t1 + 1) by {
+                                            lemma_fundamental_div_mod_converse_div(cur_va + k, k as int, t1 + 1, 0);
+                                        };
                                     };
                                     assert(t1 >= t2);
                                     assert(cur_va >= end) by {
-                                        admit();  // TODO
+                                        lemma_mul_inequality(t2 as int, t1 as int, k as int);
                                     };
                                 }
                             }
@@ -4060,8 +4066,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                     proof {
                         let idx = pte_index::<C>(self.0.va, self.0.level);
                         assert(0 <= idx < 512) by {
-                            admit();
-                        };  // TODO2
+                            lemma_pte_index_spec_in_range::<C>(self.0.va, self.0.level);
+                            C::lemma_nr_subpage_per_huge_is_512();
+                        };
                         assert(node_helper::is_child::<C>(pa_node.nid(), ch_node.nid()));
                         assert(node_helper::get_offset::<C>(ch_node.nid()) == idx) by {
                             assert(node_helper::is_not_leaf::<C>(pa_node.nid())) by {
@@ -4109,7 +4116,7 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                             }
                         };
 
-                        assert(ch_pte_array_token.value() =~= PteArrayState::empty());
+                        assert(ch_pte_array_token.value() =~= PteArrayState::empty::<C>());
 
                         assert(pa_pte_array_token.value().get_paddr(idx as nat)
                             == ch_stray_token.key().1) by {
@@ -4169,8 +4176,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
                 PteState::None,
             )) by {
                 assert(0 <= idx < 512) by {
-                    admit();
-                };  // TODO2
+                    lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                    C::lemma_nr_subpage_per_huge_is_512();
+                };
                 if old !is PageTable {
                     assert(cur_node.guard->Some_0.view_pte_token().value()
                         =~= _cur_node.guard->Some_0.view_pte_token().value());
@@ -4183,8 +4191,9 @@ impl<'a, C: PageTableConfig> CursorMut<'a, C> {
             proof {
                 assert(cur_node.guard->Some_0.view_pte_token().value().is_void(idx as nat)) by {
                     assert(0 <= idx < 512) by {
-                        admit();
-                    };  // TODO
+                        lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                        C::lemma_nr_subpage_per_huge_is_512();
+                    };
                 };
                 take_next_inner_proof_cursor_wf_final_1(
                     _cursor,
@@ -4422,7 +4431,7 @@ proof fn take_next_inner_proof_cursor_wf_final_1<C: PageTableConfig>(
             {
                 &&& post_guard.nid() == pre_guard.nid()
                 &&& post_guard.meta_spec().lock =~= pre_guard.meta_spec().lock
-                &&& post_guard.guard->Some_0.view_pte_token().value().wf()
+                &&& post_guard.guard->Some_0.view_pte_token().value().wf::<C>()
                 &&& post_guard.guard->Some_0.view_pte_token().value().is_void(idx as nat)
                 &&& if pte.is_pt(pre_cursor.level) {
                     &&& node_helper::is_not_leaf::<C>(pre_guard.nid())
@@ -4564,7 +4573,7 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
             {
                 &&& post_guard.nid() == pre_guard.nid()
                 &&& post_guard.meta_spec().lock =~= pre_guard.meta_spec().lock
-                &&& post_guard.guard->Some_0.view_pte_token().value().wf()
+                &&& post_guard.guard->Some_0.view_pte_token().value().wf::<C>()
                 &&& post_guard.guard->Some_0.view_pte_token().value().is_void(idx as nat)
                 &&& if pte.is_pt(pre_cursor.level) {
                     &&& node_helper::is_not_leaf::<C>(pre_guard.nid())
@@ -4802,8 +4811,9 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                         ).guard->Some_0.view_pte_token().value());
                                         let _idx = pte_index::<C>(_cursor.va, _cursor.level);
                                         assert(0 <= _idx < 512) by {
-                                            admit();
-                                        };  // TODO2
+                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                            C::lemma_nr_subpage_per_huge_is_512();
+                                        };
                                         let _ch = node_helper::get_child::<C>(nid, _idx as nat);
                                         assert(i != _idx) by {
                                             assert(pte_array.is_void(_idx as nat));
@@ -4829,8 +4839,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                             ).guard->Some_0.view_pte_token().value();
                                             assert(_pte_array.is_alive(i)) by {
                                                 assert(0 <= i < 512) by {
-                                                    admit();
-                                                };  // TODO2
+                                                    C::lemma_nr_subpage_per_huge_is_512();
+                                                };
                                             };
                                             assert(_forgot_guards.children_are_contained(
                                                 nid,
@@ -4841,8 +4851,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                             assert(!node_helper::in_subtree_range::<C>(_ch, nid))
                                                 by {
                                                 assert(0 <= _idx < nr_subpage_per_huge::<C>()) by {
-                                                    admit();
-                                                };  // TODO2
+                                                    lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                };
                                                 node_helper::lemma_get_child_sound::<C>(
                                                     nid,
                                                     _idx as nat,
@@ -4854,11 +4864,12 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                             };
                                             assert(_ch != ch) by {
                                                 assert(0 <= i < 512) by {
-                                                    admit();
-                                                };  // TODO2
+                                                    C::lemma_nr_subpage_per_huge_is_512();
+                                                };
                                                 assert(0 <= idx < 512) by {
-                                                    admit();
-                                                };  // TODO2
+                                                    lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                    C::lemma_nr_subpage_per_huge_is_512();
+                                                };
                                                 if i < idx {
                                                     node_helper::lemma_brother_nid_increasing::<C>(
                                                         nid,
@@ -4913,8 +4924,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                 ).guard->Some_0.view_pte_token().value();
                                                 assert(_pte_array.is_alive(i)) by {
                                                     assert(0 <= i < 512) by {
-                                                        admit();
-                                                    };  // TODO2
+                                                        C::lemma_nr_subpage_per_huge_is_512();
+                                                    };
                                                 };
                                                 assert(_full_forgot_guards.children_are_contained(
                                                     nid,
@@ -4966,8 +4977,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     ));
                                                     assert(0 <= _idx < nr_subpage_per_huge::<C>())
                                                         by {
-                                                        admit();
-                                                    };  // TODO2
+                                                        lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                    };
                                                     node_helper::lemma_get_child_sound::<C>(
                                                         cur_node.nid(),
                                                         _idx as nat,
@@ -5058,8 +5069,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                         assert(0 <= _idx < nr_subpage_per_huge::<
                                                             C,
                                                         >()) by {
-                                                            admit();
-                                                        };  // TODO2
+                                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                        };
                                                     };
                                                     assert(forgot_guards.inner
                                                         =~= _forgot_guards.inner.remove_keys(
@@ -5085,8 +5096,8 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     cursor.lemma_guards_in_path_relation(_level);
                                                     assert(0 <= _idx < nr_subpage_per_huge::<C>())
                                                         by {
-                                                        admit();
-                                                    };  // TODO2
+                                                        lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                    };
                                                     node_helper::lemma_get_child_sound::<C>(
                                                         cur_node.nid(),
                                                         _idx as nat,
@@ -5135,11 +5146,12 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                         assert(pte_array.inner[i as int]
                                             =~= _pte_array.inner[i as int]) by {
                                             assert(0 <= i < 512) by {
-                                                admit();
-                                            };  // TODO2
+                                                C::lemma_nr_subpage_per_huge_is_512();
+                                            };
                                             assert(0 <= _idx < 512) by {
-                                                admit();
-                                            };  // TODO2
+                                                lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                C::lemma_nr_subpage_per_huge_is_512();
+                                            };
                                             axiom_seq_update_different(
                                                 _pte_array.inner,
                                                 i as int,
@@ -5267,11 +5279,12 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                     ).guard->Some_0.view_pte_token().value();
                                                     assert(_pte_array.is_void(i)) by {
                                                         assert(0 <= i < 512) by {
-                                                            admit();
-                                                        };  // TODO2
+                                                            C::lemma_nr_subpage_per_huge_is_512();
+                                                        };
                                                         assert(0 <= idx < 512) by {
-                                                            admit();
-                                                        };  // TODO2
+                                                            lemma_pte_index_spec_in_range::<C>(_cursor.va, _cursor.level);
+                                                            C::lemma_nr_subpage_per_huge_is_512();
+                                                        };
                                                         assert(pte_array.inner
                                                             =~= _pte_array.inner.update(
                                                             idx as int,
@@ -5279,7 +5292,7 @@ proof fn take_next_inner_proof_cursor_wf_final_2_1<C: PageTableConfig>(
                                                         ));
                                                         assert(pte_array.inner[i as int]
                                                             =~= _pte_array.inner[i as int]) by {
-                                                            assert(_pte_array.wf());
+                                                            assert(_pte_array.wf::<C>());
                                                             axiom_seq_update_different(
                                                                 _pte_array.inner,
                                                                 i as int,
@@ -5464,7 +5477,7 @@ proof fn take_next_inner_proof_cursor_wf_final_2_2<C: PageTableConfig>(
             {
                 &&& post_guard.nid() == pre_guard.nid()
                 &&& post_guard.meta_spec().lock =~= pre_guard.meta_spec().lock
-                &&& post_guard.guard->Some_0.view_pte_token().value().wf()
+                &&& post_guard.guard->Some_0.view_pte_token().value().wf::<C>()
                 &&& post_guard.guard->Some_0.view_pte_token().value().is_void(idx as nat)
                 &&& if pte.is_pt(pre_cursor.level) {
                     &&& node_helper::is_not_leaf::<C>(pre_guard.nid())
