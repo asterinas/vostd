@@ -252,6 +252,11 @@ pub open spec fn nid_to_trace<C: PageTableConfig>(nid: NodeId) -> Seq<nat>
     }
 }
 
+pub proof fn lemma_nid_to_trace_basic<C: PageTableConfig>()
+    ensures
+        nid_to_trace::<C>(root_id::<C>()) =~= Seq::empty(),
+{}
+
 /// Returns the node id from the trace.
 #[verifier::opaque]
 pub open spec fn trace_to_nid_rec<C: PageTableConfig>(
@@ -282,6 +287,13 @@ pub open spec fn trace_to_nid<C: PageTableConfig>(trace: Seq<nat>) -> NodeId
         valid_trace::<C>(trace),
 {
     trace_to_nid_rec::<C>(trace, 0, C::NR_LEVELS_SPEC() - 1)
+}
+
+pub proof fn lemma_trace_to_nid_basic<C: PageTableConfig>()
+    ensures
+        trace_to_nid::<C>(Seq::empty()) == root_id::<C>()
+{
+    admit();
 }
 
 /// Returns the child node id from the trace and offset.
