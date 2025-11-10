@@ -1553,15 +1553,16 @@ pub proof fn entails_implies_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: T
 //     p |= q
 // post:
 //     []p |= []q
-pub proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPred<T>)
+pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPred<T>)
     requires
         p.entails(q),
     ensures
-        always(p).entails(always(q)),
+        #[trigger] always(p).entails(always(q)),
 {
+    broadcast use always_unfold;
+
     assert forall|ex| always(p).satisfied_by(ex) implies always(q).satisfied_by(ex) by {
         assert forall|i: nat| q.satisfied_by(#[trigger] ex.suffix(i)) by {
-            always_unfold::<T>(ex, p);
             implies_apply::<T>(ex.suffix(i), p, q);
         };
     };
@@ -1669,10 +1670,10 @@ pub proof fn leads_to_always_enhance<T>(
 //     spec |= p ~> q
 // post:
 //     spec |= <>q
-pub proof fn leads_to_apply<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+pub broadcast proof fn leads_to_apply<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         spec.entails(p),
-        spec.entails(p.leads_to(q)),
+        #[trigger] spec.entails(p.leads_to(q)),
     ensures
         spec.entails(eventually(q)),
 {
@@ -1774,7 +1775,7 @@ pub proof fn leads_to_weaken<T>(
 //     spec |= q ~> r
 // post:
 //     spec |= (p \/ q) ~> r
-pub proof fn or_leads_to_combine<T>(
+pub broadcast proof fn or_leads_to_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
     q: TempPred<T>,
@@ -1784,7 +1785,7 @@ pub proof fn or_leads_to_combine<T>(
         spec.entails(p.leads_to(r)),
         spec.entails(q.leads_to(r)),
     ensures
-        spec.entails(p.or(q).leads_to(r)),
+        #[trigger] spec.entails(p.or(q).leads_to(r)),
 {
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.or(q).leads_to(r).satisfied_by(
         ex,
@@ -1982,7 +1983,7 @@ pub proof fn leads_to_always_tla_forall<T, A>(
 //     spec |= p ~> []r
 // post:
 //     spec |= p ~> [](q /\ r)
-pub proof fn leads_to_always_combine<T>(
+pub broadcast proof fn leads_to_always_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
     q: TempPred<T>,
@@ -1992,6 +1993,8 @@ pub proof fn leads_to_always_combine<T>(
         spec.entails(p.leads_to(always(q))),
         spec.entails(p.leads_to(always(r))),
     ensures
+        #![trigger spec.entails(p.leads_to(always(q).and(always(r))))]
+        #![trigger spec.entails(p.leads_to(always(q.and(r))))]
         spec.entails(p.leads_to(always(q.and(r)))),
         spec.entails(p.leads_to(always(q).and(always(r)))),
 {
@@ -2108,7 +2111,7 @@ pub proof fn leads_to_stable<T>(
 //     spec |= p ~> q
 // post:
 //     spec |= p \/ r ~> q \/ r
-pub proof fn leads_to_framed_by_or<T>(
+pub broadcast proof fn leads_to_framed_by_or<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
     q: TempPred<T>,
@@ -2117,7 +2120,7 @@ pub proof fn leads_to_framed_by_or<T>(
     requires
         spec.entails(p.leads_to(q)),
     ensures
-        spec.entails(p.or(r).leads_to(q.or(r))),
+        #[trigger] spec.entails(p.or(r).leads_to(q.or(r))),
 {
     broadcast use {implies_apply, group_execution_suffix_lemmas};
 
@@ -2423,6 +2426,11 @@ pub broadcast group group_tla_rules {
     entails_and_different_temp,
     always_p_is_stable,
     stable_and_temp,
+    entails_preserved_by_always,
+    leads_to_apply,  // may slow down proofs
+    or_leads_to_combine,
+    leads_to_always_combine,
+    leads_to_framed_by_or,
 }
 
 } // verus!
