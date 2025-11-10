@@ -428,7 +428,6 @@ proof fn instantiate_entailed_leads_to<T>(
         p.implies(eventually(q)).satisfied_by(ex.suffix(i)),
 {
     implies_apply::<T>(ex, spec, p.leads_to(q));
-    leads_to_unfold::<T>(ex, p, q);
 }
 
 // All the lemmas above are used internally for proving the lemmas below
@@ -457,12 +456,8 @@ pub proof fn always_to_always_later<T>(spec: TempPred<T>, p: TempPred<T>)
     ensures
         spec.entails(always(later(p))),
 {
+    broadcast use always_unfold;
     broadcast use group_execution_suffix_lemmas;
-    assert forall|ex| #[trigger] always(p).satisfied_by(ex) implies always(later(p)).satisfied_by(
-        ex,
-    ) by {
-        always_propagate_forwards(ex, p, 1);
-    }
     entails_trans(spec, always(p), always(later(p)));
 }
 
@@ -484,18 +479,7 @@ pub proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
     ensures
         always(p.and(q)) == always(p).and(always(q)),
 {
-    assert forall|ex| #[trigger] always(p.and(q)).satisfied_by(ex) implies always(p).and(
-        always(q),
-    ).satisfied_by(ex) by {
-        assert forall|i| #[trigger] p.satisfied_by(ex.suffix(i)) by {
-            always_unfold::<T>(ex, p.and(q));
-        }
-        assert(always(p).satisfied_by(ex));
-        assert forall|i| #[trigger] q.satisfied_by(ex.suffix(i)) by {
-            always_unfold::<T>(ex, p.and(q));
-        }
-        assert(always(q).satisfied_by(ex));
-    };
+    broadcast use always_unfold;
     temp_pred_equality::<T>(always(p.and(q)), always(p).and(always(q)));
 }
 
@@ -541,8 +525,6 @@ proof fn a_to_temp_pred_equality<T, A>(p: spec_fn(A) -> TempPred<T>, q: spec_fn(
     assert forall|a: A| #[trigger] p(a) == q(a) by {
         temp_pred_equality::<T>(p(a), q(a));
     };
-    assert(p =~= q);
-    // fun_ext::<A, TempPred<T>>(p, q);
 }
 
 proof fn tla_exists_equality<T, A>(f: spec_fn(A, T) -> bool)
@@ -571,6 +553,7 @@ pub proof fn tla_forall_always_equality<T, A>(a_to_p: spec_fn(A) -> TempPred<T>)
     ensures
         tla_forall(|a: A| always(a_to_p(a))) == always(tla_forall(a_to_p)),
 {
+    broadcast use always_unfold;
     let a_to_always_p = |a: A| always(a_to_p(a));
 
     assert forall|ex| #[trigger] tla_forall(a_to_always_p).satisfied_by(ex) implies always(
@@ -580,7 +563,6 @@ pub proof fn tla_forall_always_equality<T, A>(a_to_p: spec_fn(A) -> TempPred<T>)
             assert forall|a| #[trigger] a_to_p(a).satisfied_by(ex.suffix(i)) by {
                 tla_forall_unfold::<T, A>(ex, a_to_always_p);
                 assert(a_to_always_p(a).satisfied_by(ex));
-                always_unfold::<T>(ex, a_to_p(a));
             };
         };
     };
@@ -590,7 +572,6 @@ pub proof fn tla_forall_always_equality<T, A>(a_to_p: spec_fn(A) -> TempPred<T>)
     ).satisfied_by(ex) by {
         assert forall|a| #[trigger] a_to_always_p(a).satisfied_by(ex) by {
             assert forall|i| #[trigger] a_to_p(a).satisfied_by(ex.suffix(i)) by {
-                always_unfold::<T>(ex, tla_forall(a_to_p));
                 tla_forall_unfold::<T, A>(ex.suffix(i), a_to_p);
             };
         };
@@ -626,7 +607,6 @@ proof fn tla_forall_not_equality<T, A>(a_to_p: spec_fn(A) -> TempPred<T>)
         tla_exists(a_to_p),
     ).satisfied_by(ex) by {
         assert forall|a| !#[trigger] a_to_p(a).satisfied_by(ex) by {
-            tla_forall_unfold::<T, A>(ex, a_to_not_p);
             assert(a_to_not_p(a).satisfied_by(ex));
         };
     };
@@ -2428,6 +2408,8 @@ pub proof fn transform_leads_to_with_until<T>(
     ensures
         spec.entails(p1.and(p2).leads_to((q1.and(p2)).or(q2))),
 {
+    broadcast use always_unfold;
+    broadcast use group_execution_suffix_lemmas;
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p1.and(p2).leads_to(
         (q1.and(p2)).or(q2),
     ).satisfied_by(ex) by {
@@ -2448,9 +2430,6 @@ pub proof fn transform_leads_to_with_until<T>(
                 eventually_proved_by_witness::<T>(ex.suffix(i), (q1.and(p2)).or(q2), witness_idx);
             } else {
                 let witness_idx = eventually_choose_witness::<T>(ex.suffix(i), q1);
-                always_unfold::<T>(ex.suffix(i), p2);
-                assert(p2.satisfied_by(ex.suffix(i).suffix(witness_idx)));
-                assert(q1.and(p2).satisfied_by(ex.suffix(i).suffix(witness_idx)));
                 eventually_proved_by_witness::<T>(ex.suffix(i), (q1.and(p2)).or(q2), witness_idx);
             }
         }
