@@ -1,0 +1,27 @@
+[package]
+name = "state_machine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+name = "temporal_logic"
+path = "src/lib.rs"
+
+[features]
+verus = []
+verify = ["verus"]
+alloc = []
+default = ["verify", "alloc"]
+
+[package.metadata.verus]
+path = "src/lib.rs"
+verify = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+vstd = { workspace = true }
+verus_builtin = { workspace = true }
+verus_builtin_macros = { workspace = true }
+temporal_logic = { path = "../temporal_logic" }
