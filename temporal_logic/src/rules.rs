@@ -6,22 +6,25 @@ use vstd::map_lib::*;
 use vstd::prelude::*;
 
 verus! {
+
 broadcast proof fn lemma_execution_sufix_0<T>(ex: Execution<T>)
     ensures
         #[trigger] ex.suffix(0) == ex,
-{}
+{
+}
 
 broadcast proof fn lemma_execution_sufix_sufix<T>(ex: Execution<T>, i: nat, j: nat)
     ensures
         #[trigger] ex.suffix(i).suffix(j) == ex.suffix(i + j),
-{}
+{
+}
 
 broadcast group group_execution_suffix_lemmas {
     lemma_execution_sufix_0,
     lemma_execution_sufix_sufix,
 }
-}
 
+} // verus!
 verus! {
 
 pub proof fn temp_pred_equality<T>(p: TempPred<T>, q: TempPred<T>)
@@ -107,6 +110,7 @@ proof fn always_lift_state_unfold<T>(ex: Execution<T>, p: StatePred<T>)
         forall|i| p(#[trigger] ex.suffix(i).head()),
 {
     broadcast use always_unfold;
+
 }
 
 proof fn always_lift_action_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
@@ -116,6 +120,7 @@ proof fn always_lift_action_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
         forall|i| p(#[trigger] ex.suffix(i).head(), ex.suffix(i).head_next()),
 {
     broadcast use always_unfold;
+
 }
 
 proof fn tla_forall_unfold<T, A>(ex: Execution<T>, a_to_p: spec_fn(A) -> TempPred<T>)
@@ -180,6 +185,7 @@ proof fn implies_apply_with_always<T>(ex: Execution<T>, p: TempPred<T>, q: TempP
         always(q).satisfied_by(ex),
 {
     broadcast use always_unfold;
+
 }
 
 proof fn entails_apply<T>(ex: Execution<T>, p: TempPred<T>, q: TempPred<T>)
@@ -208,6 +214,7 @@ proof fn not_eventually_by_always_not<T>(ex: Execution<T>, p: TempPred<T>)
         not(eventually(p)).satisfied_by(ex),
 {
     broadcast use always_unfold;
+
 }
 
 proof fn always_propagate_forwards<T>(ex: Execution<T>, p: TempPred<T>, i: nat)
@@ -218,6 +225,7 @@ proof fn always_propagate_forwards<T>(ex: Execution<T>, p: TempPred<T>, i: nat)
 {
     broadcast use always_unfold;
     broadcast use group_execution_suffix_lemmas;
+
 }
 
 proof fn always_double<T>(ex: Execution<T>, p: TempPred<T>)
@@ -258,6 +266,7 @@ proof fn eventually_propagate_backwards<T>(ex: Execution<T>, p: TempPred<T>, i: 
         eventually(p).satisfied_by(ex),
 {
     broadcast use group_execution_suffix_lemmas;
+
 }
 
 proof fn eventually_proved_by_witness<T>(ex: Execution<T>, p: TempPred<T>, witness_idx: nat)
@@ -319,6 +328,7 @@ proof fn init_invariant_rec<T>(
     decreases i,
 {
     broadcast use group_execution_suffix_lemmas;
+
     if i == 0 {
     } else {
         init_invariant_rec::<T>(ex, init, next, inv, (i - 1) as nat);
@@ -345,6 +355,7 @@ proof fn always_p_or_eventually_q_rec<T>(
     decreases i,
 {
     broadcast use group_execution_suffix_lemmas;
+
     if i == 0 {
     } else {
         always_p_or_eventually_q_rec::<T>(ex, next, p, q, (i - 1) as nat);
@@ -363,20 +374,12 @@ proof fn always_p_or_eventually_q<T>(
     ensures
         always(p.implies(always(p).or(eventually(q)))).satisfied_by(ex),
 {
-    broadcast use always_unfold;
+    broadcast use {always_unfold, implies_apply};
     broadcast use group_execution_suffix_lemmas;
+
     assert forall|i| p.satisfied_by(#[trigger] ex.suffix(i)) implies always(p).satisfied_by(
         ex.suffix(i),
     ) || eventually(q).satisfied_by(ex.suffix(i)) by {
-        assert forall|idx|
-            p.satisfied_by(#[trigger] ex.suffix(i).suffix(idx)) && next.satisfied_by(
-                ex.suffix(i).suffix(idx),
-            ) implies p.satisfied_by(ex.suffix(i).suffix(idx + 1)) || q.satisfied_by(
-            ex.suffix(i).suffix(idx + 1),
-        ) by {
-            implies_apply::<T>(ex.suffix(i).suffix(idx), p.and(next), later(p).or(later(q)));
-        };
-
         if !eventually(q).satisfied_by(ex.suffix(i)) {
             assert forall|j| p.satisfied_by(#[trigger] ex.suffix(i).suffix(j)) by {
                 always_p_or_eventually_q_rec::<T>(ex.suffix(i), next, p, q, j);
@@ -397,6 +400,7 @@ proof fn next_preserves_inv_rec<T>(ex: Execution<T>, next: TempPred<T>, inv: Tem
     decreases i,
 {
     broadcast use group_execution_suffix_lemmas;
+
     if i == 0 {
     } else {
         next_preserves_inv_rec::<T>(ex, next, inv, (i - 1) as nat);
@@ -410,8 +414,8 @@ proof fn instantiate_entailed_always<T>(ex: Execution<T>, i: nat, spec: TempPred
     ensures
         p.satisfied_by(ex.suffix(i)),
 {
-    broadcast use always_unfold;
-    implies_apply::<T>(ex, spec, always(p));
+    broadcast use {always_unfold, implies_apply};
+
 }
 
 proof fn instantiate_entailed_leads_to<T>(
@@ -427,7 +431,8 @@ proof fn instantiate_entailed_leads_to<T>(
     ensures
         p.implies(eventually(q)).satisfied_by(ex.suffix(i)),
 {
-    implies_apply::<T>(ex, spec, p.leads_to(q));
+    broadcast use implies_apply;
+
 }
 
 // All the lemmas above are used internally for proving the lemmas below
@@ -438,13 +443,14 @@ pub proof fn always_implies_to_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q:
     ensures
         spec.entails(p.leads_to(q)),
 {
+    broadcast use implies_apply;
+
     assert forall|ex| spec.satisfied_by(ex) implies #[trigger] p.leads_to(q).satisfied_by(ex) by {
         implies_apply(ex, spec, always(p.implies(q)));
         always_unfold(ex, p.implies(q));
         assert forall|i: nat| p.satisfied_by(#[trigger] ex.suffix(i)) implies eventually(
             q,
         ).satisfied_by(ex.suffix(i)) by {
-            implies_apply(ex.suffix(i), p, q);
             assert(ex.suffix(i) == ex.suffix(i).suffix(0));
         };
     };
@@ -458,6 +464,7 @@ pub proof fn always_to_always_later<T>(spec: TempPred<T>, p: TempPred<T>)
 {
     broadcast use always_unfold;
     broadcast use group_execution_suffix_lemmas;
+
     entails_trans(spec, always(p), always(later(p)));
 }
 
@@ -467,6 +474,7 @@ proof fn always_double_equality<T>(p: TempPred<T>)
 {
     broadcast use always_unfold;
     broadcast use group_execution_suffix_lemmas;
+
     assert forall|ex| #[trigger] always(always(p)).satisfied_by(ex) implies always(p).satisfied_by(
         ex,
     ) by {
@@ -480,6 +488,7 @@ pub proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
         always(p.and(q)) == always(p).and(always(q)),
 {
     broadcast use always_unfold;
+
     temp_pred_equality::<T>(always(p.and(q)), always(p).and(always(q)));
 }
 
@@ -554,6 +563,7 @@ pub proof fn tla_forall_always_equality<T, A>(a_to_p: spec_fn(A) -> TempPred<T>)
         tla_forall(|a: A| always(a_to_p(a))) == always(tla_forall(a_to_p)),
 {
     broadcast use always_unfold;
+
     let a_to_always_p = |a: A| always(a_to_p(a));
 
     assert forall|ex| #[trigger] tla_forall(a_to_always_p).satisfied_by(ex) implies always(
@@ -1294,6 +1304,8 @@ pub proof fn unpack_conditions_from_spec<T>(
     ensures
         spec.entails(p.and(c).leads_to(q)),
 {
+    broadcast use {always_unfold, implies_apply};
+
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.and(c).leads_to(q).satisfied_by(
         ex,
     ) by {
@@ -1302,7 +1314,6 @@ pub proof fn unpack_conditions_from_spec<T>(
         ).satisfied_by(ex.suffix(i)) by {
             stable_unfold::<T>(ex, spec);
             implies_apply::<T>(ex.suffix(i), spec.and(c), p.leads_to(q));
-            leads_to_unfold::<T>(ex.suffix(i), p, q);
             assert(ex.suffix(i) == ex.suffix(i).suffix(0));
             implies_apply::<T>(ex.suffix(i), p, eventually(q));
         };
@@ -1464,7 +1475,9 @@ pub proof fn wf1_variant_temp<T>(
                     p.and(next).and(forward),
                     later(q),
                 );
-                assert(ex.suffix(i).suffix(witness_idx).suffix(1) == ex.suffix(i).suffix(witness_idx + 1));
+                assert(ex.suffix(i).suffix(witness_idx).suffix(1) == ex.suffix(i).suffix(
+                    witness_idx + 1,
+                ));
                 eventually_proved_by_witness::<T>(ex.suffix(i), q, witness_idx + 1);
             }
         }
@@ -1995,7 +2008,9 @@ pub proof fn leads_to_always_tla_forall<T, A>(
                     a_to_p(a),
                     (max_witness - witness) as nat,
                 );
-                assert(ex.suffix(i).suffix(max_witness) == ex.suffix(i).suffix(witness).suffix((max_witness - witness) as nat));
+                assert(ex.suffix(i).suffix(max_witness) == ex.suffix(i).suffix(witness).suffix(
+                    (max_witness - witness) as nat,
+                ));
             }
             eventually_proved_by_witness(ex.suffix(i), always(tla_forall(a_to_p)), max_witness);
         };
@@ -2042,9 +2057,9 @@ pub proof fn leads_to_always_combine<T>(
                     q,
                     (witness_r_idx - witness_q_idx) as nat,
                 );
-                assert(ex.suffix(i).suffix(witness_r_idx) == ex.suffix(i).suffix(witness_q_idx).suffix(
-                    (witness_r_idx - witness_q_idx) as nat,
-                ));
+                assert(ex.suffix(i).suffix(witness_r_idx) == ex.suffix(i).suffix(
+                    witness_q_idx,
+                ).suffix((witness_r_idx - witness_q_idx) as nat));
                 eventually_proved_by_witness(ex.suffix(i), always(q.and(r)), witness_r_idx);
             } else {
                 always_propagate_forwards::<T>(
@@ -2052,9 +2067,9 @@ pub proof fn leads_to_always_combine<T>(
                     r,
                     (witness_q_idx - witness_r_idx) as nat,
                 );
-                assert(ex.suffix(i).suffix(witness_q_idx) == ex.suffix(i).suffix(witness_r_idx).suffix(
-                    (witness_q_idx - witness_r_idx) as nat,
-                ));
+                assert(ex.suffix(i).suffix(witness_q_idx) == ex.suffix(i).suffix(
+                    witness_r_idx,
+                ).suffix((witness_q_idx - witness_r_idx) as nat));
                 eventually_proved_by_witness(ex.suffix(i), always(q.and(r)), witness_q_idx);
             }
         };
@@ -2117,7 +2132,9 @@ pub proof fn leads_to_stable<T>(
                         q.and(next),
                         later(q),
                     );
-                    assert(ex.suffix(i).suffix(witness_idx).suffix(idx + 1) == ex.suffix(i).suffix(witness_idx).suffix(idx).suffix(1));
+                    assert(ex.suffix(i).suffix(witness_idx).suffix(idx + 1) == ex.suffix(i).suffix(
+                        witness_idx,
+                    ).suffix(idx).suffix(1));
                 };
                 next_preserves_inv_rec::<T>(ex.suffix(i).suffix(witness_idx), next, q, j);
             };
@@ -2143,6 +2160,9 @@ pub proof fn leads_to_framed_by_or<T>(
     ensures
         spec.entails(p.or(r).leads_to(q.or(r))),
 {
+    broadcast use implies_apply;
+    broadcast use group_execution_suffix_lemmas;
+
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.or(r).leads_to(
         q.or(r),
     ).satisfied_by(ex) by {
@@ -2152,12 +2172,10 @@ pub proof fn leads_to_framed_by_or<T>(
             implies_apply(ex, spec, p.leads_to(q));
             leads_to_unfold(ex, p, q);
             if p.satisfied_by(ex.suffix(i)) {
-                implies_apply(ex.suffix(i), p, eventually(q));
                 let witness_idx = eventually_choose_witness(ex.suffix(i), q);
                 eventually_proved_by_witness(ex.suffix(i), q.or(r), witness_idx);
             } else {
                 let witness_idx = 0;
-                assert(ex.suffix(i) == ex.suffix(i).suffix(0));
                 eventually_proved_by_witness(ex.suffix(i), q.or(r), witness_idx);
             }
         }
@@ -2281,6 +2299,9 @@ pub proof fn vacuous_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<
     ensures
         spec.entails(p.leads_to(q)),
 {
+    broadcast use {always_unfold, implies_apply};
+    broadcast use group_execution_suffix_lemmas;
+
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(q).satisfied_by(ex) by {
         assert forall|i| #[trigger] p.satisfied_by(ex.suffix(i)) implies eventually(q).satisfied_by(
             ex.suffix(i),
@@ -2289,10 +2310,8 @@ pub proof fn vacuous_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<
                 !p.satisfied_by(ex.suffix(i)),
                 {
                     implies_apply::<T>(ex, spec, always(r));
-                    assert(r.satisfied_by(ex.suffix(i)));
                     if p.satisfied_by(ex.suffix(i)) {
                         assert(p.and(r).satisfied_by(ex.suffix(i)));
-                        assert(p.and(r) != false_pred::<T>());
                     }
                 },
             );
@@ -2355,6 +2374,9 @@ pub proof fn strengthen_leads_to_with_until<T>(
     ensures
         spec.entails(p.leads_to(q)),
 {
+    broadcast use {always_unfold, implies_apply};
+    broadcast use group_execution_suffix_lemmas;
+
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(q).satisfied_by(ex) by {
         implies_apply(ex, spec, always(next));
         implies_apply(ex, spec, always(p.and(next).implies(later(p).or(later(q)))));
@@ -2362,11 +2384,8 @@ pub proof fn strengthen_leads_to_with_until<T>(
         assert forall|i| #[trigger] p.satisfied_by(ex.suffix(i)) implies eventually(q).satisfied_by(
             ex.suffix(i),
         ) by {
-            implies_apply(ex.suffix(i), p, always(p).or(eventually(q)));
             if always(p).satisfied_by(ex.suffix(i)) {
                 implies_apply(ex, spec, always(p).leads_to(q));
-                implies_apply(ex.suffix(i), always(p), eventually(q));
-            } else {
             }
         }
     }
@@ -2408,8 +2427,9 @@ pub proof fn transform_leads_to_with_until<T>(
     ensures
         spec.entails(p1.and(p2).leads_to((q1.and(p2)).or(q2))),
 {
-    broadcast use always_unfold;
+    broadcast use {always_unfold, implies_apply};
     broadcast use group_execution_suffix_lemmas;
+
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p1.and(p2).leads_to(
         (q1.and(p2)).or(q2),
     ).satisfied_by(ex) by {
@@ -2420,10 +2440,8 @@ pub proof fn transform_leads_to_with_until<T>(
             implies_apply::<T>(ex, spec, always(p2.and(next).implies(later(p2).or(later(q2)))));
 
             always_p_or_eventually_q::<T>(ex, next, p2, q2);
-            implies_apply::<T>(ex.suffix(i), p2, always(p2).or(eventually(q2)));
 
             implies_apply::<T>(ex, spec, p1.leads_to(q1));
-            implies_apply::<T>(ex.suffix(i), p1, eventually(q1));
 
             if eventually(q2).satisfied_by(ex.suffix(i)) {
                 let witness_idx = eventually_choose_witness::<T>(ex.suffix(i), q2);
