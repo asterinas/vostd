@@ -168,11 +168,11 @@ pub open spec fn valid<T>(temp_pred: TempPred<T>) -> bool {
 }
 
 pub open spec fn true_pred<T>() -> TempPred<T> {
-    lift_state(|s: T| true)
+    TempPred::new(|_ex: Execution<T>| true)
 }
 
 pub open spec fn false_pred<T>() -> TempPred<T> {
-    not(true_pred())
+    TempPred::new(|_ex: Execution<T>| false)
 }
 
 } // verus!
