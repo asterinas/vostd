@@ -1,5 +1,9 @@
 # Verifiable
 
+> [!WARNING]
+>
+> *Verifiable* is now **deprecated**.
+
 ## Description
 
 *Verifiable* contains all the specifications and verifiable code for the formal
