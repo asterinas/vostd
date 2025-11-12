@@ -15,9 +15,12 @@ use super::{
 use crate::{
     cpu::LinuxAbi,
     current_userspace,
-    fs::{file_table::FileTable, thread_info::ThreadFsInfo},
+    fs::{
+        file_table::{FdFlags, FileTable},
+        thread_info::ThreadFsInfo,
+    },
     prelude::*,
-    process::posix_thread::allocate_posix_tid,
+    process::{pid_file::PidFile, posix_thread::allocate_posix_tid},
     sched::Nice,
     thread::{AsThread, Tid},
 };
@@ -79,7 +82,7 @@ bitflags! {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CloneArgs {
     pub flags: CloneFlags,
-    pub _pidfd: Option<u64>,
+    pub pidfd: Option<Vaddr>,
     pub child_tid: Vaddr,
     pub parent_tid: Option<Vaddr>,
     pub exit_signal: Option<SigNum>,
@@ -111,7 +114,7 @@ impl CloneArgs {
             flags.contains(CloneFlags::CLONE_PARENT_SETTID),
         ) {
             (false, false) => (None, None),
-            (true, false) => (Some(parent_tid as u64), None),
+            (true, false) => (Some(parent_tid), None),
             (false, true) => (None, Some(parent_tid)),
             (true, true) => {
                 return_errno_with_message!(
@@ -123,7 +126,7 @@ impl CloneArgs {
 
         Ok(Self {
             flags,
-            _pidfd: pidfd,
+            pidfd,
             child_tid,
             parent_tid,
             exit_signal: (exit_signal != 0).then(|| SigNum::from_u8(exit_signal as u8)),
@@ -163,6 +166,7 @@ impl CloneFlags {
             | CloneFlags::CLONE_FS
             | CloneFlags::CLONE_FILES
             | CloneFlags::CLONE_SIGHAND
+            | CloneFlags::CLONE_PIDFD
             | CloneFlags::CLONE_THREAD
             | CloneFlags::CLONE_SYSVSEM
             | CloneFlags::CLONE_SETTLS
@@ -230,6 +234,13 @@ fn clone_child_task(
         );
     }
 
+    if clone_flags.contains(CloneFlags::CLONE_PIDFD) {
+        return_errno_with_message!(
+            Errno::EINVAL,
+            "`CLONE_THREAD` cannot be used together with `CLONE_PIDFD`"
+        );
+    }
+
     let Context {
         process,
         thread_local,
@@ -237,14 +248,17 @@ fn clone_child_task(
         ..
     } = ctx;
 
-    // clone system V semaphore
+    // Clone system V semaphore
     clone_sysvsem(clone_flags)?;
 
-    // clone file table
+    // Clone file table
     let child_file_table = clone_files(thread_local.borrow_file_table().unwrap(), clone_flags);
 
-    // clone fs
+    // Clone fs
     let child_fs = clone_fs(posix_thread.fs(), clone_flags);
+
+    // Clone FPU context
+    let child_fpu_context = thread_local.fpu().clone_context();
 
     let child_user_ctx = Arc::new(clone_user_ctx(
         parent_context,
@@ -257,6 +271,9 @@ fn clone_child_task(
     // Inherit sigmask from current thread
     let sig_mask = posix_thread.sig_mask().load(Ordering::Relaxed).into();
 
+    // Inherit the thread name.
+    let thread_name = posix_thread.thread_name().lock().as_ref().cloned();
+
     let child_tid = allocate_posix_tid();
     let child_task = {
         let credentials = {
@@ -266,9 +283,11 @@ fn clone_child_task(
 
         let mut thread_builder = PosixThreadBuilder::new(child_tid, child_user_ctx, credentials)
             .process(posix_thread.weak_process())
+            .thread_name(thread_name)
             .sig_mask(sig_mask)
             .file_table(child_file_table)
-            .fs(child_fs);
+            .fs(child_fs)
+            .fpu_context(child_fpu_context);
 
         // Deal with SETTID/CLEARTID flags
         clone_parent_settid(child_tid, clone_args.parent_tid, clone_flags)?;
@@ -328,6 +347,9 @@ fn clone_child_process(
     // Clone System V semaphore
     clone_sysvsem(clone_flags)?;
 
+    // Clone FPU context
+    let child_fpu_context = thread_local.fpu().clone_context();
+
     // Inherit the parent's signal mask
     let child_sig_mask = posix_thread.sig_mask().load(Ordering::Relaxed).into();
 
@@ -354,6 +376,7 @@ fn clone_child_process(
                 .sig_mask(child_sig_mask)
                 .file_table(child_file_table)
                 .fs(child_fs)
+                .fpu_context(child_fpu_context)
         };
 
         // Deal with SETTID/CLEARTID flags
@@ -374,6 +397,8 @@ fn clone_child_process(
             child_thread_builder,
         )
     };
+
+    clone_pidfd(ctx, &child, clone_flags, clone_args.pidfd)?;
 
     if let Some(sig) = clone_args.exit_signal {
         child.set_exit_signal(sig);
@@ -470,10 +495,6 @@ fn clone_user_ctx(
         child_context.set_tls_pointer(tls as usize);
     }
 
-    // New threads inherit the FPU state of the parent thread and
-    // the state is private to the thread thereafter.
-    child_context.fpu_state().save();
-
     child_context
 }
 
@@ -515,6 +536,38 @@ fn clone_sysvsem(clone_flags: CloneFlags) -> Result<()> {
     Ok(())
 }
 
+fn clone_pidfd(
+    ctx: &Context,
+    child: &Arc<Process>,
+    clone_flags: CloneFlags,
+    pidfd_addr: Option<Vaddr>,
+) -> Result<()> {
+    if !clone_flags.contains(CloneFlags::CLONE_PIDFD) {
+        return Ok(());
+    }
+
+    let pidfd_addr = pidfd_addr.unwrap();
+
+    let fd = {
+        let pid_file = PidFile::new(child.clone(), false);
+        let file_table = ctx.thread_local.borrow_file_table();
+        let mut file_table_locked = file_table.unwrap().write();
+        file_table_locked.insert(Arc::new(pid_file), FdFlags::CLOEXEC)
+    };
+
+    // Since `write_val` may sleep, we cannot hold the file table lock during its execution.
+    // FIXME: Should we remove the file from the file table if the write operation fails?
+    match ctx.user_space().write_val(pidfd_addr, &fd) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let file_table = ctx.thread_local.borrow_file_table();
+            let mut file_table_locked = file_table.unwrap().write();
+            file_table_locked.close_file(fd);
+            Err(e)
+        }
+    }
+}
+
 #[expect(clippy::too_many_arguments)]
 fn create_child_process(
     pid: Pid,
@@ -543,11 +596,12 @@ fn create_child_process(
 }
 
 fn set_parent_and_group(parent: &Process, child: &Arc<Process>) {
-    // Lock order: process table -> children -> group of process
+    // Lock order: children of process -> process table -> group of process
     // -> group inner -> session inner
+    let mut children_mut = parent.children().lock();
+
     let mut process_table_mut = process_table::process_table_mut();
 
-    let mut children_mut = parent.children().lock();
     let process_group_mut = parent.process_group.lock();
 
     let process_group = process_group_mut.upgrade().unwrap();

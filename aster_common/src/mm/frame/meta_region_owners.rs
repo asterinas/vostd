@@ -3,6 +3,8 @@ use vstd::cell;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, *};
 
+use core::ops::Range;
+
 use vstd_extra::ownership::*;
 
 use super::*;
@@ -103,6 +105,27 @@ impl MetaRegionOwners {
             i < max_meta_slots() as usize,
     {
         self.slot_owners[i].ref_count@.value()
+    }
+
+    pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
+        recommends
+            self.inv(),
+            range.start < range.end < MAX_PADDR(),
+    {
+        forall|paddr: Paddr|
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+                ==> #[trigger] self.slots.contains_key(frame_to_index_spec(paddr))
+    }
+
+    pub open spec fn paddr_range_in_dropped_region(self, range: Range<Paddr>) -> bool
+        recommends
+            self.inv(),
+            range.start < range.end < MAX_PADDR(),
+    {
+        forall|paddr: Paddr|
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+                ==> !#[trigger] self.slots.contains_key(frame_to_index_spec(paddr))
+                && #[trigger] self.dropped_slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub proof fn inv_implies_correct_addr(self, paddr: usize)

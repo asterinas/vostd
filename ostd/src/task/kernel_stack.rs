@@ -11,7 +11,7 @@ use crate::{
         FrameAllocOptions, PAGE_SIZE,
     },
     prelude::*,
-    trap::DisabledLocalIrqGuard,
+    trap::irq::DisabledLocalIrqGuard,
 };
 
 /// The kernel stack size of a task, specified in pages.

@@ -9,9 +9,7 @@ use spin::Once;
 use super::{
     fs_resolver::{FsPath, FsResolver},
     path::MountNode,
-    procfs::{self, ProcFS},
     ramfs::RamFS,
-    sysfs::{init as sysfs_init, singleton as sysfs_singleton},
     utils::{FileSystem, InodeMode, InodeType},
 };
 use crate::{fs::path::is_dot, prelude::*};
@@ -33,7 +31,6 @@ impl Read for BoxedReader<'_> {
 /// Unpack and prepare the rootfs from the initramfs CPIO buffer.
 pub fn init(initramfs_buf: &[u8]) -> Result<()> {
     init_root_mount();
-    procfs::init();
 
     let reader = {
         let mut initramfs_suffix = "";
@@ -108,19 +105,11 @@ pub fn init(initramfs_buf: &[u8]) -> Result<()> {
             }
         }
     }
-    // Mount ProcFS
-    let proc_dentry = fs.lookup(&FsPath::try_from("/proc")?)?;
-    proc_dentry.mount(ProcFS::new())?;
     // Mount DevFS
     let dev_dentry = fs.lookup(&FsPath::try_from("/dev")?)?;
     dev_dentry.mount(RamFS::new())?;
-    // Mount SysFS
-    let sys_dentry = fs.lookup(&FsPath::try_from("/sys")?)?;
-    sysfs_init();
-    let sysfs: Arc<dyn FileSystem> = sysfs_singleton().clone();
-    sys_dentry.mount(sysfs)?;
-    println!("[kernel] rootfs is ready");
 
+    println!("[kernel] rootfs is ready");
     Ok(())
 }
 

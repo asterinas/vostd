@@ -2,7 +2,6 @@
 //! Utility types and methods.
 mod either;
 //mod macros;
-//pub(crate) mod marker;
 //pub(crate) mod ops;
 //pub(crate) mod range_alloc;
 

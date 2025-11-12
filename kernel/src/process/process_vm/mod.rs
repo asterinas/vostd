@@ -20,8 +20,7 @@ pub use self::{
     heap::USER_HEAP_SIZE_LIMIT,
     init_stack::{
         aux_vec::{AuxKey, AuxVec},
-        InitStack, InitStackReader, INIT_STACK_SIZE, MAX_ARGV_NUMBER, MAX_ARG_LEN, MAX_ENVP_NUMBER,
-        MAX_ENV_LEN,
+        InitStack, InitStackReader, INIT_STACK_SIZE, MAX_LEN_STRING_ARG, MAX_NR_STRING_ARGS,
     },
 };
 use crate::{prelude::*, vm::vmar::Vmar};
@@ -85,6 +84,13 @@ impl ProcessVmarGuard<'_> {
     /// This method will panic if the process has exited and its VMAR has been dropped.
     pub fn unwrap(&self) -> &Vmar<Full> {
         self.inner.as_ref().unwrap()
+    }
+
+    /// Returns a reference to the process VMAR if it exists.
+    ///
+    /// Returns `None` if the process has exited and its VMAR has been dropped.
+    pub fn as_ref(&self) -> Option<&Vmar<Full>> {
+        self.inner.as_ref()
     }
 
     /// Sets a new VMAR for the binding process.

@@ -23,6 +23,7 @@ use crate::{
         file_handle::FileLike,
         named_pipe::NamedPipe,
         path::{is_dot, is_dot_or_dotdot, is_dotdot},
+        registry::{FsProperties, FsType},
         utils::{
             CStr256, CachePage, DirentVisitor, Extension, FallocMode, FileSystem, FsFlags, Inode,
             InodeMode, InodeType, IoctlCmd, Metadata, MknodType, PageCache, PageCacheBackend,
@@ -414,6 +415,19 @@ impl RamInode {
             typ: InodeType::File,
             this: weak_self.clone(),
             fs: Arc::downgrade(fs),
+            extension: Extension::new(),
+            xattr: RamXattr::new(),
+        })
+    }
+
+    fn new_file_detached(mode: InodeMode, uid: Uid, gid: Gid) -> Arc<Self> {
+        Arc::new_cyclic(|weak_self| RamInode {
+            inner: Inner::new_file(weak_self.clone()),
+            metadata: SpinLock::new(InodeMeta::new(mode, uid, gid)),
+            ino: weak_self.as_ptr() as u64,
+            typ: InodeType::File,
+            this: weak_self.clone(),
+            fs: Weak::new(),
             extension: Extension::new(),
             xattr: RamXattr::new(),
         })
@@ -1109,7 +1123,7 @@ impl Inode for RamInode {
         let rdev = self
             .inner
             .as_device()
-            .map(|device| device.id().into())
+            .map(|device| device.id().as_encoded_u64())
             .unwrap_or(0);
         let inode_metadata = self.metadata.lock();
         Metadata {
@@ -1235,6 +1249,13 @@ impl Inode for RamInode {
     }
 }
 
+/// Creates a RAM inode that is detached from any `RamFS`.
+///
+// TODO: Add "anonymous inode fs" and link the inode to it.
+pub fn new_detached_inode(mode: InodeMode, uid: Uid, gid: Gid) -> Arc<dyn Inode> {
+    RamInode::new_file_detached(mode, uid, gid)
+}
+
 fn write_lock_two_direntries_by_ino<'a>(
     this: (u64, &'a RwLock<DirEntry>),
     other: (u64, &'a RwLock<DirEntry>),
@@ -1255,4 +1276,29 @@ fn write_lock_two_direntries_by_ino<'a>(
 
 fn now() -> Duration {
     RealTimeCoarseClock::get().read_time()
+}
+
+pub(super) struct RamFsType;
+
+impl FsType for RamFsType {
+    fn name(&self) -> &'static str {
+        "ramfs"
+    }
+
+    fn create(
+        &self,
+        _args: Option<CString>,
+        _disk: Option<Arc<dyn aster_block::BlockDevice>>,
+        _ctx: &Context,
+    ) -> Result<Arc<dyn FileSystem>> {
+        Ok(RamFS::new())
+    }
+
+    fn properties(&self) -> FsProperties {
+        FsProperties::empty()
+    }
+
+    fn sysnode(&self) -> Option<Arc<dyn aster_systree::SysBranchNode>> {
+        None
+    }
 }

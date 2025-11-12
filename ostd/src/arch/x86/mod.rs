@@ -5,14 +5,14 @@ pub(crate) mod cpu;
 pub mod device;
 pub(crate) mod ex_table;
 pub(crate) mod io;
-pub mod iommu;
+pub(crate) mod iommu;
 pub(crate) mod irq;
 pub(crate) mod kernel;*/
 pub(crate) mod mm;
 /*pub(crate) mod pci;
 pub mod qemu;
-pub mod serial;
-pub mod task;
+pub(crate) mod serial;
+pub(crate) mod task;
 pub mod timer;
 pub mod trap;*/
 
@@ -25,8 +25,7 @@ pub(crate) mod tdx_guest;
 
 use core::sync::atomic::Ordering;
 
-use kernel::apic::ioapic;
-use log::{info, warn};
+use log::warn;
 
 #[cfg(feature = "cvm_guest")]
 pub(crate) fn init_cvm_guest() {
@@ -63,19 +62,10 @@ pub(crate) unsafe fn late_init_on_bsp() {
     // SAFETY: This function is only called once on BSP.
     unsafe { trap::init() };
 
-    kernel::acpi::init();
-
     let io_mem_builder = construct_io_mem_allocator_builder();
 
-    match kernel::apic::init(&io_mem_builder) {
-        Ok(_) => {
-            ioapic::init(&io_mem_builder);
-        }
-        Err(err) => {
-            info!("APIC init error:{:?}", err);
-            kernel::pic::enable();
-        }
-    }
+    kernel::apic::init(&io_mem_builder).expect("APIC doesn't exist");
+    kernel::irq::init(&io_mem_builder);
 
     kernel::tsc::init_tsc_freq();
     timer::init_bsp();
@@ -91,9 +81,6 @@ pub(crate) unsafe fn late_init_on_bsp() {
         }
     });
 
-    // Some driver like serial may use PIC
-    kernel::pic::init();
-
     // SAFETY:
     // 1. All the system device memory have been removed from the builder.
     // 2. All the port I/O regions belonging to the system device are defined using the macros.
@@ -107,12 +94,14 @@ pub(crate) unsafe fn late_init_on_bsp() {
 ///
 /// This function must be called only once on each application processor.
 /// And it should be called after the BSP's call to [`init_on_bsp`].
+///
+/// [`init_on_bsp`]: crate::cpu::init_on_bsp
 pub(crate) unsafe fn init_on_ap() {
     timer::init_ap();
 }
 
 pub(crate) fn interrupts_ack(irq_number: usize) {
-    if !cpu::context::CpuException::is_cpu_exception(irq_number as u16) {
+    if !cpu::context::CpuException::is_cpu_exception(irq_number) {
         // TODO: We're in the interrupt context, so `disable_preempt()` is not
         // really necessary here.
         kernel::apic::get_or_init(&crate::task::disable_preempt() as _).eoi();
@@ -189,8 +178,6 @@ pub(crate) fn enable_cpu_features() {
         cpuid.get_feature_info().unwrap()
     });
 
-    cpu::context::enable_essential_features();
-
     let mut cr4 = x86_64::registers::control::Cr4::read();
     cr4 |= Cr4Flags::FSGSBASE
         | Cr4Flags::OSXSAVE
@@ -216,6 +203,8 @@ pub(crate) fn enable_cpu_features() {
     unsafe {
         x86_64::registers::xcontrol::XCr0::write(xcr0);
     }
+
+    cpu::context::enable_essential_features();
 
     unsafe {
         // enable non-executable page protection

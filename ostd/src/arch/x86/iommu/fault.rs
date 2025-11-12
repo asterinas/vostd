@@ -9,8 +9,9 @@ use volatile::{access::ReadWrite, VolatileRef};
 
 use super::registers::Capability;
 use crate::{
+    arch::trap::TrapFrame,
     sync::{LocalIrqDisabled, SpinLock},
-    trap::{IrqLine, TrapFrame},
+    trap::irq::IrqLine,
 };
 
 #[derive(Debug)]

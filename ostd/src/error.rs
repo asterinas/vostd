@@ -18,10 +18,6 @@ pub enum Error {
     NotEnoughResources,
     /// Arithmetic Overflow occurred.
     Overflow,
-    /// Memory mapping already exists for the given virtual address.
-    MapAlreadyMappedVaddr,
-    /// Error when allocating kernel virtual memory.
-    KVirtAreaAllocError,
 }
 
 impl From<PageTableError> for Error {

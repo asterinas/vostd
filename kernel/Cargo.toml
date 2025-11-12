@@ -19,6 +19,7 @@ aster-time = { path = "comps/time" }
 aster-virtio = { path = "comps/virtio" }
 aster-rights = { path = "libs/aster-rights" }
 aster-systree = { path = "comps/systree" }
+aster-keyboard = { path = "comps/keyboard" }
 component = { path = "libs/comp-sys/component" }
 controlled = { path = "libs/comp-sys/controlled" }
 osdk-frame-allocator = { path = "../osdk/deps/frame-allocator" }
@@ -67,12 +68,16 @@ fixed = "1.28.0"
 [target.x86_64-unknown-none.dependencies]
 tdx-guest = { version = "0.2.1", optional = true }
 
-[target.riscv64gc-unknown-none-elf.dependencies]
+[target.riscv64imac-unknown-none-elf.dependencies]
 riscv = { version = "0.11.1", features = ["s-mode"] }
+
+[target.loongarch64-unknown-none-softfloat.dependencies]
+loongArch64 = "0.2.5"
 
 [features]
 all = ["cvm_guest"]
-cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest"]
+cvm_guest = ["dep:tdx-guest", "ostd/cvm_guest", "aster-virtio/cvm_guest"]
+coverage = ["ostd/coverage"]
 
 [lints]
 workspace = true

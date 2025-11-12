@@ -3,10 +3,10 @@
 //! VFS components
 
 pub use access_mode::AccessMode;
-pub use channel::{Channel, Consumer, Producer};
 pub use creation_flags::CreationFlags;
-pub use dirent_visitor::DirentVisitor;
+pub use dirent_visitor::{DirentCounter, DirentVisitor};
 pub use direntry_vec::DirEntryVecExt;
+pub use endpoint::{Endpoint, EndpointState};
 pub use falloc_mode::FallocMode;
 pub use file_creation_mask::FileCreationMask;
 pub use flock::{FlockItem, FlockList, FlockType};
@@ -25,10 +25,10 @@ pub use xattr::{
 };
 
 mod access_mode;
-mod channel;
 mod creation_flags;
 mod dirent_visitor;
 mod direntry_vec;
+mod endpoint;
 mod falloc_mode;
 mod file_creation_mask;
 mod flock;
@@ -39,6 +39,7 @@ mod page_cache;
 mod random_test;
 mod range_lock;
 mod status_flags;
+pub mod systree_inode;
 mod xattr;
 
 use core::{

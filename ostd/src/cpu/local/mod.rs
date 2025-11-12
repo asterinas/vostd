@@ -4,7 +4,7 @@
 //! This module provides a mechanism to define CPU-local objects. Users can
 //! define a statically-allocated CPU-local object by the macro
 //! [`crate::cpu_local!`], or allocate a dynamically-allocated CPU-local
-//! object with the function [`osdk_heap_allocator::alloc_cpu_local`].
+//! object with the function `osdk_heap_allocator::alloc_cpu_local`.
 //!
 //! The mechanism for statically-allocated CPU-local objects exploits the fact
 //! that constant values of non-[`Copy`] types can be bitwise copied. For
@@ -53,7 +53,7 @@ use static_cpu_local::StaticStorage;
 use super::CpuId;
 use crate::{
     mm::{frame::allocator, paddr_to_vaddr, Paddr, PAGE_SIZE},
-    trap::DisabledLocalIrqGuard,
+    trap::irq::DisabledLocalIrqGuard,
 };
 
 /// Dynamically-allocated CPU-local objects.
@@ -321,7 +321,7 @@ mod test {
         crate::cpu_local! {
             static FOO: RefCell<usize> = RefCell::new(1);
         }
-        let irq_guard = crate::trap::disable_local();
+        let irq_guard = crate::trap::irq::disable_local();
         let foo_guard = FOO.get_with(&irq_guard);
         assert_eq!(*foo_guard.borrow(), 1);
         *foo_guard.borrow_mut() = 2;
@@ -334,7 +334,7 @@ mod test {
         crate::cpu_local_cell! {
             static BAR: usize = 3;
         }
-        let _guard = crate::trap::disable_local();
+        let _guard = crate::trap::irq::disable_local();
         assert_eq!(BAR.load(), 3);
         BAR.store(4);
         assert_eq!(BAR.load(), 4);

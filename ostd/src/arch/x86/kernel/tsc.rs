@@ -7,11 +7,14 @@ use log::info;
 use x86::cpuid::cpuid;
 
 use crate::{
-    arch::timer::{
-        pit::{self, OperatingMode},
-        TIMER_FREQ,
+    arch::{
+        timer::{
+            pit::{self, OperatingMode},
+            TIMER_FREQ,
+        },
+        trap::TrapFrame,
     },
-    trap::{IrqLine, TrapFrame},
+    trap::irq::IrqLine,
 };
 
 /// The frequency of TSC(Hz)
@@ -73,16 +76,27 @@ pub fn determine_tsc_freq_via_pit() -> u64 {
 
     // Enable PIT
     pit::init(OperatingMode::RateGenerator);
-    pit::enable_ioapic_line(irq.clone());
+    let irq = pit::enable_interrupt(irq);
 
     static IS_FINISH: AtomicBool = AtomicBool::new(false);
     static FREQUENCY: AtomicU64 = AtomicU64::new(0);
-    x86_64::instructions::interrupts::enable();
-    while !IS_FINISH.load(Ordering::Acquire) {
-        x86_64::instructions::hlt();
+
+    // Wait until `FREQUENCY` is ready
+    loop {
+        crate::arch::irq::enable_local_and_halt();
+
+        // Disable local IRQs so they won't come after checking `IS_FINISH`
+        // but before halting the CPU.
+        crate::arch::irq::disable_local();
+
+        if IS_FINISH.load(Ordering::Acquire) {
+            break;
+        }
     }
-    x86_64::instructions::interrupts::disable();
+
+    // Disable PIT
     drop(irq);
+
     return FREQUENCY.load(Ordering::Acquire);
 
     fn pit_callback(trap_frame: &TrapFrame) {
@@ -100,8 +114,6 @@ pub fn determine_tsc_freq_via_pit() -> u64 {
             IN_TIME.fetch_add(1, Ordering::Relaxed);
             return;
         }
-
-        pit::disable_ioapic_line();
 
         let tsc_first_count = TSC_FIRST_COUNT.load(Ordering::Relaxed);
         let freq = (tsc_current_count - tsc_first_count) * (TIMER_FREQ / CALLBACK_TIMES);

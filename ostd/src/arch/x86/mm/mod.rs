@@ -20,7 +20,6 @@ use crate::{
         /*PodOnce,*/ Vaddr,
         PAGE_SIZE,
     },
-    //    util::marker::SameSizeAs,
     //    Pod,
 };
 
@@ -153,9 +152,6 @@ macro_rules! parse_flags {
         ($val as usize & $from.bits() as usize) >> $from.bits().ilog2() << $to.bits().ilog2()
     };
 }
-
-// SAFETY: `PageTableEntry` has the same size as `usize`
-unsafe impl SameSizeAs<usize> for PageTableEntry {}
 
 impl PodOnce for PageTableEntry {}
 

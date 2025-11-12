@@ -33,7 +33,7 @@ use crate::{
             options::{Error as SocketError, SocketOption},
             private::SocketPrivate,
             util::{
-                options::{SetSocketLevelOption, SocketOptionSet},
+                options::{GetSocketLevelOption, SetSocketLevelOption, SocketOptionSet},
                 MessageHeader, SendRecvFlags, SockShutdownCmd, SocketAddr,
             },
             Socket,
@@ -233,6 +233,7 @@ impl StreamSocket {
             let (target_state, iface_to_poll) = match init_stream.connect(
                 remote_endpoint,
                 &raw_option,
+                options.socket.reuse_addr(),
                 StreamObserver::new(self.pollee.clone()),
             ) {
                 Ok(connecting_stream) => {
@@ -336,7 +337,6 @@ impl StreamSocket {
         let remote_endpoint = connected_stream.remote_endpoint();
 
         drop(state);
-        self.pollee.invalidate();
         if let Some(iface) = iface_to_poll {
             iface.poll();
         }
@@ -542,14 +542,14 @@ impl Socket for StreamSocket {
         }
 
         let MessageHeader {
-            control_message, ..
+            control_messages, ..
         } = message_header;
 
         // According to the Linux man pages, `EISCONN` _may_ be returned when the destination
         // address is specified for a connection-mode socket. In practice, the destination address
         // is simply ignored. We follow the same behavior as the Linux implementation to ignore it.
 
-        if control_message.is_some() {
+        if !control_messages.is_empty() {
             // TODO: Support sending control message
             warn!("sending control message is not supported");
         }
@@ -575,7 +575,7 @@ impl Socket for StreamSocket {
 
         // According to <https://elixir.bootlin.com/linux/v6.0.9/source/net/ipv4/tcp.c#L2645>,
         // peer address is ignored for connected socket.
-        let message_header = MessageHeader::new(None, None);
+        let message_header = MessageHeader::new(None, Vec::new());
 
         Ok((received_bytes, message_header))
     }
@@ -589,10 +589,11 @@ impl Socket for StreamSocket {
             _ => ()
         });
 
+        let state = self.read_updated_state();
         let options = self.options.read();
 
         // Deal with socket-level options
-        match options.socket.get_option(option) {
+        match options.socket.get_option(option, state.as_ref()) {
             Err(err) if err.error() == Errno::ENOPROTOOPT => (),
             res => return res,
         }
@@ -666,10 +667,10 @@ impl Socket for StreamSocket {
         let mut options = self.options.write();
 
         // Deal with socket-level options
-        let need_iface_poll = match options.socket.set_option(option, state.as_mut()) {
+        let need_iface_poll = match options.socket.set_option(option, state.as_ref()) {
             Err(err) if err.error() == Errno::ENOPROTOOPT => {
                 // Deal with IP-level options
-                match options.ip.set_option(option, state.as_mut()) {
+                match options.ip.set_option(option, state.as_ref()) {
                     Err(err) if err.error() == Errno::ENOPROTOOPT => {
                         // Deal with TCP-level options
                         do_tcp_setsockopt(option, &mut options, state.as_mut())?
@@ -801,7 +802,32 @@ impl State {
     }
 }
 
+impl GetSocketLevelOption for State {
+    fn is_listening(&self) -> bool {
+        matches!(self, Self::Listen(_))
+    }
+}
+
 impl SetSocketLevelOption for State {
+    fn set_reuse_addr(&self, reuse_addr: bool) {
+        let bound_port = match self {
+            State::Init(init_stream) => {
+                if let Some(bound_port) = init_stream.bound_port() {
+                    bound_port
+                } else {
+                    return;
+                }
+            }
+            State::Connecting(connecting_stream) => connecting_stream.bound_port(),
+            State::Connected(connected_stream) => connected_stream.bound_port(),
+            // Setting a listening address as reusable has no effect,
+            // since no other sockets can bind to a listening port.
+            State::Listen(_) => return,
+        };
+
+        bound_port.set_can_reuse(reuse_addr);
+    }
+
     fn set_keep_alive(&self, keep_alive: bool) -> NeedIfacePoll {
         let interval = if keep_alive {
             Some(KEEPALIVE_INTERVAL)

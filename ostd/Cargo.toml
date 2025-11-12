@@ -1,11 +1,12 @@
 [package]
 name = "ostd"
-version = "0.15.1"
+version = "0.16.0"
 edition = "2021"
 description = "Rust OS framework that facilitates the development of and innovation in OS kernels"
 license = "MPL-2.0"
 readme = "README.md"
 repository = "https://github.com/asterinas/asterinas"
+documentation = "https://asterinas.github.io/api-docs"
 
 [lib]
 crate-type = ["rlib"]
@@ -52,8 +53,6 @@ inherit-methods-macro = { git = "https://github.com/asterinas/inherit-methods-ma
 # intrusive-collections = { version = "0.9.6", features = ["nightly"] }
 #linux-boot-params = { version = "0.15.1", path = "libs/linux-bzimage/boot-params" }
 log = "0.4"
-num = { version = "0.4", default-features = false }
-num-derive = { version = "0.4", default-features = false }
 num-traits = { version = "0.2", default-features = false }
 #ostd-macros = { version = "0.15.1", path = "libs/ostd-macros" }
 #ostd-test = { version = "0.15.1", path = "libs/ostd-test" }
@@ -63,6 +62,17 @@ smallvec = "1.13.2"
 # unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 volatile = "0.6.1"
 bitvec = { version = "1.0", default-features = false, features = ["alloc"] }
+
+minicov = { version = "0.3", optional = true }
+
+# The targets are chosen to prevent the generated machine code from using any
+# vector or floating-point registers.
+#
+# - `x86_64-unknown-none` satisfies this property, as explained by [the
+#   official documentation](https://doc.rust-lang.org/rustc/platform-support/x86_64-unknown-none.html).
+# - `riscv64imac-unknown-none-elf` denotes a RISC-V ISA with only basic
+#   extensions (`imac`) and no floating-point-related extensions.
+# - `loongarch64-unknown-none-softfloat` is rather self-explaining.
 
 [target.x86_64-unknown-none.dependencies]
 x86_64 = "0.14.13"
@@ -75,8 +85,9 @@ iced-x86 = { version = "1.21.0", default-features = false, features = [
     "gas",
 ], optional = true }
 tdx-guest = { version = "0.2.1", optional = true }
+unwinding = { version = "=0.2.5", default-features = false, features = ["fde-gnu-eh-frame-hdr", "hide-trace", "panic", "personality", "unwinder"] }
 
-[target.riscv64gc-unknown-none-elf.dependencies]
+[target.riscv64imac-unknown-none-elf.dependencies]
 riscv = { version = "0.11.1", features = ["s-mode"] }
 sbi-rt = "0.0.3"
 fdt = { version = "0.1.5", features = ["pretty-printing"] }

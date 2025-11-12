@@ -1,0 +1,19 @@
+# template
+[components]
+nix = { name = "aster-nix" }
+virtio = { name = "aster-virtio" }
+input = { name = "aster-input" }
+block = { name = "aster-block" }
+console = { name = "aster-console" }
+softirq = { name = "aster-softirq" }
+logger = { name = "aster-logger" }
+time = { name = "aster-time" }
+framebuffer = { name = "aster-framebuffer" }
+network = { name = "aster-network" }
+mlsdisk = { name = "aster-mlsdisk" }
+systree = { name = "aster-systree" }
+keyboard = { name = "aster-keyboard" }
+
+[whitelist]
+[whitelist.nix.main]
+main = true

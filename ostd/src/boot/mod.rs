@@ -5,8 +5,9 @@
 //!  2. the routine booting into the actual kernel;
 //!  3. the routine booting the other processors in the SMP context.
 pub mod memory_region;
-pub mod smp;
+//pub mod smp;
 
+/* 
 use alloc::{
     string::{String, ToString},
     vec::Vec,
@@ -30,8 +31,8 @@ pub struct BootInfo {
 }
 
 /// Gets the boot information.
-///
-/// This function is usable after initialization with [`init_after_heap`].
+//
+// This function is usable after initialization with `init_after_heap`.
 pub fn boot_info() -> &'static BootInfo {
     INFO.get().unwrap()
 }
@@ -128,3 +129,4 @@ pub(crate) fn call_ostd_main() -> ! {
         __ostd_main();
     }
 }
+*/

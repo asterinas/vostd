@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//! Read the Cpu ctx content then dispatch syscall to corresponding handler
-//! The each sub module contains functions that handle real syscall logic.
+//! System call handlers.
+
 pub use clock_gettime::ClockId;
 use ostd::cpu::context::UserContext;
 pub use timer_create::create_timer;
@@ -11,6 +11,14 @@ use crate::{context::Context, cpu::LinuxAbi, prelude::*};
 mod accept;
 mod access;
 mod alarm;
+#[cfg(target_arch = "x86_64")]
+#[path = "arch/x86.rs"]
+mod arch;
+#[cfg(target_arch = "riscv64")]
+#[path = "arch/riscv.rs"]
+mod arch;
+#[cfg(target_arch = "loongarch64")]
+#[path = "arch/loongarch.rs"]
 mod arch;
 mod arch_prctl;
 mod bind;
@@ -32,12 +40,14 @@ mod eventfd;
 mod execve;
 mod exit;
 mod exit_group;
+mod fadvise64;
 mod fallocate;
 mod fcntl;
 mod flock;
 mod fork;
 mod fsync;
 mod futex;
+mod get_ioprio;
 mod get_priority;
 mod getcpu;
 mod getcwd;
@@ -69,16 +79,19 @@ mod listen;
 mod listxattr;
 mod lseek;
 mod madvise;
+mod memfd_create;
 mod mkdir;
 mod mknod;
 mod mmap;
 mod mount;
 mod mprotect;
+mod mremap;
 mod msync;
 mod munmap;
 mod nanosleep;
 mod open;
 mod pause;
+mod pidfd_open;
 mod pipe;
 mod poll;
 mod ppoll;
@@ -118,6 +131,7 @@ mod semop;
 mod sendfile;
 mod sendmsg;
 mod sendto;
+mod set_ioprio;
 mod set_priority;
 mod set_robust_list;
 mod set_tid_address;

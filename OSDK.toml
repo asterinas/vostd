@@ -25,9 +25,6 @@ init_args = ["sh", "-l"]
 initramfs = "test/build/initramfs.cpio.gz"
 
 # Special options for testing
-[test.boot]
-method = "qemu-direct"
-
 [test.qemu]
 args = "$(./tools/qemu_args.sh test)"
 
@@ -69,4 +66,24 @@ qemu.args = """\
     -device virtio-keyboard-device \
     -device virtio-serial-device \
     -device virtconsole,chardev=mux \
+"""
+
+[scheme."loongarch"]
+boot.method = "qemu-direct"
+build.strip_elf = false
+
+qemu.args = """\
+    -machine virt \
+    -m 8G \
+    -smp 1 \
+    --no-reboot \
+    -nographic \
+    -display none \
+    -serial chardev:mux \
+    -monitor chardev:mux \
+    -chardev stdio,id=mux,mux=on,signal=off,logfile=qemu.log \
+    -device virtio-keyboard-pci \
+    -device virtio-serial \
+    -device virtconsole,chardev=mux \
+    -rtc base=utc
 """

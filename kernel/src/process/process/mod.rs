@@ -18,6 +18,7 @@ use super::{
 };
 use crate::{
     prelude::*,
+    process::{signal::Pollee, status::StopWaitStatus, WaitOptions},
     sched::{AtomicNice, Nice},
     thread::{AsThread, Thread},
     time::clocks::ProfClock,
@@ -63,6 +64,7 @@ pub struct Process {
     process_vm: ProcessVm,
     /// Wait for child status changed
     children_wait_queue: WaitQueue,
+    pub(super) pidfile_pollee: Pollee,
 
     // Mutable Part
     /// The executable path.
@@ -94,7 +96,7 @@ pub struct Process {
 
     /// Whether the process has a subreaper that will reap it when the
     /// process becomes orphaned.
-    ///  
+    ///
     /// If `has_child_subreaper` is true in a `Process`, this attribute should
     /// also be true for all of its descendants.
     pub(super) has_child_subreaper: AtomicBool,
@@ -204,6 +206,7 @@ impl Process {
             executable_path: RwLock::new(executable_path),
             process_vm,
             children_wait_queue,
+            pidfile_pollee: Pollee::new(),
             status: ProcessStatus::default(),
             parent: ParentProcess::new(parent),
             children: Mutex::new(BTreeMap::new()),
@@ -670,6 +673,47 @@ impl Process {
     /// Returns a reference to the process status.
     pub fn status(&self) -> &ProcessStatus {
         &self.status
+    }
+
+    /// Stops the process.
+    //
+    // FIXME: `ptrace` is another reason that can cause a process to stop.
+    // Consider extending the method signature to support `ptrace` if necessary.
+    pub fn stop(&self, sig_num: SigNum) {
+        if self.status.stop_status().stop(sig_num) {
+            self.wake_up_parent();
+        }
+    }
+
+    /// Resumes the stopped process.
+    pub fn resume(&self) {
+        if self.status.stop_status().resume() {
+            self.wake_up_parent();
+
+            // Note that the resume function is called by the thread which deals with SIGCONT,
+            // since SIGCONT is handled by any thread in this process, we need to wake
+            // up other stopped threads in the same process.
+            for task in self.tasks.lock().as_slice() {
+                let posix_thread = task.as_posix_thread().unwrap();
+                posix_thread.wake_signalled_waker();
+            }
+        }
+    }
+
+    /// Returns whether the process is stopped.
+    pub fn is_stopped(&self) -> bool {
+        self.status.stop_status().is_stopped()
+    }
+
+    /// Gets and clears the stop status changes for the `wait` syscall.
+    pub(super) fn wait_stopped_or_continued(&self, options: WaitOptions) -> Option<StopWaitStatus> {
+        self.status.stop_status().wait(options)
+    }
+
+    fn wake_up_parent(&self) {
+        let parent_guard = self.parent.lock();
+        let parent = parent_guard.process().upgrade().unwrap();
+        parent.children_wait_queue.wake_all();
     }
 
     // ******************* Subreaper ********************

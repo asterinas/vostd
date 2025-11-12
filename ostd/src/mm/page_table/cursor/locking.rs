@@ -89,8 +89,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         }
     }
     let guard_node = cursor.path[cursor.guard_level as usize - 1].take().unwrap();
-    let cur_node_va = cursor.barrier_va.start / page_size(cursor.guard_level + 1)
-        * page_size(cursor.guard_level + 1);
+    let cur_node_va = align_down(cursor.barrier_va.start, page_size(cursor.guard_level + 1));
 
     // SAFETY: A cursor maintains that its corresponding sub-tree is locked.
     dfs_release_lock(

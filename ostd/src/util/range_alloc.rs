@@ -2,16 +2,16 @@
 use alloc::collections::btree_map::BTreeMap;
 use core::ops::Range;
 
-use crate::{
-    prelude::*,
-    sync::{PreemptDisabled, SpinLock, SpinLockGuard},
-    Error,
-};
+use crate::sync::{PreemptDisabled, SpinLock, SpinLockGuard};
 
 pub struct RangeAllocator {
     fullrange: Range<usize>,
     freelist: SpinLock<Option<BTreeMap<usize, FreeRange>>>,
 }
+
+/// An error returned when allocating from a [`RangeAllocator`].
+#[derive(Debug)]
+pub struct RangeAllocError;
 
 impl RangeAllocator {
     pub const fn new(fullrange: Range<usize>) -> Self {
@@ -26,7 +26,7 @@ impl RangeAllocator {
     }
 
     /// Allocates a specific kernel virtual area.
-    pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<()> {
+    pub fn alloc_specific(&self, allocate_range: &Range<usize>) -> Result<(), RangeAllocError> {
         debug_assert!(allocate_range.start < allocate_range.end);
 
         let mut lock_guard = self.get_freelist_guard();
@@ -62,14 +62,14 @@ impl RangeAllocator {
         if target_node.is_some() {
             Ok(())
         } else {
-            Err(Error::KVirtAreaAllocError)
+            Err(RangeAllocError)
         }
     }
 
     /// Allocates a range specific by the `size`.
     ///
     /// This is currently implemented with a simple FIRST-FIT algorithm.
-    pub fn alloc(&self, size: usize) -> Result<Range<usize>> {
+    pub fn alloc(&self, size: usize) -> Result<Range<usize>, RangeAllocError> {
         let mut lock_guard = self.get_freelist_guard();
         let freelist = lock_guard.as_mut().unwrap();
         let mut allocate_range = None;
@@ -96,7 +96,7 @@ impl RangeAllocator {
         if let Some(range) = allocate_range {
             Ok(range)
         } else {
-            Err(Error::KVirtAreaAllocError)
+            Err(RangeAllocError)
         }
     }
 

@@ -46,10 +46,10 @@ impl Arch {
     /// Get the target triple for the architecture.
     pub fn triple(&self) -> &'static str {
         match self {
-            Arch::Aarch64 => "aarch64-unknown-none",
-            Arch::RiscV64 => "riscv64gc-unknown-none-elf",
+            Arch::Aarch64 => "aarch64-unknown-none-softfloat",
+            Arch::RiscV64 => "riscv64imac-unknown-none-elf",
             Arch::X86_64 => "x86_64-unknown-none",
-            Arch::LoongArch64 => "loongarch64-unknown-none",
+            Arch::LoongArch64 => "loongarch64-unknown-none-softfloat",
         }
     }
 
@@ -80,7 +80,7 @@ impl Display for Arch {
 
 /// Get the default architecture implied by the host rustc's default architecture.
 pub fn get_default_arch() -> Arch {
-    let output = std::process::Command::new("rustc")
+    let output = crate::util::new_command_checked_exists("rustc")
         .arg("-vV")
         .output()
         .expect("Failed to run rustc to get the host target");

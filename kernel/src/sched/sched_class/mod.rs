@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
+//! Completely Fair Scheduler (CFS).
+
 #![warn(unused)]
 
 use alloc::{boxed::Box, sync::Arc};
@@ -16,7 +18,7 @@ use ostd::{
         },
         AtomicCpuId, Task,
     },
-    trap::disable_local,
+    trap::irq::disable_local,
 };
 
 use super::{
@@ -119,6 +121,9 @@ trait SchedClassRq: Send + fmt::Debug {
     fn pick_next(&mut self) -> Option<Arc<Task>>;
 
     /// Update the information of the current task.
+    ///
+    /// The return value of this method indicates whether there is another task
+    /// **in this run queue** to replace the current one.
     fn update_current(&mut self, rt: &CurrentRuntime, attr: &SchedAttr, flags: UpdateFlags)
         -> bool;
 }
@@ -179,7 +184,17 @@ impl SchedAttr {
     }
 
     pub fn update_policy<T>(&self, f: impl FnOnce(&mut SchedPolicy) -> T) -> T {
-        self.policy.update(f)
+        self.policy.update(|policy| {
+            let ret = f(policy);
+            match *policy {
+                SchedPolicy::RealTime { rt_prio, rt_policy } => {
+                    self.real_time.update(rt_prio.get(), rt_policy);
+                }
+                SchedPolicy::Fair(nice) => self.fair.update(nice),
+                _ => {}
+            }
+            ret
+        })
     }
 
     fn last_cpu(&self) -> Option<CpuId> {
@@ -227,7 +242,7 @@ impl Scheduler for ClassScheduler {
         should_preempt.then_some(cpu)
     }
 
-    fn local_mut_rq_with(&self, f: &mut dyn FnMut(&mut dyn LocalRunQueue)) {
+    fn mut_local_rq_with(&self, f: &mut dyn FnMut(&mut dyn LocalRunQueue)) {
         let guard = disable_local();
         let mut lock = self.rqs[guard.current_cpu().as_usize()].lock();
         f(&mut *lock)
@@ -329,7 +344,7 @@ impl LocalRunQueue for PerCpuClassRqSet {
         self.current.as_ref().map(|((task, _), _)| task)
     }
 
-    fn pick_next_current(&mut self) -> Option<&Arc<Task>> {
+    fn try_pick_next(&mut self) -> Option<&Arc<Task>> {
         self.pick_next_entity().and_then(|next| {
             // We guarantee that a task can appear at once in a `PerCpuClassRqSet`. So, the `next` cannot be the same
             // as the current task here.
@@ -341,24 +356,29 @@ impl LocalRunQueue for PerCpuClassRqSet {
     }
 
     fn update_current(&mut self, flags: UpdateFlags) -> bool {
-        if let Some(((_, cur), rt)) = &mut self.current {
+        let (should_preempt, mut lookahead) = if let Some(((_, cur), rt)) = &mut self.current {
             rt.update();
             let attr = &cur.sched_attr();
 
-            let (current_expired, lookahead) = match attr.policy_kind() {
+            match attr.policy_kind() {
                 SchedPolicyKind::Stop => (self.stop.update_current(rt, attr, flags), 0),
                 SchedPolicyKind::RealTime => (self.real_time.update_current(rt, attr, flags), 1),
                 SchedPolicyKind::Fair => (self.fair.update_current(rt, attr, flags), 2),
                 SchedPolicyKind::Idle => (self.idle.update_current(rt, attr, flags), 3),
-            };
-
-            current_expired
-                || (lookahead >= 1 && !self.stop.is_empty())
-                || (lookahead >= 2 && !self.real_time.is_empty())
-                || (lookahead >= 3 && !self.fair.is_empty())
+            }
         } else {
-            true
+            (false, 4)
+        };
+
+        if matches!(flags, UpdateFlags::Wait | UpdateFlags::Exit) {
+            lookahead = 4;
         }
+
+        should_preempt
+            || (lookahead >= 1 && !self.stop.is_empty())
+            || (lookahead >= 2 && !self.real_time.is_empty())
+            || (lookahead >= 3 && !self.fair.is_empty())
+            || (lookahead >= 4 && !self.idle.is_empty())
     }
 
     fn dequeue_current(&mut self) -> Option<Arc<Task>> {

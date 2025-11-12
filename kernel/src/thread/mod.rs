@@ -2,14 +2,13 @@
 
 //! Posix thread implementation
 
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use ostd::{
     cpu::{AtomicCpuSet, CpuSet},
     task::Task,
 };
 
-use self::status::{AtomicThreadStatus, ThreadStatus};
 use crate::{
     prelude::*,
     sched::{SchedAttr, SchedPolicy},
@@ -18,11 +17,21 @@ use crate::{
 pub mod exception;
 pub mod kernel_thread;
 pub mod oops;
-pub mod status;
 pub mod task;
 pub mod work_queue;
 
 pub type Tid = u32;
+
+fn pre_schedule_handler() {
+    let Some(task) = Task::current() else {
+        return;
+    };
+    let Some(thread_local) = task.as_thread_local() else {
+        return;
+    };
+
+    thread_local.fpu().before_schedule();
+}
 
 fn post_schedule_handler() {
     let task = Task::current().unwrap();
@@ -34,9 +43,12 @@ fn post_schedule_handler() {
     if let Some(vmar) = root_vmar.as_ref() {
         vmar.vm_space().activate()
     }
+
+    thread_local.fpu().after_schedule();
 }
 
 pub(super) fn init() {
+    ostd::task::inject_pre_schedule_handler(pre_schedule_handler);
     ostd::task::inject_post_schedule_handler(post_schedule_handler);
     ostd::arch::trap::inject_user_page_fault_handler(exception::page_fault_handler);
 }
@@ -52,7 +64,7 @@ pub struct Thread {
 
     // mutable part
     /// Thread status
-    status: AtomicThreadStatus,
+    is_exited: AtomicBool,
     /// Thread CPU affinity
     cpu_affinity: AtomicCpuSet,
     sched_attr: SchedAttr,
@@ -69,7 +81,7 @@ impl Thread {
         Thread {
             task,
             data: Box::new(data),
-            status: AtomicThreadStatus::new(ThreadStatus::Init),
+            is_exited: AtomicBool::new(false),
             cpu_affinity: AtomicCpuSet::new(cpu_affinity),
             sched_attr: SchedAttr::new(sched_policy),
         }
@@ -91,59 +103,16 @@ impl Thread {
     /// Runs this thread at once.
     #[track_caller]
     pub fn run(&self) {
-        self.status.store(ThreadStatus::Running, Ordering::Release);
         self.task.upgrade().unwrap().run();
     }
 
     /// Returns whether the thread is exited.
     pub fn is_exited(&self) -> bool {
-        self.status.load(Ordering::Acquire).is_exited()
-    }
-
-    /// Returns whether the thread is stopped.
-    pub fn is_stopped(&self) -> bool {
-        self.status.load(Ordering::Acquire).is_stopped()
-    }
-
-    /// Stops the thread if it is running.
-    ///
-    /// If the previous status is not [`ThreadStatus::Running`], this function
-    /// returns [`Err`] with the previous state. Otherwise, it sets the status
-    /// to [`ThreadStatus::Stopped`] and returns [`Ok`] with the previous state.
-    ///
-    /// This function only sets the status to [`ThreadStatus::Stopped`],
-    /// without initiating a reschedule.
-    pub fn stop(&self) -> core::result::Result<ThreadStatus, ThreadStatus> {
-        self.status.compare_exchange(
-            ThreadStatus::Running,
-            ThreadStatus::Stopped,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        )
-    }
-
-    /// Resumes running the thread if it is stopped.
-    ///
-    /// If the previous status is not [`ThreadStatus::Stopped`], this function
-    /// returns [`None`]. Otherwise, it sets the status to
-    /// [`ThreadStatus::Running`] and returns [`Some(())`].
-    ///
-    /// This function only sets the status to [`ThreadStatus::Running`],
-    /// without initiating a reschedule.
-    pub fn resume(&self) -> Option<()> {
-        self.status
-            .compare_exchange(
-                ThreadStatus::Stopped,
-                ThreadStatus::Running,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .ok()
-            .map(|_| ())
+        self.is_exited.load(Ordering::Acquire)
     }
 
     pub(super) fn exit(&self) {
-        self.status.store(ThreadStatus::Exited, Ordering::Release);
+        self.is_exited.store(true, Ordering::Release);
     }
 
     /// Returns the reference to the atomic CPU affinity.

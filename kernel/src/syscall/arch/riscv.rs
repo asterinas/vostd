@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use crate::syscall::{
+//! System call dispatch in the RSIC-V architecture.
+
+use super::{
     accept::{sys_accept, sys_accept4},
     access::{sys_faccessat, sys_faccessat2},
     bind::sys_bind,
@@ -21,11 +23,13 @@ use crate::syscall::{
     execve::{sys_execve, sys_execveat},
     exit::sys_exit,
     exit_group::sys_exit_group,
+    fadvise64::sys_fadvise64,
     fallocate::sys_fallocate,
     fcntl::sys_fcntl,
     flock::sys_flock,
     fsync::{sys_fdatasync, sys_fsync},
     futex::sys_futex,
+    get_ioprio::sys_ioprio_get,
     get_priority::sys_get_priority,
     getcpu::sys_getcpu,
     getcwd::sys_getcwd,
@@ -55,15 +59,18 @@ use crate::syscall::{
     listen::sys_listen,
     lseek::sys_lseek,
     madvise::sys_madvise,
+    memfd_create::sys_memfd_create,
     mkdir::sys_mkdirat,
     mknod::sys_mknodat,
     mmap::sys_mmap,
     mount::sys_mount,
     mprotect::sys_mprotect,
+    mremap::sys_mremap,
     msync::sys_msync,
     munmap::sys_munmap,
     nanosleep::{sys_clock_nanosleep, sys_nanosleep},
     open::sys_openat,
+    pidfd_open::sys_pidfd_open,
     pipe::sys_pipe2,
     prctl::sys_prctl,
     pread64::sys_pread64,
@@ -97,6 +104,7 @@ use crate::syscall::{
     sendfile::sys_sendfile,
     sendmsg::sys_sendmsg,
     sendto::sys_sendto,
+    set_ioprio::sys_ioprio_set,
     set_priority::sys_set_priority,
     set_robust_list::sys_set_robust_list,
     set_tid_address::sys_set_tid_address,
@@ -150,6 +158,8 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_DUP3 = 24                => sys_dup3(args[..3]);
     SYS_FCNTL = 25               => sys_fcntl(args[..3]);
     SYS_IOCTL = 29               => sys_ioctl(args[..3]);
+    SYS_IOPRIO_SET = 30          => sys_ioprio_set(args[..3]);
+    SYS_IOPRIO_GET = 31          => sys_ioprio_get(args[..2]);
     SYS_FLOCK = 32               => sys_flock(args[..2]);
     SYS_MKNODAT = 33             => sys_mknodat(args[..4]);
     SYS_MKDIRAT = 34             => sys_mkdirat(args[..3]);
@@ -277,9 +287,11 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_RECVMSG = 212            => sys_recvmsg(args[..3]);
     SYS_BRK = 214                => sys_brk(args[..1]);
     SYS_MUNMAP = 215             => sys_munmap(args[..2]);
+    SYS_MREMAP = 216           => sys_mremap(args[..5]);
     SYS_CLONE = 220              => sys_clone(args[..5], &user_ctx);
     SYS_EXECVE = 221             => sys_execve(args[..3], &mut user_ctx);
     SYS_MMAP = 222               => sys_mmap(args[..6]);
+    SYS_FADVISE64 = 223          => sys_fadvise64(args[..4]);
     SYS_MPROTECT = 226           => sys_mprotect(args[..3]);
     SYS_MSYNC = 227              => sys_msync(args[..3]);
     SYS_MADVISE = 233            => sys_madvise(args[..3]);
@@ -289,6 +301,7 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_SCHED_SETATTR = 274      => sys_sched_setattr(args[..3]);
     SYS_SCHED_GETATTR = 275      => sys_sched_getattr(args[..4]);
     SYS_GETRANDOM = 278          => sys_getrandom(args[..3]);
+    SYS_MEMFD_CREATE = 279     => sys_memfd_create(args[..2]);
     SYS_EXECVEAT = 281           => sys_execveat(args[..5], &mut user_ctx);
     SYS_PREADV2 = 286            => sys_preadv2(args[..5]);
     SYS_PWRITEV2 = 287           => sys_pwritev2(args[..5]);
@@ -301,6 +314,7 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_TIMERFD_SETTIME = 411    => sys_timerfd_settime(args[..4]);
     SYS_UTIMENSAT = 412          => sys_utimensat(args[..4]);
     SYS_SEMTIMEDOP = 420         => sys_semtimedop(args[..4]);
+    SYS_PIDFD_OPEN = 434         => sys_pidfd_open(args[..2]);
     SYS_CLONE3 = 435             => sys_clone3(args[..2], &user_ctx);
     SYS_CLOSE_RANGE = 436      => sys_close_range(args[..3]);
     SYS_FACCESSAT2 = 439         => sys_faccessat2(args[..4]);

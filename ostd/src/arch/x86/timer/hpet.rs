@@ -10,9 +10,9 @@ use volatile::{
 };
 
 use crate::{
-    arch::kernel::{acpi::get_acpi_tables, apic::ioapic},
+    arch::kernel::{acpi::get_acpi_tables, MappedIrqLine, IRQ_CHIP},
     mm::paddr_to_vaddr,
-    trap::IrqLine,
+    trap::irq::IrqLine,
 };
 
 static HPET_INSTANCE: Once<Hpet> = Once::new();
@@ -40,7 +40,7 @@ struct Hpet {
     _general_interrupt_status_register: VolatileRef<'static, u32, ReadWrite>,
 
     _timer_registers: Vec<VolatileRef<'static, HpetTimerRegister, ReadWrite>>,
-    _irq: IrqLine,
+    _irq: MappedIrqLine,
 }
 
 impl Hpet {
@@ -90,11 +90,9 @@ impl Hpet {
             comparators.push(comp);
         }
 
-        let mut lock = ioapic::IO_APIC.get().unwrap()[0].lock();
         let irq = IrqLine::alloc().unwrap();
         // FIXME: The index of HPET interrupt needs to be tested.
-        lock.enable(0, irq.clone()).unwrap();
-        drop(lock);
+        let irq = IRQ_CHIP.get().unwrap().map_isa_pin_to(irq, 0).unwrap();
 
         Hpet {
             information_register,

@@ -1,17 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! CPU execution context control.
 use alloc::boxed::Box;
-use core::{
-    arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64},
-    fmt::Debug,
-    sync::atomic::{AtomicBool, Ordering::Relaxed},
-};
+use core::arch::x86_64::{_fxrstor64, _fxsave64, _xrstor64, _xsave64};
 
 use bitflags::bitflags;
 use cfg_if::cfg_if;
 use log::debug;
-use num_derive::FromPrimitive;
-use num_traits::FromPrimitive;
+use ostd_pod::Pod;
 use spin::Once;
 use x86::bits64::segmentation::wrfsbase;
 use x86_64::registers::{
@@ -21,7 +16,11 @@ use x86_64::registers::{
 };
 
 use crate::{
-    arch::CPU_FEATURES,
+    arch::{
+        trap::{RawUserContext, TrapFrame},
+        CPU_FEATURES,
+    },
+    mm::Vaddr,
     task::scheduler,
     trap::call_irq_callback_functions,
     user::{ReturnReason, UserContextApi, UserContextApiInternal},
@@ -37,55 +36,204 @@ cfg_if! {
 
 pub use x86::cpuid;
 
-pub use crate::arch::trap::{
-    GeneralRegs as RawGeneralRegs, TrapFrame, UserContext as RawUserContext,
-};
-
-/// Cpu context, including both general-purpose registers and FPU state.
+/// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Default, Debug)]
 #[repr(C)]
 pub struct UserContext {
     user_context: RawUserContext,
-    fpu_state: FpuState,
-    cpu_exception_info: CpuExceptionInfo,
+    exception: Option<CpuException>,
 }
 
-/// CPU exception information.
-#[derive(Clone, Default, Copy, Debug)]
+/// General registers.
+#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
-pub struct CpuExceptionInfo {
-    /// The ID of the exception.
-    pub id: usize,
-    /// The error code associated with the exception.
-    pub error_code: usize,
-    /// The virtual address where a page fault occurred.
-    pub page_fault_addr: usize,
+#[expect(missing_docs)]
+pub struct GeneralRegs {
+    pub rax: usize,
+    pub rbx: usize,
+    pub rcx: usize,
+    pub rdx: usize,
+    pub rsi: usize,
+    pub rdi: usize,
+    pub rbp: usize,
+    pub rsp: usize,
+    pub r8: usize,
+    pub r9: usize,
+    pub r10: usize,
+    pub r11: usize,
+    pub r12: usize,
+    pub r13: usize,
+    pub r14: usize,
+    pub r15: usize,
+    pub rip: usize,
+    pub rflags: usize,
+    pub fsbase: usize,
+    pub gsbase: usize,
 }
+
+/// Architectural CPU exceptions (x86-64 vectors 0-31).
+///
+/// For the authoritative specification of each vector, see the  
+/// Intel® 64 and IA-32 Architectures Software Developer’s Manual,  
+/// Volume 3 “System Programming Guide”, Chapter 6 “Interrupt and Exception
+/// Handling”, in particular Section 6.15 “Exception and Interrupt
+/// Reference”.
+///
+/// Every enum variant corresponds to one exception defined by the
+/// Intel/AMD architecture.
+/// Variants that naturally carry an error code (or other error information)
+/// expose it through their associated data fields.
+//
+// TODO: Some exceptions (like `AlignmentCheck`) also push an
+//       error code onto the stack, but that detail is not yet represented
+//       in this type definition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CpuException {
+    ///  0 – #DE  Divide-by-zero error.
+    DivisionError,
+    ///  1 – #DB  Debug.
+    Debug,
+    ///  2 – NMI  Non-maskable interrupt.
+    NonMaskableInterrupt,
+    ///  3 – #BP  Breakpoint (INT3).
+    BreakPoint,
+    ///  4 – #OF  Overflow.
+    Overflow,
+    ///  5 – #BR  Bound-range exceeded.
+    BoundRangeExceeded,
+    ///  6 – #UD  Invalid or undefined opcode.
+    InvalidOpcode,
+    ///  7 – #NM  Device not available (FPU/MMX/SSE disabled).
+    DeviceNotAvailable,
+    ///  8 – #DF  Double fault (always pushes an error code of 0).
+    DoubleFault,
+    ///  9 – Coprocessor segment overrun (reserved on modern CPUs).
+    CoprocessorSegmentOverrun,
+    /// 10 – #TS  Invalid TSS.
+    InvalidTss(SelectorErrorCode),
+    /// 11 – #NP  Segment not present.
+    SegmentNotPresent(SelectorErrorCode),
+    /// 12 – #SS  Stack-segment fault.
+    StackSegmentFault(SelectorErrorCode),
+    /// 13 – #GP  General protection fault  
+    GeneralProtectionFault(Option<SelectorErrorCode>),
+    /// 14 – #PF  Page fault.
+    PageFault(RawPageFaultInfo),
+    // 15: Reserved
+    /// 16 – #MF  x87 floating-point exception.
+    X87FloatingPointException,
+    /// 17 – #AC  Alignment check.  
+    AlignmentCheck,
+    /// 18 – #MC  Machine check.
+    MachineCheck,
+    /// 19 – #XM / #XF  SIMD/FPU floating-point exception.
+    SIMDFloatingPointException,
+    /// 20 – #VE  Virtualization exception.
+    VirtualizationException,
+    /// 21 – #CP  Control protection exception (CET).
+    ControlProtectionException,
+    // 22-27: Reserved
+    /// 28 – #HV  Hypervisor injection exception.
+    HypervisorInjectionException,
+    /// 29 – #VC  VMM communication exception (SEV-ES GHCB).
+    VMMCommunicationException,
+    /// 30 – #SX  Security exception.
+    SecurityException,
+    // 31: Reserved
+    /// Catch-all for reserved or undefined vector numbers.
+    Reserved,
+}
+
+impl CpuException {
+    pub(crate) fn new(trap_num: usize, error_code: usize) -> Option<Self> {
+        let exception = match trap_num {
+            0 => Self::DivisionError,
+            1 => Self::Debug,
+            2 => Self::NonMaskableInterrupt,
+            3 => Self::BreakPoint,
+            4 => Self::Overflow,
+            5 => Self::BoundRangeExceeded,
+            6 => Self::InvalidOpcode,
+            7 => Self::DeviceNotAvailable,
+            8 => {
+                // A double fault will always generate an error code with a value of zero.
+                debug_assert_eq!(error_code, 0);
+                Self::DoubleFault
+            }
+            9 => Self::CoprocessorSegmentOverrun,
+            10 => Self::InvalidTss(SelectorErrorCode(error_code)),
+            11 => Self::SegmentNotPresent(SelectorErrorCode(error_code)),
+            12 => Self::StackSegmentFault(SelectorErrorCode(error_code)),
+            13 => {
+                let error_code = if error_code == 0 {
+                    None
+                } else {
+                    Some(SelectorErrorCode(error_code))
+                };
+                Self::GeneralProtectionFault(error_code)
+            }
+            14 => {
+                let page_fault_addr = x86_64::registers::control::Cr2::read_raw() as usize;
+                Self::PageFault(RawPageFaultInfo {
+                    error_code: PageFaultErrorCode::from_bits(error_code).unwrap(),
+                    addr: page_fault_addr,
+                })
+            }
+            // Reserved 15
+            16 => Self::X87FloatingPointException,
+            17 => Self::AlignmentCheck,
+            18 => Self::MachineCheck,
+            19 => Self::SIMDFloatingPointException,
+            20 => Self::VirtualizationException,
+            21 => Self::ControlProtectionException,
+            // Reserved 22-27
+            28 => Self::HypervisorInjectionException,
+            29 => Self::VMMCommunicationException,
+            30 => Self::SecurityException,
+            // Reserved 31
+            15 | 22..=27 | 31 => Self::Reserved,
+            _ => return None,
+        };
+
+        Some(exception)
+    }
+
+    const fn type_(&self) -> CpuExceptionType {
+        match self {
+            Self::Debug => CpuExceptionType::FaultOrTrap,
+            Self::NonMaskableInterrupt => CpuExceptionType::Interrupt,
+            Self::BreakPoint | Self::Overflow => CpuExceptionType::Trap,
+            Self::DoubleFault | Self::MachineCheck => CpuExceptionType::Abort,
+            Self::Reserved => CpuExceptionType::Reserved,
+            _ => CpuExceptionType::Fault,
+        }
+    }
+
+    pub(crate) const fn is_cpu_exception(trap_num: usize) -> bool {
+        trap_num <= 31
+    }
+}
+
+/// Selector error code.
+///
+/// Reference: <https://wiki.osdev.org/Exceptions#Selector_Error_Code>.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SelectorErrorCode(usize);
 
 impl UserContext {
     /// Returns a reference to the general registers.
-    pub fn general_regs(&self) -> &RawGeneralRegs {
+    pub fn general_regs(&self) -> &GeneralRegs {
         &self.user_context.general
     }
 
     /// Returns a mutable reference to the general registers
-    pub fn general_regs_mut(&mut self) -> &mut RawGeneralRegs {
+    pub fn general_regs_mut(&mut self) -> &mut GeneralRegs {
         &mut self.user_context.general
     }
 
-    /// Returns the trap information.
-    pub fn trap_information(&self) -> &CpuExceptionInfo {
-        &self.cpu_exception_info
-    }
-
-    /// Returns a reference to the FPU state.
-    pub fn fpu_state(&self) -> &FpuState {
-        &self.fpu_state
-    }
-
-    /// Returns a mutable reference to the FPU state.
-    pub fn fpu_state_mut(&mut self) -> &mut FpuState {
-        &mut self.fpu_state
+    /// Takes the CPU exception out.
+    pub fn take_exception(&mut self) -> Option<CpuException> {
+        self.exception.take()
     }
 
     /// Sets thread-local storage pointer.
@@ -121,23 +269,26 @@ impl UserContextApiInternal for UserContext {
 
         const SYSCALL_TRAPNUM: usize = 0x100;
 
-        // return when it is syscall or cpu exception type is Fault or Trap.
-        let return_reason = loop {
+        // Return when it is syscall or cpu exception type is Fault or Trap.
+        loop {
             scheduler::might_preempt();
             self.user_context.run();
 
-            match CpuException::to_cpu_exception(self.user_context.trap_num as u16) {
+            let exception =
+                CpuException::new(self.user_context.trap_num, self.user_context.error_code);
+            match exception {
                 #[cfg(feature = "cvm_guest")]
-                Some(CpuException::VIRTUALIZATION_EXCEPTION) => {
+                Some(CpuException::VirtualizationException) => {
                     let ve_handler = VirtualizationExceptionHandler::new();
                     // Check out the doc of `VirtualizationExceptionHandler::new` to
                     // see why IRQs must enabled _after_ instantiating a `VirtualizationExceptionHandler`.
                     crate::arch::irq::enable_local();
                     ve_handler.handle(self);
                 }
-                Some(exception) if exception.typ().is_fatal_or_trap() => {
+                Some(exception) if exception.type_().is_fault_or_trap() => {
                     crate::arch::irq::enable_local();
-                    break ReturnReason::UserException;
+                    self.exception = Some(exception);
+                    return ReturnReason::UserException;
                 }
                 Some(exception) => {
                     panic!(
@@ -148,7 +299,7 @@ impl UserContextApiInternal for UserContext {
                 }
                 None if self.user_context.trap_num == SYSCALL_TRAPNUM => {
                     crate::arch::irq::enable_local();
-                    break ReturnReason::UserSyscall;
+                    return ReturnReason::UserSyscall;
                 }
                 None => {
                     call_irq_callback_functions(
@@ -162,17 +313,7 @@ impl UserContextApiInternal for UserContext {
             if has_kernel_event() {
                 break ReturnReason::KernelEvent;
             }
-        };
-
-        if return_reason == ReturnReason::UserException {
-            self.cpu_exception_info = CpuExceptionInfo {
-                page_fault_addr: unsafe { x86::controlregs::cr2() },
-                id: self.user_context.trap_num,
-                error_code: self.user_context.error_code,
-            };
         }
-
-        return_reason
     }
 
     fn as_trap_frame(&self) -> TrapFrame {
@@ -232,7 +373,7 @@ pub enum CpuExceptionType {
 
 impl CpuExceptionType {
     /// Returns whether this exception type is a fault or a trap.
-    pub fn is_fatal_or_trap(self) -> bool {
+    pub fn is_fault_or_trap(self) -> bool {
         match self {
             CpuExceptionType::Trap | CpuExceptionType::Fault | CpuExceptionType::FaultOrTrap => {
                 true
@@ -244,64 +385,14 @@ impl CpuExceptionType {
     }
 }
 
-macro_rules! define_cpu_exception {
-    ( $([ $name: ident = $exception_id:tt, $exception_type:tt]),* ) => {
-        /// CPU exception.
-        #[expect(non_camel_case_types)]
-        #[derive(Debug, Copy, Clone, Eq, PartialEq, FromPrimitive)]
-        pub enum CpuException {
-            $(
-                #[doc = concat!("The ", stringify!($name), " exception")]
-                $name = $exception_id,
-            )*
-        }
-
-        impl CpuException {
-            /// The type of the CPU exception.
-            pub fn typ(&self) -> CpuExceptionType {
-                match self {
-                    $( CpuException::$name => CpuExceptionType::$exception_type, )*
-                }
-            }
-        }
-    }
+/// Architecture-specific data reported with a page-fault exception.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RawPageFaultInfo {
+    /// The error code pushed by the CPU for this page fault.
+    pub error_code: PageFaultErrorCode,
+    /// The linear (virtual) address that triggered the fault (contents of CR2).
+    pub addr: Vaddr,
 }
-
-// We also defined the RESERVED Exception so that we can easily use the index of EXCEPTION_LIST to get the Exception
-define_cpu_exception!(
-    [DIVIDE_BY_ZERO = 0, Fault],
-    [DEBUG = 1, FaultOrTrap],
-    [NON_MASKABLE_INTERRUPT = 2, Interrupt],
-    [BREAKPOINT = 3, Trap],
-    [OVERFLOW = 4, Trap],
-    [BOUND_RANGE_EXCEEDED = 5, Fault],
-    [INVALID_OPCODE = 6, Fault],
-    [DEVICE_NOT_AVAILABLE = 7, Fault],
-    [DOUBLE_FAULT = 8, Abort],
-    [COPROCESSOR_SEGMENT_OVERRUN = 9, Fault],
-    [INVALID_TSS = 10, Fault],
-    [SEGMENT_NOT_PRESENT = 11, Fault],
-    [STACK_SEGMENT_FAULT = 12, Fault],
-    [GENERAL_PROTECTION_FAULT = 13, Fault],
-    [PAGE_FAULT = 14, Fault],
-    [RESERVED_15 = 15, Reserved],
-    [X87_FLOATING_POINT_EXCEPTION = 16, Fault],
-    [ALIGNMENT_CHECK = 17, Fault],
-    [MACHINE_CHECK = 18, Abort],
-    [SIMD_FLOATING_POINT_EXCEPTION = 19, Fault],
-    [VIRTUALIZATION_EXCEPTION = 20, Fault],
-    [CONTROL_PROTECTION_EXCEPTION = 21, Fault],
-    [RESERVED_22 = 22, Reserved],
-    [RESERVED_23 = 23, Reserved],
-    [RESERVED_24 = 24, Reserved],
-    [RESERVED_25 = 25, Reserved],
-    [RESERVED_26 = 26, Reserved],
-    [RESERVED_27 = 27, Reserved],
-    [HYPERVISOR_INJECTION_EXCEPTION = 28, Fault],
-    [VMM_COMMUNICATION_EXCEPTION = 29, Fault],
-    [SECURITY_EXCEPTION = 30, Fault],
-    [RESERVED_31 = 31, Reserved]
-);
 
 bitflags! {
     /// Page Fault error code. Following the Intel Architectures Software Developer's Manual Volume 3
@@ -327,25 +418,6 @@ bitflags! {
         /// 1 if the exception is unrelated to paging and resulted from violation of SGX-specific
         /// access-control requirements.
         const SGX           = 1 << 15;
-    }
-}
-
-impl CpuException {
-    /// Checks if the given `trap_num` is a valid CPU exception.
-    pub fn is_cpu_exception(trap_num: u16) -> bool {
-        Self::to_cpu_exception(trap_num).is_some()
-    }
-
-    /// Maps a `trap_num` to its corresponding CPU exception.
-    pub fn to_cpu_exception(trap_num: u16) -> Option<CpuException> {
-        FromPrimitive::from_u16(trap_num)
-    }
-}
-
-impl CpuExceptionInfo {
-    /// Get corresponding CPU exception
-    pub fn cpu_exception(&self) -> CpuException {
-        CpuException::to_cpu_exception(self.id as u16).unwrap()
     }
 }
 
@@ -418,19 +490,129 @@ cpu_context_impl_getter_setter!(
     [gsbase, set_gsbase]
 );
 
-/// The FPU state of user task.
+/// The FPU context of user task.
 ///
 /// This could be used for saving both legacy and modern state format.
 #[derive(Debug)]
-pub struct FpuState {
-    state_area: Box<XSaveArea>,
+pub struct FpuContext {
+    xsave_area: Box<XSaveArea>,
     area_size: usize,
-    is_valid: AtomicBool,
 }
 
-// The legacy SSE/MMX FPU state format (as saved by `FXSAVE` and restored by the `FXRSTOR` instructions).
-#[repr(C, align(16))]
-#[derive(Clone, Copy, Debug)]
+impl FpuContext {
+    /// Creates a new FPU context.
+    pub fn new() -> Self {
+        let mut area_size = size_of::<FxSaveArea>();
+        if CPU_FEATURES.get().unwrap().has_xsave() {
+            area_size = area_size.max(*XSAVE_AREA_SIZE.get().unwrap());
+        }
+
+        Self {
+            xsave_area: Box::new(XSaveArea::new()),
+            area_size,
+        }
+    }
+
+    /// Saves CPU's current FPU context to this instance.
+    pub fn save(&mut self) {
+        let mem_addr = self.as_bytes_mut().as_mut_ptr();
+
+        if CPU_FEATURES.get().unwrap().has_xsave() {
+            unsafe { _xsave64(mem_addr, XFEATURE_MASK_USER_RESTORE) };
+        } else {
+            unsafe { _fxsave64(mem_addr) };
+        }
+
+        debug!("Save FPU context");
+    }
+
+    /// Loads CPU's FPU context from this instance.
+    pub fn load(&mut self) {
+        let mem_addr = self.as_bytes().as_ptr();
+
+        if CPU_FEATURES.get().unwrap().has_xsave() {
+            let rs_mask = XFEATURE_MASK_USER_RESTORE & XSTATE_MAX_FEATURES.get().unwrap();
+
+            unsafe { _xrstor64(mem_addr, rs_mask) };
+        } else {
+            unsafe { _fxrstor64(mem_addr) };
+        }
+
+        debug!("Load FPU context");
+    }
+
+    /// Returns the FPU context as a byte slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.xsave_area.as_bytes()[..self.area_size]
+    }
+
+    /// Returns the FPU context as a mutable byte slice.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.xsave_area.as_bytes_mut()[..self.area_size]
+    }
+}
+
+impl Default for FpuContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for FpuContext {
+    fn clone(&self) -> Self {
+        let mut xsave_area = Box::new(XSaveArea::new());
+        xsave_area.fxsave_area = self.xsave_area.fxsave_area;
+        xsave_area.features = self.xsave_area.features;
+        xsave_area.compaction = self.xsave_area.compaction;
+        if self.area_size > size_of::<FxSaveArea>() {
+            let len = self.area_size - size_of::<FxSaveArea>() - 64;
+            xsave_area.extended_state_area[..len]
+                .copy_from_slice(&self.xsave_area.extended_state_area[..len]);
+        }
+
+        Self {
+            xsave_area,
+            area_size: self.area_size,
+        }
+    }
+}
+
+/// The modern FPU context format (as saved and restored by the `XSAVE` and `XRSTOR` instructions).
+#[repr(C)]
+#[repr(align(64))]
+#[derive(Clone, Copy, Debug, Pod)]
+struct XSaveArea {
+    fxsave_area: FxSaveArea,
+    features: u64,
+    compaction: u64,
+    reserved: [u64; 6],
+    extended_state_area: [u8; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
+}
+
+impl XSaveArea {
+    fn new() -> Self {
+        let features = if CPU_FEATURES.get().unwrap().has_xsave() {
+            XCr0::read().bits() & XSTATE_MAX_FEATURES.get().unwrap()
+        } else {
+            0
+        };
+
+        let mut xsave_area = Self::new_zeroed();
+        // Set the initial values for the FPU context. Refer to Intel SDM, Table 11-1:
+        // "IA-32 and Intel® 64 Processor States Following Power-up, Reset, or INIT (Contd.)".
+        xsave_area.fxsave_area.control = 0x037F;
+        xsave_area.fxsave_area.tag = 0xFFFF;
+        xsave_area.fxsave_area.mxcsr = 0x1F80;
+        xsave_area.features = features;
+
+        xsave_area
+    }
+}
+
+/// The legacy SSE/MMX FPU context format (as saved and restored by the `FXSAVE` and `FXRSTOR` instructions).
+#[repr(C)]
+#[repr(align(16))]
+#[derive(Clone, Copy, Debug, Pod)]
 struct FxSaveArea {
     control: u16,         // x87 FPU Control Word
     status: u16,          // x87 FPU Status Word
@@ -446,129 +628,6 @@ struct FxSaveArea {
     xmm_space: [u32; 64], // XMM registers (XMM0-XMM15, 128 bits per field)
     padding: [u32; 12],  // Padding
     reserved: [u32; 12], // Software reserved
-}
-
-/// The modern FPU state format (as saved by the `XSAVE`` and restored by the `XRSTOR` instructions).
-#[repr(C, align(64))]
-#[derive(Clone, Copy, Debug)]
-struct XSaveArea {
-    fxsave_area: FxSaveArea,
-    features: u64,
-    compaction: u64,
-    reserved: [u64; 6],
-    extended_state_area: [u8; MAX_XSAVE_AREA_SIZE - size_of::<FxSaveArea>() - 64],
-}
-
-impl XSaveArea {
-    fn init() -> Box<Self> {
-        let features = if CPU_FEATURES.get().unwrap().has_xsave() {
-            XCr0::read().bits() & XSTATE_MAX_FEATURES.get().unwrap()
-        } else {
-            0
-        };
-
-        let mut xsave_area = Box::<Self>::new_uninit();
-        let ptr = xsave_area.as_mut_ptr();
-        // SAFETY: it's safe to initialize the XSaveArea field then return the instance.
-        unsafe {
-            core::ptr::write_bytes(ptr, 0, 1);
-            (*ptr).fxsave_area.control = 0x37F;
-            (*ptr).fxsave_area.mxcsr = 0x1F80;
-            (*ptr).features = features;
-            xsave_area.assume_init()
-        }
-    }
-}
-
-impl FpuState {
-    /// Initializes a new instance.
-    pub fn init() -> Self {
-        let mut area_size = size_of::<FxSaveArea>();
-        if CPU_FEATURES.get().unwrap().has_xsave() {
-            area_size = area_size.max(*XSAVE_AREA_SIZE.get().unwrap());
-        }
-
-        Self {
-            state_area: XSaveArea::init(),
-            area_size,
-            is_valid: AtomicBool::new(true),
-        }
-    }
-
-    /// Returns whether the instance can contains valid state.
-    pub fn is_valid(&self) -> bool {
-        self.is_valid.load(Relaxed)
-    }
-
-    /// Save CPU's current FPU state into this instance.
-    pub fn save(&self) {
-        let mem_addr = &*self.state_area as *const _ as *mut u8;
-
-        if CPU_FEATURES.get().unwrap().has_xsave() {
-            unsafe { _xsave64(mem_addr, XFEATURE_MASK_USER_RESTORE) };
-        } else {
-            unsafe { _fxsave64(mem_addr) };
-        }
-
-        self.is_valid.store(true, Relaxed);
-
-        debug!("Save FPU state");
-    }
-
-    /// Restores CPU's FPU state from this instance.
-    pub fn restore(&self) {
-        if !self.is_valid() {
-            return;
-        }
-
-        let mem_addr = &*self.state_area as *const _ as *const u8;
-
-        if CPU_FEATURES.get().unwrap().has_xsave() {
-            let rs_mask = XFEATURE_MASK_USER_RESTORE & XSTATE_MAX_FEATURES.get().unwrap();
-
-            unsafe { _xrstor64(mem_addr, rs_mask) };
-        } else {
-            unsafe { _fxrstor64(mem_addr) };
-        }
-
-        self.is_valid.store(false, Relaxed);
-
-        debug!("Restore FPU state");
-    }
-
-    /// Clears the state of the instance.
-    ///
-    /// This method does not reset the underlying buffer that contains the
-    /// FPU state; it only marks the buffer __invalid__.
-    pub fn clear(&self) {
-        self.is_valid.store(false, Relaxed);
-    }
-}
-
-impl Clone for FpuState {
-    fn clone(&self) -> Self {
-        let mut state_area = XSaveArea::init();
-        state_area.fxsave_area = self.state_area.fxsave_area;
-        state_area.features = self.state_area.features;
-        state_area.compaction = self.state_area.compaction;
-        if self.area_size > size_of::<FxSaveArea>() {
-            let len = self.area_size - size_of::<FxSaveArea>() - 64;
-            state_area.extended_state_area[..len]
-                .copy_from_slice(&self.state_area.extended_state_area[..len]);
-        }
-
-        Self {
-            state_area,
-            area_size: self.area_size,
-            is_valid: AtomicBool::new(self.is_valid()),
-        }
-    }
-}
-
-impl Default for FpuState {
-    fn default() -> Self {
-        Self::init()
-    }
 }
 
 /// The XSTATE features (user & supervisor) supported by the processor.
@@ -602,7 +661,10 @@ pub(in crate::arch) fn enable_essential_features() {
 
     XSAVE_AREA_SIZE.call_once(|| {
         let cpuid = cpuid::CpuId::new();
-        let size = cpuid.get_extended_state_info().unwrap().xsave_size() as usize;
+        let size = cpuid
+            .get_extended_state_info()
+            .unwrap()
+            .xsave_area_size_enabled_features() as usize;
         debug_assert!(size <= MAX_XSAVE_AREA_SIZE);
         size
     });

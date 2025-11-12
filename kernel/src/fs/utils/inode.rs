@@ -5,6 +5,7 @@
 use core::{any::TypeId, time::Duration};
 
 use aster_rights::Full;
+use aster_systree::SysPerms;
 use core2::io::{Error as IoError, ErrorKind as IoErrorKind, Result as IoResult, Write};
 use ostd::task::Task;
 
@@ -24,6 +25,7 @@ use crate::{
 #[repr(u16)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, TryFromInt)]
 pub enum InodeType {
+    Unknown = 0o000000,
     NamedPipe = 0o010000,
     CharDevice = 0o020000,
     Dir = 0o040000,
@@ -200,6 +202,12 @@ impl InodeMode {
     }
 }
 
+impl From<SysPerms> for InodeMode {
+    fn from(value: SysPerms) -> Self {
+        InodeMode::from_bits_truncate(value.bits())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Metadata {
     pub dev: u64,
@@ -294,7 +302,7 @@ impl Metadata {
             nlinks: 1,
             uid: Uid::new_root(),
             gid: Gid::new_root(),
-            rdev: device.id().into(),
+            rdev: device.id().as_encoded_u64(),
         }
     }
 

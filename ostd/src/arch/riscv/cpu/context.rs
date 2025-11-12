@@ -4,26 +4,65 @@ use core::fmt::Debug;
 
 use riscv::register::scause::{Exception, Interrupt, Trap};
 
-pub use crate::arch::trap::GeneralRegs as RawGeneralRegs;
 use crate::{
     arch::{
         timer::handle_timer_interrupt,
-        trap::{TrapFrame, UserContext as RawUserContext},
+        trap::{RawUserContext, TrapFrame},
     },
     user::{ReturnReason, UserContextApi, UserContextApiInternal},
 };
 
-/// Cpu context, including both general-purpose registers and FPU state.
+/// Userspace CPU context, including general-purpose registers and exception information.
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct UserContext {
     user_context: RawUserContext,
     trap: Trap,
-    fpu_state: FpuState,
-    cpu_exception_info: CpuExceptionInfo,
+    cpu_exception_info: Option<CpuExceptionInfo>,
+}
+
+/// General registers.
+#[derive(Debug, Default, Clone, Copy)]
+#[repr(C)]
+#[expect(missing_docs)]
+pub struct GeneralRegs {
+    pub zero: usize,
+    pub ra: usize,
+    pub sp: usize,
+    pub gp: usize,
+    pub tp: usize,
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub s0: usize,
+    pub s1: usize,
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
+    pub s2: usize,
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
 }
 
 /// CPU exception information.
+//
+// TODO: Refactor the struct into an enum (similar to x86's `CpuException`).
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct CpuExceptionInfo {
@@ -39,8 +78,7 @@ impl Default for UserContext {
         UserContext {
             user_context: RawUserContext::default(),
             trap: Trap::Exception(Exception::Unknown),
-            fpu_state: FpuState,
-            cpu_exception_info: CpuExceptionInfo::default(),
+            cpu_exception_info: None,
         }
     }
 }
@@ -64,28 +102,18 @@ impl CpuExceptionInfo {
 
 impl UserContext {
     /// Returns a reference to the general registers.
-    pub fn general_regs(&self) -> &RawGeneralRegs {
+    pub fn general_regs(&self) -> &GeneralRegs {
         &self.user_context.general
     }
 
     /// Returns a mutable reference to the general registers
-    pub fn general_regs_mut(&mut self) -> &mut RawGeneralRegs {
+    pub fn general_regs_mut(&mut self) -> &mut GeneralRegs {
         &mut self.user_context.general
     }
 
     /// Returns the trap information.
-    pub fn trap_information(&self) -> &CpuExceptionInfo {
-        &self.cpu_exception_info
-    }
-
-    /// Returns a reference to the FPU state.
-    pub fn fpu_state(&self) -> &FpuState {
-        &self.fpu_state
-    }
-
-    /// Returns a mutable reference to the FPU state.
-    pub fn fpu_state_mut(&mut self) -> &mut FpuState {
-        &mut self.fpu_state
+    pub fn take_exception(&mut self) -> Option<CpuExceptionInfo> {
+        self.cpu_exception_info.take()
     }
 
     /// Sets thread-local storage pointer.
@@ -123,11 +151,11 @@ impl UserContextApiInternal for UserContext {
                 Trap::Exception(e) => {
                     let stval = riscv::register::stval::read();
                     log::trace!("Exception, scause: {e:?}, stval: {stval:#x?}");
-                    self.cpu_exception_info = CpuExceptionInfo {
+                    self.cpu_exception_info = Some(CpuExceptionInfo {
                         code: e,
                         page_fault_addr: stval,
                         error_code: 0,
-                    };
+                    });
                     break ReturnReason::UserException;
                 }
             }
@@ -164,15 +192,15 @@ impl UserContextApi for UserContext {
     }
 
     fn set_instruction_pointer(&mut self, ip: usize) {
-        self.user_context.set_ip(ip);
+        self.user_context.sepc = ip;
     }
 
     fn stack_pointer(&self) -> usize {
-        self.user_context.get_sp()
+        self.sp()
     }
 
     fn set_stack_pointer(&mut self, sp: usize) {
-        self.user_context.set_sp(sp);
+        self.set_sp(sp);
     }
 }
 
@@ -233,27 +261,32 @@ cpu_context_impl_getter_setter!(
 /// CPU exception.
 pub type CpuException = Exception;
 
-/// The FPU state of user task.
+/// The FPU context of user task.
 ///
 /// This could be used for saving both legacy and modern state format.
-// FIXME: Implement FPU state on RISC-V platforms.
-#[derive(Clone, Copy, Debug)]
-pub struct FpuState;
+// FIXME: Implement FPU context on RISC-V platforms.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FpuContext;
 
-impl FpuState {
-    /// Saves CPU's current FPU state into this instance.
-    pub fn save(&self) {
-        todo!()
+impl FpuContext {
+    /// Creates a new FPU context.
+    pub fn new() -> Self {
+        Self
     }
 
-    /// Restores CPU's FPU state from this instance.
-    pub fn restore(&self) {
-        todo!()
-    }
-}
+    /// Saves CPU's current FPU context to this instance, if needed.
+    pub fn save(&mut self) {}
 
-impl Default for FpuState {
-    fn default() -> Self {
-        FpuState
+    /// Loads CPU's FPU context from this instance, if needed.
+    pub fn load(&mut self) {}
+
+    /// Returns the FPU context as a byte slice.
+    pub fn as_bytes(&self) -> &[u8] {
+        &[]
+    }
+
+    /// Returns the FPU context as a mutable byte slice.
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut []
     }
 }

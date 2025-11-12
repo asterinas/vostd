@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
-use crate::syscall::{
+//! System call dispatch in the x86 architecture.
+
+use super::{
     accept::{sys_accept, sys_accept4},
     access::{sys_access, sys_faccessat, sys_faccessat2},
     alarm::sys_alarm,
@@ -26,12 +28,14 @@ use crate::syscall::{
     execve::{sys_execve, sys_execveat},
     exit::sys_exit,
     exit_group::sys_exit_group,
+    fadvise64::sys_fadvise64,
     fallocate::sys_fallocate,
     fcntl::sys_fcntl,
     flock::sys_flock,
     fork::{sys_fork, sys_vfork},
     fsync::{sys_fdatasync, sys_fsync},
     futex::sys_futex,
+    get_ioprio::sys_ioprio_get,
     get_priority::sys_get_priority,
     getcpu::sys_getcpu,
     getcwd::sys_getcwd,
@@ -64,16 +68,19 @@ use crate::syscall::{
     listxattr::{sys_flistxattr, sys_listxattr, sys_llistxattr},
     lseek::sys_lseek,
     madvise::sys_madvise,
+    memfd_create::sys_memfd_create,
     mkdir::{sys_mkdir, sys_mkdirat},
     mknod::{sys_mknod, sys_mknodat},
     mmap::sys_mmap,
     mount::sys_mount,
     mprotect::sys_mprotect,
+    mremap::sys_mremap,
     msync::sys_msync,
     munmap::sys_munmap,
     nanosleep::{sys_clock_nanosleep, sys_nanosleep},
     open::{sys_creat, sys_open, sys_openat},
     pause::sys_pause,
+    pidfd_open::sys_pidfd_open,
     pipe::{sys_pipe, sys_pipe2},
     poll::sys_poll,
     ppoll::sys_ppoll,
@@ -113,6 +120,7 @@ use crate::syscall::{
     sendfile::sys_sendfile,
     sendmsg::sys_sendmsg,
     sendto::sys_sendto,
+    set_ioprio::sys_ioprio_set,
     set_priority::sys_set_priority,
     set_robust_list::sys_set_robust_list,
     set_tid_address::sys_set_tid_address,
@@ -184,6 +192,7 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_ACCESS = 21            => sys_access(args[..2]);
     SYS_PIPE = 22              => sys_pipe(args[..1]);
     SYS_SELECT = 23            => sys_select(args[..5]);
+    SYS_MREMAP = 25            => sys_mremap(args[..5]);
     SYS_MSYNC = 26             => sys_msync(args[..3]);
     SYS_SCHED_YIELD = 24       => sys_sched_yield(args[..0]);
     SYS_MADVISE = 28           => sys_madvise(args[..3]);
@@ -317,6 +326,7 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_GETDENTS64 = 217       => sys_getdents64(args[..3]);
     SYS_SET_TID_ADDRESS = 218  => sys_set_tid_address(args[..1]);
     SYS_SEMTIMEDOP = 220       => sys_semtimedop(args[..4]);
+    SYS_FADVISE64 = 221        => sys_fadvise64(args[..4]);
     SYS_TIMER_CREATE = 222     => sys_timer_create(args[..3]);
     SYS_TIMER_SETTIME = 223    => sys_timer_settime(args[..4]);
     SYS_TIMER_GETTIME = 224    => sys_timer_gettime(args[..2]);
@@ -329,6 +339,8 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_TGKILL = 234           => sys_tgkill(args[..3]);
     SYS_UTIMES = 235           => sys_utimes(args[..2]);
     SYS_WAITID = 247           => sys_waitid(args[..5]);
+    SYS_IOPRIO_SET = 251       => sys_ioprio_set(args[..3]);
+    SYS_IOPRIO_GET = 252       => sys_ioprio_get(args[..2]);
     SYS_OPENAT = 257           => sys_openat(args[..4]);
     SYS_MKDIRAT = 258          => sys_mkdirat(args[..3]);
     SYS_MKNODAT = 259          => sys_mknodat(args[..4]);
@@ -366,10 +378,12 @@ impl_syscall_nums_and_dispatch_fn! {
     SYS_SCHED_SETATTR = 314    => sys_sched_setattr(args[..3]);
     SYS_SCHED_GETATTR = 315    => sys_sched_getattr(args[..4]);
     SYS_GETRANDOM = 318        => sys_getrandom(args[..3]);
+    SYS_MEMFD_CREATE = 319     => sys_memfd_create(args[..2]);
     SYS_EXECVEAT = 322         => sys_execveat(args[..5], &mut user_ctx);
     SYS_PREADV2 = 327          => sys_preadv2(args[..5]);
     SYS_PWRITEV2 = 328         => sys_pwritev2(args[..5]);
     SYS_STATX = 332            => sys_statx(args[..5]);
+    SYS_PIDFD_OPEN = 434       => sys_pidfd_open(args[..2]);
     SYS_CLONE3 = 435           => sys_clone3(args[..2], &user_ctx);
     SYS_CLOSE_RANGE = 436      => sys_close_range(args[..3]);
     SYS_FACCESSAT2 = 439       => sys_faccessat2(args[..4]);

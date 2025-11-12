@@ -23,13 +23,13 @@ use cfg_if::cfg_if;
 use log::debug;
 use spin::Once;
 
-use super::ex_table::ExTable;
+use super::{cpu::context::GeneralRegs, ex_table::ExTable};
 use crate::{
     arch::{
         if_tdx_enabled,
         irq::{disable_local, enable_local},
     },
-    cpu::context::{CpuException, CpuExceptionInfo, PageFaultErrorCode},
+    cpu::context::{CpuException, PageFaultErrorCode, RawPageFaultInfo},
     cpu_local_cell,
     mm::{
         kspace::{KERNEL_PAGE_TABLE, LINEAR_MAPPING_BASE_VADDR, LINEAR_MAPPING_VADDR_RANGE},
@@ -101,7 +101,7 @@ pub struct TrapFrame {
     pub rflags: usize,
 }
 
-/// Initialize interrupt handling on x86_64.
+/// Initializes interrupt handling on x86_64.
 ///
 /// This function will:
 /// - Switch to a new, CPU-local [GDT].
@@ -117,7 +117,7 @@ pub struct TrapFrame {
 /// # Safety
 ///
 /// This method must be called only in the boot context of each available processor.
-pub unsafe fn init() {
+pub(crate) unsafe fn init() {
     // SAFETY: We're in the boot context, so no preemption can occur.
     unsafe { gdt::init() };
 
@@ -127,90 +127,13 @@ pub unsafe fn init() {
     unsafe { syscall::init() };
 }
 
-/// User space context.
+/// Userspace context.
 #[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
 #[repr(C)]
-#[expect(missing_docs)]
-pub struct UserContext {
-    pub general: GeneralRegs,
-    pub trap_num: usize,
-    pub error_code: usize,
-}
-
-/// General registers.
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
-#[repr(C)]
-#[expect(missing_docs)]
-pub struct GeneralRegs {
-    pub rax: usize,
-    pub rbx: usize,
-    pub rcx: usize,
-    pub rdx: usize,
-    pub rsi: usize,
-    pub rdi: usize,
-    pub rbp: usize,
-    pub rsp: usize,
-    pub r8: usize,
-    pub r9: usize,
-    pub r10: usize,
-    pub r11: usize,
-    pub r12: usize,
-    pub r13: usize,
-    pub r14: usize,
-    pub r15: usize,
-    pub rip: usize,
-    pub rflags: usize,
-    pub fsbase: usize,
-    pub gsbase: usize,
-}
-
-impl UserContext {
-    /// Get number of syscall.
-    pub fn get_syscall_num(&self) -> usize {
-        self.general.rax
-    }
-
-    /// Get return value of syscall.
-    pub fn get_syscall_ret(&self) -> usize {
-        self.general.rax
-    }
-
-    /// Set return value of syscall.
-    pub fn set_syscall_ret(&mut self, ret: usize) {
-        self.general.rax = ret;
-    }
-
-    /// Get syscall args.
-    pub fn get_syscall_args(&self) -> [usize; 6] {
-        [
-            self.general.rdi,
-            self.general.rsi,
-            self.general.rdx,
-            self.general.r10,
-            self.general.r8,
-            self.general.r9,
-        ]
-    }
-
-    /// Set instruction pointer.
-    pub fn set_ip(&mut self, ip: usize) {
-        self.general.rip = ip;
-    }
-
-    /// Set stack pointer.
-    pub fn set_sp(&mut self, sp: usize) {
-        self.general.rsp = sp;
-    }
-
-    /// Get stack pointer.
-    pub fn get_sp(&self) -> usize {
-        self.general.rsp
-    }
-
-    /// Set thread-local storage pointer.
-    pub fn set_tls(&mut self, tls: usize) {
-        self.general.fsbase = tls;
-    }
+pub(super) struct RawUserContext {
+    pub(super) general: GeneralRegs,
+    pub(super) trap_num: usize,
+    pub(super) error_code: usize,
 }
 
 /// Returns true if this function is called within the context of an IRQ handler
@@ -240,9 +163,10 @@ extern "sysv64" fn trap_handler(f: &mut TrapFrame) {
     let was_irq_enabled =
         f.rflags as u64 & x86_64::registers::rflags::RFlags::INTERRUPT_FLAG.bits() > 0;
 
-    match CpuException::to_cpu_exception(f.trap_num as u16) {
+    let cpu_exception = CpuException::new(f.trap_num, f.error_code);
+    match cpu_exception {
         #[cfg(feature = "cvm_guest")]
-        Some(CpuException::VIRTUALIZATION_EXCEPTION) => {
+        Some(CpuException::VirtualizationException) => {
             let ve_info = tdcall::get_veinfo().expect("#VE handler: fail to get VE info\n");
             // We need to enable interrupts only after `tdcall::get_veinfo` is called
             // to avoid nested `#VE`s.
@@ -252,15 +176,14 @@ extern "sysv64" fn trap_handler(f: &mut TrapFrame) {
             *f = *trapframe_wrapper.0;
             disable_local_if(was_irq_enabled);
         }
-        Some(CpuException::PAGE_FAULT) => {
-            let page_fault_addr = x86_64::registers::control::Cr2::read_raw();
+        Some(CpuException::PageFault(raw_page_fault_info)) => {
             enable_local_if(was_irq_enabled);
             // The actual user space implementation should be responsible
             // for providing mechanism to treat the 0 virtual address.
-            if (0..MAX_USERSPACE_VADDR).contains(&(page_fault_addr as usize)) {
-                handle_user_page_fault(f, page_fault_addr);
+            if (0..MAX_USERSPACE_VADDR).contains(&raw_page_fault_info.addr) {
+                handle_user_page_fault(f, cpu_exception.as_ref().unwrap());
             } else {
-                handle_kernel_page_fault(f, page_fault_addr);
+                handle_kernel_page_fault(raw_page_fault_info);
             }
             disable_local_if(was_irq_enabled);
         }
@@ -280,30 +203,24 @@ extern "sysv64" fn trap_handler(f: &mut TrapFrame) {
 }
 
 #[expect(clippy::type_complexity)]
-static USER_PAGE_FAULT_HANDLER: Once<fn(&CpuExceptionInfo) -> core::result::Result<(), ()>> =
+static USER_PAGE_FAULT_HANDLER: Once<fn(&CpuException) -> core::result::Result<(), ()>> =
     Once::new();
 
 /// Injects a custom handler for page faults that occur in the kernel and
 /// are caused by user-space address.
 pub fn inject_user_page_fault_handler(
-    handler: fn(info: &CpuExceptionInfo) -> core::result::Result<(), ()>,
+    handler: fn(info: &CpuException) -> core::result::Result<(), ()>,
 ) {
     USER_PAGE_FAULT_HANDLER.call_once(|| handler);
 }
 
 /// Handles page fault from user space.
-fn handle_user_page_fault(f: &mut TrapFrame, page_fault_addr: u64) {
-    let info = CpuExceptionInfo {
-        page_fault_addr: page_fault_addr as usize,
-        id: f.trap_num,
-        error_code: f.error_code,
-    };
-
+fn handle_user_page_fault(f: &mut TrapFrame, exception: &CpuException) {
     let handler = USER_PAGE_FAULT_HANDLER
         .get()
         .expect("a page fault handler is missing");
 
-    let res = handler(&info);
+    let res = handler(exception);
     // Copying bytes by bytes can recover directly
     // if handling the page fault successfully.
     if res.is_ok() {
@@ -320,17 +237,20 @@ fn handle_user_page_fault(f: &mut TrapFrame, page_fault_addr: u64) {
 
 /// FIXME: this is a hack because we don't allocate kernel space for IO memory. We are currently
 /// using the linear mapping for IO memory. This is not a good practice.
-fn handle_kernel_page_fault(f: &TrapFrame, page_fault_vaddr: u64) {
+fn handle_kernel_page_fault(info: RawPageFaultInfo) {
     let preempt_guard = disable_preempt();
 
-    let error_code = PageFaultErrorCode::from_bits_truncate(f.error_code);
+    let RawPageFaultInfo {
+        error_code,
+        addr: page_fault_vaddr,
+    } = info;
     debug!(
         "kernel page fault: address {:?}, error code {:?}",
         page_fault_vaddr as *const (), error_code
     );
 
     assert!(
-        LINEAR_MAPPING_VADDR_RANGE.contains(&(page_fault_vaddr as usize)),
+        LINEAR_MAPPING_VADDR_RANGE.contains(&page_fault_vaddr),
         "kernel page fault: the address is outside the range of the linear mapping",
     );
 
@@ -355,7 +275,7 @@ fn handle_kernel_page_fault(f: &TrapFrame, page_fault_vaddr: u64) {
     let page_table = KERNEL_PAGE_TABLE
         .get()
         .expect("kernel page fault: the kernel page table is not initialized");
-    let vaddr = (page_fault_vaddr as usize).align_down(PAGE_SIZE);
+    let vaddr = page_fault_vaddr.align_down(PAGE_SIZE);
     let paddr = vaddr - LINEAR_MAPPING_BASE_VADDR;
 
     let priv_flags = if_tdx_enabled!({

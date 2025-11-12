@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use core::sync::atomic::AtomicU32;
+
 use ostd::{
-    cpu::{context::UserContext, CpuSet},
+    cpu::{
+        context::{FpuContext, UserContext},
+        CpuSet,
+    },
     sync::RwArc,
     task::Task,
 };
@@ -37,6 +42,7 @@ pub struct PosixThreadBuilder {
     sig_mask: AtomicSigMask,
     sig_queues: SigQueues,
     sched_policy: SchedPolicy,
+    fpu_context: FpuContext,
 }
 
 impl PosixThreadBuilder {
@@ -54,6 +60,7 @@ impl PosixThreadBuilder {
             sig_mask: AtomicSigMask::new_empty(),
             sig_queues: SigQueues::new(),
             sched_policy: SchedPolicy::Fair(Nice::default()),
+            fpu_context: FpuContext::new(),
         }
     }
 
@@ -92,6 +99,11 @@ impl PosixThreadBuilder {
         self
     }
 
+    pub fn fpu_context(mut self, fpu_context: FpuContext) -> Self {
+        self.fpu_context = fpu_context;
+        self
+    }
+
     pub fn build(self) -> Arc<Task> {
         let Self {
             tid,
@@ -106,6 +118,7 @@ impl PosixThreadBuilder {
             sig_mask,
             sig_queues,
             sched_policy,
+            fpu_context,
         } = self;
 
         let file_table = file_table.unwrap_or_else(|| RwArc::new(FileTable::new_with_stdio()));
@@ -139,6 +152,7 @@ impl PosixThreadBuilder {
                     prof_clock,
                     virtual_timer_manager,
                     prof_timer_manager,
+                    io_priority: AtomicU32::new(0),
                 }
             };
 
@@ -150,8 +164,13 @@ impl PosixThreadBuilder {
                 sched_policy,
             ));
 
-            let thread_local =
-                ThreadLocal::new(set_child_tid, clear_child_tid, root_vmar, file_table);
+            let thread_local = ThreadLocal::new(
+                set_child_tid,
+                clear_child_tid,
+                root_vmar,
+                file_table,
+                fpu_context,
+            );
 
             thread_table::add_thread(tid, thread.clone());
             task::create_new_user_task(user_ctx, thread, thread_local)

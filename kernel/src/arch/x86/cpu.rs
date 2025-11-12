@@ -7,11 +7,16 @@ use alloc::{
 };
 
 use ostd::{
-    cpu::context::{cpuid, CpuException, CpuExceptionInfo, RawGeneralRegs, UserContext},
+    arch::tsc_freq,
+    cpu::context::{cpuid, CpuException, PageFaultErrorCode, RawPageFaultInfo, UserContext},
+    mm::Vaddr,
     Pod,
 };
 
-use crate::{cpu::LinuxAbi, thread::exception::PageFaultInfo, vm::perms::VmPerms};
+use crate::{
+    arch::cpu::cpuid::VendorInfo, cpu::LinuxAbi, thread::exception::PageFaultInfo,
+    vm::perms::VmPerms,
+};
 
 impl LinuxAbi for UserContext {
     fn syscall_num(&self) -> usize {
@@ -40,40 +45,46 @@ impl LinuxAbi for UserContext {
             self.r9(),
         ]
     }
-
-    fn set_tls_pointer(&mut self, tls: usize) {
-        self.set_fsbase(tls);
-    }
-
-    fn tls_pointer(&self) -> usize {
-        self.fsbase()
-    }
 }
 
-/// General-purpose registers.
-#[derive(Debug, Clone, Copy, Pod, Default)]
+/// Represents the context of a signal handler.
+///
+/// This contains the context saved before a signal handler is invoked; it will be restored by
+/// `sys_rt_sigreturn`.
+///
+/// Reference: <https://elixir.bootlin.com/linux/v6.15.7/source/arch/x86/include/uapi/asm/sigcontext.h#L325>
+#[derive(Clone, Copy, Debug, Default, Pod)]
 #[repr(C)]
-pub struct GpRegs {
-    pub rax: usize,
-    pub rbx: usize,
-    pub rcx: usize,
-    pub rdx: usize,
-    pub rsi: usize,
-    pub rdi: usize,
-    pub rbp: usize,
-    pub rsp: usize,
-    pub r8: usize,
-    pub r9: usize,
-    pub r10: usize,
-    pub r11: usize,
-    pub r12: usize,
-    pub r13: usize,
-    pub r14: usize,
-    pub r15: usize,
-    pub rip: usize,
-    pub rflags: usize,
-    pub fsbase: usize,
-    pub gsbase: usize,
+pub struct SigContext {
+    r8: usize,
+    r9: usize,
+    r10: usize,
+    r11: usize,
+    r12: usize,
+    r13: usize,
+    r14: usize,
+    r15: usize,
+    rdi: usize,
+    rsi: usize,
+    rbp: usize,
+    rbx: usize,
+    rdx: usize,
+    rax: usize,
+    rcx: usize,
+    rsp: usize,
+    rip: usize,
+    rflags: usize,
+    cs: u16,
+    gs: u16,
+    fs: u16,
+    ss: u16,
+    error_code: usize,
+    trap_num: usize,
+    old_mask: u64,
+    page_fault_addr: usize,
+    // A stack pointer to FPU context.
+    fpu_context_addr: Vaddr,
+    reserved: [u64; 8],
 }
 
 macro_rules! copy_gp_regs {
@@ -96,46 +107,78 @@ macro_rules! copy_gp_regs {
         $dst.r15 = $src.r15;
         $dst.rip = $src.rip;
         $dst.rflags = $src.rflags;
-        $dst.fsbase = $src.fsbase;
-        $dst.gsbase = $src.gsbase;
     };
 }
 
-impl GpRegs {
-    pub fn copy_to_raw(&self, dst: &mut RawGeneralRegs) {
-        copy_gp_regs!(self, dst);
+impl SigContext {
+    pub fn copy_user_regs_to(&self, dst: &mut UserContext) {
+        let gp_regs = dst.general_regs_mut();
+        copy_gp_regs!(self, gp_regs);
     }
 
-    pub fn copy_from_raw(&mut self, src: &RawGeneralRegs) {
-        copy_gp_regs!(src, self);
+    pub fn copy_user_regs_from(&mut self, src: &UserContext) {
+        let gp_regs = src.general_regs();
+        copy_gp_regs!(gp_regs, self);
+
+        // TODO: Fill exception information in `SigContext`.
+    }
+
+    pub fn fpu_context_addr(&self) -> Vaddr {
+        self.fpu_context_addr
+    }
+
+    pub fn set_fpu_context_addr(&mut self, addr: Vaddr) {
+        self.fpu_context_addr = addr;
     }
 }
 
-impl TryFrom<&CpuExceptionInfo> for PageFaultInfo {
-    // [`Err`] indicates that the [`CpuExceptionInfo`] is not a page fault,
-    // with no additional error information.
-    type Error = ();
-
-    fn try_from(value: &CpuExceptionInfo) -> Result<Self, ()> {
-        if value.cpu_exception() != CpuException::PAGE_FAULT {
-            return Err(());
-        }
-
-        const WRITE_ACCESS_MASK: usize = 0x1 << 1;
-        const INSTRUCTION_FETCH_MASK: usize = 0x1 << 4;
-
-        let required_perms = if value.error_code & INSTRUCTION_FETCH_MASK != 0 {
+impl From<&RawPageFaultInfo> for PageFaultInfo {
+    fn from(raw_info: &RawPageFaultInfo) -> Self {
+        let required_perms = if raw_info
+            .error_code
+            .contains(PageFaultErrorCode::INSTRUCTION)
+        {
             VmPerms::EXEC
-        } else if value.error_code & WRITE_ACCESS_MASK != 0 {
+        } else if raw_info.error_code.contains(PageFaultErrorCode::WRITE) {
             VmPerms::WRITE
         } else {
             VmPerms::READ
         };
 
-        Ok(PageFaultInfo {
-            address: value.page_fault_addr,
+        PageFaultInfo {
+            address: raw_info.addr,
             required_perms,
-        })
+        }
+    }
+}
+
+impl TryFrom<&CpuException> for PageFaultInfo {
+    // [`Err`] indicates that the [`CpuExceptionInfo`] is not a page fault,
+    // with no additional error information.
+    type Error = ();
+
+    fn try_from(value: &CpuException) -> Result<Self, ()> {
+        let CpuException::PageFault(raw_info) = value else {
+            return Err(());
+        };
+
+        Ok(raw_info.into())
+    }
+}
+
+enum CpuVendor {
+    Intel,
+    Amd,
+    Unknown,
+}
+
+impl From<&VendorInfo> for CpuVendor {
+    fn from(info: &VendorInfo) -> Self {
+        match info.as_str() {
+            "GenuineIntel" => Self::Intel,
+            "AuthenticAMD" => Self::Amd,
+            _ => Self::Unknown,
+        }
     }
 }
 
@@ -289,57 +332,83 @@ impl CpuInfo {
 
     fn get_clock_speed() -> Option<u32> {
         let cpuid = cpuid::CpuId::new();
-        let tsc_info = cpuid.get_tsc_info()?;
-        Some(
-            (tsc_info.tsc_frequency().unwrap_or(0) / 1_000_000)
-                .try_into()
-                .unwrap(),
-        )
+        let vendor_info = cpuid.get_vendor_info()?;
+        match CpuVendor::from(&vendor_info) {
+            CpuVendor::Intel => {
+                let tsc_info = cpuid.get_tsc_info()?;
+                Some(
+                    (tsc_info.tsc_frequency().unwrap_or(0) / 1_000_000)
+                        .try_into()
+                        .unwrap(),
+                )
+            }
+            CpuVendor::Amd | CpuVendor::Unknown => {
+                let tsc_freq_hz = tsc_freq(); // always > 0
+                Some((tsc_freq_hz / 1_000_000) as u32)
+            }
+        }
     }
 
     /// Get cache size in KB
     fn get_cache_size() -> Option<u32> {
         let cpuid = cpuid::CpuId::new();
-        let cache_info = cpuid.get_cache_info()?;
-
-        for cache in cache_info {
-            let desc = cache.desc();
-            if let Some(size) = desc.split_whitespace().find(|word| {
-                word.ends_with("KBytes") || word.ends_with("MBytes") || word.ends_with("GBytes")
-            }) {
-                let size_str = size
-                    .trim_end_matches(&['K', 'M', 'G'][..])
-                    .trim_end_matches("Bytes");
-                let cache_size = size_str.parse::<u32>().unwrap_or(0);
-
-                let cache_size = match size.chars().last().unwrap() {
-                    'K' => cache_size * 1024,
-                    'M' => cache_size * 1024 * 1024,
-                    'G' => cache_size * 1024 * 1024 * 1024,
-                    _ => cache_size,
-                };
-
-                return Some(cache_size);
+        let vendor_info = cpuid.get_vendor_info()?;
+        match CpuVendor::from(&vendor_info) {
+            CpuVendor::Intel => {
+                let cache_info = cpuid.get_cache_info()?;
+                for cache in cache_info {
+                    let desc = cache.desc();
+                    if let Some(size) = desc.split_whitespace().find(|word| {
+                        word.ends_with("KBytes")
+                            || word.ends_with("MBytes")
+                            || word.ends_with("GBytes")
+                    }) {
+                        let size_str = size
+                            .trim_end_matches(&['K', 'M', 'G'][..])
+                            .trim_end_matches("Bytes");
+                        let cache_size = size_str.parse::<u32>().unwrap_or(0);
+                        let cache_size = match size.chars().last().unwrap() {
+                            'K' => cache_size * 1024,
+                            'M' => cache_size * 1024 * 1024,
+                            'G' => cache_size * 1024 * 1024 * 1024,
+                            _ => cache_size,
+                        };
+                        return Some(cache_size);
+                    }
+                }
+                None
             }
+            CpuVendor::Amd => {
+                let cache = cpuid.get_l2_l3_cache_and_tlb_info()?;
+                Some(cache.l2cache_size() as u32 * 1024)
+            }
+            CpuVendor::Unknown => None,
         }
-
-        None
     }
 
     fn get_tlb_size() -> Option<u32> {
         let cpuid = cpuid::CpuId::new();
-        let cache_info = cpuid.get_cache_info()?;
-
-        for cache in cache_info {
-            let desc = cache.desc();
-            if let Some(size) = desc.split_whitespace().find(|word| word.ends_with("pages")) {
-                let size_str = size.trim_end_matches("pages");
-                let tlb_size = size_str.parse::<u32>().unwrap_or(0);
-                return Some(tlb_size);
+        let vendor_info = cpuid.get_vendor_info()?;
+        match CpuVendor::from(&vendor_info) {
+            CpuVendor::Intel => {
+                let cache_info = cpuid.get_cache_info()?;
+                for cache in cache_info {
+                    let desc = cache.desc();
+                    if let Some(size) = desc.split_whitespace().find(|word| word.ends_with("pages"))
+                    {
+                        let size_str = size.trim_end_matches("pages");
+                        let tlb_size = size_str.parse::<u32>().unwrap_or(0);
+                        return Some(tlb_size);
+                    }
+                }
+                None
             }
+            CpuVendor::Amd => {
+                let cache = cpuid.get_l2_l3_cache_and_tlb_info()?;
+                Some(cache.dtlb_4k_size() as u32)
+            }
+            CpuVendor::Unknown => None,
         }
-
-        None
     }
 
     fn get_physical_id() -> Option<u32> {
@@ -377,12 +446,7 @@ impl CpuInfo {
     }
 
     fn get_cpuid_level() -> u32 {
-        let cpuid = cpuid::CpuId::new();
-        if let Some(basic_info) = cpuid.get_tsc_info() {
-            basic_info.denominator()
-        } else {
-            0
-        }
+        cpuid::cpuid!(0x0).eax
     }
 
     fn get_cpu_flags() -> String {
@@ -486,7 +550,7 @@ impl CpuInfo {
 
     fn get_clflush_size() -> u8 {
         let cpuid = cpuid::CpuId::new();
-        cpuid.get_feature_info().unwrap().cflush_cache_line_size()
+        cpuid.get_feature_info().unwrap().cflush_cache_line_size() * 8
     }
 
     fn get_cache_alignment() -> u32 {

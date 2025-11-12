@@ -2,8 +2,8 @@
 use alloc::sync::Arc;
 use core::{ptr::NonNull, sync::atomic::Ordering};
 
-use super::{context_switch, Task, TaskContext, POST_SCHEDULE_HANDLER};
-use crate::{cpu_local_cell, trap::DisabledLocalIrqGuard};
+use super::{context_switch, Task, TaskContext, POST_SCHEDULE_HANDLER, PRE_SCHEDULE_HANDLER};
+use crate::{cpu_local_cell, trap::irq::DisabledLocalIrqGuard};
 
 cpu_local_cell! {
     /// The `Arc<Task>` (casted by [`Arc::into_raw`]) that is the current task.
@@ -42,7 +42,7 @@ pub(super) fn switch_to_task(next_task: Arc<Task>) {
         crate::sync::finish_grace_period();
     }
 
-    let irq_guard = crate::trap::disable_local();
+    let irq_guard = crate::trap::irq::disable_local();
 
     let current_task_ptr = CURRENT_TASK_PTR.load();
     let current_task_ctx_ptr = if !current_task_ptr.is_null() {
@@ -50,8 +50,6 @@ pub(super) fn switch_to_task(next_task: Arc<Task>) {
         // built with `Arc::into_raw`. It will only be dropped as a previous task,
         // so its reference will be valid until `after_switching_to`.
         let current_task = unsafe { &*current_task_ptr };
-
-        current_task.save_fpu_state();
 
         // Until `after_switching_to`, the task's context is alive and can be exclusively used.
         current_task.ctx.get()
@@ -71,7 +69,7 @@ pub(super) fn switch_to_task(next_task: Arc<Task>) {
     PREVIOUS_TASK_PTR.store(current_task_ptr);
 
     // We must disable IRQs when switching, see `after_switching_to`.
-    let _ = core::mem::ManuallyDrop::new(irq_guard);
+    core::mem::forget(irq_guard);
 
     // SAFETY:
     // 1. We have exclusive access to both the current context and the next context (see above).
@@ -85,13 +83,13 @@ pub(super) fn switch_to_task(next_task: Arc<Task>) {
 
     // SAFETY: The task is just switched back, `after_switching_to` hasn't been called yet.
     unsafe { after_switching_to() };
-
-    if let Some(current) = Task::current() {
-        current.restore_fpu_state();
-    }
 }
 
 fn before_switching_to(next_task: &Task, irq_guard: &DisabledLocalIrqGuard) {
+    if let Some(handler) = PRE_SCHEDULE_HANDLER.get() {
+        handler();
+    }
+
     // Ensure that the mapping to the kernel stack is valid.
     next_task.kstack.flush_tlb(irq_guard);
 

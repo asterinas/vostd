@@ -4,6 +4,7 @@ mod linked_list_owners;
 mod meta;
 mod meta_owners;
 mod meta_region_owners;
+mod segment;
 mod unique;
 
 pub use frame_ref::*;
@@ -12,6 +13,7 @@ pub use linked_list_owners::*;
 pub use meta::*;
 pub use meta_owners::*;
 pub use meta_region_owners::*;
+pub use segment::*;
 pub use unique::*;
 
 use vstd::prelude::*;

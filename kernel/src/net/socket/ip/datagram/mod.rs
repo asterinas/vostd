@@ -15,7 +15,7 @@ use crate::{
         private::SocketPrivate,
         util::{
             datagram_common::{select_remote_and_bind, Bound, Inner},
-            options::{SetSocketLevelOption, SocketOptionSet},
+            options::{GetSocketLevelOption, SetSocketLevelOption, SocketOptionSet},
             MessageHeader, SendRecvFlags, SocketAddr,
         },
         Socket,
@@ -176,7 +176,7 @@ impl Socket for DatagramSocket {
 
         let MessageHeader {
             addr,
-            control_message,
+            control_messages,
         } = message_header;
 
         let endpoint = match addr {
@@ -184,7 +184,7 @@ impl Socket for DatagramSocket {
             None => None,
         };
 
-        if control_message.is_some() {
+        if !control_messages.is_empty() {
             // TODO: Support sending control message
             warn!("sending control message is not supported");
         }
@@ -208,7 +208,7 @@ impl Socket for DatagramSocket {
 
         // TODO: Receive control message
 
-        let message_header = MessageHeader::new(Some(peer_addr), None);
+        let message_header = MessageHeader::new(Some(peer_addr), Vec::new());
 
         Ok((received_bytes, message_header))
     }
@@ -223,7 +223,8 @@ impl Socket for DatagramSocket {
             _ => ()
         });
 
-        self.options.read().socket.get_option(option)
+        let inner = self.inner.read();
+        self.options.read().socket.get_option(option, &*inner)
     }
 
     fn set_option(&self, option: &dyn SocketOption) -> Result<()> {
@@ -253,4 +254,18 @@ impl Socket for DatagramSocket {
     }
 }
 
-impl SetSocketLevelOption for Inner<UnboundDatagram, BoundDatagram> {}
+impl GetSocketLevelOption for Inner<UnboundDatagram, BoundDatagram> {
+    fn is_listening(&self) -> bool {
+        false
+    }
+}
+
+impl SetSocketLevelOption for Inner<UnboundDatagram, BoundDatagram> {
+    fn set_reuse_addr(&self, reuse_addr: bool) {
+        let Inner::Bound(bound) = self else {
+            return;
+        };
+
+        bound.bound_port().set_can_reuse(reuse_addr);
+    }
+}

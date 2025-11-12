@@ -24,18 +24,6 @@ impl ConcreteCursor {
         self.path.vaddr()
     }
 
-    pub open spec fn push_level_spec(self) -> ConcreteCursor {
-        ConcreteCursor {
-            path: PageTableTreePathModel { inner: self.path.inner.push_tail(0 as usize) },
-            ..self
-        }
-    }
-
-    pub open spec fn pop_level_spec(self) -> ConcreteCursor {
-        let (tail, popped) = self.path.inner.pop_tail();
-        ConcreteCursor { path: PageTableTreePathModel { inner: popped }, ..self }
-    }
-
     pub proof fn lemma_pop_level_spec_preserves_vaddr(self, n: int)
         requires
             self.path.inner.len() == n,
@@ -63,34 +51,6 @@ impl ConcreteCursor {
         let ghost pushed = orig.push_tail(0 as usize);
         assert(self.push_level_spec().path.inner == pushed);
         PageTableTreePathModel::rec_vaddr_push_0(orig, n, 0);
-    }
-
-    pub open spec fn inc_pop_aligned_rec(path: TreePath<CONST_NR_ENTRIES>) -> TreePath<
-        CONST_NR_ENTRIES,
-    >
-        decreases path.len(),
-    {
-        if path.len() == 0 {
-            path
-        } else {
-            let n = path.len();
-            let val = path.0[n - 1];
-            let new_path = path.0.update(n - 1, (val + 1) as usize);
-
-            if new_path[n - 1] % NR_ENTRIES() == 0 {
-                let (tail, popped) = path.pop_tail();
-                Self::inc_pop_aligned_rec(popped)
-            } else {
-                path
-            }
-        }
-    }
-
-    pub open spec fn move_forward_spec(self) -> ConcreteCursor {
-        ConcreteCursor {
-            path: PageTableTreePathModel { inner: Self::inc_pop_aligned_rec(self.path.inner) },
-            ..self
-        }
     }
 
     pub open spec fn get_nodes(self, path: PageTableTreePathModel) -> (res: Seq<PageTableNodeValue>)

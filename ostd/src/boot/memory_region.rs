@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Information of memory regions in the boot phase.
+use vstd::prelude::*;
+use vstd_extra::prelude::*;
+
+use aster_common::prelude::*;
+use ostd_specs::{MemRegionModel, MemoryRegionArrayModel};
+
 use core::ops::Deref;
 
-use align_ext::AlignExt;
+//use align_ext::AlignExt;
 
-use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
+//use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
 
 /// The type of initial memory regions that are needed for the kernel.
+#[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum MemoryRegionType {
     /// Maybe points to an unplugged DIMM module. It's bad anyway.
@@ -32,6 +39,7 @@ pub enum MemoryRegionType {
 
 /// The information of initial memory regions that are needed by the kernel.
 /// The sections are **not** guaranteed to not overlap. The region must be page aligned.
+#[verus_verify]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct MemoryRegion {
     base: usize,
@@ -39,13 +47,68 @@ pub struct MemoryRegion {
     typ: MemoryRegionType,
 }
 
+verus! {
+
+impl MemoryRegionType {
+    pub open spec fn to_int(self) -> int {
+        match self {
+            MemoryRegionType::BadMemory => 0,
+            MemoryRegionType::Unknown => 1,
+            MemoryRegionType::NonVolatileSleep => 2,
+            MemoryRegionType::Reserved => 3,
+            MemoryRegionType::Kernel => 4,
+            MemoryRegionType::Module => 5,
+            MemoryRegionType::Framebuffer => 6,
+            MemoryRegionType::Reclaimable => 7,
+            MemoryRegionType::Usable => 8,
+        }
+    }
+}
+
+impl Inv for MemoryRegion {
+    closed spec fn inv(self) -> bool {
+        self.base + self.len <= CONST_MAX_PADDR
+    }
+}
+
+impl View for MemoryRegion {
+    type V = MemRegionModel;
+
+    closed spec fn view(&self) -> Self::V {
+        MemRegionModel { base: self.base as int, end: self.base + self.len, typ: self.typ.to_int() }
+    }
+}
+
+impl InvView for MemoryRegion {
+    proof fn view_preserves_inv(self) {
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl MemoryRegion {
     /// Constructs a valid memory region.
+    #[verus_spec(ret =>
+        requires
+            base + len <= MAX_PADDR(),
+        ensures
+            ret.inv(),
+            ret@ == (MemRegionModel {
+                base: base as int,
+                end: base + len,
+                typ: typ.to_int(),
+            }),
+    )]
     pub const fn new(base: Paddr, len: usize, typ: MemoryRegionType) -> Self {
         MemoryRegion { base, len, typ }
     }
 
     /// Constructs a bad memory region.
+    #[verus_spec(ret =>
+        ensures
+            ret.inv(),
+            ret@ == MemRegionModel::bad(),
+    )]
     pub const fn bad() -> Self {
         MemoryRegion {
             base: 0,
@@ -54,6 +117,7 @@ impl MemoryRegion {
         }
     }
 
+    /*
     /// Constructs a memory region where kernel sections are loaded.
     ///
     /// Most boot protocols do not mark the place where the kernel loads as unusable. In this case,
@@ -94,33 +158,39 @@ impl MemoryRegion {
             len: bytes.len(),
             typ: MemoryRegionType::Reclaimable,
         }
-    }
+    } */
 
     /// The physical address of the base of the region.
+    #[verus_verify(dual_spec)]
     pub fn base(&self) -> Paddr {
         self.base
     }
 
     /// The length in bytes of the region.
+    #[verus_verify(dual_spec)]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// The physical address of the end of the region.
+    #[verus_verify(dual_spec)]
+    #[verus_spec(requires self.inv())]
     pub fn end(&self) -> Paddr {
         self.base + self.len
     }
 
     /// Checks whether the region is empty
+    #[verus_verify(dual_spec)]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// The type of the region.
+    #[verus_verify(dual_spec)]
     pub fn typ(&self) -> MemoryRegionType {
         self.typ
     }
-
+    /*
     fn as_aligned(&self) -> Self {
         let (base, end) = match self.typ() {
             MemoryRegionType::Usable => (
@@ -137,7 +207,7 @@ impl MemoryRegion {
             len: end - base,
             typ: self.typ,
         }
-    }
+    }*/
 }
 
 /// The maximum number of regions that can be handled.
@@ -151,47 +221,102 @@ pub const MAX_REGIONS: usize = 512;
 /// A heapless set of memory regions.
 ///
 /// The set cannot contain more than `LEN` regions.
+#[verus_verify]
 pub struct MemoryRegionArray<const LEN: usize = MAX_REGIONS> {
     regions: [MemoryRegion; LEN],
     count: usize,
 }
 
+verus! {
+
+impl<const LEN: usize> Inv for MemoryRegionArray<LEN> {
+    closed spec fn inv(self) -> bool {
+        self.count <= LEN
+    }
+}
+
+impl<const LEN: usize> View for MemoryRegionArray<LEN> {
+    type V = MemoryRegionArrayModel<LEN>;
+
+    closed spec fn view(&self) -> MemoryRegionArrayModel<LEN> {
+        MemoryRegionArrayModel { regions: Seq::new(self.count as nat, |i: int| self.regions[i]@) }
+    }
+}
+
+impl<const LEN: usize> InvView for MemoryRegionArray<LEN> {
+    proof fn view_preserves_inv(self) {
+    }
+}
+
+} // verus!
+#[verus_verify]
 impl<const LEN: usize> Default for MemoryRegionArray<LEN> {
+    #[verus_spec(ret =>
+        ensures
+            ret.inv(),
+            ret@ == MemoryRegionArrayModel::<LEN>::new()
+    )]
     fn default() -> Self {
         Self::new()
     }
 }
-
+/*
 impl<const LEN: usize> Deref for MemoryRegionArray<LEN> {
     type Target = [MemoryRegion];
 
     fn deref(&self) -> &Self::Target {
         &self.regions[..self.count]
     }
-}
-
+}*/
+#[verus_verify]
 impl<const LEN: usize> MemoryRegionArray<LEN> {
     /// Constructs an empty set.
+    #[verus_spec(ret =>
+        ensures
+            ret.inv(),
+            ret@ == MemoryRegionArrayModel::<LEN>::new(),
+    )]
     pub const fn new() -> Self {
-        Self {
+        let ret = Self {
             regions: [MemoryRegion::bad(); LEN],
             count: 0,
-        }
+        };
+
+        proof! {
+            assert(ret@.regions == Seq::<MemRegionModel>::empty());
+        };
+
+        ret
     }
 
     /// Appends a region to the set.
     ///
     /// If the set is full, an error is returned.
+    #[verus_spec(ret =>
+        requires
+            old(self).inv(),
+            region.inv(),
+            !old(self)@.full(),
+        ensures
+            self.inv(),
+            self@ == old(self)@.push(region@),
+            ret.is_ok(),
+    )]
     pub fn push(&mut self, region: MemoryRegion) -> Result<(), &'static str> {
         if self.count < self.regions.len() {
             self.regions[self.count] = region;
-            self.count += 1;
+            self.count = self.count + 1;
+            proof! {
+                assert(self@.regions == old(self)@.regions.push(region@)) by {
+                    assert (forall |i: int| 0 <= i && i < self@.regions.len() ==> #[trigger] self@.regions[i] == old(self)@.regions.push(region@)[i]);
+                };
+            };
             Ok(())
         } else {
             Err("MemoryRegionArray is full")
         }
     }
-
+    /*
     /// Sorts the regions and returns a full set of non-overlapping regions.
     ///
     /// If an address is in multiple regions, the region with the lowest
@@ -268,7 +393,7 @@ impl<const LEN: usize> MemoryRegionArray<LEN> {
         result.count = merged_count;
 
         result
-    }
+    }*/
 }
 
 #[cfg(ktest)]

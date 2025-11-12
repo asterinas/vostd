@@ -9,7 +9,6 @@ use crate::{
         page_table::{PageTableConfig, PageTableEntryTrait},
         Paddr, PageProperty, PagingConstsTrait, PagingLevel, PodOnce,
     },
-    util::marker::SameSizeAs,
     Pod,
 };
 
@@ -90,9 +89,6 @@ impl PageTableEntry {
     const PHYS_MASK: u64 = 0xFFFF_FFFF_F000;
     const PROP_MASK: u64 = !Self::PHYS_MASK & !PageTableFlags::LAST_PAGE.bits();
 }
-
-// SAFETY: `PageTableEntry` has the same size as `usize` in our supported x86 architecture.
-unsafe impl SameSizeAs<usize> for PageTableEntry {}
 
 impl PodOnce for PageTableEntry {}
 

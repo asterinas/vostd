@@ -2,7 +2,7 @@
 
 use aster_rights::WriteOp;
 use ostd::{
-    cpu::context::{FpuState, RawGeneralRegs, UserContext},
+    cpu::context::{FpuContext, GeneralRegs, UserContext},
     user::UserContextApi,
 };
 
@@ -16,7 +16,7 @@ use crate::{
     prelude::*,
     process::{
         check_executable_file, posix_thread::ThreadName, renew_vm_and_map, Credentials, Process,
-        ProgramToLoad, MAX_ARGV_NUMBER, MAX_ARG_LEN, MAX_ENVP_NUMBER, MAX_ENV_LEN,
+        ProgramToLoad, MAX_LEN_STRING_ARG, MAX_NR_STRING_ARGS,
     },
 };
 
@@ -95,8 +95,13 @@ fn do_execve(
     } = ctx;
 
     let executable_path = elf_file.abs_path();
-    let argv = read_cstring_vec(argv_ptr_ptr, MAX_ARGV_NUMBER, MAX_ARG_LEN, ctx)?;
-    let envp = read_cstring_vec(envp_ptr_ptr, MAX_ENVP_NUMBER, MAX_ENV_LEN, ctx)?;
+    // FIXME: A malicious user could cause a kernel panic by exhausting available memory.
+    // Currently, the implementation reads up to `MAX_NR_STRING_ARGS` arguments, each up to
+    // `MAX_LEN_STRING_ARG` in length, without first verifying the total combined size.
+    // To prevent excessive memory allocation, a preliminary check should sum the lengths
+    // of all strings to enforce a sensible overall limit.
+    let argv = read_cstring_vec(argv_ptr_ptr, MAX_NR_STRING_ARGS, MAX_LEN_STRING_ARG, ctx)?;
+    let envp = read_cstring_vec(envp_ptr_ptr, MAX_NR_STRING_ARGS, MAX_LEN_STRING_ARG, ctx)?;
     debug!(
         "filename: {:?}, argv = {:?}, envp = {:?}",
         executable_path, argv, envp
@@ -139,6 +144,9 @@ fn do_execve(
     *thread_local.robust_list().borrow_mut() = None;
     debug!("load elf in execve succeeds");
 
+    // Reset FPU context
+    thread_local.fpu().set_context(FpuContext::new());
+
     let credentials = posix_thread.credentials_mut();
     set_uid_from_elf(process, &credentials, &elf_file)?;
     set_gid_from_elf(process, &credentials, &elf_file)?;
@@ -149,20 +157,14 @@ fn do_execve(
     // set signal disposition to default
     process.sig_dispositions().lock().inherit();
     // set cpu context to default
-    *user_context.general_regs_mut() = RawGeneralRegs::default();
+    *user_context.general_regs_mut() = GeneralRegs::default();
     user_context.set_tls_pointer(0);
-    *user_context.fpu_state_mut() = FpuState::default();
-    // FIXME: how to reset the FPU state correctly? Before returning to the user space,
-    // the kernel will call `handle_pending_signal`, which may update the CPU states so that
-    // when the kernel switches to the user mode, the control of the CPU will be handed over
-    // to the user-registered signal handlers.
-    user_context.fpu_state().restore();
     // set new entry point
-    user_context.set_instruction_pointer(elf_load_info.entry_point() as _);
-    debug!("entry_point: 0x{:x}", elf_load_info.entry_point());
+    user_context.set_instruction_pointer(elf_load_info.entry_point as _);
+    debug!("entry_point: 0x{:x}", elf_load_info.entry_point);
     // set new user stack top
-    user_context.set_stack_pointer(elf_load_info.user_stack_top() as _);
-    debug!("user stack top: 0x{:x}", elf_load_info.user_stack_top());
+    user_context.set_stack_pointer(elf_load_info.user_stack_top as _);
+    debug!("user stack top: 0x{:x}", elf_load_info.user_stack_top);
     Ok(())
 }
 

@@ -122,7 +122,7 @@ fn parse_memory_regions(mb1_info: &MultibootLegacyInfo) -> MemoryRegionArray {
 
 /// Representation of Multiboot Information according to specification.
 ///
-/// Ref:https://www.gnu.org/software/grub/manual/multiboot/multiboot.html#Boot-information-format
+/// Ref: <https://www.gnu.org/software/grub/manual/multiboot/multiboot.html#Boot-information-format>.
 ///
 ///```text
 ///         +-------------------+
@@ -202,7 +202,7 @@ struct MultibootLegacyInfo {
     /// ```
     mods_addr: u32,
 
-    /// If flags[4] = 1, then the field starting at byte 28 are valid:
+    /// If flags\[4\] = 1, then the field starting at byte 28 are valid:
     /// ```text
     ///         +-------------------+
     /// 28      | tabsize           |
@@ -213,7 +213,7 @@ struct MultibootLegacyInfo {
     /// ```
     /// These indicate where the symbol table from kernel image can be found.
     ///
-    /// If flags[5] = 1, then the field starting at byte 28 are valid:
+    /// If flags\[5\] = 1, then the field starting at byte 28 are valid:
     /// ```text
     ///         +-------------------+
     /// 28      | num               |

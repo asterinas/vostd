@@ -69,7 +69,7 @@ impl<T: CommonSchedInfo + Send + Sync> Scheduler<T> for FifoScheduler<T> {
         f(local_rq);
     }
 
-    fn local_mut_rq_with(&self, f: &mut dyn FnMut(&mut dyn LocalRunQueue<T>)) {
+    fn mut_local_rq_with(&self, f: &mut dyn FnMut(&mut dyn LocalRunQueue<T>)) {
         let preempt_guard = disable_preempt();
         let local_rq: &mut FifoRunQueue<T> = &mut self.rq[preempt_guard.current_cpu().as_usize()]
             .disable_irq()
@@ -98,10 +98,13 @@ impl<T: CommonSchedInfo> LocalRunQueue<T> for FifoRunQueue<T> {
     }
 
     fn update_current(&mut self, flags: super::UpdateFlags) -> bool {
-        !matches!(flags, UpdateFlags::Tick)
+        match flags {
+            UpdateFlags::Tick => false,
+            UpdateFlags::Wait | UpdateFlags::Yield | UpdateFlags::Exit => !self.queue.is_empty(),
+        }
     }
 
-    fn pick_next_current(&mut self) -> Option<&Arc<T>> {
+    fn try_pick_next(&mut self) -> Option<&Arc<T>> {
         let next_task = self.queue.pop_front()?;
         if let Some(prev_task) = self.current.replace(next_task) {
             self.queue.push_back(prev_task);

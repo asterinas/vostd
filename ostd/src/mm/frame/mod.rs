@@ -22,7 +22,7 @@
 //!    "alias XOR mutability" rule.
 //!
 //! The kind of a frame is determined by the type of its metadata. Untyped
-//! frames have its metadata type that implements the [`UntypedFrameMeta`]
+//! frames have its metadata type that implements the [`AnyUFrameMeta`]
 //! trait, while typed frames don't.
 //!
 //! Frames can have dedicated metadata, which is implemented in the [`meta`]
@@ -32,7 +32,7 @@
 //pub mod allocator;
 pub mod linked_list;
 pub mod meta;
-//pub mod segment;
+pub mod segment;
 pub mod unique;
 pub mod untyped;
 
@@ -97,6 +97,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
     #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
     pub fn from_unused(paddr: Paddr, metadata: M) -> (res: Result<Self, GetFrameError>)
         requires
             old(regions).inv(),
@@ -113,6 +114,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                 false,
                 old(regions).view(),
             ).1,
+            regions.inv(),
+            forall|paddr: Paddr| #[trigger]
+                old(regions).slots.contains_key(frame_to_index(paddr))
+                    ==> regions.slots.contains_key(frame_to_index(paddr)),
     {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
@@ -467,6 +472,7 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
 /// The caller should ensure the following conditions:
 ///  1. The physical address must represent a valid frame;
 ///  2. The caller must have already held a reference to the frame.
+#[verifier::external_body]
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
     debug_assert!(paddr % PAGE_SIZE() == 0);
 

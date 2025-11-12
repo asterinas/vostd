@@ -294,15 +294,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///
     /// This operation will leak the old child if the old PTE is present.
     ///
-    /// The child represented by the given PTE will handover the ownership to
-    /// the node. The PTE will be rendered invalid after this operation.
-    ///
     /// # Safety
     ///
     /// The caller must ensure that:
     ///  1. The index must be within the bound;
     ///  2. The PTE must represent a valid [`Child`] whose level is compatible
     ///     with the page table node.
+    ///  3. The page table node will have the ownership of the [`Child`]
+    ///     after this method.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner) : Tracked<&mut NodeOwner<C>>,
@@ -324,9 +323,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
             #[verusfmt::skip]
-            paddr_to_vaddr(
-                #[verus_spec(with Tracked(&slot_own), Tracked(slot_perm))]
-                self.start_paddr()
+            paddr_to_vaddr(#[verus_spec(with Tracked(&slot_own), Tracked(slot_perm))]self.start_paddr()
             )
         );
 
@@ -381,24 +378,25 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
 }
 
 /* TODO: Come back after VMReader
-// SAFETY: We can read the page table node because the page table pages are
-// accessed as untyped memory.
+// FIXME: The safe APIs in the `page_table/node` module allow `Child::Frame`s with
+// arbitrary addresses to be stored in the page table nodes. Therefore, they may not
+// be valid `C::Item`s. The soundness of the following `on_drop` implementation must
+// be reasoned in conjunction with the `page_table/cursor` implementation.
 unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     fn on_drop(&mut self, reader: &mut VmReader<Infallible>) {
         let nr_children = self.nr_children.get_mut();
-
         if *nr_children == 0 {
             return;
         }
 
         let level = self.level;
-
-        // Drop the children.
         let range = if level == C::NR_LEVELS {
             C::TOP_LEVEL_INDEX_RANGE.clone()
         } else {
             0..nr_subpage_per_huge::<C>()
         };
+
+        // Drop the children.
         reader.skip(range.start * size_of::<C::E>());
         for _ in range {
             // Non-atomic read is OK because we have mutable access.

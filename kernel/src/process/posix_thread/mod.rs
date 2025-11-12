@@ -2,7 +2,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use aster_rights::{ReadOp, WriteOp};
+use aster_rights::{ReadDupOp, ReadOp, WriteOp};
 use ostd::sync::{RoArc, Waker};
 
 use super::{
@@ -76,6 +76,9 @@ pub struct PosixThread {
 
     /// A manager that manages timers based on the profiling clock of the current thread.
     prof_timer_manager: Arc<TimerManager>,
+
+    /// I/O Scheduling priority value
+    io_priority: AtomicU32,
 }
 
 impl PosixThread {
@@ -199,6 +202,13 @@ impl PosixThread {
         *self.signalled_waker.lock() = None;
     }
 
+    /// Wakes up the signalled waker.
+    pub fn wake_signalled_waker(&self) {
+        if let Some(waker) = &*self.signalled_waker.lock() {
+            waker.wake_up();
+        }
+    }
+
     /// Enqueues a thread-directed signal.
     ///
     /// This method does not perform permission checks on user signals. Therefore, unless the
@@ -233,9 +243,7 @@ impl PosixThread {
         _sig_dispositions: MutexGuard<SigDispositions>,
     ) {
         self.sig_queues.enqueue(signal);
-        if let Some(waker) = &*self.signalled_waker.lock() {
-            waker.wake_up();
-        }
+        self.wake_signalled_waker();
     }
 
     /// Returns a reference to the profiling clock of the current thread.
@@ -286,6 +294,11 @@ impl PosixThread {
         self.credentials.dup().restrict()
     }
 
+    /// Gets the duplicatable read-only credentials of the thread.
+    pub fn credentials_dup(&self) -> Credentials<ReadDupOp> {
+        self.credentials.dup().restrict()
+    }
+
     /// Gets the write-only credentials of the current thread.
     ///
     /// It is illegal to mutate the credentials from a thread other than the
@@ -298,16 +311,38 @@ impl PosixThread {
         ));
         self.credentials.dup().restrict()
     }
+
+    /// Returns the I/O priority value of the thread.
+    pub fn io_priority(&self) -> &AtomicU32 {
+        &self.io_priority
+    }
 }
 
 static POSIX_TID_ALLOCATOR: AtomicU32 = AtomicU32::new(1);
 
 /// Allocates a new tid for the new posix thread
 pub fn allocate_posix_tid() -> Tid {
-    POSIX_TID_ALLOCATOR.fetch_add(1, Ordering::SeqCst)
+    let tid = POSIX_TID_ALLOCATOR.fetch_add(1, Ordering::SeqCst);
+    if tid >= PID_MAX {
+        // When the kernel's next PID value reaches `PID_MAX`,
+        // it should wrap back to a minimum PID value.
+        // PIDs with a value of `PID_MAX` or larger should not be allocated.
+        // Reference: <https://docs.kernel.org/admin-guide/sysctl/kernel.html#pid-max>.
+        //
+        // FIXME: Currently, we cannot determine which PID is recycled,
+        // so we are unable to allocate smaller PIDs.
+        warn!("the allocated ID is greater than the maximum allowed PID");
+    }
+    tid
 }
 
 /// Returns the last allocated tid
 pub fn last_tid() -> Tid {
     POSIX_TID_ALLOCATOR.load(Ordering::SeqCst) - 1
 }
+
+/// The maximum allowed process ID.
+//
+// FIXME: The current value is chosen arbitrarily.
+// This value can be modified by the user by writing to `/proc/sys/kernel/pid_max`.
+pub const PID_MAX: u32 = u32::MAX / 2;

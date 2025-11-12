@@ -40,7 +40,7 @@ RUN wget -O qemu.tar.xz https://download.qemu.org/qemu-10.0.2.tar.xz \
     && tar xf qemu.tar.xz --strip-components=1 -C /root/qemu \
     && rm qemu.tar.xz
 WORKDIR /root/qemu
-RUN ./configure --target-list=x86_64-softmmu,riscv64-softmmu --prefix=/usr/local/qemu --enable-slirp \
+RUN ./configure --target-list=x86_64-softmmu,riscv64-softmmu,loongarch64-softmmu --prefix=/usr/local/qemu --enable-slirp \
     && make -j \
     && make install
 WORKDIR /root
@@ -125,7 +125,7 @@ FROM build-base AS rust
 # Install all OSDK dependent packages
 RUN apt update \
     && apt install -y \
-    build-essential \
+    clang \
     curl \
     gdb \
     grub-efi-amd64 \
@@ -141,10 +141,15 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 ARG ASTER_RUST_VERSION
 RUN curl https://sh.rustup.rs -sSf | \
         sh -s -- --default-toolchain ${ASTER_RUST_VERSION} -y \
-    && rustup toolchain install stable \
     && rm -rf /root/.cargo/registry && rm -rf /root/.cargo/git \
     && cargo -V \
     && rustup component add rust-src rustc-dev llvm-tools-preview
+
+# Let Github runners reuse the Rust toolchain installed in the Dockerfile and
+# also the Cargo crates downloaded subsequently in the Docker build process.
+RUN mkdir -p /github/home \
+    && ln -s /root/.cargo /github/home/.cargo \
+    && ln -s /root/.rustup /github/home/.rustup
 
 # Install cargo tools
 RUN cargo install \

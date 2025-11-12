@@ -9,24 +9,11 @@ verus! {
 
 #[macro_export]
 macro_rules! borrow_field {
-    (& $ptr:expr) => {
-        ::verus_builtin_macros::verus_exec_expr!(
-        $ptr
+    ($ptr:expr) => { $ptr };
+    ($ptr:expr => $field:tt, $perm:expr) => {
+        verus_exec_expr!(
+            $ptr.borrow(Tracked($perm.borrow())).$field
     )};
-    (&mut $ptr:expr) => {
-        ::verus_builtin_macros::verus_exec_expr!(
-        $ptr
-    )};
-    (& $ptr:expr => $field:tt, $perm:expr) => {
-        ::verus_builtin_macros::verus_exec_expr!(
-        $ptr.borrow(#[verifier::ghost_wrapper]
-            tracked_exec(#[verifier::tracked_block_wrapped] $perm)).$field
-    )};
-    (&mut $ptr:expr => $field:tt, $perm:expr) => {
-        ::verus_builtin_macros::verus_exec_expr!(
-        $ptr.borrow(#[verifier::ghost_wrapper]
-            tracked_exec(#[verifier::tracked_block_wrapped] $perm)).$field
-    )}
 }
 
 #[macro_export]

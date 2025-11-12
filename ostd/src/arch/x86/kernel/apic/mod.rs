@@ -7,9 +7,8 @@ use xapic::get_xapic_base_address;
 
 use crate::{cpu::PinCurrentCpu, cpu_local, io::IoMemAllocatorBuilder};
 
-pub mod ioapic;
-pub mod x2apic;
-pub mod xapic;
+mod x2apic;
+mod xapic;
 
 static APIC_TYPE: Once<ApicType> = Once::new();
 
@@ -217,7 +216,7 @@ impl ApicId {
     ///
     /// In x2APIC mode, the 32-bit logical x2APIC ID, which can be read from
     /// LDR, is derived from the 32-bit local x2APIC ID:
-    /// Logical x2APIC ID = [(x2APIC ID[19:4] << 16) | (1 << x2APIC ID[3:0])]
+    /// Logical x2APIC ID = [(x2APIC ID\[19:4\] << 16) | (1 << x2APIC ID\[3:0\])]
     #[expect(unused)]
     pub fn x2apic_logical_id(&self) -> u32 {
         (self.x2apic_logical_cluster_id() << 16) | (1 << self.x2apic_logical_field_id())
@@ -225,7 +224,7 @@ impl ApicId {
 
     /// Returns the logical x2apic cluster ID.
     ///
-    /// Logical cluster ID = x2APIC ID[19:4]
+    /// Logical cluster ID = x2APIC ID\[19:4\]
     pub fn x2apic_logical_cluster_id(&self) -> u32 {
         let apic_id = match *self {
             ApicId::XApic(id) => id as u32,
@@ -238,7 +237,7 @@ impl ApicId {
     ///
     /// Specifically, the 16-bit logical ID sub-field is derived by the lowest
     /// 4 bits of the x2APIC ID, i.e.,
-    /// Logical field ID = x2APIC ID[3:0].
+    /// Logical field ID = x2APIC ID\[3:0\].
     pub fn x2apic_logical_field_id(&self) -> u32 {
         let apic_id = match *self {
             ApicId::XApic(id) => id as u32,
@@ -348,7 +347,6 @@ pub enum DivideConfig {
 }
 
 pub fn init(io_mem_builder: &IoMemAllocatorBuilder) -> Result<(), ApicInitError> {
-    crate::arch::kernel::pic::disable_temp();
     if x2apic::X2Apic::has_x2apic() {
         log::info!("x2APIC found!");
         APIC_TYPE.call_once(|| ApicType::X2Apic);

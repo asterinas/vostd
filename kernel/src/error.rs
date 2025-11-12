@@ -200,8 +200,6 @@ impl From<ostd::Error> for Error {
             ostd::Error::NotEnoughResources => Error::new(Errno::EBUSY),
             ostd::Error::PageFault => Error::new(Errno::EFAULT),
             ostd::Error::Overflow => Error::new(Errno::EOVERFLOW),
-            ostd::Error::MapAlreadyMappedVaddr => Error::new(Errno::EINVAL),
-            ostd::Error::KVirtAreaAllocError => Error::new(Errno::ENOMEM),
         }
     }
 }
@@ -334,11 +332,12 @@ impl From<aster_systree::Error> for Error {
     fn from(err: aster_systree::Error) -> Self {
         use aster_systree::Error::*;
         match err {
-            NodeNotFound(_) => Error::new(Errno::ENOENT),
+            NotFound => Error::new(Errno::ENOENT),
             InvalidNodeOperation(_) => Error::new(Errno::EINVAL),
             AttributeError => Error::new(Errno::EIO),
             PermissionDenied => Error::new(Errno::EACCES),
             InternalError(msg) => Error::with_message(Errno::EIO, msg),
+            AlreadyExists => Error::new(Errno::EEXIST),
             Overflow => Error::new(Errno::EOVERFLOW),
         }
     }

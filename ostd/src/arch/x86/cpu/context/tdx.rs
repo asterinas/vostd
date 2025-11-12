@@ -3,7 +3,7 @@ use tdx_guest::{
     handle_virtual_exception as do_handle_virtual_exception, tdcall, TdgVeInfo, TdxTrapFrame,
 };
 
-use crate::cpu::context::{RawGeneralRegs, UserContext};
+use super::{GeneralRegs, UserContext};
 
 pub(crate) struct VirtualizationExceptionHandler {
     ve_info: TdgVeInfo,
@@ -33,7 +33,7 @@ impl VirtualizationExceptionHandler {
     }
 }
 
-struct GeneralRegsWrapper<'a>(&'a mut RawGeneralRegs);
+struct GeneralRegsWrapper<'a>(&'a mut GeneralRegs);
 
 impl TdxTrapFrame for GeneralRegsWrapper<'_> {
     fn rax(&self) -> usize {

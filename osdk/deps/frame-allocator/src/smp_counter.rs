@@ -7,8 +7,8 @@ use ostd::cpu::{all_cpus, local::StaticCpuLocal, CpuId};
 use core::sync::atomic::{AtomicIsize, Ordering};
 
 /// Defines a static fast SMP counter.
-///
-/// See [`FastSmpCounter`] for more details.
+//
+// See `FastSmpCounter` for more details.
 #[macro_export]
 macro_rules! fast_smp_counter {
     ($(#[$attr:meta])* $vis:vis static $name:ident : usize;) => { paste::paste!{
@@ -98,7 +98,7 @@ mod test {
             pub static FREE_SIZE_COUNTER: usize;
         }
 
-        let guard = trap::disable_local();
+        let guard = trap::irq::disable_local();
         let cur_cpu = guard.current_cpu();
         FREE_SIZE_COUNTER.add(cur_cpu, 10);
         assert_eq!(FREE_SIZE_COUNTER.get(), 10);

@@ -2,8 +2,9 @@
 //! Metadata management of frames.
 //!
 //! You can picture a globally shared, static, gigantic array of metadata
-//! initialized for each frame. An entry in the array is called a [`MetaSlot`],
-//! which contains the metadata of a frame. There would be a dedicated small
+//! initialized for each frame.
+//! Each entry in this array holds the metadata for a single frame.
+//! There would be a dedicated small
 //! "heap" space in each slot for dynamic metadata. You can store anything as
 //! the metadata of a frame as long as it's [`Sync`].
 //!
@@ -29,7 +30,7 @@ use core::{
     fmt::Debug,
     mem::{size_of, ManuallyDrop, MaybeUninit},
     result::Result,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
 
 //use align_ext::AlignExt;
@@ -79,7 +80,7 @@ pub(in crate::mm) struct MetaSlot {
     ///
     /// Don't interpret this field as an array of bytes. It is a
     /// placeholder for the metadata of a frame.
-    storage: UnsafeCell<[u8; FRAME_METADATA_MAX_SIZE]>,
+    storage: UnsafeCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///
     /// Specifically, the reference count has the following meaning:
@@ -94,6 +95,7 @@ pub(in crate::mm) struct MetaSlot {
     ///
     /// [`Frame::from_unused`]: super::Frame::from_unused
     /// [`UniqueFrame`]: super::unique::UniqueFrame
+    /// [`drop_last_in_place`]: Self::drop_last_in_place
     //
     // Other than this field the fields should be `MaybeUninit`.
     // See initialization in `alloc_meta_frames`.
@@ -113,11 +115,11 @@ pub(in crate::mm) struct MetaSlot {
 
 verus! {
 
-pub(super) const REF_COUNT_UNUSED: u64 = u64::MAX;
+pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 
-pub(super) const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
+pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
 
-pub(super) const REF_COUNT_MAX: u64 = i64::MAX as u64;
+pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 type FrameMetaVtablePtr = core::ptr::DynMetadata<dyn AnyFrameMeta>;
 
@@ -146,10 +148,7 @@ pub use impl_frame_meta_for;
 verus! {
 
 /// Gets the reference to a metadata slot.
-pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: Result<
-    PPtr<MetaSlot>,
-    GetFrameError,
->)
+pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: Result<PPtr<MetaSlot>, GetFrameError>)
     requires
         owner.self_addr == frame_to_meta(paddr),
         owner.inv(),
@@ -311,9 +310,7 @@ impl MetaSlot {
             frame_to_index(meta_to_frame(slot.addr())),
         );
 
-        match slot.borrow(Tracked(meta_perm.borrow())).ref_count.load(
-            Tracked(slot_own.ref_count.borrow_mut()),
-        ) {
+        match slot.borrow(Tracked(meta_perm.borrow())).ref_count.load(Tracked(slot_own.ref_count.borrow_mut())) {
             REF_COUNT_UNUSED => return Err(GetFrameError::Unused),
             REF_COUNT_UNIQUE => return Err(GetFrameError::Unique),
             0 => return Err(GetFrameError::Busy),
@@ -355,10 +352,8 @@ impl MetaSlot {
             match Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
-                },
-                res => {
-                    return res;
-                },
+                }
+                res => return res,
             }
         }
     }
@@ -372,7 +367,7 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(rc_perm): Tracked<&mut PermissionU64>
     )]
-    pub(super) fn inc_ref_count(&self)
+    pub fn inc_ref_count(&self)
         requires
             old(rc_perm).is_for(self.ref_count),
             old(rc_perm).value() != 0,
@@ -446,10 +441,7 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(owner): Tracked<&MetaSlotOwner>
     )]
-    pub fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
-        MetaSlotStorage,
-        M,
-    >)
+    pub fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlotStorage, M>)
         requires
             owner.inv(),
             self.wf(*owner),
@@ -599,6 +591,11 @@ pub(crate) unsafe fn init() -> Segment<MetaPageMeta> {
         max_paddr
     );
 
+    // In RISC-V, the boot page table has mapped the 512GB memory,
+    // so we don't need to add temporary linear mapping.
+    // In LoongArch, the DWM0 has mapped the whole memory,
+    // so we don't need to add temporary linear mapping.
+    #[cfg(target_arch = "x86_64")]
     add_temp_linear_mapping(max_paddr);
 
     let tot_nr_frames = max_paddr / page_size::<PagingConsts>(1);
@@ -673,7 +670,7 @@ fn alloc_meta_frames(tot_nr_frames: usize) -> (usize, Paddr) {
         // it's valid for writing.
         unsafe {
             slot.write(MetaSlot {
-                storage: UnsafeCell::new([0; FRAME_METADATA_MAX_SIZE]),
+                storage: UnsafeCell::new(MetaSlotStorage::Empty([0; FRAME_METADATA_MAX_SIZE - 1])),
                 ref_count: AtomicU64::new(REF_COUNT_UNUSED),
                 vtable_ptr: UnsafeCell::new(MaybeUninit::uninit()),
                 in_list: AtomicU64::new(0),
@@ -736,6 +733,7 @@ fn mark_unusable_ranges() {
 /// We only assume boot page table to contain 4G linear mapping. Thus if the
 /// physical memory is huge we end up depleted of linear virtual memory for
 /// initializing metadata.
+#[cfg(target_arch = "x86_64")]
 fn add_temp_linear_mapping(max_paddr: Paddr) {
     const PADDR4G: Paddr = 0x1_0000_0000;
 

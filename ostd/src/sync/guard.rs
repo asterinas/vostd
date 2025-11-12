@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use crate::{
     task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
-    trap::{disable_local, DisabledLocalIrqGuard},
+    trap::irq::{disable_local, DisabledLocalIrqGuard},
 };
 
 /// A guardian that denotes the guard behavior for holding a spin-based lock.

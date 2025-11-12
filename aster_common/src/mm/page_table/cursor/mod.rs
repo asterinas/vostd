@@ -2,6 +2,8 @@
 use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
+use vstd_extra::ghost_tree::TreePath;
+use vstd_extra::ownership::*;
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -45,6 +47,55 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     pub barrier_va: Range<Vaddr>,
     pub _phantom: PhantomData<&'rcu PageTable<C>>,
 }
+
+pub tracked struct CursorOwner {
+    pub path: TreePath<CONST_NR_ENTRIES>,
+}
+
+#[rustc_has_incoherent_inherent_impls]
+pub ghost struct CursorModel {
+    pub path: TreePath<CONST_NR_ENTRIES>,
+}
+
+impl Inv for CursorOwner {
+    open spec fn inv(self) -> bool {
+        0 <= self.path.len() <= 3
+    }
+}
+
+impl Inv for CursorModel {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
+impl View for CursorOwner {
+    type V = CursorModel;
+
+    open spec fn view(&self) -> Self::V {
+        CursorModel { path: self.path }
+    }
+
+}
+
+impl InvView for CursorOwner {
+    proof fn view_preserves_inv(self) { }
+}
+
+
+impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
+    type Owner = CursorOwner;
+
+    open spec fn wf(self, owner: Self::Owner) -> bool {
+        &&& self.level == owner.path.len() + 1
+        &&& 1 <= self.level <= 4
+    }
+}
+
+impl<'rcu, C: PageTableConfig, A: InAtomicMode> ModelOf for Cursor<'rcu, C, A> {
+
+}
+
 
 /// The cursor of a page table that is capable of map, unmap or protect pages.
 ///

@@ -5,6 +5,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{BufRead, BufReader, Result, Write},
+    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::Command,
     sync::{LazyLock, Mutex},
@@ -23,7 +24,7 @@ pub fn ostd_dep() -> String {
 }
 
 fn cargo() -> Command {
-    Command::new("cargo")
+    new_command_checked_exists("cargo")
 }
 
 /// Create a new library crate with cargo
@@ -163,6 +164,22 @@ pub fn get_kernel_crate() -> CrateInfo {
     }
 }
 
+/// Check if an OSDK dependent executable (e.g. QEMU) exists.
+///
+/// If it exists, create a command. If not, print an error message and exit the
+/// process.
+pub fn new_command_checked_exists(executable: impl AsRef<Path>) -> Command {
+    let executable = executable.as_ref();
+    if which::which(executable).is_err() {
+        error_msg!(
+            "Executable {:?} cannot be found in PATH, please install the corresponding package",
+            executable
+        );
+        std::process::exit(Errno::ExecutableNotFound as _);
+    }
+    Command::new(executable)
+}
+
 fn package_contains_ostd_main(package: &serde_json::Value) -> bool {
     let src_path = {
         let targets = package.get("targets").unwrap().as_array().unwrap();
@@ -257,18 +274,20 @@ fn parse_package_id_string(package_id: &str) -> ParsedID {
 pub fn trace_panic_from_log(qemu_log: File, bin_path: PathBuf) {
     // We read last 500 lines since more than 100 layers of stack trace is unlikely.
     let reader = rev_buf_reader::RevBufReader::new(qemu_log);
-    let lines: Vec<String> = reader.lines().take(500).map(|l| l.unwrap()).collect();
+    let lines: Vec<String> = reader.lines().take(500).filter_map(|l| l.ok()).collect();
     let mut trace_exists = false;
     let mut stack_num = 0;
     let pc_matcher = regex::Regex::new(r" - pc (0x[0-9a-fA-F]+)").unwrap();
     let exe = bin_path.to_string_lossy();
-    let mut addr2line = Command::new("addr2line");
-    addr2line.args(["-e", &exe]);
+
+    let mut addr2line = new_command_checked_exists("addr2line");
+    addr2line.args(["-e", &exe, "-f", "-C"]);
     let mut addr2line_proc = addr2line
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
+
     for line in lines.into_iter().rev() {
         if line.contains("Printing stack trace:") {
             println!("[OSDK] The kernel seems panicked. Parsing stack trace for source lines:");
@@ -280,16 +299,43 @@ pub fn trace_panic_from_log(qemu_log: File, bin_path: PathBuf) {
                 let mut stdin = addr2line_proc.stdin.as_ref().unwrap();
                 stdin.write_all(pc.as_bytes()).unwrap();
                 stdin.write_all(b"\n").unwrap();
+                let mut function = String::new();
                 let mut line = String::new();
                 let mut stdout = BufReader::new(addr2line_proc.stdout.as_mut().unwrap());
+                stdout.read_line(&mut function).unwrap();
                 stdout.read_line(&mut line).unwrap();
                 stack_num += 1;
-                println!("({: >3}) {}", stack_num, line.trim());
+                println!("({: >3}) {}", stack_num, function.trim());
+                println!("          at {}", line.trim());
             }
         }
     }
     addr2line_proc.kill().unwrap();
     addr2line_proc.wait().unwrap();
+}
+
+/// Dump the coverage data from QEMU if the coverage information is found in the log.
+pub fn dump_coverage_from_qemu(qemu_log: File, monitor_socket: &mut UnixStream) {
+    const COVERAGE_SIGNATRUE: &str = "#### Coverage: ";
+    let reader = rev_buf_reader::RevBufReader::new(qemu_log);
+
+    let Some(line) = reader
+        .lines()
+        .find(|l| l.as_ref().unwrap().starts_with(COVERAGE_SIGNATRUE))
+        .map(|l| l.unwrap())
+    else {
+        return;
+    };
+
+    let line = line.strip_prefix(COVERAGE_SIGNATRUE).unwrap();
+    let (addr, size) = line.split_once(' ').unwrap();
+    let addr = usize::from_str_radix(addr.strip_prefix("0x").unwrap(), 16).unwrap();
+    let size: usize = size.parse().unwrap();
+
+    let cmd = format!("memsave 0x{addr:x} {size} coverage.profraw\n");
+    if monitor_socket.write_all(cmd.as_bytes()).is_ok() {
+        info!("Coverage data saved to coverage.profraw");
+    }
 }
 
 /// A guard that ensures the current working directory is restored
