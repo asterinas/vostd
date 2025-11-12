@@ -50,6 +50,8 @@ jobs:
           git config --global user.email "ci@asterinas.verus"
           cargo clean
           cargo dv bootstrap --restart
+          # Discard any uncommitted changes in tools/verus before upgrade
+          git -C tools/verus reset --hard HEAD
           cargo dv bootstrap --upgrade --test_branch
           make 2>&1 | tee verus_phaseII.log
           if grep -q "error:" verus_phaseII.log; then
