@@ -1,4 +1,4 @@
-use vstd::prelude::*;
+use vstd::{assert_by_contradiction, prelude::*};
 
 use common::{
     mm::nr_subpage_per_huge,
@@ -913,6 +913,10 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                 new_ch_spin_lock,
             ).wf(),
     {
+        assert(offset < nr_subpage_per_huge::<C>()) by {
+            C::lemma_nr_subpage_per_huge_is_512();
+        };
+
         let put_parent = self.put_spec(pa, new_pa_guard, new_pa_spin_lock);
         let put_child = put_parent.put_spec(ch, new_ch_guard, new_ch_spin_lock);
         // NIDs match the guards.
@@ -949,7 +953,13 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                             <==> put_child.inner.dom().contains(child_nid)) by {
                             if !self.inner.dom().contains(child_nid) {
                                 assert(child_nid != ch) by {
-                                    admit();
+                                    assert_by_contradiction!(child_nid != ch, {
+                                        assert(nid != pa);
+                                        node_helper::lemma_get_child_sound::<C>(nid, i);
+                                        node_helper::lemma_get_child_sound::<C>(pa, offset);
+                                        node_helper::lemma_is_child_implies_same_pa::<C>(pa, nid, child_nid);
+                                        assert(nid == pa);
+                                    });
                                 }
                                 assert(!put_child.inner.dom().contains(child_nid));
                             }
@@ -983,7 +993,9 @@ impl<C: PageTableConfig> SubTreeForgotGuard<C> {
                             };
                         }
                     };
-                } else {
+                } else if nid == pa {
+                    admit();
+                } else if nid == ch {
                     admit();
                 }
             }
