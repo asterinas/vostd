@@ -318,6 +318,8 @@ name = "ostd_specs"
 version = "0.1.0"
 dependencies = [
  "aster_common",
+ "state_machine",
+ "temporal_logic",
  "verus_builtin",
  "verus_builtin_macros",
  "vstd",
@@ -465,6 +467,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "state_machine"
+version = "0.1.0"
+dependencies = [
+ "temporal_logic",
+ "verus_builtin",
+ "verus_builtin_macros",
+ "vstd",
+]
+
+[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -519,6 +531,15 @@ dependencies = [
  "iced-x86",
  "raw-cpuid",
  "x86_64",
+]
+
+[[package]]
+name = "temporal_logic"
+version = "0.1.0"
+dependencies = [
+ "verus_builtin",
+ "verus_builtin_macros",
+ "vstd",
 ]
 
 [[package]]
