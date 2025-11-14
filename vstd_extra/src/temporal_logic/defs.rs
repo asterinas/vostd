@@ -64,7 +64,7 @@ impl<T> TempPred<T> {
     // iff it is always the case that `self` getting satisfied implies `other` eventually getting satisfied.
     //
     // Defined in 3.2.3.
-    // |ex| forall |i: nat| self.satisfied_by(ex.suffix(i)) ==> exists |j: nat| other.satisfied_by(ex.suffix(i + j)) 
+    // |ex| forall |i: nat| self.satisfied_by(ex.suffix(i)) ==> exists |j: nat| other.satisfied_by(ex.suffix(i + j))
     pub open spec fn leads_to(self, other: Self) -> Self {
         always(self.implies(eventually(other)))
     }
