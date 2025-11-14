@@ -1,7 +1,7 @@
 // Copyright 2022 VMware, Inc.
 // SPDX-License-Identifier: MIT
 #![allow(unused_imports)]
-use temporal_logic::*;
+use super::super::temporal_logic::*;
 use vstd::prelude::*;
 
 verus! {

@@ -1,8 +1,5 @@
-extern crate temporal_logic;
 use vstd::prelude::*;
-
-use state_machine::action::*;
-use temporal_logic::{defs::*, rules::*};
+use vstd_extra::{temporal_logic::*, state_machine::*};
 
 verus! {
 

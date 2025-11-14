@@ -1724,7 +1724,7 @@ pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>
 #[macro_export]
 macro_rules! leads_to_trans_n {
     [$($tail:tt)*] => {
-        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::rules::leads_to_trans_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::leads_to_trans_n_internal!($($tail)*));
     };
 }
 

@@ -1,7 +1,7 @@
 // Copyright 2022 VMware, Inc.
 // SPDX-License-Identifier: MIT
 #![allow(unused_imports)]
-use crate::action::*;
+use super::action::*;
 use vstd::{multiset::*, prelude::*};
 
 verus! {
