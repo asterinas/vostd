@@ -66,7 +66,7 @@ You can also run `cargo dv clean` to clean all artifacts at once.
 
 For VSCode users, the [`verus-analyzer`](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer) extension is available in the Marketplace.
 
-For Emacs users, there is currently no official integration. You may contribute to the ongoing [`verus-etags`](https://verus-lang.zulipchat.com/#narrow/channel/394395-general/topic/verus-etags/with/553918965) effort to improve editor support.
+For Emacs users, please refer to the [`verus-mode`](https://github.com/verus-lang/verus-mode.el).
 
 ## Contributing to VOSTD
 
