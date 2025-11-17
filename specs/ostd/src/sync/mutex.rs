@@ -1,28 +1,31 @@
 use vstd::prelude::*;
-use verus_state_machines_macros::state_machine;
+use vstd_extra::{state_machine::*, temporal_logic::*};
 
 verus! {
+
+pub type Tid = int;
+
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub ghost enum Label {
-    Start,
-    PreCheckLock,
-    WaitUntil,
-    EnqueueWaker,
-    EnqueueWakerIncWaker,
-    CheckLock,
-    CheckHasWoken,
-    CS,
-    ReleaseLock,
-    WakeOne,
-    WakeOneLoop,
-    WakeUp,
-    Done,
+    start,
+    pre_check_lock,
+    wait_until,
+    enqueue_waker,
+    enqueue_waker_inc_waker,
+    check_lock,
+    check_has_woken,
+    cs,
+    release_lock,
+    wake_one,
+    wake_one_loop,
+    wake_up,
+    done,
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
-pub ghost enum Procedure{
-    Lock,
-    Unlock,
+pub ghost enum Procedure {
+    lock,
+    unlock,
 }
 
 pub ghost struct StackFrame {
@@ -31,193 +34,344 @@ pub ghost struct StackFrame {
     pub waker: Option<int>,
 }
 
-state_machine! {
-    MutexSM {
-        
-    fields {
-        pub num_procs: nat,
-        pub locked: bool,
-        pub wait_queue_num_wakers: nat,
-        pub wait_queue_wakers: Seq<int>,
-        pub has_woken: Map<int, bool>,
-        pub waker: Map<int, Option<int>>,
-        pub stack: Map<int, Seq<StackFrame>>,
-        pub pc: Map<int, Label>,
-    }
-
-    init!{
-        initialize(num_procs: nat) {
-            init num_procs = num_procs;
-            init locked = false;
-            init wait_queue_num_wakers = 0;
-            init wait_queue_wakers = Seq::empty();
-            init has_woken = Map::new(|i:int| 0 <= i < num_procs, |i| false);
-            init waker = Map::new(|i:int| 0 <= i < num_procs, |i| None);
-            init stack = Map::new(|i:int| 0 <= i < num_procs, |i| Seq::empty());
-            init pc = Map::new(|i:int| 0 <= i < num_procs, |i| Label::Start);
-        }
-    }
-
-    transition!{
-        pre_check_lock(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::PreCheckLock;
-            if pre.locked == false {
-                update locked = true;
-                update pc = pre.pc.insert(proc_id, pre.stack[proc_id].first().pc);
-                update stack = pre.stack.insert(proc_id, pre.stack[proc_id].drop_first());
-            } else {
-                update pc = pre.pc.insert(proc_id, Label::WaitUntil);
-            }
-        }
-    }
-
-    transition!{
-        wait_until(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::WaitUntil;
-            update pc = pre.pc.insert(proc_id, Label::EnqueueWaker);
-        }
-    }
-
-    transition!{
-        enqueue_waker(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::EnqueueWaker;
-            update wait_queue_wakers = pre.wait_queue_wakers.push(proc_id);
-            update pc = pre.pc.insert(proc_id, Label::EnqueueWakerIncWaker);
-        }
-    }
-
-    transition!{
-        enqueue_waker_inc_waker(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::EnqueueWakerIncWaker;
-            update wait_queue_num_wakers = pre.wait_queue_num_wakers + 1;
-            update pc = pre.pc.insert(proc_id, Label::CheckLock);
-        }
-    }
-
-    transition!{
-        check_lock(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::CheckLock;
-            if pre.locked == false {
-                update locked = true;
-                update has_woken = pre.has_woken.insert(proc_id, true);
-                update pc = pre.pc.insert(proc_id, pre.stack[proc_id].first().pc);
-                update stack = pre.stack.insert(proc_id, pre.stack[proc_id].drop_first());
-            } else {
-                update pc = pre.pc.insert(proc_id, Label::CheckHasWoken);
-            }
-        }
-    }
-    
-    transition!{
-        check_has_woken(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::CheckHasWoken;
-            update has_woken = pre.has_woken.insert(proc_id, false);
-            update pc = pre.pc.insert(proc_id, Label::WaitUntil);
-        }
-    }
-
-    transition!{
-        release_lock(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::ReleaseLock;
-            update locked = false;
-            update pc = pre.pc.insert(proc_id, Label::WakeOne);
-        }
-    }
-
-    transition!{
-        wake_one(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::WakeOne;
-            if pre.wait_queue_num_wakers == 0 {
-                update pc = pre.pc.insert(proc_id, pre.stack[proc_id].first().pc);
-                update waker = pre.waker.insert(proc_id, pre.stack[proc_id].first().waker);
-                update stack = pre.stack.insert(proc_id, pre.stack[proc_id].drop_first());
-            } else {
-                update pc = pre.pc.insert(proc_id, Label::WakeOneLoop);
-            }
-        }
-    }
-
-
-    transition!{
-        wake_one_loop(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::WakeOneLoop;
-            if pre.wait_queue_num_wakers != 0 {
-                update waker = pre.waker.insert(proc_id, Some(pre.wait_queue_wakers.first()));
-                update wait_queue_wakers = pre.wait_queue_wakers.drop_first();
-                update wait_queue_num_wakers = (pre.wait_queue_num_wakers - 1) as nat;
-                update pc = pre.pc.insert(proc_id, Label::WakeUp);
-            } else {
-                update pc = pre.pc.insert(proc_id, pre.stack[proc_id].first().pc);
-                update waker = pre.waker.insert(proc_id, pre.stack[proc_id].first().waker);
-                update stack = pre.stack.insert(proc_id, pre.stack[proc_id].drop_first());
-            }
-        }
-    }
-
-    transition!{
-        wake_up(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::WakeUp;
-            require pre.waker[proc_id] != None::<int>;
-            if pre.has_woken[pre.waker[proc_id].unwrap()] == false {
-                update has_woken = pre.has_woken.insert(pre.waker[proc_id].unwrap(), true);
-                update pc = pre.pc.insert(proc_id, pre.stack[proc_id].first().pc);
-                update waker = pre.waker.insert(proc_id, pre.stack[proc_id].first().waker);
-                update stack = pre.stack.insert(proc_id, pre.stack[proc_id].drop_first());
-            } else {
-                update pc = pre.pc.insert(proc_id, Label::WakeOneLoop);
-            }
-        }
-    }
-
-    transition!{
-        start(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::Start;
-            let pre_stack = pre.stack[proc_id];
-            let frame = StackFrame {
-                procedure: Procedure::Lock,
-                pc: Label::CS,
-                waker: None,
-            };
-            update stack = pre.stack.insert(proc_id, Seq::empty().push(frame).add(pre_stack));
-            update pc = pre.pc.insert(proc_id, Label::PreCheckLock);
-        }
-    }
-
-    transition!{
-        cs(proc_id: int) {
-            require 0 <= proc_id < pre.num_procs;
-            require pre.pc[proc_id] == Label::CS;
-            let pre_stack = pre.stack[proc_id];
-            let frame = StackFrame {
-                procedure: Procedure::Unlock,
-                pc: Label::Done,
-                waker: pre.waker[proc_id],
-            };
-            update stack = pre.stack.insert(proc_id, Seq::empty().push(frame).add(pre_stack));
-            update pc = pre.pc.insert(proc_id, Label::ReleaseLock);
-        }
-    }
-
-    spec fn mutual_exclusion(self) -> bool {
-        forall |i: int, j: int| {
-            0 <= i < self.num_procs && 0 <= j < self.num_procs && i != j ==>
-                !(self.pc[i] == Label::CS && self.pc[j] == Label::CS)
-        }
-    }
-
-    }
-
+pub ghost struct ProgramState {
+    pub num_procs: nat,
+    pub locked: bool,
+    pub wait_queue_num_wakers: nat,
+    pub wait_queue_wakers: Seq<Tid>,
+    pub has_woken: Map<Tid, bool>,
+    pub waker: Map<Tid, Option<Tid>>,
+    pub stack: Map<Tid, Seq<StackFrame>>,
+    pub pc: Map<Tid, Label>,
 }
 
-} 
+pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
+    |s: ProgramState|
+        {
+            &&& s.num_procs == num_procs
+            &&& s.locked == false
+            &&& s.wait_queue_num_wakers == 0
+            &&& s.wait_queue_wakers == Seq::<Tid>::empty()
+            &&& s.has_woken == Map::new(|i: Tid| 0 <= i < num_procs, |i| false)
+            &&& s.waker == Map::new(|i: Tid| 0 <= i < num_procs, |i| None::<Tid>)
+            &&& s.stack == Map::new(|i: Tid| 0 <= i < num_procs, |i| Seq::<StackFrame>::empty())
+            &&& s.pc == Map::new(|i: Tid| 0 <= i < num_procs, |i| Label::start)
+        }
+}
+
+pub open spec fn pre_check_lock() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::pre_check_lock
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = if s.locked == false {
+                    ProgramState {
+                        locked: true,
+                        pc: s.pc.insert(tid, s.stack[tid].first().pc),
+                        stack: s.stack.insert(tid, s.stack[tid].drop_first()),
+                        ..s
+                    }
+                } else {
+                    ProgramState { pc: s.pc.insert(tid, Label::wait_until), ..s }
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn wait_until() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::wait_until
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = ProgramState { pc: s.pc.insert(tid, Label::enqueue_waker), ..s };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn enqueue_waker() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::enqueue_waker
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = ProgramState {
+                    wait_queue_wakers: s.wait_queue_wakers.push(tid),
+                    pc: s.pc.insert(tid, Label::enqueue_waker_inc_waker),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn enqueue_waker_inc_waker() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::enqueue_waker_inc_waker
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = ProgramState {
+                    wait_queue_num_wakers: s.wait_queue_num_wakers + 1,
+                    pc: s.pc.insert(tid, Label::check_lock),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn check_lock() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::check_lock
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = if s.locked == false {
+                    ProgramState {
+                        locked: true,
+                        has_woken: s.has_woken.insert(tid, true),
+                        pc: s.pc.insert(tid, s.stack[tid].first().pc),
+                        stack: s.stack.insert(tid, s.stack[tid].drop_first()),
+                        ..s
+                    }
+                } else {
+                    ProgramState { pc: s.pc.insert(tid, Label::check_has_woken), ..s }
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn check_has_woken() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::check_has_woken
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = ProgramState {
+                    has_woken: s.has_woken.insert(tid, false),
+                    pc: s.pc.insert(tid, Label::wait_until),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn release_lock() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::release_lock
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = ProgramState {
+                    locked: false,
+                    pc: s.pc.insert(tid, Label::wake_one),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn wake_one() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::wake_one
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = if s.wait_queue_num_wakers == 0 {
+                    ProgramState {
+                        pc: s.pc.insert(tid, s.stack[tid].first().pc),
+                        waker: s.waker.insert(tid, s.stack[tid].first().waker),
+                        stack: s.stack.insert(tid, s.stack[tid].drop_first()),
+                        ..s
+                    }
+                } else {
+                    ProgramState { pc: s.pc.insert(tid, Label::wake_one_loop), ..s }
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn wake_one_loop() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::wake_one_loop
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = if s.wait_queue_num_wakers != 0 {
+                    ProgramState {
+                        waker: s.waker.insert(tid, Some(s.wait_queue_wakers.first())),
+                        wait_queue_wakers: s.wait_queue_wakers.drop_first(),
+                        wait_queue_num_wakers: (s.wait_queue_num_wakers - 1) as nat,
+                        pc: s.pc.insert(tid, Label::wake_up),
+                        ..s
+                    }
+                } else {
+                    ProgramState {
+                        pc: s.pc.insert(tid, s.stack[tid].first().pc),
+                        waker: s.waker.insert(tid, s.stack[tid].first().waker),
+                        stack: s.stack.insert(tid, s.stack[tid].drop_first()),
+                        ..s
+                    }
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn wake_up() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::wake_up
+                &&& s.waker[tid] != None::<int>
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let s_prime = if s.has_woken[s.waker[tid].unwrap()] == false {
+                    ProgramState {
+                        has_woken: s.has_woken.insert(s.waker[tid].unwrap(), true),
+                        pc: s.pc.insert(tid, s.stack[tid].first().pc),
+                        waker: s.waker.insert(tid, s.stack[tid].first().waker),
+                        stack: s.stack.insert(tid, s.stack[tid].drop_first()),
+                        ..s
+                    }
+                } else {
+                    ProgramState { pc: s.pc.insert(tid, Label::wake_one_loop), ..s }
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn start() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::start
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let pre_stack = s.stack[tid];
+                let frame = StackFrame {
+                    procedure: Procedure::lock,
+                    pc: Label::cs,
+                    waker: None::<int>,
+                };
+                let s_prime = ProgramState {
+                    stack: s.stack.insert(
+                        tid,
+                        Seq::<StackFrame>::empty().push(frame).add(pre_stack),
+                    ),
+                    pc: s.pc.insert(tid, Label::pre_check_lock),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+pub open spec fn cs() -> Action<ProgramState, Tid, ()> {
+    Action {
+        precondition: |tid: Tid, s: ProgramState|
+            {
+                &&& 0 <= tid < s.num_procs
+                &&& s.pc[tid] == Label::cs
+            },
+        transition: |tid: Tid, s: ProgramState|
+            {
+                let pre_stack = s.stack[tid];
+                let frame = StackFrame {
+                    procedure: Procedure::unlock,
+                    pc: Label::done,
+                    waker: s.waker[tid],
+                };
+                let s_prime = ProgramState {
+                    stack: s.stack.insert(
+                        tid,
+                        Seq::<StackFrame>::empty().push(frame).add(pre_stack),
+                    ),
+                    pc: s.pc.insert(tid, Label::release_lock),
+                    ..s
+                };
+                (s_prime, ())
+            },
+    }
+}
+
+impl ProgramState {
+    pub open spec fn valid_tid(self, tid: Tid) -> bool {
+        0 <= tid < self.num_procs
+    }
+
+    pub open spec fn trying(self, tid: Tid) -> bool {
+        self.pc[tid] == Label::pre_check_lock || self.pc[tid] == Label::wait_until || self.pc[tid]
+            == Label::enqueue_waker || self.pc[tid] == Label::check_lock || self.pc[tid]
+            == Label::check_has_woken
+    }
+
+    pub open spec fn mutual_exclusion(self) -> bool {
+        forall|i: Tid, j: Tid|
+            #![auto]
+            (self.valid_tid(i) && self.valid_tid(j) && i != j) ==> !(self.pc[i] == Label::cs
+                && self.pc[j] == Label::cs)
+    }
+}
+
+spec fn starvation_free() -> TempPred<ProgramState> {
+    tla_forall(
+        |i: Tid|
+            lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
+                lift_state(|s: ProgramState| s.pc[i] == Label::cs),
+            ),
+    )
+}
+
+spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
+    tla_exists(
+        |i: Tid|
+            lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
+                tla_exists(
+                    |j: Tid| lift_state(|s: ProgramState| s.valid_tid(j) && s.pc[j] == Label::cs),
+                ),
+            ),
+    )
+}
+
+} // verus!
