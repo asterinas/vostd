@@ -62,6 +62,10 @@ pub open spec fn lock() -> Action<ProgramState, Tid, ()> {
     }
 }
 
+pub open spec fn acquire_lock(tid: Tid) -> ActionPred<ProgramState> {
+    lock().forward(tid)
+}
+
 pub open spec fn unlock() -> Action<ProgramState, Tid, ()> {
     Action {
         precondition: |tid: Tid, s: ProgramState|
@@ -80,6 +84,10 @@ pub open spec fn unlock() -> Action<ProgramState, Tid, ()> {
                 (s_prime, ())
             },
     }
+}
+
+pub open spec fn release_lock(tid: Tid) -> ActionPred<ProgramState> {
+    unlock().forward(tid)
 }
 
 pub open spec fn start() -> Action<ProgramState, Tid, ()> {
@@ -130,6 +138,26 @@ pub open spec fn cs() -> Action<ProgramState, Tid, ()> {
     }
 }
 
+pub open spec fn P(tid: Tid) -> ActionPred<ProgramState> {
+    |s: ProgramState, s_prime: ProgramState|
+        {
+            ||| start().forward(tid)(s, s_prime)
+            ||| cs().forward(tid)(s, s_prime)
+        }
+}
+
+pub open spec fn next() -> ActionPred<ProgramState> {
+    |s: ProgramState, s_prime: ProgramState|
+        {
+            exists|tid: Tid|
+                0 <= tid < s.num_procs && {
+                    ||| acquire_lock(tid)(s, s_prime)
+                    ||| release_lock(tid)(s, s_prime)
+                    ||| P(tid)(s, s_prime)
+                }
+        }
+}
+
 impl ProgramState {
     pub open spec fn valid_tid(self, tid: Tid) -> bool {
         0 <= tid < self.num_procs
@@ -147,7 +175,7 @@ impl ProgramState {
     }
 }
 
-spec fn starvation_free() -> TempPred<ProgramState> {
+pub open spec fn starvation_free() -> TempPred<ProgramState> {
     tla_forall(
         |i: Tid|
             lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
@@ -156,7 +184,7 @@ spec fn starvation_free() -> TempPred<ProgramState> {
     )
 }
 
-spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
+pub open spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
     tla_exists(
         |i: Tid|
             lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
@@ -165,6 +193,16 @@ spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
                 ),
             ),
     )
+}
+
+pub proof fn lemma_num_procs_unchanged(spec: TempPred<ProgramState>, n: nat)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+    ensures
+        spec.entails(always(lift_state(|s: ProgramState| s.num_procs == n))),
+{
+    init_invariant(spec, init(n), next(), |s: ProgramState| { s.num_procs == n });
 }
 
 } // verus!
