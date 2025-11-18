@@ -195,6 +195,19 @@ pub open spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
     )
 }
 
+pub open spec fn pc_stack_match(pc: Label, stack: Seq<StackFrame>) -> bool {
+    match pc {
+        Label::start => stack =~= Seq::empty(),
+        Label::lock => stack =~= seq![
+            StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
+        ],
+        Label::cs => stack =~= Seq::empty(),
+        Label::unlock => stack =~= seq![
+            StackFrame { procedure: Procedure::release_lock, pc: Label::start },
+        ],
+    }
+}
+
 pub proof fn lemma_num_procs_unchanged(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -205,6 +218,126 @@ pub proof fn lemma_num_procs_unchanged(spec: TempPred<ProgramState>, n: nat)
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.num_procs == n });
 }
 
+pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+    ensures
+        spec.entails(
+            always(
+                lift_state(
+                    |s: ProgramState|
+                        {
+                            forall|tid: Tid| #[trigger]
+                                s.valid_tid(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid])
+                        },
+                ),
+            ),
+        ),
+{
+    lemma_num_procs_unchanged(spec, n);
+    assert forall|s: ProgramState, s_prime: ProgramState|
+        (forall|tid: Tid| #[trigger] s.valid_tid(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid]))
+            && #[trigger] next()(s, s_prime) implies (forall|tid: Tid| #[trigger]
+        s_prime.valid_tid(tid) ==> pc_stack_match(s_prime.pc[tid], s_prime.stack[tid])) by {
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime)) {
+            let tid = choose|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime);
+            assert(s.valid_tid(tid));
+            assert(s.pc[tid] == Label::lock);
+            assert(s.stack[tid] == seq![
+                StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
+            ]);
+            assert(s_prime.pc[tid] == Label::cs);
+            assert(s_prime.stack[tid] == Seq::<StackFrame>::empty());
+            assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
+            assert forall|tid0: Tid| #![auto] s_prime.valid_tid(tid0) implies pc_stack_match(
+                s_prime.pc[tid0],
+                s_prime.stack[tid0],
+            ) by {
+                if tid0 == tid {
+                    // already proved above
+                } else {
+                    assert(s.valid_tid(tid0));
+                    assert(s_prime.pc[tid0] == s.pc[tid0]);
+                    assert(s_prime.stack[tid0] == s.stack[tid0]);
+                    assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
+                    assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
+                }
+            }
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && release_lock(tid)(s, s_prime)) {
+            if let tid = choose|tid: Tid| 0 <= tid < s.num_procs && release_lock(tid)(s, s_prime) {
+                assert(s.valid_tid(tid));
+                assert(s.pc[tid] == Label::unlock);
+                assert(s.stack[tid] == seq![
+                    StackFrame { procedure: Procedure::release_lock, pc: Label::start },
+                ]);
+                assert(s_prime.pc[tid] == Label::start);
+                assert(s_prime.stack[tid] == Seq::<StackFrame>::empty());
+                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
+                assert forall|tid0: Tid| #![auto] s_prime.valid_tid(tid0) implies pc_stack_match(
+                    s_prime.pc[tid0],
+                    s_prime.stack[tid0],
+                ) by {
+                    if tid0 == tid {
+                        // already proved above
+                    } else {
+                        assert(s.valid_tid(tid0));
+                        assert(s_prime.pc[tid0] == s.pc[tid0]);
+                        assert(s_prime.stack[tid0] == s.stack[tid0]);
+                        assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
+                        assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
+                    }
+                }
+            }
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && P(tid)(s, s_prime)) {
+            let tid = choose|tid: Tid| 0 <= tid < s.num_procs && P(tid)(s, s_prime);
+            assert(s.valid_tid(tid));
+            if (start().forward(tid)(s, s_prime)) {
+                assert(s.pc[tid] == Label::start);
+                assert(s.stack[tid] == Seq::<StackFrame>::empty());
+                assert(s_prime.pc[tid] == Label::lock);
+                assert(s_prime.stack[tid] == seq![
+                    StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
+                ]);
+                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
+            } else {
+                assert(cs().forward(tid)(s, s_prime));
+                assert(s.pc[tid] == Label::cs);
+                assert(s.stack[tid] == Seq::<StackFrame>::empty());
+                assert(s_prime.pc[tid] == Label::unlock);
+                assert(s_prime.stack[tid] == seq![
+                    StackFrame { procedure: Procedure::release_lock, pc: Label::start },
+                ]);
+                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
+            }
+            assert forall|tid0: Tid| #![auto] s_prime.valid_tid(tid0) implies pc_stack_match(
+                s_prime.pc[tid0],
+                s_prime.stack[tid0],
+            ) by {
+                if tid0 == tid {
+                    // already proved above
+                } else {
+                    assert(s.valid_tid(tid0));
+                    assert(s_prime.pc[tid0] == s.pc[tid0]);
+                    assert(s_prime.stack[tid0] == s.stack[tid0]);
+                    assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
+                    assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
+                }
+            }
+        }
+    }
+    init_invariant(
+        spec,
+        init(n),
+        next(),
+        |s: ProgramState|
+            { forall|tid: Tid| #![auto] s.valid_tid(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid])
+            },
+    );
+}
+
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -212,12 +345,24 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     ensures
         spec.entails(always(lift_state(|s: ProgramState| s.mutual_exclusion()))),
 {
+    lemma_num_procs_unchanged(spec, n);
     assert forall|s: ProgramState, s_prime: ProgramState|
         s.mutual_exclusion() && #[trigger] next()(
             s,
             s_prime,
         ) implies s_prime.mutual_exclusion() by {
-        admit();
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime)) {
+            assert(s.mutual_exclusion());
+            let tid = choose|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime);
+            assert(s.pc[tid] == Label::lock);
+            admit();
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && release_lock(tid)(s, s_prime)) {
+            admit();
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && P(tid)(s, s_prime)) {
+            admit();
+        }
     }
 
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.mutual_exclusion() });
