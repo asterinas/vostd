@@ -205,4 +205,22 @@ pub proof fn lemma_num_procs_unchanged(spec: TempPred<ProgramState>, n: nat)
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.num_procs == n });
 }
 
+pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+    ensures
+        spec.entails(always(lift_state(|s: ProgramState| s.mutual_exclusion()))),
+{
+    assert forall|s: ProgramState, s_prime: ProgramState|
+        s.mutual_exclusion() && #[trigger] next()(
+            s,
+            s_prime,
+        ) implies s_prime.mutual_exclusion() by {
+        admit();
+    }
+
+    init_invariant(spec, init(n), next(), |s: ProgramState| { s.mutual_exclusion() });
+}
+
 } // verus!
