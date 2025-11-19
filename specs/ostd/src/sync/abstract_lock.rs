@@ -159,6 +159,16 @@ pub open spec fn next() -> ActionPred<ProgramState> {
         }
 }
 
+pub proof fn lemma_next_keeps_invariant_decouple(inv: StatePred<ProgramState>)
+    requires
+        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] acquire_lock(tid)(s, s_prime) ==> inv(s_prime),
+        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] release_lock(tid)(s, s_prime) ==> inv(s_prime),
+        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] start().forward(tid)(s, s_prime) ==> inv(s_prime),
+        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] cs().forward(tid)(s, s_prime) ==> inv(s_prime),
+    ensures
+        forall |s:ProgramState, s_prime: ProgramState| inv(s) && #[trigger] next()(s, s_prime) ==> inv(s_prime),
+{}
+
 impl ProgramState {
     pub open spec fn in_ProcSet(self, tid: Tid) -> bool {
         self.ProcSet.contains(tid)
@@ -224,6 +234,27 @@ pub proof fn lemma_inv_unchanged(spec: TempPred<ProgramState>, n: nat)
         spec.entails(always(lift_state(|s: ProgramState| s.inv_unchanged(n)))),
 {
     lemma_int_range(0, n as int);
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(s, s_prime) implies
+            s_prime.inv_unchanged(n) by {
+        admit();
+    }
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] release_lock(tid)(s, s_prime) implies
+            s_prime.inv_unchanged(n) by {
+        admit();
+    }
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] start().forward(tid)(s, s_prime) implies
+            s_prime.inv_unchanged(n) by {
+        admit();
+    }
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(s, s_prime) implies
+            s_prime.inv_unchanged(n) by {
+        admit();
+    }
+    lemma_next_keeps_invariant_decouple(|s: ProgramState| {s.inv_unchanged(n)} );
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.inv_unchanged(n) });
 }
 
