@@ -94,7 +94,7 @@ impl vstd::std_specs::convert::FromSpecImpl<Token> for usize {
 }
 
 impl From<Token> for usize {
-    fn from(token: Token) -> Self {
+    fn from(token: Token) -> usize {
         token.0 / PAGE_SIZE()
     }
 }
