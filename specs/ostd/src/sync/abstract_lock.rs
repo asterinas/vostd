@@ -1,6 +1,6 @@
 use vstd::prelude::*;
-use vstd_extra::{state_machine::*, temporal_logic::*};
 use vstd::set_lib::*;
+use vstd_extra::{state_machine::*, temporal_logic::*};
 
 verus! {
 
@@ -161,13 +161,27 @@ pub open spec fn next() -> ActionPred<ProgramState> {
 
 pub proof fn lemma_next_keeps_invariant_decouple(inv: StatePred<ProgramState>)
     requires
-        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] acquire_lock(tid)(s, s_prime) ==> inv(s_prime),
-        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] release_lock(tid)(s, s_prime) ==> inv(s_prime),
-        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] start().forward(tid)(s, s_prime) ==> inv(s_prime),
-        forall |s:ProgramState, s_prime: ProgramState, tid: Tid| s.in_ProcSet(tid) && inv(s) && #[trigger] cs().forward(tid)(s, s_prime) ==> inv(s_prime),
+        forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+            s.in_ProcSet(tid) && inv(s) && #[trigger] acquire_lock(tid)(s, s_prime) ==> inv(
+                s_prime,
+            ),
+        forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+            s.in_ProcSet(tid) && inv(s) && #[trigger] release_lock(tid)(s, s_prime) ==> inv(
+                s_prime,
+            ),
+        forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+            s.in_ProcSet(tid) && inv(s) && #[trigger] start().forward(tid)(s, s_prime) ==> inv(
+                s_prime,
+            ),
+        forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+            s.in_ProcSet(tid) && inv(s) && #[trigger] cs().forward(tid)(s, s_prime) ==> inv(
+                s_prime,
+            ),
     ensures
-        forall |s:ProgramState, s_prime: ProgramState| inv(s) && #[trigger] next()(s, s_prime) ==> inv(s_prime),
-{}
+        forall|s: ProgramState, s_prime: ProgramState|
+            inv(s) && #[trigger] next()(s, s_prime) ==> inv(s_prime),
+{
+}
 
 impl ProgramState {
     pub open spec fn in_ProcSet(self, tid: Tid) -> bool {
@@ -190,6 +204,10 @@ impl ProgramState {
         &&& self.ProcSet.finite()
         &&& self.pc.dom() == self.ProcSet
         &&& self.stack.dom() == self.ProcSet
+    }
+
+    pub open spec fn not_locked_iff_no_cs(self) -> bool {
+        !self.locked <==> self.ProcSet.all(|tid: Tid| self.pc[tid] != Label::cs)
     }
 }
 
@@ -234,27 +252,35 @@ pub proof fn lemma_inv_unchanged(spec: TempPred<ProgramState>, n: nat)
         spec.entails(always(lift_state(|s: ProgramState| s.inv_unchanged(n)))),
 {
     lemma_int_range(0, n as int);
-    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
-        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(s, s_prime) implies
-            s_prime.inv_unchanged(n) by {
-        admit();
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(
+            s,
+            s_prime,
+        ) implies s_prime.inv_unchanged(n) by {
+        assert(s.pc.dom() == s_prime.pc.dom());
     }
-    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
-        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] release_lock(tid)(s, s_prime) implies
-            s_prime.inv_unchanged(n) by {
-        admit();
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] release_lock(tid)(
+            s,
+            s_prime,
+        ) implies s_prime.inv_unchanged(n) by {
+        assert(s.pc.dom() == s_prime.pc.dom());
     }
-    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
-        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] start().forward(tid)(s, s_prime) implies
-            s_prime.inv_unchanged(n) by {
-        admit();
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] start().forward(tid)(
+            s,
+            s_prime,
+        ) implies s_prime.inv_unchanged(n) by {
+        assert(s.pc.dom() == s_prime.pc.dom());
     }
-    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
-        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(s, s_prime) implies
-            s_prime.inv_unchanged(n) by {
-        admit();
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        s.inv_unchanged(n) && s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(
+            s,
+            s_prime,
+        ) implies s_prime.inv_unchanged(n) by {
+        assert(s.pc.dom() == s_prime.pc.dom());
     }
-    lemma_next_keeps_invariant_decouple(|s: ProgramState| {s.inv_unchanged(n)} );
+    lemma_next_keeps_invariant_decouple(|s: ProgramState| { s.inv_unchanged(n) });
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.inv_unchanged(n) });
 }
 
@@ -267,114 +293,17 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
             always(
                 lift_state(
                     |s: ProgramState|
-                        {
-                            forall|tid: Tid| #[trigger]
-                                s.in_ProcSet(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid])
-                        },
+                        s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid])),
                 ),
             ),
         ),
 {
     lemma_inv_unchanged(spec, n);
-    assert forall|s: ProgramState, s_prime: ProgramState|
-        (forall|tid: Tid| #[trigger] s.in_ProcSet(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid]))
-            && #[trigger] next()(s, s_prime) implies (forall|tid: Tid| #[trigger]
-        s_prime.in_ProcSet(tid) ==> pc_stack_match(s_prime.pc[tid], s_prime.stack[tid])) by {
-        if (exists|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime)) {
-            let tid = choose|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime);
-            assert(s.in_ProcSet(tid));
-            assert(s.pc[tid] == Label::lock);
-            assert(s.stack[tid] == seq![
-                StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
-            ]);
-            assert(s_prime.pc[tid] == Label::cs);
-            assert(s_prime.stack[tid] == Seq::<StackFrame>::empty());
-            assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
-            assert forall|tid0: Tid| #![auto] s_prime.in_ProcSet(tid0) implies pc_stack_match(
-                s_prime.pc[tid0],
-                s_prime.stack[tid0],
-            ) by {
-                if tid0 == tid {
-                    // already proved above
-                } else {
-                    assert(s.in_ProcSet(tid0));
-                    assert(s_prime.pc[tid0] == s.pc[tid0]);
-                    assert(s_prime.stack[tid0] == s.stack[tid0]);
-                    assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
-                    assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
-                }
-            }
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && release_lock(tid)(s, s_prime)) {
-            if let tid = choose|tid: Tid| s.in_ProcSet(tid) && release_lock(tid)(s, s_prime) {
-                assert(s.in_ProcSet(tid));
-                assert(s.pc[tid] == Label::unlock);
-                assert(s.stack[tid] == seq![
-                    StackFrame { procedure: Procedure::release_lock, pc: Label::start },
-                ]);
-                assert(s_prime.pc[tid] == Label::start);
-                assert(s_prime.stack[tid] == Seq::<StackFrame>::empty());
-                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
-                assert forall|tid0: Tid| #![auto] s_prime.in_ProcSet(tid0) implies pc_stack_match(
-                    s_prime.pc[tid0],
-                    s_prime.stack[tid0],
-                ) by {
-                    if tid0 == tid {
-                        // already proved above
-                    } else {
-                        assert(s.in_ProcSet(tid0));
-                        assert(s_prime.pc[tid0] == s.pc[tid0]);
-                        assert(s_prime.stack[tid0] == s.stack[tid0]);
-                        assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
-                        assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
-                    }
-                }
-            }
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && P(tid)(s, s_prime)) {
-            let tid = choose|tid: Tid| s.in_ProcSet(tid) && P(tid)(s, s_prime);
-            assert(s.in_ProcSet(tid));
-            if (start().forward(tid)(s, s_prime)) {
-                assert(s.pc[tid] == Label::start);
-                assert(s.stack[tid] == Seq::<StackFrame>::empty());
-                assert(s_prime.pc[tid] == Label::lock);
-                assert(s_prime.stack[tid] == seq![
-                    StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
-                ]);
-                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
-            } else {
-                assert(cs().forward(tid)(s, s_prime));
-                assert(s.pc[tid] == Label::cs);
-                assert(s.stack[tid] == Seq::<StackFrame>::empty());
-                assert(s_prime.pc[tid] == Label::unlock);
-                assert(s_prime.stack[tid] == seq![
-                    StackFrame { procedure: Procedure::release_lock, pc: Label::start },
-                ]);
-                assert(pc_stack_match(s_prime.pc[tid], s_prime.stack[tid]));
-            }
-            assert forall|tid0: Tid| #![auto] s_prime.in_ProcSet(tid0) implies pc_stack_match(
-                s_prime.pc[tid0],
-                s_prime.stack[tid0],
-            ) by {
-                if tid0 == tid {
-                    // already proved above
-                } else {
-                    assert(s.in_ProcSet(tid0));
-                    assert(s_prime.pc[tid0] == s.pc[tid0]);
-                    assert(s_prime.stack[tid0] == s.stack[tid0]);
-                    assert(pc_stack_match(s.pc[tid0], s.stack[tid0]));
-                    assert(pc_stack_match(s_prime.pc[tid0], s_prime.stack[tid0]));
-                }
-            }
-        }
-    }
     init_invariant(
         spec,
         init(n),
         next(),
-        |s: ProgramState|
-            { forall|tid: Tid| #![auto] s.in_ProcSet(tid) ==> pc_stack_match(s.pc[tid], s.stack[tid])
-            },
+        |s: ProgramState| { s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid])) },
     );
 }
 
@@ -384,54 +313,11 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         spec.entails(lift_state(init(n))),
         spec.entails(always(lift_action(next()))),
     ensures
-        spec.entails(
-            always(
-                lift_state(
-                    |s: ProgramState|
-                        {
-                            !s.locked <==> forall|tid: Tid| #[trigger]
-                                s.in_ProcSet(tid) ==> s.pc[tid] != Label::cs
-                        },
-                ),
-            ),
-        ),
+        spec.entails(always(lift_state(|s: ProgramState| s.not_locked_iff_no_cs()))),
 {
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
-    assert forall|s: ProgramState, s_prime: ProgramState|
-        (!s.locked <==> forall|tid: Tid| #[trigger] s.in_ProcSet(tid) ==> s.pc[tid] != Label::cs)
-            && #[trigger] next()(s, s_prime) implies (!s_prime.locked <==> forall |tid: Tid|
-        #[trigger] s_prime.in_ProcSet(tid) ==> s_prime.pc[tid] != Label::cs) by {
-        if (exists|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime)) {
-            let tid = choose|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime);
-            assert(s.in_ProcSet(tid));
-            assert(s.pc[tid] == Label::lock);
-            assert(pc_stack_match(s.pc[tid], s.stack[tid])) by {admit();};
-            assert(s.stack[tid] == seq![
-                StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
-            ]);
-            assert(s_prime.locked == true);
-            assert(s_prime.in_ProcSet(tid));
-            assert(s_prime.pc[tid] == Label::cs);
-            assert (!s_prime.locked <==> forall|tid0: Tid| #[trigger] s_prime.in_ProcSet(tid0) ==> s_prime.pc[tid0] != Label::cs); 
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && release_lock(tid)(s, s_prime)) {
-            admit();
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && P(tid)(s, s_prime)) {
-            admit();
-        }
-        init_invariant(
-            spec,
-            init(n),
-            next(),
-            |s: ProgramState|
-                {
-                    !s.locked ==> forall|tid: Tid| #[trigger]
-                        s.in_ProcSet(tid) ==> s.pc[tid] != Label::cs
-                },
-        );
-    }
+    init_invariant(spec, init(n), next(), |s: ProgramState| { s.not_locked_iff_no_cs() });
 }
 
 #[verifier::external_body]
