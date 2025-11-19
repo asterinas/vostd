@@ -83,8 +83,18 @@ impl TryFrom<usize> for Token {
     }
 }
 
+impl vstd::std_specs::convert::FromSpecImpl<Token> for usize {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    closed spec fn from_spec(token: Token) -> Self {
+        token.0 / PAGE_SIZE()
+    }
+}
+
 impl From<Token> for usize {
-    fn from(token: Token) -> usize {
+    fn from(token: Token) -> Self {
         token.0 / PAGE_SIZE()
     }
 }
@@ -136,6 +146,16 @@ impl TryFrom<usize> for Status {
         } else {
             Err(())
         }
+    }
+}
+
+impl vstd::std_specs::convert::FromSpecImpl<Status> for usize {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    open spec fn from_spec(status: Status) -> Self {
+        status.0 / PAGE_SIZE()
     }
 }
 
