@@ -307,7 +307,6 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
-#[verifier::external_body]
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -317,7 +316,10 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
 {
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
-    init_invariant(spec, init(n), next(), |s: ProgramState| { s.not_locked_iff_no_cs() });
+    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
+    let inv_pc_stack_match = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
+    assume(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).entails(lift_state(|s: ProgramState| s.not_locked_iff_no_cs())));
+    combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.not_locked_iff_no_cs()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match));
 }
 
 #[verifier::external_body]

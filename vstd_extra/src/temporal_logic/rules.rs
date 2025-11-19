@@ -484,7 +484,7 @@ pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
 #[macro_export]
 macro_rules! always_and_equality_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::always_and_equality_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::always_and_equality_n_internal!($($tail)*));
     };
 }
 
@@ -917,7 +917,7 @@ pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q:
 #[macro_export]
 macro_rules! entails_and_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::entails_and_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::entails_and_n_internal!($($tail)*));
     };
 }
 
@@ -948,7 +948,7 @@ pub use entails_and_n_internal;
 #[macro_export]
 macro_rules! entails_always_and_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::entails_always_and_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::entails_always_and_n_internal!($($tail)*));
     };
 }
 
@@ -978,7 +978,7 @@ pub use entails_always_and_n_internal;
 #[macro_export]
 macro_rules! merge_into_next {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::merge_into_next_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::merge_into_next_internal!($($tail)*))
     }
 }
 
@@ -1005,7 +1005,7 @@ pub use merge_into_next_internal;
 #[macro_export]
 macro_rules! combine_with_next {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::combine_with_next_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::combine_with_next_internal!($($tail)*))
     }
 }
 
@@ -1038,7 +1038,7 @@ pub use combine_with_next_internal;
 #[macro_export]
 macro_rules! combine_spec_entails_always_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::combine_spec_entails_always_n_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::combine_spec_entails_always_n_internal!($($tail)*))
     }
 }
 
@@ -1074,7 +1074,7 @@ pub use combine_spec_entails_always_n_internal;
 #[macro_export]
 macro_rules! invariant_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::invariant_n_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::invariant_n_internal!($($tail)*))
     }
 }
 
@@ -1215,7 +1215,7 @@ pub broadcast proof fn stable_and_temp<T>(p: TempPred<T>, q: TempPred<T>)
 #[macro_export]
 macro_rules! stable_and_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::stable_and_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::stable_and_n_internal!($($tail)*));
     };
 }
 
@@ -1241,7 +1241,7 @@ pub use stable_and_n_internal;
 #[macro_export]
 macro_rules! stable_and_always_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::stable_and_always_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::stable_and_always_n_internal!($($tail)*));
     };
 }
 
@@ -1369,7 +1369,7 @@ pub proof fn init_invariant<T>(
             init_invariant_rec(ex, init, next, inv, i);
         };
     };
-}
+}    
 
 // Strengthen next with inv.
 // pre:
@@ -1814,7 +1814,7 @@ pub broadcast proof fn or_leads_to_combine<T>(
 #[macro_export]
 macro_rules! or_leads_to_combine_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::or_leads_to_combine_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::or_leads_to_combine_n_internal!($($tail)*));
     };
 }
 
@@ -1860,7 +1860,7 @@ pub use or_leads_to_combine_and_equality;
 #[macro_export]
 macro_rules! leads_to_always_combine_n {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::leads_to_always_combine_n_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::leads_to_always_combine_n_internal!($($tail)*));
     };
 }
 
@@ -1882,7 +1882,7 @@ pub use leads_to_always_combine_n_internal;
 #[macro_export]
 macro_rules! leads_to_always_combine_n_with_equality {
     [$($tail:tt)*] => {
-        ::builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::leads_to_always_combine_n_with_equality_internal!($($tail)*));
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::leads_to_always_combine_n_with_equality_internal!($($tail)*));
     };
 }
 
