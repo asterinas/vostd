@@ -338,6 +338,61 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+    ensures
+        spec.entails(
+            always(
+                lift_state(
+                    |s: ProgramState|
+                        {
+                            !s.locked <==> forall|tid: Tid| #[trigger]
+                                s.valid_tid(tid) ==> s.pc[tid] != Label::cs
+                        },
+                ),
+            ),
+        ),
+{
+    lemma_num_procs_unchanged(spec, n);
+    lemma_pc_stack_match(spec, n);
+    assert forall|s: ProgramState, s_prime: ProgramState|
+        (!s.locked <==> forall|tid: Tid| #[trigger] s.valid_tid(tid) ==> s.pc[tid] != Label::cs)
+            && #[trigger] next()(s, s_prime) implies (!s_prime.locked <==> forall |tid: Tid|
+        #[trigger] s_prime.valid_tid(tid) ==> s_prime.pc[tid] != Label::cs) by {
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime)) {
+            let tid = choose|tid: Tid| 0 <= tid < s.num_procs && acquire_lock(tid)(s, s_prime);
+            assert(s.valid_tid(tid));
+            assert(s.pc[tid] == Label::lock);
+            assert(pc_stack_match(s.pc[tid], s.stack[tid])) by {admit();};
+            assert(s.stack[tid] == seq![
+                StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
+            ]);
+            assert(s_prime.locked == true);
+            assert(s_prime.valid_tid(tid));
+            assert(s_prime.pc[tid] == Label::cs);
+            assert (!s_prime.locked <==> forall|tid0: Tid| #[trigger] s_prime.valid_tid(tid0) ==> s_prime.pc[tid0] != Label::cs); 
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && release_lock(tid)(s, s_prime)) {
+            admit();
+        }
+        if (exists|tid: Tid| 0 <= tid < s.num_procs && P(tid)(s, s_prime)) {
+            admit();
+        }
+        init_invariant(
+            spec,
+            init(n),
+            next(),
+            |s: ProgramState|
+                {
+                    !s.locked ==> forall|tid: Tid| #[trigger]
+                        s.valid_tid(tid) ==> s.pc[tid] != Label::cs
+                },
+        );
+    }
+}
+
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -346,7 +401,8 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
         spec.entails(always(lift_state(|s: ProgramState| s.mutual_exclusion()))),
 {
     lemma_num_procs_unchanged(spec, n);
-    assert forall|s: ProgramState, s_prime: ProgramState|
+    lemma_pc_stack_match(spec, n);
+    /*assert forall|s: ProgramState, s_prime: ProgramState|
         s.mutual_exclusion() && #[trigger] next()(
             s,
             s_prime,
@@ -363,7 +419,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
         if (exists|tid: Tid| 0 <= tid < s.num_procs && P(tid)(s, s_prime)) {
             admit();
         }
-    }
+    }*/
 
     init_invariant(spec, init(n), next(), |s: ProgramState| { s.mutual_exclusion() });
 }
