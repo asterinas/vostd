@@ -4,7 +4,6 @@ use vstd::simple_pptr::*;
 
 use verus_builtin_macros::*;
 
-
 verus! {
 
 #[macro_export]
