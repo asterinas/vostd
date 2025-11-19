@@ -7,6 +7,7 @@ use vstd::arithmetic::power::*;
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
 use vstd::set::*;
+use vstd::relations::injective_on;
 use vstd_extra::prelude::*;
 
 use crate::spec::common::NodeId;
