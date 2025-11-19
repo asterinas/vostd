@@ -3,13 +3,6 @@ use vstd::relations::*;
 
 verus! {
 
-/// A function is injective on a domain if it never maps two distinct domain elements to the same image.
-pub open spec fn injective_on<A, B>(f: spec_fn(A) -> B, domain: Set<A>) -> bool {
-    forall|x: A, y: A|
-        #![trigger domain.contains(x), domain.contains(y)]
-        domain.contains(x) && domain.contains(y) && f(x) == f(y) ==> x == y
-}
-
 /// A function is bijective from `domain` to `codomain`
 /// if it is injective on `domain` and its image equals `codomain`.
 pub open spec fn bijective_on<A, B>(f: spec_fn(A) -> B, domain: Set<A>, codomain: Set<B>) -> bool {
