@@ -338,6 +338,7 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+#[verifier::external_body]
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -393,6 +394,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     }
 }
 
+#[verifier::external_body]
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
