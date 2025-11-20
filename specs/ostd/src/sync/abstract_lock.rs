@@ -314,15 +314,29 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     ensures
         spec.entails(always(lift_state(|s: ProgramState| s.not_locked_iff_no_cs()))),
 {
+    broadcast use group_tla_rules;
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
     let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
     let inv_pc_stack_match = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
-    assume(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).entails(lift_state(|s: ProgramState| s.not_locked_iff_no_cs())));
+    assert(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).entails(lift_state(|s: ProgramState| s.not_locked_iff_no_cs()))) by {
+        assert forall |ex: Execution<ProgramState>| lift_state(|s: ProgramState| s.not_locked_iff_no_cs()).lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).satisfied_by(ex) implies lift_state(|s: ProgramState| s.not_locked_iff_no_cs()).satisfied_by(ex) by {
+            let s = ex.head();
+            let s_prime = ex.head_next();
+            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {
+                assert(!s.locked);
+                assert()
+                assert(s.ProcSet.all(|tid: Tid| s.pc[tid] != Label::cs));
+                admit();
+            }
+            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] release_lock(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
+            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] start().forward(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
+            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
+        }
+        }
     combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.not_locked_iff_no_cs()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match));
 }
 
-#[verifier::external_body]
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -332,26 +346,13 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
 {
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
-    /*assert forall|s: ProgramState, s_prime: ProgramState|
-        s.mutual_exclusion() && #[trigger] next()(
-            s,
-            s_prime,
-        ) implies s_prime.mutual_exclusion() by {
-        if (exists|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime)) {
-            assert(s.mutual_exclusion());
-            let tid = choose|tid: Tid| s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime);
-            assert(s.pc[tid] == Label::lock);
-            admit();
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && release_lock(tid)(s, s_prime)) {
-            admit();
-        }
-        if (exists|tid: Tid| s.in_ProcSet(tid) && P(tid)(s, s_prime)) {
-            admit();
-        }
-    }*/
-
-    init_invariant(spec, init(n), next(), |s: ProgramState| { s.mutual_exclusion() });
+    lemma_not_locked_iff_not_in_cs(spec, n);
+    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
+    let inv_pc_stack_match = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
+    let inv_not_locked_iff_no_cs = |s: ProgramState| s.not_locked_iff_no_cs();
+    assume(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).and(lift_state(inv_not_locked_iff_no_cs)).entails(lift_state(|s: ProgramState| s.mutual_exclusion())));
+    combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.mutual_exclusion()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match), lift_state(inv_not_locked_iff_no_cs));
 }
+
 
 } // verus!
