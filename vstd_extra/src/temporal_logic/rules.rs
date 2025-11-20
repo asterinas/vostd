@@ -1687,7 +1687,12 @@ pub proof fn always_lift_state_and_intros<T>(spec: TempPred<T>, p: StatePred<T>,
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(|s| p(s) && q(s))).satisfied_by(
         ex,
     ) by {
-        admit();
+        if spec.satisfied_by(ex) {
+            entails_apply(ex, spec, always(lift_state(p)));
+            entails_apply(ex, spec, always(lift_state(q)));
+            assert forall|i: nat| lift_state(|s| p(s) && q(s)).satisfied_by(#[trigger] ex.suffix(i)) by {
+            };
+        }
     };
 }
 
@@ -1706,7 +1711,15 @@ pub proof fn always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q
 {
     broadcast use always_unfold;
 
-    admit();
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(ex) && always(lift_state(q)).satisfied_by(ex) by {
+        if spec.satisfied_by(ex) {
+            entails_apply(ex, spec, always(lift_state(|s| p(s) && q(s))));
+            assert forall|i: nat| lift_state(p).satisfied_by(#[trigger] ex.suffix(i)) && lift_state(q).satisfied_by(#[trigger] ex.suffix(i)) by {
+                let combined = lift_state(|s| p(s) && q(s));
+                assert(combined.satisfied_by(ex.suffix(i)));
+            };
+        }
+    };
 }
     
 
