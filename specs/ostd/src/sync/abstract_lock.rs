@@ -324,7 +324,9 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     let merged_inv: StatePred<ProgramState> = combine_state_pred!(inv_unchanged_closure, pc_stack_match_closure);
     admit();
     assert(spec.entails(always(lift_state(merged_inv)))) by {
-        admit();
+        let inv1 = lift_state(inv_unchanged_closure);
+        let inv2 = lift_state(pc_stack_match_closure);
+        assert(inv1.and(inv2) == lift_state(merged_inv));
     };
     strengthen_invariant(spec, init(n), next(), not_locked_iff_no_cs_closure, merged_inv);
 }
