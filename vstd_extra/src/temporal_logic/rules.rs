@@ -327,6 +327,36 @@ proof fn init_invariant_rec<T>(
     }
 }
 
+proof fn strengthen_invariant_rec<T>(
+    ex: Execution<T>,
+    init: StatePred<T>,
+    next: ActionPred<T>,
+    inv: StatePred<T>,
+    proved_inv: StatePred<T>,
+    i: nat, 
+)
+    requires
+        lift_state(init).satisfied_by(ex),
+        always(lift_action(next)).satisfied_by(ex),
+        always(lift_state(proved_inv)).satisfied_by(ex),
+        lift_state(init).implies(lift_state(inv)).satisfied_by(ex),
+        forall|idx: nat|
+            inv(#[trigger] ex.suffix(idx).head()) && 
+            proved_inv(#[trigger] ex.suffix(idx).head()) && next(
+                ex.suffix(idx).head(),
+                ex.suffix(idx).head_next(),
+            ) ==> inv(ex.suffix(idx).head_next()),
+    ensures
+        inv(ex.suffix(i).head()),
+    decreases i,
+    {
+        broadcast use {always_unfold, group_execution_suffix_lemmas};
+        if i == 0 {}
+        else {
+            strengthen_invariant_rec(ex, init, next, inv, proved_inv, (i - 1) as nat);
+        }
+    }
+
 proof fn always_p_or_eventually_q_rec<T>(
     ex: Execution<T>,
     next: TempPred<T>,
@@ -969,6 +999,42 @@ macro_rules! entails_always_and_n_internal {
 pub use entails_always_and_n;
 pub use entails_always_and_n_internal;
 
+// Lift multiple state predicates to one always invariant.
+// Usage: lift_states_to_always_inv!(p1, p2, p3, p4)
+// Returns: []lift_state(|s| p1(s) && p2(s) && p3(s) && p4(s))
+#[macro_export]
+macro_rules! lift_states_to_always_inv {
+    [$($tail:tt)*] => {
+        always(lift_state(combine_state_pred!($($tail)*)))
+    };
+}
+
+// Combine multiple state predicates using logical AND.
+// Usage: combine_state_pred!(p1, p2, p3, p4)
+// Returns: |s| p1(s) && p2(s) && p3(s) && p4(s)
+#[macro_export]
+macro_rules! combine_state_pred {
+    ($p1:expr) => {
+        $p1
+    };
+    ($p1:expr, $p2:expr) => {
+        closure_to_fn_spec(|s| $p1(s) && $p2(s))
+    };
+    ($p1:expr, $p2:expr, $($tail:expr),*) => {
+        closure_to_fn_spec(|s| {
+            $p1(s) &&
+            $p2(s) &&
+            $(
+                $tail(s) &&
+            )*
+            true
+        })
+    };
+}
+
+pub use lift_states_to_always_inv;
+pub use combine_state_pred;
+
 // Merge the next and other state predicates together into one action predicate.
 // Usage:
 // Given next, p1, p2, p3, ...,
@@ -1359,17 +1425,53 @@ pub proof fn init_invariant<T>(
     ensures
         spec.entails(always(lift_state(inv))),
 {
+    broadcast use group_tla_rules;
     assert forall|ex: Execution<T>| spec.satisfied_by(ex) implies #[trigger] always(
         lift_state(inv),
     ).satisfied_by(ex) by {
         implies_apply(ex, spec, lift_state(init));
         implies_apply(ex, spec, always(lift_action(next)));
-        always_unfold::<T>(ex, lift_action(next));
         assert forall|i: nat| inv(#[trigger] ex.suffix(i).head()) by {
             init_invariant_rec(ex, init, next, inv, i);
         };
     };
-}    
+}  
+
+// Strengthen safety invariants
+// pre:
+//     |= init => inv
+//     |= inv /\ proved_inv /\ next => inv'
+//     spec |= init /\ []next /\ []proved_inv
+// post:
+//     spec |= []inv
+pub proof fn strengthen_invariant<T>(
+    spec: TempPred<T>,
+    init: StatePred<T>,
+    next: ActionPred<T>,
+    inv: StatePred<T>,
+    proved_inv: StatePred<T>,
+)
+    requires
+        forall|s: T| #[trigger] init(s) ==> inv(s),
+        forall|s, s_prime: T| inv(s) && proved_inv(s) && #[trigger] next(s, s_prime) ==> inv(s_prime),
+        spec.entails(lift_state(init)),
+        spec.entails(always(lift_action(next))),
+        spec.entails(always(lift_state(proved_inv))),
+    ensures
+        spec.entails(always(lift_state(inv))),
+{
+    broadcast use group_tla_rules;
+    assert forall |ex: Execution<T>| spec.satisfied_by(ex) implies #[trigger] always(
+        lift_state(inv),
+    ).satisfied_by(ex) by {
+        implies_apply(ex, spec, lift_state(init));
+        implies_apply(ex, spec, always(lift_action(next)));
+        implies_apply(ex, spec, always(lift_state(proved_inv)));
+        assert forall|i: nat| inv(#[trigger] ex.suffix(i).head()) by {
+            strengthen_invariant_rec(ex, init, next, inv, proved_inv, i);
+        };
+    };
+}
 
 // Strengthen next with inv.
 // pre:
@@ -1567,6 +1669,46 @@ pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPre
         };
     };
 }
+
+// Lift and combine two state predicates under always.
+// pre:
+//     spec |= []lift_state(p)
+//     spec |= []lift_state(q)
+// post:
+//    spec |= []lift_state(|s| p(s) && q(s))
+pub proof fn always_lift_state_and_intros<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
+    requires
+        spec.entails(always(lift_state(p))),
+        spec.entails(always(lift_state(q))),
+    ensures
+         spec.entails(always(lift_state(|s| p(s) && q(s)))),
+{
+    broadcast use always_unfold;
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(|s| p(s) && q(s))).satisfied_by(
+        ex,
+    ) by {
+        admit();
+    };
+}
+
+// Eliminate and split two state predicates under always.
+// pre:
+//     spec |= []lift_state(|s| p(s) && q(s))
+// post:
+//    spec |= []lift_state(p)
+//    spec |= []lift_state(q)
+pub proof fn always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
+    requires
+        spec.entails(always(lift_state(|s| p(s) && q(s)))),
+    ensures
+         spec.entails(always(lift_state(p))),
+         spec.entails(always(lift_state(q))),
+{
+    broadcast use always_unfold;
+
+    admit();
+}
+    
 
 // Weaken always by implies.
 // pre:

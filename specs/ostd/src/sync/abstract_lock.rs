@@ -307,6 +307,7 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -318,25 +319,17 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
     let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-    let inv_pc_stack_match = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
-    assert(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).entails(lift_state(|s: ProgramState| s.not_locked_iff_no_cs()))) by {
-        assert forall |ex: Execution<ProgramState>| lift_state(|s: ProgramState| s.not_locked_iff_no_cs()).lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).satisfied_by(ex) implies lift_state(|s: ProgramState| s.not_locked_iff_no_cs()).satisfied_by(ex) by {
-            let s = ex.head();
-            let s_prime = ex.head_next();
-            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {
-                assert(!s.locked);
-                assert()
-                assert(s.ProcSet.all(|tid: Tid| s.pc[tid] != Label::cs));
-                admit();
-            }
-            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] release_lock(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
-            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] start().forward(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
-            assert forall |tid: Tid| s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(s, s_prime) implies s.not_locked_iff_no_cs() by {admit();}
-        }
-        }
-    combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.not_locked_iff_no_cs()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match));
+    let pc_stack_match_closure = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
+    let not_locked_iff_no_cs_closure = |s: ProgramState| s.not_locked_iff_no_cs();
+    let merged_inv: StatePred<ProgramState> = combine_state_pred!(inv_unchanged_closure, pc_stack_match_closure);
+    admit();
+    assert(spec.entails(always(lift_state(merged_inv)))) by {
+        admit();
+    };
+    strengthen_invariant(spec, init(n), next(), not_locked_iff_no_cs_closure, merged_inv);
 }
 
+/* 
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -352,7 +345,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     let inv_not_locked_iff_no_cs = |s: ProgramState| s.not_locked_iff_no_cs();
     assume(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).and(lift_state(inv_not_locked_iff_no_cs)).entails(lift_state(|s: ProgramState| s.mutual_exclusion())));
     combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.mutual_exclusion()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match), lift_state(inv_not_locked_iff_no_cs));
-}
+}*/
 
 
 } // verus!
