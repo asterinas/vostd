@@ -214,4 +214,59 @@ pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: 
     }
 }
 
+pub open spec fn set_prop_mutual_exlcusion<A>(s: Set<A>, f: spec_fn(A) -> bool) -> bool {
+    forall|x: A, y: A| #[trigger]
+        s.contains(x) && #[trigger] s.contains(y) && x != y ==> !(f(x) && f(y))
+}
+
+proof fn lemma_set_prop_mutual_exclusion_internal<A>(s: Set<A>, f: spec_fn(A) -> bool)
+    requires
+        s.finite(),
+        set_prop_mutual_exlcusion(s, f),
+    ensures
+        s.filter(f).len() <= 1,
+    decreases s.len(),
+{
+    if s.len() == 0 {
+        assert(s.filter(f).is_empty());
+    } else {
+        let x = s.choose();
+        lemma_set_prop_mutual_exclusion_internal(s.remove(x), f);
+        if s.remove(x).filter(f).len() == 0 {
+            if f(x) {
+                assert(s.filter(f) == s.remove(x).filter(f).insert(x));
+            } else {
+                assert(s.filter(f) == s.remove(x).filter(f));
+            }
+        } else {
+            let a = s.remove(x).filter(f).choose();
+            assert(s.remove(x).filter(f).contains(a));
+            assert(s.filter(f) == s.remove(x).filter(f));
+        }
+    }
+}
+
+pub proof fn lemma_set_prop_mutual_exclusion<A>(s: Set<A>, f: spec_fn(A) -> bool)
+    requires
+        s.finite(),
+    ensures
+        set_prop_mutual_exlcusion(s, f) ==> s.filter(f).len() <= 1,
+{
+    if set_prop_mutual_exlcusion(s, f) {
+        lemma_set_prop_mutual_exclusion_internal(s, f);
+    }
+    if s.filter(f).len() <= 1 {
+        assert forall|x: A, y: A| #[trigger]
+            s.contains(x) && #[trigger] s.contains(y) && x != y implies !(f(x) && f(y)) by {
+            if f(x) && f(y) {
+                assert(s.filter(f).contains(x));
+                assert(s.filter(f).contains(y));
+                if s.filter(f).len() == 1 {
+                    Set::lemma_is_singleton(s.filter(f));
+                }
+            }
+        };
+    }
+}
+
 } // verus!
