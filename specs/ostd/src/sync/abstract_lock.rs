@@ -207,7 +207,8 @@ impl ProgramState {
     }
 
     pub open spec fn not_locked_iff_no_cs(self) -> bool {
-        !self.locked <==> self.ProcSet.all(|tid: Tid| self.pc[tid] != Label::cs)
+        (!self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs).is_empty()) &&
+        (self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs).is_singleton())
     }
 }
 
@@ -322,16 +323,35 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     let pc_stack_match_closure = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
     let not_locked_iff_no_cs_closure = |s: ProgramState| s.not_locked_iff_no_cs();
     let merged_inv: StatePred<ProgramState> = combine_state_pred!(inv_unchanged_closure, pc_stack_match_closure);
-    admit();
-    assert(spec.entails(always(lift_state(merged_inv)))) by {
-        let inv1 = lift_state(inv_unchanged_closure);
-        let inv2 = lift_state(pc_stack_match_closure);
-        assert(inv1.and(inv2) == lift_state(merged_inv));
+    assert forall |s: ProgramState| init(n)(s) implies #[trigger] not_locked_iff_no_cs_closure(s) by {
+        assert(s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs).is_empty());
     };
+    assert(lift_state(inv_unchanged_closure).and(lift_state(pc_stack_match_closure)) == lift_state(merged_inv));
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        merged_inv(s) && not_locked_iff_no_cs_closure(s) && s.in_ProcSet(tid) && #[trigger] acquire_lock(tid)(s, s_prime) implies
+            not_locked_iff_no_cs_closure(s_prime) by {
+                assert(s_prime.ProcSet.filter(|t: Tid| s_prime.pc[t] == Label::cs) == set![tid]);
+            };
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        merged_inv(s) && not_locked_iff_no_cs_closure(s) && s.in_ProcSet(tid) && #[trigger] release_lock(tid)(s, s_prime) implies
+            not_locked_iff_no_cs_closure(s_prime) by {
+                admit();
+            };
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        merged_inv(s) && not_locked_iff_no_cs_closure(s) && s.in_ProcSet(tid) && #[trigger] start().forward(tid)(s, s_prime) implies
+            not_locked_iff_no_cs_closure(s_prime) by {
+                admit();
+            };  
+    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid|
+        merged_inv(s) && not_locked_iff_no_cs_closure(s) && s.in_ProcSet(tid) && #[trigger] cs().forward(tid)(s, s_prime) implies
+            not_locked_iff_no_cs_closure(s_prime) by {
+                admit();
+            };
     strengthen_invariant(spec, init(n), next(), not_locked_iff_no_cs_closure, merged_inv);
 }
 
-/* 
+
+#[verifier::external_body]
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -339,15 +359,25 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     ensures
         spec.entails(always(lift_state(|s: ProgramState| s.mutual_exclusion()))),
 {
+    broadcast use group_tla_rules;
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
     lemma_not_locked_iff_not_in_cs(spec, n);
-    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-    let inv_pc_stack_match = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
-    let inv_not_locked_iff_no_cs = |s: ProgramState| s.not_locked_iff_no_cs();
-    assume(lift_action(next()).and(lift_state(inv_unchanged_closure)).and(lift_state(inv_pc_stack_match)).and(lift_state(inv_not_locked_iff_no_cs)).entails(lift_state(|s: ProgramState| s.mutual_exclusion())));
-    combine_spec_entails_always_n!(spec, lift_state(|s: ProgramState| s.mutual_exclusion()), lift_action(next()), lift_state(inv_unchanged_closure), lift_state(inv_pc_stack_match), lift_state(inv_not_locked_iff_no_cs));
-}*/
+    assert forall |s: ProgramState| s.not_locked_iff_no_cs() implies #[trigger] s.mutual_exclusion() by {
+        assert forall|i: Tid, j: Tid|
+            #![auto]
+            (s.in_ProcSet(i) && s.in_ProcSet(j) && i != j) implies !(s.pc[i] == Label::cs
+                && s.pc[j] == Label::cs) by {
+                if s.pc[i] == Label::cs && s.pc[j] == Label::cs {
+                    assert (s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs).len() > 1);
+                }
+            };
+    };
+    always_lift_state_weaken(spec,
+        |s: ProgramState| s.not_locked_iff_no_cs(),
+        |s: ProgramState| s.mutual_exclusion(),
+    );  
+}
 
 
 } // verus!

@@ -1689,10 +1689,6 @@ pub proof fn always_lift_state_and_intros<T>(spec: TempPred<T>, p: StatePred<T>,
     ) by {
         implies_apply::<T>(ex, spec, always(lift_state(p)));
         implies_apply::<T>(ex, spec, always(lift_state(q)));
-        assert forall|i: nat| lift_state(|s| p(s) && q(s)).satisfied_by(#[trigger] ex.suffix(i)) by {
-            assert(lift_state(p).satisfied_by(#[trigger] ex.suffix(i)));
-            assert(lift_state(q).satisfied_by(#[trigger] ex.suffix(i)));
-        };
     };
 }
 
@@ -1711,21 +1707,10 @@ pub proof fn always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q
 {
     broadcast use always_unfold;
 
-    // First show spec |= []lift_state(p)
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(ex) by {
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(ex) && always(lift_state(q)).satisfied_by(ex) by {
         implies_apply::<T>(ex, spec, always(lift_state(|s| p(s) && q(s))));
-        assert forall|i: nat| #[trigger] lift_state(p).satisfied_by(ex.suffix(i)) by {
-            assert(lift_state(|s| p(s) && q(s)).satisfied_by(#[trigger] ex.suffix(i)));
-        };
     };
 
-    // Then show spec |= []lift_state(q)
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(q)).satisfied_by(ex) by {
-        implies_apply::<T>(ex, spec, always(lift_state(|s| p(s) && q(s))));
-        assert forall|i: nat| #[trigger] lift_state(q).satisfied_by(ex.suffix(i)) by {
-            assert(lift_state(|s| p(s) && q(s)).satisfied_by(#[trigger] ex.suffix(i)));
-        };
-    };
 }
     
 
@@ -1747,6 +1732,26 @@ pub proof fn always_weaken<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
         implies_apply::<T>(ex, spec, always(p));
         implies_apply::<T>(ex, always(p), always(q));
     };
+}
+
+// Weaken always lifted state predicate by implies.
+// pre:
+//     forall |s| p(s) => q(s)
+//     spec |= []lift_state(p)
+// post:
+//     spec |= []lift_state(q)
+pub proof fn always_lift_state_weaken<T>(
+    spec: TempPred<T>,
+    p: StatePred<T>,
+    q: StatePred<T>,
+)
+    requires
+        forall|s: T| #[trigger] p(s) ==> q(s),
+        spec.entails(always(lift_state(p))),
+    ensures
+        spec.entails(always(lift_state(q))),
+{
+    always_weaken::<T>(spec, lift_state(p), lift_state(q));
 }
 
 // Introduce always to both sides of always implies.
