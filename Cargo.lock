@@ -17,8 +17,6 @@ dependencies = [
 name = "aster_common"
 version = "0.1.0"
 dependencies = [
- "verus_builtin",
- "verus_builtin_macros",
  "vstd",
  "vstd_extra",
 ]
@@ -126,8 +124,6 @@ name = "demo"
 version = "0.0.1"
 dependencies = [
  "aster_common",
- "verus_builtin",
- "verus_builtin_macros",
  "vstd",
  "vstd_extra",
 ]
@@ -304,8 +300,6 @@ dependencies = [
  "spin",
  "tdx-guest",
  "unwinding",
- "verus_builtin",
- "verus_builtin_macros",
  "volatile 0.6.1",
  "vstd",
  "vstd_extra",
@@ -318,8 +312,6 @@ name = "ostd_specs"
 version = "0.1.0"
 dependencies = [
  "aster_common",
- "verus_builtin",
- "verus_builtin_macros",
  "vstd",
  "vstd_extra",
 ]
@@ -641,8 +633,6 @@ dependencies = [
 name = "vstd_extra"
 version = "0.1.0"
 dependencies = [
- "verus_builtin",
- "verus_builtin_macros",
  "vstd",
 ]
 
