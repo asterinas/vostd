@@ -1039,8 +1039,6 @@ pub use combine_state_pred;
 // Usage:
 // Given next, p1, p2, p3, ...,
 // returns |s, s_prime| next(s, s_prime) && p1(s) && p2(s) && p3(s) && ...
-//
-// Note: Verus reports strange errors saying the returned closure is not a spec_fn
 #[macro_export]
 macro_rules! merge_into_next {
     [$($tail:tt)*] => {
@@ -1050,13 +1048,13 @@ macro_rules! merge_into_next {
 
 #[macro_export]
 macro_rules! merge_into_next_internal {
-    ($next:expr, $($expr:expr),* $(,)?) => {
-        |s, s_prime| {
-            $next(s, s_prime) &&
-            $(
-                $expr(s) &&
-            )*
-            true
+    ($next:expr) => {
+        $next
+    };
+    ($next:expr, $($preds:expr),+ $(,)?) => {
+        {
+            let combined_state = combine_state_pred!($($preds),+);
+            closure_to_fn_spec(|s, s_prime| $next(s, s_prime) && combined_state(s))
         }
     };
 }
@@ -1404,6 +1402,22 @@ pub proof fn simplify_predicate<T>(p: TempPred<T>, q: TempPred<T>)
     temp_pred_equality::<T>(p, p.and(q));
 }
 
+// Transitivity of entails with simplification.
+// pre:
+//     spec |= p
+//     spec /\ p |= q
+// post:
+//     spec |= q
+pub proof fn entails_trans_by_simplify<T>(spec:TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+    requires
+        spec.entails(p),
+        spec.and(p).entails(q),
+    ensures
+        spec.entails(q),
+{
+    simplify_predicate(spec, p);
+}
+
 // Prove safety by induction.
 // pre:
 //     |= init => inv
@@ -1472,6 +1486,52 @@ pub proof fn strengthen_invariant<T>(
         };
     };
 }
+
+// Strengthen invariant with multiple proved invariants.
+// pre:
+//     |= init => inv
+//     |= inv /\ p1 /\ p2 /\ ... /\ pn /\ next => inv'
+//     spec |= lift_state(init)
+//     spec |= always(lift_action(next))
+//     spec |= []lift_state(p1)
+//     spec |= []lift_state(p2)
+//     ...
+//     spec |= []lift_state(pn)
+// post:
+//     spec |= []lift_state(inv)
+//
+// Usage: strengthen_invariant_n!(spec, init, next, inv, p1, p2, p3, ...)
+#[macro_export]
+macro_rules! strengthen_invariant_n {
+    [$($tail:tt)*] => {
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::strengthen_invariant_n_internal!($($tail)*))
+    };
+}
+
+#[macro_export]
+macro_rules! strengthen_invariant_n_internal {
+    ($spec:expr, $init:expr, $next:expr, $inv:expr, $p1:expr) => {
+        strengthen_invariant($spec, $init, $next, $inv, $p1);
+    };
+    ($spec:expr, $init:expr, $next:expr, $inv:expr, $p1:expr,) => {
+        strengthen_invariant_n_internal!($spec, $init, $next, $inv, $p1);
+    };
+    ($spec:expr, $init:expr, $next:expr, $inv:expr, $($preds:expr),+) => {
+        {
+            let combined_pred = combine_state_pred!($($preds),+);
+            let merged_next = merge_into_next!($next, $($preds),+);
+            entails_always_lift_state_and_n!($spec, $($preds),+);
+            strengthen_next($spec, $next, combined_pred, merged_next);
+            strengthen_invariant($spec, $init, merged_next, $inv, combined_pred);
+        }
+    };
+    ($spec:expr, $init:expr, $next:expr, $inv:expr, $($preds:expr),+ ,) => {
+        strengthen_invariant_n_internal!($spec, $init, $next, $inv, $($preds),+);
+    };
+}
+
+pub use strengthen_invariant_n;
+pub use strengthen_invariant_n_internal;
 
 // Strengthen next with inv.
 // pre:
@@ -1676,7 +1736,7 @@ pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPre
 //     spec |= []lift_state(q)
 // post:
 //    spec |= []lift_state(|s| p(s) && q(s))
-pub proof fn always_lift_state_and_intros<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
+pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
     requires
         spec.entails(always(lift_state(p))),
         spec.entails(always(lift_state(q))),
@@ -1692,13 +1752,53 @@ pub proof fn always_lift_state_and_intros<T>(spec: TempPred<T>, p: StatePred<T>,
     };
 }
 
+// Combine multiple always lift_state predicates using AND.
+// pre:
+//     spec |= []lift_state(p1)
+//     spec |= []lift_state(p2)
+//     ...
+//     spec |= []lift_state(pn)
+// post:
+//     spec |= []lift_state(|s| p1(s) && p2(s) && ... && pn(s))
+//
+// Usage: entails_always_lift_state_and_n!(spec, p1, p2, p3, p4)
+#[macro_export]
+macro_rules! entails_always_lift_state_and_n {
+    [$($tail:tt)*] => {
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::entails_always_lift_state_and_n_internal!($($tail)*))
+    };
+}
+
+#[macro_export]
+macro_rules! entails_always_lift_state_and_n_internal {
+    ($spec:expr, $p1:expr) => {
+        // Single predicate case: already have spec |= []lift_state(p1)
+    };
+    ($spec:expr, $p1:expr, $p2:expr) => {
+        entails_always_lift_state_and($spec, $p1, $p2);
+    };
+    ($spec:expr, $p1:expr, $p2:expr,) => {
+        entails_always_lift_state_and_n_internal!($spec, $p1, $p2);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+) => {
+        entails_always_lift_state_and($spec, $p1, $p2);
+        entails_always_lift_state_and_n_internal!($spec, combine_state_pred!($p1, $p2), $($tail),+);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ ,) => {
+        entails_always_lift_state_and_n_internal!($spec, $p1, $p2, $($tail),+);
+    };
+}
+
+pub use entails_always_lift_state_and_n;
+pub use entails_always_lift_state_and_n_internal;
+
 // Eliminate and split two state predicates under always.
 // pre:
 //     spec |= []lift_state(|s| p(s) && q(s))
 // post:
 //    spec |= []lift_state(p)
 //    spec |= []lift_state(q)
-pub proof fn always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
+pub proof fn entails_always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
     requires
         spec.entails(always(lift_state(|s| p(s) && q(s)))),
     ensures
@@ -1753,6 +1853,49 @@ pub proof fn always_lift_state_weaken<T>(
 {
     always_weaken::<T>(spec, lift_state(p), lift_state(q));
 }
+
+
+// Apply always_lift_state_weaken with multiple predicates.
+// pre:
+//     forall |s| p1(s) && p2(s) && ... && pn(s) ==> h(s)
+//     spec |= []lift_state(p1)
+//     spec |= []lift_state(p2)
+//     ...
+//     spec |= []lift_state(pn)
+// post:
+//     spec |= []lift_state(h)
+//
+// Usage: always_lift_state_weaken_n!(spec, p1, p2, p3, ..., h)
+#[macro_export]
+macro_rules! always_lift_state_weaken_n {
+    [$($tail:tt)*] => {
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::always_lift_state_weaken_n_internal!($($tail)*))
+    };
+}
+
+#[macro_export]
+macro_rules! always_lift_state_weaken_n_internal {
+    ($spec:expr, $p1:expr, $h:expr) => {
+        always_lift_state_weaken($spec, $p1, $h);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $h:expr) => {
+        entails_always_lift_state_and_n!($spec, $p1, $p2);
+        always_lift_state_weaken($spec, combine_state_pred!($p1, $p2), $h);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $h:expr,) => {
+        always_lift_state_weaken_n_internal!($spec, $p1, $p2, $h);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ , $h:expr) => {
+        entails_always_lift_state_and_n!($spec, $p1, $p2, $($tail),+);
+        always_lift_state_weaken($spec, combine_state_pred!($p1, $p2, $($tail),+), $h);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ , $h:expr,) => {
+        always_lift_state_weaken_n_internal!($spec, $p1, $p2, $($tail),+ , $h);
+    };
+}
+
+pub use always_lift_state_weaken_n;
+pub use always_lift_state_weaken_n_internal;
 
 // Introduce always to both sides of always implies.
 // pre:

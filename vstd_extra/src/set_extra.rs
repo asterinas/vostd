@@ -214,7 +214,7 @@ pub proof fn lemma_flatten_cardinality_under_disjointness_same_length<A>(parts: 
     }
 }
 
-pub open spec fn set_prop_mutual_exlcusion<A>(s: Set<A>, f: spec_fn(A) -> bool) -> bool {
+pub open spec fn set_prop_mutual_exclusion<A>(s: Set<A>, f: spec_fn(A) -> bool) -> bool {
     forall|x: A, y: A| #[trigger]
         s.contains(x) && #[trigger] s.contains(y) && x != y ==> !(f(x) && f(y))
 }
@@ -222,7 +222,7 @@ pub open spec fn set_prop_mutual_exlcusion<A>(s: Set<A>, f: spec_fn(A) -> bool) 
 proof fn lemma_set_prop_mutual_exclusion_internal<A>(s: Set<A>, f: spec_fn(A) -> bool)
     requires
         s.finite(),
-        set_prop_mutual_exlcusion(s, f),
+        set_prop_mutual_exclusion(s, f),
     ensures
         s.filter(f).len() <= 1,
     decreases s.len(),
@@ -250,9 +250,9 @@ pub proof fn lemma_set_prop_mutual_exclusion<A>(s: Set<A>, f: spec_fn(A) -> bool
     requires
         s.finite(),
     ensures
-        set_prop_mutual_exlcusion(s, f) ==> s.filter(f).len() <= 1,
+        set_prop_mutual_exclusion(s, f) <==> s.filter(f).len() <= 1,
 {
-    if set_prop_mutual_exlcusion(s, f) {
+    if set_prop_mutual_exclusion(s, f) {
         lemma_set_prop_mutual_exclusion_internal(s, f);
     }
     if s.filter(f).len() <= 1 {
