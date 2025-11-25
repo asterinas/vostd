@@ -31,5 +31,3 @@ codegen-units = 1
 [workspace.dependencies]
 # Verus
 vstd = { path = "tools/verus/source/vstd" }
-verus_builtin = { package = "verus_builtin", path = "tools/verus/source/builtin" }
-verus_builtin_macros = { package = "verus_builtin_macros", path = "tools/verus/source/builtin_macros" }
