@@ -8,6 +8,6 @@ license = "MPL-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-
-[lints]
-workspace = true
+vstd = { workspace = true }
+verus_builtin = { workspace = true }
+verus_builtin_macros = { workspace = true }

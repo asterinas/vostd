@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 #![cfg_attr(not(test), no_std)]
+use vstd::prelude::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a

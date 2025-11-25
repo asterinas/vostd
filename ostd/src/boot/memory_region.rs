@@ -8,7 +8,7 @@ use ostd_specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;
 
-//use align_ext::AlignExt;
+use align_ext::AlignExt;
 
 //use crate::mm::{kspace::kernel_loaded_offset, Paddr, Vaddr, PAGE_SIZE};
 
