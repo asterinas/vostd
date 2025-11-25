@@ -932,16 +932,34 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
         lemma_pow2_pos((p - q) as nat);
         lemma_mod_mod(x as int, m as int, d as int);
     }
+    lemma_pow2_pos(p);
+    lemma_pow2_pos(q);
+    let div_p = x / pow2(p);
+    let rem_p = x % pow2(p);
+    let div_q = rem_p / pow2(q);
+    let rem_q = x % pow2(q);
+    let term0 = (pow2(p) as int) * (div_p as int);
+    let term1 = (pow2(q) as int) * (div_q as int);
+    let term2 = rem_q as int;
+    let sum_int = term0 + term1 + term2;
+    assert((x as int) == sum_int) by {
+        calc! {
+            (==)
+            x as int; {
+                lemma_fundamental_div_mod(x as int, pow2(p) as int);
+            }
+            term0 + rem_p as int; {
+                lemma_fundamental_div_mod(rem_p as int, pow2(q) as int);
+            }
+            sum_int;
+        }
+    }
     calc! {
         (==)
-        x; {
-            lemma_pow2_pos(p);
-            lemma_fundamental_div_mod(x as int, pow2(p) as int);
-        }
-        pow2(p) * (x / pow2(p)) + (x % pow2(p)); {
-            lemma_pow2_pos(q);
-            lemma_fundamental_div_mod((x % pow2(p)) as int, pow2(q) as int);
-        }
+        sum_int as nat; {}
+        (term0 + term1) as nat + term2 as nat; {}
+        term0 as nat + term1 as nat + term2 as nat; {}
+        pow2(p) * div_p + pow2(q) * div_q + rem_q; {}
         pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q));
     }
     assert(0 <= x % pow2(q) < pow2(q)) by {

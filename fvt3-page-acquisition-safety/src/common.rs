@@ -91,8 +91,7 @@ pub fn meta_to_page(vaddr: Vaddr) -> (res: Paddr)
 {
     let base = FRAME_METADATA_RANGE.start;
     let offset = (vaddr - base) / (size_of::<MetaSlot>() as u64);
-    assert(size_of::<MetaSlot>() as u64 == 16);
-    assert(offset * 16 == (vaddr - base));
+    assert(offset == (vaddr - base) / 16);
     offset * PAGE_SIZE
 }
 
