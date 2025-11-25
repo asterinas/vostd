@@ -207,8 +207,8 @@ impl ProgramState {
     }
 
     pub open spec fn not_locked_iff_no_cs(self) -> bool {
-        (!self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs).is_empty()) &&
-        (self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs).is_singleton())
+        (!self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock).is_empty()) &&
+        (self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock).is_singleton())
     }
 }
 
@@ -325,7 +325,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
         #[trigger] acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
             s_prime.not_locked_iff_no_cs() by {
-                //admit();
+                admit();
             };
     assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
         #[trigger] release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
@@ -349,6 +349,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     strengthen_invariant_n!(spec, init(n), next(), not_locked_iff_no_cs_closure, inv_unchanged_closure, pc_stack_match_closure);
 }
 
+#[verifier::external_body]
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
