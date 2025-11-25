@@ -934,117 +934,32 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
     }
     lemma_pow2_pos(p);
     lemma_pow2_pos(q);
-    let pow2_p = pow2(p);
-    let pow2_q = pow2(q);
-    let div_p = x / pow2_p;
-    let rem_p = x % pow2_p;
-    let div_q = rem_p / pow2_q;
-    let rem_q = x % pow2_q;
-    assert(div_p >= 0) by (nonlinear_arith)
-        requires
-            div_p == x / pow2_p,
-            x >= 0,
-            pow2_p > 0,
-    ;
-    assert(rem_p >= 0) by (nonlinear_arith)
-        requires
-            rem_p == x % pow2_p,
-            pow2_p > 0,
-    ;
-    assert(div_q >= 0) by (nonlinear_arith)
-        requires
-            div_q == rem_p / pow2_q,
-            rem_p >= 0,
-            pow2_q > 0,
-    ;
-    assert(rem_q >= 0) by (nonlinear_arith)
-        requires
-            rem_q == x % pow2_q,
-            pow2_q > 0,
-    ;
-    let term0 = (pow2_p as int) * (div_p as int);
-    let term1 = (pow2_q as int) * (div_q as int);
+    let div_p = x / pow2(p);
+    let rem_p = x % pow2(p);
+    let div_q = rem_p / pow2(q);
+    let rem_q = x % pow2(q);
+    let term0 = (pow2(p) as int) * (div_p as int);
+    let term1 = (pow2(q) as int) * (div_q as int);
     let term2 = rem_q as int;
     let sum_int = term0 + term1 + term2;
-
-    assert(term0 >= 0) by (nonlinear_arith)
-        requires
-            term0 == (pow2_p as int) * (div_p as int),
-            pow2_p >= 0,
-            div_p >= 0,
-    ;
-    assert(term1 >= 0) by (nonlinear_arith)
-        requires
-            term1 == (pow2_q as int) * (div_q as int),
-            pow2_q >= 0,
-            div_q >= 0,
-    ;
-    assert(term2 >= 0) by (nonlinear_arith)
-        requires
-            term2 == rem_q as int,
-            rem_q >= 0,
-    ;
-    assert(term0 + term1 >= 0) by (nonlinear_arith)
-        requires
-            term0 >= 0,
-            term1 >= 0,
-    ;
-    assert(sum_int >= 0) by (nonlinear_arith)
-        requires
-            sum_int == term0 + term1 + term2,
-            term0 + term1 >= 0,
-            term2 >= 0,
-    ;
-
     assert((x as int) == sum_int) by {
         calc! {
             (==)
             x as int; {
-                lemma_fundamental_div_mod(x as int, pow2_p as int);
+                lemma_fundamental_div_mod(x as int, pow2(p) as int);
             }
             term0 + rem_p as int; {
-                lemma_fundamental_div_mod(rem_p as int, pow2_q as int);
+                lemma_fundamental_div_mod(rem_p as int, pow2(q) as int);
             }
             sum_int;
         }
     }
-
-    assert(x == sum_int as nat) by {
-        assert(x as int == sum_int);
-        assert(sum_int >= 0);
-    }
-
-    assert(term0 as nat == pow2_p * div_p) by (nonlinear_arith)
-        requires
-            term0 == (pow2_p as int) * (div_p as int),
-    ;
-    assert(term1 as nat == pow2_q * div_q) by (nonlinear_arith)
-        requires
-            term1 == (pow2_q as int) * (div_q as int),
-    ;
-    assert(term2 as nat == rem_q) by (nonlinear_arith)
-        requires
-            term2 == rem_q as int,
-    ;
-
-    assert((term0 + term1) as nat == term0 as nat + term1 as nat) by (nonlinear_arith)
-        requires
-            term0 >= 0,
-            term1 >= 0,
-    ;
-    assert(sum_int as nat == (term0 + term1) as nat + term2 as nat) by (nonlinear_arith)
-        requires
-            sum_int == term0 + term1 + term2,
-            term0 + term1 >= 0,
-            term2 >= 0,
-    ;
-
     calc! {
         (==)
         sum_int as nat; {}
         (term0 + term1) as nat + term2 as nat; {}
         term0 as nat + term1 as nat + term2 as nat; {}
-        pow2_p * div_p + pow2_q * div_q + rem_q; {}
+        pow2(p) * div_p + pow2(q) * div_q + rem_q; {}
         pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q));
     }
     assert(0 <= x % pow2(q) < pow2(q)) by {
