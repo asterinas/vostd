@@ -379,5 +379,18 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+        spec.entails(tla_forall(|tid| weak_fairness(acquire_lock(tid)))),
+        spec.entails(tla_forall(|tid| weak_fairness(release_lock(tid)))),
+        spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
+    ensures
+        spec.entails(starvation_free()),
+{
+    admit();
+}
+
 
 } // verus!
