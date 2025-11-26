@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 use vstd::set_lib::*;
-use vstd_extra::{set_extra::*, state_machine::*, temporal_logic::*};
+use vstd_extra::{set_extra::*,state_machine::*, temporal_logic::*};
 
 verus! {
 
@@ -215,11 +215,8 @@ impl ProgramState {
     }
 
     pub open spec fn not_locked_iff_no_cs(self) -> bool {
-        (!self.locked <==> self.ProcSet.filter(
-            |tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock,
-        ).is_empty()) && (self.locked <==> self.ProcSet.filter(
-            |tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock,
-        ).is_singleton())
+        (!self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock).is_empty()) &&
+        (self.locked <==> self.ProcSet.filter(|tid: Tid| self.pc[tid] == Label::cs || self.pc[tid] == Label::unlock).is_singleton())
     }
 }
 
@@ -234,16 +231,23 @@ pub proof fn lemma_unlocked_means_no_holders(s: ProgramState)
     assert(!s.locked <==> holders.is_empty());
     assert(holders.is_empty());
     let proc_set = Set::new(|tid: Tid| s.in_ProcSet(tid));
-
-    assert forall|tid: Tid| s.in_ProcSet(tid) implies proc_set.contains(tid) by {
+    assert forall|tid: Tid|
+        bool_implies(proc_set.contains(tid), s.in_ProcSet(tid)) by {
+        if proc_set.contains(tid) {
+            assert(s.in_ProcSet(tid));
+        }
+    };
+    assert forall|tid: Tid|
+        bool_implies(s.in_ProcSet(tid), proc_set.contains(tid)) by {
         if s.in_ProcSet(tid) {
             assert(proc_set.contains(tid));
         }
     };
     assert forall|tid: Tid|
-        proc_set.filter(|tid: Tid| s.holds_lock(tid)).contains(tid) implies holders.contains(
-        tid,
-    ) by {
+        bool_implies(
+            proc_set.filter(|tid: Tid| s.holds_lock(tid)).contains(tid),
+            holders.contains(tid),
+        ) by {
         if proc_set.filter(|tid: Tid| s.holds_lock(tid)).contains(tid) {
             assert(proc_set.contains(tid));
             assert(s.ProcSet.contains(tid));
@@ -251,9 +255,11 @@ pub proof fn lemma_unlocked_means_no_holders(s: ProgramState)
             assert(s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
         }
     };
-    assert forall|tid: Tid| holders.contains(tid) implies proc_set.filter(
-        |tid: Tid| s.holds_lock(tid),
-    ).contains(tid) by {
+    assert forall|tid: Tid|
+        bool_implies(
+            holders.contains(tid),
+            proc_set.filter(|tid: Tid| s.holds_lock(tid)).contains(tid),
+        ) by {
         if holders.contains(tid) {
             assert(s.ProcSet.contains(tid));
             assert(proc_set.contains(tid));
@@ -263,7 +269,10 @@ pub proof fn lemma_unlocked_means_no_holders(s: ProgramState)
     assert(proc_set.filter(|tid: Tid| s.holds_lock(tid)).is_empty()) by {
         assert(holders.is_empty());
     };
-    lemma_empty_bad_set_implies_forall(|tid: Tid| s.in_ProcSet(tid), |tid: Tid| !s.holds_lock(tid));
+    lemma_empty_bad_set_implies_forall(
+        |tid: Tid| s.in_ProcSet(tid),
+        |tid: Tid| !s.holds_lock(tid),
+    );
 }
 
 pub proof fn lemma_locked_unique_holder(s: ProgramState) -> (owner: Tid)
@@ -276,23 +285,38 @@ pub proof fn lemma_locked_unique_holder(s: ProgramState) -> (owner: Tid)
         forall|tid: Tid| s.in_ProcSet(tid) && s.holds_lock(tid) ==> tid == owner,
 {
     let holders = s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
-    assert forall|tid: Tid| holders.contains(tid) implies s.in_ProcSet(tid) && s.holds_lock(
-        tid,
-    ) by {
+    assert forall|tid: Tid|
+        bool_implies(holders.contains(tid), s.in_ProcSet(tid) && s.holds_lock(tid)) by {
         if holders.contains(tid) {
             assert(s.ProcSet.contains(tid));
             assert(s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
         }
     };
-    assert forall|tid: Tid| s.in_ProcSet(tid) && s.holds_lock(tid) implies holders.contains(
-        tid,
-    ) by {
+    assert forall|tid: Tid|
+        bool_implies(s.in_ProcSet(tid) && s.holds_lock(tid), holders.contains(tid)) by {
         if s.in_ProcSet(tid) && s.holds_lock(tid) {
             assert(s.ProcSet.contains(tid));
             assert(s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
         }
     };
+    assert(s.locked <==> holders.is_singleton());
+    assert(holders.is_singleton());
+    assert(holders.len() > 0);
     let owner = holders.choose();
+    assert(holders.contains(owner));
+    assert(s.in_ProcSet(owner));
+    assert(s.holds_lock(owner));
+    assert forall|tid: Tid|
+        bool_implies(s.in_ProcSet(tid) && s.holds_lock(tid), tid == owner) by {
+        if s.in_ProcSet(tid) && s.holds_lock(tid) {
+            assert(holders.contains(tid));
+            assert(tid == owner) by {
+                assert(holders.contains(owner));
+                assert(holders.contains(tid));
+                assert(holders.is_singleton());
+            };
+        }
+    };
     owner
 }
 
@@ -308,6 +332,21 @@ pub proof fn lemma_locked_state_implies_not_locked_iff_no_cs(s: ProgramState, ow
 {
     let holders = s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
     s.ProcSet.lemma_len_filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
+    assert(holders.finite());
+    assert(holders.contains(owner)) by {
+        assert(s.ProcSet.contains(owner));
+    };
+    assert(!holders.is_empty()) by {
+        assert(holders.contains(owner));
+    };
+    assert(holders.len() > 0) by {
+        if holders.len() == 0 {
+            holders.lemma_len0_is_empty();
+            assert(false) by {
+                assert(holders.contains(owner));
+            };
+        }
+    };
     assert forall|tid: Tid|
         bool_implies(holders.contains(tid), s.in_ProcSet(tid) && s.holds_lock(tid)) by {
         if holders.contains(tid) {
@@ -315,11 +354,22 @@ pub proof fn lemma_locked_state_implies_not_locked_iff_no_cs(s: ProgramState, ow
             assert(s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
         }
     };
-    assert forall|tid: Tid| holders.contains(tid) implies tid == owner by {
+    assert forall|tid: Tid| bool_implies(holders.contains(tid), tid == owner) by {
         if holders.contains(tid) {
             assert(s.in_ProcSet(tid));
+            assert(s.holds_lock(tid));
+            assert(tid == owner);
         }
     };
+    assert forall|x: Tid, y: Tid|
+        bool_implies(holders.contains(x) && holders.contains(y), x == y) by {
+        if holders.contains(x) && holders.contains(y) {
+            assert(x == owner);
+            assert(y == owner);
+        }
+    };
+    assert(holders.is_singleton());
+    assert(s.not_locked_iff_no_cs());
 }
 
 pub proof fn lemma_unlocked_state_implies_not_locked_iff_no_cs(s: ProgramState)
@@ -332,14 +382,17 @@ pub proof fn lemma_unlocked_state_implies_not_locked_iff_no_cs(s: ProgramState)
 {
     let holders = s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
     s.ProcSet.lemma_len_filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock);
+    assert(holders.finite());
     assert(s.ProcSet.all(|tid: Tid| !s.holds_lock(tid))) by {
-        assert forall|tid: Tid| s.in_ProcSet(tid) implies !s.holds_lock(tid) by {
+        assert forall|tid: Tid| bool_implies(s.in_ProcSet(tid), !s.holds_lock(tid)) by {
             if s.in_ProcSet(tid) {
                 assert(!s.holds_lock(tid));
             }
         };
     };
     lemma_filter_all_false(s.ProcSet, |tid: Tid| s.holds_lock(tid));
+    assert(holders.is_empty());
+    assert(s.not_locked_iff_no_cs());
 }
 
 pub open spec fn starvation_free() -> TempPred<ProgramState> {
@@ -438,6 +491,7 @@ pub proof fn lemma_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -446,165 +500,178 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         spec.entails(always(lift_state(|s: ProgramState| s.not_locked_iff_no_cs()))),
 {
     broadcast use group_tla_rules;
-
     lemma_inv_unchanged(spec, n);
     lemma_pc_stack_match(spec, n);
     let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-    let pc_stack_match_closure = |s: ProgramState|
-        s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
+    let pc_stack_match_closure = |s: ProgramState| s.ProcSet.all(|tid: Tid| pc_stack_match(s.pc[tid], s.stack[tid]));
     let not_locked_iff_no_cs_closure = |s: ProgramState| s.not_locked_iff_no_cs();
-    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
-            && s.not_locked_iff_no_cs() implies s_prime.not_locked_iff_no_cs() by {
-        lemma_unlocked_means_no_holders(s);
-        assert(pc_stack_match(s.pc[tid], s.stack[tid]));
-        assert(s.pc[tid] == Label::lock);
-        assert(s.stack[tid] =~= seq![
-            StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
-        ]);
-        assert forall|tid2: Tid| s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) implies tid2
-            == tid by {
-            if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
-                assert(tid2 == tid) by {
-                    if tid2 == tid {
-                    } else {
-                        assert(s_prime.pc[tid2] == s.pc[tid2]);
-                        if s_prime.pc[tid2] == Label::cs {
-                            assert(s.holds_lock(tid2));
-                        } else {
-                            assert(s_prime.pc[tid2] == Label::unlock);
-                            assert(s.holds_lock(tid2));
-                        }
-                        assert(!s.holds_lock(tid2));
-                        assert(false);
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        #[trigger] acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
+            s_prime.not_locked_iff_no_cs() by {
+                lemma_unlocked_means_no_holders(s);
+                assert(pc_stack_match(s.pc[tid], s.stack[tid]));
+                assert(s.pc[tid] == Label::lock);
+                assert(s.stack[tid] =~= seq![
+                    StackFrame { procedure: Procedure::acquire_lock, pc: Label::cs },
+                ]);
+                assert(s_prime.pc[tid] == Label::cs);
+                assert(s_prime.locked);
+                assert(s_prime.in_ProcSet(tid));
+                assert(s_prime.holds_lock(tid));
+                assert forall |tid2: Tid|
+                    bool_implies(s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2), tid2 == tid) by {
+                    if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
+                        assert(tid2 == tid) by {
+                            if tid2 == tid {
+                            } else {
+                                assert(s_prime.pc[tid2] == s.pc[tid2]);
+                                if s_prime.pc[tid2] == Label::cs {
+                                    assert(s.holds_lock(tid2));
+                                } else {
+                                    assert(s_prime.pc[tid2] == Label::unlock);
+                                    assert(s.holds_lock(tid2));
+                                }
+                                assert(!s.holds_lock(tid2));
+                                assert(false);
+                            }
+                        };
                     }
                 };
-            }
-        };
-        lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, tid);
-    };
-    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
-            && s.not_locked_iff_no_cs() implies s_prime.not_locked_iff_no_cs() by {
-        assert(s.locked) by {
-            if !s.locked {
-                lemma_unlocked_means_no_holders(s);
-                assert(false) by {
+                assert(s.ProcSet.finite());
+                assert(s_prime.ProcSet == s.ProcSet);
+                lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, tid);
+            };
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        #[trigger] release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
+            s_prime.not_locked_iff_no_cs() by {
+                assert(s.locked) by {
+                    if !s.locked {
+                        lemma_unlocked_means_no_holders(s);
+                        assert(false) by {
+                            assert(s.in_ProcSet(tid));
+                            assert(s.holds_lock(tid));
+                        };
+                    }
+                };
+                let owner = lemma_locked_unique_holder(s);
+                assert(s.pc[tid] == Label::unlock);
+                assert(s.holds_lock(tid));
+                assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
+                assert(tid == owner) by {
                     assert(s.in_ProcSet(tid));
                     assert(s.holds_lock(tid));
                 };
-            }
-        };
-        let owner = lemma_locked_unique_holder(s);
-        assert(s.pc[tid] == Label::unlock);
-        assert(s.holds_lock(tid));
-        assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
-        assert(tid == owner) by {
-            assert(s.in_ProcSet(tid));
-            assert(s.holds_lock(tid));
-        };
-        assert(s_prime.pc[tid] == Label::start);
-        assert(!s_prime.locked);
-        assert forall|tid2: Tid| s_prime.in_ProcSet(tid2) implies !s_prime.holds_lock(tid2) by {
-            if s_prime.in_ProcSet(tid2) {
-                if tid2 == tid {
-                    assert(s_prime.pc[tid2] == Label::start);
-                    assert(!s_prime.holds_lock(tid2));
-                } else {
-                    assert(s_prime.pc[tid2] == s.pc[tid2]);
-                    if s.holds_lock(tid2) {
-                        assert(tid2 == owner);
-                        assert(false);
-                    }
-                    assert(!s_prime.holds_lock(tid2));
-                }
-            }
-        };
-        assert(s.ProcSet.finite());
-        assert(s_prime.ProcSet == s.ProcSet);
-        lemma_unlocked_state_implies_not_locked_iff_no_cs(s_prime);
-    };
-    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        start().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
-            && s.not_locked_iff_no_cs() implies s_prime.not_locked_iff_no_cs() by {
-        if s.locked {
-            assert(s.locked);
-            let owner = lemma_locked_unique_holder(s);
-            assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
-            assert(s_prime.locked);
-            assert(s_prime.holds_lock(owner));
-            assert forall|tid2: Tid|
-                s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) implies tid2 == owner by {
-                if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
-                    assert(tid2 == owner) by {
-                        if tid2 == owner {
+                assert(pc_stack_match(s.pc[tid], s.stack[tid]));
+                assert(s.stack[tid] =~= seq![
+                    StackFrame { procedure: Procedure::release_lock, pc: Label::start },
+                ]);
+                assert(s_prime.pc[tid] == Label::start);
+                assert(!s_prime.locked);
+                assert forall|tid2: Tid|
+                    bool_implies(s_prime.in_ProcSet(tid2), !s_prime.holds_lock(tid2)) by {
+                    if s_prime.in_ProcSet(tid2) {
+                        if tid2 == tid {
+                            assert(s_prime.pc[tid2] == Label::start);
+                            assert(!s_prime.holds_lock(tid2));
                         } else {
                             assert(s_prime.pc[tid2] == s.pc[tid2]);
-                            assert(s.holds_lock(tid2));
-                            assert(tid2 == owner);
+                            if s.holds_lock(tid2) {
+                                assert(tid2 == owner);
+                                assert(false);
+                            }
+                            assert(!s_prime.holds_lock(tid2));
+                        }
+                    }
+                };
+                assert(s.ProcSet.finite());
+                assert(s_prime.ProcSet == s.ProcSet);
+                lemma_unlocked_state_implies_not_locked_iff_no_cs(s_prime);
+            };
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        #[trigger] start().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
+            s_prime.not_locked_iff_no_cs() by {
+                if s.locked {
+                    assert(s.locked);
+                    let owner = lemma_locked_unique_holder(s);
+                    assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
+                    assert(s_prime.locked);
+                    assert(s_prime.holds_lock(owner));
+                    assert forall|tid2: Tid|
+                        bool_implies(s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2), tid2 == owner) by {
+                        if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
+                            assert(tid2 == owner) by {
+                                if tid2 == owner {
+                                } else {
+                                    assert(s_prime.pc[tid2] == s.pc[tid2]);
+                                    assert(s.holds_lock(tid2));
+                                    assert(tid2 == owner);
+                                }
+                            };
                         }
                     };
+                    assert(s.ProcSet.finite());
+                    assert(s_prime.ProcSet == s.ProcSet);
+                    lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, owner);
+                } else {
+                    lemma_unlocked_means_no_holders(s);
+                    assert forall |tid2: Tid| bool_implies(s_prime.in_ProcSet(tid2), !s_prime.holds_lock(tid2)) by {
+                        if s_prime.in_ProcSet(tid2) {
+                            if tid2 == tid {
+                                assert(s_prime.pc[tid2] == Label::lock);
+                                assert(!s_prime.holds_lock(tid2));
+                            } else {
+                                assert(s_prime.pc[tid2] == s.pc[tid2]);
+                                assert(!s.holds_lock(tid2));
+                                assert(!s_prime.holds_lock(tid2));
+                            }
+                        }
+                    };
+                    assert(s.ProcSet.finite());
+                    assert(s_prime.ProcSet == s.ProcSet);
+                    lemma_unlocked_state_implies_not_locked_iff_no_cs(s_prime);
                 }
             };
-            assert(s.ProcSet.finite());
-            assert(s_prime.ProcSet == s.ProcSet);
-            lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, owner);
-        } else {
-            lemma_unlocked_means_no_holders(s);
-            assert forall|tid2: Tid| s_prime.in_ProcSet(tid2) implies !s_prime.holds_lock(tid2) by {
-                if s_prime.in_ProcSet(tid2) {
-                    if tid2 == tid {
-                        assert(s_prime.pc[tid2] == Label::lock);
-                        assert(!s_prime.holds_lock(tid2));
-                    } else {
-                        assert(s_prime.pc[tid2] == s.pc[tid2]);
-                        assert(!s.holds_lock(tid2));
-                        assert(!s_prime.holds_lock(tid2));
+    assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
+        #[trigger] cs().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
+            s_prime.not_locked_iff_no_cs() by {
+                assert(s.locked) by {
+                    if !s.locked {
+                        lemma_unlocked_means_no_holders(s);
+                        assert(false) by {
+                            assert(s.in_ProcSet(tid));
+                            assert(s.holds_lock(tid));
+                        };
                     }
-                }
-            };
-            lemma_unlocked_state_implies_not_locked_iff_no_cs(s_prime);
-        }
-    };
-    assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        cs().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
-            && s.not_locked_iff_no_cs() implies s_prime.not_locked_iff_no_cs() by {
-        assert(s.locked) by {
-            if !s.locked {
-                lemma_unlocked_means_no_holders(s);
-                assert(false) by {
+                };
+                let owner = lemma_locked_unique_holder(s);
+                assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
+                assert(s.pc[tid] == Label::cs);
+                assert(s.holds_lock(tid));
+                assert(owner == tid) by {
                     assert(s.in_ProcSet(tid));
                     assert(s.holds_lock(tid));
                 };
-            }
-        };
-        let owner = lemma_locked_unique_holder(s);
-        assert(forall|tid2: Tid| s.in_ProcSet(tid2) && s.holds_lock(tid2) ==> tid2 == owner);
-        assert(owner == tid) by {
-            assert(s.in_ProcSet(tid));
-            assert(s.holds_lock(tid));
-        };
-        assert(s_prime.locked);
-        assert(s_prime.holds_lock(tid));
-        assert forall|tid2: Tid| s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) implies tid2
-            == tid by {
-            if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
-                assert(tid2 == tid) by {
-                    if tid2 == tid {
-                    } else {
-                        assert(s_prime.pc[tid2] == s.pc[tid2]);
-                        assert(s.holds_lock(tid2));
-                        assert(tid2 == owner);
+                assert(s_prime.locked);
+                assert(s_prime.holds_lock(tid));
+                assert forall|tid2: Tid|
+                    bool_implies(s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2), tid2 == tid) by {
+                    if s_prime.in_ProcSet(tid2) && s_prime.holds_lock(tid2) {
+                        assert(tid2 == tid) by {
+                            if tid2 == tid {
+                            } else {
+                                assert(s_prime.pc[tid2] == s.pc[tid2]);
+                                assert(s.holds_lock(tid2));
+                                assert(tid2 == owner);
+                            }
+                        };
                     }
                 };
-            }
-        };
-        lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, tid);
-    };
-
-    assert forall|s: ProgramState| #[trigger] init(n)(s) implies not_locked_iff_no_cs_closure(
-        s,
-    ) by {
+                assert(s.ProcSet.finite());
+                assert(s_prime.ProcSet == s.ProcSet);
+                lemma_locked_state_implies_not_locked_iff_no_cs(s_prime, tid);
+            };
+    
+    assert forall |s: ProgramState| bool_implies(#[trigger] init(n)(s), not_locked_iff_no_cs_closure(s)) by {
         if init(n)(s) {
             assert(!s.locked);
             assert forall|tid: Tid| bool_implies(s.in_ProcSet(tid), !s.holds_lock(tid)) by {
@@ -616,9 +683,34 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         }
     };
 
-    assert(forall|s: ProgramState, s_prime: ProgramState| #[trigger]
-        next()(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
-            && s.not_locked_iff_no_cs() ==> s_prime.not_locked_iff_no_cs());
+    assert forall |s: ProgramState, s_prime: ProgramState|
+        bool_implies(
+            #[trigger] next()(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+                && s.not_locked_iff_no_cs(),
+            s_prime.not_locked_iff_no_cs(),
+        ) by {
+        if next()(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+            && s.not_locked_iff_no_cs()
+        {
+            let tid = choose|tid: Tid|
+                s.in_ProcSet(tid) && (
+                    acquire_lock(tid)(s, s_prime)
+                    || release_lock(tid)(s, s_prime)
+                    || start().forward(tid)(s, s_prime)
+                    || cs().forward(tid)(s, s_prime)
+                );
+            if acquire_lock(tid)(s, s_prime) {
+                assert(s_prime.not_locked_iff_no_cs());
+            } else if release_lock(tid)(s, s_prime) {
+                assert(s_prime.not_locked_iff_no_cs());
+            } else if start().forward(tid)(s, s_prime) {
+                assert(s_prime.not_locked_iff_no_cs());
+            } else {
+                assert(cs().forward(tid)(s, s_prime));
+                assert(s_prime.not_locked_iff_no_cs());
+            }
+        }
+    };
     strengthen_invariant_n!(spec, init(n), next(), not_locked_iff_no_cs_closure, inv_unchanged_closure, pc_stack_match_closure);
 }
 
@@ -630,16 +722,17 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
         spec.entails(always(lift_state(|s: ProgramState| s.mutual_exclusion()))),
 {
     broadcast use group_tla_rules;
-
     lemma_inv_unchanged(spec, n);
     lemma_not_locked_iff_not_in_cs(spec, n);
     let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
     let not_locked_iff_no_cs_closure = |s: ProgramState| s.not_locked_iff_no_cs();
     let mutual_exclusion_closure = |s: ProgramState| s.mutual_exclusion();
-    assert forall|s: ProgramState|
-        s.inv_unchanged(n) && s.not_locked_iff_no_cs() implies #[trigger] s.mutual_exclusion() by {
-        assert forall|i: Tid, j: Tid| s.in_ProcSet(i) && s.in_ProcSet(j) && i != j implies !(s.pc[i]
-            == Label::cs && s.pc[j] == Label::cs) by {
+    assert forall |s: ProgramState| s.inv_unchanged(n) && s.not_locked_iff_no_cs() implies #[trigger] s.mutual_exclusion() by {
+        assert forall|i: Tid, j: Tid|
+            bool_implies(
+                s.in_ProcSet(i) && s.in_ProcSet(j) && i != j,
+                !(s.pc[i] == Label::cs && s.pc[j] == Label::cs),
+            ) by {
             if s.in_ProcSet(i) && s.in_ProcSet(j) && i != j {
                 assert(!(s.pc[i] == Label::cs && s.pc[j] == Label::cs)) by {
                     if s.pc[i] == Label::cs && s.pc[j] == Label::cs {
@@ -673,5 +766,6 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
         mutual_exclusion_closure,
     );
 }
+
 
 } // verus!
