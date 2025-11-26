@@ -194,8 +194,7 @@ impl ProgramState {
 
     pub open spec fn mutual_exclusion(self) -> bool {
         forall|i: Tid, j: Tid|
-            #![auto]
-            (self.in_ProcSet(i) && self.in_ProcSet(j) && i != j) ==> !(self.pc[i] == Label::cs
+            (#[trigger]self.in_ProcSet(i) && #[trigger]self.in_ProcSet(j) && i != j) ==> !(self.pc[i] == Label::cs
                 && self.pc[j] == Label::cs)
     }
 
@@ -324,8 +323,8 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     let not_locked_iff_no_cs_closure = |s: ProgramState| s.not_locked_iff_no_cs();
     assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
         #[trigger] acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
-            s_prime.not_locked_iff_no_cs() by {
-                admit();
+            s_prime.not_locked_iff_no_cs() by { 
+                assert(s_prime.ProcSet.filter(|tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock) == s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock).insert(tid)) by {};
             };
     assert forall |s: ProgramState, s_prime: ProgramState, tid: Tid|
         #[trigger] release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s) && s.not_locked_iff_no_cs() implies 
