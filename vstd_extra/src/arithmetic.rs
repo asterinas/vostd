@@ -1,3 +1,5 @@
+use vstd::arithmetic::div_mod::*;
+use vstd::arithmetic::mul::*;
 use vstd::{pervasive::trigger, prelude::*};
 
 verus! {
@@ -20,6 +22,40 @@ pub open spec fn nat_align_up(x: nat, align: nat) -> nat
     }
 }
 
+proof fn lemma_nat_align_up_sound_helper(x: nat, align: nat, n: nat)
+    requires
+        align > 0,
+        n >= x,
+        n % align == 0,
+    ensures
+        n >= nat_align_up(x, align),
+{
+    if x % align == 0 {
+    } else {
+        let down = nat_align_down(x, align);
+        lemma_fundamental_div_mod(x as int, align as int);
+        lemma_mul_is_commutative(align as int, x as int / align as int);
+        lemma_mod_multiples_basic(x as int / align as int, align as int);
+
+        lemma_fundamental_div_mod(n as int, align as int);
+        if n < nat_align_up(x, align) {
+            let q_n = n as int / align as int;
+            let q_x = x as int / align as int;
+
+            lemma_mul_is_distributive_add(align as int, q_x, 1);
+
+            if q_n >= q_x + 1 {
+                lemma_mul_inequality(q_x + 1, q_n, align as int);
+                lemma_mul_is_commutative(align as int, q_x + 1);
+                lemma_mul_is_commutative(align as int, q_n);
+            }
+            lemma_mul_inequality(q_n, q_x, align as int);
+            lemma_mul_is_commutative(align as int, q_n);
+            lemma_mul_is_commutative(align as int, q_x);
+        }
+    }
+}
+
 pub broadcast proof fn lemma_nat_align_up_sound(x: nat, align: nat)
     requires
         align > 0,
@@ -30,7 +66,24 @@ pub broadcast proof fn lemma_nat_align_up_sound(x: nat, align: nat)
             #![trigger trigger(n)]
             n >= x && n % align == 0 ==> n >= nat_align_up(x, align),
 {
-    admit();
+    if x % align == 0 {
+    } else {
+        let down = nat_align_down(x, align);
+        lemma_fundamental_div_mod(x as int, align as int);
+        lemma_mul_is_commutative(align as int, x as int / align as int);
+        lemma_mod_multiples_basic(x as int / align as int, align as int);
+        lemma_mod_add_multiples_vanish(down as int, align as int);
+        assert(down + align == align + down);
+        assert(nat_align_up(x, align) == down + align);
+    }
+
+    assert forall|n: nat| #![trigger trigger(n)] n >= x && n % align == 0 implies n >= nat_align_up(
+        x,
+        align,
+    ) by {
+        trigger(n);
+        lemma_nat_align_up_sound_helper(x, align, n);
+    }
 }
 
 pub broadcast proof fn lemma_nat_align_down_sound(x: nat, align: nat)
