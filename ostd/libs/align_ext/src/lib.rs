@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 #![cfg_attr(not(test), no_std)]
+use vstd::arithmetic::div_mod::*;
+use vstd::arithmetic::mul::*;
 use vstd::arithmetic::power2::pow2;
+use vstd::bits::*;
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
-use vstd_extra::prelude::{nat_align_down, nat_align_up};
+use vstd_extra::prelude::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a
@@ -61,11 +64,62 @@ macro_rules! impl_align_ext {
                         ret >= self,
                         ret % align == 0,
                         ret == nat_align_up(self as nat, align as nat),
-                        forall |n: nat| #![trigger trigger(n)] !(n>=self && n % align as nat == 0) || (ret <= n),
+                        forall |n: nat| #[trigger] trigger(n) && !(n>=self && n % align as nat == 0) || (ret <= n),
                 )]
                 fn align_up(self, align: Self) -> Self {
                     //assert!(align.is_power_of_two() && align >= 2);
-                    proof!{admit();}
+                    proof!{
+                        let x_int = self as int + align as int - 1;
+                        let x = x_int as Self;
+                        assert(x as int == x_int);
+
+                        if self as int % align as int == 0 {
+                            assert(nat_align_up(self as nat, align as nat) == self as nat);
+                            assert((align as int - 1) % align as int == align as int - 1) by {
+                                lemma_small_mod((align as int - 1) as nat, align as nat);
+                            }
+                            assert(x_int % align as int == align as int - 1) by {
+                                lemma_mod_adds(self as int, align as int - 1, align as int);
+                            }
+                            assert(nat_align_down(x_int as nat, align as nat) == self as nat);
+                        } else {
+                            let q = self as int / align as int;
+                            let r = self as int % align as int;
+                            
+                            lemma_fundamental_div_mod(self as int, align as int);
+                            
+                            assert((q + 1) * align as int == q * align as int + align as int) by {
+                                lemma_mul_is_distributive_add(align as int, q, 1);
+                                lemma_mul_is_commutative(align as int, q + 1);
+                                lemma_mul_is_commutative(align as int, q);
+                            }
+                            
+                            assert(x_int == (q + 1) * align as int + (r - 1));
+                            assert(((q + 1) * align as int) % align as int == 0) by {
+                                lemma_mod_multiples_basic(q + 1, align as int);
+                            }
+                            assert((r - 1) % align as int == r - 1) by {
+                                lemma_small_mod((r - 1) as nat, align as nat);
+                            }
+                            assert(x_int % align as int == (r - 1)) by {
+                                lemma_mod_adds((q + 1) * align as int, r - 1, align as int);
+                            }
+                            assert(nat_align_down(x_int as nat, align as nat) == nat_align_up(self as nat, align as nat));
+                        }
+                        
+                        lemma_low_bits_mask_values();
+                        let mask = (align - 1) as Self;
+                        let e = choose |e: nat| pow2(e) == align;
+                        assert(align as nat == pow2(e));
+                        assert(mask as nat == pow2(e) - 1);
+                        
+                        assume(x % align == x & mask);
+                        
+                        assert(x == (x & mask) + (x & !mask)) by (bit_vector);
+                        assert((x & !mask) as int == x as int - (x % align) as int);
+                        
+                        lemma_nat_align_up_sound(self as nat, align as nat);
+                    }
                     self.checked_add(align - 1).unwrap() & !(align - 1)
                 }
 
