@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-
 #![cfg_attr(not(test), no_std)]
+use vstd::arithmetic::power2::pow2;
+use vstd::pervasive::trigger;
 use vstd::prelude::*;
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
@@ -47,16 +48,38 @@ pub trait AlignExt {
 macro_rules! impl_align_ext {
     ($( $uint_type:ty ),+,) => {
         $(
+            #[verus_verify]
             impl AlignExt for $uint_type {
                 #[inline]
+                #[verus_spec(ret =>
+                    requires
+                        exists |e:nat| pow2(e) == align,
+                        align >= 2,
+                        self + (align - 1) <= $uint_type::MAX,
+                    ensures
+                        ret >= self,
+                        ret % align == 0,
+                        forall |n: nat| #![trigger trigger(n)] !(n>=self && n % align as nat == 0) || (ret <= n),
+                )]
                 fn align_up(self, align: Self) -> Self {
-                    assert!(align.is_power_of_two() && align >= 2);
+                    //assert!(align.is_power_of_two() && align >= 2);
+                    proof!{admit();}
                     self.checked_add(align - 1).unwrap() & !(align - 1)
                 }
 
                 #[inline]
+                #[verus_spec(ret =>
+                    requires
+                        exists |e:nat| pow2(e) == align,
+                        align >= 2,
+                    ensures
+                        ret <= self,
+                        ret % align == 0,
+                        forall |n: nat| #![trigger trigger(n)] !(n<=self && n % align as nat == 0) || (ret >= n),
+                )]
                 fn align_down(self, align: Self) -> Self {
-                    assert!(align.is_power_of_two() && align >= 2);
+                    //assert!(align.is_power_of_two() && align >= 2);
+                    proof!{admit();}
                     self & !(align - 1)
                 }
             }
