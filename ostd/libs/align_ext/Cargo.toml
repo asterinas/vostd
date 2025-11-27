@@ -19,3 +19,4 @@ verify = true
 
 [dependencies]
 vstd = { workspace = true }
+vstd_extra = { path = "../../../vstd_extra"  }

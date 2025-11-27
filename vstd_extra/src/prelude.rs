@@ -1,3 +1,5 @@
+pub use super::arithmetic::*;
+
 pub use super::array_ptr::*;
 
 #[macro_use]

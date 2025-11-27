@@ -3,6 +3,7 @@
 use vstd::arithmetic::power2::pow2;
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
+use vstd_extra::prelude::{nat_align_down, nat_align_up};
 
 /// An extension trait for Rust integer types, including `u8`, `u16`, `u32`,
 /// `u64`, and `usize`, to provide methods to make integers aligned to a
@@ -59,6 +60,7 @@ macro_rules! impl_align_ext {
                     ensures
                         ret >= self,
                         ret % align == 0,
+                        ret == nat_align_up(self as nat, align as nat),
                         forall |n: nat| #![trigger trigger(n)] !(n>=self && n % align as nat == 0) || (ret <= n),
                 )]
                 fn align_up(self, align: Self) -> Self {
@@ -75,6 +77,7 @@ macro_rules! impl_align_ext {
                     ensures
                         ret <= self,
                         ret % align == 0,
+                        ret == nat_align_down(self as nat, align as nat),
                         forall |n: nat| #![trigger trigger(n)] !(n<=self && n % align as nat == 0) || (ret >= n),
                 )]
                 fn align_down(self, align: Self) -> Self {

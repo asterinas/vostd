@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+pub mod arithmetic;
 pub mod array_ptr;
 pub mod bit_mapping;
 pub mod cast_ptr;
