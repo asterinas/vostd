@@ -225,13 +225,8 @@ pub open spec fn starvation_free() -> TempPred<ProgramState> {
 }
 
 pub open spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
-    tla_exists(
-        |i: Tid|
-            lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i)).leads_to(
-                tla_exists(
-                    |j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs),
-                ),
-            ),
+    tla_exists(|i: Tid| lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i))).leads_to(
+        tla_exists(|j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs)),
     )
 }
 
@@ -403,7 +398,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
-pub proof fn lemma_starvation_free_case1(spec: TempPred<ProgramState>, n: nat)
+pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
         spec.entails(always(lift_action(next()))),
@@ -411,30 +406,9 @@ pub proof fn lemma_starvation_free_case1(spec: TempPred<ProgramState>, n: nat)
         spec.entails(tla_forall(|tid| weak_fairness(release_lock(tid)))),
         spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
     ensures
-        spec.entails(
-            tla_forall(
-                |tid: Tid|
-                    lift_state(
-                        |s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked,
-                    ).leads_to(lift_state(|s: ProgramState| s.pc[tid] == Label::cs)),
-            ),
-        ),
+        spec.entails(dead_and_alive_lock_free()),
 {
-    broadcast use group_tla_rules;
-
-    assert forall|tid: Tid|
-        #![trigger trigger(tid)]
-        spec.entails((|tid|
-            lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked).leads_to(
-                lift_state(|s: ProgramState| s.pc[tid] == Label::cs)))(tid),
-            )
-        by {
-        admit();
-    };
-    spec_entails_tla_forall(spec, |tid: Tid|
-        lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked).leads_to(
-            lift_state(|s: ProgramState| s.pc[tid] == Label::cs),
-        ));
+    admit();
 }
 
 pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)
