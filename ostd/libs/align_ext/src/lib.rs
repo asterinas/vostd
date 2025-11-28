@@ -99,37 +99,28 @@ macro_rules! impl_align_ext {
                         ret >= self,
                         ret % align == 0,
                         ret == nat_align_up(self as nat, align as nat),
-                        forall |n: nat| #[trigger] trigger(n) && !(n>=self && n % align as nat == 0) || (ret <= n),
+                        forall |n: nat| !(n>=self && #[trigger] (n % align as nat) == 0) || (ret <= n),
                 )]
                 fn align_up(self, align: Self) -> Self {
                     //assert!(align.is_power_of_two() && align >= 2);
                     proof!{
                         let x_int = self as int + align as int - 1;
                         let x = x_int as Self;
-                        assert(x as int == x_int);
-
                         if self as int % align as int == 0 {
-                            assert(nat_align_up(self as nat, align as nat) == self as nat);
                             assert((align as int - 1) % align as int == align as int - 1) by {
                                 lemma_small_mod((align as int - 1) as nat, align as nat);
                             }
                             assert(x_int % align as int == align as int - 1) by {
                                 lemma_mod_adds(self as int, align as int - 1, align as int);
                             }
-                            assert(nat_align_down(x_int as nat, align as nat) == self as nat);
                         } else {
                             let q = self as int / align as int;
                             let r = self as int % align as int;
-
                             lemma_fundamental_div_mod(self as int, align as int);
 
                             assert((q + 1) * align as int == q * align as int + align as int) by {
                                 lemma_mul_is_distributive_add(align as int, q, 1);
-                                lemma_mul_is_commutative(align as int, q + 1);
-                                lemma_mul_is_commutative(align as int, q);
                             }
-
-                            assert(x_int == (q + 1) * align as int + (r - 1));
                             assert(((q + 1) * align as int) % align as int == 0) by {
                                 lemma_mod_multiples_basic(q + 1, align as int);
                             }
@@ -139,28 +130,19 @@ macro_rules! impl_align_ext {
                             assert(x_int % align as int == (r - 1)) by {
                                 lemma_mod_adds((q + 1) * align as int, r - 1, align as int);
                             }
-                            assert(nat_align_down(x_int as nat, align as nat) == nat_align_up(self as nat, align as nat));
                         }
 
                         lemma_low_bits_mask_values();
                         let mask = (align - 1) as Self;
                         let e = choose |e: nat| pow2(e) == align;
-                        assert(align as nat == pow2(e));
-                        assert(mask as nat == pow2(e) - 1);
-
                         assert(e < $uint_type::BITS) by {
                             if e >= $uint_type::BITS {
                                 lemma_pow2_strictly_increases($uint_type::BITS as nat, e);
-                                assert(pow2($uint_type::BITS as nat) > $uint_type::MAX) by {
-                                    lemma2_to64();
-                                }
+                                lemma2_to64();
                             }
                         }
                         call_lemma_low_bits_mask_is_mod!($uint_type, x, e);
-
                         assert(x == (x & mask) + (x & !mask)) by (bit_vector);
-                        assert((x & !mask) as int == x as int - (x % align) as int);
-
                         lemma_nat_align_up_sound(self as nat, align as nat);
                     }
                     self.checked_add(align - 1).unwrap() & !(align - 1)
@@ -175,7 +157,7 @@ macro_rules! impl_align_ext {
                         ret <= self,
                         ret % align == 0,
                         ret == nat_align_down(self as nat, align as nat),
-                        forall |n: nat| #[trigger] trigger(n) && !(n<=self && n % align as nat == 0) || (ret >= n),
+                        forall |n: nat|  !(n<=self && #[trigger] (n % align as nat) == 0) || (ret >= n),
                 )]
                 fn align_down(self, align: Self) -> Self {
                     //assert!(align.is_power_of_two() && align >= 2);
@@ -183,24 +165,15 @@ macro_rules! impl_align_ext {
                         lemma_low_bits_mask_values();
                         let mask = (align - 1) as Self;
                         let e = choose |e: nat| pow2(e) == align;
-                        assert(align as nat == pow2(e));
-                        assert(mask as nat == pow2(e) - 1);
-
                         assert(e < $uint_type::BITS) by {
                             if e >= $uint_type::BITS {
                                 lemma_pow2_strictly_increases($uint_type::BITS as nat, e);
-                                assert(pow2($uint_type::BITS as nat) > $uint_type::MAX) by {
-                                    lemma2_to64();
-                                }
+                                lemma2_to64();
                             }
                         }
                         call_lemma_low_bits_mask_is_mod!($uint_type, self, e);
-
                         assert(self == (self & mask) + (self & !mask)) by (bit_vector);
-                        assert((self & !mask) as int == self as int - (self & mask) as int);
-
                         assert((self & !mask) as nat == nat_align_down(self as nat, align as nat));
-
                         lemma_nat_align_down_sound(self as nat, align as nat);
                     }
                     self & !(align - 1)
