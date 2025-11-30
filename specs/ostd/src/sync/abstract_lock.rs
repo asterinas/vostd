@@ -408,7 +408,15 @@ pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
     ensures
         spec.entails(dead_and_alive_lock_free()),
 {
-    admit();
+   broadcast use group_tla_rules;
+   let tid_require_closure = |tid: Tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid));
+    assert forall |tid: Tid| spec.entails(
+        (#[trigger] tid_require_closure(tid)).leads_to(
+            tla_exists(|tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs))),
+    )
+    by {
+        admit();
+    }
 }
 
 pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)

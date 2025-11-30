@@ -532,6 +532,69 @@ macro_rules! always_and_equality_n_internal {
 pub use always_and_equality_n;
 pub use always_and_equality_n_internal;
 
+// Combine multiple state predicates using logical AND.
+// Usage: combine_state_pred!(p1, p2, p3, p4)
+// Returns: |s| p1(s) && p2(s) && p3(s) && p4(s)
+#[macro_export]
+macro_rules! combine_state_pred {
+    ($p1:expr) => {
+        $p1
+    };
+    ($p1:expr, $p2:expr) => {
+        closure_to_fn_spec(|s| $p1(s) && $p2(s))
+    };
+    ($p1:expr, $p2:expr, $($tail:expr),*) => {
+        closure_to_fn_spec(|s| {
+            $p1(s) &&
+            $p2(s) &&
+            $(
+                $tail(s) &&
+            )*
+            true
+        })
+    };
+}
+
+pub use combine_state_pred;
+
+pub proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
+    ensures
+        lift_state(|s| p(s) && q(s)) == lift_state(p).and(lift_state(q)),
+{
+}
+
+pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
+    ensures
+        always(lift_state(|s| p(s) && q(s))) == #[trigger] always(lift_state(p)).and(always(lift_state(q))),
+{
+    lift_state_and_equality(p, q);
+    always_and_equality(lift_state(p), lift_state(q));
+}
+
+// always(lift_state(combine_state_pred!(p1, p2, ..., pn))) == always(lift_state(p1)).and(always(lift_state(p2))).and(...).and(always(lift_state(pn)))
+#[macro_export]
+macro_rules! always_lift_state_and_equality_n {
+    [$($tail:tt)*] => {
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::always_lift_state_and_equality_n_internal!($($tail)*));
+    };
+}
+
+#[macro_export]
+macro_rules! always_lift_state_and_equality_n_internal {
+    ($p1:expr, $p2:expr) => {
+        always_lift_state_and_equality($p1, $p2);
+    };
+    ($p1:expr, $p2:expr, $($tail:tt)*) => {
+        always_lift_state_and_equality($p1, $p2);
+        always_lift_state_and_equality_n_internal!(combine_state_pred!($p1, $p2), $($tail)*);
+    };
+}
+
+pub use always_lift_state_and_equality_n;
+pub use always_lift_state_and_equality_n_internal;
+
+
+
 proof fn p_and_always_p_equals_always_p<T>(p: TempPred<T>)
     ensures
         p.and(always(p)) == always(p),
@@ -998,42 +1061,6 @@ macro_rules! entails_always_and_n_internal {
 
 pub use entails_always_and_n;
 pub use entails_always_and_n_internal;
-
-// Lift multiple state predicates to one always invariant.
-// Usage: lift_states_to_always_inv!(p1, p2, p3, p4)
-// Returns: []lift_state(|s| p1(s) && p2(s) && p3(s) && p4(s))
-#[macro_export]
-macro_rules! lift_states_to_always_inv {
-    [$($tail:tt)*] => {
-        always(lift_state(combine_state_pred!($($tail)*)))
-    };
-}
-
-// Combine multiple state predicates using logical AND.
-// Usage: combine_state_pred!(p1, p2, p3, p4)
-// Returns: |s| p1(s) && p2(s) && p3(s) && p4(s)
-#[macro_export]
-macro_rules! combine_state_pred {
-    ($p1:expr) => {
-        $p1
-    };
-    ($p1:expr, $p2:expr) => {
-        closure_to_fn_spec(|s| $p1(s) && $p2(s))
-    };
-    ($p1:expr, $p2:expr, $($tail:expr),*) => {
-        closure_to_fn_spec(|s| {
-            $p1(s) &&
-            $p2(s) &&
-            $(
-                $tail(s) &&
-            )*
-            true
-        })
-    };
-}
-
-pub use lift_states_to_always_inv;
-pub use combine_state_pred;
 
 // Merge the next and other state predicates together into one action predicate.
 // Usage:
@@ -1619,7 +1646,7 @@ pub proof fn wf1_variant_temp<T>(
 //     |= p /\ next => p' \/ q'
 //     |= p /\ next /\ forward => q'
 //     |= p => enabled(forward)
-//     spec |= []next
+//     spec |= []lift_action(next)
 //     spec |= wf(forward)
 // post:
 //     spec |= p ~> q
@@ -1673,6 +1700,48 @@ pub proof fn wf1<T>(
         lift_state(p),
         lift_state(q),
     );
+}
+
+#[verifier::external_body]
+// Get the initial leads_to with a stronger wf assumption than wf1_variant.
+// pre:
+//     |= p /\ inv /\ next => p' \/ q'
+//     |= p /\ inv /\next /\ forward => q'
+//     |= p /\ inv => enabled(forward)
+//     spec |= []lift_action(next)
+//     spec |= []lift_state(inv)
+//     spec |= wf(forward)
+// post:
+//     spec |= p ~> q
+pub proof fn wf1_with_inv<T>(
+    spec: TempPred<T>,
+    next: ActionPred<T>,
+    forward: ActionPred<T>,
+    inv: StatePred<T>,
+    p: StatePred<T>,
+    q: StatePred<T>,
+)
+    requires
+        forall|s, s_prime: T| p(s) && inv(s) &&#[trigger] next(s, s_prime) ==> p(s_prime) || q(s_prime),
+        forall|s, s_prime: T|
+            p(s) && inv(s) && #[trigger] next(s, s_prime) && forward(s, s_prime) ==> q(s_prime),
+        forall|s: T| #[trigger] p(s) && inv(s) ==> enabled(forward)(s),
+        spec.entails(always(lift_action(next))),
+        spec.entails(always(lift_state(inv))),
+        spec.entails(weak_fairness(forward)),
+    ensures
+        spec.entails(lift_state(p).leads_to(lift_state(q))),
+{
+    let combined_state_pred = combine_state_pred!(p, inv);
+    wf1(
+        spec,
+        next,
+        forward,
+        combined_state_pred,
+        q,
+    );
+    admit();
+    leads_to_by_borrowing_inv(spec, lift_state(p), lift_state(q), lift_state(inv));
 }
 
 // Connects two valid implies.
@@ -1743,13 +1812,8 @@ pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>
     ensures
          spec.entails(always(lift_state(|s| p(s) && q(s)))),
 {
-    broadcast use always_unfold;
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(|s| p(s) && q(s))).satisfied_by(
-        ex,
-    ) by {
-        implies_apply::<T>(ex, spec, always(lift_state(p)));
-        implies_apply::<T>(ex, spec, always(lift_state(q)));
-    };
+    always_lift_state_and_equality(p, q);
+    entails_always_and_n!(spec, lift_state(p), lift_state(q));
 }
 
 // Combine multiple always lift_state predicates using AND.
@@ -1759,7 +1823,7 @@ pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>
 //     ...
 //     spec |= []lift_state(pn)
 // post:
-//     spec |= []lift_state(|s| p1(s) && p2(s) && ... && pn(s))
+// spec |= []lift_state(combine_state_pred!(p1, p2, ..., pn))  // spec |= []lift_state(|s| p1(s) && p2(s) && ... && pn(s))
 //
 // Usage: entails_always_lift_state_and_n!(spec, p1, p2, p3, p4)
 #[macro_export]
@@ -1774,18 +1838,12 @@ macro_rules! entails_always_lift_state_and_n_internal {
     ($spec:expr, $p1:expr) => {
         // Single predicate case: already have spec |= []lift_state(p1)
     };
-    ($spec:expr, $p1:expr, $p2:expr) => {
-        entails_always_lift_state_and($spec, $p1, $p2);
+    ($spec:expr, $($p:expr),+) => {
+        entails_always_and_n!($spec, $(lift_state($p)),+);
+        always_lift_state_and_equality_n!($($p),+);
     };
-    ($spec:expr, $p1:expr, $p2:expr,) => {
-        entails_always_lift_state_and_n_internal!($spec, $p1, $p2);
-    };
-    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+) => {
-        entails_always_lift_state_and($spec, $p1, $p2);
-        entails_always_lift_state_and_n_internal!($spec, combine_state_pred!($p1, $p2), $($tail),+);
-    };
-    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ ,) => {
-        entails_always_lift_state_and_n_internal!($spec, $p1, $p2, $($tail),+);
+    ($spec:expr, $($p:expr),+,) => {
+        entails_always_lift_state_and_n_internal!($spec, $($p),+);
     };
 }
 
@@ -2726,6 +2784,7 @@ pub broadcast group group_tla_rules {
     always_to_always_later,
     always_double_equality,
     always_and_equality,
+    always_lift_state_and_equality,
     tla_forall_apply,
     spec_entails_tla_forall,  // may slow down proofs
     always_implies_forall_intro,  // may slow down proofs
