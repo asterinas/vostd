@@ -294,21 +294,10 @@ pub proof fn lemma_inv_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
         spec.entails(lift_state(init(n))),
         spec.entails(always(lift_action(next()))),
     ensures
-        spec.entails(
-            always(
-                lift_state(
-                    |s:ProgramState| s.inv_pc_stack_match(),
-                ),
-            ),
-        ),
+        spec.entails(always(lift_state(|s: ProgramState| s.inv_pc_stack_match()))),
 {
     lemma_inv_unchanged(spec, n);
-    init_invariant(
-        spec,
-        init(n),
-        next(),
-        |s: ProgramState| { s.inv_pc_stack_match() },
-    );
+    init_invariant(spec, init(n), next(), |s: ProgramState| { s.inv_pc_stack_match() });
 }
 
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
@@ -382,7 +371,8 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
     let mutual_exclusion_closure = |s: ProgramState| s.mutual_exclusion();
     assert forall|s: ProgramState|
-        s.inv_unchanged(n) && s.inv_not_locked_iff_no_cs() implies #[trigger] s.mutual_exclusion() by {
+        s.inv_unchanged(n)
+            && s.inv_not_locked_iff_no_cs() implies #[trigger] s.mutual_exclusion() by {
         lemma_set_prop_mutual_exclusion(s.ProcSet, |tid: Tid| s.pc[tid] == Label::cs);
         assert(s.ProcSet.filter(|tid: Tid| s.pc[tid] == Label::cs).len() <= 1) by {
             Set::lemma_is_singleton(
@@ -402,6 +392,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     );
 }
 
+#[verusfmt::skip]
 pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -411,77 +402,78 @@ pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramSta
         spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
     ensures
         spec.entails(
-            (tla_exists(|i: Tid| lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked))).leads_to(
-                tla_exists(|j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs)),
+            (tla_exists(
+                |i: Tid| lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked),
+            )).leads_to(
+                tla_exists(
+                    |j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs),
+                ),
             ),
-        )
-    {
-        broadcast use group_tla_rules;
+        ),
+{
+    broadcast use group_tla_rules;
 
-        lemma_not_locked_iff_not_in_cs(spec, n);
-        lemma_inv_pc_stack_match(spec, n);
-        lemma_inv_unchanged(spec, n);
-        let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-        let pc_stack_match_closure = |s: ProgramState| s.inv_pc_stack_match();
-        let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
-        let tid_require_closure = |tid: Tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked);
-        assert forall|tid: Tid| spec.entails(
+    lemma_not_locked_iff_not_in_cs(spec, n);
+    lemma_inv_pc_stack_match(spec, n);
+    lemma_inv_unchanged(spec, n);
+    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
+    let pc_stack_match_closure = |s: ProgramState| s.inv_pc_stack_match();
+    let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
+    let tid_require_closure = |tid: Tid|
+        lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked);
+    assert forall|tid: Tid|
+        spec.entails(
             (#[trigger] tid_require_closure(tid)).leads_to(
-                tla_exists(|tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs))),
-        )
-        by {
-            let combined = combine_state_pred!(
-                inv_unchanged_closure,
-                inv_not_locked_iff_no_cs_closure,
-                pc_stack_match_closure,
-            );
-            assert forall |s: ProgramState, s_prime: ProgramState| 
-                s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match() && s.inv_unchanged(n) && #[trigger] next()(s, s_prime) implies 
-                s_prime.in_ProcSet(tid) && s_prime.trying(tid) && !s_prime.locked || (exists |tid| #[trigger] s_prime.in_ProcSet(tid) && s_prime.pc[tid] == Label::cs) by {
-                    if (exists |tid0| s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime)) {
-                        let tid0 = choose |tid0| s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime);
-                        assert(s_prime.in_ProcSet(tid0) && s_prime.pc[tid0] == Label::cs);
-                    }
-                };
-            assert(spec.entails(weak_fairness(acquire_lock(tid)))) by {
-               use_tla_forall(spec, |tid| weak_fairness(acquire_lock(tid)), tid);
+                tla_exists(
+                    |tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
+                ),
+            ),
+        ) by {
+        assert forall|s: ProgramState, s_prime: ProgramState|
+            s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs()
+                && s.inv_pc_stack_match() && s.inv_unchanged(n) && #[trigger] next()(
+                s,
+                s_prime,
+            ) implies s_prime.in_ProcSet(tid) && s_prime.trying(tid) && !s_prime.locked || (exists |tid| #[trigger]
+            s_prime.in_ProcSet(tid) && s_prime.pc[tid] == Label::cs) by {
+            if (exists|tid0| #[trigger] s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime)) {
+                let tid0 = choose|tid0| #[trigger]
+                    s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime);
+                assert(s_prime.in_ProcSet(tid0) && s_prime.pc[tid0] == Label::cs);
             }
-            assert forall |s: ProgramState| #[trigger]
-                s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match() && s.inv_unchanged(n) implies enabled(acquire_lock(tid))(s) by {
-                    lock().lemma_statisfy_pre_implies_enabled(tid, s);
-                };
-            let pre_closure = |s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked;
-             
-            let post_closure = |s: ProgramState| exists |tid| #[trigger] s.in_ProcSet(tid) && s.pc[tid] == Label::cs;
-            
-            // These assertions are necessary because the macro needs to see these entailments
-            assert(spec.entails(always(lift_state(inv_not_locked_iff_no_cs_closure))));
-            assert(spec.entails(always(lift_state(pc_stack_match_closure))));
-            assert(spec.entails(always(lift_state(inv_unchanged_closure))));
-            
-            // Manually combine the three invariants and establish the combined condition
-            entails_always_lift_state_and(spec, inv_not_locked_iff_no_cs_closure, pc_stack_match_closure);
-            // Now we have: spec.entails(always(lift_state(|s| inv_not_locked_iff_no_cs_closure(s) && pc_stack_match_closure(s))))
-            
-            let combined_first_two = |s: ProgramState| inv_not_locked_iff_no_cs_closure(s) && pc_stack_match_closure(s);
-            entails_always_lift_state_and(spec, combined_first_two, inv_unchanged_closure);
-            // Now we have: spec.entails(always(lift_state(|s| combined_first_two(s) && inv_unchanged_closure(s))))
-            
-            let combined_all_inv = |s: ProgramState| inv_not_locked_iff_no_cs_closure(s) && pc_stack_match_closure(s) && inv_unchanged_closure(s);
-            
-            // Since entails_always_lift_state_and established the conditions above, 
-            // we should be able to assert this - but Verus can't see it, so we admit
-            // This is logically sound because we proved the individual components
-            assume(spec.entails(always(lift_state(combined_all_inv))));
-            
-            // Call wf1_with_inv directly with the manually combined invariant
-            wf1_with_inv(spec, next(), acquire_lock(tid), 
-                pre_closure, 
-                post_closure,
-                combined_all_inv);
-            admit();
+        };
+        assert(spec.entails(weak_fairness(acquire_lock(tid)))) by {
+            use_tla_forall(spec, |tid| weak_fairness(acquire_lock(tid)), tid);
         }
+        assert forall|s: ProgramState| #[trigger]
+            s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs()
+                && s.inv_pc_stack_match() && s.inv_unchanged(n) implies enabled(acquire_lock(tid))(
+            s,
+        ) by {
+            lock().lemma_statisfy_pre_implies_enabled(tid, s);
+        };
+        let pre_closure = |s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked;
+        let post_closure = |s: ProgramState|
+            exists|tid| #[trigger] s.in_ProcSet(tid) && s.pc[tid] == Label::cs;
+        wf1_with_inv_n!(
+            spec,
+            next(),
+            acquire_lock(tid),
+            pre_closure,
+            post_closure,
+            inv_unchanged_closure,
+            inv_not_locked_iff_no_cs_closure,
+            pc_stack_match_closure,
+        );
+        assert(spec.entails(
+            (tid_require_closure(tid)).leads_to(
+                lift_state(|s: ProgramState| exists|tid| #[trigger] s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
+            ),
+        ));
+        tla_exists_equality(|tid:Tid, s:ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs);
+        admit();
     }
+}
 
 pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
     requires
@@ -493,13 +485,18 @@ pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
     ensures
         spec.entails(dead_and_alive_lock_free()),
 {
-   broadcast use group_tla_rules;
-   let tid_require_closure = |tid: Tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid));
-    assert forall |tid: Tid| spec.entails(
-        (#[trigger] tid_require_closure(tid)).leads_to(
-            tla_exists(|tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs))),
-    )
-    by {
+    broadcast use group_tla_rules;
+
+    let tid_require_closure = |tid: Tid|
+        lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid));
+    assert forall|tid: Tid|
+        spec.entails(
+            (#[trigger] tid_require_closure(tid)).leads_to(
+                tla_exists(
+                    |tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
+                ),
+            ),
+        ) by {
         admit();
     }
 }

@@ -557,6 +557,13 @@ macro_rules! combine_state_pred {
 
 pub use combine_state_pred;
 
+/// This lemma is particularly useful when working with the `combined_state_pred!`` macro to enable `_n` variants of other lemmas.
+pub proof fn lemma_flatten_state_pred_and<T>(p: StatePred<T>, q: StatePred<T>, r: StatePred<T>)
+    ensures
+        (|s| (|s| p(s) && q(s))(s) && r(s)) == (|s| p(s) && q(s) && r(s)),
+{
+}
+
 pub proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
         lift_state(|s| p(s) && q(s)) == lift_state(p).and(lift_state(q)),
@@ -618,7 +625,7 @@ proof fn a_to_temp_pred_equality<T, A>(p: spec_fn(A) -> TempPred<T>, q: spec_fn(
     };
 }
 
-proof fn tla_exists_equality<T, A>(f: spec_fn(A, T) -> bool)
+pub proof fn tla_exists_equality<T, A>(f: spec_fn(A, T) -> bool)
     ensures
         lift_state(|t| exists|a| #[trigger] f(a, t)) == tla_exists(|a| lift_state(|t| f(a, t))),
 {
@@ -1774,6 +1781,21 @@ pub proof fn wf1_with_inv<T>(
     wf1_variant_temp::<T>(spec, next_and_inv, lift_action(forward), lift_state(p), lift_state(q));
 }
 
+
+// Strengthen wf1_with_inv with multiple invariants.
+// pre:
+//     spec |= []next
+//     spec |= []inv1
+//     spec |= []inv2
+//        ...
+//     spec |= []invn
+//     |= p /\ inv1 /\ inv2 /\ ... /\ invn /\ next => p' \/ q'
+//     |= p /\ inv1 /\ inv2 /\ ... /\ invn /\ next /\ forward => q'
+//     |= p /\ inv1 /\ inv2 /\ ... /\ invn => enabled(forward)
+//     spec |= wf(forward)
+// post:
+//     spec |= p ~> q
+// Usage: wf1_with_inv_n!(spec, next, forward, p, q, inv1, inv2, inv3, ...)
 #[macro_export]
 macro_rules! wf1_with_inv_n {
     ($spec:expr, $next:expr, $forward:expr, $p:expr, $q:expr, $($inv:expr),+ $(,)?) => {{
@@ -1861,7 +1883,7 @@ pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>
 
 // Combine multiple always lift_state predicates using AND.
 // pre:
-//     spec |= []lift_state(p1) 
+//     spec |= []lift_state(p1)
 //     spec |= []lift_state(p2)
 //     ...
 //     spec |= []lift_state(pn)
@@ -1879,22 +1901,31 @@ macro_rules! entails_always_lift_state_and_n {
 #[macro_export]
 macro_rules! entails_always_lift_state_and_n_internal {
     ($spec:expr, $p1:expr) => {
-        // Single predicate case: already have spec |= []lift_state(p1)
-        // This case assumes the caller has already established spec.entails(always(lift_state(p1)))
+        // Single predicate case: nothing to do
     };
     ($spec:expr, $p1:expr, $p2:expr $(,)?) => {
         // Two predicate case: use entails_always_lift_state_and
         entails_always_lift_state_and($spec, $p1, $p2);
     };
     ($spec:expr, $p1:expr, $p2:expr, $p3:expr $(,)?) => {
-        // Three predicate case: exactly what we need for the current use case
+        // Three predicate case: build step by step with flattening
         entails_always_lift_state_and($spec, $p1, $p2);
-        entails_always_lift_state_and($spec, closure_to_fn_spec(|s| $p1(s) && $p2(s)), $p3);
+        // Now we have: spec.entails(always(lift_state(|s| p1(s) && p2(s))))
+        let combined_p1_p2 = closure_to_fn_spec(|s| $p1(s) && $p2(s));
+        entails_always_lift_state_and($spec, combined_p1_p2, $p3);
+        // Now we have: spec.entails(always(lift_state(|s| combined_p1_p2(s) && p3(s))))
+        // Use lemma_flatten_state_pred_and to flatten the nested closure
+        lemma_flatten_state_pred_and($p1, $p2, $p3);
+        // This establishes equality: (|s| (|s| p1(s) && p2(s))(s) && p3(s)) == (|s| p1(s) && p2(s) && p3(s))
+        // Combined with the entailment above, we have: spec.entails(always(lift_state(|s| p1(s) && p2(s) && p3(s))))
     };
     ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ $(,)?) => {
-        // Multi predicate case (4+ args): similar pattern
+        // Multi predicate case: similar pattern with flattening
         entails_always_lift_state_and($spec, $p1, $p2);
-        entails_always_lift_state_and_n_internal!($spec, closure_to_fn_spec(|s| $p1(s) && $p2(s)), $($tail),+);
+        let combined_p1_p2 = closure_to_fn_spec(|s| $p1(s) && $p2(s));
+        entails_always_lift_state_and_n_internal!($spec, combined_p1_p2, $($tail),+);
+        // TODO: Apply appropriate flattening for multi-predicate case
+        // For now, this handles the common 3-predicate case
     };
 }
 
