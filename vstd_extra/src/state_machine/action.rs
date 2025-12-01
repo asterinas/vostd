@@ -77,6 +77,20 @@ impl<State, Input, Output> Action<State, Input, Output> {
             lift_state(post),
         );
     }
+
+    pub proof fn lemma_statisfy_pre_implies_enabled(
+        self,
+        input: Input,
+        state: State,
+    )
+    requires
+        self.pre(input)(state), 
+    ensures
+        enabled(self.forward(input))(state),
+    {
+        let (new_state, _output) = (self.transition)(input, state);
+        assert(self.forward(input)(state, new_state));
+    }
 }
 
 pub enum ActionResult<State, Output> {

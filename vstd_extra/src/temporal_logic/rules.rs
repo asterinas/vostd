@@ -520,7 +520,7 @@ macro_rules! always_and_equality_n {
 
 #[macro_export]
 macro_rules! always_and_equality_n_internal {
-    ($p1:expr, $p2:expr) => {
+    ($p1:expr, $p2:expr $(,)?) => {
         always_and_equality($p1, $p2);
     };
     ($p1:expr, $p2:expr, $($tail:tt)*) => {
@@ -537,13 +537,13 @@ pub use always_and_equality_n_internal;
 // Returns: |s| p1(s) && p2(s) && p3(s) && p4(s)
 #[macro_export]
 macro_rules! combine_state_pred {
-    ($p1:expr) => {
+    ($p1:expr $(,)?) => {
         $p1
     };
-    ($p1:expr, $p2:expr) => {
+    ($p1:expr, $p2:expr $(,)?) => {
         closure_to_fn_spec(|s| $p1(s) && $p2(s))
     };
-    ($p1:expr, $p2:expr, $($tail:expr),*) => {
+    ($p1:expr, $p2:expr, $($tail:expr),+ $(,)?) => {
         closure_to_fn_spec(|s| {
             $p1(s) &&
             $p2(s) &&
@@ -583,7 +583,7 @@ macro_rules! always_lift_state_and_equality_n {
 
 #[macro_export]
 macro_rules! always_lift_state_and_equality_n_internal {
-    ($p1:expr, $p2:expr) => {
+    ($p1:expr, $p2:expr $(,)?) => {
         always_lift_state_and_equality($p1, $p2);
     };
     ($p1:expr, $p2:expr, $($tail:tt)*) => {
@@ -1016,7 +1016,7 @@ macro_rules! entails_and_n {
 
 #[macro_export]
 macro_rules! entails_and_n_internal {
-    ($spec:expr, $p1:expr, $p2:expr) => {
+    ($spec:expr, $p1:expr, $p2:expr $(,)?) => {
         entails_and_temp($spec, $p1, $p2);
     };
     ($spec:expr, $p1:expr, $p2:expr, $($tail:tt)*) => {
@@ -1047,8 +1047,8 @@ macro_rules! entails_always_and_n {
 
 #[macro_export]
 macro_rules! entails_always_and_n_internal {
-    ($spec:expr, $p1:expr) => {};
-    ($spec:expr, $p1:expr, $p2:expr) => {
+    ($spec:expr, $p1:expr $(,)?) => {};
+    ($spec:expr, $p1:expr, $p2:expr $(,)?) => {
         entails_and_temp($spec, always($p1), always($p2));
         always_and_equality($p1, $p2);
     };
@@ -1312,7 +1312,7 @@ macro_rules! stable_and_n {
 
 #[macro_export]
 macro_rules! stable_and_n_internal {
-    ($p1:expr, $p2:expr) => {
+    ($p1:expr, $p2:expr $(,)?) => {
         stable_and_temp($p1, $p2);
     };
     ($p1:expr, $p2:expr, $($tail:tt)*) => {
@@ -1338,7 +1338,7 @@ macro_rules! stable_and_always_n {
 
 #[macro_export]
 macro_rules! stable_and_always_n_internal {
-    ($p1:expr, $($tail:expr),*) => {
+    ($p1:expr, $($tail:expr),* $(,)?) => {
         always_p_is_stable($p1);
         $(always_p_is_stable($tail);)*
         stable_and_n!(always($p1), $(always($tail)),*);
@@ -1776,10 +1776,13 @@ pub proof fn wf1_with_inv<T>(
 
 #[macro_export]
 macro_rules! wf1_with_inv_n {
-    ($spec:expr, $next:expr, $forward:expr, $p:expr, $q:expr, $($inv:expr),+) => {
+    ($spec:expr, $next:expr, $forward:expr, $p:expr, $q:expr, $($inv:expr),+ $(,)?) => {{
         entails_always_lift_state_and_n!($spec, $($inv),+);
-        wf1_with_inv($spec, $next, $forward, combine_state_pred!($($inv),+), $p, $q)
-    };
+        // Explicitly call the base case to ensure we have the needed condition
+        let combined_inv = combine_state_pred!($($inv),+);
+        // After entails_always_lift_state_and_n!, we should have spec.entails(always(lift_state(combined_inv)))
+        wf1_with_inv($spec, $next, $forward, $p, $q, combined_inv)
+    }};
 }
 
 pub use wf1_with_inv_n;
@@ -1858,7 +1861,7 @@ pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>
 
 // Combine multiple always lift_state predicates using AND.
 // pre:
-//     spec |= []lift_state(p1)
+//     spec |= []lift_state(p1) 
 //     spec |= []lift_state(p2)
 //     ...
 //     spec |= []lift_state(pn)
@@ -1877,13 +1880,21 @@ macro_rules! entails_always_lift_state_and_n {
 macro_rules! entails_always_lift_state_and_n_internal {
     ($spec:expr, $p1:expr) => {
         // Single predicate case: already have spec |= []lift_state(p1)
+        // This case assumes the caller has already established spec.entails(always(lift_state(p1)))
     };
-    ($spec:expr, $($p:expr),+) => {
-        entails_always_and_n!($spec, $(lift_state($p)),+);
-        always_lift_state_and_equality_n!($($p),+);
+    ($spec:expr, $p1:expr, $p2:expr $(,)?) => {
+        // Two predicate case: use entails_always_lift_state_and
+        entails_always_lift_state_and($spec, $p1, $p2);
     };
-    ($spec:expr, $($p:expr),+,) => {
-        entails_always_lift_state_and_n_internal!($spec, $($p),+);
+    ($spec:expr, $p1:expr, $p2:expr, $p3:expr $(,)?) => {
+        // Three predicate case: exactly what we need for the current use case
+        entails_always_lift_state_and($spec, $p1, $p2);
+        entails_always_lift_state_and($spec, closure_to_fn_spec(|s| $p1(s) && $p2(s)), $p3);
+    };
+    ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ $(,)?) => {
+        // Multi predicate case (4+ args): similar pattern
+        entails_always_lift_state_and($spec, $p1, $p2);
+        entails_always_lift_state_and_n_internal!($spec, closure_to_fn_spec(|s| $p1(s) && $p2(s)), $($tail),+);
     };
 }
 
@@ -2137,7 +2148,7 @@ macro_rules! leads_to_trans_n {
 
 #[macro_export]
 macro_rules! leads_to_trans_n_internal {
-    ($spec:expr, $p1:expr, $p2:expr, $p3:expr) => {
+    ($spec:expr, $p1:expr, $p2:expr, $p3:expr $(,)?) => {
         leads_to_trans($spec, $p1, $p2, $p3);
     };
     ($spec:expr, $p1:expr, $p2:expr, $p3:expr, $($tail:tt)*) => {
@@ -2273,7 +2284,7 @@ macro_rules! leads_to_always_combine_n {
 
 #[macro_export]
 macro_rules! leads_to_always_combine_n_internal {
-    ($spec:expr, $p:expr, $q1:expr, $q2:expr) => {
+    ($spec:expr, $p:expr, $q1:expr, $q2:expr $(,)?) => {
         leads_to_always_combine($spec, $p, $q1, $q2);
     };
     ($spec:expr, $p:expr, $q1:expr, $q2:expr, $($tail:tt)*) => {
