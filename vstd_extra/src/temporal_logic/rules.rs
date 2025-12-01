@@ -333,7 +333,7 @@ proof fn strengthen_invariant_rec<T>(
     next: ActionPred<T>,
     inv: StatePred<T>,
     proved_inv: StatePred<T>,
-    i: nat, 
+    i: nat,
 )
     requires
         lift_state(init).satisfied_by(ex),
@@ -341,21 +341,21 @@ proof fn strengthen_invariant_rec<T>(
         always(lift_state(proved_inv)).satisfied_by(ex),
         lift_state(init).implies(lift_state(inv)).satisfied_by(ex),
         forall|idx: nat|
-            inv(#[trigger] ex.suffix(idx).head()) && 
-            proved_inv(#[trigger] ex.suffix(idx).head()) && next(
-                ex.suffix(idx).head(),
+            inv(#[trigger] ex.suffix(idx).head()) && proved_inv(#[trigger] ex.suffix(idx).head())
+                && next(ex.suffix(idx).head(), ex.suffix(idx).head_next()) ==> inv(
                 ex.suffix(idx).head_next(),
-            ) ==> inv(ex.suffix(idx).head_next()),
+            ),
     ensures
         inv(ex.suffix(i).head()),
     decreases i,
-    {
-        broadcast use {always_unfold, group_execution_suffix_lemmas};
-        if i == 0 {}
-        else {
-            strengthen_invariant_rec(ex, init, next, inv, proved_inv, (i - 1) as nat);
-        }
+{
+    broadcast use {always_unfold, group_execution_suffix_lemmas};
+
+    if i == 0 {
+    } else {
+        strengthen_invariant_rec(ex, init, next, inv, proved_inv, (i - 1) as nat);
     }
+}
 
 proof fn always_p_or_eventually_q_rec<T>(
     ex: Execution<T>,
@@ -565,7 +565,9 @@ pub proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
 
 pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
-        always(lift_state(|s| p(s) && q(s))) == #[trigger] always(lift_state(p)).and(always(lift_state(q))),
+        always(lift_state(|s| p(s) && q(s))) == #[trigger] always(lift_state(p)).and(
+            always(lift_state(q)),
+        ),
 {
     lift_state_and_equality(p, q);
     always_and_equality(lift_state(p), lift_state(q));
@@ -592,8 +594,6 @@ macro_rules! always_lift_state_and_equality_n_internal {
 
 pub use always_lift_state_and_equality_n;
 pub use always_lift_state_and_equality_n_internal;
-
-
 
 proof fn p_and_always_p_equals_always_p<T>(p: TempPred<T>)
     ensures
@@ -1435,7 +1435,7 @@ pub proof fn simplify_predicate<T>(p: TempPred<T>, q: TempPred<T>)
 //     spec /\ p |= q
 // post:
 //     spec |= q
-pub proof fn entails_trans_by_simplify<T>(spec:TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+pub proof fn entails_trans_by_simplify<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         spec.entails(p),
         spec.and(p).entails(q),
@@ -1467,6 +1467,7 @@ pub proof fn init_invariant<T>(
         spec.entails(always(lift_state(inv))),
 {
     broadcast use group_tla_rules;
+
     assert forall|ex: Execution<T>| spec.satisfied_by(ex) implies #[trigger] always(
         lift_state(inv),
     ).satisfied_by(ex) by {
@@ -1476,7 +1477,7 @@ pub proof fn init_invariant<T>(
             init_invariant_rec(ex, init, next, inv, i);
         };
     };
-}  
+}
 
 // Strengthen safety invariants
 // pre:
@@ -1494,7 +1495,8 @@ pub proof fn strengthen_invariant<T>(
 )
     requires
         forall|s: T| #[trigger] init(s) ==> inv(s),
-        forall|s, s_prime: T| inv(s) && proved_inv(s) && #[trigger] next(s, s_prime) ==> inv(s_prime),
+        forall|s, s_prime: T|
+            inv(s) && proved_inv(s) && #[trigger] next(s, s_prime) ==> inv(s_prime),
         spec.entails(lift_state(init)),
         spec.entails(always(lift_action(next))),
         spec.entails(always(lift_state(proved_inv))),
@@ -1502,7 +1504,8 @@ pub proof fn strengthen_invariant<T>(
         spec.entails(always(lift_state(inv))),
 {
     broadcast use group_tla_rules;
-    assert forall |ex: Execution<T>| spec.satisfied_by(ex) implies #[trigger] always(
+
+    assert forall|ex: Execution<T>| spec.satisfied_by(ex) implies #[trigger] always(
         lift_state(inv),
     ).satisfied_by(ex) by {
         implies_apply(ex, spec, lift_state(init));
@@ -1702,11 +1705,10 @@ pub proof fn wf1<T>(
     );
 }
 
-#[verifier::external_body]
 // Get the initial leads_to with a stronger wf assumption than wf1_variant.
 // pre:
 //     |= p /\ inv /\ next => p' \/ q'
-//     |= p /\ inv /\next /\ forward => q'
+//     |= p /\ inv /\ next /\ forward => q'
 //     |= p /\ inv => enabled(forward)
 //     spec |= []lift_action(next)
 //     spec |= []lift_state(inv)
@@ -1717,12 +1719,13 @@ pub proof fn wf1_with_inv<T>(
     spec: TempPred<T>,
     next: ActionPred<T>,
     forward: ActionPred<T>,
-    inv: StatePred<T>,
     p: StatePred<T>,
     q: StatePred<T>,
+    inv: StatePred<T>,
 )
     requires
-        forall|s, s_prime: T| p(s) && inv(s) &&#[trigger] next(s, s_prime) ==> p(s_prime) || q(s_prime),
+        forall|s, s_prime: T|
+            p(s) && inv(s) && #[trigger] next(s, s_prime) ==> p(s_prime) || q(s_prime),
         forall|s, s_prime: T|
             p(s) && inv(s) && #[trigger] next(s, s_prime) && forward(s, s_prime) ==> q(s_prime),
         forall|s: T| #[trigger] p(s) && inv(s) ==> enabled(forward)(s),
@@ -1732,17 +1735,54 @@ pub proof fn wf1_with_inv<T>(
     ensures
         spec.entails(lift_state(p).leads_to(lift_state(q))),
 {
-    let combined_state_pred = combine_state_pred!(p, inv);
-    wf1(
+    let next_and_inv = lift_action(next).and(lift_state(inv));
+
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(
+        lift_state(p).and(lift_state(inv)),
+    ).leads_to(lift_action(forward)).satisfied_by(ex) by {
+        assert forall|i| #[trigger]
+            always(lift_state(p).and(lift_state(inv))).satisfied_by(
+                ex.suffix(i),
+            ) implies eventually(lift_action(forward)).satisfied_by(ex.suffix(i)) by {
+            assert(always(
+                lift_state(p).and(lift_state(inv)).implies(lift_state(enabled(forward))),
+            ).satisfied_by(ex.suffix(i)));
+            implies_apply_with_always::<T>(
+                ex.suffix(i),
+                lift_state(p).and(lift_state(inv)),
+                lift_state(enabled(forward)),
+            );
+            assert(ex.suffix(i).suffix(0) == ex.suffix(i));
+            implies_apply::<T>(ex, spec, weak_fairness(forward));
+            weak_fairness_unfold::<T>(ex, forward);
+            implies_apply::<T>(
+                ex.suffix(i),
+                lift_state(enabled(forward)),
+                eventually(lift_action(forward)),
+            );
+        };
+    };
+    entails_always_and_n!(spec, lift_action(next), lift_state(inv));
+    always_and_equality(lift_state(p), lift_state(inv));
+    always_double_equality(lift_state(inv));
+    leads_to_by_borrowing_inv(
         spec,
-        next,
-        forward,
-        combined_state_pred,
-        q,
+        always(lift_state(p)),
+        lift_action(forward),
+        always(lift_state(inv)),
     );
-    admit();
-    leads_to_by_borrowing_inv(spec, lift_state(p), lift_state(q), lift_state(inv));
+    wf1_variant_temp::<T>(spec, next_and_inv, lift_action(forward), lift_state(p), lift_state(q));
 }
+
+#[macro_export]
+macro_rules! wf1_with_inv_n {
+    ($spec:expr, $next:expr, $forward:expr, $p:expr, $q:expr, $($inv:expr),+) => {
+        entails_always_lift_state_and_n!($spec, $($inv),+);
+        wf1_with_inv($spec, $next, $forward, combine_state_pred!($($inv),+), $p, $q)
+    };
+}
+
+pub use wf1_with_inv_n;
 
 // Connects two valid implies.
 // pre:
@@ -1810,7 +1850,7 @@ pub proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: StatePred<T>
         spec.entails(always(lift_state(p))),
         spec.entails(always(lift_state(q))),
     ensures
-         spec.entails(always(lift_state(|s| p(s) && q(s)))),
+        spec.entails(always(lift_state(|s| p(s) && q(s)))),
 {
     always_lift_state_and_equality(p, q);
     entails_always_and_n!(spec, lift_state(p), lift_state(q));
@@ -1856,21 +1896,26 @@ pub use entails_always_lift_state_and_n_internal;
 // post:
 //    spec |= []lift_state(p)
 //    spec |= []lift_state(q)
-pub proof fn entails_always_lift_state_and_elim<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
+pub proof fn entails_always_lift_state_and_elim<T>(
+    spec: TempPred<T>,
+    p: StatePred<T>,
+    q: StatePred<T>,
+)
     requires
         spec.entails(always(lift_state(|s| p(s) && q(s)))),
     ensures
-         spec.entails(always(lift_state(p))),
-         spec.entails(always(lift_state(q))),
+        spec.entails(always(lift_state(p))),
+        spec.entails(always(lift_state(q))),
 {
     broadcast use always_unfold;
 
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(ex) && always(lift_state(q)).satisfied_by(ex) by {
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(
+        ex,
+    ) && always(lift_state(q)).satisfied_by(ex) by {
         implies_apply::<T>(ex, spec, always(lift_state(|s| p(s) && q(s))));
     };
 
 }
-    
 
 // Weaken always by implies.
 // pre:
@@ -1898,11 +1943,7 @@ pub proof fn always_weaken<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
 //     spec |= []lift_state(p)
 // post:
 //     spec |= []lift_state(q)
-pub proof fn always_lift_state_weaken<T>(
-    spec: TempPred<T>,
-    p: StatePred<T>,
-    q: StatePred<T>,
-)
+pub proof fn always_lift_state_weaken<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
     requires
         forall|s: T| #[trigger] p(s) ==> q(s),
         spec.entails(always(lift_state(p))),
@@ -1911,7 +1952,6 @@ pub proof fn always_lift_state_weaken<T>(
 {
     always_weaken::<T>(spec, lift_state(p), lift_state(q));
 }
-
 
 // Apply always_lift_state_weaken with multiple predicates.
 // pre:
