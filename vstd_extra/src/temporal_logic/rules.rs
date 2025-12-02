@@ -2879,7 +2879,12 @@ pub proof fn implies_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: TempPred<T
     ensures
         spec.entails(p.implies(tla_exists(q))),
 {
-    admit();
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.implies(tla_exists(q)).satisfied_by(ex) by {
+        implies_apply(ex, spec, p.implies(q(a)));
+        if p.satisfied_by(ex) {
+            tla_exists_unfold::<T, A>(ex, q);
+        }
+    };
 }
 
 pub broadcast proof fn implies_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
@@ -2898,7 +2903,20 @@ pub proof fn leads_to_tla_exists_by_witness<T,A>(spec: TempPred<T>, p:  TempPred
     ensures
         spec.entails(p.leads_to(tla_exists(q))),
 {
-    admit();
+    let q_a = q(a);
+    let q_exists = tla_exists(q);
+
+    assert forall|ex| #[trigger] always(q_a.implies(q_exists)).satisfied_by(ex) by {
+        assert forall|i: nat| q_a.implies(q_exists).satisfied_by(ex.suffix(i)) by {
+            if q_a.satisfied_by(ex.suffix(i)) {
+                tla_exists_proved_by_witness(ex.suffix(i), q, a);
+            }
+        };
+    };
+
+    assert forall|ex| #[trigger] always(p.implies(p)).satisfied_by(ex) by {};
+
+    leads_to_weaken(spec, p, q_a, p, q_exists);
 }
 
 pub broadcast proof fn leads_to_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
