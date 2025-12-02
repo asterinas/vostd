@@ -2861,6 +2861,56 @@ pub proof fn transform_leads_to_with_until<T>(
     }
 }
 
+pub broadcast proof fn entails_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: spec_fn(A) -> TempPred<T>, a: A)
+    requires
+        #[trigger] spec.entails(p(a)),
+    ensures
+        spec.entails(tla_exists(p)),
+{
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies tla_exists(p).satisfied_by(ex) by {
+        implies_apply::<T>(ex, spec, p(a));
+        tla_exists_unfold::<T, A>(ex, p);
+    };
+}
+
+pub proof fn implies_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>, a: A)
+    requires
+        spec.entails(p.implies(q(a))),
+    ensures
+        spec.entails(p.implies(tla_exists(q))),
+{
+    admit();
+}
+
+pub broadcast proof fn implies_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
+    requires
+        exists |a: A| #[trigger] spec.entails(p.implies(q(a))),
+    ensures
+        #[trigger] spec.entails(p.implies(tla_exists(q))),
+{
+    let witness = choose |a: A| #[trigger] spec.entails(p.implies(q(a)));
+    implies_tla_exists_by_witness(spec, p, q, witness);
+}
+
+pub proof fn leads_to_tla_exists_by_witness<T,A>(spec: TempPred<T>, p:  TempPred<T>, q: spec_fn(A) -> TempPred<T>, a: A)
+    requires
+        spec.entails(p.leads_to(q(a))),
+    ensures
+        spec.entails(p.leads_to(tla_exists(q))),
+{
+    admit();
+}
+
+pub broadcast proof fn leads_to_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
+    requires
+        exists |a: A| #[trigger] spec.entails(p.leads_to(q(a))),
+    ensures
+        #[trigger] spec.entails(p.leads_to(tla_exists(q))),
+{
+    let witness = choose |a: A| #[trigger] spec.entails(p.leads_to(q(a)));
+    leads_to_tla_exists_by_witness(spec, p, q, witness);
+}
+
 pub broadcast group group_tla_rules {
     always_implies_to_leads_to,
     always_to_always_later,
@@ -2881,6 +2931,8 @@ pub broadcast group group_tla_rules {
     or_leads_to_combine,
     leads_to_always_combine,
     leads_to_framed_by_or,
+    implies_tla_exists_equality,
+    leads_to_tla_exists_equality,
 }
 
 } // verus!

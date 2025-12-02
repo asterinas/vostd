@@ -470,8 +470,6 @@ pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramSta
                 lift_state(|s: ProgramState| exists|tid| #[trigger] s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
             ),
         ));
-        tla_exists_equality(|tid:Tid, s:ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs);
-        admit();
     }
 }
 
