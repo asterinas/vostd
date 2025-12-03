@@ -474,6 +474,30 @@ pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred_case_not_lo
     };
 }
 
+pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred_case_locked(
+    spec: TempPred<ProgramState>,
+    n: nat,
+)
+    requires
+        spec.entails(lift_state(init(n))),
+        spec.entails(always(lift_action(next()))),
+        spec.entails(tla_forall(|tid| weak_fairness(acquire_lock(tid)))),
+        spec.entails(tla_forall(|tid| weak_fairness(release_lock(tid)))),
+        spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
+    ensures
+        spec.entails(
+            lift_state_exists(
+                |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && s.locked,
+            ).leads_to(
+                lift_state_exists(
+                |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked,
+            )
+            ),
+        ),
+{
+    admit();
+}
+
 pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred(
     spec: TempPred<ProgramState>,
     n: nat,
