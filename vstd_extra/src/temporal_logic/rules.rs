@@ -2954,6 +2954,13 @@ pub broadcast proof fn lift_state_exists_leads_to_intro<T, A>(
    admit();
 }
 
+pub broadcast proof fn state_exists_intro<T,A>(a_to_p: spec_fn(A)-> StatePred<T>, s: T)
+    requires
+        exists |a: A| #[trigger] a_to_p(a)(s),
+    ensures
+        #[trigger] state_exists(a_to_p)(s),
+{}
+
 pub broadcast group group_tla_rules {
     always_implies_to_leads_to,
     always_to_always_later,
@@ -2977,6 +2984,7 @@ pub broadcast group group_tla_rules {
     lift_state_exists_equality,
     implies_tla_exists_intro,
     leads_to_tla_exists_intro,
+    state_exists_intro, //may be unnecessary
 }
 
 } // verus!
