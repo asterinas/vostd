@@ -231,8 +231,8 @@ pub open spec fn starvation_free() -> TempPred<ProgramState> {
 }
 
 pub open spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
-    tla_exists(|i: Tid| lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i))).leads_to(
-        tla_exists(|j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs)),
+    lift_state_exists(|i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i)).leads_to(
+        lift_state_exists(|j: Tid| |s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs)
     )
 }
 
@@ -311,11 +311,11 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
 
     lemma_inv_unchanged(spec, n);
     lemma_inv_pc_stack_match(spec, n);
-    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-    let pc_stack_match_closure = |s: ProgramState| s.inv_pc_stack_match();
+    let inv_unchanged_state_pred = |s: ProgramState| s.inv_unchanged(n);
+    let pc_stack_match_state_pred = |s: ProgramState| s.inv_pc_stack_match();
     let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+        acquire_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred(s)
             && s.inv_not_locked_iff_no_cs() implies s_prime.inv_not_locked_iff_no_cs() by {
         assert(s_prime.ProcSet.filter(
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
@@ -324,7 +324,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         ).insert(tid)) by {};
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+        release_lock(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred(s)
             && s.inv_not_locked_iff_no_cs() implies s_prime.inv_not_locked_iff_no_cs() by {
         assert(s_prime.ProcSet.filter(
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
@@ -333,7 +333,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
         ).remove(tid)) by {};
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        start().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+        start().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred(s)
             && s.inv_not_locked_iff_no_cs() implies s_prime.inv_not_locked_iff_no_cs() by {
         assert(s_prime.ProcSet.filter(
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
@@ -341,7 +341,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
             by {};
     };
     assert forall|s: ProgramState, s_prime: ProgramState, tid: Tid| #[trigger]
-        cs().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+        cs().forward(tid)(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred(s)
             && s.inv_not_locked_iff_no_cs() implies s_prime.inv_not_locked_iff_no_cs() by {
         assert(s_prime.ProcSet.filter(
             |tid: Tid| s_prime.pc[tid] == Label::cs || s_prime.pc[tid] == Label::unlock,
@@ -351,9 +351,9 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     };
 
     assert(forall|s: ProgramState, s_prime: ProgramState| #[trigger]
-        next()(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_closure(s)
+        next()(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred(s)
             && s.inv_not_locked_iff_no_cs() ==> s_prime.inv_not_locked_iff_no_cs());
-    strengthen_invariant_n!(spec, init(n), next(), inv_not_locked_iff_no_cs_closure, inv_unchanged_closure, pc_stack_match_closure);
+    strengthen_invariant_n!(spec, init(n), next(), inv_not_locked_iff_no_cs_closure, inv_unchanged_state_pred, pc_stack_match_state_pred);
 }
 
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
@@ -367,7 +367,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
 
     lemma_inv_unchanged(spec, n);
     lemma_not_locked_iff_not_in_cs(spec, n);
-    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
+    let inv_unchanged_state_pred = |s: ProgramState| s.inv_unchanged(n);
     let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
     let mutual_exclusion_closure = |s: ProgramState| s.mutual_exclusion();
     assert forall|s: ProgramState|
@@ -387,13 +387,13 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
     always_lift_state_weaken_n!(
         spec,
         inv_not_locked_iff_no_cs_closure,
-        inv_unchanged_closure,
+        inv_unchanged_state_pred,
         mutual_exclusion_closure,
     );
 }
 
-#[verusfmt::skip]
-pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramState>, n: nat)
+/* 
+pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred_case_not_locked(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
         spec.entails(always(lift_action(next()))),
@@ -402,25 +402,71 @@ pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramSta
         spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
     ensures
         spec.entails(
-            (tla_exists(
-                |i: Tid| lift_state(|s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked),
-            )).leads_to(
-                tla_exists(
-                    |j: Tid| lift_state(|s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs),
-                ),
-            ),
-        ),
+                lift_state_exists(|i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked),
+            ).leads_to(
+                lift_state_exists(|j: Tid| |s: ProgramState| s.in_ProcSet(j) && s.pc[j] == Label::cs)
+            )
 {
     broadcast use group_tla_rules;
 
+    let pre_state_pred = |tid: Tid| |s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked;
+    let post_state_pred = |tid: Tid| |s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs;
+    
+    let inv_unchanged_state_pred = |s: ProgramState| s.inv_unchanged(n);
+    let pc_stack_match_state_pred = |s: ProgramState| s.inv_pc_stack_match();
+    let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
     lemma_not_locked_iff_not_in_cs(spec, n);
     lemma_inv_pc_stack_match(spec, n);
     lemma_inv_unchanged(spec, n);
-    let inv_unchanged_closure = |s: ProgramState| s.inv_unchanged(n);
-    let pc_stack_match_closure = |s: ProgramState| s.inv_pc_stack_match();
-    let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
-    let tid_require_closure = |tid: Tid|
+
+    assert forall|tid|
+        spec.entails(
+            (#[trigger] lift_state(pre_state_pred(tid))).leads_to(
+                lift_state_exists(|tid| |s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs)
+            ),
+        ) by {
+        assert forall|s: ProgramState, s_prime: ProgramState|
+            s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs()
+                && s.inv_pc_stack_match() && s.inv_unchanged(n) && #[trigger] next()(
+                s,
+                s_prime,
+            ) implies s_prime.in_ProcSet(tid) && s_prime.trying(tid) && !s_prime.locked || state_exists(post_state_pred)(s_prime) by {
+            /* if (exists|tid0| #[trigger] s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime)) {
+                let tid0 = choose|tid0| #[trigger]
+                    s.in_ProcSet(tid0) && acquire_lock(tid0)(s, s_prime);
+                assert(s_prime.in_ProcSet(tid0) && s_prime.pc[tid0] == Label::cs);
+            }*/
+            admit();
+        };
+        assert(spec.entails(weak_fairness(acquire_lock(tid)))) by {
+            use_tla_forall(spec, |tid| weak_fairness(acquire_lock(tid)), tid);
+        }
+        assert forall|s: ProgramState| #[trigger]
+            s.in_ProcSet(tid) && s.trying(tid) && !s.locked && s.inv_not_locked_iff_no_cs()
+                && s.inv_pc_stack_match() && s.inv_unchanged(n) implies enabled(acquire_lock(tid))(
+            s,
+        ) by {
+            lock().lemma_statisfy_pre_implies_enabled(tid, s);
+        };
+        
+        wf1_with_inv_n!(
+            spec,
+            next(),
+            acquire_lock(tid),
+            pre_state_pred(tid),
+            state_exists(post_state_pred),
+            inv_unchanged_state_pred,
+            inv_not_locked_iff_no_cs_closure,
+            pc_stack_match_state_pred,
+        );
+        leads_to_tla_lift_state_exists_equality(spec, lift_state(pre_state_pred(tid)), post_state_pred);
+        admit();
+    };
+
+    /*let tid_require_closure = |tid: Tid|
         lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid) && !s.locked);
+    let tmp_closure = |tid: Tid, s: ProgramState|
+        s.in_ProcSet(tid) && s.pc[tid] == Label::cs;
     assert forall|tid: Tid|
         spec.entails(
             (#[trigger] tid_require_closure(tid)).leads_to(
@@ -461,20 +507,18 @@ pub proof fn lemma_dead_and_alive_free_case_not_locked(spec: TempPred<ProgramSta
             acquire_lock(tid),
             pre_closure,
             post_closure,
-            inv_unchanged_closure,
+            inv_unchanged_state_pred,
             inv_not_locked_iff_no_cs_closure,
-            pc_stack_match_closure,
+            pc_stack_match_state_pred,
         );
-        assert(spec.entails(
-            (tid_require_closure(tid)).leads_to(
-                lift_state(|s: ProgramState| exists|tid| #[trigger] s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
-            ),
-        ));
+        assert((|tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs)) == |tid| lift_state(|s: ProgramState| tmp_closure(tid, s)));
+        tla_exists_equality(tmp_closure);
+        assert
         admit();
-    }
-}
+    }*/
+}*/
 
-pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
+pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
         spec.entails(always(lift_action(next()))),
@@ -485,19 +529,7 @@ pub proof fn lemma_dead_and_alive_free(spec: TempPred<ProgramState>, n: nat)
         spec.entails(dead_and_alive_lock_free()),
 {
     broadcast use group_tla_rules;
-
-    let tid_require_closure = |tid: Tid|
-        lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.trying(tid));
-    assert forall|tid: Tid|
-        spec.entails(
-            (#[trigger] tid_require_closure(tid)).leads_to(
-                tla_exists(
-                    |tid| lift_state(|s: ProgramState| s.in_ProcSet(tid) && s.pc[tid] == Label::cs),
-                ),
-            ),
-        ) by {
-        admit();
-    }
+    admit();
 }
 
 pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)

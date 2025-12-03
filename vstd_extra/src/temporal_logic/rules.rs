@@ -625,19 +625,17 @@ proof fn a_to_temp_pred_equality<T, A>(p: spec_fn(A) -> TempPred<T>, q: spec_fn(
     };
 }
 
-pub proof fn tla_exists_equality<T, A>(f: spec_fn(A, T) -> bool)
+pub broadcast proof fn lift_state_exists_equality<T, A>(f: spec_fn(A) -> StatePred<T>)
     ensures
-        lift_state(|t| exists|a| #[trigger] f(a, t)) == tla_exists(|a| lift_state(|t| f(a, t))),
+        #[trigger] lift_state_exists(f) == tla_exists(|a| lift_state(f(a))),
 {
-    let p = lift_state(|t| exists|a| #[trigger] f(a, t));
-    let q = tla_exists(|a| lift_state(|t| f(a, t)));
-
-    let partial_p = |t| exists|a| #[trigger] f(a, t);
-    let partial_q = |a| lift_state(|t| f(a, t));
+    let p = lift_state(state_exists(f));
+    let q = tla_exists(|a| lift_state(f(a)));
+    let partial_p = |t| exists|a| #[trigger] f(a)(t);
+    let partial_q = |a| lift_state(f(a));
     assert forall|ex| p.satisfied_by(ex) implies q.satisfied_by(ex) by {
-        assert(partial_p(ex.head()));
-        assert(exists|a| #[trigger] f(a, ex.head()));
-        let witness_a = choose|a| #[trigger] f(a, ex.head());
+        assert(exists|a| #[trigger] f(a)(ex.head()));
+        let witness_a = choose|a| #[trigger] f(a)(ex.head());
         assert(partial_q(witness_a).satisfied_by(ex));
     };
 
@@ -916,7 +914,7 @@ pub broadcast proof fn always_implies_forall_intro<T, A>(
     };
 }
 
-pub broadcast proof fn leads_to_exists_intro<T, A>(
+pub broadcast proof fn tla_exists_leads_to_intro<T, A>(
     spec: TempPred<T>,
     a_to_p: spec_fn(A) -> TempPred<T>,
     q: TempPred<T>,
@@ -1780,7 +1778,6 @@ pub proof fn wf1_with_inv<T>(
     );
     wf1_variant_temp::<T>(spec, next_and_inv, lift_action(forward), lift_state(p), lift_state(q));
 }
-
 
 // Strengthen wf1_with_inv with multiple invariants.
 // pre:
@@ -2861,7 +2858,11 @@ pub proof fn transform_leads_to_with_until<T>(
     }
 }
 
-pub broadcast proof fn entails_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: spec_fn(A) -> TempPred<T>, a: A)
+pub broadcast proof fn entails_tla_exists_by_witness<T, A>(
+    spec: TempPred<T>,
+    p: spec_fn(A) -> TempPred<T>,
+    a: A,
+)
     requires
         #[trigger] spec.entails(p(a)),
     ensures
@@ -2873,28 +2874,44 @@ pub broadcast proof fn entails_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: 
     };
 }
 
-pub proof fn implies_tla_exists_by_witness<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>, a: A)
+pub proof fn implies_tla_exists_by_witness<T, A>(
+    spec: TempPred<T>,
+    p: TempPred<T>,
+    q: spec_fn(A) -> TempPred<T>,
+    a: A,
+)
     requires
         spec.entails(p.implies(q(a))),
     ensures
         spec.entails(p.implies(tla_exists(q))),
 {
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.implies(tla_exists(q)).satisfied_by(ex) by {
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.implies(
+        tla_exists(q),
+    ).satisfied_by(ex) by {
         implies_apply(ex, spec, p.implies(q(a)));
     };
 }
 
-pub broadcast proof fn implies_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
+pub broadcast proof fn implies_tla_exists_intro<T, A>(
+    spec: TempPred<T>,
+    p: TempPred<T>,
+    q: spec_fn(A) -> TempPred<T>,
+)
     requires
-        exists |a: A| #[trigger] spec.entails(p.implies(q(a))),
+        exists|a: A| #[trigger] spec.entails(p.implies(q(a))),
     ensures
         #[trigger] spec.entails(p.implies(tla_exists(q))),
 {
-    let witness = choose |a: A| #[trigger] spec.entails(p.implies(q(a)));
+    let witness = choose|a: A| #[trigger] spec.entails(p.implies(q(a)));
     implies_tla_exists_by_witness(spec, p, q, witness);
 }
 
-pub proof fn leads_to_tla_exists_by_witness<T,A>(spec: TempPred<T>, p:  TempPred<T>, q: spec_fn(A) -> TempPred<T>, a: A)
+pub proof fn leads_to_tla_exists_by_witness<T, A>(
+    spec: TempPred<T>,
+    p: TempPred<T>,
+    q: spec_fn(A) -> TempPred<T>,
+    a: A,
+)
     requires
         spec.entails(p.leads_to(q(a))),
     ensures
@@ -2910,14 +2927,31 @@ pub proof fn leads_to_tla_exists_by_witness<T,A>(spec: TempPred<T>, p:  TempPred
     leads_to_weaken(spec, p, q(a), p, tla_exists(q));
 }
 
-pub broadcast proof fn leads_to_tla_exists_equality<T,A>(spec: TempPred<T>, p: TempPred<T>, q: spec_fn(A) -> TempPred<T>)
+pub broadcast proof fn leads_to_tla_exists_intro<T, A>(
+    spec: TempPred<T>,
+    p: TempPred<T>,
+    q: spec_fn(A) -> TempPred<T>,
+)
     requires
-        exists |a: A| #[trigger] spec.entails(p.leads_to(q(a))),
+        exists|a: A| #[trigger] spec.entails(p.leads_to(q(a))),
     ensures
         #[trigger] spec.entails(p.leads_to(tla_exists(q))),
 {
-    let witness = choose |a: A| #[trigger] spec.entails(p.leads_to(q(a)));
+    let witness = choose|a: A| #[trigger] spec.entails(p.leads_to(q(a)));
     leads_to_tla_exists_by_witness(spec, p, q, witness);
+}
+
+pub broadcast proof fn lift_state_exists_leads_to_intro<T, A>(
+    spec: TempPred<T>,
+    a_to_p: spec_fn(A) -> StatePred<T>,
+    q: TempPred<T>,
+)
+    requires
+        forall|a: A| #[trigger] spec.entails(lift_state(a_to_p(a)).leads_to(q)),
+    ensures
+        #[trigger] spec.entails(lift_state_exists(a_to_p).leads_to(q)),
+{
+   admit();
 }
 
 pub broadcast group group_tla_rules {
@@ -2929,7 +2963,7 @@ pub broadcast group group_tla_rules {
     tla_forall_apply,
     spec_entails_tla_forall,  // may slow down proofs
     always_implies_forall_intro,  // may slow down proofs
-    leads_to_exists_intro,  // may slow down proofs
+    tla_exists_leads_to_intro,  // may slow down proofs
     leads_to_self_temp,
     entails_and_temp,
     entails_and_different_temp,
@@ -2940,8 +2974,9 @@ pub broadcast group group_tla_rules {
     or_leads_to_combine,
     leads_to_always_combine,
     leads_to_framed_by_or,
-    implies_tla_exists_equality,
-    leads_to_tla_exists_equality,
+    lift_state_exists_equality,
+    implies_tla_exists_intro,
+    leads_to_tla_exists_intro,
 }
 
 } // verus!

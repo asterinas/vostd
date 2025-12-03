@@ -175,4 +175,18 @@ pub open spec fn false_pred<T>() -> TempPred<T> {
     TempPred::new(|_ex: Execution<T>| false)
 }
 
+pub open spec fn state_exists<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> StatePred<T> {
+    |s| { exists|a| #[trigger] a_to_state_pred(a)(s) }
+}
+
+pub open spec fn state_forall<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> StatePred<T> {
+    |s| { forall|a| #[trigger] a_to_state_pred(a)(s) }
+}
+
+pub open spec fn lift_state_exists<T, A>(
+    a_to_state_pred: spec_fn(A) -> StatePred<T>,
+) -> TempPred<T> {
+    lift_state(state_exists(a_to_state_pred))
+}
+
 } // verus!
