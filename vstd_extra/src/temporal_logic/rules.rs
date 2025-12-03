@@ -2951,7 +2951,9 @@ pub broadcast proof fn lift_state_exists_leads_to_intro<T, A>(
     ensures
         #[trigger] spec.entails(lift_state_exists(a_to_p).leads_to(q)),
 {
-   admit();
+    lift_state_exists_equality(a_to_p);
+    let lifted_a_to_p = |a: A| lift_state(a_to_p(a));
+    tla_exists_leads_to_intro(spec, lifted_a_to_p, q);
 }
 
 pub broadcast proof fn state_exists_intro<T,A>(a_to_p: spec_fn(A)-> StatePred<T>, s: T)
