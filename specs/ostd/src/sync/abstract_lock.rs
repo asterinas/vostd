@@ -694,7 +694,29 @@ pub proof fn lemma_dead_and_alive_lock_free(
 {
     broadcast use group_tla_rules;
 
-    admit();
+    let pre_not_locked_state_pred = 
+        |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked;
+    let pre_locked_state_pred = 
+        |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && s.locked;
+    let post_state_pred = 
+        |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.pc[i] == Label::cs;
+    lemma_dead_and_alive_lock_free_case_locked(spec, n);
+    lemma_dead_and_alive_lock_free_case_not_locked(spec, n);
+
+    assert(spec.entails(lift_state_exists(pre_locked_state_pred).leads_to(lift_state_exists(post_state_pred)))) by {
+        leads_to_trans(
+            spec,
+            lift_state_exists(pre_locked_state_pred),
+            lift_state_exists(pre_not_locked_state_pred),
+            lift_state_exists(post_state_pred),
+        );
+    }
+    let pre_state_pred = |i: Tid| |s:ProgramState| s.in_ProcSet(i) && s.trying(i);
+    let locked_state_pred = |s: ProgramState| s.locked;
+
+    assert (combine_state_pred_with(pre_state_pred,locked_state_pred) == pre_locked_state_pred);
+    assert (combine_state_pred_with(pre_state_pred, state_pred_not(locked_state_pred))== pre_not_locked_state_pred);
+    lift_state_exists_leads_to_destruct(spec, |i: Tid||s:ProgramState| s.in_ProcSet(i) && s.trying(i), |s:ProgramState| s.locked, lift_state_exists(post_state_pred));
 }
 
 pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)
