@@ -490,12 +490,225 @@ pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred_case_locked
                 |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && s.locked,
             ).leads_to(
                 lift_state_exists(
-                |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked,
-            )
+                    |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked,
+                ),
             ),
         ),
 {
-    admit();
+    broadcast use group_tla_rules;
+
+    let pre_fn = |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && s.locked;
+    let post_fn = |i: Tid| |s: ProgramState| s.in_ProcSet(i) && s.trying(i) && !s.locked;
+    let post = lift_state_exists(post_fn);
+
+    let inv_unchanged_state_pred = |s: ProgramState| s.inv_unchanged(n);
+    let pc_stack_match_state_pred = |s: ProgramState| s.inv_pc_stack_match();
+    let inv_not_locked_iff_no_cs_closure = |s: ProgramState| s.inv_not_locked_iff_no_cs();
+    lemma_not_locked_iff_not_in_cs(spec, n);
+    lemma_inv_pc_stack_match(spec, n);
+    lemma_inv_unchanged(spec, n);
+
+    assert forall|i: Tid| #[trigger] spec.entails(lift_state(pre_fn(i)).leads_to(post)) by {
+        let pre_i_j = |j: Tid|
+            |s: ProgramState|
+                s.in_ProcSet(i) && s.trying(i) && s.in_ProcSet(j) && (s.pc[j] == Label::cs
+                    || s.pc[j] == Label::unlock);
+
+        assert forall|s: ProgramState| pre_fn(i)(s) && s.inv_not_locked_iff_no_cs() implies exists|
+            j: Tid,
+        | #[trigger]
+            pre_i_j(j)(s) by {
+            if pre_fn(i)(s) && s.inv_not_locked_iff_no_cs() {
+                // locked implies exists j. pc[j] == cs || pc[j] == unlock
+                // inv_not_locked_iff_no_cs says: locked <==> filter(...).is_singleton()
+                // So filter(...) is not empty.
+                let set = s.ProcSet.filter(
+                    |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
+                );
+                let j = set.choose();
+                assert(set.contains(j));
+                assert(pre_i_j(j)(s));
+            }
+        };
+
+        assert forall|j: Tid| #[trigger] spec.entails(lift_state(pre_i_j(j)).leads_to(post)) by {
+            let cond_cs = |s: ProgramState|
+                s.in_ProcSet(i) && s.trying(i) && s.in_ProcSet(j) && s.pc[j] == Label::cs;
+            let cond_unlock = |s: ProgramState|
+                s.in_ProcSet(i) && s.trying(i) && s.in_ProcSet(j) && s.pc[j] == Label::unlock;
+
+            // Step 1: cond_cs ~> cond_unlock
+            assert(spec.entails(lift_state(cond_cs).leads_to(lift_state(cond_unlock)))) by {
+                assert(spec.entails(weak_fairness(P(j)))) by {
+                    use_tla_forall(spec, |tid| weak_fairness(P(tid)), j);
+                }
+
+                let inv = |s: ProgramState|
+                    s.inv_unchanged(n) && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match();
+
+                assert forall|s: ProgramState| #[trigger] cond_cs(s) && inv(s) implies enabled(
+                    P(j),
+                )(s) by {
+                    assert((cs().precondition)(j, s));
+                    let (s_prime, _) = (cs().transition)(j, s);
+                    assert(P(j)(s, s_prime));
+                };
+
+                assert forall|s, s_prime|
+                    cond_cs(s) && inv(s) && #[trigger] next()(s, s_prime) implies cond_cs(s_prime)
+                    || cond_unlock(s_prime) by {
+                    if exists|tid| #[trigger] s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime) {
+                        // Impossible because locked
+                        let tid = choose|tid| #[trigger]
+                            s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime);
+                        assert(s.pc[j] == Label::cs);
+                        let set = s.ProcSet.filter(
+                            |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
+                        );
+                        assert(set.contains(j));
+                        assert(!set.is_empty());
+                        assert(s.locked);
+                        assert(false);
+                    }
+                };
+
+                wf1_with_inv_n!(
+                    spec,
+                    next(),
+                    P(j),
+                    cond_cs,
+                    cond_unlock,
+                    inv_unchanged_state_pred,
+                    inv_not_locked_iff_no_cs_closure,
+                    pc_stack_match_state_pred,
+                );
+            };
+
+            // Step 2: cond_unlock ~> post
+            assert(spec.entails(lift_state(cond_unlock).leads_to(post))) by {
+                let inv = |s: ProgramState|
+                    s.inv_unchanged(n) && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match();
+
+                assert(spec.entails(weak_fairness(release_lock(j)))) by {
+                    use_tla_forall(spec, |tid| weak_fairness(release_lock(tid)), j);
+                }
+
+                assert forall|s: ProgramState| #[trigger] cond_unlock(s) && inv(s) implies enabled(
+                    release_lock(j),
+                )(s) by {
+                    assert((unlock().precondition)(j, s));
+                    let (s_prime, _) = (unlock().transition)(j, s);
+                    assert(release_lock(j)(s, s_prime));
+                };
+
+                assert forall|s, s_prime|
+                    cond_unlock(s) && inv(s) && #[trigger] next()(s, s_prime) implies cond_unlock(
+                    s_prime,
+                ) || post_fn(i)(s_prime) by {
+                    if exists|tid| #[trigger] s.in_ProcSet(tid) && acquire_lock(tid)(s, s_prime) {
+                        // Impossible because locked
+                        assert(s.pc[j] == Label::unlock);
+                        let set = s.ProcSet.filter(
+                            |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
+                        );
+                        assert(set.contains(j));
+                        assert(!set.is_empty());
+                        assert(s.locked);
+                        assert(false);
+                    }
+                };
+
+                wf1_with_inv_n!(
+                    spec,
+                    next(),
+                    release_lock(j),
+                    cond_unlock,
+                    post_fn(i),
+                    inv_unchanged_state_pred,
+                    inv_not_locked_iff_no_cs_closure,
+                    pc_stack_match_state_pred,
+                );
+
+                lift_state_exists_equality(post_fn);
+                leads_to_weaken(
+                    spec,
+                    lift_state(cond_unlock),
+                    lift_state(post_fn(i)),
+                    lift_state(cond_unlock),
+                    post,
+                );
+            };
+
+            leads_to_trans(spec, lift_state(cond_cs), lift_state(cond_unlock), post);
+
+            or_leads_to_combine(spec, lift_state(cond_cs), lift_state(cond_unlock), post);
+            temp_pred_equality(
+                lift_state(pre_i_j(j)),
+                lift_state(cond_cs).or(lift_state(cond_unlock)),
+            );
+            assert(spec.entails(lift_state(pre_i_j(j)).leads_to(post)));
+        };
+
+        lift_state_exists_leads_to_intro(spec, pre_i_j, post);
+        // Now we have lift_state_exists(pre_i_j) ~> post
+
+        // pre_fn(i) implies lift_state_exists(pre_i_j) (under invariant)
+        // So lift_state(pre_fn(i)) ~> post
+        assert(spec.entails(lift_state(pre_fn(i)).leads_to(lift_state_exists(pre_i_j)))) by {
+            let inv = |s: ProgramState|
+                s.inv_unchanged(n) && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match();
+            lift_state_exists_equality(pre_i_j);
+            let exists_pred = |s: ProgramState| exists|j: Tid| #[trigger] pre_i_j(j)(s);
+            // lift_state_exists(pre_i_j) == lift_state(exists_pred)
+
+            assert forall|s| #[trigger] pre_fn(i)(s) && inv(s) implies exists_pred(s) by {
+                if pre_fn(i)(s) && inv(s) {
+                    let set = s.ProcSet.filter(
+                        |tid: Tid| s.pc[tid] == Label::cs || s.pc[tid] == Label::unlock,
+                    );
+                    let j = set.choose();
+                    assert(pre_i_j(j)(s));
+                }
+            };
+
+            // spec entails always(inv)
+            let combined = |s: ProgramState|
+                inv_unchanged_state_pred(s) && inv_not_locked_iff_no_cs_closure(s)
+                    && pc_stack_match_state_pred(s);
+            entails_always_lift_state_and_n!(
+                 spec,
+                 inv_unchanged_state_pred,
+                 inv_not_locked_iff_no_cs_closure,
+                 pc_stack_match_state_pred
+             );
+            assert(spec.entails(always(lift_state(inv)))) by {
+                assert forall|s| #[trigger] inv(s) == combined(s) by {};
+                assert(lift_state(inv) == lift_state(combined));
+            };
+
+            // so spec entails always(pre_fn(i) implies exists_pred)
+            assert(spec.entails(always(lift_state(pre_fn(i)).implies(lift_state(exists_pred)))))
+                by {
+                assert(lift_state(inv).entails(
+                    lift_state(pre_fn(i)).implies(lift_state(exists_pred)),
+                ));
+                entails_preserved_by_always(
+                    lift_state(inv),
+                    lift_state(pre_fn(i)).implies(lift_state(exists_pred)),
+                );
+                entails_trans(
+                    spec,
+                    always(lift_state(inv)),
+                    always(lift_state(pre_fn(i)).implies(lift_state(exists_pred))),
+                );
+            };
+            always_implies_to_leads_to(spec, lift_state(pre_fn(i)), lift_state(exists_pred));
+        };
+
+        leads_to_trans(spec, lift_state(pre_fn(i)), lift_state_exists(pre_i_j), post);
+    };
+
+    lift_state_exists_leads_to_intro(spec, pre_fn, post);
 }
 
 pub proof fn lemma_pc_stack_match_statdead_and_alive_lock_freee_pred(
