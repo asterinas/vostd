@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+use vstd::cell::{self, PCell};
+
 use alloc::sync::Arc;
 use core::{
     cell::UnsafeCell,
@@ -8,8 +11,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use super::{guard::SpinGuardian, LocalIrqDisabled, PreemptDisabled};
-use crate::task::atomic_mode::AsAtomicModeGuard;
+//use super::{guard::SpinGuardian, LocalIrqDisabled, PreemptDisabled};
+//use crate::task::atomic_mode::AsAtomicModeGuard;
 
 /// A spin lock.
 ///
@@ -27,24 +30,32 @@ use crate::task::atomic_mode::AsAtomicModeGuard;
 ///
 /// [`disable_irq`]: Self::disable_irq
 #[repr(transparent)]
-pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
+#[verus_verify]
+//pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
+pub struct SpinLock<T,G> {
     phantom: PhantomData<G>,
     /// Only the last field of a struct may have a dynamically sized type.
     /// That's why SpinLockInner is put in the last field.
     inner: SpinLockInner<T>,
 }
 
-struct SpinLockInner<T: ?Sized> {
+#[verus_verify]
+struct SpinLockInner<T> {
     lock: AtomicBool,
-    val: UnsafeCell<T>,
+    //val: UnsafeCell<T>,
+    val: PCell<T>,
 }
 
+verus!{
+#[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
     pub const fn new(val: T) -> Self {
+        let (val, Tracked(perm)) = PCell::new(val);
         let lock_inner = SpinLockInner {
             lock: AtomicBool::new(false),
-            val: UnsafeCell::new(val),
+            //val: UnsafeCell::new(val),
+            val: val,
         };
         Self {
             phantom: PhantomData,
@@ -52,7 +63,8 @@ impl<T, G> SpinLock<T, G> {
         }
     }
 }
-
+}
+/* 
 impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     /// Converts the guard behavior from disabling preemption to disabling IRQs.
     pub fn disable_irq(&self) -> &SpinLock<T, LocalIrqDisabled> {
@@ -156,14 +168,14 @@ pub struct SpinLockGuard_<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinG
     guard: G::Guard,
     lock: R,
 }
-
+/* 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicModeGuard
     for SpinLockGuard_<T, R, G>
 {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
-}
+}*/
 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Deref
     for SpinLockGuard_<T, R, G>
@@ -210,3 +222,4 @@ unsafe impl<T: ?Sized + Sync, R: Deref<Target = SpinLock<T, G>> + Sync, G: SpinG
     for SpinLockGuard_<T, R, G>
 {
 }
+*/
