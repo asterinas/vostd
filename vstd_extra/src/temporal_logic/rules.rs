@@ -2956,21 +2956,46 @@ pub broadcast proof fn lift_state_exists_leads_to_intro<T, A>(
     tla_exists_leads_to_intro(spec, lifted_a_to_p, q);
 }
 
-pub broadcast proof fn state_exists_intro<T,A>(a_to_p: spec_fn(A)-> StatePred<T>, s: T)
+pub broadcast proof fn state_exists_intro<T, A>(a_to_p: spec_fn(A) -> StatePred<T>, s: T)
     requires
-        exists |a: A| #[trigger] a_to_p(a)(s),
+        exists|a: A| #[trigger] a_to_p(a)(s),
     ensures
         #[trigger] state_exists(a_to_p)(s),
-{}
+{
+}
 
-pub proof fn lift_state_exists_leads_to_destruct<T, A>(spec: TempPred<T>, a_to_p: spec_fn(A) -> StatePred<T>, p: StatePred<T>, q: TempPred<T>)
+pub proof fn lift_state_exists_leads_to_destruct<T, A>(
+    spec: TempPred<T>,
+    a_to_p: spec_fn(A) -> StatePred<T>,
+    p: StatePred<T>,
+    q: TempPred<T>,
+)
     requires
         spec.entails(lift_state_exists(combine_state_pred_with(a_to_p, p)).leads_to(q)),
-        spec.entails(lift_state_exists(combine_state_pred_with(a_to_p, state_pred_not(p))).leads_to(q)),
+        spec.entails(
+            lift_state_exists(combine_state_pred_with(a_to_p, state_pred_not(p))).leads_to(q),
+        ),
     ensures
         spec.entails(lift_state_exists(a_to_p).leads_to(q)),
 {
-    admit();
+    let p1 = lift_state_exists(combine_state_pred_with(a_to_p, p));
+    let p2 = lift_state_exists(combine_state_pred_with(a_to_p, state_pred_not(p)));
+
+    or_leads_to_combine(spec, p1, p2, q);
+
+    let target = lift_state_exists(a_to_p);
+    assert forall|ex| p1.or(p2).satisfied_by(ex) <==> target.satisfied_by(ex) by {
+        let s = ex.head();
+        if target.satisfied_by(ex) {
+            let a = choose|a| #[trigger] a_to_p(a)(s);
+            if p(s) {
+                assert(combine_state_pred_with(a_to_p, p)(a)(s));
+            } else {
+                assert(combine_state_pred_with(a_to_p, state_pred_not(p))(a)(s));
+            }
+        }
+    }
+    temp_pred_equality(p1.or(p2), target);
 }
 
 pub broadcast group group_tla_rules {
@@ -2996,7 +3021,7 @@ pub broadcast group group_tla_rules {
     lift_state_exists_equality,
     implies_tla_exists_intro,
     leads_to_tla_exists_intro,
-    state_exists_intro, //may be unnecessary
+    state_exists_intro,  //may be unnecessary
 }
 
 } // verus!
