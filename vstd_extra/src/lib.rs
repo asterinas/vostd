@@ -15,6 +15,7 @@ pub mod ownership;
 pub mod ptr_extra;
 pub mod map_extra;
 
+pub mod once;
 pub mod prelude;
 pub mod seq_extra;
 pub mod set_extra;
