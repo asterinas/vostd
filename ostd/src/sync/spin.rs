@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
+use vstd::cell::{self,PCell};
 use vstd::prelude::*;
-use vstd::cell::{self, PCell};
+use vstd_extra::prelude::*;
 
 use alloc::sync::Arc;
 use core::{
@@ -8,7 +10,7 @@ use core::{
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
+//    sync::atomic::{AtomicBool, Ordering},
 };
 
 //use super::{guard::SpinGuardian, LocalIrqDisabled, PreemptDisabled};
@@ -39,21 +41,41 @@ pub struct SpinLock<T,G> {
     inner: SpinLockInner<T>,
 }
 
+verus!{
+struct_with_invariants! {
+
 #[verus_verify]
 struct SpinLockInner<T> {
-    lock: AtomicBool,
-    //val: UnsafeCell<T>,
+    lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
     val: PCell<T>,
+    //val: UnsafeCell<T>,
 }
 
-verus!{
+closed spec fn wf(self) -> bool {
+    invariant on lock with (val) is (v:bool, g:Option<cell::PointsTo<T>>) {
+        match g {
+            None => v == true,
+            Some(perm) => perm.id() == val.id() && perm.is_init() && !v
+        }
+    }
+}
+}
+
+impl<T> Inv for SpinLockInner<T>
+{
+    closed spec fn inv(self) -> bool{
+        self.wf()
+    }
+}
+
 #[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
+    #[verus_verify]
     pub const fn new(val: T) -> Self {
         let (val, Tracked(perm)) = PCell::new(val);
         let lock_inner = SpinLockInner {
-            lock: AtomicBool::new(false),
+            lock: AtomicBool::new(Ghost(val),false,Tracked(Some(perm))),
             //val: UnsafeCell::new(val),
             val: val,
         };
@@ -64,6 +86,7 @@ impl<T, G> SpinLock<T, G> {
     }
 }
 }
+
 /* 
 impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     /// Converts the guard behavior from disabling preemption to disabling IRQs.
