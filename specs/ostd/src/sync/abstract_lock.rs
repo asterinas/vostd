@@ -221,6 +221,7 @@ impl ProgramState {
     }
 }
 
+/// TLC finds a counterexample for the starvation-free property
 pub open spec fn starvation_free() -> TempPred<ProgramState> {
     tla_forall(
         |i: Tid|
@@ -461,7 +462,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_not_locked(
             lock().lemma_statisfy_pre_implies_enabled(tid, s);
         };
 
-        wf1_with_inv_n!(
+        wf1_by_borrowing_inv_n!(
             spec,
             next(),
             acquire_lock(tid),
@@ -564,7 +565,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     }
                 };
 
-                wf1_with_inv_n!(
+                wf1_by_borrowing_inv_n!(
                     spec,
                     next(),
                     P(j),
@@ -605,7 +606,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     }
                 };
 
-                wf1_with_inv_n!(
+                wf1_by_borrowing_inv_n!(
                     spec,
                     next(),
                     release_lock(j),
@@ -717,19 +718,6 @@ pub proof fn lemma_dead_and_alive_lock_free(
     assert (combine_state_pred_with(pre_state_pred,locked_state_pred) == pre_locked_state_pred);
     assert (combine_state_pred_with(pre_state_pred, state_pred_not(locked_state_pred))== pre_not_locked_state_pred);
     lift_state_exists_leads_to_destruct(spec, |i: Tid||s:ProgramState| s.in_ProcSet(i) && s.trying(i), |s:ProgramState| s.locked, lift_state_exists(post_state_pred));
-}
-
-pub proof fn lemma_starvation_free(spec: TempPred<ProgramState>, n: nat)
-    requires
-        spec.entails(lift_state(init(n))),
-        spec.entails(always(lift_action(next()))),
-        spec.entails(tla_forall(|tid| weak_fairness(acquire_lock(tid)))),
-        spec.entails(tla_forall(|tid| weak_fairness(release_lock(tid)))),
-        spec.entails(tla_forall(|tid| weak_fairness(P(tid)))),
-    ensures
-        spec.entails(starvation_free()),
-{
-    admit();
 }
 
 } // verus!

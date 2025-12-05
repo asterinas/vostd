@@ -1720,7 +1720,7 @@ pub proof fn wf1<T>(
 //     spec |= wf(forward)
 // post:
 //     spec |= p ~> q
-pub proof fn wf1_with_inv<T>(
+pub proof fn wf1_by_borrowing_inv<T>(
     spec: TempPred<T>,
     next: ActionPred<T>,
     forward: ActionPred<T>,
@@ -1779,7 +1779,7 @@ pub proof fn wf1_with_inv<T>(
     wf1_variant_temp::<T>(spec, next_and_inv, lift_action(forward), lift_state(p), lift_state(q));
 }
 
-// Strengthen wf1_with_inv with multiple invariants.
+// Strengthen wf1_by_borrowing_inv with multiple invariants.
 // pre:
 //     spec |= []next
 //     spec |= []inv1
@@ -1792,19 +1792,19 @@ pub proof fn wf1_with_inv<T>(
 //     spec |= wf(forward)
 // post:
 //     spec |= p ~> q
-// Usage: wf1_with_inv_n!(spec, next, forward, p, q, inv1, inv2, inv3, ...)
+// Usage: wf1_by_borrowing_inv_n!(spec, next, forward, p, q, inv1, inv2, inv3, ...)
 #[macro_export]
-macro_rules! wf1_with_inv_n {
+macro_rules! wf1_by_borrowing_inv_n {
     ($spec:expr, $next:expr, $forward:expr, $p:expr, $q:expr, $($inv:expr),+ $(,)?) => {{
         entails_always_lift_state_and_n!($spec, $($inv),+);
         // Explicitly call the base case to ensure we have the needed condition
         let combined_inv = combine_state_pred!($($inv),+);
         // After entails_always_lift_state_and_n!, we should have spec.entails(always(lift_state(combined_inv)))
-        wf1_with_inv($spec, $next, $forward, $p, $q, combined_inv)
+        wf1_by_borrowing_inv($spec, $next, $forward, $p, $q, combined_inv)
     }};
 }
 
-pub use wf1_with_inv_n;
+pub use wf1_by_borrowing_inv_n;
 
 // Connects two valid implies.
 // pre:

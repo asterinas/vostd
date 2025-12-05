@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 mod linked_list_specs;
 mod meta_specs;
 mod page_table_node_specs;
