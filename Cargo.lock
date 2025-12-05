@@ -174,7 +174,7 @@ version = "0.0.0-2025-08-12-1837"
 
 [[package]]
 name = "verus_builtin_macros"
-version = "0.0.0-2025-11-23-0053"
+version = "0.0.0-2025-11-30-0053"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "vstd"
-version = "0.0.0-2025-11-23-0053"
+version = "0.0.0-2025-11-30-0053"
 dependencies = [
  "verus_builtin",
  "verus_builtin_macros",
