@@ -5,7 +5,6 @@ use vstd::prelude::*;
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 use crate::mm::frame::inc_frame_ref_count;
-use crate::mm::frame::untyped::AnyUFrameMeta;
 
 use vstd_extra::ownership::*;
 
@@ -58,6 +57,7 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 //         Self { range: self.range.clone(), _marker: core::marker::PhantomData }
 //     }
 // }
+#[verus_verify]
 impl<M: AnyFrameMeta> Segment<M> {
     #[rustc_allow_incoherent_impl]
     #[verifier::inline]
@@ -87,6 +87,15 @@ impl<M: AnyFrameMeta> Segment<M> {
     }
 
     #[rustc_allow_incoherent_impl]
+    #[verifier::inline]
+    pub open spec fn nrpage_spec(&self) -> usize
+        recommends
+            self.inv(),
+    {
+        self.size_spec() / PAGE_SIZE()
+    }
+
+    #[rustc_allow_incoherent_impl]
     pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
         recommends
             self.inv(),
@@ -94,6 +103,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             0 < offset < self.size_spec(),
     {
         let at = (self.range.start + offset) as usize;
+        let idx = at / PAGE_SIZE();
         (
             Self { range: self.range.start..at, _marker: core::marker::PhantomData },
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
@@ -107,8 +117,8 @@ impl<M: AnyFrameMeta> Segment<M> {
     pub fn start_paddr(&self) -> (res: Paddr)
         requires
             self.inv(),
-        ensures
-            res == self.start_paddr_spec(),
+        returns
+            self.start_paddr_spec(),
     {
         self.range.start
     }
@@ -120,8 +130,8 @@ impl<M: AnyFrameMeta> Segment<M> {
     pub fn end_paddr(&self) -> (res: Paddr)
         requires
             self.inv(),
-        ensures
-            res == self.end_paddr_spec(),
+        returns
+            self.end_paddr_spec(),
     {
         self.range.end
     }
@@ -133,10 +143,193 @@ impl<M: AnyFrameMeta> Segment<M> {
     pub fn size(&self) -> (res: usize)
         requires
             self.inv(),
-        ensures
-            res == self.size_spec(),
+        returns
+            self.size_spec(),
     {
         self.range.end - self.range.start
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn from_unused_requires(
+        regions: MetaRegionOwners,
+        range: Range<Paddr>,
+        metadata_fn: impl Fn(Paddr) -> (Paddr, M),
+    ) -> bool {
+        &&& regions.inv()
+        &&& range.start % PAGE_SIZE() == 0
+        &&& range.end % PAGE_SIZE() == 0
+        &&& range.start <= range.end < MAX_PADDR()
+        &&& forall|paddr_in: Paddr|
+            (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE() == 0) ==> {
+                &&& metadata_fn.requires((paddr_in,))
+            }
+        &&& forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
+            metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
+                &&& paddr_out < MAX_PADDR()
+                &&& paddr_out % PAGE_SIZE() == 0
+                &&& paddr_in == paddr_out
+                &&& regions.slots.contains_key(frame_to_index(paddr_out))
+                &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
+                &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
+                &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
+            }
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn from_unused_ensures(
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        owner: Option<SegmentOwner<M>>,
+        range: Range<Paddr>,
+        metadata_fn: impl Fn(Paddr) -> (Paddr, M),
+        r: Result<Self, GetFrameError>,
+    ) -> bool {
+        &&& r matches Ok(r) ==> {
+            &&& new_regions.inv()
+            &&& r.range.start == range.start
+            &&& r.range.end == range.end
+            &&& owner matches Some(owner) && {
+                &&& r.inv_with(&owner)
+                &&& forall|i: int|
+                    #![trigger owner.perms[i]]
+                    0 <= i < owner.perms.len() as int ==> {
+                        &&& owner.perms[i].addr() == meta_addr(
+                            frame_to_index_spec((range.start + i * PAGE_SIZE()) as usize),
+                        )
+                    }
+                &&& new_regions.paddr_range_not_in_region(range)
+            }
+        }
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn split_requires(self, owner: SegmentOwner<M>, offset: usize) -> bool {
+        &&& self.inv_with(&owner)
+        &&& offset % PAGE_SIZE() == 0
+        &&& 0 < offset < self.size()
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn split_ensures(
+        self,
+        offset: usize,
+        lhs: Self,
+        rhs: Self,
+        ori_owner: SegmentOwner<M>,
+        lhs_owner: SegmentOwner<M>,
+        rhs_owner: SegmentOwner<M>,
+    ) -> bool {
+        &&& lhs.inv_with(&lhs_owner)
+        &&& rhs.inv_with(&rhs_owner)
+        &&& (lhs, rhs) == self.split_spec(offset)
+        &&& ori_owner.perms =~= (lhs_owner.perms + rhs_owner.perms)
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn into_raw_requires(
+        self,
+        regions: MetaRegionOwners,
+        owner: SegmentOwner<M>,
+    ) -> bool {
+        &&& self.inv_with(&owner)
+        &&& regions.inv()
+        &&& owner.inv()
+        &&& owner.is_disjoint_with_meta_region(&regions)
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn into_raw_ensures(
+        self,
+        regions: MetaRegionOwners,
+        owner: SegmentOwner<M>,
+        r: Range<Paddr>,
+    ) -> bool {
+        &&& r == self.range
+        &&& regions.inv()
+        &&& regions.paddr_range_in_dropped_region(self.range)
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn from_raw_requires(regions: MetaRegionOwners, range: Range<Paddr>) -> bool {
+        &&& regions.inv()
+        &&& regions.paddr_range_in_dropped_region(range)
+        &&& range.start % PAGE_SIZE() == 0
+        &&& range.end % PAGE_SIZE() == 0
+        &&& range.start < range.end < MAX_PADDR()
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn from_raw_ensures(
+        self,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        owner: SegmentOwner<M>,
+        range: Range<Paddr>,
+    ) -> bool {
+        &&& self.inv_with(&owner)
+        &&& self.range == range
+        &&& new_regions.inv()
+        &&& new_regions.paddr_range_not_in_region(range)
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn slice_requires(self, owner: SegmentOwner<M>, range: Range<Paddr>) -> bool {
+        &&& self.inv_with(&owner)
+        &&& range.start % PAGE_SIZE() == 0
+        &&& range.end % PAGE_SIZE() == 0
+        &&& self.range.start + range.start <= self.range.start + range.end <= self.range.end
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn slice_ensures(
+        self,
+        owner: SegmentOwner<M>,
+        range: Range<Paddr>,
+        res: Self,
+    ) -> bool {
+        &&& res.inv_with(
+            &SegmentOwner {
+                perms: owner.perms.subrange(
+                    (range.start / PAGE_SIZE()) as int,
+                    (range.end / PAGE_SIZE()) as int,
+                ),
+            },
+        )
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn next_requires(self, regions: MetaRegionOwners) -> bool {
+        &&& self.inv()
+        &&& regions.inv()
+        &&& regions.dropped_slots.contains_key(frame_to_index(self.range.start))
+        &&& !regions.slots.contains_key(frame_to_index(self.range.start))
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn next_ensures(
+        old_self: Self,
+        new_self: Self,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Option<Frame<M>>,
+    ) -> bool {
+        &&& new_regions.inv()
+        &&& new_self.inv()
+        &&& match res {
+            None => { &&& new_self.range.start == old_self.range.end },
+            Some(f) => {
+                &&& new_self.range.start == old_self.range.start + PAGE_SIZE()
+                &&& f.paddr() == old_self.range.start
+                &&& forall|i: usize|
+                    #![trigger new_regions.dropped_slots[i], old_regions.dropped_slots[i]]
+                    {
+                        &&& i != frame_to_index(f.paddr()) ==> old_regions.dropped_slots[i]
+                            == new_regions.dropped_slots[i]
+                        &&& i == frame_to_index(f.paddr())
+                            ==> !new_regions.dropped_slots.contains_key(i)
+                    }
+            },
+        }
     }
 
     /// Creates a new [`Segment`] from unused frames.
@@ -149,29 +342,23 @@ impl<M: AnyFrameMeta> Segment<M> {
     ///  - any of the frames cannot be created with a specific reason.
     ///
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn from_unused<F>(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
-        Result<Self, GetFrameError>)
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+                -> owner: Ghost<Option<SegmentOwner<M>>>,
         requires
-            old(regions).inv(),
-            range.start % PAGE_SIZE() == 0,
-            range.end % PAGE_SIZE() == 0,
-            range.start < range.end < MAX_PADDR(),
-            forall|paddr_in: Paddr|
-                (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE() == 0) ==> {
-                    &&& metadata_fn.requires((paddr_in,))
-                },
-            forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
-                metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
-                    &&& paddr_out < MAX_PADDR()
-                    &&& paddr_out % PAGE_SIZE() == 0
-                    &&& old(regions).slots.contains_key(frame_to_index(paddr_out))
-                },
+            Self::from_unused_requires(*old(regions), range, metadata_fn),
         ensures
-            regions.inv(),
-    {
+            Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
+    )]
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<
+        Self,
+        GetFrameError,
+    > {
+        proof_decl! {
+            let ghost mut owner: Option<SegmentOwner<M>> = None;
+            let tracked mut addrs = Seq::<usize>::tracked_empty();
+        }
         // Construct a segment early to recycle previously forgotten frames if
         // the subsequent operations fails in the middle.
         let mut segment = Self {
@@ -181,11 +368,15 @@ impl<M: AnyFrameMeta> Segment<M> {
 
         let mut i = 0;
         let addr_len = (range.end - range.start) / PAGE_SIZE();
-        while i < addr_len
+
+        #[verus_spec(
             invariant
+                i <= addr_len,
+                i as int == addrs.len(),
                 range.start % PAGE_SIZE() == 0,
                 range.end % PAGE_SIZE() == 0,
                 range.start <= range.start + i * PAGE_SIZE() <= range.end,
+                range.end == range.start + addr_len * PAGE_SIZE(),
                 addr_len == (range.end - range.start) / PAGE_SIZE() as int,
                 i <= addr_len,
                 forall|paddr_in: Paddr|
@@ -196,27 +387,106 @@ impl<M: AnyFrameMeta> Segment<M> {
                     metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
                         &&& paddr_out < MAX_PADDR()
                         &&& paddr_out % PAGE_SIZE() == 0
+                        &&& paddr_in == paddr_out
                         &&& regions.slots.contains_key(frame_to_index(paddr_out))
+                        &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
                     },
+                forall|j: int|
+                    0 <= j < addrs.len() as int ==> {
+                        &&& regions.slots.contains_key(frame_to_index_spec(addrs[j]))
+                        &&& !regions.dropped_slots.contains_key(frame_to_index_spec(addrs[j]))
+                        &&& addrs[j] % PAGE_SIZE() == 0
+                        &&& addrs[j] == range.start + (j as u64) * PAGE_SIZE()
+                    },
+                forall|paddr: Paddr| #[trigger]
+                    old(regions).slots.contains_key(frame_to_index(paddr))
+                        ==> regions.slots.contains_key(frame_to_index(paddr)),
                 regions.inv(),
+                segment.range.start == range.start,
+                segment.range.end == range.start + i * PAGE_SIZE(),
             decreases addr_len - i,
-        {
+        )]
+        while i < addr_len {
             let paddr = range.start + i * PAGE_SIZE();
             let (paddr, meta) = metadata_fn(paddr);
 
-            assert(regions.slot_owners[paddr / PAGE_SIZE()].usage is Unused) by { admit() };
-            assert(regions.slot_owners[paddr / PAGE_SIZE()].in_list@.points_to(0)) by { admit() };
+            let frame = match #[verus_spec(with Tracked(regions))]
+            Frame::<M>::from_unused(paddr, meta) {
+                Ok(f) => f,
+                Err(e) => {
+                    return {
+                        proof_with!(|= Ghost(owner));
+                        Err(e)
+                    };
+                },
+            };
 
-            #[verus_spec(with Tracked(regions))]
-            let frame = Frame::<M>::from_unused(paddr, meta)?;
+            proof {
+                assert(forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
+                    metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
+                    }) by {
+                    admit();
+                }
+            }
 
             // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
             // let _ = ManuallyDrop::new(frame);
             segment.range.end = paddr + PAGE_SIZE();
+            proof {
+                addrs.tracked_push(paddr);
+            }
 
             i += 1;
         }
 
+        proof {
+            broadcast use vstd_extra::map_extra::lemma_map_remove_keys_finite;
+            broadcast use vstd_extra::seq_extra::lemma_seq_to_set_map_contains;
+            broadcast use vstd::map::group_map_axioms;
+            broadcast use vstd::map_lib::group_map_extra;
+
+            let owner_seq = addrs.map_values(
+                |addr: usize|
+                    {
+                        let perm = regions.slots[frame_to_index(addr)];
+                        FramePerm {
+                            addr: meta_addr(frame_to_index(addr)),
+                            points_to: perm,
+                            _T: core::marker::PhantomData,
+                        }
+                    },
+            );
+            owner = Some(SegmentOwner { perms: owner_seq });
+
+            let index = addrs.map_values(|addr: Paddr| frame_to_index(addr)).to_set();
+            regions.slots.tracked_remove_keys(index);
+
+            assert forall|addr: usize|
+                #![trigger frame_to_index_spec(addr)]
+                range.start <= addr < range.end && addr % PAGE_SIZE() == 0 implies {
+                &&& !regions.slots.contains_key(frame_to_index_spec(addr))
+                &&& !regions.dropped_slots.contains_key(frame_to_index_spec(addr))
+            } by {
+                // proof by contradiction
+                assert(addrs.contains(addr)) by {
+                    if !addrs.contains(addr) {
+                        let j = (addr - range.start) / PAGE_SIZE() as int;
+                        assert(0 <= j < addrs.len() as usize) by {
+                            assert(addr >= range.start);
+                            assert(addr < range.end);
+                            assert(addr % PAGE_SIZE() == 0);
+                        };
+                        assert(addrs[j as int] == addr);
+                    }
+                }
+            }
+        }
+
+        proof_with!(|= Ghost(owner));
         Ok(segment)
     }
 
@@ -229,26 +499,19 @@ impl<M: AnyFrameMeta> Segment<M> {
     ///
     /// The function panics if the offset is out of bounds, at either ends, or
     /// not base-page-aligned.
-    // #[verifier::when_used_as_spec(split_spec)] // <- verus complains about mismatched param numbers
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn split(self, offset: usize) -> (res: (Self, Self))
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<SegmentOwner<M>>,
+                -> frame_perms: (Ghost<SegmentOwner<M>>, Ghost<SegmentOwner<M>>),
         requires
-            old(regions).inv(),
-            old(regions).paddr_range_in_region(self.range),
-            self.inv(),
-            offset % PAGE_SIZE() == 0,
-            0 < offset < self.size(),
+            Self::split_requires(self, owner, offset),
         ensures
-            regions.inv(),
-            regions.paddr_range_in_region(res.0.range),
-            regions.paddr_range_in_region(res.1.range),
-            res == self.split_spec(offset),
-    {
-        // NOTE: in general we prefer to fold runtime assertions into preconditions rather than try to model panics
+            Self::split_ensures(self, offset, r.0, r.1, owner, frame_perms.0@, frame_perms.1@),
+    )]
+    pub fn split(self, offset: usize) -> (Self, Self) {
         let at = self.range.start + offset;
+        let idx = offset / PAGE_SIZE();
         let res = (
             Self { range: self.range.start..at, _marker: core::marker::PhantomData },
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
@@ -257,23 +520,60 @@ impl<M: AnyFrameMeta> Segment<M> {
         // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
         // let _ = ManuallyDrop::new(self);
 
+        let ghost frame_perms1 = SegmentOwner { perms: owner.perms.subrange(0, idx as int) };
+        let ghost frame_perms2 = SegmentOwner {
+            perms: owner.perms.subrange(idx as int, owner.perms.len() as int),
+        };
+
+        proof {
+            owner.perms.lemma_split_at(idx as int);
+        }
+
+        proof_with!(|= (Ghost(frame_perms1), Ghost(frame_perms2)));
         res
     }
 
     /// Forgets the [`Segment`] and gets a raw range of physical addresses.
-    // NOTE: forgotten objects have their `PointsTo` perms removed from the `slots` field of MetaRegionOwners
-    // and added to the `dropped_slots` so that they can be restored later.
+    // NOTE: forgotten frames will be released from `owner`'s permission and
+    //       later added back to `regions.dropped_slots`, and `owner` is moved.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub(crate) fn into_raw(self) -> (res: Range<Paddr>)
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(owner): Tracked<SegmentOwner<M>>,
         requires
-            old(regions).inv(),
-            old(regions).paddr_range_in_region(self.range),
-            self.inv(),
-    {
-        let range = self.range.clone();
+            Self::into_raw_requires(self, *old(regions), owner),
+        ensures
+            Self::into_raw_ensures(self, *regions, owner, r),
+    )]
+    pub(crate) fn into_raw(self) -> Range<Paddr> {
+        proof {
+            broadcast use vstd_extra::seq_extra::lemma_seq_to_set_map_contains;
+            broadcast use aster_common::prelude::frame::lemma_paddr_to_meta_biinjective;
+            // Adjust the permission by transferring all
+            // PointsTo perms from `owner` into `regions.dropped_slots`.
+
+            let new_keys = owner.perms.map_values(|v: FramePerm<M>| meta_to_frame_spec(v.addr()));
+            let new_dropped_slots = Map::new(
+                |i: usize| new_keys.contains(i),
+                |k: usize| { owner.perms[k as int].points_to },
+            );
+
+            regions.dropped_slots.tracked_union_prefer_right(new_dropped_slots);
+
+            assert forall|paddr: Paddr|
+                self.range.start <= paddr < self.range.end && paddr % PAGE_SIZE() == 0 implies {
+                &&& regions.dropped_slots.contains_key(#[trigger] frame_to_index_spec(paddr))
+            } by {
+                assert(new_keys.to_set().contains(frame_to_index_spec(paddr))) by {
+                    let j = (paddr - self.range.start) / PAGE_SIZE() as int;
+                    assert(0 <= j < owner.perms.len() as int);
+                    assert(owner.perms[j].addr() == meta_addr(frame_to_index_spec(paddr)));
+                }
+            }
+        }
+
+        let range = self.range;
         // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
         // let _ = ManuallyDrop::new(self);
         range
@@ -287,22 +587,62 @@ impl<M: AnyFrameMeta> Segment<M> {
     /// It could be manually forgotten by [`core::mem::forget`],
     /// [`ManuallyDrop`], or [`Self::into_raw`].
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> (res: Self)
+    #[verus_spec(r =>
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+                -> frame_perms: Ghost<SegmentOwner<M>>,
         requires
-            old(regions).inv(),
-            old(regions).paddr_range_in_dropped_region(range),
-            range.start % PAGE_SIZE() == 0,
-            range.end % PAGE_SIZE() == 0,
-            range.start < range.end < MAX_PADDR(),
+            Self::from_raw_requires(*old(regions), range),
         ensures
-            regions.inv(),
-            res.inv(),
-            res.range == range,
-            regions.paddr_range_in_dropped_region(res.range),
-    {
+            Self::from_raw_ensures(r, *old(regions), *regions, frame_perms@, range),
+    )]
+    pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
+        proof_decl! {
+            let ghost mut frame_perms: SegmentOwner<M>;
+        }
+        // We create new permissions from stealing the `PointsTo` perms
+        // from `regions.dropped_slots` so we must ensure that all frames
+        // cannot be restored again.
+        proof {
+            broadcast use vstd::arithmetic::div_mod::group_div_basics;
+
+            let len = (range.end - range.start) / PAGE_SIZE() as int;
+            let owner_seq = Seq::new(
+                len as nat,
+                |i: int|
+                    {
+                        let paddr = (range.start + (i as u64) * PAGE_SIZE() as int) as Paddr;
+                        FramePerm {
+                            addr: meta_addr(frame_to_index(paddr)),
+                            points_to: regions.dropped_slots[frame_to_index(paddr)],
+                            _T: core::marker::PhantomData,
+                        }
+                    },
+            );
+            frame_perms = SegmentOwner { perms: owner_seq };
+
+            // Then remove the frames from `regions.dropped_slots`.
+            let keys = Set::new(
+                |paddr: Paddr| { range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0 },
+            );
+            let keys_to_remove = keys.map(|paddr: Paddr| frame_to_index(paddr));
+
+            regions.dropped_slots.tracked_remove_keys(keys_to_remove);
+
+            assert forall|paddr: Paddr|
+                #![trigger frame_to_index(paddr)]
+                range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0 implies {
+                &&& !regions.dropped_slots.contains_key(#[trigger] frame_to_index(paddr))
+            } by {
+                assert(keys.contains(paddr));
+
+                if regions.dropped_slots.contains_key(frame_to_index(paddr)) {
+                    assert(!keys_to_remove.contains(frame_to_index(paddr)));
+                }
+            }
+        }
+
+        proof_with!(|= Ghost(frame_perms));
         Self { range, _marker: core::marker::PhantomData }
     }
 
@@ -316,18 +656,15 @@ impl<M: AnyFrameMeta> Segment<M> {
     /// The function panics if the byte offset range is out of bounds, or if
     /// any of the ends of the byte offset range is not base-page aligned.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn slice(&self, range: &Range<Paddr>) -> (res: Self)
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<&SegmentOwner<M>>,
         requires
-            old(regions).inv(),
-            old(regions).paddr_range_in_region(self.range),
-            self.inv(),
-            range.start % PAGE_SIZE() == 0,
-            range.end % PAGE_SIZE() == 0,
-            self.range.start + range.start <= self.range.start + range.end <= self.range.end,
-    {
+            Self::slice_requires(*self, *owner, *range),
+        ensures
+            Self::slice_ensures(*self, *owner, *range, r),
+    )]
+    pub fn slice(&self, range: &Range<Paddr>) -> Self {
         let start = self.range.start + range.start;
         let end = self.range.start + range.end;
 
@@ -353,17 +690,23 @@ impl<M: AnyFrameMeta> Segment<M> {
         Self { range: start..end, _marker: core::marker::PhantomData }
     }
 
+    /// Gets the next frame in the segment (raw), if any.
+    ///
+    /// Since the segments here must be "non-active" where
+    /// there is no extra Verus-tracked permission [`SegmentOwner`]
+    /// associated with it; [`Segment`] becomes a kind of "zombie"
+    /// container through which we can only iterate the frames and
+    /// get the frame out of the `regions` instead.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn next(&mut self) -> (res: Option<Frame<M>>)
+        with
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
-            old(regions).inv(),
-            old(self).inv(),
-            old(regions).dropped_slots.contains_key(frame_to_index(old(self).range.start)),
-            !old(regions).slots.contains_key(frame_to_index(old(self).range.start)),
-    {
+            Self::next_requires(*old(self), *old(regions)),
+        ensures
+            Self::next_ensures(*old(self), *self, *old(regions), *regions, res),
+    )]
+    pub fn next(&mut self) -> Option<Frame<M>> {
         if self.range.start < self.range.end {
             // SAFETY: each frame in the range would be a handle forgotten
             // when creating the `Segment` object.
@@ -371,6 +714,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 #[verus_spec(with Tracked(regions))]
                 Frame::<M>::from_raw(self.range.start)
             };
+
             self.range.start = self.range.start + PAGE_SIZE();
             Some(frame)
         } else {

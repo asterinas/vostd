@@ -58,6 +58,16 @@ pub enum MetaSlotStorage {
     PTNode(StoredPageTablePageMeta),
 }
 
+/*
+// TODO: figure out how this can actually be done (the issue is that Verus cells aren't clonable)
+impl Clone for MetaSlotStorage {
+    #[verifier::external_body]
+    fn clone(&self) -> Self {
+        unimplemented!()
+    }
+}
+*/
+
 impl MetaSlotStorage {
     pub open spec fn get_link_spec(self) -> Option<StoredLink> {
         match self {
@@ -94,6 +104,13 @@ impl MetaSlotStorage {
             _ => None,
         }
     }
+}
+
+/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
+/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
+/// it can then be used to stand in for `dyn AnyFrameMeta`.
+impl AnyFrameMeta for MetaSlotStorage {
+    spec fn vtable_ptr(&self) -> usize;
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -133,25 +150,44 @@ pub const fn meta_slot_size() -> (res: usize)
 }
 
 impl MetaSlot {
-    pub fn cast_storage<T: Repr<MetaSlotStorage>>(
+    // These are the axioms for casting meta slots into other things
+    /// This is the equivalent of &self as *const as Vaddr, but we need to axiomatize it.
+    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
+    pub fn addr_of(&self, Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>) -> Paddr
+        requires
+            self == perm.value(),
+        returns
+            perm.addr(),
+    {
+        unimplemented!()
+    }
+
+    pub fn cast_slot<T: Repr<MetaSlot>>(
         &self,
         addr: usize,
-        Tracked(owner): Tracked<&MetaSlotOwner>,
-    ) -> (res: ReprPtr<MetaSlotStorage, T>)
+        Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+    ) -> (res: ReprPtr<MetaSlot, T>)
         requires
-            self.wf(*owner),
-            owner.inv(),
-            addr == owner.storage@.addr(),
+            perm.value() == self,
+            addr == perm.addr(),
         ensures
-            res.ptr == owner.storage@.pptr(),
+            res.ptr.addr() == addr,
             res.addr == addr,
     {
-        ReprPtr::<MetaSlotStorage, T> { addr: addr, ptr: self.storage, _T: PhantomData }
+        ReprPtr::<MetaSlot, T> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+    }
+
+    pub fn cast_perm<T: Repr<MetaSlot>>(
+        addr: usize,
+        Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
+    ) -> Tracked<PointsTo<MetaSlot, T>> {
+        Tracked(PointsTo { addr: addr, points_to: perm, _T: PhantomData })
     }
 }
 
 /// Space-holder of the AnyFrameMeta virtual table.
-pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
+pub trait AnyFrameMeta: Repr<MetaSlot> {
     exec fn on_drop(&mut self) {
     }
 
@@ -160,6 +196,29 @@ pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
     }
 
     spec fn vtable_ptr(&self) -> usize;
+}
+
+impl Repr<MetaSlot> for MetaSlotStorage {
+    closed spec fn wf(slot: mm::frame::meta::MetaSlot) -> bool;
+
+    closed spec fn to_repr_spec(self) -> mm::frame::meta::MetaSlot;
+    
+    #[verifier::external_body]
+    fn to_repr(self) -> mm::frame::meta::MetaSlot { todo!() }
+    
+    closed spec fn from_repr_spec(slot: mm::frame::meta::MetaSlot) -> Self;
+    
+    #[verifier::external_body]
+    fn from_repr(slot: mm::frame::meta::MetaSlot) -> Self { todo!() }
+    
+    #[verifier::external_body]
+    fn from_borrowed<'a>(slot: &'a mm::frame::meta::MetaSlot) -> &'a Self { todo!() }
+    
+    proof fn from_to_repr(self) { admit() }
+    
+    proof fn to_from_repr(slot: mm::frame::meta::MetaSlot) { admit() }
+    
+    proof fn to_repr_wf(self) { admit() }
 }
 
 } // verus!

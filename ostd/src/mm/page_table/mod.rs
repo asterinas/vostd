@@ -319,17 +319,19 @@ impl<C: PageTableConfig> PageTable<C> {
     pub fn page_walk(&self, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
         // SAFETY: The root node is a valid page table node so the address is valid.
         unsafe { page_walk::<C>(self.root_paddr(), vaddr) }
-    }/* TODO: come back after cursor
+    }
+    
     /// Create a new cursor exclusively accessing the virtual address range for mapping.
     ///
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped.
-    pub fn cursor_mut<'rcu, G: AsAtomicModeGuard>(
+    #[rustc_allow_incoherent_impl]
+    pub fn cursor_mut<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<CursorMut<'rcu, C>, PageTableError> {
-        CursorMut::new(self, guard.as_atomic_mode_guard(), va)
+    ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        CursorMut::new(self, guard, va)
     }
 
     /// Create a new cursor exclusively accessing the virtual address range for querying.
@@ -337,14 +339,21 @@ impl<C: PageTableConfig> PageTable<C> {
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped. The modification to the mapping by the cursor may also
     /// block or be overridden by the mapping of another cursor.
-    pub fn cursor<'rcu, G: AsAtomicModeGuard>(
+    #[rustc_allow_incoherent_impl]
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
+    )]
+    pub fn cursor<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<Cursor<'rcu, C>, PageTableError> {
-        Cursor::new(self, guard.as_atomic_mode_guard(), va)
+    ) -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
+        Cursor::new(self, guard, va)
     }
 
+    /*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
     /// This is only useful for IOMMU page tables. Think twice before using it in other cases.
@@ -352,8 +361,8 @@ impl<C: PageTableConfig> PageTable<C> {
         PageTable {
             root: self.root.clone(),
         }
-    }*/
-
+    }
+    */
 }
 
 /// A software emulation of the MMU address translation process.

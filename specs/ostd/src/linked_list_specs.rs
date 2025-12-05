@@ -4,8 +4,8 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::*;
 
-use aster_common::prelude::*;
 use aster_common::prelude::frame::*;
+use aster_common::prelude::*;
 
 verus! {
 
@@ -77,7 +77,7 @@ impl CursorModel {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotInner>> CursorOwner<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorOwner<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn remove_owner_spec(self, post: Self) -> bool
         recommends

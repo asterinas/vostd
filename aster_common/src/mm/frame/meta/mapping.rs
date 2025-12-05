@@ -81,7 +81,7 @@ pub fn frame_to_index(paddr: Paddr) -> (res: usize)
     paddr / PAGE_SIZE()
 }
 
-#[verifier::when_used_as_spec(frame_to_index_spec)]
+#[verifier::when_used_as_spec(index_to_frame_spec)]
 pub fn index_to_frame(index: usize) -> (res: Paddr)
     requires
         index < max_meta_slots(),

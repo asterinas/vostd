@@ -6,68 +6,37 @@
 //! concurrently. The VM space cursor [`self::Cursor`] is just a wrapper over
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
+use vstd::prelude::*;
 
 use core::{ops::Range, sync::atomic::Ordering};
 
+use aster_common::prelude::page_table::*;
+use aster_common::prelude::frame::{UFrame, MetaRegionOwners, MetaSlotOwner};
+use aster_common::prelude::*;
+
 use crate::{
-    arch::mm::{current_page_table_paddr, PageTableEntry, PagingConsts},
-    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    cpu_local_cell,
+//    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+//    cpu_local_cell,
     mm::{
-        io::Fallible,
-        kspace::KERNEL_PAGE_TABLE,
-        page_table::{self, PageTable, PageTableConfig, PageTableFrag},
-        tlb::{TlbFlushOp, TlbFlusher},
-        AnyUFrameMeta, Frame, PageProperty, PagingLevel, UFrame, VmReader, VmWriter,
+//        io::Fallible,
+//        kspace::KERNEL_PAGE_TABLE,
+        page_table,
+//        tlb::{TlbFlushOp, TlbFlusher},
+        PageProperty, PagingLevel, VmReader, VmWriter,
         MAX_USERSPACE_VADDR,
     },
     prelude::*,
-    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
-    Error,
+//    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
 };
 
-/// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
-///
-/// The `VmSpace` type provides memory isolation guarantees between user-space and
-/// kernel-space. For example, given an arbitrary user-space pointer, one can read and
-/// write the memory location referred to by the user-space pointer without the risk of
-/// breaking the memory safety of the kernel space.
-///
-/// # Task Association Semantics
-///
-/// As far as OSTD is concerned, a `VmSpace` is not necessarily associated with a task. Once a
-/// `VmSpace` is activated (see [`VmSpace::activate`]), it remains activated until another
-/// `VmSpace` is activated **possibly by another task running on the same CPU**.
-///
-/// This means that it's up to the kernel to ensure that a task's `VmSpace` is always activated
-/// while the task is running. This can be done by using the injected post schedule handler
-/// (see [`inject_post_schedule_handler`]) to always activate the correct `VmSpace` after each
-/// context switch.
-///
-/// If the kernel otherwise decides not to ensure that the running task's `VmSpace` is always
-/// activated, the kernel must deal with race conditions when calling methods that require the
-/// `VmSpace` to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
-/// [`VmSpace::writer`]. Otherwise, the behavior is unspecified, though it's guaranteed _not_ to
-/// compromise the kernel's memory safety.
-///
-/// # Memory Backing
-///
-/// A newly-created `VmSpace` is not backed by any physical memory pages. To
-/// provide memory pages for a `VmSpace`, one can allocate and map physical
-/// memory ([`UFrame`]s) to the `VmSpace` using the cursor.
-///
-/// A `VmSpace` can also attach a page fault handler, which will be invoked to
-/// handle page faults generated from user space.
-///
-/// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
-/// [`UserMode::execute`]: crate::user::UserMode::execute
-#[derive(Debug)]
-pub struct VmSpace {
-    pt: PageTable<UserPtConfig>,
-    cpus: AtomicCpuSet,
-}
+use alloc::sync::Arc;
+
+verus! {
+
+type Result<A> = core::result::Result<A, Error>;
 
 impl VmSpace {
+    /*
     /// Creates a new VM address space.
     pub fn new() -> Self {
         Self {
@@ -75,6 +44,7 @@ impl VmSpace {
             cpus: AtomicCpuSet::new(CpuSet::new_empty()),
         }
     }
+    */
 
     /// Gets an immutable cursor in the virtual address range.
     ///
@@ -84,12 +54,14 @@ impl VmSpace {
     ///
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
-    pub fn cursor<'a, G: AsAtomicModeGuard>(
+    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
+    pub fn cursor<'a, G: InAtomicMode>(
         &'a self,
         guard: &'a G,
         va: &Range<Vaddr>,
-    ) -> Result<Cursor<'a>> {
-        Ok(self.pt.cursor(guard, va).map(Cursor)?)
+    ) -> Result<Cursor<'a, G>> {
+        Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
     /// Gets an mutable cursor in the virtual address range.
@@ -102,17 +74,19 @@ impl VmSpace {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<'a, G: AsAtomicModeGuard>(
+    #[rustc_allow_incoherent_impl]
+    pub fn cursor_mut<'a, G: InAtomicMode>(
         &'a self,
         guard: &'a G,
         va: &Range<Vaddr>,
-    ) -> Result<CursorMut<'a>> {
+    ) -> Result<CursorMut<'a, G>> {
         Ok(self.pt.cursor_mut(guard, va).map(|pt_cursor| CursorMut {
-            pt_cursor,
-            flusher: TlbFlusher::new(&self.cpus, disable_preempt()),
+            pt_cursor: pt_cursor.0,
+//            flusher: TlbFlusher::new(&self.cpus, disable_preempt()),
         })?)
     }
 
+    /* TODO: We don't currently do per-CPU stuff
     /// Activates the page table on the current CPU.
     pub fn activate(self: &Arc<Self>) {
         let preempt_guard = disable_preempt();
@@ -140,7 +114,9 @@ impl VmSpace {
 
         self.pt.activate();
     }
+    */
 
+    /* TODO: come back after IO
     /// Creates a reader to read data from the user space of the current task.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
@@ -148,7 +124,8 @@ impl VmSpace {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_, Fallible>> {
+    #[rustc_allow_incoherent_impl]
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             return Err(Error::AccessDenied);
         }
@@ -158,7 +135,7 @@ impl VmSpace {
         }
 
         // SAFETY: The memory range is in user space, as checked above.
-        Ok(unsafe { VmReader::<Fallible>::from_user_space(vaddr as *const u8, len) })
+        Ok(unsafe { VmReader::from_user_space(vaddr as *const u8, len) })
     }
 
     /// Creates a writer to write data into the user space.
@@ -168,7 +145,8 @@ impl VmSpace {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
-    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_, Fallible>> {
+    #[rustc_allow_incoherent_impl]
+    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             return Err(Error::AccessDenied);
         }
@@ -182,38 +160,53 @@ impl VmSpace {
         // the `VmWriter`.
         //
         // SAFETY: The memory range is in user space, as checked above.
-        Ok(unsafe { VmWriter::<Fallible>::from_user_space(vaddr as *mut u8, len) })
+        Ok(unsafe { VmWriter::from_user_space(vaddr as *mut u8, len) })
     }
+    */
 }
 
+/*
 impl Default for VmSpace {
     fn default() -> Self {
         Self::new()
     }
 }
+*/
 
 /// The cursor for querying over the VM space without modifying it.
 ///
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
-pub struct Cursor<'a>(page_table::Cursor<'a, UserPtConfig>);
+pub struct Cursor<'a, A: InAtomicMode>(pub aster_common::prelude::page_table::Cursor<'a, UserPtConfig, A>);
 
-impl Iterator for Cursor<'_> {
+/*
+impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
     type Item = (Range<Vaddr>, Option<MappedItem>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
 }
+*/
 
-impl Cursor<'_> {
+impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
-        Ok(self.0.query()?)
+    #[verus_spec(
+        with Tracked(owner): Tracked<&CursorOwner<'rcu, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+        requires
+            owner.inv(),
+            old(self).0.wf(*owner),
+            old(regions).inv()
+    {
+        Ok(#[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))] self.0.query()?)
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -248,22 +241,33 @@ impl Cursor<'_> {
 ///
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
-pub struct CursorMut<'a> {
-    pt_cursor: page_table::CursorMut<'a, UserPtConfig>,
+pub struct CursorMut<'a, A: InAtomicMode> {
+    pub pt_cursor: aster_common::prelude::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
-    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
+//    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
 }
 
-impl<'a> CursorMut<'a> {
+impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Queries the mapping at the current virtual address.
     ///
     /// This is the same as [`Cursor::query`].
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
-        Ok(self.pt_cursor.query()?)
+    #[verus_spec(
+        with Tracked(owner): Tracked<&CursorOwner<'a, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+        requires
+            owner.inv(),
+            old(self).pt_cursor.inner.wf(*owner),
+            old(regions).inv()
+
+    {
+        Ok(#[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))] self.pt_cursor.query()?)
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -286,27 +290,29 @@ impl<'a> CursorMut<'a> {
         self.pt_cursor.virt_addr()
     }
 
+    /* TODO: come back after TLB
     /// Get the dedicated TLB flusher for this cursor.
     pub fn flusher(&mut self) -> &mut TlbFlusher<'a, DisabledPreemptGuard> {
         &mut self.flusher
     }
+    */
 
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
     pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
         let start_va = self.virt_addr();
-        let item = (frame, prop);
+        let item = MappedItem { frame: frame, prop: prop };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (unsafe { self.pt_cursor.map(item) }) else {
             return; // No mapping exists at the current address.
         };
 
-        match frag {
+/*        match frag {
             PageTableFrag::Mapped { va, item } => {
                 debug_assert_eq!(va, start_va);
-                let (old_frame, _) = item;
+                let old_frame = item.frame;
                 self.flusher
                     .issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
                 self.flusher.dispatch_tlb_flush();
@@ -315,6 +321,7 @@ impl<'a> CursorMut<'a> {
                 panic!("`UFrame` is base page sized but re-mapping out a child PT");
             }
         }
+*/
     }
 
     /// Clears the mapping starting from the current slot,
@@ -335,6 +342,7 @@ impl<'a> CursorMut<'a> {
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
+    #[verifier::external_body]
     pub fn unmap(&mut self, len: usize) -> usize {
         let end_va = self.virt_addr() + len;
         let mut num_unmapped: usize = 0;
@@ -347,10 +355,10 @@ impl<'a> CursorMut<'a> {
 
             match frag {
                 PageTableFrag::Mapped { va, item, .. } => {
-                    let (frame, _) = item;
+                    let frame = item.frame;
                     num_unmapped += 1;
-                    self.flusher
-                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+//                    self.flusher
+//                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 }
                 PageTableFrag::StrayPageTable {
                     pt,
@@ -359,13 +367,13 @@ impl<'a> CursorMut<'a> {
                     num_frames,
                 } => {
                     num_unmapped += num_frames;
-                    self.flusher
-                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+//                    self.flusher
+//                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 }
             }
         }
 
-        self.flusher.dispatch_tlb_flush();
+//        self.flusher.dispatch_tlb_flush();
 
         num_unmapped
     }
@@ -390,17 +398,23 @@ impl<'a> CursorMut<'a> {
     /// # Panics
     ///
     /// Panics if the length is longer than the remaining range of the cursor.
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
+            Tracked(slot_owner): Tracked<&MetaSlotOwner>
+    )]
+    #[verifier::external_body]
     pub fn protect_next(
         &mut self,
         len: usize,
-        mut op: impl FnMut(&mut PageProperty),
+        op: impl FnOnce(PageProperty) -> PageProperty,
     ) -> Option<Range<Vaddr>> {
         // SAFETY: It is safe to protect memory in the userspace.
-        unsafe { self.pt_cursor.protect_next(len, &mut op) }
+        unsafe { #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(slot_owner))] self.pt_cursor.protect_next(len, op) }
     }
 }
 
-cpu_local_cell! {
+/*cpu_local_cell! {
     /// The `Arc` pointer to the activated VM space on this CPU. If the pointer
     /// is NULL, it means that the activated page table is merely the kernel
     /// page table.
@@ -408,21 +422,15 @@ cpu_local_cell! {
     // CPU, rather than merely the activated `VmSpace`. When ASID is enabled,
     // the non-active `VmSpace`s can still have their TLB entries in the CPU!
     static ACTIVATED_VM_SPACE: *const VmSpace = core::ptr::null();
-}
+}*/
 
-#[cfg(ktest)]
+/*#[cfg(ktest)]
 pub(super) fn get_activated_vm_space() -> *const VmSpace {
     ACTIVATED_VM_SPACE.load()
-}
-
-/// The item that can be mapped into the [`VmSpace`].
-pub type MappedItem = (UFrame, PageProperty);
-
-#[derive(Clone, Debug)]
-pub(crate) struct UserPtConfig {}
+}*/
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
-unsafe impl PageTableConfig for UserPtConfig {
+/*unsafe impl PageTableConfig for UserPtConfig {
     const TOP_LEVEL_INDEX_RANGE: Range<usize> = 0..256;
 
     type E = PageTableEntry;
@@ -443,4 +451,5 @@ unsafe impl PageTableConfig for UserPtConfig {
         let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
         (frame, prop)
     }
+}*/
 }

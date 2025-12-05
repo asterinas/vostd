@@ -100,7 +100,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         proof {
             T::from_to_repr(perm.value());
         }
-        T::from_repr(self.ptr.take(Tracked(perm.points_to.borrow_mut())))
+        T::from_repr(self.ptr.take(Tracked(&mut perm.points_to)))
     }
 
     pub exec fn put(self, Tracked(perm): Tracked<&mut PointsTo<R, T>>, v: T)
@@ -116,7 +116,7 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             v.from_to_repr();
             v.to_repr_wf();
         }
-        self.ptr.put(Tracked(perm.points_to.borrow_mut()), v.to_repr())
+        self.ptr.put(Tracked(&mut perm.points_to), v.to_repr())
     }
 
     pub exec fn borrow<'a>(self, Tracked(perm): Tracked<&'a PointsTo<R, T>>) -> (v: &'a T)
@@ -127,40 +127,35 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
         ensures
             *v === perm.value(),
     {
-        T::from_borrowed(self.ptr.borrow(Tracked(perm.points_to.borrow())))
+        T::from_borrowed(self.ptr.borrow(Tracked(&perm.points_to)))
     }
 }
 
 #[verifier::accept_recursive_types(T)]
 pub tracked struct PointsTo<R, T: Repr<R>> {
-    pub addr: usize,
-    pub points_to: Tracked<simple_pptr::PointsTo<R>>,
+    pub ghost addr: usize,
+    pub points_to: simple_pptr::PointsTo<R>,
     pub _T: PhantomData<T>,
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub fn new(addr: usize, points_to: Tracked<simple_pptr::PointsTo<R>>) -> Tracked<Self> {
-        Tracked(Self { addr: addr, points_to: points_to, _T: PhantomData })
+    pub proof fn new(
+        addr: Ghost<usize>,
+        tracked points_to: simple_pptr::PointsTo<R>,
+    ) -> tracked Self {
+        Self { addr: addr@, points_to: points_to, _T: PhantomData }
     }
 
-    pub closed spec fn wf(self) -> bool {
-        &&& T::wf(self.points_to@.value())
+    pub open spec fn wf(self) -> bool {
+        &&& T::wf(self.points_to.value())
     }
 
-    pub open spec fn addr_spec(self) -> usize {
+    pub open spec fn addr(self) -> usize {
         self.addr
     }
 
-    #[verifier::when_used_as_spec(addr_spec)]
-    pub fn addr(self) -> (u: usize)
-        ensures
-            u == self.addr_spec(),
-    {
-        self.addr
-    }
-
-    pub closed spec fn mem_contents(self) -> MemContents<T> {
-        match self.points_to@.mem_contents() {
+    pub open spec fn mem_contents(self) -> MemContents<T> {
+        match self.points_to.mem_contents() {
             MemContents::<R>::Uninit => MemContents::<T>::Uninit,
             MemContents::<R>::Init(r) => MemContents::<T>::Init(T::from_repr(r)),
         }
@@ -182,7 +177,7 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
     }
 
     pub open spec fn pptr(self) -> ReprPtr<R, T> {
-        ReprPtr { addr: self.addr, ptr: self.points_to@.pptr(), _T: PhantomData }
+        ReprPtr { addr: self.addr, ptr: self.points_to.pptr(), _T: PhantomData }
     }
 
     pub broadcast proof fn pptr_implies_addr(&self)

@@ -2,19 +2,15 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::*;
-use aster_common::prelude::page_table::*;
 use aster_common::prelude::frame::*;
+use aster_common::prelude::page_table::*;
+use aster_common::prelude::*;
 
 verus! {
 
 impl<C: PageTableConfig> Child<C> {
     #[rustc_allow_incoherent_impl]
-    pub open spec fn into_pte_pt_spec(
-        self,
-        slot_own: MetaSlotOwner,
-        slot_perm: vstd::simple_pptr::PointsTo<MetaSlot>,
-    ) -> C::E {
+    pub open spec fn into_pte_pt_spec(self, slot_own: MetaSlotOwner) -> C::E {
         C::E::new_pt_spec(meta_to_frame(slot_own.self_addr))
     }
 

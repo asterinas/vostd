@@ -62,6 +62,10 @@ impl<const N: usize> TreePath<N> {
     {
     }
 
+    pub open spec fn append(self, path: Self) -> Self {
+        Self(self.0.add(path.0))
+    }
+
     pub broadcast proof fn drop_head_property(self)
         requires
             !#[trigger] self.is_empty(),

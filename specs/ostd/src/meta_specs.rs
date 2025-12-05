@@ -5,8 +5,8 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::*;
 use aster_common::prelude::frame::*;
+use aster_common::prelude::*;
 
 use std::marker::PhantomData;
 
@@ -26,7 +26,7 @@ impl MetaSlot {
         };
         MetaSlotModel {
             status,
-            storage: cell::MemContents::Init(metadata.to_repr()),
+            storage: cell::MemContents::Uninit,  //TODO: fix this cell::MemContents::Init(metadata.to_repr()),
             ref_count: rc,
             vtable_ptr: simple_pptr::MemContents::Init(metadata.vtable_ptr()),
             in_list: 0,
@@ -158,14 +158,9 @@ impl MetaSlot {
     {
         MetaSlotModel { ref_count: (pre.ref_count + 1) as u64, ..pre }
     }
-
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn frame_paddr_spec(&self, pre: MetaSlotModel) -> Paddr {
-        meta_to_frame(pre.self_addr)
-    }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel) -> (
         Self,
@@ -194,7 +189,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_spec(paddr: Paddr) -> Self {
         Frame::<M> {

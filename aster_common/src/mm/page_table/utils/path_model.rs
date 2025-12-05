@@ -14,24 +14,6 @@ pub tracked struct PageTableTreePathModel {
 }
 
 #[verifier::inline]
-pub open spec fn vaddr_shift_bits<const L: usize>(idx: int) -> nat
-    recommends
-        0 < L,
-        idx < L,
-{
-    (12 + 9 * (L - 1 - idx)) as nat
-}
-
-#[verifier::inline]
-pub open spec fn vaddr_shift<const L: usize>(idx: int) -> usize
-    recommends
-        0 < L,
-        idx < L,
-{
-    pow2(vaddr_shift_bits::<L>(idx)) as usize
-}
-
-#[verifier::inline]
 pub open spec fn vaddr_index_mask() -> usize {
     low_bits_mask(9) as usize
 }
@@ -51,16 +33,6 @@ pub broadcast proof fn vaddr_mask_identical(index: usize)
         lemma_low_bits_mask_values();
     };
     assert(index & 511 == index % 512) by (bit_vector);
-}
-
-#[verifier::inline]
-pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
-    recommends
-        0 < L,
-        idx < L,
-        0 <= offset < 512,
-{
-    (vaddr_shift::<L>(idx) * offset) as usize
 }
 
 pub proof fn lemma_vaddr_make_bounded<const L: usize>(idx: int, offset: usize)
@@ -126,22 +98,6 @@ impl PageTableTreePathModel {
         &&& self.inner.inv()
     }
 
-    pub open spec fn rec_vaddr(path: TreePath<CONST_NR_ENTRIES>, idx: int) -> usize
-        recommends
-            0 < NR_LEVELS(),
-            path.len() <= NR_LEVELS(),
-            0 <= idx <= path.len(),
-        decreases (path.len() - idx),
-        when 0 <= idx <= path.len()
-    {
-        if idx == path.len() {
-            0
-        } else {
-            let offset: usize = path.index(idx);
-            (vaddr_make::<CONST_NR_LEVELS>(idx, offset) + Self::rec_vaddr(path, idx + 1)) as usize
-        }
-    }
-
     pub proof fn rec_vaddr_pop_0(path: TreePath<CONST_NR_ENTRIES>, len: int, idx: int)
         requires
             path.inv(),
@@ -181,13 +137,6 @@ impl PageTableTreePathModel {
             assert(path.index(idx) == pushed.index(idx)) by { path.push_tail_property(0 as usize) };
             Self::rec_vaddr_push_0(path, len, idx + 1);
         }
-    }
-
-    pub open spec fn vaddr(self) -> usize
-        recommends
-            self.inv(),
-    {
-        Self::rec_vaddr(self.inner, 0)
     }
 
     #[verifier::inline]

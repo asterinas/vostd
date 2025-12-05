@@ -1,4 +1,4 @@
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
 
     pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel)
         -> (Self, MetaRegionModel)

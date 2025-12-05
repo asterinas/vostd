@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
-use vstd::simple_pptr::*;
 
 use aster_common::prelude::frame::*;
 use aster_common::prelude::page_table::*;
 use aster_common::prelude::*;
 
+use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
 use ostd_specs::*;
@@ -23,7 +23,7 @@ impl<C: PageTableConfig> Child<C> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with slot_own: Option<Tracked<&MetaSlotOwner>>,
-            slot_perm: Option<Tracked<&PointsTo<MetaSlot>>>
+            slot_perm: Option<Tracked<&PointsTo<MetaSlot, PageTablePageMeta<C>>>>
     )]
     pub fn into_pte(self) -> (res: C::E)
         requires
@@ -31,22 +31,20 @@ impl<C: PageTableConfig> Child<C> {
                 &&& slot_own is Some
                 &&& slot_own.unwrap()@.inv()
                 &&& slot_perm is Some
-                &&& slot_perm.unwrap()@.pptr() == self.get_node().unwrap().ptr
+                &&& slot_perm.unwrap()@.addr() == self.get_node().unwrap().ptr.addr()
+                &&& slot_perm.unwrap()@.points_to.addr() == self.get_node().unwrap().ptr.addr()
                 &&& slot_perm.unwrap()@.is_init()
-                &&& slot_perm.unwrap()@.value().wf(*slot_own.unwrap()@)
+                &&& slot_perm.unwrap()@.points_to.value().wf(*slot_own.unwrap()@)
                 &&& slot_perm.unwrap()@.addr() == slot_own.unwrap()@.self_addr
             },
         ensures
-            self is PageTable ==> res == self.into_pte_pt_spec(
-                *slot_own.unwrap()@,
-                *slot_perm.unwrap()@,
-            ),
+            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
             self is Frame ==> res == self.into_pte_frame_spec(self.get_frame_tuple().unwrap()),
             self is None ==> res == self.into_pte_none_spec(),
     {
         match self {
             Child::PageTable(node) => {
-                #[verus_spec(with Tracked(slot_own.tracked_unwrap().borrow()), Tracked(slot_perm.tracked_unwrap().borrow()))]
+                #[verus_spec(with Tracked(&slot_perm.tracked_unwrap().borrow().points_to))]
                 let paddr = node.start_paddr();
                 let _ = ManuallyDrop::new(node);
                 C::E::new_pt(paddr)
@@ -122,7 +120,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             pte.paddr() < MAX_PADDR(),
             !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
-            old(regions).inv()
+            old(regions).inv(),
     {
         if !pte.is_present() {
             return ChildRef::None;

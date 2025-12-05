@@ -7,7 +7,16 @@ license = "MPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
+[features]
+verus = []
+verify = ["verus"]
+alloc = []
+default = ["verify", "alloc"]
 
-[lints]
-workspace = true
+[package.metadata.verus]
+path = "src/lib.rs"
+verify = true
+
+[dependencies]
+vstd = { workspace = true }
+vstd_extra = { path = "../../../vstd_extra"  }

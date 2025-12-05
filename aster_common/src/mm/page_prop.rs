@@ -15,49 +15,43 @@ pub struct PageProperty {
 
 global layout PageProperty is size == 3, align == 1;
 
-}
-
+} // verus!
 verus! {
 
-pub broadcast proof fn lemma_page_property_equal_correctness(a: PageProperty,
-    b: PageProperty)
-    requires #[trigger] a.flags == #[trigger] b.flags,
+pub broadcast proof fn lemma_page_property_equal_correctness(a: PageProperty, b: PageProperty)
+    requires
+        #[trigger] a.flags == #[trigger] b.flags,
         a.cache == b.cache,
         a.priv_flags == b.priv_flags,
     ensures
-        a == b
-{ }
-
-pub broadcast proof fn lemma_page_property_equal_soundness(a: PageProperty, b: PageProperty)
-    requires a == b
-    ensures #[trigger] a.flags == #[trigger] b.flags,
-        a.cache == b.cache,
-        a.priv_flags == b.priv_flags,
-{ }
-
+        a == b,
+{
 }
 
+pub broadcast proof fn lemma_page_property_equal_soundness(a: PageProperty, b: PageProperty)
+    requires
+        a == b,
+    ensures
+        #[trigger] a.flags == #[trigger] b.flags,
+        a.cache == b.cache,
+        a.priv_flags == b.priv_flags,
+{
+}
+
+} // verus!
 verus! {
 
 impl PageProperty {
-
     pub open spec fn new_spec(flags: PageFlags, cache: CachePolicy) -> Self {
-        Self {
-            flags,
-            cache,
-            priv_flags: PrivilegedPageFlags::USER(),
-        }
+        Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
 
     #[verifier::when_used_as_spec(new_spec)]
     pub fn new(flags: PageFlags, cache: CachePolicy) -> (res: Self)
-        ensures res == Self::new_spec(flags, cache)
+        ensures
+            res == Self::new_spec(flags, cache),
     {
-        Self {
-            flags,
-            cache,
-            priv_flags: PrivilegedPageFlags::USER(),
-        }
+        Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
 
     pub open spec fn new_absent_spec() -> Self {
@@ -70,7 +64,8 @@ impl PageProperty {
 
     #[verifier::when_used_as_spec(new_absent_spec)]
     pub fn new_absent() -> (res: Self)
-        ensures res == Self::new_absent_spec()
+        ensures
+            res == Self::new_absent_spec(),
     {
         Self {
             flags: PageFlags::empty(),
@@ -78,11 +73,9 @@ impl PageProperty {
             priv_flags: PrivilegedPageFlags::empty(),
         }
     }
-
 }
 
-}
-
+} // verus!
 verus! {
 
 // TODO: Make it more abstract when supporting other architectures.
@@ -149,15 +142,15 @@ pub enum CachePolicy {
 impl CachePolicy {
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn N() -> (res: usize)
-    {
+    pub const fn N() -> (res: usize) {
         (CachePolicy::Writeback.value() + 1) as usize
     }
 
     #[inline(always)]
     #[vstd::contrib::auto_spec]
     pub const fn value(&self) -> (res: u8)
-        ensures res == self.value()
+        ensures
+            res == self.value(),
     {
         match self {
             CachePolicy::Uncacheable => 0u8,
@@ -169,8 +162,7 @@ impl CachePolicy {
     }
 }
 
-}
-
+} // verus!
 verus! {
 
 #[verifier::ext_equal]
@@ -181,14 +173,20 @@ pub struct PageFlags {
 }
 
 pub broadcast proof fn lemma_page_flags_equal_correctness(a: PageFlags, b: PageFlags)
-    requires #[trigger] a.bits == #[trigger] b.bits
-    ensures a == b
-{ }
+    requires
+        #[trigger] a.bits == #[trigger] b.bits,
+    ensures
+        a == b,
+{
+}
 
 pub broadcast proof fn lemma_page_flags_equal_soundness(a: PageFlags, b: PageFlags)
-    requires a == b
-    ensures #[trigger] a.bits == #[trigger] b.bits
-{ }
+    requires
+        a == b,
+    ensures
+        #[trigger] a.bits == #[trigger] b.bits,
+{
+}
 
 impl PageFlags {
     pub open spec fn present(self) -> bool {
@@ -197,15 +195,13 @@ impl PageFlags {
 
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn empty() -> (res: Self)
-    {
+    pub const fn empty() -> (res: Self) {
         Self { bits: 0 }
     }
 
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn value(&self) -> (res: u8)
-    {
+    pub const fn value(&self) -> (res: u8) {
         self.bits
     }
 
@@ -221,70 +217,75 @@ impl PageFlags {
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn R() -> (res: Self)
-    {
+    pub const fn R() -> (res: Self) {
         Self { bits: 0b00000001 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn W() -> (res: Self)
-    {
+    pub const fn W() -> (res: Self) {
         Self { bits: 0b00000010 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn X() -> (res: Self)
-    {
+    pub const fn X() -> (res: Self) {
         Self { bits: 0b00000100 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn RW() -> (res: Self)
-    {
+    pub const fn RW() -> (res: Self) {
         Self { bits: Self::R().value() | Self::W().value() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn RX() -> (res: Self)
-    {
+    pub const fn RX() -> (res: Self) {
         Self { bits: Self::R().value() | Self::X().value() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn RWX() -> (res: Self)
-    {
+    pub const fn RWX() -> (res: Self) {
         Self { bits: Self::R().value() | Self::W().value() | Self::X().value() }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn ACCESSED() -> (res: Self)
-    {
+    pub const fn ACCESSED() -> (res: Self) {
         Self { bits: 0b00001000 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn DIRTY() -> (res: Self)
-    {
+    pub const fn DIRTY() -> (res: Self) {
         Self { bits: 0b00010000 }
+    }
+
+    #[allow(non_snake_case)]
+    #[inline(always)]
+    #[vstd::contrib::auto_spec]
+    pub const fn AVAIL1() -> Self {
+        Self { bits: 0b01000000 }
+    }
+
+    #[allow(non_snake_case)]
+    #[inline(always)]
+    #[vstd::contrib::auto_spec]
+    pub const fn AVAIL2() -> Self {
+        Self { bits: 0b10000000 }
     }
 }
 
-}
-
+} // verus!
 verus! {
 
 #[verifier::ext_equal]
@@ -294,62 +295,67 @@ pub struct PrivilegedPageFlags {
     pub bits: u8,
 }
 
-pub broadcast proof fn lemma_privileged_page_flags_equal_correctness(a: PrivilegedPageFlags, b: PrivilegedPageFlags)
-    requires #[trigger] a.bits == #[trigger] b.bits
-    ensures a == b
-{ }
+pub broadcast proof fn lemma_privileged_page_flags_equal_correctness(
+    a: PrivilegedPageFlags,
+    b: PrivilegedPageFlags,
+)
+    requires
+        #[trigger] a.bits == #[trigger] b.bits,
+    ensures
+        a == b,
+{
+}
 
-pub broadcast proof fn lemma_privileged_page_flags_equal_soundness(a: PrivilegedPageFlags, b: PrivilegedPageFlags)
-    requires a == b
-    ensures #[trigger] a.bits == #[trigger] b.bits
-{ }
+pub broadcast proof fn lemma_privileged_page_flags_equal_soundness(
+    a: PrivilegedPageFlags,
+    b: PrivilegedPageFlags,
+)
+    requires
+        a == b,
+    ensures
+        #[trigger] a.bits == #[trigger] b.bits,
+{
+}
 
 impl PrivilegedPageFlags {
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn empty() -> (res: Self)
-    {
+    pub const fn empty() -> (res: Self) {
         Self { bits: 0 }
     }
 
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn value(&self) -> (res: u8)
-    {
+    pub const fn value(&self) -> (res: u8) {
         self.bits
     }
 
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub fn from_bits(value: u8) -> (res: Self)
-    {
+    pub fn from_bits(value: u8) -> (res: Self) {
         Self { bits: value }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn USER() -> (res: Self)
-    {
+    pub const fn USER() -> (res: Self) {
         Self { bits: 0b00000001 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn GLOBAL() -> (res: Self)
-    {
+    pub const fn GLOBAL() -> (res: Self) {
         Self { bits: 0b00000010 }
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     #[vstd::contrib::auto_spec]
-    pub const fn SHARED() -> (res: Self)
-    {
+    pub const fn SHARED() -> (res: Self) {
         Self { bits: 0b10000000 }
     }
-
 }
 
-}
+} // verus!

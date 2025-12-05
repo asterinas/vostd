@@ -12,7 +12,7 @@ use super::*;
 verus! {
 
 /// A reference to a page table node.
-pub type PageTableNodeRef<'a, C: PageTableConfig> = FrameRef<'a, PageTablePageMeta<C>>;
+pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
 
 /// A guard that holds the lock of a page table node.
 #[rustc_has_incoherent_inherent_impls]

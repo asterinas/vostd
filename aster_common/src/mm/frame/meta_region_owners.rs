@@ -16,8 +16,10 @@ verus! {
 pub struct MetaRegion;
 
 pub tracked struct MetaRegionOwners {
-    pub slots: Map<usize, Tracked<simple_pptr::PointsTo<MetaSlot>>>,
-    pub dropped_slots: Map<usize, Tracked<simple_pptr::PointsTo<MetaSlot>>>,
+    // since struct is itself tracked there is no need to wrap
+    // the fields in Tracked<_>.
+    pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
+    pub dropped_slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
 }
 
@@ -44,20 +46,20 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
-                    &&& self.slots[i]@.is_init()
-                    &&& self.slots[i]@.addr() == meta_addr(i)
-                    &&& self.slots[i]@.value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].self_addr == self.slots[i]@.addr()
+                    &&& self.slots[i].is_init()
+                    &&& self.slots[i].addr() == meta_addr(i)
+                    &&& self.slots[i].value().wf(self.slot_owners[i])
+                    &&& self.slot_owners[i].self_addr == self.slots[i].addr()
                     &&& !self.dropped_slots.contains_key(i)
                 }
         }
         &&& {
             forall|i: usize| #[trigger]
                 self.dropped_slots.contains_key(i) ==> {
-                    &&& self.dropped_slots[i]@.is_init()
-                    &&& self.dropped_slots[i]@.addr() == meta_addr(i)
-                    &&& self.dropped_slots[i]@.value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].self_addr == self.dropped_slots[i]@.addr()
+                    &&& self.dropped_slots[i].is_init()
+                    &&& self.dropped_slots[i].addr() == meta_addr(i)
+                    &&& self.dropped_slots[i].value().wf(self.slot_owners[i])
+                    &&& self.slot_owners[i].self_addr == self.dropped_slots[i].addr()
                     &&& !self.slots.contains_key(i)
                 }
         }
@@ -104,7 +106,7 @@ impl MetaRegionOwners {
             self.inv(),
             i < max_meta_slots() as usize,
     {
-        self.slot_owners[i].ref_count@.value()
+        self.slot_owners[i].ref_count.value()
     }
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
@@ -113,8 +115,9 @@ impl MetaRegionOwners {
             range.start < range.end < MAX_PADDR(),
     {
         forall|paddr: Paddr|
+            #![trigger frame_to_index_spec(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
-                ==> #[trigger] self.slots.contains_key(frame_to_index_spec(paddr))
+                ==> self.slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub open spec fn paddr_range_in_dropped_region(self, range: Range<Paddr>) -> bool
@@ -123,9 +126,22 @@ impl MetaRegionOwners {
             range.start < range.end < MAX_PADDR(),
     {
         forall|paddr: Paddr|
+            #![trigger frame_to_index_spec(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
-                ==> !#[trigger] self.slots.contains_key(frame_to_index_spec(paddr))
-                && #[trigger] self.dropped_slots.contains_key(frame_to_index_spec(paddr))
+                ==> !self.slots.contains_key(frame_to_index_spec(paddr))
+                && self.dropped_slots.contains_key(frame_to_index_spec(paddr))
+    }
+
+    pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
+        recommends
+            self.inv(),
+            range.start < range.end < MAX_PADDR(),
+    {
+        forall|paddr: Paddr|
+            #![trigger frame_to_index_spec(paddr)]
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+                ==> !self.slots.contains_key(frame_to_index_spec(paddr))
+                && !self.dropped_slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub proof fn inv_implies_correct_addr(self, paddr: usize)

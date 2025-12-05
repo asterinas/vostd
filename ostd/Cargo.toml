@@ -35,13 +35,10 @@ targets = ["x86_64-unknown-none"]
 
 [dependencies]
 vstd = { workspace = true }
-verus_builtin = { workspace = true }
-verus_builtin_macros = { workspace = true }
-
 vstd_extra = { path = "../vstd_extra" }
 aster_common = { path = "../aster_common" }
 ostd_specs = { path = "../specs/ostd" }
-#align_ext = { path = "libs/align_ext", version = "0.1.0" }
+align_ext = { path = "libs/align_ext", version = "0.1.0" }
 bit_field = "0.10.1"
 buddy_system_allocator = { version = "0.10", default-features = false, features = ["alloc"] }
 bitflags = "1.3"

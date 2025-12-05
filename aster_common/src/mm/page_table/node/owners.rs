@@ -8,14 +8,14 @@ use super::*;
 verus! {
 
 pub tracked struct PageMetaOwner {
-    pub nr_children: Tracked<vstd::cell::PointsTo<u16>>,
-    pub stray: Tracked<vstd::cell::PointsTo<bool>>,
+    pub nr_children: vstd::cell::PointsTo<u16>,
+    pub stray: vstd::cell::PointsTo<bool>,
 }
 
 impl Inv for PageMetaOwner {
     open spec fn inv(self) -> bool {
-        &&& self.nr_children@.is_init()
-        &&& self.stray@.is_init()
+        &&& self.nr_children.is_init()
+        &&& self.stray.is_init()
     }
 }
 
@@ -34,7 +34,7 @@ impl View for PageMetaOwner {
     type V = PageMetaModel;
 
     open spec fn view(&self) -> <Self as View>::V {
-        PageMetaModel { nr_children: self.nr_children@.value(), stray: self.stray@.value() }
+        PageMetaModel { nr_children: self.nr_children.value(), stray: self.stray.value() }
     }
 }
 
@@ -47,24 +47,24 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     type Owner = PageMetaOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.nr_children.id() == owner.nr_children@.id()
-        &&& self.stray.id() == owner.stray@.id()
+        &&& self.nr_children.id() == owner.nr_children.id()
+        &&& self.stray.id() == owner.stray.id()
     }
 }
 
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub meta_perm: Tracked<vstd_extra::cast_ptr::PointsTo<MetaSlotStorage, PageTablePageMeta<C>>>,
+    pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
-        &&& self.meta_perm@.points_to@.is_init()
-        &&& <PageTablePageMeta<C> as Repr<MetaSlotStorage>>::wf(self.meta_perm@.points_to@.value())
+        &&& self.meta_perm.points_to.is_init()
+        &&& <PageTablePageMeta<C> as Repr<MetaSlot>>::wf(self.meta_perm.points_to.value())
         &&& self.meta_own.inv()
-        &&& self.meta_perm@.value().wf(self.meta_own)
-        &&& self.meta_perm@.is_init()
-        &&& self.meta_perm@.wf()
+        &&& self.meta_perm.value().wf(self.meta_own)
+        &&& self.meta_perm.is_init()
+        &&& self.meta_perm.wf()
     }
 }
 
@@ -82,7 +82,7 @@ impl<C: PageTableConfig> View for NodeOwner<C> {
     type V = NodeModel<C>;
 
     open spec fn view(&self) -> <Self as View>::V {
-        NodeModel { meta: self.meta_perm@.value() }
+        NodeModel { meta: self.meta_perm.value() }
     }
 }
 

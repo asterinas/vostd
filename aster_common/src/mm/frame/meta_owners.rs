@@ -74,8 +74,7 @@ impl PageUsage {
     }
 
     #[vstd::contrib::auto_spec]
-    pub fn as_state(&self) -> (res: PageState)
-    {
+    pub fn as_state(&self) -> (res: PageState) {
         match &self {
             PageUsage::Unused => PageState::Unused,
             PageUsage::Frame => PageState::Untyped,
@@ -94,30 +93,30 @@ pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 verus! {
 
 pub tracked struct MetaSlotOwner {
-    pub storage: Tracked<PointsTo<MetaSlotStorage>>,
-    pub ref_count: Tracked<PermissionU64>,
-    pub vtable_ptr: Tracked<PointsTo<usize>>,
-    pub in_list: Tracked<PermissionU64>,
+    pub storage: PointsTo<MetaSlotStorage>,
+    pub ref_count: PermissionU64,
+    pub vtable_ptr: PointsTo<usize>,
+    pub in_list: PermissionU64,
     pub self_addr: usize,
     pub usage: PageUsage,
 }
 
 impl Inv for MetaSlotOwner {
     open spec fn inv(self) -> bool {
-        &&& self.ref_count@.value() == REF_COUNT_UNUSED ==> {
-            &&& self.vtable_ptr@.is_uninit()
-            &&& self.in_list@.value() == 0
+        &&& self.ref_count.value() == REF_COUNT_UNUSED ==> {
+            &&& self.vtable_ptr.is_uninit()
+            &&& self.in_list.value() == 0
         }
-        &&& self.ref_count@.value() == REF_COUNT_UNIQUE ==> {
-            &&& self.vtable_ptr@.is_init()
+        &&& self.ref_count.value() == REF_COUNT_UNIQUE ==> {
+            &&& self.vtable_ptr.is_init()
         }
-        &&& 0 < self.ref_count@.value() < REF_COUNT_MAX ==> {
-            &&& self.vtable_ptr@.is_init()
+        &&& 0 < self.ref_count.value() < REF_COUNT_MAX ==> {
+            &&& self.vtable_ptr.is_init()
         }
-        &&& REF_COUNT_MAX <= self.ref_count@.value() < REF_COUNT_UNUSED ==> { false }
-        &&& self.ref_count@.value() == 0 ==> {
-            &&& self.vtable_ptr@.is_uninit()
-            &&& self.in_list@.value() == 0
+        &&& REF_COUNT_MAX <= self.ref_count.value() < REF_COUNT_UNUSED ==> { false }
+        &&& self.ref_count.value() == 0 ==> {
+            &&& self.vtable_ptr.is_uninit()
+            &&& self.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE().start <= self.self_addr < FRAME_METADATA_RANGE().end
         &&& self.self_addr % META_SLOT_SIZE() == 0
@@ -156,10 +155,10 @@ impl View for MetaSlotOwner {
     type V = MetaSlotModel;
 
     open spec fn view(&self) -> Self::V {
-        let storage = self.storage@.mem_contents();
-        let ref_count = self.ref_count@.value();
-        let vtable_ptr = self.vtable_ptr@.mem_contents();
-        let in_list = self.in_list@.value();
+        let storage = self.storage.mem_contents();
+        let ref_count = self.ref_count.value();
+        let vtable_ptr = self.vtable_ptr.mem_contents();
+        let in_list = self.in_list.value();
         let self_addr = self.self_addr;
         let usage = self.usage;
         let status = match ref_count {
@@ -182,23 +181,15 @@ impl OwnerOf for MetaSlot {
     type Owner = MetaSlotOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.storage == owner.storage@.pptr()
-        &&& self.ref_count.id() == owner.ref_count@.id()
-        &&& self.vtable_ptr == owner.vtable_ptr@.pptr()
-        &&& self.in_list.id() == owner.in_list@.id()
+        &&& self.storage == owner.storage.pptr()
+        &&& self.ref_count.id() == owner.ref_count.id()
+        &&& self.vtable_ptr == owner.vtable_ptr.pptr()
+        &&& self.in_list.id() == owner.in_list.id()
     }
 }
 
 impl ModelOf for MetaSlot {
 
-}
-
-impl MetaSlotOwner {
-    pub fn cast_perm<T: Repr<MetaSlotStorage>>(self) -> Tracked<
-        vstd_extra::cast_ptr::PointsTo<MetaSlotStorage, T>,
-    > {
-        vstd_extra::cast_ptr::PointsTo::new(self.self_addr, self.storage)
-    }
 }
 
 } // verus!

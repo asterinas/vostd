@@ -2,7 +2,7 @@
 use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
-use vstd_extra::ghost_tree::TreePath;
+use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use core::marker::PhantomData;
@@ -48,46 +48,82 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     pub _phantom: PhantomData<&'rcu PageTable<C>>,
 }
 
-pub tracked struct CursorOwner {
-    pub path: TreePath<CONST_NR_ENTRIES>,
+pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
+    pub path_prefix: TreePath<CONST_NR_ENTRIES>,
+    pub locked_path: TreePath<CONST_NR_ENTRIES>,
+    pub level: PagingLevel,
+    pub guard_level: PagingLevel,
+    pub prefix_nodes: Ghost<Seq<IntermediatePageTableEntryView<C>>>,
+    pub locked_subtree: OwnerAsTreeNode<'rcu, C>,
 }
 
-#[rustc_has_incoherent_inherent_impls]
-pub ghost struct CursorModel {
-    pub path: TreePath<CONST_NR_ENTRIES>,
-}
-
-impl Inv for CursorOwner {
+impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
-        0 <= self.path.len() <= 3
+        &&& 0 <= self.path_prefix.len() + self.locked_path.len() <= 3
+        &&& self.prefix_nodes@.len() == self.path_prefix.len()
+        &&& self.path_prefix.len() + 1 == self.guard_level
+        &&& self.locked_path.len() == self.level - self.guard_level
     }
 }
 
-impl Inv for CursorModel {
+impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    pub open spec fn full_path(self) -> TreePath<CONST_NR_ENTRIES> {
+        TreePath(self.path_prefix.0.add(self.locked_path.0))
+    }
+
+    pub open spec fn vaddr(self) -> Vaddr
+    //        recommends
+    //            self.inv(),
+    {
+        vaddr(self.full_path())
+    }
+}
+
+#[rustc_has_incoherent_inherent_impls]
+pub tracked struct CursorView<C: PageTableConfig> {
+    pub cur_va: usize,
+    pub scope: usize,
+    pub fore: Seq<FrameView<C>>,
+    pub rear: Seq<FrameView<C>>
+}
+
+impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         true
     }
 }
 
-impl View for CursorOwner {
-    type V = CursorModel;
+impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
+    type V = CursorView<C>;
 
-    open spec fn view(&self) -> Self::V {
-        CursorModel { path: self.path }
+    uninterp spec fn view(
+        &self,
+    ) -> Self::V;/*{
+    arbitrary
+        let extended = self.locked_path.extend()
+        let paddr = self.locked_subtree.seek(self.locked_path);
+        FrameView {
+            map_va: self.vaddr(),
+            pub pa: int,
+            /// A map from the ancestor frame level to the PTE that the ancestor maps to its child.
+            pub ancestor_chain: Map<int, IntermediatePageTableEntryView<C>>,
+            level: self.level,
+            phantom: PhantomData,
+        }
+    }*/
+
+}
+
+impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
+    proof fn view_preserves_inv(self) {
     }
-
 }
-
-impl InvView for CursorOwner {
-    proof fn view_preserves_inv(self) { }
-}
-
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
-    type Owner = CursorOwner;
+    type Owner = CursorOwner<'rcu, C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.level == owner.path.len() + 1
+        &&& self.level == owner.path_prefix.len() + owner.locked_path.len() + 1
         &&& 1 <= self.level <= 4
     }
 }
@@ -95,7 +131,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> ModelOf for Cursor<'rcu, C, A> {
 
 }
-
 
 /// The cursor of a page table that is capable of map, unmap or protect pages.
 ///
@@ -145,6 +180,23 @@ pub const fn align_down(x: usize, align: usize) -> (res: usize)
     assert(res <= x) by { admit() };
     assert(res % align == 0) by { admit() };
     res
+}
+
+/// A fragment of a page table that can be taken out of the page table.
+#[must_use]
+#[rustc_has_incoherent_inherent_impls]
+pub enum PageTableFrag<C: PageTableConfig> {
+    /// A mapped page table item.
+    Mapped { va: Vaddr, item: C::Item },
+    /// A sub-tree of a page table that is taken out of the page table.
+    ///
+    /// The caller is responsible for dropping it after TLB coherence.
+    StrayPageTable {
+        pt: Frame<PageTablePageMeta<C>>,  // TODO: this was a dyn AnyFrameMeta, but we can't support that...
+        va: Vaddr,
+        len: usize,
+        num_frames: usize,
+    },
 }
 
 impl<'a, C: PageTableConfig, A: InAtomicMode> Cursor<'a, C, A> {

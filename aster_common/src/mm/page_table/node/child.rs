@@ -34,8 +34,7 @@ impl<C: PageTableConfig> Child<C> {
 
     /// Returns whether the child is not present.
     #[vstd::contrib::auto_spec]
-    pub fn is_none(&self) -> (b: bool)
-    {
+    pub fn is_none(&self) -> (b: bool) {
         matches!(self, Child::None)
     }
 }

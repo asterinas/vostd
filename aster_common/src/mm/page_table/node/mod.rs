@@ -117,49 +117,45 @@ uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMe
 >;
 
 #[verifier::external_body]
-extern  fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
+extern fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
     ensures
         _page == drop_tree_spec::<C>(*old(_page)),
 ;
 
-impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    open spec fn wf(r: MetaSlotStorage) -> bool {
-        match r {
-            MetaSlotStorage::PTNode(_) => true,
-            _ => false,
-        }
+impl<C: PageTableConfig> Repr<MetaSlot> for PageTablePageMeta<C> {
+    uninterp spec fn wf(r: MetaSlot) -> bool;
+
+    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+
+    #[verifier::external_body]
+    fn to_repr(self) -> MetaSlot {
+        unimplemented!()
     }
 
-    open spec fn to_repr_spec(self) -> MetaSlotStorage {
-        MetaSlotStorage::PTNode(self.into())
-    }
+    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
 
-    fn to_repr(self) -> MetaSlotStorage {
-        MetaSlotStorage::PTNode(self.into())
-    }
-
-    open spec fn from_repr_spec(r: MetaSlotStorage) -> Self {
-        r.get_node().unwrap().into()
-    }
-
-    fn from_repr(r: MetaSlotStorage) -> Self {
-        r.get_node().unwrap().into()
+    #[verifier::external_body]
+    fn from_repr(r: MetaSlot) -> Self {
+        unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
         unimplemented!()
         //        &r.get_node().unwrap().into()
 
     }
 
     proof fn from_to_repr(self) {
+        admit()
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage) {
+    proof fn to_from_repr(r: MetaSlot) {
+        admit()
     }
 
     proof fn to_repr_wf(self) {
+        admit()
     }
 }
 

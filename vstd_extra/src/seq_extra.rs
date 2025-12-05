@@ -1,7 +1,18 @@
 use vstd::prelude::*;
 use vstd::seq::*;
+use vstd::seq_lib::*;
 
 verus! {
+
+broadcast use {group_seq_axioms, group_seq_lib_default};
+
+#[verifier::external_body]
+pub proof fn seq_tracked_empty<T>() -> (tracked res: Seq<T>)
+    ensures
+        res == Seq::<T>::empty(),
+{
+    unimplemented!();
+}
 
 #[verifier::external_body]
 pub proof fn seq_tracked_new<T>(len: nat, f: impl Fn(int) -> T) -> (tracked res: Seq<T>)
@@ -29,29 +40,29 @@ pub proof fn seq_tracked_add<T>(s1: Seq<T>, s2: Seq<T>) -> (tracked res: Seq<T>)
     unimplemented!();
 }
 
-pub proof fn lemma_seq_add_head_back<T>(s: Seq<T>)
+pub broadcast proof fn lemma_seq_add_head_back<T>(s: Seq<T>)
     requires
         s.len() > 0,
     ensures
-        s =~= seq![s[0]].add(s.drop_first()),
+        s =~= #[trigger] seq![s[0]].add(s.drop_first()),
 {
 }
 
-pub proof fn lemma_seq_push_head<T>(s: Seq<T>, hd: T)
+pub broadcast proof fn lemma_seq_push_head<T>(s: Seq<T>, hd: T)
     ensures
-        seq![hd].add(s) =~= s.reverse().push(hd).reverse(),
+        #[trigger] seq![hd].add(s) =~= s.reverse().push(hd).reverse(),
 {
 }
 
-pub proof fn lemma_seq_drop_pushed_head<T>(s: Seq<T>, hd: T)
+pub broadcast proof fn lemma_seq_drop_pushed_head<T>(s: Seq<T>, hd: T)
     ensures
-        seq![hd].add(s).drop_first() =~= s,
+        #[trigger] seq![hd].add(s).drop_first() =~= s,
 {
 }
 
-pub proof fn lemma_seq_push_head_take_head<T>(s: Seq<T>, hd: T)
+pub broadcast proof fn lemma_seq_push_head_take_head<T>(s: Seq<T>, hd: T)
     ensures
-        seq![hd].add(s)[0] == hd,
+        #[trigger] seq![hd].add(s)[0] == hd,
 {
 }
 
@@ -217,6 +228,25 @@ pub proof fn lemma_prefix_of_common_sequence(source1: Seq<nat>, source2: Seq<nat
         source1 == source2 || source1.len() < source2.len() && source1.is_prefix_of(source2)
             || source2.len() < source1.len() && source2.is_prefix_of(source1),
 {
+}
+
+pub broadcast proof fn lemma_seq_to_set_map_contains<T, U>(s: Seq<T>, f: spec_fn(T) -> U, i: int)
+    requires
+        0 <= i < s.len(),
+    ensures
+        #![trigger s.map_values(f), s[i]]
+        (s.map_values(f)).to_set().contains(f(s[i])),
+{
+    assert(s.contains(s[i]));
+    assert(f(s[i]) == s.map_values(f)[i]);
+}
+
+pub broadcast group group_seq_extra_lemmas {
+    lemma_seq_add_head_back,
+    lemma_seq_push_head,
+    lemma_seq_drop_pushed_head,
+    lemma_seq_push_head_take_head,
+    lemma_seq_to_set_map_contains,
 }
 
 } // verus!

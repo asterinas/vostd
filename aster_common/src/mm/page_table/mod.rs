@@ -1,10 +1,12 @@
 mod cursor;
 mod node;
 mod owners;
+mod view;
 
 pub use cursor::*;
 pub use node::*;
 pub use owners::*;
+pub use view::*;
 
 use vstd::prelude::*;
 
@@ -15,10 +17,6 @@ use core::ops::Range;
 use super::*;
 
 verus! {
-
-impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
-
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PageTableError {
@@ -126,6 +124,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// A concrete trait implementation may require the caller to ensure that
     ///  - the [`super::PageFlags::AVAIL1`] flag is the same as that returned
     ///    from [`PageTableConfig::item_into_raw`].
+    spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
+
+    #[verifier::when_used_as_spec(item_from_raw_spec)]
     fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 }
 

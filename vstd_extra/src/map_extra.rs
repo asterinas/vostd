@@ -3,6 +3,22 @@ use vstd::{map::*, set::*};
 
 verus! {
 
+broadcast use {group_map_axioms, group_set_axioms};
+
+pub broadcast proof fn lemma_map_remove_keys_finite<K, V>(m: Map<K, V>, keys: Set<K>)
+    requires
+        m.dom().finite(),
+        keys.finite(),
+    ensures
+        (#[trigger] m.remove_keys(keys)).dom().finite(),
+{
+    assert(m.remove_keys(keys).dom() =~= m.dom().difference(keys));
+}
+
+pub broadcast group group_map_remove_keys_lemmas {
+    lemma_map_remove_keys_finite,
+}
+
 /// The length of inserting a key-value pair `(k,v)` into a map `m` depends on whether
 /// the key `k` already exists in the map. If it does, the length remains the same;
 /// if it doesn't, the length increases by 1.
