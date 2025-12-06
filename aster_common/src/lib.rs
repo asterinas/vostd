@@ -3,13 +3,13 @@
 #![allow(unused_attributes)]
 
 mod arch;
+mod error;
 mod mm;
 mod task;
-mod error;
 
 use arch::*;
+use error::*;
 use mm::*;
 use task::*;
-use error::*;
 
 pub mod prelude;

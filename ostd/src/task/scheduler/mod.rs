@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Task scheduling.
 //!
 //! # Scheduler Injection
@@ -64,7 +63,6 @@
 //! Violating this invariant—e.g., running the same task on two CPUs concurrently—
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
-
 mod fifo_scheduler;
 pub mod info;
 

@@ -202,23 +202,35 @@ impl Repr<MetaSlot> for MetaSlotStorage {
     closed spec fn wf(slot: mm::frame::meta::MetaSlot) -> bool;
 
     closed spec fn to_repr_spec(self) -> mm::frame::meta::MetaSlot;
-    
+
     #[verifier::external_body]
-    fn to_repr(self) -> mm::frame::meta::MetaSlot { todo!() }
-    
+    fn to_repr(self) -> mm::frame::meta::MetaSlot {
+        todo!()
+    }
+
     closed spec fn from_repr_spec(slot: mm::frame::meta::MetaSlot) -> Self;
-    
+
     #[verifier::external_body]
-    fn from_repr(slot: mm::frame::meta::MetaSlot) -> Self { todo!() }
-    
+    fn from_repr(slot: mm::frame::meta::MetaSlot) -> Self {
+        todo!()
+    }
+
     #[verifier::external_body]
-    fn from_borrowed<'a>(slot: &'a mm::frame::meta::MetaSlot) -> &'a Self { todo!() }
-    
-    proof fn from_to_repr(self) { admit() }
-    
-    proof fn to_from_repr(slot: mm::frame::meta::MetaSlot) { admit() }
-    
-    proof fn to_repr_wf(self) { admit() }
+    fn from_borrowed<'a>(slot: &'a mm::frame::meta::MetaSlot) -> &'a Self {
+        todo!()
+    }
+
+    proof fn from_to_repr(self) {
+        admit()
+    }
+
+    proof fn to_from_repr(slot: mm::frame::meta::MetaSlot) {
+        admit()
+    }
+
+    proof fn to_repr_wf(self) {
+        admit()
+    }
 }
 
 } // verus!

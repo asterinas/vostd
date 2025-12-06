@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The IOMMU support.
-
 use crate::mm::{dma::Daddr, Paddr};
 
 /// An enumeration representing possible errors related to IOMMU.

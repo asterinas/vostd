@@ -74,7 +74,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn vaddr(self) -> Vaddr
     //        recommends
     //            self.inv(),
-    {
+     {
         vaddr(self.full_path())
     }
 }
@@ -84,7 +84,7 @@ pub tracked struct CursorView<C: PageTableConfig> {
     pub cur_va: usize,
     pub scope: usize,
     pub fore: Seq<FrameView<C>>,
-    pub rear: Seq<FrameView<C>>
+    pub rear: Seq<FrameView<C>>,
 }
 
 impl<C: PageTableConfig> Inv for CursorView<C> {

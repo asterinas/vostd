@@ -86,7 +86,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         let tracked node_owner = owner.node.tracked_borrow();
 
         assert(guard.inner.inner.ptr.addr() == node_owner.as_node.meta_perm.addr()) by { admit() };
-        assert(guard.inner.inner.ptr.addr() == node_owner.as_node.meta_perm.points_to.addr()) by { admit() };
+        assert(guard.inner.inner.ptr.addr() == node_owner.as_node.meta_perm.points_to.addr()) by {
+            admit()
+        };
 
         #[verus_spec(with Tracked(&node_owner.as_node.meta_perm))]
         let level = guard.level();

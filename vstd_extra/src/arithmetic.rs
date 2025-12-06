@@ -28,7 +28,7 @@ pub broadcast proof fn lemma_nat_align_up_sound(x: nat, align: nat)
     ensures
         #[trigger] nat_align_up(x, align) >= x,
         nat_align_up(x, align) % align == 0,
-        forall|n: nat|  n >= x && #[trigger] (n % align) == 0 ==> n >= nat_align_up(x, align),
+        forall|n: nat| n >= x && #[trigger] (n % align) == 0 ==> n >= nat_align_up(x, align),
         nat_align_up(x, align) - x < align,
 {
     if x % align == 0 {
@@ -40,7 +40,7 @@ pub broadcast proof fn lemma_nat_align_up_sound(x: nat, align: nat)
         lemma_mod_add_multiples_vanish(down as int, align as int);
     }
 
-    assert forall|n: nat| n >= x && (#[trigger] (n % align))== 0 implies n >= nat_align_up(
+    assert forall|n: nat| n >= x && (#[trigger] (n % align)) == 0 implies n >= nat_align_up(
         x,
         align,
     ) by {

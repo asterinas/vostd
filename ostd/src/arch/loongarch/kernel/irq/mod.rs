@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 mod eiointc;
 
 use loongArch64::register::ecfg::LineBasedInterrupt;

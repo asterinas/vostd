@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The LoongArch boot module defines the entrypoints of Asterinas.
-
 mod efi;
 pub mod smp;
 use core::{arch::global_asm, ffi::CStr};

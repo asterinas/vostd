@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Support for the code coverage feature of OSDK.
 //!
 //! For more information about the code coverage feature (`cargo osdk run --coverage`),
 //! check out the OSDK reference manual.
-
 use alloc::vec::Vec;
 use core::mem::ManuallyDrop;
 

@@ -41,11 +41,14 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
     (vaddr_shift::<L>(idx) * offset) as usize
 }
 
-pub open spec fn rec_vaddr(path: TreePath<CONST_NR_ENTRIES>, idx: int) -> usize
-/*        recommends
+pub open spec fn rec_vaddr(
+    path: TreePath<CONST_NR_ENTRIES>,
+    idx: int,
+) -> usize/*        recommends
         0 < NR_LEVELS(),
         path.len() <= NR_LEVELS(),
         0 <= idx <= path.len(),*/
+
     decreases path.len() - idx,
     when 0 <= idx <= path.len()
 {
@@ -57,8 +60,7 @@ pub open spec fn rec_vaddr(path: TreePath<CONST_NR_ENTRIES>, idx: int) -> usize
     }
 }
 
-pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize
-{
+pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
@@ -98,7 +100,7 @@ impl<'rcu, C: PageTableConfig> TreeNodeValue for EntryOwner<'rcu, C> {
             index: 0,
             base_addr: 0,
             guard_addr: 0,
-            path: TreePath(Seq::empty())
+            path: TreePath(Seq::empty()),
         }
     }
 
@@ -135,15 +137,21 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
             #![auto]
             0 <= i < NR_ENTRIES() ==> self.inner.children[i as int] is Some ==> {
                 &&& self.inner.value.node is Some
-                &&& self.inner.value.node.unwrap().children_perm.is_init(i as int)
+                &&& self.inner.value.node.unwrap().children_perm.is_init(
+                    i as int,
+                )
                 //                &&& self.inner.children[i as int].unwrap().value.tree_node is Some
                 &&& self.inner.value.node.unwrap().children_perm.opt_value()[i as int].value().wf(
                     self.inner.children[i as int].unwrap().value,
                 )
             }
     }
-    
-    pub open spec fn view_rec(node: OwnerNode<'rcu, C>, chain: Map<int, IntermediatePageTableEntryView<C>>, level: int) -> Seq<FrameView<C>>
+
+    pub open spec fn view_rec(
+        node: OwnerNode<'rcu, C>,
+        chain: Map<int, IntermediatePageTableEntryView<C>>,
+        level: int,
+    ) -> Seq<FrameView<C>>
         decreases NR_LEVELS() - level,
     {
         if NR_LEVELS() - level <= 0 {
@@ -151,8 +159,11 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
         } else if node.value.is_frame() {
             Seq::empty().push(node.value@->leaf.to_frame_view(chain))
         } else if node.value.is_node() {
-            let chain = chain.insert(level, node.value@ -> node);
-            node.children.flat_map(|child: Option<OwnerNode<'rcu, C>>| Self::view_rec(child.unwrap(), chain, level + 1))
+            let chain = chain.insert(level, node.value@->node);
+            node.children.flat_map(
+                |child: Option<OwnerNode<'rcu, C>>|
+                    Self::view_rec(child.unwrap(), chain, level + 1),
+            )
         } else if node.value.is_locked() {
             node.value.locked.unwrap()@
         } else {
@@ -167,16 +178,14 @@ pub tracked struct PageTableOwner<'rcu, C: PageTableConfig> {
 }
 
 pub tracked struct PageTableView<C: PageTableConfig> {
-    pub leaves: Seq<FrameView<C>>
+    pub leaves: Seq<FrameView<C>>,
 }
 
 impl<'rcu, C: PageTableConfig> View for PageTableOwner<'rcu, C> {
     type V = PageTableView<C>;
 
     open spec fn view(&self) -> Self::V {
-        PageTableView { 
-            leaves: OwnerAsTreeNode::view_rec(self.tree.inner, Map::empty(), 0)
-        }
+        PageTableView { leaves: OwnerAsTreeNode::view_rec(self.tree.inner, Map::empty(), 0) }
     }
 }
 

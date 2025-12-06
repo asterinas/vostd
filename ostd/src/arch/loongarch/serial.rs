@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The console I/O.
-
 use spin::Once;
 
 use crate::arch::{boot::DEVICE_TREE, mm::paddr_to_daddr};

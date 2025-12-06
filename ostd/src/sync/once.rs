@@ -1,5 +1,8 @@
 use vstd::{
-    atomic_with_ghost, cell::{MemContents, PCell, PointsTo}, modes::tracked_static_ref, prelude::*
+    atomic_with_ghost,
+    cell::{MemContents, PCell, PointsTo},
+    modes::tracked_static_ref,
+    prelude::*,
 };
 
 verus! {
@@ -143,7 +146,11 @@ impl<V, F: Predicate<V>> OnceImpl<V, F> {
     {
         let (cell, Tracked(points_to)) = PCell::new(None);
         let tracked state = OnceState::Uninit(points_to);
-        let state = vstd::atomic_ghost::AtomicU64::new(Ghost((cell, Ghost(f))), UNINIT, Tracked(state));
+        let state = vstd::atomic_ghost::AtomicU64::new(
+            Ghost((cell, Ghost(f))),
+            UNINIT,
+            Tracked(state),
+        );
 
         Self { cell, state, f: Ghost(f) }
     }

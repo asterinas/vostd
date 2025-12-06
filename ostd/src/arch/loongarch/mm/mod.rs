@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use alloc::fmt;
 use core::{arch::asm, ops::Range};
 

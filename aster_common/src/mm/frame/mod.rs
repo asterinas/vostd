@@ -55,10 +55,7 @@ pub struct Frame<M: AnyFrameMeta> {
 
 impl<M: AnyFrameMeta> Clone for Frame<M> {
     fn clone(&self) -> Self {
-        Self {
-            ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
-            _marker: PhantomData
-        }
+        Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
     }
 }
 

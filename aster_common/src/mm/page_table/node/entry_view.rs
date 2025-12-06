@@ -6,7 +6,6 @@ use super::*;
 
 verus! {
 
-
 pub open spec fn level_is_in_range(level: int) -> bool {
     1 <= level <= NR_LEVELS() as int
 }
@@ -25,7 +24,8 @@ pub open spec fn PHYSICAL_BASE_ADDRESS_SPEC() -> usize {
 }
 
 pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
-    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE() * MAX_NR_PAGES() as int
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE()
+        * MAX_NR_PAGES() as int
 }
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
@@ -70,7 +70,8 @@ impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
         &&& pa_is_valid_pt_address(self.map_to_pa)
         &&& level_is_in_range(self.level as int)
         // No self-loop.
-        &&& self.map_to_pa != self.frame_pa
+        &&& self.map_to_pa
+            != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
         &&& self.map_va % (page_size_spec(self.level) as int) == 0
     }
@@ -86,9 +87,12 @@ pub ghost struct FrameView<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for FrameView<C> {
     open spec fn inv(self) -> bool {
         &&& pa_is_valid_pt_address(self.leaf.map_to_pa)
-        &&& level_is_in_range(self.leaf.level as int)
+        &&& level_is_in_range(
+            self.leaf.level as int,
+        )
         // The corresponding virtual address must be aligned to the upper-level page size.
-        &&& self.leaf.map_va % (page_size_spec((self.leaf.level + 1) as PagingLevel) as int) == 0
+        &&& self.leaf.map_va % (page_size_spec((self.leaf.level + 1) as PagingLevel) as int)
+            == 0
         // Ancestor properties.
         &&& forall|ancestor_level: int| #[trigger]
             self.ancestor_chain.contains_key(ancestor_level) ==> {
@@ -126,11 +130,11 @@ impl<C: PageTableConfig> Inv for FrameView<C> {
 }
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
-    pub open spec fn to_frame_view(self, ancestors: Map<int, IntermediatePageTableEntryView<C>>) -> FrameView<C> {
-        FrameView {
-            ancestor_chain: ancestors,
-            leaf: self,
-        }
+    pub open spec fn to_frame_view(
+        self,
+        ancestors: Map<int, IntermediatePageTableEntryView<C>>,
+    ) -> FrameView<C> {
+        FrameView { ancestor_chain: ancestors, leaf: self }
     }
 }
 
@@ -138,7 +142,7 @@ pub ghost enum EntryView<C: PageTableConfig> {
     Leaf { leaf: LeafPageTableEntryView<C> },
     Intermediate { node: IntermediatePageTableEntryView<C> },
     LockedSubtree { views: Seq<FrameView<C>> },
-    Absent
+    Absent,
 }
 
 impl<C: PageTableConfig> Inv for EntryView<C> {
@@ -146,8 +150,8 @@ impl<C: PageTableConfig> Inv for EntryView<C> {
         match self {
             Self::Leaf { leaf: _ } => self->leaf.inv(),
             Self::Intermediate { node: _ } => self->node.inv(),
-            Self::LockedSubtree { views: _ } => forall |i:int| self->views[i].inv(),
-            Self::Absent => true
+            Self::LockedSubtree { views: _ } => forall|i: int| #[trigger] self->views[i].inv(),
+            Self::Absent => true,
         }
     }
 }

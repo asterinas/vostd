@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! The architecture support of context switch.
-
 use crate::task::TaskContextApi;
 
 core::arch::global_asm!(include_str!("switch.S"));

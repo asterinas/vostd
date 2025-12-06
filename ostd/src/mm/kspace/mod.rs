@@ -158,115 +158,115 @@ unsafe impl PageTableConfig for KernelPtConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum MappedItem {
-    Tracked(Frame<dyn AnyFrameMeta>, PageProperty),
-    Untracked(Paddr, PagingLevel, PageProperty),
-}
+// #[derive(Clone, Debug, PartialEq, Eq)]
+// pub(crate) enum MappedItem {
+//     Tracked(Frame<dyn AnyFrameMeta>, PageProperty),
+//     Untracked(Paddr, PagingLevel, PageProperty),
+// }
 
-/// Initializes the kernel page table.
-///
-/// This function should be called after:
-///  - the page allocator and the heap allocator are initialized;
-///  - the memory regions are initialized.
-///
-/// This function should be called before:
-///  - any initializer that modifies the kernel page table.
-pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
-    info!("Initializing the kernel page table");
+// /// Initializes the kernel page table.
+// ///
+// /// This function should be called after:
+// ///  - the page allocator and the heap allocator are initialized;
+// ///  - the memory regions are initialized.
+// ///
+// /// This function should be called before:
+// ///  - any initializer that modifies the kernel page table.
+// pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
+//     info!("Initializing the kernel page table");
 
-    // Start to initialize the kernel page table.
-    let kpt = PageTable::<KernelPtConfig>::new_kernel_page_table();
-    let preempt_guard = disable_preempt();
+//     // Start to initialize the kernel page table.
+//     let kpt = PageTable::<KernelPtConfig>::new_kernel_page_table();
+//     let preempt_guard = disable_preempt();
 
-    // In LoongArch64, we don't need to do linear mappings for the kernel because of DMW0.
-    #[cfg(not(target_arch = "loongarch64"))]
-    // Do linear mappings for the kernel.
-    {
-        let max_paddr = crate::mm::frame::max_paddr();
-        let from = LINEAR_MAPPING_BASE_VADDR..LINEAR_MAPPING_BASE_VADDR + max_paddr;
-        let prop = PageProperty {
-            flags: PageFlags::RW,
-            cache: CachePolicy::Writeback,
-            priv_flags: PrivilegedPageFlags::GLOBAL,
-        };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
-        for (pa, level) in largest_pages::<KernelPtConfig>(from.start, 0, max_paddr) {
-            // SAFETY: we are doing the linear mapping for the kernel.
-            unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
-                .expect("Kernel linear address space is mapped twice");
-        }
-    }
+//     // In LoongArch64, we don't need to do linear mappings for the kernel because of DMW0.
+//     #[cfg(not(target_arch = "loongarch64"))]
+//     // Do linear mappings for the kernel.
+//     {
+//         let max_paddr = crate::mm::frame::max_paddr();
+//         let from = LINEAR_MAPPING_BASE_VADDR..LINEAR_MAPPING_BASE_VADDR + max_paddr;
+//         let prop = PageProperty {
+//             flags: PageFlags::RW,
+//             cache: CachePolicy::Writeback,
+//             priv_flags: PrivilegedPageFlags::GLOBAL,
+//         };
+//         let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+//         for (pa, level) in largest_pages::<KernelPtConfig>(from.start, 0, max_paddr) {
+//             // SAFETY: we are doing the linear mapping for the kernel.
+//             unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
+//                 .expect("Kernel linear address space is mapped twice");
+//         }
+//     }
 
-    // Map the metadata pages.
-    {
-        let start_va = mapping::frame_to_meta::<PagingConsts>(0);
-        let from = start_va..start_va + meta_pages.size();
-        let prop = PageProperty {
-            flags: PageFlags::RW,
-            cache: CachePolicy::Writeback,
-            priv_flags: PrivilegedPageFlags::GLOBAL,
-        };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
-        // We use untracked mapping so that we can benefit from huge pages.
-        // We won't unmap them anyway, so there's no leaking problem yet.
-        // TODO: support tracked huge page mapping.
-        let pa_range = meta_pages.into_raw();
-        for (pa, level) in
-            largest_pages::<KernelPtConfig>(from.start, pa_range.start, pa_range.len())
-        {
-            // SAFETY: We are doing the metadata mappings for the kernel.
-            unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
-                .expect("Frame metadata address space is mapped twice");
-        }
-    }
+//     // Map the metadata pages.
+//     {
+//         let start_va = mapping::frame_to_meta::<PagingConsts>(0);
+//         let from = start_va..start_va + meta_pages.size();
+//         let prop = PageProperty {
+//             flags: PageFlags::RW,
+//             cache: CachePolicy::Writeback,
+//             priv_flags: PrivilegedPageFlags::GLOBAL,
+//         };
+//         let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+//         // We use untracked mapping so that we can benefit from huge pages.
+//         // We won't unmap them anyway, so there's no leaking problem yet.
+//         // TODO: support tracked huge page mapping.
+//         let pa_range = meta_pages.into_raw();
+//         for (pa, level) in
+//             largest_pages::<KernelPtConfig>(from.start, pa_range.start, pa_range.len())
+//         {
+//             // SAFETY: We are doing the metadata mappings for the kernel.
+//             unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
+//                 .expect("Frame metadata address space is mapped twice");
+//         }
+//     }
 
-    // In LoongArch64, we don't need to do linear mappings for the kernel code because of DMW0.
-    #[cfg(not(target_arch = "loongarch64"))]
-    // Map for the kernel code itself.
-    // TODO: set separated permissions for each segments in the kernel.
-    {
-        let regions = &crate::boot::EARLY_INFO.get().unwrap().memory_regions;
-        let region = regions
-            .iter()
-            .find(|r| r.typ() == MemoryRegionType::Kernel)
-            .unwrap();
-        let offset = kernel_loaded_offset();
-        let from = region.base() + offset..region.end() + offset;
-        let prop = PageProperty {
-            flags: PageFlags::RWX,
-            cache: CachePolicy::Writeback,
-            priv_flags: PrivilegedPageFlags::GLOBAL,
-        };
-        let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
-        for (pa, level) in largest_pages::<KernelPtConfig>(from.start, region.base(), from.len()) {
-            // SAFETY: we are doing the kernel code mapping.
-            unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
-                .expect("Kernel code mapped twice");
-        }
-    }
+//     // In LoongArch64, we don't need to do linear mappings for the kernel code because of DMW0.
+//     #[cfg(not(target_arch = "loongarch64"))]
+//     // Map for the kernel code itself.
+//     // TODO: set separated permissions for each segments in the kernel.
+//     {
+//         let regions = &crate::boot::EARLY_INFO.get().unwrap().memory_regions;
+//         let region = regions
+//             .iter()
+//             .find(|r| r.typ() == MemoryRegionType::Kernel)
+//             .unwrap();
+//         let offset = kernel_loaded_offset();
+//         let from = region.base() + offset..region.end() + offset;
+//         let prop = PageProperty {
+//             flags: PageFlags::RWX,
+//             cache: CachePolicy::Writeback,
+//             priv_flags: PrivilegedPageFlags::GLOBAL,
+//         };
+//         let mut cursor = kpt.cursor_mut(&preempt_guard, &from).unwrap();
+//         for (pa, level) in largest_pages::<KernelPtConfig>(from.start, region.base(), from.len()) {
+//             // SAFETY: we are doing the kernel code mapping.
+//             unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) }
+//                 .expect("Kernel code mapped twice");
+//         }
+//     }
 
-    KERNEL_PAGE_TABLE.call_once(|| kpt);
-}
+//     KERNEL_PAGE_TABLE.call_once(|| kpt);
+// }
 
-/// Activates the kernel page table.
-///
-/// # Safety
-///
-/// This function should only be called once per CPU.
-pub unsafe fn activate_kernel_page_table() {
-    let kpt = KERNEL_PAGE_TABLE
-        .get()
-        .expect("The kernel page table is not initialized yet");
-    // SAFETY: the kernel page table is initialized properly.
-    unsafe {
-        kpt.first_activate_unchecked();
-        crate::arch::mm::tlb_flush_all_including_global();
-    }
+// /// Activates the kernel page table.
+// ///
+// /// # Safety
+// ///
+// /// This function should only be called once per CPU.
+// pub unsafe fn activate_kernel_page_table() {
+//     let kpt = KERNEL_PAGE_TABLE
+//         .get()
+//         .expect("The kernel page table is not initialized yet");
+//     // SAFETY: the kernel page table is initialized properly.
+//     unsafe {
+//         kpt.first_activate_unchecked();
+//         crate::arch::mm::tlb_flush_all_including_global();
+//     }
 
-    // SAFETY: the boot page table is OK to be dismissed now since
-    // the kernel page table is activated just now.
-    unsafe {
-        crate::mm::page_table::boot_pt::dismiss();
-    }
-}
+//     // SAFETY: the boot page table is OK to be dismissed now since
+//     // the kernel page table is activated just now.
+//     unsafe {
+//         crate::mm::page_table::boot_pt::dismiss();
+//     }
+// }

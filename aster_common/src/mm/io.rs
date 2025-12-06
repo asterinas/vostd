@@ -24,10 +24,10 @@ verus! {
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 #[rustc_has_incoherent_inherent_impls]
-pub struct VmReader<'a/*, Fallibility = Fallible*/> {
+pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     cursor: PPtr<u8>,
     end: PPtr<u8>,
-    phantom: PhantomData<&'a [u8]/*, Fallibility)*/>,
+    phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
 }
 
 /// `VmWriter` is a writer for writing data to a contiguous range of memory.
@@ -48,10 +48,10 @@ pub struct VmReader<'a/*, Fallibility = Fallible*/> {
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 #[rustc_has_incoherent_inherent_impls]
-pub struct VmWriter<'a/*, Fallibility = Fallible*/> {
+pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
     cursor: PPtr<u8>,
     end: PPtr<u8>,
-    phantom: PhantomData<&'a [u8]/*, Fallibility)*/>,
+    phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
 }
 
-}
+} // verus!

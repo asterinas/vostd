@@ -31,13 +31,13 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// [`Segment<M>`] for verification purposes.
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     /// The permissions for all frames in the segment.
-    /// 
+    ///
     /// # Note
-    /// 
+    ///
     /// The permissions are marked as `ghost` as some APIs are not exposed
     /// as `tracked` and thus not be available immediately inside proof
     /// contexts. For example, `to_set`, `map_values`, etc.
-    /// 
+    ///
     /// This does not, however, affect verification as the ghost objects
     /// are comptabile with proof contexts.
     pub ghost perms: Seq<FramePerm<M>>,

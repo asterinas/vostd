@@ -72,6 +72,7 @@ impl<C: PageTableConfig> PageTableFrag<C> {
     }
 }
 
+#[verus_verify]
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// Creates a cursor claiming exclusive access over the given range.
     ///
@@ -84,10 +85,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>
     )]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
-        -> (res: (Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError>))
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: (Result<
+        (Self, Tracked<CursorOwner<'rcu, C>>),
+        PageTableError,
+    >))
         ensures
-            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@)
+            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
     {
         if !is_valid_range::<C>(va) || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
@@ -97,6 +100,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS()) };
 
+        #[verusfmt::skip]
         Ok(
             #[verus_spec(with Tracked(pt_own), Tracked(guard_perm))]
             locking::lock_range(pt, guard, va)
@@ -105,7 +109,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
     /// Gets the current virtual address.
     #[rustc_allow_incoherent_impl]
-    pub fn virt_addr(&self) -> Vaddr {
+    pub fn virt_addr(&self) -> Vaddr
+        returns
+            self.va,
+    {
         self.va
     }
 
@@ -114,18 +121,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(r =>
         with Tracked(owner): Tracked<&CursorOwner<'rcu, C>>,
             Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    #[verifier::external_body]
-    pub fn query(&mut self) -> Result<PagesState<C>, PageTableError>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             owner.inv(),
             old(self).wf(*owner),
             old(regions).inv(),
-    {
+        ensures
+            self.wf(*owner),
+            regions.inv(),
+    )]
+    #[verifier::external_body]
+    pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             return Err(PageTableError::InvalidVaddr(self.va));
         }
@@ -326,7 +335,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.va = va;
                 return Ok(());
             }
-
             self.pop_level();
         }
     }
@@ -426,8 +434,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             1 <= old(self).level <= 4,
             old(self).path[old(self).level as int - 1] is Some,
             owner.locked_subtree.inner.value.node.unwrap().inv(),
-            owner.locked_subtree.inner.value.node.unwrap().guard_perm.addr() ==
-                old(self).path[old(self).level as usize - 1].unwrap().addr(),
+            owner.locked_subtree.inner.value.node.unwrap().guard_perm.addr() == old(self).path[old(
+                self,
+            ).level as usize - 1].unwrap().addr(),
     {
         let node = self.path[self.level as usize - 1].unwrap();
         let tracked entry_own = &owner.locked_subtree.inner.value;
@@ -442,7 +451,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     #[verifier::external_body]
     fn cur_va_range(&self) -> Range<Vaddr>
-        returns self.model(*owner).cur_va_range_spec()
+        returns
+            self.model(*owner).cur_va_range_spec(),
     {
         let page_size = page_size(self.level);
         assert(page_size > 0) by { admit() };
@@ -468,7 +478,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// depending on the access method.
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
+        (Self, Tracked<CursorOwner<'rcu, C>>),
+        PageTableError,
+    > {
         Cursor::new(pt, guard, va).map(|inner| (Self { inner: inner.0 }, inner.1))
     }
 
@@ -495,7 +508,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     /// Gets the current virtual address.
     #[rustc_allow_incoherent_impl]
-    pub fn virt_addr(&self) -> Vaddr {
+    pub fn virt_addr(&self) -> Vaddr
+        returns
+            self.inner.va,
+    {
         self.inner.virt_addr()
     }
 
@@ -504,17 +520,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(r =>
         with Tracked(owner): Tracked<&CursorOwner<'rcu, C>>,
             Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn query(&mut self) -> Result<PagesState<C>, PageTableError>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             owner.inv(),
             old(self).inner.wf(*owner),
             old(regions).inv(),
-    {
+        ensures
+            regions.inv(),
+            self.inner.wf(*owner),
+    )]
+    pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.inner.query()
     }
@@ -623,7 +641,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///  - the length is not page-aligned.
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
-    pub fn take_next(&mut self, len: usize) -> Option<PageTableFrag<C>> {
+    pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>)
+        ensures
+            self.inner.va == old(self).inner.va + PAGE_SIZE(),
+    {
         self.inner.find_next_impl(len, true, true)?;
 
         let frag = self.replace_cur_entry(Child::None);
@@ -673,7 +694,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ) -> Option<Range<Vaddr>>
         requires
             slot_own.inv(),
-            old(owner).locked_subtree.inner.value.node.is_Some(),
+            old(owner).locked_subtree.inner.value.node is Some,
     {
         self.inner.find_next_impl(len, false, true)?;
 

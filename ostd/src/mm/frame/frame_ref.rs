@@ -111,7 +111,8 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
 }
 
-pub assume_specification [usize::trailing_zeros] (_0: usize) -> u32;
+pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32
+;
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
@@ -131,18 +132,14 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
     }
 
     unsafe fn from_raw(raw: PPtr<Self::Target>) -> Self {
-        Self {
-            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
-            _marker: PhantomData,
-        }
+        Self { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData }
     }
 
     unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>) -> Self::Ref<'a> {
         Self::Ref {
-            inner: ManuallyDrop::new(Frame {
-                ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
-                _marker: PhantomData,
-            }),
+            inner: ManuallyDrop::new(
+                Frame { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData },
+            ),
             _marker: PhantomData,
         }
     }
@@ -151,4 +148,5 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
         PPtr::from_addr(ptr_ref.inner.ptr.addr())
     }
 }
+
 } // verus!

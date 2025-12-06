@@ -24,7 +24,8 @@ impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {
             - LINEAR_MAPPING_BASE_VADDR()
         &&& forall|i: int|
             0 <= i < NR_ENTRIES() ==> self.children_perm.is_init(i as int) ==> {
-                &&& #[trigger] self.children_perm.opt_value()[i as int].value().node == self.guard_perm.pptr()
+                &&& #[trigger] self.children_perm.opt_value()[i as int].value().node
+                    == self.guard_perm.pptr()
             }
     }
 }
@@ -118,25 +119,22 @@ impl<'rcu, C: PageTableConfig> View for EntryOwner<'rcu, C> {
                     map_to_pa: frame.mapped_pa as int,
                     level: (self.path.len() + 1) as u8,
                     prop: frame.prop,
-                    phantom: PhantomData
-                }
+                    phantom: PhantomData,
+                },
             }
-        }
-        else if let Some(node) = self.node {
+        } else if let Some(node) = self.node {
             EntryView::Intermediate {
-                node: IntermediatePageTableEntryView{
+                node: IntermediatePageTableEntryView {
                     map_va: vaddr(self.path) as int,
                     frame_pa: self.base_addr as int,
                     in_frame_index: self.index as int,
                     map_to_pa: meta_to_frame(node.as_node.meta_perm.addr()) as int,
                     level: (self.path.len() + 1) as u8,
-                    phantom: PhantomData
-                }
+                    phantom: PhantomData,
+                },
             }
         } else if let Some(view) = self.locked {
-            EntryView::LockedSubtree {
-                views: view@
-            }
+            EntryView::LockedSubtree { views: view@ }
         } else {
             EntryView::Absent
         }
