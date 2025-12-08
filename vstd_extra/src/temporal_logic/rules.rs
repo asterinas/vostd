@@ -111,7 +111,6 @@ proof fn always_lift_state_unfold<T>(ex: Execution<T>, p: StatePred<T>)
         forall|i| p(#[trigger] ex.suffix(i).head()),
 {
     broadcast use always_unfold;
-
 }
 
 proof fn always_lift_action_unfold<T>(ex: Execution<T>, p: ActionPred<T>)
