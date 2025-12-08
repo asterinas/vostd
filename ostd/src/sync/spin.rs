@@ -2,6 +2,7 @@
 use vstd::atomic_ghost::*;
 use vstd::cell::{self,PCell};
 use vstd::prelude::*;
+use vstd::modes::*;
 use vstd_extra::prelude::*;
 
 use alloc::sync::Arc;
@@ -13,7 +14,7 @@ use core::{
 //    sync::atomic::{AtomicBool, Ordering},
 };
 
-//use super::{guard::SpinGuardian, LocalIrqDisabled, PreemptDisabled};
+use super::{guard::SpinGuardian, /*LocalIrqDisabled, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
 /// A spin lock.
@@ -85,6 +86,13 @@ impl<T, G> SpinLock<T, G> {
         }
     }
 }
+
+impl<T,G> Inv for SpinLock<T,G>
+{
+    closed spec fn inv(self) -> bool{
+        self.inner.inv()
+    }
+}
 }
 
 /* 
@@ -102,9 +110,9 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     }
 }*/
 
-
+verus! {
 //impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
-impl<T, G> SpinLock<T, G> {
+impl<T, G: SpinGuardian> SpinLock<T, G> {
     /* 
     /// Acquires the spin lock.
     pub fn lock(&self) -> SpinLockGuard<T, G> {
@@ -158,18 +166,38 @@ impl<T, G> SpinLock<T, G> {
         while !self.try_acquire_lock() {
             core::hint::spin_loop();
         }
-    }
+    }*/
+
+    #[verus_spec(ret => 
+        requires
+            self.inv(),)]
     fn try_acquire_lock(&self) -> bool {
-        self.inner
+        /*self.inner
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-    }
+            .is_ok()*/
+        proof_decl!{
+            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+        }
+        let compare_res = atomic_with_ghost!  {
+            self.inner.lock => compare_exchange(false, true);
+            returning res;
+            ghost cell_perm => { 
+                if res is Ok {
+                    tracked_swap(&mut perm, &mut cell_perm);
+                }
+            }
+        };
 
+        compare_res.is_ok()
+    }
+    
+    /*
     fn release_lock(&self) {
         self.inner.lock.store(false, Ordering::Release);
     }
     */
+}
 }
 
 /*
@@ -182,7 +210,7 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
 // SAFETY: Only a single lock holder is permitted to access the inner data of Spinlock.
 unsafe impl<T: ?Sized + Send, G> Send for SpinLock<T, G> {}
 unsafe impl<T: ?Sized + Send, G> Sync for SpinLock<T, G> {}
-
+*/
 /// A guard that provides exclusive access to the data protected by a [`SpinLock`].
 pub type SpinLockGuard<'a, T, G> = SpinLockGuard_<T, &'a SpinLock<T, G>, G>;
 /// A guard that provides exclusive access to the data protected by a `Arc<SpinLock>`.
@@ -191,9 +219,14 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 /// The guard of a spin lock.
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct SpinLockGuard_<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+#[verifier::reject_recursive_types(T)]
+#[verifier::reject_recursive_types(G)]
+#[verus_verify]
+//pub struct SpinLockGuard_<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+pub struct SpinLockGuard_<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
+    v_perm: cell::PointsTo<T>,
 }
 /* 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicModeGuard
@@ -202,7 +235,7 @@ impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicMode
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
-}*/
+}
 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Deref
     for SpinLockGuard_<T, R, G>
