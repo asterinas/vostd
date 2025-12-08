@@ -45,9 +45,9 @@ verus!{
 struct_with_invariants! {
 
 #[verus_verify]
-struct SpinLockInner<T> {
+struct SpinLockInner<T> { 
     lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
-    val: PCell<T>,
+    val: PCell<T>, //Unfortunately, PCell requires T: Sized
     //val: UnsafeCell<T>,
 }
 
@@ -100,9 +100,12 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
         //    specified lifetime.
         unsafe { &*ptr }
     }
-}
+}*/
 
-impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
+
+//impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
+impl<T, G> SpinLock<T, G> {
+    /* 
     /// Acquires the spin lock.
     pub fn lock(&self) -> SpinLockGuard<T, G> {
         // Notice the guard must be created before acquiring the lock.
@@ -156,7 +159,6 @@ impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
             core::hint::spin_loop();
         }
     }
-
     fn try_acquire_lock(&self) -> bool {
         self.inner
             .lock
@@ -167,8 +169,10 @@ impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
     fn release_lock(&self) {
         self.inner.lock.store(false, Ordering::Release);
     }
+    */
 }
 
+/*
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.inner.val, f)
