@@ -93,6 +93,14 @@ impl<T,G> Inv for SpinLock<T,G>
         self.inner.inv()
     }
 }
+
+verus!{}
+impl<T,G> SpinLock<T,G>
+{
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.inner.val.id()
+    }
+}
 }
 
 /* 
@@ -138,21 +146,35 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             lock: self.clone(),
             guard: inner_guard,
         }
-    }
-
+    }*/
+    
+    #[verus_spec(ret => 
+        requires
+            self.inv(),
+        ensures
+            ret is Some ==> {
+                ret->Some_0.inv()
+            }
+            )]
     /// Tries acquiring the spin lock immedidately.
     pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
         let inner_guard = G::guard();
-        if self.try_acquire_lock() {
+        proof_decl!{
+            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+            broadcast use ref_deref_spec;
+        }
+        if #[verus_spec(with => Tracked(perm))] self.try_acquire_lock() {
             let lock_guard = SpinLockGuard_ {
                 lock: self,
                 guard: inner_guard,
+                v_perm: Tracked(perm.tracked_unwrap()),
             };
             return Some(lock_guard);
         }
         None
     }
 
+    /*
     /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
@@ -169,8 +191,13 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     }*/
 
     #[verus_spec(ret => 
+        with
+            -> perm: Tracked<Option<cell::PointsTo<T>>>,
         requires
-            self.inv(),)]
+            self.inv(),
+        ensures
+            ret && perm@ is Some && perm@ -> Some_0.is_init() && perm@ -> Some_0.id() == self.inner.val.id() || !ret && perm@ is None,
+            )]
     fn try_acquire_lock(&self) -> bool {
         /*self.inner
             .lock
@@ -179,7 +206,8 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         proof_decl!{
             let tracked mut perm: Option<cell::PointsTo<T>> = None;
         }
-        let compare_res = atomic_with_ghost!  {
+        #[verus_spec(with |= Tracked(perm))]
+        atomic_with_ghost!  {
             self.inner.lock => compare_exchange(false, true);
             returning res;
             ghost cell_perm => { 
@@ -187,9 +215,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
                     tracked_swap(&mut perm, &mut cell_perm);
                 }
             }
-        };
-
-        compare_res.is_ok()
+        }.is_ok()
     }
     
     /*
@@ -226,7 +252,16 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 pub struct SpinLockGuard_<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
-    v_perm: cell::PointsTo<T>,
+    v_perm: Tracked<cell::PointsTo<T>>, //Ghost permission for verification
+}
+
+verus!{
+impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Inv for SpinLockGuard_<T, R, G>
+{
+   closed spec fn inv(self) -> bool{
+        self.lock.deref_spec().cell_id() == self.v_perm@.id() && self.v_perm@.is_init()
+    }
+}
 }
 /* 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicModeGuard

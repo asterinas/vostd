@@ -4,6 +4,7 @@ pub mod arithmetic;
 pub mod array_ptr;
 pub mod bit_mapping;
 pub mod cast_ptr;
+pub mod deref;
 pub mod extern_const;
 pub mod extra_num;
 pub mod function_properties;

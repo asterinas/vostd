@@ -4,6 +4,8 @@ pub use super::array_ptr::*;
 
 pub use super::bit_mapping::*;
 
+pub use super::deref::*;
+
 pub use super::extern_const::*;
 
 pub use super::extra_num::*;
