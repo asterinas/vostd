@@ -193,10 +193,6 @@ pub fn unlock_range<C: PageTableConfig>(
             forgot_guards.is_root(old(cursor).get_guard(old(cursor).guard_level - 1).nid()),
         decreases 4 - i,
     {
-        assert(cursor.path[i as int] is Some) by {
-            let level = (i + 1) as PagingLevel;
-            assert(cursor.path[level - 1] is Some);
-        };
         let ghost _cursor = *cursor;
         let ghost _forgot_guards = forgot_guards;
         if let Some(mut guard) = cursor.take(i as usize) {
@@ -219,7 +215,6 @@ pub fn unlock_range<C: PageTableConfig>(
                     forgot_guard.pte_token->Some_0.value(),
                 )) by {
                     _cursor.lemma_wf_with_forgot_guards_sound(forgot_guards);
-                    assert(nid == _cursor.get_guard(_cursor.g_level@ - 1).nid());
                     assert(forgot_guards =~= _cursor.rec_put_guard_from_path(
                         forgot_guards,
                         (_cursor.g_level@ - 1) as PagingLevel,
@@ -233,7 +228,6 @@ pub fn unlock_range<C: PageTableConfig>(
                     };
                 };
                 assert(cursor.wf_with_forgot_guards(forgot_guards)) by {
-                    assert(cursor.guard_level == _cursor.guard_level);
                     let merged_forgot_guards1 = cursor.rec_put_guard_from_path(
                         forgot_guards,
                         cursor.guard_level,
@@ -243,25 +237,19 @@ pub fn unlock_range<C: PageTableConfig>(
                         _cursor.guard_level,
                     );
                     assert(merged_forgot_guards1 =~= merged_forgot_guards2) by {
-                        admit();
+                        cursor.lemma_rec_put_guard_from_path_induction(
+                            &_cursor,
+                            forgot_guards,
+                            _forgot_guards,
+                            cursor.guard_level,
+                        );
                     };  // Need induction
-                    assert(merged_forgot_guards1.wf());
-                    assert(merged_forgot_guards1.is_root_and_contained(
-                        cursor.get_guard(cursor.guard_level - 1).nid(),
-                    ));
                     _cursor.lemma_guard_in_path_relation_implies_nid_diff();
                     assert forall|level: PagingLevel|
                         #![trigger cursor.path[level - 1]]
                         cursor.g_level@ <= level <= cursor.guard_level implies {
                         !forgot_guards.inner.dom().contains(cursor.get_guard(level - 1).nid())
                     } by {
-                        assert(cursor.get_guard(level - 1) =~= _cursor.get_guard(level - 1));
-                        assert(!_forgot_guards.inner.dom().contains(
-                            _cursor.get_guard(level - 1).nid(),
-                        ));
-                        assert(forgot_guards.inner.dom() =~= _forgot_guards.inner.dom().insert(
-                            nid,
-                        ));
                         assert(_cursor.guard_in_path_nid_diff(_cursor.g_level@, level));
                     }
                 };
