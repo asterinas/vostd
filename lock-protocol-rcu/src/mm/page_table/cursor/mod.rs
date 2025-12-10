@@ -374,6 +374,42 @@ impl<'a, C: PageTableConfig> Cursor<'a, C> {
         }
     }
 
+    pub proof fn lemma_rec_put_guard_from_path_induction(
+        &self,
+        prev_cursor: &Self,
+        forgot_guards: SubTreeForgotGuard<C>,
+        prev_forgot_guards: SubTreeForgotGuard<C>,
+        target_level: PagingLevel,
+    )
+        requires
+            self.wf(),
+            prev_cursor.wf(),
+            self.guard_level == prev_cursor.guard_level,
+            self.g_level@ == prev_cursor.g_level@ + 1,
+            self.g_level@ - 1 <= target_level <= self.guard_level,
+            forall|l: PagingLevel|
+                #![trigger self.path[l-1]]
+                self.g_level@ <= l <= target_level ==> self.path[l - 1] =~= prev_cursor.path[l - 1],
+            forgot_guards =~= prev_cursor.rec_put_guard_from_path(
+                prev_forgot_guards,
+                (self.g_level@ - 1) as PagingLevel,
+            ),
+        ensures
+            self.rec_put_guard_from_path(forgot_guards, target_level)
+                =~= prev_cursor.rec_put_guard_from_path(prev_forgot_guards, target_level),
+        decreases target_level,
+    {
+        if target_level < self.g_level@ {
+        } else {
+            self.lemma_rec_put_guard_from_path_induction(
+                prev_cursor,
+                forgot_guards,
+                prev_forgot_guards,
+                (target_level - 1) as PagingLevel,
+            );
+        }
+    }
+
     pub open spec fn wf_with_forgot_guards(&self, forgot_guards: SubTreeForgotGuard<C>) -> bool {
         &&& {
             let res = self.rec_put_guard_from_path(forgot_guards, self.guard_level);
