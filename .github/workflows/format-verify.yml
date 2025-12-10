@@ -1,0 +1,69 @@
+name: Format and Verify VOSTD Code
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  format-and-verify:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -qq
+          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+      - name: Run xtask bootstrap
+        run: cargo xtask bootstrap
+
+      - name: Run verification
+        run: |
+          if ! VOSTD_VERIFY_PARALLEL=1 make 2>&1; then
+            echo "❌ Verification failed"
+            echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
+            exit 1
+          else
+            echo "✅ Verification passed!"
+          fi
+
+      - name: Run format
+        if: always()
+        run: make fmt
+
+      - name: Check for formatting changes
+        if: always()
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "Code is not properly formatted. Run 'make fmt'."
+            git diff
+            echo "FMT_FAILED=1" >> "$GITHUB_ENV"
+            # exit 1
+          fi
+
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "# CI Summary"
+            if [[ "${FMT_FAILED:-0}" == "1" ]]; then
+              echo "- Formatting: ❌ failed"
+            else
+              echo "- Formatting: ✅ passed"
+            fi
+            if [[ "${VERIFY_FAILED:-0}" == "1" ]]; then
+              echo "- Verification: ❌ failed"
+            else
+              echo "- Verification: ✅ passed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
