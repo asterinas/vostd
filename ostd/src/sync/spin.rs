@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self,PCell};
-use vstd::prelude::*;
+use vstd::cell::{self, PCell};
 use vstd::modes::*;
+use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use alloc::sync::Arc;
@@ -11,13 +11,13 @@ use core::{
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-//    sync::atomic::{AtomicBool, Ordering},
+    //    sync::atomic::{AtomicBool, Ordering},
 };
 
-use super::{guard::SpinGuardian, /*LocalIrqDisabled, PreemptDisabled*/};
+use super::{guard::SpinGuardian /*LocalIrqDisabled, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
-verus!{
+verus! {
     broadcast use ref_deref_spec;
 }
 
@@ -39,18 +39,18 @@ verus!{
 #[repr(transparent)]
 #[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
-pub struct SpinLock<T,G> {
+pub struct SpinLock<T, G> {
     phantom: PhantomData<G>,
     /// Only the last field of a struct may have a dynamically sized type.
     /// That's why SpinLockInner is put in the last field.
     inner: SpinLockInner<T>,
 }
 
-verus!{
+verus! {
 struct_with_invariants! {
 
 #[verus_verify]
-struct SpinLockInner<T> { 
+struct SpinLockInner<T> {
     lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
     val: PCell<T>, //Unfortunately, PCell requires T: Sized
     //val: UnsafeCell<T>,
@@ -107,7 +107,7 @@ impl<T,G> SpinLock<T,G>
 }
 }
 
-/* 
+/*
 impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     /// Converts the guard behavior from disabling preemption to disabling IRQs.
     pub fn disable_irq(&self) -> &SpinLock<T, LocalIrqDisabled> {
@@ -125,9 +125,9 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
 verus! {
 //impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
 impl<T, G: SpinGuardian> SpinLock<T, G> {
-    
+
     /// Acquires the spin lock.
-    #[verus_spec(ret => 
+    #[verus_spec(ret =>
         requires
             self.inv(),
         ensures
@@ -148,7 +148,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 
-    /* 
+    /*
     /// Acquires the spin lock through an [`Arc`].
     ///
     /// The method is similar to [`lock`], but it doesn't have the requirement
@@ -163,8 +163,8 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             guard: inner_guard,
         }
     }*/
-    
-    #[verus_spec(ret => 
+
+    #[verus_spec(ret =>
         requires
             self.inv(),
         ensures
@@ -199,7 +199,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     }*/
 
     /// Acquires the spin lock, otherwise busy waiting
-    #[verus_spec(ret => 
+    #[verus_spec(ret =>
         with
             -> perm: Tracked<cell::PointsTo<T>>,
         requires
@@ -215,11 +215,11 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         #[verus_spec(
             invariant self.inv(),
         )]
-        
+
         while !#[verus_spec(with => Tracked(perm))]self.try_acquire_lock() {
             core::hint::spin_loop();
         }
-        
+
         proof_decl!{
             let tracked mut perm = perm.tracked_unwrap();
         }
@@ -227,7 +227,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         () // The return value is used to bind the ghost permission
     }
 
-    #[verus_spec(ret => 
+    #[verus_spec(ret =>
         with
             -> perm: Tracked<Option<cell::PointsTo<T>>>,
         requires
@@ -247,14 +247,14 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         atomic_with_ghost!  {
             self.inner.lock => compare_exchange(false, true);
             returning res;
-            ghost cell_perm => { 
+            ghost cell_perm => {
                 if res is Ok {
                     tracked_swap(&mut perm, &mut cell_perm);
                 }
             }
         }.is_ok()
     }
-    
+
     /*
     fn release_lock(&self) {
         self.inner.lock.store(false, Ordering::Release);
@@ -292,7 +292,7 @@ pub struct SpinLockGuard_<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian>
     v_perm: Tracked<cell::PointsTo<T>>, //Ghost permission for verification
 }
 
-verus!{
+verus! {
 impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Inv for SpinLockGuard_<T, R, G>
 {
    closed spec fn inv(self) -> bool{
@@ -300,7 +300,7 @@ impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Inv for SpinLockGuar
     }
 }
 }
-/* 
+/*
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicModeGuard
     for SpinLockGuard_<T, R, G>
 {
