@@ -17,6 +17,10 @@ use core::{
 use super::{guard::SpinGuardian, /*LocalIrqDisabled, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
+verus!{
+    broadcast use ref_deref_spec;
+}
+
 /// A spin lock.
 ///
 /// # Guard behavior
@@ -121,18 +125,30 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
 verus! {
 //impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
 impl<T, G: SpinGuardian> SpinLock<T, G> {
-    /* 
+    
     /// Acquires the spin lock.
+    #[verus_spec(ret => 
+        requires
+            self.inv(),
+        ensures
+            ret.inv()
+            )]
     pub fn lock(&self) -> SpinLockGuard<T, G> {
         // Notice the guard must be created before acquiring the lock.
+        proof_decl!{
+            let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
+        }
         let inner_guard = G::guard();
+        proof_with!{ => Tracked(perm)}
         self.acquire_lock();
         SpinLockGuard_ {
             lock: self,
             guard: inner_guard,
+            v_perm: Tracked(perm),
         }
     }
 
+    /* 
     /// Acquires the spin lock through an [`Arc`].
     ///
     /// The method is similar to [`lock`], but it doesn't have the requirement
@@ -161,7 +177,6 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         let inner_guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<cell::PointsTo<T>> = None;
-            broadcast use ref_deref_spec;
         }
         if #[verus_spec(with => Tracked(perm))] self.try_acquire_lock() {
             let lock_guard = SpinLockGuard_ {
@@ -181,14 +196,36 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// already statically guaranteed that access to the data is exclusive.
     pub fn get_mut(&mut self) -> &mut T {
         self.inner.val.get_mut()
-    }
+    }*/
 
     /// Acquires the spin lock, otherwise busy waiting
+    #[verus_spec(ret => 
+        with
+            -> perm: Tracked<cell::PointsTo<T>>,
+        requires
+            self.inv(),
+        ensures
+            perm@.is_init() && perm@.id() == self.inner.val.id(),
+            )]
+    #[verifier::exec_allows_no_decreases_clause]
     fn acquire_lock(&self) {
-        while !self.try_acquire_lock() {
+        proof_decl!{
+            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+        }
+        #[verus_spec(
+            invariant self.inv(),
+        )]
+        
+        while !#[verus_spec(with => Tracked(perm))]self.try_acquire_lock() {
             core::hint::spin_loop();
         }
-    }*/
+        
+        proof_decl!{
+            let tracked mut perm = perm.tracked_unwrap();
+        }
+        #[verus_spec(with |= Tracked(perm))]
+        () // The return value is used to bind the ghost permission
+    }
 
     #[verus_spec(ret => 
         with
@@ -206,7 +243,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         proof_decl!{
             let tracked mut perm: Option<cell::PointsTo<T>> = None;
         }
-        #[verus_spec(with |= Tracked(perm))]
+        proof_with!{ |= Tracked(perm)}
         atomic_with_ghost!  {
             self.inner.lock => compare_exchange(false, true);
             returning res;

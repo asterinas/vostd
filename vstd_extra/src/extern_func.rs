@@ -1,5 +1,10 @@
 use vstd::prelude::*;
 use core::ops::Deref;
+use core::hint::spin_loop;
+use core::mem::ManuallyDrop;
+use super::manually_drop::manually_drop_deref_spec;
+
+// Assumptions about external functions
 
 verus!{
 /// This is a workaround to add an uninterpreted specification of Deref trait, as Deref is included in Verus but does not have spec functions.
@@ -22,4 +27,16 @@ pub broadcast axiom fn ref_deref_spec<T>(r:&T)
     ensures
         #[trigger] r.deref_spec() == r;
 
+
+
+pub broadcast axiom fn manually_drop_deref_spec_eq<T: ?Sized>(v: &ManuallyDrop<T>) 
+    ensures
+        #[trigger] &**v == manually_drop_deref_spec(v);
+}
+
+verus!{
+
+pub assume_specification [core::hint::spin_loop]()
+    opens_invariants none
+    no_unwind;
 }
