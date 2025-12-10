@@ -3032,17 +3032,18 @@ pub broadcast group group_tla_rules {
     always_p_is_stable,
     stable_and_temp,
     entails_preserved_by_always,
-    //leads_to_apply,  // may slow down proofs
-    //or_leads_to_combine,
-    //leads_to_always_combine,
-    //leads_to_framed_by_or,
+    leads_to_apply,  // may slow down proofs
+    or_leads_to_combine,
+    leads_to_always_combine,
+    leads_to_framed_by_or,
     lift_state_exists_equality,
-    //implies_tla_exists_intro,
-    //leads_to_tla_exists_intro,
-    //state_exists_intro,  // may be unnecessary
+    implies_tla_exists_intro,
+    leads_to_tla_exists_intro,
+    state_exists_intro,  // may be unnecessary
     entails_always_lift_state_and, // may slow down proofs
     entails_always_lift_state_and_elim,
-    
+    entails_tla_exists_by_witness, // may slow down proofs
+    lift_state_exists_leads_to_intro,
 }
 
 }
