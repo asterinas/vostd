@@ -183,15 +183,15 @@ pub open spec fn state_forall<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>)
     |s| { forall|a| #[trigger] a_to_state_pred(a)(s) }
 }
 
-pub open spec fn lift_state_forall<T, A>(
-    a_to_state_pred: spec_fn(A) -> StatePred<T>,
-) -> TempPred<T> {
+pub open spec fn lift_state_forall<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> TempPred<
+    T,
+> {
     lift_state(state_forall(a_to_state_pred))
 }
 
-pub open spec fn lift_state_exists<T, A>(
-    a_to_state_pred: spec_fn(A) -> StatePred<T>,
-) -> TempPred<T> {
+pub open spec fn lift_state_exists<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> TempPred<
+    T,
+> {
     lift_state(state_exists(a_to_state_pred))
 }
 
@@ -199,11 +199,11 @@ pub open spec fn state_pred_not<T>(state_pred: StatePred<T>) -> StatePred<T> {
     |s: T| { !state_pred(s) }
 }
 
-pub open spec fn combine_state_pred_with<T,A>(
+pub open spec fn combine_state_pred_with<T, A>(
     a_to_state_pred: spec_fn(A) -> StatePred<T>,
     state_pred: StatePred<T>,
 ) -> spec_fn(A) -> StatePred<T> {
-    |a:A| |s: T| a_to_state_pred(a)(s) && state_pred(s)
+    |a: A| |s: T| a_to_state_pred(a)(s) && state_pred(s)
 }
 
 } // verus!

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Useful synchronization primitives.
-//mod guard;
+mod guard;
 //mod mutex;
 //mod rcu;
 //mod rwarc;

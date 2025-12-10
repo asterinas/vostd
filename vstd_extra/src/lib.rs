@@ -2,9 +2,11 @@
 
 pub mod arithmetic;
 pub mod array_ptr;
+pub mod auxiliary;
 pub mod bit_mapping;
 pub mod cast_ptr;
 pub mod extern_const;
+pub mod extern_func;
 pub mod extra_num;
 pub mod function_properties;
 pub mod ghost_tree;

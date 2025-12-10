@@ -36,22 +36,14 @@ jobs:
 
       - name: Run verification
         run: |
-          make 2>&1 | tee verus.log
-          if grep -q "error:" verus.log; then
-            echo "::error title=Verification Failed::Verification errors found in the code"
-            echo "Verification errors:"
-            grep "error:" verus.log | while read line; do
-              echo "::error::$line"
-            done
+          set -o pipefail
+          if ! make 2>&1; then
+            echo "❌ Verification failed"
             echo "VERIFY_FAILED=1" >> "$GITHUB_ENV"
             exit 1
           else
             echo "✅ Verification passed!"
           fi
-
-      - name: Cleanup verus.log
-        if: always()
-        run: rm -f verus.log
 
       - name: Run format
         if: always()
