@@ -1,7 +1,7 @@
 // Copyright 2022 VMware, Inc.
 // SPDX-License-Identifier: MIT
 #![allow(unused_imports)]
-use super::super::temporal_logic::*;
+use super::super::temporal_logic::{defs2::*,rules2::*};
 use vstd::prelude::*;
 
 verus! {
@@ -18,15 +18,15 @@ pub struct Action<State, Input, Output> {
 
 impl<State, Input, Output> Action<State, Input, Output> {
     pub open spec fn pre(self, input: Input) -> StatePred<State> {
-        |s: State| (self.precondition)(input, s)
+        StatePred::new(|s: State| (self.precondition)(input, s))
     }
 
     pub open spec fn forward(self, input: Input) -> ActionPred<State> {
-        |s: State, s_prime: State|
+        ActionPred::new(|s: State, s_prime: State|
             {
                 &&& (self.precondition)(input, s)
                 &&& s_prime == (self.transition)(input, s).0
-            }
+            })
     }
 
     // `weak_fairness` assumption says that,
@@ -46,9 +46,9 @@ impl<State, Input, Output> Action<State, Input, Output> {
     )
         requires
             forall|s, s_prime: State|
-                pre(s) && #[trigger] next(s, s_prime) ==> pre(s_prime) || post(s_prime),
+                pre.apply(s) && #[trigger] next.apply(s, s_prime) ==> pre.apply(s_prime) || post.apply(s_prime),
             forall|s, s_prime: State|
-                pre(s) && #[trigger] next(s, s_prime) && self.forward(input)(s, s_prime) ==> post(
+                pre.apply(s) && #[trigger] next.apply(s, s_prime) && self.forward(input).apply(s, s_prime) ==> post.apply(
                     s_prime,
                 ),
             spec.entails(always(lift_action(next))),
@@ -80,12 +80,12 @@ impl<State, Input, Output> Action<State, Input, Output> {
 
     pub proof fn lemma_statisfy_pre_implies_enabled(self, input: Input, state: State)
         requires
-            self.pre(input)(state),
+            self.pre(input).apply(state),
         ensures
-            enabled(self.forward(input))(state),
+            enabled(self.forward(input)).apply(state),
     {
         let (new_state, _output) = (self.transition)(input, state);
-        assert(self.forward(input)(state, new_state));
+        assert(self.forward(input).apply(state, new_state));
     }
 }
 
