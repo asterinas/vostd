@@ -2956,17 +2956,25 @@ pub broadcast proof fn lift_state_exists_leads_to_intro<T, A>(
     tla_exists_leads_to_intro(spec, lifted_a_to_p, q);
 }
 
-pub broadcast proof fn state_exists_intro<T,A>(a_to_p: spec_fn(A)-> StatePred<T>, s: T)
+pub broadcast proof fn state_exists_intro<T, A>(a_to_p: spec_fn(A) -> StatePred<T>, s: T)
     requires
-        exists |a: A| #[trigger] a_to_p(a)(s),
+        exists|a: A| #[trigger] a_to_p(a)(s),
     ensures
         #[trigger] state_exists(a_to_p)(s),
-{}
+{
+}
 
-pub proof fn lift_state_exists_leads_to_destruct<T, A>(spec: TempPred<T>, a_to_p: spec_fn(A) -> StatePred<T>, p: StatePred<T>, q: TempPred<T>)
+pub proof fn lift_state_exists_leads_to_destruct<T, A>(
+    spec: TempPred<T>,
+    a_to_p: spec_fn(A) -> StatePred<T>,
+    p: StatePred<T>,
+    q: TempPred<T>,
+)
     requires
         spec.entails(lift_state_exists(combine_state_pred_with(a_to_p, p)).leads_to(q)),
-        spec.entails(lift_state_exists(combine_state_pred_with(a_to_p, state_pred_not(p))).leads_to(q)),
+        spec.entails(
+            lift_state_exists(combine_state_pred_with(a_to_p, state_pred_not(p))).leads_to(q),
+        ),
     ensures
         spec.entails(lift_state_exists(a_to_p).leads_to(q)),
 {
@@ -2996,7 +3004,7 @@ pub broadcast group group_tla_rules {
     lift_state_exists_equality,
     implies_tla_exists_intro,
     leads_to_tla_exists_intro,
-    state_exists_intro, //may be unnecessary
+    state_exists_intro,  //may be unnecessary
 }
 
 } // verus!
