@@ -178,7 +178,7 @@ impl PageTablePageMeta {
         res: PageTablePageMetaModel,
     ) -> bool {
         &&& res.lock@.value == 1
-        &&& res.inner.value() == PageTablePageMetaInner { level, nr_children: 0, is_tracked } 
+        &&& res.inner.value() == PageTablePageMetaInner { level, nr_children: 0, is_tracked }
     }
 
     pub fn new_locked(level: PagingLevel, is_tracked: MapTrackingStatus) -> (res: (
