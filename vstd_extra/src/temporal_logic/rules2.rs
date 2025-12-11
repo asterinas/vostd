@@ -1589,23 +1589,23 @@ ensures
     admit();
 }
 
-/* 
-pub proof fn lift_state_exists_leads_to_destruct<T, A>(
+
+pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> StatePred<T>,
     p: StatePred<T>,
     q: TempPred<T>,
 )
     requires
-        spec.entails(lift_state_exists(combine_state_pred_with(a_to_temp_pred, p)).leads_to(q)),
+        spec.entails(lift_state_exists(StatePred::absorb(a_to_temp_pred, p)).leads_to(q)),
         spec.entails(
-            lift_state_exists(combine_state_pred_with(a_to_temp_pred, state_pred_not(p))).leads_to(q),
+            lift_state_exists(StatePred::absorb(a_to_temp_pred, p.not())).leads_to(q),
         ),
     ensures
         spec.entails(lift_state_exists(a_to_temp_pred).leads_to(q)),
 {
-    let p1 = lift_state_exists(combine_state_pred_with(a_to_temp_pred, p));
-    let p2 = lift_state_exists(combine_state_pred_with(a_to_temp_pred, p.not()));
+    let p1 = lift_state_exists(StatePred::absorb(a_to_temp_pred, p));
+    let p2 = lift_state_exists(StatePred::absorb(a_to_temp_pred, p.not()));
 
     or_leads_to_combine(spec, p1, p2, q);
 
@@ -1613,16 +1613,16 @@ pub proof fn lift_state_exists_leads_to_destruct<T, A>(
     assert forall|ex| #[trigger] p1.or(p2).satisfied_by(ex) <==> target.satisfied_by(ex) by {
         let s = ex.head();
         if target.satisfied_by(ex) {
-            let a = choose|a| #[trigger] a_to_temp_pred(a)(s);
-            if p(s) {
-                assert(combine_state_pred_with(a_to_temp_pred, p)(a)(s));
+            let a = choose|a| #[trigger] a_to_temp_pred(a).apply(s);
+            if p.apply(s) {
+                assert(StatePred::absorb(a_to_temp_pred, p)(a).apply(s));
             } else {
-                assert(combine_state_pred_with(a_to_temp_pred, state_pred_not(p))(a)(s));
+                assert(StatePred::absorb(a_to_temp_pred, p.not())(a).apply(s));
             }
         }
     }
     temp_pred_equality(p1.or(p2), target);
-}*/
+}
 
 // Leads to []tla_forall(a_to_temp_pred) if forall a, it leads []a_to_temp_pred(a).
 // pre:
