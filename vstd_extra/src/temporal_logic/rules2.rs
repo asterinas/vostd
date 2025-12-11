@@ -674,6 +674,16 @@ pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: Sta
     always_and_equality(lift_state(p), lift_state(q));
 }
 
+// not distributes over lift_state.
+// post:
+//  lift_state(!p) == !lift_state(p)
+pub broadcast proof fn not_lift_state_equality<T>(p: StatePred<T>)
+    ensures
+        #[trigger] not(lift_state(p)) == lift_state(p.not()),
+{
+    admit();
+}
+
 // Obviously p ~> p is valid
 // post:
 //     |= p ~> p
@@ -1589,7 +1599,12 @@ ensures
     admit();
 }
 
-
+// Prove lift_state_exists leads_to by case analysis on another StatePred.
+// pre:
+//     spec |= lift_state_exists(absorb(a_to_temp_pred, p)) ~> q
+//     spec |= lift_state_exists(absorb(a_to_temp_pred, ~p)) ~> q
+// post:
+//     spec |= lift_state_exists(a_to_temp_pred) ~> q
 pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> StatePred<T>,
@@ -1604,24 +1619,14 @@ pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     ensures
         spec.entails(lift_state_exists(a_to_temp_pred).leads_to(q)),
 {
-    let p1 = lift_state_exists(StatePred::absorb(a_to_temp_pred, p));
-    let p2 = lift_state_exists(StatePred::absorb(a_to_temp_pred, p.not()));
-
-    or_leads_to_combine(spec, p1, p2, q);
-
-    let target = lift_state_exists(a_to_temp_pred);
-    assert forall|ex| #[trigger] p1.or(p2).satisfied_by(ex) <==> target.satisfied_by(ex) by {
-        let s = ex.head();
-        if target.satisfied_by(ex) {
-            let a = choose|a| #[trigger] a_to_temp_pred(a).apply(s);
-            if p.apply(s) {
-                assert(StatePred::absorb(a_to_temp_pred, p)(a).apply(s));
-            } else {
-                assert(StatePred::absorb(a_to_temp_pred, p.not())(a).apply(s));
-            }
-        }
-    }
-    temp_pred_equality(p1.or(p2), target);
+    broadcast use {lift_state_exists_absorb_equality, not_lift_state_equality};
+    or_leads_to_case_analysis(
+        spec,
+        lift_state_exists(a_to_temp_pred),
+        lift_state(p),
+        q,
+    );
+    admit();
 }
 
 // Leads to []tla_forall(a_to_temp_pred) if forall a, it leads []a_to_temp_pred(a).
@@ -3087,6 +3092,7 @@ pub broadcast group group_tla_rules {
     lift_state_exists_leads_to_intro,
     lift_state_exists_absorb_equality,
     lift_state_forall_absorb_equality,
+    not_lift_state_equality,
 }
 
 }

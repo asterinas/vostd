@@ -715,9 +715,9 @@ pub proof fn lemma_dead_and_alive_lock_free(
     let pre_state_pred = |i: Tid| |s:ProgramState| s.in_ProcSet(i) && s.trying(i);
     let locked_state_pred = |s: ProgramState| s.locked;
 
-    assert (combine_state_pred_with(pre_state_pred,locked_state_pred) == pre_locked_state_pred);
-    assert (combine_state_pred_with(pre_state_pred, state_pred_not(locked_state_pred))== pre_not_locked_state_pred);
-    lift_state_exists_leads_to_destruct(spec, |i: Tid||s:ProgramState| s.in_ProcSet(i) && s.trying(i), |s:ProgramState| s.locked, lift_state_exists(post_state_pred));
+    assert (StatePred::absorb(pre_state_pred,locked_state_pred) == pre_locked_state_pred);
+    assert (StatePred::absorb(pre_state_pred, state_pred_not(locked_state_pred))== pre_not_locked_state_pred);
+    lift_state_exists_leads_to_case_analysis(spec, |i: Tid||s:ProgramState| s.in_ProcSet(i) && s.trying(i), |s:ProgramState| s.locked, lift_state_exists(post_state_pred));
 }
 
 } // verus!
