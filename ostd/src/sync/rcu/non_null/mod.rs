@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides a trait and some auxiliary types to help abstract and
 //! work with non-null pointers.
-mod either;
+use vstd::prelude::*;
+use vstd_extra::prelude::*;
+use alloc::{sync::Arc, boxed::Box};
+
+//mod either;
 
 use alloc::sync::Weak;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};

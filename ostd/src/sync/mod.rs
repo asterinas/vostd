@@ -2,7 +2,7 @@
 //! Useful synchronization primitives.
 mod guard;
 //mod mutex;
-//mod rcu;
+mod rcu;
 //mod rwarc;
 //mod rwlock;
 //mod rwmutex;
