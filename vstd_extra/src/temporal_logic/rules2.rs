@@ -1007,6 +1007,27 @@ pub broadcast proof fn or_leads_to_combine<T>(
     };
 }
 
+/// Prove p leads_to r by case analysis on q.
+// pre:
+//     spec |= (p /\ q) ~> r
+//     spec |= (p /\ ~q) ~> r
+// post:
+//     spec |= p ~> r
+pub proof fn or_leads_to_case_analysis<T>(
+    spec: TempPred<T>,
+    p: TempPred<T>,
+    q: TempPred<T>,
+    r: TempPred<T>,
+)
+    requires
+        spec.entails(p.and(q).leads_to(r)),
+        spec.entails(p.and(not(q)).leads_to(r)),
+    ensures
+        spec.entails(p.leads_to(r)),
+{
+    admit();
+}
+
 // Combine the conclusions of two leads_to if the conclusions are stable.
 // pre:
 //     spec |= p ~> []q
@@ -1544,8 +1565,28 @@ pub broadcast proof fn state_exists_intro<T, A>(a_to_temp_pred: spec_fn(A) -> St
     requires
         exists|a: A| #[trigger] a_to_temp_pred(a).apply(s),
     ensures
-        #[trigger] StatePred::exists(a_to_temp_pred).apply(s),
+        #[trigger] StatePred::state_exists(a_to_temp_pred).apply(s),
 {
+}
+
+pub broadcast proof fn lift_state_exists_absorb_equality<T, A>(
+    a_to_state_pred: spec_fn(A) -> StatePred<T>,
+    state_pred: StatePred<T>,
+)
+ensures
+    #[trigger] lift_state_exists(a_to_state_pred).and(lift_state(state_pred)) == lift_state_exists(StatePred::absorb(a_to_state_pred, state_pred)),
+{
+    admit();
+}
+
+pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
+    a_to_state_pred: spec_fn(A) -> StatePred<T>,
+    state_pred: StatePred<T>,
+)
+ensures
+    #[trigger] lift_state_forall(a_to_state_pred).or(lift_state(state_pred)) == lift_state_forall(StatePred::absorb(a_to_state_pred, state_pred)),
+{
+    admit();
 }
 
 /* 
@@ -3044,6 +3085,8 @@ pub broadcast group group_tla_rules {
     entails_always_lift_state_and_elim,
     entails_tla_exists_by_witness, // may slow down proofs
     lift_state_exists_leads_to_intro,
+    lift_state_exists_absorb_equality,
+    lift_state_forall_absorb_equality,
 }
 
 }
