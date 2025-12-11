@@ -160,18 +160,9 @@ impl<C: PageTableConfig> Entry<C> {
         let tracked mut lock_guard_inner = lock_guard.inner.get();
         let tracked node_token = lock_guard_inner.node_token.tracked_unwrap();
         let tracked pte_token = lock_guard_inner.pte_token.tracked_unwrap();
-        assert(node_token.value() is LockedOutside);
-        assert(pte_token.value().is_void(self.idx as nat));
-        assert(cur_nid != NodeHelper::root_id()) by {
-            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
-        };
 
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
-        assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
-            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
-        };
         let res = PageTableNode::normal_alloc(
             level - 1,
             Ghost(cur_nid),
@@ -199,7 +190,6 @@ impl<C: PageTableConfig> Entry<C> {
         );
         // Lock before writing the PTE, so no one else can operate on it.
         let tracked pa_pte_array_token = node.tracked_borrow_guard().tracked_borrow_pte_token();
-        assert(pt_ref.nid@ == NodeHelper::get_child(node.nid(), self.idx as nat));
         let pt_lock_guard = pt_ref.normal_lock_new_allocated_node(
             guard,
             Tracked(pa_pte_array_token),

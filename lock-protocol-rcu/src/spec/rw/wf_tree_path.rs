@@ -55,7 +55,6 @@ pub proof fn lemma_wf_tree_path_nid_increasing(path: Seq<NodeId>)
             if j < path.len() - 1 {
                 assert(path[j] == path.drop_last()[j]);
             } else {
-                assert(path[j] == path.last());
                 NodeHelper::lemma_is_child_nid_increasing(path.drop_last().last(), path[j]);
             }
         }
@@ -145,7 +144,6 @@ pub proof fn lemma_wf_tree_path_in_subtree_range(path: Seq<NodeId>)
                 assert(path[i] == rest[i]);
                 assert(path[j] == rest[j]);
             } else {
-                assert(path[j] == last);
                 if (i == j) {
                 } else {
                     assert(path[i] == rest[i]);
@@ -185,8 +183,6 @@ pub proof fn lemma_wf_tree_path_contains_descendant_implies_contains_ancestor(
     assert(ancestor_in_path_path.len() == ancestor_dep) by {
         lemma_wf_tree_path_nid_to_trace_len(path);
     }
-    assert(ancestor_path =~= ancestor_in_path_path);
-    assert(ancestor == ancestor_in_path);
 }
 
 } // verus!

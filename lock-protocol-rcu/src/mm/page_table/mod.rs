@@ -722,7 +722,6 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         let index_bits = nr_pte_index_bits::<C>();
         let shift = base_bits + (level - 1) as u32 * index_bits as u32;
         let shift_nat = (base_bits + (level - 1) * index_bits) as nat;
-        assert(shift as nat == shift_nat);
         lemma_page_size_spec_properties::<C>(level);
         // Then use transitivity to establish the first equality.
         calc! {
@@ -778,7 +777,6 @@ pub proof fn lemma_pte_index_alternative_spec<C: PagingConstsTrait>(va: Vaddr, l
         assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == a * b) by {
             assert(page_size_spec::<C>((level + 1) as PagingLevel) as int == b * a) by {
                 C::lemma_consts_properties();
-                assert(1 < level + 1 <= C::NR_LEVELS() + 1 < u8::MAX);
                 lemma_page_size_adjacent_levels::<C>((level + 1) as PagingLevel);
             }
         }
@@ -883,7 +881,6 @@ proof fn lemma_addr_aligned_propagate<C: PagingConstsTrait>(va: Vaddr, level: Pa
         va % page_size::<C>(level) == 0,
 {
     let old_level = (level - 1) as PagingLevel;
-    assert(1 <= old_level < C::NR_LEVELS_SPEC());
     let old_pg_size = page_size_spec::<C>(old_level) as nat;
     let new_pg_size = page_size_spec::<C>(level) as nat;
     let diff = nr_subpage_per_huge::<C>() as nat;
@@ -900,11 +897,6 @@ proof fn lemma_addr_aligned_propagate<C: PagingConstsTrait>(va: Vaddr, level: Pa
     let van = va as nat;
     assert(van / old_pg_size % diff == 0) by {
         lemma_pte_index_alternative_spec::<C>(va, old_level);
-    }
-    assert(van % old_pg_size == 0) by {
-        // This lemma is needed because it convinces the verifier that old_pg_size > 0
-        lemma_page_size_spec_properties::<C>(old_level);
-        assert(van % old_pg_size == (va % page_size::<C>(old_level)) as nat);
     }
     lemma_breakdown(van as int, old_pg_size as int, diff as int);
     // The verifier seems to be able to figure out that calculation in nat and int are the same,
@@ -924,8 +916,6 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
         let m = pow2(q);
         let d = pow2((p - q) as nat);
         assert(m * d == pow2(p)) by {
-            assert(p - q >= 0);
-            assert(pow2(p) == pow2(q + (p - q) as nat));
             lemma_pow2_adds(q as nat, (p - q) as nat);
         }
         lemma_pow2_pos(q);
@@ -961,10 +951,6 @@ proof fn lemma_nat_as_parts(x: nat, p: nat, q: nat)
         term0 as nat + term1 as nat + term2 as nat; {}
         pow2(p) * div_p + pow2(q) * div_q + rem_q; {}
         pow2(p) * (x / pow2(p)) + pow2(q) * (x % pow2(p) / pow2(q)) + (x % pow2(q));
-    }
-    assert(0 <= x % pow2(q) < pow2(q)) by {
-        lemma_pow2_pos(q);
-        lemma_mod_bound(x as int, pow2(q) as int);
     }
     assert(0 <= x % pow2(p) / pow2(q) < pow2((p - q) as nat)) by {
         lemma_pow2_pos(p);
@@ -1014,7 +1000,6 @@ proof fn lemma_carry_ends_at_nonzero_result_bits(
     let b = x % pow2(p) / pow2(q);
     assert(x == pow2(p) * a + pow2(q) * b && 1 <= b <= pow2((p - q) as nat) - 1) by {
         lemma_nat_as_parts(x, p, q);
-        assert(b != 0);
     }
     let c = y / pow2(p);
     let d = y % pow2(p) / pow2(q);
@@ -1026,18 +1011,12 @@ proof fn lemma_carry_ends_at_nonzero_result_bits(
     }
     let diff = x - y;
     // Equation (*)
-    assert((a - c) * pow2(p) == e + diff + (d - b) * pow2(q));
     // Range of the difference
-    assert(0 < diff <= pow2(q));
     // Properties about 2^p and 2^q the solver needs
     lemma_pow2_pos(q);
     lemma_pow2_adds(q, (p - q) as nat);
     // The solver seems to be able to prove these automatically
-    assert(-pow2(p) < e + diff + (d - b) * pow2(q));
-    assert(e + diff + (d - b) * pow2(q) < pow2(p));
     // Substitute the equation (*)
-    assert(-pow2(p) < (a - c) * pow2(p) < pow2(p));
-    assert(a - c == 0);
 }
 
 proof fn lemma_usize_shr_is_div(x: usize, shift: int)
@@ -1047,39 +1026,22 @@ proof fn lemma_usize_shr_is_div(x: usize, shift: int)
         x >> shift == x / (pow2(shift as nat) as usize),
 {
     // Proof idea is to use u64 as a bridge
-    assert(usize::MAX <= u64::MAX);
-    assert(usize::BITS <= u64::BITS < u64::MAX);
     // Since usize <= u64, we can cast x and shift to u64 without overflow
-    assert(0 <= x <= u64::MAX);
-    assert(0 <= shift <= u64::MAX);
     let x_ = x as u64;
     let shift_ = shift as u64;
     lemma_u64_shr_is_div(x_, shift_);
     // Then, we show that computation done in nat and usize agree by showing there's no overflow
-    assert(x >> shift == (x_ >> shift_) as usize) by {
-        // The next statement is true because x_ = x as u64 -> they are equal when cast to nat,
-        // and the result of lemma_u64_shr_is_div.
-        assert(x_ >> shift_ == x as nat / pow2(shift_ as nat));
-        lemma_pow2_pos(shift_ as nat);
-        lemma_div_nonincreasing(x as int, pow2(shift_ as nat) as int);
-        assert(x_ >> shift_ <= x <= usize::MAX);
-    };
     assert(x as nat / pow2(shift_ as nat) == x / (pow2(shift as nat) as usize)) by {
         // In this case, need to prove pow2(shift_ as nat) fits in usize.
         lemma_pow2_pos(shift_ as nat);
         assert(pow2((usize::BITS - 1) as nat) < usize::MAX) by {
-            assert(usize::BITS == 32 || usize::BITS == 64);
             if usize::BITS == 32 {
-                assert(pow2(31) == 0x8000_0000 < usize::MAX) by {
-                    lemma2_to64();
-                }
             } else if usize::BITS == 64 {
                 assert(pow2(63) == 0x8000000000000000 < usize::MAX) by {
                     lemma2_to64_rest();
                 }
             }
         }
-        assert(shift_ as nat <= (usize::BITS - 1) as nat);
         assert(pow2(shift_ as nat) <= pow2((usize::BITS - 1) as nat)) by {
             if (shift_ as nat == (usize::BITS - 1) as nat) {
             } else {

@@ -118,11 +118,9 @@ pub proof fn lemma_va_range_get_tree_path(va: Range<Vaddr>)
     assert forall|i| 0 <= i < path.len() implies #[trigger] NodeHelper::valid_nid(path[i]) by {
         let nid = path[i];
         if i == 0 {
-            assert(nid == NodeHelper::root_id());
             NodeHelper::lemma_root_id();
         } else {
             let sub_trace = trace.subrange(0, i);
-            assert(nid == NodeHelper::trace_to_nid(sub_trace));
             lemma_va_level_to_trace_valid(va.start, guard_level);
         }
     }

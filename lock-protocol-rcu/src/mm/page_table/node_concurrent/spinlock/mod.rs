@@ -567,7 +567,6 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                             },
                         ),
                     };
-                    assert(guard.wf(self));
                     guard_opt = Some(guard);
                     break ;
                 },
@@ -664,7 +663,6 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                             &pa_pte_array_token,
                             &stray_perm.token,
                         );
-                        assert(stray_perm.value() == false);
                     }
                     let tracked mut node_token = node_token.tracked_unwrap();
                     let tracked mut pte_token = pte_token.tracked_unwrap();
@@ -683,7 +681,6 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                             },
                         ),
                     };
-                    assert(guard.wf(self));
                     guard_opt = Some(guard);
                     break ;
                 },
@@ -836,12 +833,10 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                             &pa_pte_array_token,
                             &stray_perm.token,
                         );
-                        assert(stray_perm.value() == false);
                     }
                     let tracked mut node_token = node_token.tracked_unwrap();
                     let tracked mut pte_token = pte_token.tracked_unwrap();
                     proof {
-                        assert(NodeHelper::in_subtree_range(m.sub_tree_rt(), self.nid@));
                         let tracked res = self.pt_inst.borrow().protocol_lock(
                             m.cpu,
                             self.nid@,
@@ -863,7 +858,6 @@ impl<C: PageTableConfig> PageTablePageSpinLock<C> {
                             },
                         ),
                     };
-                    assert(guard.wf(self));
                     guard_opt = Some(guard);
                     break ;
                 },

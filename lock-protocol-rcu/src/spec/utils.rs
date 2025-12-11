@@ -645,7 +645,6 @@ impl NodeHelper {
     {
         reveal(NodeHelper::trace_to_nid_rec);
         if trace2.len() == 0 {
-            assert(trace1.add(trace2) == trace1);
         } else {
             // Induction step: use `lemma_child_nid_from_trace_offset_sound` to move the first element
             // of `trace2` to the end of `trace1` and then use the inductive hypothesis on the rest of `trace2`.
@@ -877,7 +876,6 @@ impl NodeHelper {
 
     {
         if cur_level == 0 {
-            assert(Self::nid_to_trace_rec(nid, 0, cur_rt).len() == 0);
         } else {
             let sz = Self::tree_size_spec(cur_level - 1);
             let offset = ((nid - cur_rt - 1) / sz as int) as nat;
@@ -988,14 +986,12 @@ impl NodeHelper {
                 let sz = Self::tree_size_spec(pa_level - 2);
                 Self::lemma_child_nid_from_trace_offset_sound(trace_pa, offset);
                 assert(ch == pa + offset * sz + 1) by {
-                    assert(trace_ch.drop_last() == trace_pa);
                     assert(trace_ch.last() == offset) by {
                         assert(trace_ch == trace_pa.push(offset));
                         assert(Self::trace_to_nid(trace_ch) == Self::trace_to_nid(
                             trace_pa.push(offset),
                         ));
                     }
-                    assert(ch == pa + offset * sz + 1);
                 };
 
                 assert(ch + sz_ch <= pa + sz_pa) by {
@@ -1026,11 +1022,9 @@ impl NodeHelper {
             assert(Self::nid_to_trace(rt).len() < Self::nid_to_trace(nd).len()) by {
                 if Self::nid_to_trace(rt).len() == Self::nid_to_trace(nd).len() {
                     assert(Self::nid_to_trace(rt) == Self::nid_to_trace(nd));
-                    assert(rt == nd);
                 }
             }
             Self::lemma_get_parent_sound(nd);
-            assert(Self::nid_to_trace(rt).is_prefix_of(Self::nid_to_trace(parent)));
             Self::lemma_in_subtree_bounded(rt, parent);
             Self::lemma_is_child_bound(parent, nd);
         }
@@ -1081,10 +1075,6 @@ impl NodeHelper {
 
             Self::lemma_nid_to_trace_left_inverse();
 
-            assert(Self::trace_to_nid(trace1.drop_last()) == Self::trace_to_nid(
-                trace2.drop_last(),
-            ));
-
             assert(trace1 == trace2) by {
                 assert(trace2 == trace1.drop_last().push(trace1.last()));
             };
@@ -1092,7 +1082,7 @@ impl NodeHelper {
             // But since nid_to_trace is bijective (left inverse to trace_to_nid)
             // and trace1 == trace2, we must have nid1 == nid2
             Self::lemma_nid_to_trace_right_inverse();
-            assert(nid1 == nid2);  // contradiction with nid1 != nid2
+            // contradiction with nid1 != nid2
         }
     }
 
@@ -1188,11 +1178,6 @@ impl NodeHelper {
         if trace.len() == 3 {
             assert(forall|subtree_trace| #[trigger]
                 subtree_trace_set.contains(subtree_trace) ==> subtree_trace == trace);
-            assert(subtree_trace_set.is_singleton()) by {
-                assert(forall|x, y|
-                    #![trigger subtree_trace_set.contains(x),subtree_trace_set.contains(y)]
-                    subtree_trace_set.contains(x) && subtree_trace_set.contains(y) ==> x == y);
-            }
             subtree_trace_set.lemma_singleton_size();
         } else {
             // Split the set between the singleton `trace` and `child_trace_set`.
@@ -1207,7 +1192,6 @@ impl NodeHelper {
                     #![trigger trace_singleton_set.contains(x), trace_singleton_set.contains(y)]
                     trace_singleton_set.contains(x) && trace_singleton_set.contains(y) implies x
                     == y by {
-                    assert(x == trace);
                     assert(y == trace);
                 }
             }
@@ -1238,7 +1222,6 @@ impl NodeHelper {
                     offset_set,
                 );
             }
-            assert(child_traces <= Self::valid_trace_set());
             // The set of each child trace's subtree traces set
             let child_subtree_trace_set = child_traces.map(
                 |child_trace| Self::get_subtree_traces(child_trace),
@@ -1261,14 +1244,12 @@ impl NodeHelper {
             }
 
             // Show that the child traces are disjoint
-            assert(pairwise_disjoint(child_subtree_trace_set));
             // Show that the flatten of the child_subtree_trace_set is equal to the child_trace_set
             assert(child_trace_set == child_subtree_trace_set.flatten()) by {
                 assert forall|child_trace: Seq<nat>| #[trigger]
                     child_trace_set.contains(child_trace)
                         == child_subtree_trace_set.flatten().contains(child_trace) by {
                     if child_trace_set.contains(child_trace) {
-                        assert(trace.is_prefix_of(child_trace));
                         let trace_child = child_trace.subrange(0, (trace.len() + 1) as int);
                         let offset = child_trace[trace.len() as int];
                         assert(trace_child == trace.push(offset));
@@ -1286,7 +1267,6 @@ impl NodeHelper {
                             child_traces.contains(t) && Self::get_subtree_traces(t)
                                 == child_subtree_trace;
                         assert(trace.is_prefix_of(trace_child));
-                        assert(trace_child.is_prefix_of(child_trace));
                     }
                 }
             }
@@ -1331,7 +1311,6 @@ impl NodeHelper {
                     assert(subtree_ids.contains(trace_id) && Self::nid_to_trace(trace_id) == trace);
                 }
             }
-            assert(subtree_traces == subtree_ids.map(|id| Self::nid_to_trace(id)));
         }
         lemma_bijective_cardinality(|id| Self::nid_to_trace(id), subtree_ids, subtree_traces);
     }
@@ -1350,9 +1329,6 @@ impl NodeHelper {
             assert(Self::next_outside_subtree(nd) <= Self::next_outside_subtree(rt)) by {
                 Self::lemma_in_subtree_bounded(rt, nd);
             };
-            assert(nd < Self::next_outside_subtree(nd)) by {
-                Self::lemma_sub_tree_size_lower_bound(nd);
-            };
             assert(rt <= nd) by {
                 let rt_trace = Self::nid_to_trace(rt);
                 let nd_trace = Self::nid_to_trace(nd);
@@ -1367,16 +1343,6 @@ impl NodeHelper {
                         );
 
                         let cur_level = 3 - rt_trace.len();
-                        assert(Self::valid_trace(suffix)) by {
-                            assert(forall|i: int|
-                                #![trigger suffix[i]]
-                                0 <= i < suffix.len() ==> 0 <= suffix[i] < 512) by {
-                                assert(forall|i: int|
-                                    #![trigger nd_trace[i + rt_trace.len()]]
-                                    0 <= i < suffix.len() ==> 0 <= nd_trace[i + rt_trace.len()]
-                                        < 512);
-                            }
-                        }
 
                         // Apply trace_to_nid_rec_sound directly using our key insights:
                         // 1. rt = trace_to_nid(rt_trace)
@@ -1389,23 +1355,8 @@ impl NodeHelper {
                         }
 
                         assert(nd == Self::trace_to_nid_rec(suffix, rt, cur_level)) by {
-                            assert(rt_trace.add(suffix) == nd_trace) by {
-                                assert(rt_trace.is_prefix_of(nd_trace));
-                                assert(rt_trace == nd_trace.subrange(0, rt_trace.len() as int));
-                            }
-
-                            assert(Self::nid_to_trace(nd) == rt_trace.add(suffix)) by {
-                                assert(Self::nid_to_trace(nd) == nd_trace);
-                                assert(nd_trace == rt_trace.add(suffix));
-                            }
+                            assert(Self::nid_to_trace(nd) == rt_trace.add(suffix)) by {}
                             Self::lemma_nid_to_trace_bijective();
-
-                            assert(Self::trace_to_nid(Self::nid_to_trace(nd)) == Self::trace_to_nid(
-                                rt_trace.add(suffix),
-                            )) by {
-                                Self::lemma_nid_to_trace_right_inverse();
-                            }
-                            assert(nd == Self::trace_to_nid(rt_trace.add(suffix)));
 
                             Self::lemma_trace_to_nid_split(rt_trace, suffix, rt, cur_level);
                         }
@@ -1439,9 +1390,6 @@ impl NodeHelper {
                 Self::lemma_next_outside_subtree_bounded(rt);
             }
         }
-        assert(nid_set == Self::valid_nid_set().filter(
-            |id| rt <= id < Self::next_outside_subtree(rt),
-        ));
 
         // Shhowing there are exactly `sub_tree_size(rt)` node ids that are in the subtree
         let child_set = Self::valid_nid_set().filter(|id| Self::in_subtree(rt, id));
@@ -1457,7 +1405,6 @@ impl NodeHelper {
         }
         // So we can find exactly `sub_tree_size(rt)` node ids in the range that are in the subtree
         assert(child_set == nid_set.filter(|id| Self::in_subtree(rt, id)));
-        assert(nid_set.len() == nid_set.filter(|id| Self::in_subtree(rt, id)).len());
         // Therefore, every node id in the range is in the subtree
         assert(nid_set == nid_set.filter(|id| Self::in_subtree(rt, id))) by {
             lemma_filter_len_unchanged_implies_equal(nid_set, |id| Self::in_subtree(rt, id));
@@ -1597,7 +1544,6 @@ impl NodeHelper {
         let pushed_trace = trace.push(offset);
         Self::lemma_trace_to_nid_rec_inductive(pushed_trace, rt, level);
         if trace.len() == 0 {
-            assert(pushed_trace.drop_first() == Seq::<nat>::empty());
         } else {
             let new_rt = rt + trace[0] * Self::tree_size_spec(level - 1) + 1;
             Self::lemma_trace_to_nid_rec_push(trace.drop_first(), offset, new_rt, level - 1);
