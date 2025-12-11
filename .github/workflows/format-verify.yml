@@ -48,7 +48,7 @@ jobs:
             echo "Code is not properly formatted. Run 'make fmt'."
             git diff
             echo "FMT_FAILED=1" >> "$GITHUB_ENV"
-            # exit 1
+            exit 1
           fi
 
       - name: Publish summary
