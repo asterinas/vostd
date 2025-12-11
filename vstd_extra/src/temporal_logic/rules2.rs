@@ -623,6 +623,205 @@ proof fn instantiate_entailed_leads_to<T>(
 verus!{
 // Basic Rules of Temporal Logic Operators
 
+// lift StatePred::and to Verus meta-level
+pub broadcast proof fn state_pred_and_apply_equality<T>(p: StatePred<T>, q: StatePred<T>,s:T)
+    ensures
+        #[trigger] p.and(q).apply(s) == p.apply(s) && q.apply(s),
+{
+    admit();
+}
+
+// lift StatePred::or to Verus meta-level
+pub broadcast proof fn state_pred_or_apply_equality<T>(p: StatePred<T>, q: StatePred<T>,s:T)
+    ensures
+        #[trigger] p.or(q).apply(s) == p.apply(s) || q.apply(s),
+{}
+
+// lift StatePred::not to Verus meta-level
+pub broadcast proof fn state_pred_not_apply_equality<T>(p: StatePred<T>,s:T)
+    ensures
+        #[trigger] p.not().apply(s) == !p.apply(s),
+{}
+
+// lift StatePred::implies to Verus meta-level
+pub broadcast proof fn state_pred_implies_apply_equality<T>(p: StatePred<T>,
+    q: StatePred<T>,s:T)
+    ensures
+        #[trigger] p.implies(q).apply(s) == p.apply(s) ==> q.apply(s),
+{}
+
+// and distributes over lift_state.
+// post:
+//  lift_state(p /\ q) == lift_state(p) /\ lift_state(q)
+pub broadcast proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
+    ensures
+        #![trigger lift_state(p.and(q))]
+        #![trigger lift_state(p).and(lift_state(q))]
+        lift_state(p.and(q)) == lift_state(p).and(lift_state(q)),
+{
+}
+
+// or distributes over lift_state.
+// post:
+//  lift_state(p \/ q) == lift_state(p) \/ lift_state(q)
+pub broadcast proof fn lift_state_or_equality<T>(p: StatePred<T>, q: StatePred<T>)
+    ensures
+        #![trigger lift_state(p.or(q))]
+        #![trigger lift_state(p).or(lift_state(q))]
+        lift_state(p.or(q)) == lift_state(p).or(lift_state(q)),
+{
+}
+
+// not distributes over lift_state.
+// post:
+//  lift_state(!p) == !lift_state(p)
+pub broadcast proof fn lift_state_not_equality<T>(p: StatePred<T>)
+    ensures
+        #![trigger lift_state(p.not())]
+        #![trigger not(lift_state(p))] 
+        lift_state(p.not()) == not(lift_state(p)),
+{
+}
+
+//implies distributes over lift_state.
+// post:
+//  lift_state(p => q) == lift_state(p) => lift_state(q)
+pub broadcast proof fn lift_state_implies_equality<T>(p: StatePred<T>, q
+    : StatePred<T>)
+    ensures
+        #[trigger] lift_state(p.implies(q)) == lift_state(p).implies(lift_state(q)),
+{
+}
+
+// and distributes over always.
+// post:
+//  [](p /\ q) == []p /\ []q
+pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
+    ensures
+        #[trigger] always(p.and(q)) == always(p).and(always(q)),
+{
+    broadcast use always_unfold;
+    temp_pred_equality::<T>(always(p.and(q)), always(p).and(always(q)));
+}
+
+// Lift entails TempPred::and to Verus meta-level
+// If entails p and entails q, then entails p and q.
+// pre:
+//     spec |= p
+//     spec |= q
+// post:
+//     spec |= p /\ q
+pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+    requires
+        spec.entails(p),
+        spec.entails(q),
+    ensures
+        #[trigger] spec.entails(p.and(q)),
+{
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.and(q).satisfied_by(ex) by {
+        implies_apply::<T>(ex, spec, p);
+        implies_apply::<T>(ex, spec, q);
+    };
+}
+
+// Lift entails TempPred::and to Verus meta-level (reversed direction)
+// If entails p and q, then entails p and entails q.
+// pre:
+//     spec |= p /\ q
+// post:
+//     spec |= p
+//     spec |= q
+pub broadcast proof fn entails_and_temp_reverse<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+    requires
+        #[trigger] spec.entails(p.and(q)),
+    ensures
+        spec.entails(p),
+        spec.entails(q),
+{
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.satisfied_by(ex) by {
+        implies_apply::<T>(ex, spec, p.and(q));
+    };
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies q.satisfied_by(ex) by {
+        implies_apply::<T>(ex, spec, p.and(q));
+    };
+}
+
+// Lift entails TempPred::or to Verus meta-level
+// If entails p or entails q, then entails p or q.
+// pre:
+//     spec |= p or spec |= q
+// post:
+//     spec |= p \/ q
+// NOTE: The other direction does not hold in general.
+pub broadcast proof fn entails_or_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+    requires
+        spec.entails(p) || spec.entails(q),
+    ensures
+        #[trigger] spec.entails(p.or(q)),
+{
+    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.or(q).satisfied_by(ex) by {
+        if spec.entails(p) {
+            implies_apply::<T>(ex, spec, p);
+        } else {
+            implies_apply::<T>(ex, spec, q);
+        }
+    };
+}
+
+// Lift entails TempPred::not to Verus meta-level (reversed direction)
+// If entails not(p), then not(entails p).
+// pre:
+//     spec |= !p
+// post:
+//     !(spec |= p)
+// NOTE: The other direction does not hold in general.
+pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPred<T>)
+    requires
+        #[trigger] spec.entails(not(p)),
+    ensures
+        !spec.entails(p),
+{
+    admit();
+}
+
+// Lift entails TempPred::implies to Verus meta-level
+// If entails (p implies q), then entails p implies entails q.
+// pre:
+//     spec |= (p => q)
+// post:
+//     (spec |= p) => (spec |= q)
+// NOTE: The other direction does not hold in general.
+pub broadcast proof fn entails_implies_temp_reverse<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
+    requires
+        #[trigger] spec.entails(p.implies(q)),
+    ensures
+        spec.entails(p) ==> spec.entails(q),
+{
+    if spec.entails(p) {
+        assert forall|ex| #[trigger] spec.satisfied_by(ex) implies q.satisfied_by(ex) by {
+            implies_apply::<T>(ex, spec, p.implies(q));
+            implies_apply::<T>(ex, spec, p);
+        };
+    }
+}
+
+broadcast group group_definition_basics{
+    state_pred_and_apply_equality,
+    state_pred_or_apply_equality,
+    state_pred_not_apply_equality,
+    state_pred_implies_apply_equality,
+    lift_state_and_equality,
+    lift_state_or_equality,
+    lift_state_not_equality,
+    lift_state_implies_equality,
+    always_and_equality,
+    entails_and_temp,
+    entails_and_temp_reverse,
+    entails_or_temp,
+    entails_not_temp_reverse,
+    entails_implies_temp_reverse,
+}
+
 // Double always can be simplified.
 // post:
 //  [][]p == []p
@@ -640,27 +839,6 @@ pub broadcast proof fn always_double_equality<T>(p: TempPred<T>)
     temp_pred_equality::<T>(always(always(p)), always(p));
 }
 
-// and distributes over always.
-// post:
-//  [](p /\ q) == []p /\ []q
-pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
-    ensures
-        #[trigger] always(p.and(q)) == always(p).and(always(q)),
-{
-    broadcast use always_unfold;
-
-    temp_pred_equality::<T>(always(p.and(q)), always(p).and(always(q)));
-}
-
-// and distributes over lift_state.
-// post:
-//  lift_state(p /\ q) == lift_state(p) /\ lift_state(q)
-pub broadcast proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
-    ensures
-        #[trigger] lift_state(p.and(q)) == lift_state(p).and(lift_state(q)),
-{
-}
-
 // and distributes over always and lift_state.
 // post:
 //  [](lift_state(p /\ q)) == []lift_state(p) /\ []lift_state(q)
@@ -670,18 +848,7 @@ pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: Sta
             always(lift_state(q)),
         ),
 {
-    broadcast use lift_state_and_equality;
-    always_and_equality(lift_state(p), lift_state(q));
-}
-
-// not distributes over lift_state.
-// post:
-//  lift_state(!p) == !lift_state(p)
-pub broadcast proof fn not_lift_state_equality<T>(p: StatePred<T>)
-    ensures
-        #[trigger] not(lift_state(p)) == lift_state(p.not()),
-{
-    admit();
+    broadcast use group_definition_basics;
 }
 
 // Obviously p ~> p is valid
@@ -691,6 +858,7 @@ pub broadcast proof fn leads_to_self_temp<T>(p: TempPred<T>)
     ensures
         #[trigger] valid(p.leads_to(p)),
 {
+    broadcast use group_definition_basics;
     assert forall|ex| #[trigger] always(p.implies(eventually(p))).satisfied_by(ex) by {
         assert forall|i| #[trigger] p.satisfied_by(ex.suffix(i)) implies eventually(p).satisfied_by(
             ex.suffix(i),
@@ -772,7 +940,7 @@ pub broadcast proof fn always_implies_to_leads_to<T>(
     ensures
         spec.entails(p.leads_to(q)),
 {
-    broadcast use {always_unfold, implies_apply};
+    broadcast use {always_unfold, implies_apply, group_definition_basics};
 
     assert forall|ex| spec.satisfied_by(ex) implies #[trigger] p.leads_to(q).satisfied_by(ex) by {
         implies_apply(ex, spec, always(p.implies(q)));
@@ -781,25 +949,6 @@ pub broadcast proof fn always_implies_to_leads_to<T>(
         ).satisfied_by(ex.suffix(i)) by {
             assert(ex.suffix(i) == ex.suffix(i).suffix(0));
         };
-    };
-}
-
-// If entails p and entails q, then entails p and q.
-// pre:
-//     spec |= p
-//     spec |= q
-// post:
-//     spec |= p /\ q
-pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
-    requires
-        spec.entails(p),
-        spec.entails(q),
-    ensures
-        #[trigger] spec.entails(p.and(q)),
-{
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.and(q).satisfied_by(ex) by {
-        implies_apply::<T>(ex, spec, p);
-        implies_apply::<T>(ex, spec, q);
     };
 }
 
@@ -916,6 +1065,7 @@ pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>
     ensures
         spec.entails(p.leads_to(r)),
 {
+    broadcast use group_definition_basics;
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(r).satisfied_by(ex) by {
         assert forall|i: nat| #[trigger] p.satisfied_by(ex.suffix(i)) implies eventually(
             r,
@@ -1035,6 +1185,7 @@ pub proof fn or_leads_to_case_analysis<T>(
     ensures
         spec.entails(p.leads_to(r)),
 {
+    broadcast use group_definition_basics;
     admit();
 }
 
@@ -1059,6 +1210,7 @@ pub broadcast proof fn leads_to_always_combine<T>(
         spec.entails(p.leads_to(always(q.and(r)))),
         spec.entails(p.leads_to(always(q).and(always(r)))),
 {
+    broadcast use group_definition_basics;
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(
         always(q.and(r)),
     ).satisfied_by(ex) by {
@@ -1120,7 +1272,7 @@ pub proof fn leads_to_stable<T>(
     ensures
         spec.entails(p.leads_to(always(q))),
 {
-    broadcast use {always_unfold, always_propagate_forwards};
+    broadcast use {always_unfold, always_propagate_forwards, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(always(q)).satisfied_by(
         ex,
@@ -1183,7 +1335,7 @@ pub broadcast proof fn leads_to_framed_by_or<T>(
     ensures
         #[trigger] spec.entails(p.or(r).leads_to(q.or(r))),
 {
-    broadcast use {implies_apply, group_execution_suffix_lemmas};
+    broadcast use {implies_apply, group_execution_suffix_lemmas, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.or(r).leads_to(
         q.or(r),
@@ -1242,8 +1394,7 @@ pub broadcast proof fn entails_always_lift_state_and<T>(spec: TempPred<T>, p: St
     ensures
         #[trigger] spec.entails(always(lift_state(p.and(q)))),
 {
-    broadcast use always_lift_state_and_equality;
-    broadcast use entails_and_temp;
+    broadcast use group_definition_basics;
 }
 
 // Eliminate and split two state predicates under always.
@@ -1263,13 +1414,7 @@ pub broadcast proof fn entails_always_lift_state_and_elim<T>(
         spec.entails(always(lift_state(p))),
         spec.entails(always(lift_state(q))),
 {
-    broadcast use always_unfold;
-
-    assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).satisfied_by(
-        ex,
-    ) && always(lift_state(q)).satisfied_by(ex) by {
-        implies_apply::<T>(ex, spec, always(lift_state(p.and(q))));
-    };
+    broadcast use group_definition_basics;
 }
 
 // Rules about quantifiers.
@@ -1586,6 +1731,7 @@ pub broadcast proof fn lift_state_exists_absorb_equality<T, A>(
 ensures
     #[trigger] lift_state_exists(a_to_state_pred).and(lift_state(state_pred)) == lift_state_exists(StatePred::absorb(a_to_state_pred, state_pred)),
 {
+    broadcast use group_definition_basics;
     admit();
 }
 
@@ -1596,6 +1742,7 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
 ensures
     #[trigger] lift_state_forall(a_to_state_pred).or(lift_state(state_pred)) == lift_state_forall(StatePred::absorb(a_to_state_pred, state_pred)),
 {
+    broadcast use group_definition_basics;
     admit();
 }
 
@@ -1619,14 +1766,13 @@ pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     ensures
         spec.entails(lift_state_exists(a_to_temp_pred).leads_to(q)),
 {
-    broadcast use {lift_state_exists_absorb_equality, not_lift_state_equality};
+    broadcast use {lift_state_exists_absorb_equality, group_definition_basics};
     or_leads_to_case_analysis(
         spec,
         lift_state_exists(a_to_temp_pred),
         lift_state(p),
         q,
     );
-    admit();
 }
 
 // Leads to []tla_forall(a_to_temp_pred) if forall a, it leads []a_to_temp_pred(a).
@@ -1655,7 +1801,7 @@ pub proof fn leads_to_always_tla_forall<T, A>(
     ensures
         spec.entails(p.leads_to(always(tla_forall(a_to_temp_pred)))),
 {
-    broadcast use {always_unfold, always_propagate_forwards};
+    broadcast use {always_unfold, always_propagate_forwards, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(
         always(tla_forall(a_to_temp_pred)),
@@ -1768,6 +1914,7 @@ pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
     ensures
         valid(stable(tla_forall(|a: A| p.leads_to(a_to_temp_pred(a))))),
 {
+    broadcast use group_definition_basics;
     let target = tla_forall(|a: A| p.leads_to(a_to_temp_pred(a)));
     assert forall|ex|
         (forall|a: A| #[trigger] valid(stable(p.leads_to(a_to_temp_pred(a))))) implies #[trigger] stable(
@@ -1809,7 +1956,7 @@ pub proof fn unpack_conditions_from_spec<T>(
     ensures
         spec.entails(p.and(c).leads_to(q)),
 {
-    broadcast use {always_unfold, implies_apply};
+    broadcast use {always_unfold, implies_apply, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.and(c).leads_to(q).satisfied_by(
         ex,
@@ -2047,7 +2194,7 @@ pub proof fn strengthen_leads_to_with_until<T>(
     ensures
         spec.entails(p.leads_to(q)),
 {
-    broadcast use {always_unfold, implies_apply, group_execution_suffix_lemmas};
+    broadcast use {always_unfold, implies_apply, group_execution_suffix_lemmas, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(q).satisfied_by(ex) by {
         implies_apply(ex, spec, always(next));
@@ -2099,7 +2246,7 @@ pub proof fn transform_leads_to_with_until<T>(
     ensures
         spec.entails(p1.and(p2).leads_to((q1.and(p2)).or(q2))),
 {
-    broadcast use {always_unfold, implies_apply, group_execution_suffix_lemmas};
+    broadcast use {always_unfold, implies_apply, group_execution_suffix_lemmas, group_definition_basics};
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p1.and(p2).leads_to(
         (q1.and(p2)).or(q2),
@@ -2302,6 +2449,7 @@ pub proof fn wf1_variant_temp<T>(
     ensures
         spec.entails(p.leads_to(q)),
 {
+    broadcast use group_tla_rules;
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies p.leads_to(q).satisfied_by(ex) by {
         assert forall|i| #[trigger] p.satisfied_by(ex.suffix(i)) implies eventually(q).satisfied_by(
             ex.suffix(i),
@@ -2360,6 +2508,7 @@ pub proof fn wf1<T>(
     ensures
         spec.entails(lift_state(p).leads_to(lift_state(q))),
 {
+    broadcast use group_tla_rules;
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(lift_state(p)).leads_to(
         lift_action(forward),
     ).satisfied_by(ex) by {
@@ -2425,6 +2574,7 @@ pub proof fn wf1_by_borrowing_inv<T>(
     ensures
         spec.entails(lift_state(p).leads_to(lift_state(q))),
 {
+    broadcast use group_tla_rules;
     let next_and_inv = lift_action(next).and(lift_state(inv));
 
     assert forall|ex| #[trigger] spec.satisfied_by(ex) implies always(
@@ -3062,18 +3212,29 @@ pub use always_lift_state_weaken_n2;
 pub use always_lift_state_weaken_n2_internal;
 
 pub broadcast group group_tla_rules {
+    state_pred_and_apply_equality,
+    state_pred_or_apply_equality,
+    state_pred_implies_apply_equality,
+    state_pred_not_apply_equality,
+    lift_state_and_equality,
+    lift_state_or_equality,
+    lift_state_not_equality,
+    lift_state_implies_equality,
+    entails_and_temp,
+    entails_and_temp_reverse,
+    entails_or_temp,
+    entails_not_temp_reverse,
+    entails_implies_temp_reverse,
+    always_lift_state_and_equality,
     always_implies_to_leads_to,
     always_to_always_later,
     always_double_equality,
     always_and_equality,
-    lift_state_and_equality,
-    always_lift_state_and_equality,
     tla_forall_apply,
     spec_entails_tla_forall,  // may slow down proofs
     always_implies_forall_intro,  // may slow down proofs
     tla_exists_leads_to_intro,  // may slow down proofs
     leads_to_self_temp,
-    entails_and_temp,
     entails_and_different_temp,
     always_p_is_stable,
     stable_and_temp,
@@ -3092,7 +3253,7 @@ pub broadcast group group_tla_rules {
     lift_state_exists_leads_to_intro,
     lift_state_exists_absorb_equality,
     lift_state_forall_absorb_equality,
-    not_lift_state_equality,
+    lift_state_not_equality,
 }
 
 }
