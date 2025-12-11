@@ -2543,7 +2543,7 @@ pub use state_pred_and;
 #[macro_export]
 macro_rules! temp_pred_and {
     [$($tail:tt)*] => {
-        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::temp_pred_and_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules2::temp_pred_and_internal!($($tail)*))
     }
 }
 
@@ -2836,7 +2836,7 @@ macro_rules! entails_always_lift_state_and_n2_internal {
         entails_always_lift_state_and($spec, combined_p1_p2, $p3);
         // Now we have: spec.entails(always(lift_state(|s| combined_p1_p2(s) && p3(s))))
         // Use lemma_flatten_state_pred_and to flatten the nested closure
-        lemma_flatten_state_pred_and($p1, $p2, $p3);
+        //lemma_flatten_state_pred_and($p1, $p2, $p3);
         // This establishes equality: (|s| (|s| p1(s) && p2(s))(s) && p3(s)) == (|s| p1(s) && p2(s) && p3(s))
         // Combined with the entailment above, we have: spec.entails(always(lift_state(|s| p1(s) && p2(s) && p3(s))))
     };
@@ -2963,7 +2963,7 @@ pub use stable_and_always_n2_internal;
 #[macro_export]
 macro_rules! implies_new_invariant_n2 {
     [$($tail:tt)*] => {
-        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules::implies_new_invariant_n_internal!($($tail)*))
+        ::verus_builtin_macros::verus_proof_macro_exprs!($crate::temporal_logic::rules2::implies_new_invariant_n2_internal!($($tail)*))
     };
 }
 
