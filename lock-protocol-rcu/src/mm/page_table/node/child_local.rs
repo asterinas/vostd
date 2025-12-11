@@ -139,16 +139,9 @@ impl<'a, C: PageTableConfig> ChildRefLocal<'a, C> {
         let paddr = pte.frame_paddr();
 
         if !pte.is_last(level) {
-            assert(spt.alloc_model.invariants());
-            assert(spt.alloc_model.meta_map.contains_key(paddr as int));
-            assert(level_is_in_range::<C>(entry.pte_frame_level(&spt) as int));
-            assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
             let node = PageTableNodeRef::borrow_paddr_local(paddr, Tracked(&spt.alloc_model));
             // debug_assert_eq!(node.level(), level - 1);
-            assert(node.wf_local(&spt.alloc_model));
             let res = ChildRefLocal::PageTable(node);
-            assert(spt.i_ptes.value().contains_key(entry.pte.pte_paddr() as int));
-            assert(res.child_entry_spt_wf(entry, spt));
             return res;
         }
         ChildRefLocal::Frame(paddr, level, pte.prop())

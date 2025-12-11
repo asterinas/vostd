@@ -58,21 +58,14 @@ pub fn lock_range<'a>(
     ];
 
     let ghost mut cur_nid: NodeId = 0;
-    assert(NodeHelper::valid_nid(cur_nid)) by {
-        NodeHelper::lemma_root_id();
-    };
 
     let mut cur_pt = pt.root.borrow();
 
     let tracked mut m = m.get();
     proof {
         m.token = pt.inst.borrow().locking_start(m.cpu, m.token);
-        assert(m.state() is ReadLocking);
     }
     proof {
-        assert(cur_nid == va_level_to_nid(va.start, cur_pt.deref().level_spec())) by {
-            reveal(NodeHelper::trace_to_nid_rec);
-        };
         lemma_va_range_get_guard_level(*va);
         lemma_va_range_get_tree_path(*va);
     }
@@ -151,20 +144,9 @@ pub fn lock_range<'a>(
             cur_level > 1 && start_idx == end_idx
         };
         if !level_too_high {
-            assert(cur_level == va_range_get_guard_level(*va)) by {
-                lemma_va_range_get_guard_level_implied_by_offsets_equal(*va, cur_level);
-            };
             break ;
         }
-        assert(cur_level != va_range_get_guard_level(*va)) by {
-            lemma_va_range_get_guard_level_implies_offsets_equal(*va);
-        };
-
-        proof {
-            assert(m.path().len() == 0 ==> cur_pt.nid@ == NodeHelper::root_id()) by {
-                reveal(NodeHelper::trace_to_nid_rec);
-            };
-        }
+        proof {}
         let res = cur_pt.clone_ref().lock_read(guard, Tracked(m));
         let mut cur_pt_rlockguard = res.0;
         proof {
@@ -173,9 +155,6 @@ pub fn lock_range<'a>(
 
         let entry = cur_pt_rlockguard.entry(start_idx);
         let child_ref = entry.to_ref_read(&cur_pt_rlockguard);
-        assert(child_ref !is Frame) by {
-            child_ref.axiom_no_huge_page();
-        };
         let ghost nxt_nid = NodeHelper::get_child(cur_nid, start_idx as nat);
         proof {
             NodeHelper::lemma_nid_to_dep_le_3(cur_nid);
@@ -211,9 +190,6 @@ pub fn lock_range<'a>(
 
                 let mut entry = cur_pt_wlockguard.entry(start_idx);
                 let child_ref = entry.to_ref_write(&cur_pt_wlockguard);
-                assert(!(child_ref is Frame)) by {
-                    child_ref.axiom_no_huge_page();
-                };
                 match child_ref {
                     ChildRef::PageTable(pt) => {
                         // Downgrade to read lock.
@@ -266,7 +242,6 @@ pub fn lock_range<'a>(
 
     // Get write lock of the current page table node.
     let cur_level = cur_pt.deref().level();
-    assert(cur_wlock_opt is None);
     let cur_pt_wlockguard = if cur_wlock_opt.is_some() {
         cur_wlock_opt.unwrap()
     } else {
@@ -277,7 +252,6 @@ pub fn lock_range<'a>(
         proof {
             m = res.1.get();
         }
-        assert(m.path().is_prefix_of(va_range_get_tree_path(*va)));
         res.0
     };
     path[cur_level as usize - 1] = GuardInPath::Write(cur_pt_wlockguard);

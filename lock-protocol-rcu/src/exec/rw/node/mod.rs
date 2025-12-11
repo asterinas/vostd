@@ -382,9 +382,6 @@ impl<'a> PageTableReadLock<'a> {
         let res = guard.borrow_perms(&self.deref().deref().meta().lock);
         let tracked perms = res.get();
         let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
-        assert(self.guard->Some_0.view_perms().relate_pte(pte, idx as nat)) by {
-            assert(pte =~= guard.view_perms().inner.opt_value()[idx as int]->Init_0);
-        };
         pte
     }
 }
@@ -508,9 +505,6 @@ impl<'a> PageTableWriteLock<'a> {
         let guard: &RwWriteGuard = self.guard.as_ref().unwrap();
         let tracked perms = guard.perms.borrow();
         let pte: Pte = ptr.get(Tracked(&perms.inner), idx);
-        assert(self.guard->Some_0.view_perms().relate_pte(pte, idx as nat)) by {
-            assert(pte =~= guard.view_perms().inner.opt_value()[idx as int]->Init_0);
-        };
         pte
     }
 
@@ -549,55 +543,13 @@ impl<'a> PageTableWriteLock<'a> {
                 *self.inner.deref(),
                 i as nat,
             )
-        } by {
-            assert(guard.perms@.inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
-        };
+        } by {};
         ptr.overwrite(Tracked(&mut guard.perms.borrow_mut().inner), idx, pte);
         self.guard = Some(guard);
         proof {
             let ghost level = self.inner.deref().level_spec();
             if pte.is_pt(level) {
-                assert(self.wf()) by {
-                    assert forall|i: int| #![auto] 0 <= i < 512 implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_array_token@.value().is_alive(i as nat)
-                    } by {
-                        if i != idx as int {
-                            assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
-                                old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_array_token@.value(),
-                                idx as nat,
-                            ));
-                            assert(self.guard->Some_0.pte_array_token@.value() =~= old(
-                                self,
-                            ).guard->Some_0.pte_array_token@.value());
-                            assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
-                                self,
-                            ).guard->Some_0.perms@.inner.value()[i]);
-                        }
-                    };
-                };
             } else {
-                assert(self.wf_except(idx as nat)) by {
-                    assert forall|i: int| #![auto] 0 <= i < 512 && i != idx as int implies {
-                        self.guard->Some_0.perms@.inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_array_token@.value().is_alive(i as nat)
-                    } by {
-                        assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms@.relate_pte_state_except(
-                            old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_array_token@.value(),
-                            idx as nat,
-                        ));
-                        assert(self.guard->Some_0.pte_array_token@.value() =~= old(
-                            self,
-                        ).guard->Some_0.pte_array_token@.value());
-                        assert(self.guard->Some_0.perms@.inner.value()[i] =~= old(
-                            self,
-                        ).guard->Some_0.perms@.inner.value()[i]);
-                    };
-                };
             }
         }
     }

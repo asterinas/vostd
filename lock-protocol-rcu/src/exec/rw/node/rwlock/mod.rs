@@ -771,7 +771,6 @@ impl PageTablePageRwLock {
             }
         }
 
-        assert(write_handle_opt is Some);
         let write_handle = write_handle_opt.unwrap();
         (write_handle, Tracked(m))
     }
@@ -995,7 +994,6 @@ impl PageTablePageRwLock {
             }
         }
 
-        assert(read_handle_opt is Some);
         let read_handle = read_handle_opt.unwrap();
         (read_handle, Tracked(m))
     }
@@ -1176,7 +1174,6 @@ impl PageTablePageRwLock {
             }
         }
 
-        assert(write_handle_opt is Some);
         let write_handle = write_handle_opt.unwrap();
         write_handle
     }

@@ -275,7 +275,6 @@ pub fn frame_index_to_addr(index: usize) -> (res: usize)
     ensures
         res == frame_index_to_addr_spec(index),
 {
-    assert((PHYSICAL_BASE_ADDRESS_SPEC() + index * SIZEOF_FRAME) < usize::MAX);
     (PHYSICAL_BASE_ADDRESS() + index * SIZEOF_FRAME) as usize
 }
 

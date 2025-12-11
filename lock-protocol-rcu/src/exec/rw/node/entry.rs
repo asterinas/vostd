@@ -218,17 +218,8 @@ impl<'g> Entry {
         let mut lock_guard = node.guard.take().unwrap();
         let tracked node_token = lock_guard.node_token.get();
         let tracked pte_array_token = lock_guard.pte_array_token.get();
-        assert(node_token.value().is_write_locked());
-        assert(pte_array_token.value().is_void(self.idx as nat));
-        assert(cur_nid != NodeHelper::root_id()) by {
-            assert(cur_nid == NodeHelper::get_child(node.nid(), self.idx as nat));
-            NodeHelper::lemma_is_child_nid_increasing(node.nid(), cur_nid);
-        };
         let tracked_inst = node.tracked_pt_inst();
         let tracked inst = tracked_inst.get();
-        assert(level - 1 == NodeHelper::nid_to_level(cur_nid)) by {
-            NodeHelper::lemma_is_child_level_relation(node.nid(), cur_nid);
-        };
         let res = PageTableNode::alloc(
             level - 1,
             Ghost(cur_nid),

@@ -76,7 +76,6 @@ pub proof fn lemma_u64_and_less_than(a: u64, b: u64)
     assert(a & b <= a) by (bit_vector);
     assert(a & b <= b) by (bit_vector);
     let max = max(a as int, b as int) as u64;
-    assert(a & b <= max);
 }
 
 pub proof fn lemma_usize_mod_0_maintain_after_add(x: usize, m: usize)

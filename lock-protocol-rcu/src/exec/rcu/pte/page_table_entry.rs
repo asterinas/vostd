@@ -76,7 +76,6 @@ impl PageTableEntryTrait for PageTableEntry {
             let present_mask = PageTableFlags::PRESENT().bits();
             assert((addr | hp | flags) & present_mask != 0) by (bit_vector) requires
                 flags & present_mask != 0;
-            assert(Self(addr | hp | flags).is_last(level));
             assert((addr | hp | flags) & 0xF_FFFF_FFFF_F000 == addr) by (bit_vector) requires
                 hp & 0xF_FFFF_FFFF_F000 == 0,
                 flags & 0xF_FFFF_FFFF_F000 == 0,

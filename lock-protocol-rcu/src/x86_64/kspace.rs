@@ -108,8 +108,6 @@ pub proof fn lemma_max_paddr_range()
 {
     assert(VMALLOC_BASE_VADDR() == 0xffff_fd00_0000_0000) by (compute_only);
     assert(LINEAR_MAPPING_BASE_VADDR() == 0xffff_8000_0000_0000) by (compute_only);
-    assert(VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR() == 0x7d00_0000_0000);
-    assert(MAX_PADDR() == 0x8000_0000);
 }
 
 pub proof fn lemma_mod_0_add(a: int, b: int, m: int)

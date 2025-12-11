@@ -191,13 +191,6 @@ impl<C: PageTableConfig> PageTableNode<C> {
         let tracked mut pte_token = pte_token.get();
         let paddr: Paddr = 0;
 
-        assert(pa_nid@ == NodeHelper::get_parent(nid@)) by {
-            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
-        };
-        assert(offset@ == NodeHelper::get_offset(nid@)) by {
-            NodeHelper::lemma_get_child_sound(pa_nid@, offset@);
-        };
-
         let tracked ch_node_token;
         let tracked ch_pte_token;
         let tracked stray_token;
@@ -464,9 +457,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let tracked perms = &guard.inner.borrow().perms;
         // assert(perms.inner.value()[idx as int].wf());
         let pte: Pte<C> = ptr.get(Tracked(&perms.inner), idx);
-        assert(self.guard->Some_0.perms().relate_pte(pte, idx as nat)) by {
-            assert(pte =~= guard.perms().inner.opt_value()[idx as int]->Init_0);
-        };
         pte
     }
 
@@ -508,100 +498,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
                 *self.inner.deref(),
                 i as nat,
             )
-        } by {
-            assert(guard.perms().inner.value()[i].wf_with_node(*self.inner.deref(), i as nat));
-        };
+        } by {};
         ptr.overwrite(Tracked(&mut guard.inner.borrow_mut().perms.inner), idx, pte);
         self.guard = Some(guard);
         proof {
             let ghost level = self.inner.deref().level_spec();
             if pte.is_pt(level) {
-                assert(self.wf()) by {
-                    assert(self.guard->Some_0.pte_token() is Some);
-                    assert forall|i: int| #![auto] 0 <= i < 512 implies {
-                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
-                    } by {
-                        if i != idx as int {
-                            assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
-                                old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token()->Some_0.value(),
-                                idx as nat,
-                            ));
-                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
-                                self,
-                            ).guard->Some_0.pte_token()->Some_0.value());
-                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
-                                self,
-                            ).guard->Some_0.perms().inner.value()[i]);
-                        }
-                    };
-                    assert forall|i: int|
-                        #![auto]
-                        0 <= i < 512 && self.guard->Some_0.perms().inner.value()[i].is_pt(
-                            level,
-                        ) implies {
-                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
-                    } by {
-                        if i != idx as int {
-                            assert(old(self).wf_except(idx as nat));
-                            assert(old(self).guard->Some_0.perms().relate_pte_state_except(
-                                old(self).inner.deref().meta_spec().level,
-                                old(self).guard->Some_0.pte_token()->Some_0.value(),
-                                idx as nat,
-                            ));
-                            assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
-                                self,
-                            ).guard->Some_0.pte_token()->Some_0.value());
-                            assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
-                                self,
-                            ).guard->Some_0.perms().inner.value()[i]);
-                        }
-                    };
-                };
             } else {
-                assert(self.wf_except(idx as nat)) by {
-                    assert(self.guard->Some_0.pte_token() is Some);
-                    assert forall|i: int| #![auto] 0 <= i < 512 && i != idx as int implies {
-                        self.guard->Some_0.perms().inner.value()[i].is_pt(level)
-                            <==> self.guard->Some_0.pte_token()->Some_0.value().is_alive(i as nat)
-                    } by {
-                        assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
-                            old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token()->Some_0.value(),
-                            idx as nat,
-                        ));
-                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
-                            self,
-                        ).guard->Some_0.pte_token()->Some_0.value());
-                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
-                            self,
-                        ).guard->Some_0.perms().inner.value()[i]);
-                    };
-                    assert forall|i: int|
-                        #![auto]
-                        0 <= i < 512 && i != idx
-                            && self.guard->Some_0.perms().inner.value()[i].is_pt(level) implies {
-                        self.guard->Some_0.perms().inner.value()[i].inner.paddr()
-                            == self.guard->Some_0.pte_token()->Some_0.value().get_paddr(i as nat)
-                    } by {
-                        assert(old(self).wf_except(idx as nat));
-                        assert(old(self).guard->Some_0.perms().relate_pte_state_except(
-                            old(self).inner.deref().meta_spec().level,
-                            old(self).guard->Some_0.pte_token()->Some_0.value(),
-                            idx as nat,
-                        ));
-                        assert(self.guard->Some_0.pte_token()->Some_0.value() =~= old(
-                            self,
-                        ).guard->Some_0.pte_token()->Some_0.value());
-                        assert(self.guard->Some_0.perms().inner.value()[i] =~= old(
-                            self,
-                        ).guard->Some_0.perms().inner.value()[i]);
-                    };
-                };
             }
         }
     }
