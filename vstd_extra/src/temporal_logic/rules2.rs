@@ -2979,24 +2979,16 @@ macro_rules! entails_always_lift_state_and_n2_internal {
         entails_always_lift_state_and($spec, $p1, $p2);
     };
     ($spec:expr, $p1:expr, $p2:expr, $p3:expr $(,)?) => {
-        // Three predicate case: build step by step with flattening
+        // Three predicate case: build step by step
         entails_always_lift_state_and($spec, $p1, $p2);
-        // Now we have: spec.entails(always(lift_state(|s| p1(s) && p2(s))))
-        let combined_p1_p2 = closure_to_fn_spec(|s| $p1(s) && $p2(s));
+        let combined_p1_p2 = state_pred_and!($p1, $p2);
         entails_always_lift_state_and($spec, combined_p1_p2, $p3);
-        // Now we have: spec.entails(always(lift_state(|s| combined_p1_p2(s) && p3(s))))
-        // Use lemma_flatten_state_pred_and to flatten the nested closure
-        //lemma_flatten_state_pred_and($p1, $p2, $p3);
-        // This establishes equality: (|s| (|s| p1(s) && p2(s))(s) && p3(s)) == (|s| p1(s) && p2(s) && p3(s))
-        // Combined with the entailment above, we have: spec.entails(always(lift_state(|s| p1(s) && p2(s) && p3(s))))
     };
     ($spec:expr, $p1:expr, $p2:expr, $($tail:expr),+ $(,)?) => {
-        // Multi predicate case: similar pattern with flattening
+        // Multi predicate case: recursively combine predicates
         entails_always_lift_state_and($spec, $p1, $p2);
-        let combined_p1_p2 = closure_to_fn_spec(|s| $p1(s) && $p2(s));
-        entails_always_lift_state_and_n_internal!($spec, combined_p1_p2, $($tail),+);
-        // TODO: Apply appropriate flattening for multi-predicate case
-        // For now, this handles the common 3-predicate case
+        let combined_p1_p2 = state_pred_and!($p1, $p2);
+        entails_always_lift_state_and_n2_internal!($spec, combined_p1_p2, $($tail),+);
     };
 }
 
@@ -3128,10 +3120,8 @@ macro_rules! implies_new_invariant_n2_internal {
     ($spec:expr, $init:expr, $next:expr, $inv:expr, $($preds:expr),+) => {
         {
             let combined_pred = state_pred_and!($($preds),+);
-            let merged_next = temp_pred_and!($next, $($preds),+);
             entails_always_lift_state_and_n2!($spec, $($preds),+);
-            strengthen_next($spec, $next, combined_pred, merged_next);
-            implies_new_invariant($spec, $init, merged_next, $inv, combined_pred);
+            implies_new_invariant($spec, $init, $next, $inv, combined_pred);
         }
     };
     ($spec:expr, $init:expr, $next:expr, $inv:expr, $($preds:expr),+ ,) => {

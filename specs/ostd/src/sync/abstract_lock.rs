@@ -221,6 +221,7 @@ impl ProgramState {
     }
 }
 
+
 /// TLC finds a counterexample for the starvation-free property
 pub open spec fn starvation_free() -> TempPred<ProgramState> {
     tla_forall(
@@ -249,7 +250,7 @@ pub open spec fn pc_stack_match(pc: Label, stack: Seq<StackFrame>) -> bool {
         ],
     }
 }
-
+ 
 pub proof fn lemma_inv_unchanged(spec: TempPred<ProgramState>, n: nat)
     requires
         spec.entails(lift_state(init(n))),
@@ -300,6 +301,7 @@ pub proof fn lemma_inv_pc_stack_match(spec: TempPred<ProgramState>, n: nat)
     lemma_inv_unchanged(spec, n);
     init_invariant(spec, init(n), next(), StatePred::new(|s: ProgramState| { s.inv_pc_stack_match() }));
 }
+
 
 pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat)
     requires
@@ -541,10 +543,11 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     use_tla_forall(spec, |tid| weak_fairness(P(tid)), j);
                 }
 
-                let inv = StatePred::new(|s: ProgramState|
-                    s.inv_unchanged(n) && s.inv_not_locked_iff_no_cs() && s.inv_pc_stack_match());
+                let inv = inv_unchanged_state_pred.and(pc_stack_match_state_pred).and(
+                    inv_not_locked_iff_no_cs_closure
+                );
 
-                assert forall|s: ProgramState| #[trigger] cond_cs.apply(s) && inv(s) implies enabled(
+                assert forall|s: ProgramState| #[trigger] cond_cs.apply(s) && inv.apply(s) implies enabled(
                     P(j),
                 ).apply(s) by {
                     let (s_prime, _) = (cs().transition)(j, s);
@@ -586,7 +589,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     use_tla_forall(spec, |tid| weak_fairness(release_lock(tid)), j);
                 }
 
-                assert forall|s: ProgramState| #[trigger] cond_unlock.apply(s) && inv(s) implies enabled(
+                assert forall|s: ProgramState| #[trigger] cond_unlock.apply(s) && inv.apply(s) implies enabled(
                     release_lock(j),
                 ).apply(s) by {
                     let (s_prime, _) = (unlock().transition)(j, s);
@@ -652,15 +655,9 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
             };
 
             // spec entails always(inv)
-            let combined = StatePred::new(|s: ProgramState|
-                inv_unchanged_state_pred.apply(s) && inv_not_locked_iff_no_cs_closure.apply(s)
-                    && pc_stack_match_state_pred.apply(s));
-            entails_always_lift_state_and_n2!(
-                 spec,
-                 inv_unchanged_state_pred,
-                 inv_not_locked_iff_no_cs_closure,
-                 pc_stack_match_state_pred
-             );
+            let combined = inv_unchanged_state_pred.and(
+                inv_not_locked_iff_no_cs_closure,
+            ).and(pc_stack_match_state_pred);
             assert(spec.entails(always(lift_state(inv)))) by {
                 assert(lift_state(inv) == lift_state(combined));
             };
