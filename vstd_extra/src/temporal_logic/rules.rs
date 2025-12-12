@@ -685,9 +685,8 @@ verus! {
 // lift StatePred::and to Verus meta-level
 pub broadcast proof fn state_pred_and_apply_equality<T>(p: StatePred<T>, q: StatePred<T>, s: T)
     ensures
-        #[trigger] p.and(q).apply(s) == p.apply(s) && q.apply(s),
+        #[trigger] p.and(q).apply(s) == (p.apply(s) && q.apply(s)),
 {
-    admit();
 }
 
 // lift StatePred::or to Verus meta-level
