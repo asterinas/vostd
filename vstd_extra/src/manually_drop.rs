@@ -33,5 +33,4 @@ pub assume_specification<T>[ ManuallyDrop::<T>::into_inner ](v: ManuallyDrop<T>)
     returns
         manually_drop_unwrap(v),
 ;
-
 } // verus!

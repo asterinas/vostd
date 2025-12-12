@@ -18,7 +18,7 @@ use super::{guard::SpinGuardian /*LocalIrqDisabled, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
 verus! {
-    broadcast use ref_deref_spec;
+    broadcast use group_deref_spec;
 }
 
 /// A spin lock.
@@ -52,7 +52,7 @@ struct_with_invariants! {
 #[verus_verify]
 struct SpinLockInner<T> {
     lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
-    val: PCell<T>, //Unfortunately, PCell requires T: Sized
+    val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
     //val: UnsafeCell<T>,
 }
 
@@ -148,21 +148,35 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 
-    /*
     /// Acquires the spin lock through an [`Arc`].
     ///
     /// The method is similar to [`lock`], but it doesn't have the requirement
     /// for compile-time checked lifetimes of the lock guard.
     ///
     /// [`lock`]: Self::lock
+    #[verus_spec(ret =>
+        requires
+            self.inv(),
+        ensures
+            //ret.inv() //TODO: This one is flaky, do not no why
+            )]
     pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
+        proof_decl!{
+            let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
+        }
         let inner_guard = G::guard();
+        proof_with!{ => Tracked(perm)}
         self.acquire_lock();
+        proof!{
+            assert(perm.id() == (*self.clone().deref_spec()).cell_id());
+            assert(perm.is_init());
+        }
         SpinLockGuard_ {
             lock: self.clone(),
             guard: inner_guard,
+            v_perm: Tracked(perm),
         }
-    }*/
+    }
 
     #[verus_spec(ret =>
         requires
@@ -215,7 +229,6 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         #[verus_spec(
             invariant self.inv(),
         )]
-
         while !#[verus_spec(with => Tracked(perm))]self.try_acquire_lock() {
             core::hint::spin_loop();
         }
