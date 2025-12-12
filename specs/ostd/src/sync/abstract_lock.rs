@@ -1,7 +1,7 @@
 use vstd::pervasive::trigger;
 use vstd::prelude::*;
 use vstd::set_lib::*;
-use vstd_extra::{set_extra::*, state_machine::*, temporal_logic::{defs2::*, rules2::*}};
+use vstd_extra::{set_extra::*, state_machine::*, temporal_logic::*};
 
 use super::mutex::pre_check_lock;
 
@@ -356,7 +356,7 @@ pub proof fn lemma_not_locked_iff_not_in_cs(spec: TempPred<ProgramState>, n: nat
     assert(forall|s: ProgramState, s_prime: ProgramState| #[trigger]
         next().apply(s, s_prime) && s.inv_unchanged(n) && pc_stack_match_state_pred.apply(s)
             && s.inv_not_locked_iff_no_cs() ==> s_prime.inv_not_locked_iff_no_cs());
-    implies_new_invariant_n2!(spec, init(n), next(), inv_not_locked_iff_no_cs_closure, inv_unchanged_state_pred, pc_stack_match_state_pred);
+    implies_new_invariant_n!(spec, init(n), next(), inv_not_locked_iff_no_cs_closure, inv_unchanged_state_pred, pc_stack_match_state_pred);
 }
 
 pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
@@ -387,7 +387,7 @@ pub proof fn lemma_mutual_exclusion(spec: TempPred<ProgramState>, n: nat)
             );
         }
     };
-    always_lift_state_weaken_n2!(
+    always_lift_state_weaken_n!(
         spec,
         inv_not_locked_iff_no_cs_closure,
         inv_unchanged_state_pred,
@@ -464,7 +464,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_not_locked(
             lock().lemma_statisfy_pre_implies_enabled(tid, s);
         };
 
-        wf1_by_borrowing_inv_n2!(
+        wf1_by_borrowing_inv_n!(
             spec,
             next(),
             acquire_lock(tid),
@@ -568,7 +568,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     }
                 };
 
-                wf1_by_borrowing_inv_n2!(
+                wf1_by_borrowing_inv_n!(
                     spec,
                     next(),
                     P(j),
@@ -609,7 +609,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_locked(
                     }
                 };
 
-                wf1_by_borrowing_inv_n2!(
+                wf1_by_borrowing_inv_n!(
                     spec,
                     next(),
                     release_lock(j),

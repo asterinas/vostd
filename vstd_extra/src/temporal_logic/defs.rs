@@ -24,9 +24,86 @@ impl<T> Execution<T> {
     }
 }
 
-pub type StatePred<T> = spec_fn(T) -> bool;
+#[verifier::ext_equal]
+#[verifier(reject_recursive_types(T))]
+pub struct StatePred<T> {
+    pub pred: spec_fn(T) -> bool 
+}
 
-pub type ActionPred<T> = spec_fn(T, T) -> bool;
+impl<T> StatePred<T> {
+    pub open spec fn new(pred: spec_fn(T) -> bool) -> Self
+    {
+        StatePred {pred :pred}
+    }
+    
+    pub open spec fn as_fn(self) -> spec_fn(T) -> bool
+    {
+        self.pred
+    }
+
+    pub open spec fn apply(self, state: T) -> bool
+    {
+        (self.pred)(state)
+    }
+
+    pub open spec fn and(self, other: Self) -> Self 
+    {
+        StatePred::new(|s| self.apply(s) && other.apply(s))
+    }
+
+    pub open spec fn or(self, other: Self) -> Self
+    {
+        StatePred::new(|s| self.apply(s) || other.apply(s))
+    }
+
+    pub open spec fn implies(self, other: Self) -> Self
+    {
+        StatePred::new(|s| self.apply(s) ==> other.apply(s))
+    }
+
+    pub open spec fn not(self) -> Self
+    {
+        StatePred::new(|s| !self.apply(s))
+    }
+
+    pub open spec fn state_forall<A>(a_to_state_pred: spec_fn(A)-> StatePred<T>) -> StatePred<T>
+    {
+        StatePred::new(|s| forall |a| #[trigger] a_to_state_pred(a).apply(s) )
+    }
+
+    pub open spec fn state_exists<A>(a_to_state_pred: spec_fn(A)-> StatePred<T>) -> StatePred<T>
+    {
+        StatePred::new(|s| exists |a| #[trigger] a_to_state_pred(a).apply(s) )
+    }
+
+    pub open spec fn absorb<A> (a_to_state_pred: spec_fn(A) -> StatePred<T>, state_pred: StatePred<T>) -> spec_fn(A) -> StatePred<T>
+    {
+        |a:A| a_to_state_pred(a).and(state_pred)
+    }
+}
+
+#[verifier::ext_equal]
+#[verifier(reject_recursive_types(T))]
+pub struct ActionPred<T> {
+    pub pred: spec_fn(T,T) -> bool
+}
+
+impl<T> ActionPred<T> {
+    pub open spec fn new(pred: spec_fn(T,T) -> bool) -> Self
+    {
+        ActionPred {pred :pred}
+    }
+    
+    pub open spec fn as_fn(self) -> spec_fn(T,T) -> bool
+    {
+        self.pred
+    }
+
+    pub open spec fn apply(self, state:T, state_prime:T) -> bool
+    {
+        (self.pred)(state, state_prime)
+    }
+}
 
 #[verifier::ext_equal]
 #[verifier(reject_recursive_types(T))]
@@ -76,15 +153,15 @@ impl<T> TempPred<T> {
 }
 
 pub open spec fn lift_state<T>(state_pred: StatePred<T>) -> TempPred<T> {
-    TempPred::new(|ex: Execution<T>| state_pred(ex.head()))
+    TempPred::new(|ex: Execution<T>| state_pred.apply(ex.head()))
 }
 
 pub open spec fn lift_state_prime<T>(state_pred: StatePred<T>) -> TempPred<T> {
-    TempPred::new(|ex: Execution<T>| state_pred(ex.head_next()))
+    TempPred::new(|ex: Execution<T>| state_pred.apply(ex.head_next()))
 }
 
 pub open spec fn lift_action<T>(action_pred: ActionPred<T>) -> TempPred<T> {
-    TempPred::new(|ex: Execution<T>| action_pred(ex.head(), ex.head_next()))
+    TempPred::new(|ex: Execution<T>| action_pred.apply(ex.head(), ex.head_next()))
 }
 
 // `[]` for temporal predicates in TLA+.
@@ -137,7 +214,7 @@ pub open spec fn stable<T>(temp_pred: TempPred<T>) -> TempPred<T> {
 //
 // Note: it says whether the action *can possibly* happen, rather than whether the action *actually does* happen!
 pub open spec fn enabled<T>(action_pred: ActionPred<T>) -> StatePred<T> {
-    |s: T| exists|s_prime: T| #[trigger] action_pred(s, s_prime)
+    StatePred::new(|s: T| exists|s_prime: T| #[trigger] action_pred.apply(s, s_prime))
 }
 
 // Returns a temporal predicate that is satisfied
@@ -175,35 +252,16 @@ pub open spec fn false_pred<T>() -> TempPred<T> {
     TempPred::new(|_ex: Execution<T>| false)
 }
 
-pub open spec fn state_exists<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> StatePred<T> {
-    |s| { exists|a| #[trigger] a_to_state_pred(a)(s) }
-}
-
-pub open spec fn state_forall<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> StatePred<T> {
-    |s| { forall|a| #[trigger] a_to_state_pred(a)(s) }
-}
-
-pub open spec fn lift_state_forall<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> TempPred<
-    T,
-> {
-    lift_state(state_forall(a_to_state_pred))
-}
-
-pub open spec fn lift_state_exists<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>) -> TempPred<
-    T,
-> {
-    lift_state(state_exists(a_to_state_pred))
-}
-
-pub open spec fn state_pred_not<T>(state_pred: StatePred<T>) -> StatePred<T> {
-    |s: T| { !state_pred(s) }
-}
-
-pub open spec fn combine_state_pred_with<T, A>(
+pub open spec fn lift_state_forall<T, A>(
     a_to_state_pred: spec_fn(A) -> StatePred<T>,
-    state_pred: StatePred<T>,
-) -> spec_fn(A) -> StatePred<T> {
-    |a: A| |s: T| a_to_state_pred(a)(s) && state_pred(s)
+) -> TempPred<T> {
+    lift_state(StatePred::state_forall(a_to_state_pred))
+}
+
+pub open spec fn lift_state_exists<T, A>(
+    a_to_state_pred: spec_fn(A) -> StatePred<T>,
+) -> TempPred<T> {
+    lift_state(StatePred::state_exists(a_to_state_pred))
 }
 
 } // verus!

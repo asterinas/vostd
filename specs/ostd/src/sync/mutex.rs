@@ -46,7 +46,7 @@ pub ghost struct ProgramState {
 }
 
 pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
-    |s: ProgramState|
+    StatePred::new(|s: ProgramState|
         {
             &&& s.num_procs == num_procs
             &&& s.locked == false
@@ -56,7 +56,7 @@ pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
             &&& s.waker == Map::new(|i: Tid| 0 <= i < num_procs, |i| None::<Tid>)
             &&& s.stack == Map::new(|i: Tid| 0 <= i < num_procs, |i| Seq::<StackFrame>::empty())
             &&& s.pc == Map::new(|i: Tid| 0 <= i < num_procs, |i| Label::start)
-        }
+        })
 }
 
 pub open spec fn pre_check_lock() -> Action<ProgramState, Tid, ()> {
@@ -357,8 +357,8 @@ impl ProgramState {
 spec fn starvation_free() -> TempPred<ProgramState> {
     tla_forall(
         |i: Tid|
-            lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
-                lift_state(|s: ProgramState| s.pc[i] == Label::cs),
+            lift_state(StatePred::new(|s: ProgramState| s.valid_tid(i) && s.trying(i))).leads_to(
+                lift_state(StatePred::new(|s: ProgramState| s.pc[i] == Label::cs)),
             ),
     )
 }
@@ -366,9 +366,9 @@ spec fn starvation_free() -> TempPred<ProgramState> {
 spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
     tla_exists(
         |i: Tid|
-            lift_state(|s: ProgramState| s.valid_tid(i) && s.trying(i)).leads_to(
+            lift_state(StatePred::new(|s: ProgramState| s.valid_tid(i) && s.trying(i))).leads_to(
                 tla_exists(
-                    |j: Tid| lift_state(|s: ProgramState| s.valid_tid(j) && s.pc[j] == Label::cs),
+                    |j: Tid| lift_state(StatePred::new(|s: ProgramState| s.valid_tid(j) && s.pc[j] == Label::cs)),
                 ),
             ),
     )
