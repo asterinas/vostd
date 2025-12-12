@@ -846,7 +846,7 @@ pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPre
     ensures
         !spec.entails(p),
 {
-    if forall |ex| !#[trigger]spec.satisfied_by(ex) {
+    if forall|ex| !#[trigger] spec.satisfied_by(ex) {
         temp_pred_equality::<T>(spec, false_pred::<T>());
     }
     let ex = choose|ex| spec.satisfied_by(ex);
@@ -1880,6 +1880,8 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
     a_to_state_pred: spec_fn(A) -> StatePred<T>,
     state_pred: StatePred<T>,
 )
+    requires
+        Set::<A>::full() != Set::<A>::empty(),
     ensures
         #[trigger] lift_state_forall(a_to_state_pred).and(lift_state(state_pred))
             == lift_state_forall(StatePred::absorb(a_to_state_pred, state_pred)),
@@ -1898,12 +1900,27 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
         ).apply(s));
 
         if lhs.satisfied_by(ex) {
-                assert(StatePred::state_forall(a_to_state_pred).apply(s));
-                assert(forall|a| #[trigger]
-                    StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
+            assert(StatePred::state_forall(a_to_state_pred).apply(s));
+            assert forall|a| #[trigger]
+                StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s) by {
+                assert(a_to_state_pred(a).apply(s));
+                assert(state_pred.apply(s));
+            }
+            assert(rhs.satisfied_by(ex));
         }
         if rhs.satisfied_by(ex) {
-            admit();
+            assert(exists|a: A| #[trigger] Set::<A>::full().contains(a)) by {
+                if forall|a: A| !Set::<A>::full().contains(a) {
+                    assert(Set::<A>::full() =~= Set::<A>::empty());
+                }
+            }
+            let a = choose|a| Set::<A>::full().contains(a);
+            assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
+            assert(state_pred.apply(s));
+            assert forall|a| #[trigger] a_to_state_pred(a).apply(s) by {
+                assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
+            }
+            assert(lhs.satisfied_by(ex));
         }
     }
     temp_pred_equality(lhs, rhs);
