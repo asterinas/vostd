@@ -22,11 +22,13 @@ impl<State, Input, Output> Action<State, Input, Output> {
     }
 
     pub open spec fn forward(self, input: Input) -> ActionPred<State> {
-        ActionPred::new(|s: State, s_prime: State|
-            {
-                &&& (self.precondition)(input, s)
-                &&& s_prime == (self.transition)(input, s).0
-            })
+        ActionPred::new(
+            |s: State, s_prime: State|
+                {
+                    &&& (self.precondition)(input, s)
+                    &&& s_prime == (self.transition)(input, s).0
+                },
+        )
     }
 
     // `weak_fairness` assumption says that,
@@ -46,11 +48,13 @@ impl<State, Input, Output> Action<State, Input, Output> {
     )
         requires
             forall|s, s_prime: State|
-                pre.apply(s) && #[trigger] next.apply(s, s_prime) ==> pre.apply(s_prime) || post.apply(s_prime),
+                pre.apply(s) && #[trigger] next.apply(s, s_prime) ==> pre.apply(s_prime)
+                    || post.apply(s_prime),
             forall|s, s_prime: State|
-                pre.apply(s) && #[trigger] next.apply(s, s_prime) && self.forward(input).apply(s, s_prime) ==> post.apply(
+                pre.apply(s) && #[trigger] next.apply(s, s_prime) && self.forward(input).apply(
+                    s,
                     s_prime,
-                ),
+                ) ==> post.apply(s_prime),
             spec.entails(always(lift_action(next))),
             spec.entails(always(lift_state(pre).implies(lift_state(self.pre(input))))),
             spec.entails(self.weak_fairness(input)),
