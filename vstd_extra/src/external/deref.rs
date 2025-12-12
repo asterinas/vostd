@@ -29,7 +29,22 @@ impl<T: Deref> DerefSpec for T {
 // Special Cases
 pub broadcast axiom fn ref_deref_spec<T>(r: &T)
     ensures
-        #[trigger] r.deref_spec() == r,
+        #[trigger] *(r.deref_spec()) == *r,
+;
+
+pub broadcast axiom fn box_deref_spec<T>(b: Box<T>)
+    ensures
+        #[trigger] *(b.deref_spec()) == *b,
+;
+
+pub broadcast axiom fn rc_deref_spec<T>(r: std::rc::Rc<T>)
+    ensures
+        #[trigger] *(r.deref_spec()) == *r,
+;
+
+pub broadcast axiom fn arc_deref_spec<T>(a: std::sync::Arc<T>)
+    ensures
+        #[trigger] *(a.deref_spec()) == *a,
 ;
 
 pub broadcast axiom fn manually_drop_deref_spec_eq<T: ?Sized>(v: &ManuallyDrop<T>)
@@ -37,12 +52,11 @@ pub broadcast axiom fn manually_drop_deref_spec_eq<T: ?Sized>(v: &ManuallyDrop<T
         #[trigger] &**v == manually_drop_deref_spec(v),
 ;
 
-} // verus!
-verus! {
-
-pub assume_specification[ core::hint::spin_loop ]()
-    opens_invariants none
-    no_unwind
-;
+pub broadcast group group_deref_spec {
+    ref_deref_spec,
+    box_deref_spec,
+    rc_deref_spec,
+    arc_deref_spec,
+}
 
 } // verus!

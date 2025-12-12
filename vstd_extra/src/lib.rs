@@ -1,4 +1,5 @@
 #![allow(non_snake_case)]
+#![feature(sized_hierarchy)]
 
 pub mod arithmetic;
 pub mod array_ptr;
@@ -6,11 +7,10 @@ pub mod auxiliary;
 pub mod bit_mapping;
 pub mod cast_ptr;
 pub mod extern_const;
-pub mod extern_func;
+pub mod external;
 pub mod extra_num;
 pub mod function_properties;
 pub mod ghost_tree;
-pub mod manually_drop;
 pub mod ownership;
 
 #[macro_use]

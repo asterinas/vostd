@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides a trait and some auxiliary types to help abstract and
 //! work with non-null pointers.
-mod either;
+use vstd::prelude::*;
+use vstd_extra::prelude::*;
+use alloc::{sync::Arc, boxed::Box};
+
+//mod either;
 
 use alloc::sync::Weak;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
@@ -21,6 +25,7 @@ use crate::prelude::*;
 /// raw pointers.
 ///
 /// [`Rcu`]: super::Rcu
+#[verus_verify]
 pub unsafe trait NonNullPtr: 'static {
     /// The target type that this pointer refers to.
     // TODO: Support `Target: ?Sized`.
@@ -32,7 +37,8 @@ pub unsafe trait NonNullPtr: 'static {
         Self: 'a;
 
     /// The power of two of the pointer alignment.
-    const ALIGN_BITS: u32;
+    //const ALIGN_BITS: u32; //
+    fn ALIGN_BITS() -> u32;
 
     /// Converts to a raw pointer.
     ///
@@ -77,6 +83,7 @@ pub struct BoxRef<'a, T> {
     _marker: PhantomData<&'a T>,
 }
 
+/* 
 impl<T> Deref for BoxRef<'_, T> {
     type Target = Box<T>;
 
@@ -136,7 +143,9 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }
 }
+    */
 
+/* 
 /// A type that represents `&'a Arc<T>`.
 #[derive(Debug)]
 pub struct ArcRef<'a, T> {
@@ -256,3 +265,4 @@ unsafe impl<T: 'static> NonNullPtr for Weak<T> {
         NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
     }
 }
+*/
