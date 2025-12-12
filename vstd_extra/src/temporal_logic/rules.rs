@@ -692,7 +692,7 @@ pub broadcast proof fn state_pred_and_apply_equality<T>(p: StatePred<T>, q: Stat
 // lift StatePred::or to Verus meta-level
 pub broadcast proof fn state_pred_or_apply_equality<T>(p: StatePred<T>, q: StatePred<T>, s: T)
     ensures
-        #[trigger] p.or(q).apply(s) == p.apply(s) || q.apply(s),
+        #[trigger] p.or(q).apply(s) == (p.apply(s) || q.apply(s)),
 {
 }
 
@@ -706,7 +706,7 @@ pub broadcast proof fn state_pred_not_apply_equality<T>(p: StatePred<T>, s: T)
 // lift StatePred::implies to Verus meta-level
 pub broadcast proof fn state_pred_implies_apply_equality<T>(p: StatePred<T>, q: StatePred<T>, s: T)
     ensures
-        #[trigger] p.implies(q).apply(s) == p.apply(s) ==> q.apply(s),
+        #[trigger] p.implies(q).apply(s) == (p.apply(s) ==> q.apply(s)),
 {
 }
 
