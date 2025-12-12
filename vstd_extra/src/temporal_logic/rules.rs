@@ -843,10 +843,10 @@ pub broadcast proof fn entails_or_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: 
 pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPred<T>)
     requires
         #[trigger] spec.entails(not(p)),
+        exists|ex| spec.satisfied_by(ex),
     ensures
         !spec.entails(p),
 {
-    assume(exists|ex| spec.satisfied_by(ex));
     let ex = choose|ex| spec.satisfied_by(ex);
     assert(spec.satisfied_by(ex));
     assert(spec.implies(not(p)).satisfied_by(ex));
