@@ -60,7 +60,6 @@ pub proof fn temp_pred_equality<T>(p: TempPred<T>, q: TempPred<T>)
             implies_contraposition_apply::<T>(ex, q, p);
         }
     };
-    assert(p.pred == q.pred);
 }
 
 proof fn later_unfold<T>(ex: Execution<T>, p: TempPred<T>)
@@ -850,9 +849,7 @@ pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPre
         temp_pred_equality::<T>(spec, false_pred::<T>());
     }
     let ex = choose|ex| spec.satisfied_by(ex);
-    assert(spec.satisfied_by(ex));
     assert(spec.implies(not(p)).satisfied_by(ex));
-    assert(!p.satisfied_by(ex));
     assert(!spec.implies(p).satisfied_by(ex));
 }
 
@@ -1158,7 +1155,6 @@ pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>
             entails_apply(ex, spec, q.leads_to(r));
             always_unfold(ex, q.implies(eventually(r)));
             implies_apply(ex.suffix(i + q_witness_idx), q, eventually(r));
-            assert(ex.suffix(i + q_witness_idx) == ex.suffix(i).suffix(q_witness_idx));
 
             eventually_propagate_backwards(ex.suffix(i), r, q_witness_idx);
         }
@@ -1273,16 +1269,7 @@ pub proof fn or_leads_to_case_analysis<T>(
             leads_to_unfold(ex, p.and(q), r);
             leads_to_unfold(ex, p.and(not(q)), r);
 
-            assert forall|i| p.implies(eventually(r)).satisfied_by(#[trigger] ex.suffix(i)) by {
-                let suffix = ex.suffix(i);
-                if p.satisfied_by(suffix) {
-                    if q.satisfied_by(suffix) {
-                        assert(p.and(q).satisfied_by(suffix));
-                    } else {
-                        assert(p.and(not(q)).satisfied_by(suffix));
-                    }
-                }
-            }
+            assert forall|i| p.implies(eventually(r)).satisfied_by(#[trigger] ex.suffix(i)) by {}
         }
     }
 }
@@ -1855,22 +1842,13 @@ pub broadcast proof fn lift_state_exists_absorb_equality<T, A>(
 
     assert forall|ex| lhs.satisfied_by(ex) == rhs.satisfied_by(ex) by {
         let s = ex.head();
-        assert(lhs.satisfied_by(ex) == (StatePred::state_exists(a_to_state_pred).apply(s)
-            && state_pred.apply(s)));
-        assert(rhs.satisfied_by(ex) == StatePred::state_exists(
-            StatePred::absorb(a_to_state_pred, state_pred),
-        ).apply(s));
 
         if lhs.satisfied_by(ex) {
             let a = choose|a| #[trigger] a_to_state_pred(a).apply(s);
-            assert(a_to_state_pred(a).and(state_pred).apply(s));
             assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
-            assert(exists|a| #[trigger] StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
         }
         if rhs.satisfied_by(ex) {
             let a = choose|a| #[trigger] StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s);
-            assert(a_to_state_pred(a).and(state_pred).apply(s));
-            assert(a_to_state_pred(a).apply(s));
         }
     }
     temp_pred_equality(lhs, rhs);
@@ -1893,34 +1871,17 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
 
     assert forall|ex| lhs.satisfied_by(ex) == rhs.satisfied_by(ex) by {
         let s = ex.head();
-        assert(lhs.satisfied_by(ex) == (StatePred::state_forall(a_to_state_pred).apply(s)
-            && state_pred.apply(s)));
-        assert(rhs.satisfied_by(ex) == StatePred::state_forall(
-            StatePred::absorb(a_to_state_pred, state_pred),
-        ).apply(s));
 
         if lhs.satisfied_by(ex) {
-            assert(StatePred::state_forall(a_to_state_pred).apply(s));
             assert forall|a| #[trigger]
-                StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s) by {
-                assert(a_to_state_pred(a).apply(s));
-                assert(state_pred.apply(s));
-            }
-            assert(rhs.satisfied_by(ex));
+                StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s) by {}
         }
         if rhs.satisfied_by(ex) {
-            assert(exists|a: A| #[trigger] Set::<A>::full().contains(a)) by {
-                if forall|a: A| !Set::<A>::full().contains(a) {
-                    assert(Set::<A>::full() =~= Set::<A>::empty());
-                }
-            }
             let a = choose|a| Set::<A>::full().contains(a);
             assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
-            assert(state_pred.apply(s));
             assert forall|a| #[trigger] a_to_state_pred(a).apply(s) by {
                 assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
             }
-            assert(lhs.satisfied_by(ex));
         }
     }
     temp_pred_equality(lhs, rhs);
@@ -2022,10 +1983,8 @@ pub proof fn leads_to_always_tla_forall<T, A>(
                 always(#[trigger] a_to_temp_pred(a)).satisfied_by(
                     ex.suffix(i).suffix(max_witness),
                 ) by {
-                assert(vstd::relations::is_greatest(r, max_witness, values));
                 let witness = a_to_witness[a];
                 assert(r(witness, max_witness));
-                assert(max_witness >= witness);
                 assert(ex.suffix(i).suffix(max_witness) == ex.suffix(i).suffix(witness).suffix(
                     (max_witness - witness) as nat,
                 ));
@@ -2114,7 +2073,6 @@ pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
                 assert(valid(stable(p.leads_to(a_to_temp_pred(a)))));
                 assert(stable(p.leads_to(a_to_temp_pred(a))).satisfied_by(ex));
                 if (p.leads_to(a_to_temp_pred(a)).satisfied_by(ex)) {
-                    assert(p.leads_to(a_to_temp_pred(a)).satisfied_by(ex.suffix(i)));
                 }
             }
         }
@@ -2281,7 +2239,6 @@ pub proof fn leads_to_always_enhance<T>(
             implies_apply(ex.suffix(i), p, eventually(always(q1)));
             let witness = eventually_choose_witness(ex.suffix(i), always(q1));
             assert forall|j| #[trigger] q2.satisfied_by(ex.suffix(i).suffix(witness).suffix(j)) by {
-                assert(ex.suffix(i).suffix(witness).suffix(j) == ex.suffix(i + witness + j));
                 assert(ex.suffix(i).suffix(witness).suffix(j) == ex.suffix(i + witness + j));
                 implies_apply(ex.suffix(i).suffix(witness).suffix(j), q1.and(inv), q2);
             }
@@ -2716,9 +2673,6 @@ pub proof fn wf1<T>(
             always(lift_state(p)).satisfied_by(ex.suffix(i)) implies eventually(
             lift_action(forward),
         ).satisfied_by(ex.suffix(i)) by {
-            assert(always(lift_state(p).implies(lift_state(enabled(forward)))).satisfied_by(
-                ex.suffix(i),
-            ));
             implies_apply_with_always::<T>(
                 ex.suffix(i),
                 lift_state(p),
@@ -2789,9 +2743,6 @@ pub proof fn wf1_by_borrowing_inv<T>(
             always(lift_state(p).and(lift_state(inv))).satisfied_by(
                 ex.suffix(i),
             ) implies eventually(lift_action(forward)).satisfied_by(ex.suffix(i)) by {
-            assert(always(
-                lift_state(p).and(lift_state(inv)).implies(lift_state(enabled(forward))),
-            ).satisfied_by(ex.suffix(i)));
             implies_apply_with_always::<T>(
                 ex.suffix(i),
                 lift_state(p).and(lift_state(inv)),
