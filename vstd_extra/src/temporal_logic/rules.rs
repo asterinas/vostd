@@ -846,7 +846,12 @@ pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPre
     ensures
         !spec.entails(p),
 {
-    admit();
+    assume(exists|ex| spec.satisfied_by(ex));
+    let ex = choose|ex| spec.satisfied_by(ex);
+    assert(spec.satisfied_by(ex));
+    assert(spec.implies(not(p)).satisfied_by(ex));
+    assert(!p.satisfied_by(ex));
+    assert(!spec.implies(p).satisfied_by(ex));
 }
 
 // Lift entails TempPred::implies to Verus meta-level
@@ -1258,7 +1263,26 @@ pub proof fn or_leads_to_case_analysis<T>(
 {
     broadcast use group_definition_basics;
 
-    admit();
+    assert forall|ex| spec.satisfied_by(ex) implies p.leads_to(r).satisfied_by(ex) by {
+        if spec.satisfied_by(ex) {
+            assert(spec.implies(p.and(q).leads_to(r)).satisfied_by(ex));
+            assert(spec.implies(p.and(not(q)).leads_to(r)).satisfied_by(ex));
+
+            leads_to_unfold(ex, p.and(q), r);
+            leads_to_unfold(ex, p.and(not(q)), r);
+
+            assert forall|i| p.implies(eventually(r)).satisfied_by(#[trigger] ex.suffix(i)) by {
+                let suffix = ex.suffix(i);
+                if p.satisfied_by(suffix) {
+                    if q.satisfied_by(suffix) {
+                        assert(p.and(q).satisfied_by(suffix));
+                    } else {
+                        assert(p.and(not(q)).satisfied_by(suffix));
+                    }
+                }
+            }
+        }
+    }
 }
 
 // Combine the conclusions of two leads_to if the conclusions are stable.
@@ -1824,7 +1848,30 @@ pub broadcast proof fn lift_state_exists_absorb_equality<T, A>(
 {
     broadcast use group_definition_basics;
 
-    admit();
+    let lhs = lift_state_exists(a_to_state_pred).and(lift_state(state_pred));
+    let rhs = lift_state_exists(StatePred::absorb(a_to_state_pred, state_pred));
+
+    assert forall|ex| lhs.satisfied_by(ex) == rhs.satisfied_by(ex) by {
+        let s = ex.head();
+        assert(lhs.satisfied_by(ex) == (StatePred::state_exists(a_to_state_pred).apply(s)
+            && state_pred.apply(s)));
+        assert(rhs.satisfied_by(ex) == StatePred::state_exists(
+            StatePred::absorb(a_to_state_pred, state_pred),
+        ).apply(s));
+
+        if lhs.satisfied_by(ex) {
+            let a = choose|a| #[trigger] a_to_state_pred(a).apply(s);
+            assert(a_to_state_pred(a).and(state_pred).apply(s));
+            assert(StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
+            assert(exists|a| #[trigger] StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s));
+        }
+        if rhs.satisfied_by(ex) {
+            let a = choose|a| #[trigger] StatePred::absorb(a_to_state_pred, state_pred)(a).apply(s);
+            assert(a_to_state_pred(a).and(state_pred).apply(s));
+            assert(a_to_state_pred(a).apply(s));
+        }
+    }
+    temp_pred_equality(lhs, rhs);
 }
 
 pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
@@ -1833,11 +1880,43 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
 )
     ensures
         #[trigger] lift_state_forall(a_to_state_pred).or(lift_state(state_pred))
-            == lift_state_forall(StatePred::absorb(a_to_state_pred, state_pred)),
+            == lift_state_forall(StatePred::absorb_or(a_to_state_pred, state_pred)),
 {
     broadcast use group_definition_basics;
 
-    admit();
+    let lhs = lift_state_forall(a_to_state_pred).or(lift_state(state_pred));
+    let rhs = lift_state_forall(StatePred::absorb_or(a_to_state_pred, state_pred));
+
+    assert forall|ex| lhs.satisfied_by(ex) == rhs.satisfied_by(ex) by {
+        let s = ex.head();
+        assert(lhs.satisfied_by(ex) == (StatePred::state_forall(a_to_state_pred).apply(s)
+            || state_pred.apply(s)));
+        assert(rhs.satisfied_by(ex) == StatePred::state_forall(
+            StatePred::absorb_or(a_to_state_pred, state_pred),
+        ).apply(s));
+
+        if lhs.satisfied_by(ex) {
+            if state_pred.apply(s) {
+                assert(forall|a| #[trigger]
+                    StatePred::absorb_or(a_to_state_pred, state_pred)(a).apply(s));
+            } else {
+                assert(StatePred::state_forall(a_to_state_pred).apply(s));
+                assert(forall|a| #[trigger]
+                    StatePred::absorb_or(a_to_state_pred, state_pred)(a).apply(s));
+            }
+        }
+        if rhs.satisfied_by(ex) {
+            if state_pred.apply(s) {
+                assert(lhs.satisfied_by(ex));
+            } else {
+                assert forall|a| #[trigger] a_to_state_pred(a).apply(s) by {
+                    assert(StatePred::absorb_or(a_to_state_pred, state_pred)(a).apply(s));
+                }
+                assert(lhs.satisfied_by(ex));
+            }
+        }
+    }
+    temp_pred_equality(lhs, rhs);
 }
 
 // Prove lift_state_exists leads_to by case analysis on another StatePred.

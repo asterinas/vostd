@@ -73,6 +73,13 @@ impl<T> StatePred<T> {
     ) -> spec_fn(A) -> StatePred<T> {
         |a: A| a_to_state_pred(a).and(state_pred)
     }
+
+    pub open spec fn absorb_or<A>(
+        a_to_state_pred: spec_fn(A) -> StatePred<T>,
+        state_pred: StatePred<T>,
+    ) -> spec_fn(A) -> StatePred<T> {
+        |a: A| a_to_state_pred(a).or(state_pred)
+    }
 }
 
 #[verifier::ext_equal]
