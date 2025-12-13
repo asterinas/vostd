@@ -166,7 +166,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 admit()
             };
 
-            #[verus_spec(with Tracked(entry_own), Tracked(guard_perm), Tracked(regions))]
+            #[verus_spec(with Tracked(entry_own), Tracked(guard_perm), Tracked(regions), Tracked(&entry_own.node.unwrap().as_node.meta_perm))]
             let cur_child = entry.to_ref();
 
             let item = match cur_child {
