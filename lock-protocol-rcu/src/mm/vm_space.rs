@@ -68,6 +68,7 @@ impl Token {
     }
 }
 
+/*
 impl TryFrom<usize> for Token {
     type Error = ();
 
@@ -81,7 +82,7 @@ impl TryFrom<usize> for Token {
             Err(())
         }
     }
-}
+}*/
 
 impl vstd::std_specs::convert::FromSpecImpl<Token> for usize {
     open spec fn obeys_from_spec() -> bool {
@@ -136,6 +137,7 @@ impl Status {
     }
 }
 
+/*
 impl TryFrom<usize> for Status {
     type Error = ();
 
@@ -148,6 +150,7 @@ impl TryFrom<usize> for Status {
         }
     }
 }
+*/
 
 impl vstd::std_specs::convert::FromSpecImpl<Status> for usize {
     open spec fn obeys_from_spec() -> bool {

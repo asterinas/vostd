@@ -170,7 +170,7 @@ checksum = "5a5f39404a5da50712a4c1eecf25e90dd62b613502b7e925fd4e4d19b5c96512"
 
 [[package]]
 name = "verus_builtin"
-version = "0.0.0-2025-12-07-0054"
+version = "0.0.0-2025-12-14-0054"
 
 [[package]]
 name = "verus_builtin_macros"
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "vstd"
-version = "0.0.0-2025-12-07-0054"
+version = "0.0.0-2025-12-14-0054"
 dependencies = [
  "verus_builtin",
  "verus_builtin_macros",
