@@ -34,10 +34,10 @@ pub unsafe trait NonNullPtr: 'static {
     /*/// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>
     where
-        Self: 'a;*/
+        Self: 'a;*/ //Verus does not support associated type with lifetime yet
 
     /// The power of two of the pointer alignment.
-    //const ALIGN_BITS: u32; //
+    //const ALIGN_BITS: u32; //Verus does not support associated consts yet
     fn ALIGN_BITS() -> u32;
 
     /// Converts to a raw pointer.

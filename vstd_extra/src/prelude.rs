@@ -10,8 +10,6 @@ pub use super::external::*;
 
 pub use super::extern_const::*;
 
-pub use super::extra_num::*;
-
 pub use super::function_properties::*;
 
 pub use super::ghost_tree::*;
