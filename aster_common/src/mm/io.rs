@@ -1,6 +1,6 @@
 use vstd::prelude::*;
-
 use vstd::simple_pptr::*;
+use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::ownership::Inv;
 
 use core::marker::PhantomData;
@@ -116,6 +116,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
         ensures
             owner@.inv(),
             owner@.inv_with_writer(r),
+            r.cursor.addr() == ptr.addr(),
+            r.end.addr() == ptr.addr() + len,
     )]
     pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
         let tracked owner = VmIoOwner {
@@ -163,6 +165,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
         ensures
             owner@.inv(),
             owner@.inv_with_reader(r),
+            r.cursor.addr() == ptr.addr(),
+            r.end.addr() == ptr.addr() + len,
     )]
     pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
         let tracked owner = VmIoOwner {
@@ -180,27 +184,115 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     }
 }
 
-impl<'a> From<&'a [u8]> for VmReader<'a  /* Infallible */ > {
-    #[verifier::external_body]
-    fn from(slice: &'a [u8]) -> Self {
+#[verus_verify]
+impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
+    type Error = crate::mm::Error;
+
+    #[verus_spec()]
+    fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
+        proof_decl! {
+            let tracked mut perm;
+        }
+
+        let addr = slice.as_ptr() as usize;
+
+        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
+            || addr > KERNEL_END_VADDR() - slice.len()) {
+            return Err(crate::mm::Error::IoError);
+        }
         // SAFETY:
         // - The memory range points to typed memory.
         // - The validity requirements for read accesses are met because the pointer is converted
         //   from an immutable reference that outlives the lifetime `'a`.
         // - The type, i.e., the `u8` slice, is plain-old-data.
-        unsafe { Self::from_kernel_space(PPtr(slice.as_ptr() as usize, PhantomData), slice.len()) }
+
+        Ok(
+            unsafe {
+                #[verus_spec(with => Tracked(perm))]
+                Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
+            },
+        )
     }
 }
 
-impl<'a> From<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
-    #[verifier::external_body]
-    fn from(slice: &'a [u8]) -> Self {
+impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(slice: &'a [u8]) -> Result<Self, Self::Error> {
+        let addr = slice.as_ptr() as usize;
+        let len = slice.len();
+
+        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
+            > KERNEL_END_VADDR() - slice.len()) {
+            Err(crate::mm::Error::IoError)
+        } else {
+            Ok(
+                Self {
+                    cursor: PPtr(addr, PhantomData),
+                    end: PPtr((addr + len) as usize, PhantomData),
+                    phantom: PhantomData,
+                },
+            )
+        }
+    }
+}
+
+// Perhaps we can implement `tryfrom` instead.
+#[verus_verify]
+impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
+    type Error = crate::mm::Error;
+
+    #[verus_spec()]
+    fn try_from(slice: &'a [u8]) -> Result<Self, Self::Error> {
+        proof_decl! {
+            let tracked mut perm;
+        }
+
+        let addr = slice.as_ptr() as usize;
+
+        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
+            || addr > KERNEL_END_VADDR() - slice.len()) {
+            return Err(crate::mm::Error::IoError);
+        }
         // SAFETY:
         // - The memory range points to typed memory.
         // - The validity requirements for write accesses are met because the pointer is converted
         //   from a mutable reference that outlives the lifetime `'a`.
         // - The type, i.e., the `u8` slice, is plain-old-data.
-        unsafe { Self::from_kernel_space(PPtr(slice.as_ptr() as usize, PhantomData), slice.len()) }
+
+        Ok(
+            unsafe {
+                #[verus_spec(with => Tracked(perm))]
+                Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
+            },
+        )
+    }
+}
+
+impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
+    open spec fn obeys_try_from_spec() -> bool {
+        true
+    }
+
+    open spec fn try_from_spec(slice: &'a [u8]) -> Result<Self, Self::Error> {
+        let addr = slice.as_ptr() as usize;
+        let len = slice.len();
+
+        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
+            > KERNEL_END_VADDR() - slice.len()) {
+            Err(crate::mm::Error::IoError)
+        } else {
+            Ok(
+                Self {
+                    cursor: PPtr(addr, PhantomData),
+                    end: PPtr((addr + len) as usize, PhantomData),
+                    phantom: PhantomData,
+                },
+            )
+        }
+
     }
 }
 
