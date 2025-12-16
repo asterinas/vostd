@@ -4,25 +4,40 @@ use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 
+// NOTE: vstd::layout::size_of and size_of are actually two different functions,
+// See: https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/Multiple.20definitions.20of.20.60align_of.60.20and.20.60size_of.60.20in.20raw_ptr/with/563994445
+
 verus! {
 
 // Record Typed access permission along with Dealloc permission.
+// This is similar to PPtr::PointsTo, but we want to make it as low-level and general as possible.
+// Difference with PPtr::PointsTo:
+// 1. Allowing null pointers (addr == 0).
+// 2. Relaxed alignment requirement between Dealloc::align and align_of::<T>().
+// TODO: consider expose_provenance
 pub tracked struct PointsTowithDealloc<T> {
     pub tracked points_to: PointsTo<T>,
-    pub tracked dealloc: Dealloc,
+    // The Dealloc permission is only valid with non-zero size.
+    pub tracked dealloc: Option<Dealloc>,
 }
 
 impl<T> Inv for PointsTowithDealloc<T> {
     open spec fn inv(self) -> bool {
-        &&& self.points_to.ptr().addr() == self.dealloc.addr()
-        &&& self.dealloc.size() == size_of::<
-            T,
-        >() as int
-        // By definition in raw_ptr, the alignment of Dealloc is determined by alloc and it is not related to the alignment of T.
         // This alignment is to enable the conversion between PointsTo<T> and PoinstToRaw
-        &&& self.points_to.ptr().addr() as int % align_of::<T>() as int == 0
-        &&& valid_layout(size_of::<T>(), self.dealloc.align() as usize)
-        &&& self.points_to.ptr()@.provenance == self.dealloc.provenance()
+        &&& self.points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0
+        &&& match self.dealloc {
+            Some(dealloc) => {
+                &&& vstd::layout::size_of::<T>() > 0
+                &&& self.points_to.ptr().addr() == dealloc.addr()
+                &&& self.points_to.ptr()@.provenance == dealloc.provenance()
+                &&& dealloc.size() == vstd::layout::size_of::<T>()
+                // By definition in raw_ptr, the alignment of Dealloc is determined by alloc and it idoes not need to be equal to the alignment of T.
+                // This alignment requirement is to ensure correctness of allocation and deallocation.
+                &&& valid_layout(size_of::<T>(), dealloc.align() as usize)
+            },
+            None => {vstd::layout::size_of::<T>() == 0},
+        }
+
     }
 }
 
@@ -35,36 +50,52 @@ impl<T> PointsTowithDealloc<T> {
         self.points_to.is_uninit()
     }
 
-    pub proof fn new(points_to: PointsTo<T>, dealloc: Dealloc) -> (ret: Self)
+    pub proof fn new_non_zero_size(tracked points_to: PointsTo<T>, tracked dealloc: Dealloc) -> (ret: Self)
         requires
+            0 < vstd::layout::size_of::<T>(),
             valid_layout(size_of::<T>(), dealloc.align() as usize),
             points_to.ptr().addr() == dealloc.addr(),
             points_to.ptr()@.provenance == dealloc.provenance(),
-            dealloc.size() == size_of::<T>() as int,
-            points_to.ptr().addr() as int % align_of::<T>() as int == 0,
+            dealloc.size() == vstd::layout::size_of::<T>() as int,
+            dealloc.align() ==  vstd::layout::align_of::<T>(),
         ensures
             ret.inv(),
     {
-        PointsTowithDealloc { points_to, dealloc }
+        points_to.is_aligned();
+        PointsTowithDealloc { points_to, dealloc: Some(dealloc) }
     }
-
-    pub proof fn into_raw(tracked self) -> (ret: (PointsToRaw, Dealloc))
+    
+    pub proof fn new_zero_size(tracked points_to: PointsTo<T>) -> (ret: Self)
+        requires
+            vstd::layout::size_of::<T>() == 0,
+        ensures
+            ret.inv(),
+    {
+        points_to.is_aligned();
+        PointsTowithDealloc { points_to, dealloc: None }
+    }
+    
+    pub proof fn into_raw(tracked self) -> (ret: (PointsToRaw, Option<Dealloc>))
         requires
             self.inv(),
             self.is_uninit(),
         ensures
-            ret.1.addr() == self.addr(),
-            ret.1.addr() as int % align_of::<T>() as int == 0,
-            ret.1.size() == size_of::<T>() as int,
-            ret.1.provenance() == ret.0.provenance(),
-            ret.0.is_range(ret.1.addr() as int, size_of::<T>() as int),
+            match ret.1 {
+                Some(dealloc) => { 
+                    &&& vstd::layout::size_of::<T>() > 0
+                    &&& dealloc.addr() == self.addr()
+                    &&& dealloc.addr() as int % vstd::layout::align_of::<T>() as int == 0
+                    &&& dealloc.size() == vstd::layout::size_of::<T>() as int
+                    &&& dealloc.provenance() == ret.0.provenance()
+                    &&& ret.0.is_range(dealloc.addr() as int, vstd::layout::size_of::<T>() as int)
+                },
+                None => {
+                    &&& vstd::layout::size_of::<T>() == 0
+                },
+            },
+            
     {
-        let start = self.points_to.ptr().addr() as int;
         let tracked points_to_raw = self.points_to.into_raw();
-        // PointsTo::into_raw ensures the range using vstd::layout::size_of, which returns int.
-        // We need to show it matches core::mem::size_of::<T>() as int.
-        assume(layout_size_of::<T>() == size_of::<T>() as int);
-        assert(points_to_raw.is_range(start, size_of::<T>() as int));
         (points_to_raw, self.dealloc)
     }
 }
