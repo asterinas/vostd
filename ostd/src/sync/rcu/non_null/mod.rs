@@ -12,6 +12,8 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use crate::prelude::*;
 
+verus!{
+
 /// A trait that abstracts non-null pointers.
 ///
 /// All common smart pointer types such as `Box<T>`,  `Arc<T>`, and `Weak<T>`
@@ -31,13 +33,15 @@ pub unsafe trait NonNullPtr: 'static {
     // TODO: Support `Target: ?Sized`.
     type Target;
 
+    // VERUS LIMITATION: Cannot use associated type with lifetime yet.
     /*/// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>
     where
-        Self: 'a;*/ //Verus does not support associated type with lifetime yet
+        Self: 'a;*/ 
 
+    // Verus LIMITATION: Cannot use `const` associated type yet.
     /// The power of two of the pointer alignment.
-    //const ALIGN_BITS: u32; //Verus does not support associated consts yet
+    //const ALIGN_BITS: u32; 
     fn ALIGN_BITS() -> u32;
 
     /// Converts to a raw pointer.
@@ -48,7 +52,9 @@ pub unsafe trait NonNullPtr: 'static {
     /// The lower [`Self::ALIGN_BITS`] of the raw pointer is guaranteed to
     /// be zero. In other words, the pointer is guaranteed to be aligned to
     /// `1 << Self::ALIGN_BITS`.
-    fn into_raw(self) -> NonNull<Self::Target>;
+    /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
+    /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
+    fn into_raw(self) -> (NonNull<Self::Target>, Tracked<vstd::raw_ptr::PointsTo<Self::Target>>) where Self: Sized;
 
     /// Converts back from a raw pointer.
     ///
@@ -62,8 +68,13 @@ pub unsafe trait NonNullPtr: 'static {
     /// resulting value has not (yet) been dropped, the pointer cannot be
     /// used because it may break Rust aliasing rules (e.g., `Box<T>`
     /// requires the pointer to be unique and thus _never_ aliased).
-    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self;
+    /// VERIFICATION DESIGN: It's easy to verify the second point by consuming the permission produced by `into_raw`,
+    /// so we can do nothing with the raw pointer because of the absence of permission.
+    /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
+    /// SOUNDNESS: Considering consuming the Dealloc permission to ensure no double free.
+    unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<vstd::raw_ptr::PointsTo<Self::Target>>) -> Self where Self: Sized;
 
+    // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it for each type's impl
     /*/// Obtains a shared reference to the original pointer.
     ///
     /// # Safety
@@ -72,6 +83,7 @@ pub unsafe trait NonNullPtr: 'static {
     /// no mutable references to the pointer will exist.
     //unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a>;*/
 
+    // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it for each type's impl
     /*/// Converts a shared reference to a raw pointer.
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>;*/
 }
@@ -84,7 +96,7 @@ pub struct BoxRef<'a, T> {
     _marker: PhantomData<&'a T>,
 }
 
-
+/*
 impl<T> Deref for BoxRef<'_, T> {
     type Target = Box<T>;
 
@@ -97,6 +109,7 @@ impl<T> Deref for BoxRef<'_, T> {
         unsafe { core::mem::transmute(&self.inner) }
     }
 }
+*/
 /* 
 impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
@@ -108,6 +121,7 @@ impl<'a, T> BoxRef<'a, T> {
     }
 }*/
 
+/*
 #[verus_verify]
 unsafe impl<T: 'static> NonNullPtr for Box<T> {
     type Target = T;
@@ -153,7 +167,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
 }
-
+*/
 /* 
 /// A type that represents `&'a Arc<T>`.
 #[derive(Debug)]
@@ -275,3 +289,4 @@ unsafe impl<T: 'static> NonNullPtr for Weak<T> {
     }
 }
 */
+}
