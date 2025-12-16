@@ -1,4 +1,5 @@
 use crate::ownership::*;
+use vstd::layout::size_of as layout_size_of;
 use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
@@ -60,9 +61,10 @@ impl<T> PointsTowithDealloc<T> {
     {
         let start = self.points_to.ptr().addr() as int;
         let tracked points_to_raw = self.points_to.into_raw();
-        assert(points_to_raw.is_range(start, size_of::<T>() as int)) by {
-            admit();
-        }
+        // PointsTo::into_raw ensures the range using vstd::layout::size_of, which returns int.
+        // We need to show it matches core::mem::size_of::<T>() as int.
+        assume(layout_size_of::<T>() == size_of::<T>() as int);
+        assert(points_to_raw.is_range(start, size_of::<T>() as int));
         (points_to_raw, self.dealloc)
     }
 }
