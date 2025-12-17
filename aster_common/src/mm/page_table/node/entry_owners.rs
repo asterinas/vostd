@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 
 use vstd::simple_pptr::PointsTo;
+use vstd::cell;
 use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 
@@ -12,6 +13,7 @@ pub tracked struct NodeEntryOwner<'rcu, C: PageTableConfig> {
     pub as_node: NodeOwner<C>,
     pub guard_perm: PointsTo<PageTableGuard<'rcu, C>>,
     pub children_perm: array_ptr::PointsTo<Entry<'rcu, C>, CONST_NR_ENTRIES>,
+    pub nr_children_perm: vstd::cell::PointsTo<u16>,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {

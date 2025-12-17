@@ -157,11 +157,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
-            Tracked(owner) : Tracked<&mut EntryOwner<'rcu, C>>,
-            Tracked(guard_perm): Tracked<&mut PointsTo<PageTableGuard<'rcu, C>>>,
+            Tracked(owner): Tracked<&mut EntryOwner<'rcu, C>>,
+            Tracked(parent_owner): Tracked<&mut NodeEntryOwner<'rcu, C>>,
             Tracked(slot_own) : Tracked<&MetaSlotOwner>,
-            Tracked(nr_children_perm) : Tracked<&mut vstd::cell::PointsTo<u16>>,
-            Tracked(inner_perm) : Tracked<&vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>>
     )]
     pub fn replace(&mut self, new_child: Child<C>) -> Child<C>
         requires
@@ -172,10 +170,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_child is PageTable,
             FRAME_METADATA_RANGE().start <= frame_to_index(new_child.get_node().unwrap().ptr.addr())
                 < FRAME_METADATA_RANGE().end,
-            inner_perm.addr() == old(guard_perm).value().inner.inner.ptr.addr(),
-            inner_perm.points_to.addr() == old(guard_perm).value().inner.inner.ptr.addr(),
-            inner_perm.is_init(),
-            inner_perm.wf(),
     {
         /*        match &new_child {
             Child::PageTable(node) => {
@@ -186,14 +180,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             }
             Child::None => {}
         }*/
-        let mut guard = self.node.take(Tracked(guard_perm));
-
-        let tracked node_owner = owner.node.tracked_borrow();
+        let mut guard = self.node.take(Tracked(&mut parent_owner.guard_perm));
 
         // SAFETY:
         //  - The PTE is not referenced by other `ChildRef`s (since we have `&mut self`).
         //  - The level matches the current node.
-        #[verus_spec(with Tracked(inner_perm))]
+        #[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))]
         let level = guard.level();
 
         #[verus_spec(with Tracked(regions))]
@@ -201,14 +193,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         if old_child.is_none() && !new_child.is_none() {
             let nr_children = guard.nr_children_mut();
-            let _tmp = nr_children.take(Tracked(nr_children_perm));
-            nr_children.put(Tracked(nr_children_perm), _tmp + 1);
+            let _tmp = nr_children.take(Tracked(&mut parent_owner.nr_children_perm));
+            nr_children.put(Tracked(&mut parent_owner.nr_children_perm), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
             let nr_children = guard.nr_children_mut();
-            let _tmp = nr_children.take(Tracked(nr_children_perm));
-            nr_children.put(Tracked(nr_children_perm), _tmp - 1);
+            let _tmp = nr_children.take(Tracked(&mut parent_owner.nr_children_perm));
+            nr_children.put(Tracked(&mut parent_owner.nr_children_perm), _tmp - 1);
         }
-        #[verus_spec(with Some(Tracked(slot_own)), Some(Tracked(&node_owner.as_node.meta_perm)))]
+        #[verus_spec(with Some(Tracked(slot_own)), Some(Tracked(&parent_owner.as_node.meta_perm)))]
         let new_pte = new_child.into_pte();
 
         // SAFETY:
@@ -217,7 +209,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         //  3. The ownership of the child is passed to the page table node.
         guard.write_pte(self.idx, new_pte);
 
-        self.node.put(Tracked(guard_perm), guard);
+        self.node.put(Tracked(&mut parent_owner.guard_perm), guard);
 
         self.pte = new_pte;
 
