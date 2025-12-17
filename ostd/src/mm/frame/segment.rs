@@ -453,7 +453,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 |addr: usize|
                     {
                         let perm = regions.slots[frame_to_index(addr)];
-                        FramePerm {
+                        MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
                             _T: core::marker::PhantomData,
@@ -553,7 +553,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             // Adjust the permission by transferring all
             // PointsTo perms from `owner` into `regions.dropped_slots`.
 
-            let new_keys = owner.perms.map_values(|v: FramePerm<M>| meta_to_frame_spec(v.addr()));
+            let new_keys = owner.perms.map_values(|v: MetaPerm<M>| meta_to_frame_spec(v.addr()));
             let new_dropped_slots = Map::new(
                 |i: usize| new_keys.contains(i),
                 |k: usize| { owner.perms[k as int].points_to },
@@ -612,7 +612,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 |i: int|
                     {
                         let paddr = (range.start + (i as u64) * PAGE_SIZE() as int) as Paddr;
-                        FramePerm {
+                        MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
                             _T: core::marker::PhantomData,
@@ -701,6 +701,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+//            Tracked()
         requires
             Self::next_requires(*old(self), *old(regions)),
         ensures

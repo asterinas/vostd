@@ -30,12 +30,10 @@ use super::*;
 
 verus! {
 
-/// A permission token for a frame.
+/// A permission token for frame metadata.
 ///
-/// [`Frame<M`] the high-level representation of the low-level pointer
+/// [`Frame<M>`] the high-level representation of the low-level pointer
 /// to the [`super::meta::MetaSlot`].
-pub type FramePerm<M> = cast_ptr::PointsTo<MetaSlot, Frame<M>>;
-
 pub type MetaPerm<M> = cast_ptr::PointsTo<MetaSlot, M>;
 
 /// A smart pointer to a frame.

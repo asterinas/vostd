@@ -30,7 +30,7 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 /// A [`SegmentOnwer<M>`] holds the permission tokens for all frames in the
 /// [`Segment<M>`] for verification purposes.
 pub ghost struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
-    pub perms: Seq<FramePerm<M>>,
+    pub perms: Seq<MetaPerm<M>>,
 }
 
 impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
