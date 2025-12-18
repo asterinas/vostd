@@ -17,7 +17,7 @@ pub uninterp spec fn ptr_mut_from_nonull<T: PointeeSized>(ptr: NonNull<T>) -> *m
 // This is the type invariant, the address (represented by the View of *mut T)) is not zero.
 pub broadcast axiom fn axiom_nonull_is_nonnull<T: PointeeSized>(ptr: NonNull<T>)
     ensures
-        (#[trigger]ptr_mut_from_nonull(ptr))@.addr != 0,
+        (#[trigger] ptr_mut_from_nonull(ptr))@.addr != 0,
 ;
 
 // Inverse function:
@@ -49,7 +49,6 @@ pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](_0: NonNull<T>) -> 
     returns
         ptr_mut_from_nonull(_0),
 ;
-    
 
 // Specification for NonNull::dangling(), uninterptred because the ptr only has to satisfy the alignment requirement.
 // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html#method.dangling.
@@ -62,7 +61,7 @@ pub assume_specification<T>[ NonNull::dangling ]() -> (ret: NonNull<T>)
         nonnull_dangling_spec::<T>(),
 ;
 
-pub broadcast group group_nonnull{
+pub broadcast group group_nonnull {
     axiom_nonull_is_nonnull,
     axiom_ptr_mut_from_nonull_eq,
     axiom_nonull_from_ptr_mut_eq,
