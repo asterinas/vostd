@@ -8,6 +8,7 @@ use alloc::{sync::Arc, boxed::Box};
 //mod either;
 
 use alloc::sync::Weak;
+use core::simd::ptr;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use crate::prelude::*;
@@ -28,7 +29,7 @@ verus!{
 ///
 /// [`Rcu`]: super::Rcu
 #[verus_verify]
-pub unsafe trait NonNullPtr: 'static {
+pub unsafe trait NonNullPtr: Sized +'static {
     /// The target type that this pointer refers to.
     // TODO: Support `Target: ?Sized`.
     type Target;
@@ -54,9 +55,12 @@ pub unsafe trait NonNullPtr: 'static {
     /// `1 << Self::ALIGN_BITS`.
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
-    fn into_raw(self) -> (NonNull<Self::Target>, Tracked<vstd::raw_ptr::PointsTo<Self::Target>>) where Self: Sized;
+    fn into_raw(self) -> (ret:(NonNull<Self::Target>, Tracked<PointsTowithDealloc<Self::Target>>))
+        ensures
+            ptr_mut_from_nonull(ret.0) == ret.1@.ptr(),
+            ret.1@.inv(); 
 
-    /// Converts back from a raw pointer.
+    /*/// Converts back from a raw pointer.
     ///
     /// # Safety
     ///
@@ -72,7 +76,11 @@ pub unsafe trait NonNullPtr: 'static {
     /// so we can do nothing with the raw pointer because of the absence of permission.
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     /// SOUNDNESS: Considering consuming the Dealloc permission to ensure no double free.
-    unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<vstd::raw_ptr::PointsTo<Self::Target>>) -> Self where Self: Sized;
+    unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<PointsTowithDealloc<Self::Target>>) -> Self
+        requires
+            ptr_mut_from_nonull(ptr) == perm@.ptr(),
+            perm@.inv();
+    */
 
     // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it for each type's impl
     /*/// Obtains a shared reference to the original pointer.
@@ -121,7 +129,6 @@ impl<'a, T> BoxRef<'a, T> {
     }
 }*/
 
-/*
 #[verus_verify]
 unsafe impl<T: 'static> NonNullPtr for Box<T> {
     type Target = T;
@@ -137,21 +144,23 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         core::mem::align_of::<T>().trailing_zeros()
     }
 
-    #[verifier::external_body]
-    fn into_raw(self) -> NonNull<Self::Target> {
-        let ptr = Box::into_raw(self);
-
-        // SAFETY: The pointer representing a `Box` can never be NULL.
-        unsafe { NonNull::new_unchecked(ptr) }
+    fn into_raw(self) -> (NonNull<Self::Target>, Tracked<PointsTowithDealloc<Self::Target>>) {
+        //let ptr = Box::into_raw(self);
+        let (ptr, Tracked(points_to), Tracked(dealloc)) = box_into_raw(self);
+        proof_decl!{
+            let tracked perm = PointsTowithDealloc::new(points_to, dealloc);
+        }
+        // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL. 
+        (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
 
-    #[verifier::external_body]
-    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self {
+    /*#[verifier::external_body]
+    unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<PointsTowithDealloc<Self::Target>>) -> Self {
         let ptr = ptr.as_ptr();
 
         // SAFETY: The safety is upheld by the caller.
         unsafe { Box::from_raw(ptr) }
-    }
+    }*/
 
     /*#[verifier::external_body]
     unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
@@ -167,15 +176,17 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
 }
-*/
-/* 
+
+
 /// A type that represents `&'a Arc<T>`.
+#[verus_verify]
 #[derive(Debug)]
 pub struct ArcRef<'a, T> {
     inner: ManuallyDrop<Arc<T>>,
     _marker: PhantomData<&'a Arc<T>>,
 }
 
+/* 
 impl<T> Deref for ArcRef<'_, T> {
     type Target = Arc<T>;
 
@@ -192,25 +203,35 @@ impl<'a, T> ArcRef<'a, T> {
         // and during `'a` no mutable references to the pointer will exist.
         unsafe { &*(self.deref().deref() as *const T) }
     }
-}
+}*/
+
 
 unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     type Target = T;
 
+    /* 
     type Ref<'a>
         = ArcRef<'a, T>
     where
-        Self: 'a;
+        Self: 'a;*/
 
-    const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
-
-    fn into_raw(self) -> NonNull<Self::Target> {
-        let ptr = Arc::into_raw(self).cast_mut();
-
-        // SAFETY: The pointer representing an `Arc` can never be NULL.
-        unsafe { NonNull::new_unchecked(ptr) }
+    //const ALIGN_BITS: u32 = core::mem::align_of::<T>().trailing_zeros();
+    #[verifier::external_body]
+    fn ALIGN_BITS() -> u32 {
+        core::mem::align_of::<T>().trailing_zeros()
     }
 
+    fn into_raw(self) -> (NonNull<Self::Target>, Tracked<PointsTowithDealloc<Self::Target>>) {
+        // let ptr = Arc::into_raw(self).cast_mut();
+        let (ptr, Tracked(points_to), Tracked(dealloc)) = arc_into_raw(self);
+        let ptr = ptr as *mut T;
+        proof_decl!{
+            let tracked perm = PointsTowithDealloc::new(points_to, dealloc);
+        }
+        // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
+        (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
+    }
+    /*
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self {
         let ptr = ptr.as_ptr().cast_const();
 
@@ -230,9 +251,10 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
 
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
         NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
-    }
+    }*/
 }
 
+/* 
 /// A type that represents `&'a Weak<T>`.
 #[derive(Debug)]
 pub struct WeakRef<'a, T> {
@@ -289,4 +311,8 @@ unsafe impl<T: 'static> NonNullPtr for Weak<T> {
     }
 }
 */
+}
+
+verus!{
+    broadcast use group_nonnull;
 }

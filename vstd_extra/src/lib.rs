@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 #![feature(sized_hierarchy)]
+#![feature(proc_macro_hygiene)]
 
 pub mod arithmetic;
 pub mod array_ptr;

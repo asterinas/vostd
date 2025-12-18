@@ -9,6 +9,20 @@ use vstd::raw_ptr::*;
 
 verus! {
 
+pub broadcast proof fn lemma_two_size_of_equal<T>()
+    requires
+        vstd::layout::size_of::<T>() <= usize::MAX,
+    ensures
+        #[trigger] vstd::layout::size_of::<T>() == size_of::<T>(),
+{}
+
+pub broadcast proof fn lemma_two_align_of_equal<T>()
+    requires
+        vstd::layout::align_of::<T>() <= usize::MAX,
+    ensures
+        #[trigger] vstd::layout::align_of::<T>() == align_of::<T>(),
+{}
+
 // Record Typed access permission along with Dealloc permission.
 // This is similar to PPtr::PointsTo, but we want to make it as low-level and general as possible.
 // Difference with PPtr::PointsTo:
@@ -42,15 +56,42 @@ impl<T> Inv for PointsTowithDealloc<T> {
 }
 
 impl<T> PointsTowithDealloc<T> {
+    pub open spec fn ptr(self) -> *mut T {
+        self.points_to.ptr()
+    }
+    
     pub open spec fn addr(self) -> usize {
-        self.points_to.ptr().addr()
+        self.ptr().addr()
     }
 
     pub open spec fn is_uninit(self) -> bool {
         self.points_to.is_uninit()
     }
 
-    pub proof fn new_non_zero_size(tracked points_to: PointsTo<T>, tracked dealloc: Dealloc) -> (ret: Self)
+    pub proof fn new(tracked points_to: PointsTo<T>, tracked dealloc: Option<Dealloc>) -> (tracked ret: Self)
+        requires
+            match dealloc {
+                Some(dealloc) => {
+                    &&& vstd::layout::size_of::<T>() > 0
+                    &&& valid_layout(size_of::<T>(), dealloc.align() as usize)
+                    &&& points_to.ptr().addr() == dealloc.addr()
+                    &&& points_to.ptr()@.provenance == dealloc.provenance()
+                    &&& dealloc.size() == vstd::layout::size_of::<T>()
+                },
+                None => {
+                    vstd::layout::size_of::<T>() == 0
+                },
+            },
+        ensures
+            ret.inv(),
+        returns
+            (PointsTowithDealloc { points_to, dealloc })
+    {
+        points_to.is_aligned();
+        PointsTowithDealloc { points_to, dealloc }
+    }
+
+    pub proof fn new_non_zero_size(tracked points_to: PointsTo<T>, tracked dealloc: Dealloc) -> (tracked ret: Self)
         requires
             0 < vstd::layout::size_of::<T>(),
             valid_layout(size_of::<T>(), dealloc.align() as usize),
@@ -60,22 +101,26 @@ impl<T> PointsTowithDealloc<T> {
             dealloc.align() ==  vstd::layout::align_of::<T>(),
         ensures
             ret.inv(),
+        returns
+            (PointsTowithDealloc { points_to, dealloc: Some(dealloc) })
     {
         points_to.is_aligned();
         PointsTowithDealloc { points_to, dealloc: Some(dealloc) }
     }
     
-    pub proof fn new_zero_size(tracked points_to: PointsTo<T>) -> (ret: Self)
+    pub proof fn new_zero_size(tracked points_to: PointsTo<T>) -> (tracked ret: Self)
         requires
             vstd::layout::size_of::<T>() == 0,
         ensures
             ret.inv(),
+        returns
+            (PointsTowithDealloc { points_to, dealloc: None })
     {
         points_to.is_aligned();
         PointsTowithDealloc { points_to, dealloc: None }
     }
     
-    pub proof fn into_raw(tracked self) -> (ret: (PointsToRaw, Option<Dealloc>))
+    pub proof fn into_raw(tracked self) -> (tracked ret: (PointsToRaw, Option<Dealloc>))
         requires
             self.inv(),
             self.is_uninit(),
