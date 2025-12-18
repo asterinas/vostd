@@ -62,6 +62,32 @@ impl<T> SmartPtrPointsTo<T> {
             SmartPtrPointsTo::Arc(a) => a.is_uninit(),
         }
     }
+
+    pub proof fn get_box_points_to(tracked self) -> (tracked ret: BoxPointsTo<T>)
+        requires
+            self is Box,
+        returns
+            self -> Box_0
+    {
+        let tracked option_perm = match self {
+            SmartPtrPointsTo::Box(p) => Some(p),
+            _ => None,
+        };
+        option_perm.tracked_unwrap()
+    }
+
+    pub proof fn get_arc_points_to(tracked self) -> (tracked ret: ArcPointsTo<T>)
+        requires
+            self is Arc,
+        returns
+            self -> Arc_0
+    {
+        let tracked option_perm = match self {
+            SmartPtrPointsTo::Arc(p) => Some(p),
+            _ => None,
+        };
+        option_perm.tracked_unwrap()
+    }
 }
 
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an exterbnal_body function

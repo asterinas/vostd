@@ -171,12 +171,15 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
 
-    #[verifier::external_body]
     unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<SmartPtrPointsTo<Self::Target>>) -> Self {
+        proof_decl!{
+            let tracked perm = perm.get_box_points_to();
+        }
         let ptr = ptr.as_ptr();
+        
         // [VERIFIED] SAFETY: The safety is upheld by the caller.
         // unsafe { Box::from_raw(ptr) }
-        unsafe { box_from_raw(ptr, Tracked::assume_new(), Tracked::assume_new()) }
+        unsafe { box_from_raw(ptr, Tracked(perm.points_to), Tracked(perm.dealloc)) }
     }
 
     /*#[verifier::external_body]
@@ -264,14 +267,16 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
     
-    #[verifier::external_body]
     unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<SmartPtrPointsTo<Self::Target>>) -> Self {
+        proof_decl!{
+            let tracked perm = perm.get_arc_points_to();
+        }
         //let ptr = ptr.as_ptr().cast_const();
         let ptr = ptr.as_ptr() as *const T;
 
         // [VERIFIED] SAFETY: The safety is upheld by the caller.
         // unsafe { Arc::from_raw(ptr) }
-        unsafe { arc_from_raw(ptr, Tracked::assume_new()) }
+        unsafe { arc_from_raw(ptr, Tracked(perm)) }
     }
     /*
     unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
