@@ -64,8 +64,21 @@ impl<T> PointsTowithDealloc<T> {
         self.ptr().addr()
     }
 
+    pub open spec fn is_init(self) -> bool {
+        self.points_to.is_init()
+    }
+
     pub open spec fn is_uninit(self) -> bool {
         self.points_to.is_uninit()
+    }
+
+    pub open spec fn dealloc_aligned(self) -> bool {
+        match self.dealloc {
+            Some(dealloc) => {
+                dealloc.align() == vstd::layout::align_of::<T>()
+            },
+            None => true,
+        }
     }
 
     pub proof fn new(tracked points_to: PointsTo<T>, tracked dealloc: Option<Dealloc>) -> (tracked ret: Self)

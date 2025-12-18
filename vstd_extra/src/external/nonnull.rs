@@ -43,6 +43,14 @@ pub assume_specification<T: PointeeSized>[ NonNull::new_unchecked ](ptr: *mut T)
         nonnull_from_ptr_mut(ptr),
 ;
 
+pub assume_specification<T: PointeeSized>[ NonNull::as_ptr ](_0: NonNull<T>) -> (ret: *mut T)
+    ensures
+        ret@.addr != 0,
+    returns
+        ptr_mut_from_nonull(_0),
+;
+    
+
 // Specification for NonNull::dangling(), uninterptred because the ptr only has to satisfy the alignment requirement.
 // See https://doc.rust-lang.org/stable/std/ptr/struct.NonNull.html#method.dangling.
 pub uninterp spec fn nonnull_dangling_spec<T>() -> NonNull<T>;

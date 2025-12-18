@@ -58,9 +58,10 @@ pub unsafe trait NonNullPtr: Sized +'static {
     fn into_raw(self) -> (ret:(NonNull<Self::Target>, Tracked<PointsTowithDealloc<Self::Target>>))
         ensures
             ptr_mut_from_nonull(ret.0) == ret.1@.ptr(),
+            ret.1@.dealloc_aligned(),
             ret.1@.inv(); 
 
-    /*/// Converts back from a raw pointer.
+    /// Converts back from a raw pointer.
     ///
     /// # Safety
     ///
@@ -79,8 +80,10 @@ pub unsafe trait NonNullPtr: Sized +'static {
     unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<PointsTowithDealloc<Self::Target>>) -> Self
         requires
             ptr_mut_from_nonull(ptr) == perm@.ptr(),
-            perm@.inv();
-    */
+            perm@.is_init(),
+            perm@.dealloc_aligned(),
+            perm@.inv(),
+    ;
 
     // VERUS LIMITATION: Cannot use associated type with lifetime yet, will implement it for each type's impl
     /*/// Obtains a shared reference to the original pointer.
@@ -154,13 +157,12 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
 
-    /*#[verifier::external_body]
-    unsafe fn from_raw(ptr: NonNull<Self::Target>, perm: Tracked<PointsTowithDealloc<Self::Target>>) -> Self {
+    unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<PointsTowithDealloc<Self::Target>>) -> Self {
         let ptr = ptr.as_ptr();
-
-        // SAFETY: The safety is upheld by the caller.
-        unsafe { Box::from_raw(ptr) }
-    }*/
+        // [VERIFIED] SAFETY: The safety is upheld by the caller.
+        // unsafe { Box::from_raw(ptr) }
+        unsafe { box_from_raw(ptr, Tracked(perm.points_to), Tracked(perm.dealloc)) }
+    }
 
     /*#[verifier::external_body]
     unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
@@ -231,14 +233,17 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         // [VERIFIED] SAFETY: The pointer representing an `Arc` can never be NULL.
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
-    /*
-    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self {
-        let ptr = ptr.as_ptr().cast_const();
+    
+    //#[verifier::external_body]
+    unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<PointsTowithDealloc<Self::Target>>) -> Self {
+        //let ptr = ptr.as_ptr().cast_const();
+        let ptr = ptr.as_ptr() as *const T;
 
-        // SAFETY: The safety is upheld by the caller.
-        unsafe { Arc::from_raw(ptr) }
+        // [VERIFIED] SAFETY: The safety is upheld by the caller.
+        // unsafe { Arc::from_raw(ptr) }
+        unsafe { arc_from_raw(ptr, Tracked(perm.points_to), Tracked(perm.dealloc)) }
     }
-
+    /*
     unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
         // SAFETY: The safety is upheld by the caller.
         unsafe {
