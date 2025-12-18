@@ -234,7 +234,6 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
     }
     
-    //#[verifier::external_body]
     unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<PointsTowithDealloc<Self::Target>>) -> Self {
         //let ptr = ptr.as_ptr().cast_const();
         let ptr = ptr.as_ptr() as *const T;
