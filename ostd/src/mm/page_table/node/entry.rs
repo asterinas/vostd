@@ -67,7 +67,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Tracked(parent_owner): Tracked<&NodeEntryOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
     )]
-    #[verifier::external_body]
     pub fn to_ref(&self) -> (res: ChildRef<'rcu, C>)
         requires
             self.wf(*owner),
@@ -77,8 +76,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(regions).dropped_slots.contains_key(frame_to_index(self.pte.paddr())),
             !old(regions).slots.contains_key(frame_to_index(self.pte.paddr())),
             parent_owner.inv(),
-//            parent_owner.meta_perm.addr() == guard_perm.value().inner.inner.ptr.addr(),
-//            parent_owner.meta_perm.points_to.addr() == guard_perm.value().inner.inner.ptr.addr(),
         ensures
             regions.inv(),
             res.wf(*owner)
@@ -87,15 +84,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         assert(regions.slot_owners.contains_key(frame_to_index(self.pte.paddr())));
 
-        let tracked node_owner = owner.node.tracked_borrow();
-
         #[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))]
         let level = guard.level();
 
         // SAFETY:
         //  - The PTE outlives the reference (since we have `&self`).
         //  - The level matches the current node.
-        #[verus_spec(with Tracked(regions), Tracked(*owner))]
+        #[verus_spec(with Tracked(regions), Tracked(owner))]
         ChildRef::from_pte(&self.pte, level)
     }
 

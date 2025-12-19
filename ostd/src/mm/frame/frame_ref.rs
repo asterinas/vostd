@@ -30,7 +30,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<MetaPerm<M>>,
+            Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             raw % PAGE_SIZE() == 0,
             raw < MAX_PADDR(),

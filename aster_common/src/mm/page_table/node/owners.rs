@@ -61,6 +61,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_perm.points_to.is_init()
         &&& <PageTablePageMeta<C> as Repr<MetaSlot>>::wf(self.meta_perm.points_to.value())
+        &&& self.meta_perm.addr() == self.meta_perm.points_to.addr()
         &&& self.meta_own.inv()
         &&& self.meta_perm.value().wf(self.meta_own)
         &&& self.meta_perm.is_init()

@@ -711,7 +711,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             // SAFETY: each frame in the range would be a handle forgotten
             // when creating the `Segment` object.
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(perm))]
+                #[verus_spec(with Tracked(regions), Tracked(&perm))]
                 Frame::<M>::from_raw(self.range.start)
             };
 

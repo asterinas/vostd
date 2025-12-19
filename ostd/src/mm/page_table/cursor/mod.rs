@@ -367,8 +367,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let pt_guard = pt.make_guard_unchecked(rcu_guard);
 
                     assert(parent_node_owner.guard_perm.value().inner.inner.0.wf(parent_node_owner.as_node));
-//                    assert(parent_node_owner.guard_perm.value().inner.inner.ptr.addr() == parent_node_owner.as_node.meta_perm.addr()) by { admit() };
-                    assert(child_node_owner.guard_perm.value().inner.inner.0.ptr.addr() == child_node_owner.as_node.meta_perm.points_to.addr()) by { admit() };
                     assert(parent_node_owner.as_node.inv()) by { admit() };
 
                     #[verus_spec(with Tracked(&mut child_node_owner.as_node))]

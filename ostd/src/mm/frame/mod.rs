@@ -325,7 +325,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<MetaPerm<M>>,
+            Tracked(perm): Tracked<&MetaPerm<M>>,
     )]
     pub fn borrow(&self) -> FrameRef<'_, M>
         requires
@@ -400,7 +400,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<MetaPerm<M>>,
+            Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             Self::from_raw_requires(*old(regions), paddr),
         ensures
