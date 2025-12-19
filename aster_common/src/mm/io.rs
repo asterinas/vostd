@@ -1,6 +1,8 @@
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd::std_specs::convert::TryFromSpecImpl;
+use vstd_extra::array_ptr::ArrayPtr;
+use vstd_extra::array_ptr::PointsToArray;
 use vstd_extra::ownership::Inv;
 
 use core::marker::PhantomData;
@@ -12,6 +14,65 @@ use crate::KERNEL_BASE_VADDR;
 use crate::KERNEL_END_VADDR;
 
 verus! {
+
+#[verus_spec(r =>
+        with
+            Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
+            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(reader).inv(),
+            old(writer).inv(),
+            old(owner_r).inv(),
+            old(owner_w).inv(),
+            old(owner_r).inv_with_reader(*old(reader)),
+            old(owner_w).inv_with_writer(*old(writer)),
+            old(owner_r).is_fallible && old(owner_w).is_fallible, // both fallible
+        ensures
+            reader.inv(),
+            writer.inv(),
+            owner_r.inv(),
+            owner_w.inv(),
+            owner_r.inv_with_reader(*reader),
+            owner_w.inv_with_writer(*writer),
+            owner_r.params_eq(*old(owner_r)),
+            owner_w.params_eq(*old(owner_w)),
+    )]
+pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<
+    usize,
+    (crate::mm::Error, usize),
+> {
+    Ok(0)  // placeholder.
+}
+
+/// Copies `len` bytes from `src` to `dst`.
+///
+/// # Safety
+///
+/// - `src` must be [valid] for reads of `len` bytes.
+/// - `dst` must be [valid] for writes of `len` bytes.
+///
+/// [valid]: crate::mm::io#safety
+#[inline]
+#[verifier::external_body]
+#[verus_spec(
+    requires
+        KERNEL_BASE_VADDR() <= dst && dst + len <= KERNEL_END_VADDR(),
+        KERNEL_BASE_VADDR() <= src && src + len <= KERNEL_END_VADDR(),
+)]
+unsafe fn memcpy(dst: usize, src: usize, len: usize) {
+    // This method is implemented by calling `volatile_copy_memory`. Note that even with the
+    // "volatile" keyword, data races are still considered undefined behavior (UB) in both the Rust
+    // documentation and the C/C++ standards. In general, UB makes the behavior of the entire
+    // program unpredictable, usually due to compiler optimizations that assume the absence of UB.
+    // However, in this particular case, considering that the Linux kernel uses the "volatile"
+    // keyword to implement `READ_ONCE` and `WRITE_ONCE`, the compiler is extremely unlikely to
+    // break our code unless it also breaks the Linux kernel.
+    //
+    // For more details and future possibilities, see
+    // <https://github.com/asterinas/asterinas/pull/1001#discussion_r1667317406>.
+    // SAFETY: The safety is guaranteed by the safety preconditions and the explanation above.
+    core::intrinsics::volatile_copy_memory(dst as *mut u8, src as *const u8, len);
+}
 
 /// `VmReader` is a reader for reading data from a contiguous range of memory.
 ///
@@ -46,7 +107,7 @@ pub tracked struct VmIoOwner<'a> {
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
 }
 
-impl<'a> Inv for VmIoOwner<'a> {
+impl Inv for VmIoOwner<'_> {
     open spec fn inv(self) -> bool {
         // We do allow ZSTs so that empty ranges are valid.
         &&& self.range@.start != self.range@.end ==> KERNEL_BASE_VADDR() as int <= self.range@.start
@@ -54,10 +115,41 @@ impl<'a> Inv for VmIoOwner<'a> {
     }
 }
 
-impl<'a> VmIoOwner<'a> {
+impl VmIoOwner<'_> {
+    pub open spec fn params_eq(self, other: VmIoOwner<'_>) -> bool {
+        &&& self.range@ == other.range@
+        &&& self.is_fallible == other.is_fallible
+    }
+
+    /// Changes the fallibility of this owner.
+    pub proof fn change_fallible(tracked &mut self, tracked fallible: bool)
+        requires
+            old(self).inv(),
+            old(self).is_fallible != fallible,
+        ensures
+            self.inv(),
+            self.is_fallible == fallible,
+    {
+        self.is_fallible = fallible;
+    }
+}
+
+impl Inv for VmWriter<'_> {
+    open spec fn inv(self) -> bool {
+        &&& self.cursor.addr() <= self.end.addr()
+    }
+}
+
+impl Inv for VmReader<'_> {
+    open spec fn inv(self) -> bool {
+        &&& self.cursor.addr() <= self.end.addr()
+    }
+}
+
+impl VmIoOwner<'_> {
     pub open spec fn inv_with_reader(
         self,
-        reader: VmReader<'a  /* Fallibility */ >,
+        reader: VmReader<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
         &&& self.range@.start as usize <= reader.cursor.addr()
@@ -66,7 +158,7 @@ impl<'a> VmIoOwner<'a> {
 
     pub open spec fn inv_with_writer(
         self,
-        writer: VmWriter<'a  /* Fallibility */ >,
+        writer: VmWriter<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
         &&& self.range@.start as usize <= writer.cursor.addr()
@@ -111,20 +203,23 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
-            -> owner: Tracked<VmIoOwner<'a>>,
+            Tracked(fallible): Tracked<bool>,
+                -> owner: Tracked<VmIoOwner<'a>>,
         requires
+            !fallible,
             len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
             len == 0 || ptr.addr() + len <= KERNEL_END_VADDR(),
         ensures
             owner@.inv(),
             owner@.inv_with_writer(r),
+            owner@.is_fallible == fallible,
             r.cursor.addr() == ptr.addr(),
             r.end.addr() == ptr.addr() + len,
     )]
     pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
         let tracked owner = VmIoOwner {
             range: Ghost((ptr.addr() as int)..((ptr.addr() + len) as int)),
-            is_fallible: false,
+            is_fallible: fallible,
             phantom: PhantomData,
         };
 
@@ -143,16 +238,14 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             r is Ok <==> owner@ is Ok,
             r matches Ok(r) ==> {
                 &&& owner@ matches Ok(owner) ==> {
+                    &&& r.inv()
+                    &&& r.avail_spec() == core::mem::size_of::<T>()
                     &&& owner.inv()
                     &&& owner.inv_with_writer(r)
-                    // &&& r.cursor.addr() == ptr.addr(),
-                    // &&& r.end.addr() == ptr.addr() + len,
                 }
             }
     )]
-    pub fn from_pod<T: Pod>(mut val: T) -> Result<
-        VmWriter<'a  /* Infallible */ >,
-    > {
+    pub fn from_pod<T: Pod>(mut val: T) -> Result<VmWriter<'a  /* Infallible */ >> {
         proof_decl! {
             let tracked mut perm;
         }
@@ -165,7 +258,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             Err(crate::mm::Error::IoError)
         } else {
             let r = unsafe {
-                #[verus_spec(with => Tracked(perm))]
+                #[verus_spec(with Tracked(false) => Tracked(perm))]
                 VmWriter::from_kernel_space(PPtr(pnt.addr(), PhantomData), len)
             };
 
@@ -230,6 +323,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             r is Ok <==> owner@ is Ok,
             r matches Ok(r) ==> {
                 &&& owner@ matches Ok(owner) ==> {
+                    &&& r.inv()
+                    &&& r.remain_spec() == core::mem::size_of::<T>()
                     &&& owner.inv()
                     &&& owner.inv_with_reader(r)
                     // &&& r.cursor.addr() == ptr.addr(),
@@ -237,9 +332,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
                 }
             }
     )]
-    pub fn from_pod<T: Pod>(mut val: T) -> Result<
-        VmReader<'a  /* Infallible */ >,
-    > {
+    pub fn from_pod<T: Pod>(val: &mut T) -> Result<VmReader<'a  /* Infallible */ >> {
         proof_decl! {
             let tracked mut perm;
         }
@@ -342,7 +435,7 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
 
         Ok(
             unsafe {
-                #[verus_spec(with => Tracked(perm))]
+                #[verus_spec(with Tracked(false) => Tracked(perm))]
                 Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
             },
         )
@@ -374,7 +467,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
     }
 }
 
-pub type Result<T> = core::result::Result<T, crate::mm::Error>;
+type Result<T> = core::result::Result<T, crate::mm::Error>;
 
 /// A trait that enables reading/writing data from/to a VM object,
 /// e.g., [`USegment`], [`Vec<UFrame>`] and [`UFrame`].
@@ -392,10 +485,8 @@ pub type Result<T> = core::result::Result<T, crate::mm::Error>;
 /// Note: In this trait we follow the standard of `vstd` trait that allows precondition and
 /// postcondition overriding by introducing `obeys_`, `_requires`, and `_ensures` spec functions.
 ///
-/// Unfortunately `verus_spec` does not support traits so we have to keep the style for the
-/// time being but hopefully we can make the code more concise in the future.
-pub trait VmIo: Send + Sync + Sized {
-    // /// Checks whether the given `VmReader` is valid with respect to this VM object.
+/// `P` is the type of the permission/ownership token used to track the state of the VM object.
+pub trait VmIo<P: Sized>: Send + Sync + Sized {
     // spec fn reader_inv_with_owner(self, owner: VmIoOwner<'_>) -> bool;
     /// If this returns true then the `requires` clause of `read` will be active.
     spec fn obeys_vmio_read_requires() -> bool;
@@ -410,94 +501,72 @@ pub trait VmIo: Send + Sync + Sized {
     spec fn obeys_vmio_write_ensures() -> bool;
 
     /// Checks whether the preconditions for `read` are met.
-    spec fn vmio_read_requires(self, owner: VmIoOwner<'_>, offset: usize) -> bool;
+    spec fn vmio_read_requires(self, owner: P, offset: usize) -> bool;
 
-    // {
-    //     &&& owner.inv()
-    //     // &&& self.reader_inv_with_owner(owner)
-    //     &&& offset + owner.range@.start as usize <= owner.range@.end as usize
-    // }
-    spec fn vmio_read_ensures(
-        self,
-        owner: VmIoOwner<'_>,
-        offset: usize,
-        new_owner: VmIoOwner<'_>,
-        r: Result<()>,
-    ) -> bool;
+    /// Checks whether the postconditions for `read` are met.
+    spec fn vmio_read_ensures(self, owner: P, offset: usize, new_owner: P, r: Result<()>) -> bool;
 
-    // {
-    //     &&& r is Ok ==> {
-    //         &&& new_owner.inv()
-    //         // &&& self.reader_inv_with_owner(new_owner)
-    //     }
-    //     &&& r is Err ==> { true  /* what happened? */  }
-    // }
-    spec fn vmio_write_requires(self, owner: VmIoOwner<'_>, offset: usize) -> bool;
+    /// Checks whether the preconditions for `write` are met.
+    spec fn vmio_write_requires(self, owner: P, offset: usize) -> bool;
 
-    // {
-    //     &&& owner.inv()
-    //     // &&& self.reader_inv_with_owner(owner)
-    //     &&& offset + owner.range@.start as usize <= owner.range@.end as usize
-    // }
-    spec fn vmio_write_ensures(
-        self,
-        owner: VmIoOwner<'_>,
-        offset: usize,
-        new_owner: VmIoOwner<'_>,
-        r: Result<()>,
-    ) -> bool;
+    /// Checks whether the postconditions for `write` are met.
+    spec fn vmio_write_ensures(self, owner: P, offset: usize, new_owner: P, r: Result<()>) -> bool;
 
-    // {
-    //     &&& r is Ok ==> {
-    //         &&& new_owner.inv()
-    //         // &&& self.reader_inv_with_owner(new_owner)
-    //     }
-    //     &&& r is Err ==> { true  /* what happened? */  }
-    // }
-    /// Reads requested data at a specified offset into a given `VmWriter`.
-    ///
-    /// # No short reads
-    ///
-    /// On success, the `writer` must be written with the requested data
-    /// completely. If, for any reason, the requested data is only partially
-    /// available, then the method shall return an error.
-    fn read(
+    fn read_slice<T: Pod, const N: usize>(
         &self,
         offset: usize,
-        writer: &mut VmWriter,
-        Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
+        slice: ArrayPtr<T, N>,
+        Tracked(slice_owner): Tracked<&mut PointsToArray<u8, N>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> (r: Result<()>);
+
+    fn write_bytes<const N: usize>(
+        &self,
+        offset: usize,
+        bytes: ArrayPtr<u8, N>,
+        Tracked(bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
+        Tracked(owner): Tracked<&mut P>,
     ) -> (r: Result<()>)
-        requires
-            Self::obeys_vmio_read_requires() ==> Self::vmio_read_requires(
-                *self,
-                *old(owner),
-                offset,
-            ),
-        ensures
-            Self::obeys_vmio_read_ensures() ==> Self::vmio_read_ensures(
-                *self,
-                *old(owner),
-                offset,
-                *owner,
-                r,
-            ),
+    // requires
+    //     Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
+    //         *self,
+    //         *old(owner),
+    //         offset,
+    //     ),
+    // ensures
+    //     Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
+    //         *self,
+    //         *old(owner),
+    //         offset,
+    //         *owner,
+    //         r,
+    //     ),
     ;
 
-    /// Reads a value of a specified type at a specified offset.
-    fn read_val<T: Pod>(&self, offset: usize) -> Result<T>;
+    fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
+        Result<()>)
+    // requires
+    //     Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
+    //         *self,
+    //         *old(owner),
+    //         offset,
+    //     ),
+    // ensures
+    //     Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
+    //         *self,
+    //         *old(owner),
+    //         offset,
+    //         *owner,
+    //         r,
+    //     ),
+    ;
 
-    /// Writes all data from a given `VmReader` at a specified offset.
-    ///
-    /// # No short writes
-    ///
-    /// On success, the data from the `reader` must be read to the VM object entirely.
-    /// If, for any reason, the input data can only be written partially,
-    /// then the method shall return an error.
-    fn write(
+    fn write_slice<T: Pod, const N: usize>(
         &self,
         offset: usize,
-        reader: &mut VmReader,
-        Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
+        slice: ArrayPtr<T, N>,
+        Tracked(slice_owner): Tracked<&mut PointsToArray<T, N>>,
+        Tracked(owner): Tracked<&mut P>,
     ) -> (r: Result<()>)
         requires
             Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
@@ -514,8 +583,6 @@ pub trait VmIo: Send + Sync + Sized {
                 r,
             ),
     ;
-
-    fn write_val<T: Pod>(&self, offset: usize, val: T) -> Result<()>;
 }
 
 /// A trait that enables reading/writing data from/to a VM object using one non-tearing memory
@@ -524,6 +591,14 @@ pub trait VmIo: Send + Sync + Sized {
 /// See also [`VmIo`], which enables reading/writing data from/to a VM object without the guarantee
 /// of using one non-tearing memory load/store.
 pub trait VmIoOnce: Sized {
+    spec fn obeys_vmio_once_read_requires() -> bool;
+
+    spec fn obeys_vmio_once_write_requires() -> bool;
+
+    spec fn obeys_vmio_once_read_ensures() -> bool;
+
+    spec fn obeys_vmio_once_write_ensures() -> bool;
+
     /// Reads a value of the `PodOnce` type at the specified offset using one non-tearing memory
     /// load.
     ///
@@ -539,105 +614,361 @@ pub trait VmIoOnce: Sized {
     fn write_once<T: PodOnce>(&self, offset: usize, new_val: &T) -> Result<()>;
 }
 
-impl<'a> VmIo for VmReader<'a> {
-    closed spec fn obeys_vmio_read_requires() -> bool {
-        true
+#[verus_verify]
+impl VmReader<'_> {
+    pub open spec fn remain_spec(&self) -> usize {
+        (self.end.addr() - self.cursor.addr()) as usize
     }
 
-    open spec fn vmio_read_requires(self, owner: VmIoOwner<'_>, offset: usize) -> bool {
-        &&& owner.inv()
-        // &&& self.reader_inv_with_owner(owner)
-        &&& offset + owner.range@.start as usize <= owner.range@.end as usize
-    }
-
-    closed spec fn obeys_vmio_read_ensures() -> bool {
-        true
-    }
-
-    open spec fn vmio_read_ensures(
-        self,
-        owner: VmIoOwner<'_>,
-        offset: usize,
-        new_owner: VmIoOwner<'_>,
-        r: Result<()>,
-    ) -> bool {
-        &&& r is Ok ==> {
-            &&& new_owner.inv()
-            // &&& self.reader_inv_with_owner(new_owner)
-
-        }&&& r is Err ==> { true  /* what happened? */  }
-    }
-
-    closed spec fn obeys_vmio_write_requires() -> bool {
-        true
-    }
-
-    open spec fn vmio_write_requires(self, owner: VmIoOwner<'_>, offset: usize) -> bool {
-        &&& owner.inv()
-        // &&& self.reader_inv_with_owner(owner)
-        &&& offset + owner.range@.start as usize <= owner.range@.end as usize
-    }
-
-    closed spec fn obeys_vmio_write_ensures() -> bool {
-        true
-    }
-
-    open spec fn vmio_write_ensures(
-        self,
-        owner: VmIoOwner<'_>,
-        offset: usize,
-        new_owner: VmIoOwner<'_>,
-        r: Result<()>,
-    ) -> bool {
-        &&& r is Ok ==> {
-            &&& new_owner.inv()
-            // &&& self.reader_inv_with_owner(new_owner)
-
-        }&&& r is Err ==> { true  /* what happened? */  }
-    }
-
-    fn read(
-        &self,
-        offset: usize,
-        writer: &mut VmWriter,
-        Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
-    ) -> (r: Result<()>)
+    /// Returns the number of remaining bytes that can be read.
+    #[inline]
+    #[verus_spec(r =>
+        requires
+            self.inv(),
         ensures
-            Self::obeys_vmio_read_ensures() ==> Self::vmio_read_ensures(
-                *self,
-                *old(owner),
-                offset,
-                *owner,
-                r,
-            ),
-    {
-        vstd::vpanic!("stub");
+            r == self.remain_spec(),
+    )]
+    #[verifier::when_used_as_spec(remain_spec)]
+    pub fn remain(&self) -> usize {
+        self.end.addr() - self.cursor.addr()
     }
 
-    fn write(
-        &self,
-        offset: usize,
+    /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes remaining.
+    #[inline]
+    #[verus_spec(
+        requires
+            old(self).inv(),
+            len <= old(self).remain_spec(),
+        ensures
+            self.inv(),
+            self.cursor.addr() == old(self).cursor.addr() + len,
+            self.remain_spec() == old(self).remain_spec() - len,
+    )]
+    pub fn advance(&mut self, len: usize) {
+        self.cursor = PPtr(self.cursor.addr() + len, PhantomData);
+    }
+
+    /// Reads all data into the writer until one of the two conditions is met:
+    /// 1. The reader has no remaining data.
+    /// 2. The writer has no available space.
+    ///
+    /// Returns the number of bytes read.
+    #[rustc_allow_incoherent_impl]
+    #[verus_spec(r =>
+        with
+            Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
+            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(writer).inv(),
+            old(owner_r).inv(),
+            old(owner_w).inv(),
+            old(owner_r).inv_with_reader(*old(self)),
+            old(owner_w).inv_with_writer(*old(writer)),
+        ensures
+            self.inv(),
+            writer.inv(),
+            owner_r.inv(),
+            owner_w.inv(),
+            owner_r.inv_with_reader(*self),
+            owner_w.inv_with_writer(*writer),
+            owner_r.params_eq(*old(owner_r)),
+            owner_w.params_eq(*old(owner_w)),
+            r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
+            self.remain_spec() == old(self).remain_spec() - r as usize,
+            self.cursor.addr() == old(self).cursor.addr() + r as usize,
+            writer.avail_spec() == old(writer).avail_spec() - r as usize,
+            writer.cursor.addr() == old(writer).cursor.addr() + r as usize,
+    )]
+    pub fn read(&mut self, writer: &mut VmWriter) -> usize {
+        let mut copy_len = if self.remain() < writer.avail() {
+            self.remain()
+        } else {
+            writer.avail()
+        };
+
+        if copy_len == 0 {
+            return 0;
+        }
+        // SAFETY: The source and destination are subsets of memory ranges specified by the reader
+        // and writer (owners), so they are valid for reading and writing.
+
+        unsafe {
+            memcpy(writer.cursor.addr(), self.cursor.addr(), copy_len);
+        }
+
+        self.advance(copy_len);
+        writer.advance(copy_len);
+
+        copy_len
+    }
+
+    /// Reads a value of `Pod` type.
+    ///
+    /// If the length of the `Pod` type exceeds `self.remain()`,
+    /// this method will return `Err`.
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(owner).inv(),
+            old(owner).inv_with_reader(*old(self)),
+        ensures
+            self.inv(),
+            owner.inv(),
+            owner.inv_with_reader(*self),
+            owner.params_eq(*old(owner)),
+            match r {
+                Ok(_) => {
+                    &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                },
+                Err(_) => {
+                    old(self) == self
+                },
+            }
+    )]
+    pub fn read_val<T: Pod>(&mut self) -> Result<T> {
+        if self.remain() < core::mem::size_of::<T>() {
+            return Err(crate::mm::Error::InvalidArgs);
+        }
+        let mut v = T::new_uninit();
+        proof_with!(=> Tracked(owner_w));
+        let mut writer = VmWriter::from_pod(v)?;
+
+        let tracked mut owner_w = owner_w.tracked_unwrap();
+
+        proof_with!(Tracked(owner), Tracked(&mut owner_w));
+        self.read(&mut writer);
+
+        Ok(v)
+    }
+
+    #[verifier::external_body]
+    #[verus_spec(
+        requires
+            self.inv(),
+            core::mem::size_of::<T>() <= self.remain_spec(),
+    )]
+    fn read_once_inner<T: PodOnce>(&self) -> T {
+        let pnt = self.cursor.addr() as *const T;
+        unsafe { pnt.read_volatile() }
+    }
+
+    /// Reads a value of the `PodOnce` type using one non-tearing memory load.
+    ///
+    /// If the length of the `PodOnce` type exceeds `self.remain()`, this method will return `Err`.
+    ///
+    /// This method will not compile if the `Pod` type is too large for the current architecture
+    /// and the operation must be tear into multiple memory loads.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the current position of the reader does not meet the alignment
+    /// requirements of type `T`.
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(owner).inv(),
+            old(owner).inv_with_reader(*old(self)),
+        ensures
+            self.inv(),
+            owner.inv(),
+            owner.inv_with_reader(*self),
+            owner.params_eq(*old(owner)),
+            match r {
+                Ok(_) => {
+                    &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                },
+                Err(_) => {
+                    old(self) == self
+                },
+            }
+    )]
+    pub fn read_val_once<T: PodOnce>(&mut self) -> Result<T> {
+        if core::mem::size_of::<T>() > self.remain() {
+            return Err(crate::mm::Error::InvalidArgs);
+        }
+
+        // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
+        // and that the cursor is properly aligned with respect to the type `T`. All other safety
+        // requirements are the same as for `Self::read`.
+
+        let v = self.read_once_inner::<T>();
+        self.advance(core::mem::size_of::<T>());
+
+        Ok(v)
+    }
+}
+
+impl VmWriter<'_> {
+    pub open spec fn avail_spec(&self) -> usize {
+        (self.end.addr() - self.cursor.addr()) as usize
+    }
+
+    /// Returns the number of available bytes that can be written.
+    ///
+    /// This has the same implementation as [`VmReader::remain`] but semantically
+    /// they are different.
+    #[inline]
+    #[verus_spec(r =>
+        requires
+            self.inv(),
+        ensures
+            r == self.avail_spec(),
+    )]
+    #[verifier::when_used_as_spec(avail_spec)]
+    pub fn avail(&self) -> usize {
+        self.end.addr() - self.cursor.addr()
+    }
+
+    /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes available.
+    #[inline]
+    #[verus_spec(
+        requires
+            old(self).inv(),
+            len <= old(self).avail_spec(),
+        ensures
+            self.inv(),
+            self.avail_spec() == old(self).avail_spec() - len,
+            self.cursor.addr() == old(self).cursor.addr() + len,
+    )]
+    pub fn advance(&mut self, len: usize) {
+        self.cursor = PPtr(self.cursor.addr() + len, PhantomData);
+    }
+
+    /// Writes all data from the reader until one of the two conditions is met:
+    /// 1. The reader has no remaining data.
+    /// 2. The writer has no available space.
+    ///
+    /// Returns the number of bytes written.
+    #[inline]
+    #[verus_spec(r =>
+        with
+            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+            Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(reader).inv(),
+            old(owner_w).inv(),
+            old(owner_r).inv(),
+            old(owner_w).inv_with_writer(*old(self)),
+            old(owner_r).inv_with_reader(*old(reader)),
+        ensures
+            self.inv(),
+            reader.inv(),
+            owner_w.inv(),
+            owner_r.inv(),
+            owner_w.inv_with_writer(*self),
+            owner_r.inv_with_reader(*reader),
+            owner_w.params_eq(*old(owner_w)),
+            owner_r.params_eq(*old(owner_r)),
+            r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
+            self.avail_spec() == old(self).avail_spec() - r as usize,
+            self.cursor.addr() == old(self).cursor.addr() + r as usize,
+            reader.remain_spec() == old(reader).remain_spec() - r as usize,
+            reader.cursor.addr() == old(reader).cursor.addr() + r as usize,
+    )]
+    pub fn write(
+        &mut self,
         reader: &mut VmReader,
-        Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
-    ) -> (r: Result<()>)
+    ) -> usize {
+        proof_with!(Tracked(owner_r), Tracked(owner_w));
+        reader.read(self)
+    }
+
+    /// Writes a value of `Pod` type.
+    ///
+    /// If the length of the `Pod` type exceeds `self.avail()`,
+    /// this method will return `Err`.
+    #[verus_spec(r =>
+        with
+            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(owner_w).inv(),
+            old(owner_w).inv_with_writer(*old(self)),
         ensures
-            Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
-                *self,
-                *old(owner),
-                offset,
-                *owner,
-                r,
-            ),
-    {
-        vstd::vpanic!("stub");
+            self.inv(),
+            owner_w.inv(),
+            owner_w.inv_with_writer(*self),
+            owner_w.params_eq(*old(owner_w)),
+            match r {
+                Ok(_) => {
+                    &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                },
+                Err(_) => {
+                    old(self) == self
+                },
+            }
+    )]
+    pub fn write_val<T: Pod>(&mut self, val: &mut T) -> Result<()> {
+        if self.avail() < core::mem::size_of::<T>() {
+            return Err(crate::mm::Error::InvalidArgs);
+        }
+
+        proof_with!(=> Tracked(owner_r));
+        let mut reader = VmReader::from_pod(val)?;
+
+        let tracked mut owner_r = owner_r.tracked_unwrap();
+
+        proof_with!(Tracked(owner_w), Tracked(&mut owner_r));
+        self.write(&mut reader);
+
+        Ok(())
     }
 
-    fn read_val<T: Pod>(&self, offset: usize) -> Result<T> {
-        vstd::vpanic!("stub");
+    #[verifier::external_body]
+    #[verus_spec(
+        requires
+            self.inv(),
+            core::mem::size_of::<T>() <= self.avail_spec(),
+    )]
+    fn write_once_inner<T: PodOnce>(&self, new_val: &mut T) {
+        let cursor = self.cursor.addr() as *mut T;
+        unsafe { cursor.write_volatile(*new_val) };
     }
 
-    fn write_val<T: Pod>(&self, offset: usize, val: T) -> Result<()> {
-        vstd::vpanic!("stub");
+    #[verus_spec(r =>
+        with
+            Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+        requires
+            old(self).inv(),
+            old(owner_w).inv(),
+            old(owner_w).inv_with_writer(*old(self)),
+        ensures
+            self.inv(),
+            owner_w.inv(),
+            owner_w.inv_with_writer(*self),
+            owner_w.params_eq(*old(owner_w)),
+            match r {
+                Ok(_) => {
+                    &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                },
+                Err(_) => {
+                    old(self) == self
+                },
+            }
+    )]
+    pub fn write_once<T: PodOnce>(&mut self, new_val: &mut T) -> Result<()> {
+        if core::mem::size_of::<T>() > self.avail() {
+            return Err(crate::mm::Error::InvalidArgs);
+        }
+
+        // SAFETY: We have checked that the number of bytes available is at least the size of `T`
+        // and that the cursor is properly aligned with respect to the type `T`. All other safety
+        // requirements are the same as for `Self::write`.
+
+        self.write_once_inner::<T>(new_val);
+        self.advance(core::mem::size_of::<T>());
+
+        Ok(())
     }
 }
 

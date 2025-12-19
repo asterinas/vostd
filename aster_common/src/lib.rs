@@ -2,6 +2,7 @@
 #![allow(non_camel_case_types)]
 #![allow(unused_attributes)]
 #![feature(proc_macro_hygiene)]
+#![feature(core_intrinsics)]
 
 mod arch;
 mod error;

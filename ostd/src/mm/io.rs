@@ -38,12 +38,12 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
-use vstd::{prelude::*, simple_pptr::PPtr};
+use vstd::{pervasive::arbitrary, prelude::*, simple_pptr::PPtr};
 
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use aster_common::prelude::{
     pod::{Pod, PodOnce},
-    VmIoOwner, VmReader, VmWriter,
+    VmIo, VmIoOwner, VmReader, VmWriter,
 };
 use core::marker::PhantomData;
 
@@ -210,29 +210,6 @@ verus! {
 // /// representing whether reads or writes on the underlying memory region are infallible.
 // pub enum Infallible {}
 // /// Copies `len` bytes from `src` to `dst`.
-// ///
-// /// # Safety
-// ///
-// /// - `src` must be [valid] for reads of `len` bytes.
-// /// - `dst` must be [valid] for writes of `len` bytes.
-// ///
-// /// [valid]: crate::mm::io#safety
-// #[verifier::external_body]
-// unsafe fn memcpy(dst: *mut u8, src: *const u8, len: usize) {
-//     // This method is implemented by calling `volatile_copy_memory`. Note that even with the
-//     // "volatile" keyword, data races are still considered undefined behavior (UB) in both the Rust
-//     // documentation and the C/C++ standards. In general, UB makes the behavior of the entire
-//     // program unpredictable, usually due to compiler optimizations that assume the absence of UB.
-//     // However, in this particular case, considering that the Linux kernel uses the "volatile"
-//     // keyword to implement `READ_ONCE` and `WRITE_ONCE`, the compiler is extremely unlikely to
-//     // break our code unless it also breaks the Linux kernel.
-//     //
-//     // For more details and future possibilities, see
-//     // <https://github.com/asterinas/asterinas/pull/1001#discussion_r1667317406>.
-//     // SAFETY: The safety is guaranteed by the safety preconditions and the explanation above.
-//     unsafe { core::intrinsics::volatile_copy_memory(dst, src, len) };
-// }
-// /// Copies `len` bytes from `src` to `dst`.
 // /// This function will early stop copying if encountering an unresolvable page fault.
 // ///
 // /// Returns the number of successfully copied bytes.
@@ -342,11 +319,6 @@ verus! {
 // // impl_write_fallible!(Fallible, Fallible);
 // // impl_write_fallible!(Infallible, Fallible);
 // impl<'a> VmReader<'a /* Infallible */> {
-//     /// Reads all data into the writer until one of the two conditions is met:
-//     /// 1. The reader has no remaining data.
-//     /// 2. The writer has no available space.
-//     ///
-//     /// Returns the number of bytes read.
 //     #[rustc_allow_incoherent_impl]
 //     pub fn read(&mut self, writer: &mut VmWriter<'_ /* Infallible */>) -> usize {
 //         let copy_len = self.remain().min(writer.avail());

@@ -4,6 +4,7 @@ use core::mem::MaybeUninit;
 
 verus! {
 
+// TODO: This would need to integrate with the new array pointer thing.
 /// A trait for Plain Old Data (POD) types.
 pub trait Pod: Copy + Sized {
     /// Creates a new instance of Pod type that is filled with zeroes.
@@ -34,7 +35,10 @@ pub trait Pod: Copy + Sized {
 
     /// As a mutable slice of bytes.
     #[verifier::external_body]
-    fn as_bytes_mut(&mut self) -> (*mut u8, usize) {
+    fn as_bytes_mut(&mut self) -> (r: (*mut u8, usize))
+        ensures
+            r.1 == core::mem::size_of::<Self>(),
+    {
         let ptr = self as *mut Self as *mut u8;
         let len = core::mem::size_of::<Self>();
         // unsafe { core::slice::from_raw_parts_mut(ptr, len) }
