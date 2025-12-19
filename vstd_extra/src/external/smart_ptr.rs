@@ -5,35 +5,117 @@ use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 
+// A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
 
 // The permssion to access memory given by the `into_raw` methods of smart pointers like `Box` and `Arc`.
 /// For Box<T>, the `into_raw` method gives you the ownership of the memory
-pub type BoxPointsTo<T> = PointsTowithDealloc<T>;
+pub tracked struct BoxPointsTo<T> {
+    pub perm: PointsTowithDealloc<T>,
+}
 
 /// For Arc<T>, the `into_raw` method gives shared access to the memory, and the reference count is not decreased,
 /// so the value will not be deallocated until we convert back to Arc<T> and drop it.
 /// See https://doc.rust-lang.org/src/alloc/sync.rs.html#1480.
-pub type ArcPointsTo<T> = &'static PointsTo<T>;
+pub tracked struct ArcPointsTo<T: 'static> {
+    pub perm: &'static PointsTo<T>,
+}
 
 pub tracked enum SmartPtrPointsTo<T: 'static> {
     Box(BoxPointsTo<T>),
     Arc(ArcPointsTo<T>),
 }
 
+impl<T> BoxPointsTo<T> {
+    pub open spec fn perm(self) -> PointsTowithDealloc<T> {
+        self.perm
+    }
+
+    pub open spec fn ptr(self) -> *mut T {
+        self.perm.ptr()
+    }
+
+    pub open spec fn addr(self) -> usize {
+        self.ptr().addr()
+    }
+
+    pub open spec fn is_uninit(self) -> bool {
+        self.perm.is_uninit()
+    }
+
+    pub open spec fn is_init(self) -> bool {
+        self.perm.is_init()
+    }
+
+    pub proof fn tracked_get_perm(tracked self) -> (tracked ret: PointsTowithDealloc<T>)
+        returns
+            self.perm,
+    {
+        self.perm
+    }
+
+    pub proof fn tracked_borrow_perm<'a>(tracked &'a self) -> (tracked ret: &'a PointsTowithDealloc<
+        T,
+    >)
+        ensures
+            ret == &self.perm,
+        returns
+            &self.perm,
+    {
+        &self.perm
+    }
+}
+
+impl<T> ArcPointsTo<T> {
+    pub open spec fn perm(self) -> &'static PointsTo<T> {
+        self.perm
+    }
+
+    pub open spec fn ptr(self) -> *mut T {
+        self.perm.ptr()
+    }
+
+    pub open spec fn addr(self) -> usize {
+        self.ptr().addr()
+    }
+
+    pub open spec fn is_uninit(self) -> bool {
+        self.perm.is_uninit()
+    }
+
+    pub open spec fn is_init(self) -> bool {
+        self.perm.is_init()
+    }
+
+    pub proof fn tracked_get_perm(tracked self) -> (tracked ret: &'static PointsTo<T>)
+        returns
+            self.perm,
+    {
+        self.perm
+    }
+}
+
+impl<T> Inv for BoxPointsTo<T> {
+    open spec fn inv(self) -> bool {
+        &&& self.perm.inv()
+        &&& self.perm.dealloc_aligned()
+        &&& self.is_init()
+    }
+}
+
+impl<T> Inv for ArcPointsTo<T> {
+    open spec fn inv(self) -> bool {
+        &&& self.addr() != 0
+        &&& self.addr() as int % vstd::layout::align_of::<T>() as int == 0
+        &&& self.is_init()
+    }
+}
+
 impl<T> Inv for SmartPtrPointsTo<T> {
     open spec fn inv(self) -> bool {
         match self {
-            SmartPtrPointsTo::Box(b) => {
-                &&& b.inv()
-                &&& b.dealloc_aligned()
-                &&& b.is_init()
-            },
-            SmartPtrPointsTo::Arc(a) => {
-                &&& a.ptr().addr() != 0
-                &&& a.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0
-                &&& a.is_init()
-            },
+            SmartPtrPointsTo::Box(b) => { b.inv() },
+            SmartPtrPointsTo::Arc(a) => { a.inv() },
         }
     }
 }
@@ -70,11 +152,10 @@ impl<T> SmartPtrPointsTo<T> {
         returns
             self->Box_0,
     {
-        let tracked option_perm = match self {
-            SmartPtrPointsTo::Box(p) => Some(p),
-            _ => None,
-        };
-        option_perm.tracked_unwrap()
+        match self {
+            SmartPtrPointsTo::Box(p) => p,
+            _ => proof_from_false(),
+        }
     }
 
     pub proof fn get_arc_points_to(tracked self) -> (tracked ret: ArcPointsTo<T>)
@@ -83,11 +164,57 @@ impl<T> SmartPtrPointsTo<T> {
         returns
             self->Arc_0,
     {
-        let tracked option_perm = match self {
-            SmartPtrPointsTo::Arc(p) => Some(p),
-            _ => None,
+        match self {
+            SmartPtrPointsTo::Arc(p) => p,
+            _ => proof_from_false(),
+        }
+    }
+
+    pub proof fn new_box_points_to(
+        tracked points_to: PointsTo<T>,
+        tracked dealloc: Option<Dealloc>,
+    ) -> (tracked ret: SmartPtrPointsTo<T>)
+        requires
+            points_to.is_init(),
+            match dealloc {
+                Some(dealloc) => {
+                    &&& vstd::layout::size_of::<T>() > 0
+                    &&& valid_layout(size_of::<T>(), dealloc.align() as usize)
+                    &&& points_to.ptr().addr() == dealloc.addr()
+                    &&& points_to.ptr()@.provenance == dealloc.provenance()
+                    &&& dealloc.size() == vstd::layout::size_of::<T>()
+                    &&& dealloc.align() == vstd::layout::align_of::<T>()
+                },
+                None => { vstd::layout::size_of::<T>() == 0 },
+            },
+        ensures
+            ret.inv(),
+            ret is Box,
+        returns
+            (SmartPtrPointsTo::Box(
+                BoxPointsTo { perm: PointsTowithDealloc { points_to, dealloc } },
+            )),
+    {
+        let tracked box_points_to = BoxPointsTo {
+            perm: PointsTowithDealloc::new(points_to, dealloc),
         };
-        option_perm.tracked_unwrap()
+        SmartPtrPointsTo::Box(box_points_to)
+    }
+
+    pub proof fn new_arc_points_to(tracked points_to: &'static PointsTo<T>) -> (tracked ret:
+        SmartPtrPointsTo<T>)
+        requires
+            points_to.is_init(),
+            points_to.ptr().addr() != 0,
+            points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        ensures
+            ret.inv(),
+            ret is Arc,
+        returns
+            (SmartPtrPointsTo::Arc(ArcPointsTo { perm: points_to })),
+    {
+        let tracked arc_points_to = ArcPointsTo { perm: points_to };
+        SmartPtrPointsTo::Arc(arc_points_to)
     }
 }
 

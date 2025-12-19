@@ -107,6 +107,7 @@ pub unsafe trait NonNullPtr: Sized +'static {
 pub struct BoxRef<'a, T> {
     inner: *mut T,
     _marker: PhantomData<&'a T>,
+    v_perm: Tracked<&'a BoxPointsTo<T>>,
 }
 
 impl<'a, T> BoxRef<'a, T> {
@@ -114,6 +115,8 @@ impl<'a, T> BoxRef<'a, T> {
     spec fn type_inv(self) -> bool {
         &&& self.inner@.addr != 0
         &&& self.inner@.addr as int % vstd::layout::align_of::<T>() as int == 0
+        &&& self.v_perm@.ptr() == self.inner
+        &&& self.v_perm@.inv()
     }
     
     pub closed spec fn ptr(self) -> *mut T {
@@ -165,7 +168,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         //let ptr = Box::into_raw(self);
         let (ptr, Tracked(points_to), Tracked(dealloc)) = box_into_raw(self);
         proof_decl!{
-            let tracked perm = SmartPtrPointsTo::Box(PointsTowithDealloc::new(points_to, dealloc));
+            let tracked perm = SmartPtrPointsTo::new_box_points_to(points_to, dealloc);
         }
         // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL. 
         (unsafe { NonNull::new_unchecked(ptr) }, Tracked(perm))
@@ -173,7 +176,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
 
     unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<SmartPtrPointsTo<Self::Target>>) -> Self {
         proof_decl!{
-            let tracked perm = perm.get_box_points_to();
+            let tracked perm = perm.get_box_points_to().tracked_get_perm();
         }
         let ptr = ptr.as_ptr();
         
@@ -182,16 +185,14 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
         unsafe { box_from_raw(ptr, Tracked(perm.points_to), Tracked(perm.dealloc)) }
     }
 
-    /*#[verifier::external_body]
-    unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
+    /*unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
         BoxRef {
             inner: raw.as_ptr(),
             _marker: PhantomData,
         }
     }*/
 
-    /*#[verifier::external_body]
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
+    /*fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
         // SAFETY: The pointer representing a `Box` can never be NULL.
         unsafe { NonNull::new_unchecked(ptr_ref.inner) }
     }*/
@@ -201,17 +202,33 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }
 }
 
-#[verifier::external_body]
-pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_ ,T>) -> NonNull<T> 
-    returns
-        nonnull_from_ptr_mut(ptr_ref.ptr()),
+pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_ ,T>) -> (ret:(NonNull<T>, Tracked<&BoxPointsTo<T>>)) 
+    ensures
+        ret.0 == nonnull_from_ptr_mut(ptr_ref.ptr()),
+        ret.1@.ptr().addr() != 0,
+        ret.1@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        ret.1@.ptr() == ptr_mut_from_nonull(ret.0),
+        ret.1@.inv(),
+
 {
     proof!{
         use_type_invariant(&ptr_ref);
     }
     // [VERIFIED] SAFETY: The pointer representing a `Box` can never be NULL.
-    unsafe { NonNull::new_unchecked(ptr_ref.inner) }
+    (unsafe { NonNull::new_unchecked(ptr_ref.inner) }, ptr_ref.v_perm)
 } 
+
+pub unsafe fn box_raw_as_ref<'a, T: 'static>(raw: NonNull<T>, perm: Tracked<&'a BoxPointsTo<T>>) -> BoxRef<'a, T>
+    requires
+        perm@.ptr() == ptr_mut_from_nonull(raw),
+        perm@.inv(),
+    {
+        BoxRef {
+            inner: raw.as_ptr(),
+            _marker: PhantomData,
+            v_perm: perm,
+        }
+    }
 
 /// A type that represents `&'a Arc<T>`.
 #[verus_verify]
