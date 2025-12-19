@@ -48,8 +48,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.node == guard_perm.pptr(),
             guard_perm.is_init(),
             owner.is_node(), // The owner is the owner of the parent node, so should always be a node
-            inner_perm.addr() == guard_perm.value().inner.inner.ptr.addr(),
-            inner_perm.points_to.addr() == guard_perm.value().inner.inner.ptr.addr(),
+            inner_perm.addr() == guard_perm.value().inner.inner.0.ptr.addr(),
+            inner_perm.points_to.addr() == guard_perm.value().inner.inner.0.ptr.addr(),
             inner_perm.is_init(),
             inner_perm.wf(),
     {
@@ -95,7 +95,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         // SAFETY:
         //  - The PTE outlives the reference (since we have `&self`).
         //  - The level matches the current node.
-        #[verus_spec(with Tracked(regions))]
+        #[verus_spec(with Tracked(regions), Tracked(*owner))]
         ChildRef::from_pte(&self.pte, level)
     }
 
@@ -157,14 +157,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<&mut EntryOwner<'rcu, C>>,
+            Tracked(owner): Tracked<EntryOwner<'rcu, C>>,
             Tracked(parent_owner): Tracked<&mut NodeEntryOwner<'rcu, C>>,
             Tracked(slot_own) : Tracked<&MetaSlotOwner>,
     )]
     pub fn replace(&mut self, new_child: Child<C>) -> Child<C>
         requires
-            old(self).wf(*old(owner)),
-            old(owner).inv(),
+            old(self).wf(owner),
+            owner.inv(),
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),
             new_child is PageTable,
@@ -188,7 +188,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         #[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))]
         let level = guard.level();
 
-        #[verus_spec(with Tracked(regions))]
+        #[verus_spec(with Tracked(regions), Tracked(owner))]
         let old_child = Child::from_pte(self.pte, level);
 
         if old_child.is_none() && !new_child.is_none() {

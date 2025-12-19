@@ -19,8 +19,8 @@ pub tracked struct NodeEntryOwner<'rcu, C: PageTableConfig> {
 impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.guard_perm.is_init()
-        &&& self.guard_perm.value().inner.inner.ptr.addr() == self.as_node.meta_perm.addr()
-        &&& self.guard_perm.value().inner.inner.wf(self.as_node)
+        &&& self.guard_perm.value().inner.inner.0.ptr.addr() == self.as_node.meta_perm.addr()
+        &&& self.guard_perm.value().inner.inner.0.wf(self.as_node)
         &&& self.as_node.inv()
         &&& meta_to_frame(self.as_node.meta_perm.addr()) < VMALLOC_BASE_VADDR()
             - LINEAR_MAPPING_BASE_VADDR()
@@ -78,7 +78,7 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
     pub open spec fn relate_parent_guard_perm(self, guard_perm: PointsTo<PageTableGuard<'rcu, C>>) -> bool {
         &&& guard_perm.addr() == self.guard_addr
         &&& guard_perm.is_init()
-        &&& guard_perm.value().inner.inner.ptr.addr() == self.base_addr
+        &&& guard_perm.value().inner.inner.0.ptr.addr() == self.base_addr
     }
 }
 

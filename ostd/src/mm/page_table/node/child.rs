@@ -63,7 +63,8 @@ impl<C: PageTableConfig> Child<C> {
     /// The level must match the original level of the child.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(regions) : Tracked<&mut MetaRegionOwners>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(entry_own): Tracked<EntryOwner<C>>,
     )]
     pub fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
         requires
@@ -90,9 +91,13 @@ impl<C: PageTableConfig> Child<C> {
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
+            assert(entry_own.is_node()) by { admit() };
+            let tracked mut entry_own = entry_own;
+            let tracked node_owner = entry_own.node.tracked_take();
+
             // SAFETY: The caller ensures that this node was created by
             // `into_pte`, so that restoring the forgotten reference is safe.
-            #[verus_spec(with Tracked(regions))]
+            #[verus_spec(with Tracked(regions), Tracked(node_owner.as_node.meta_perm))]
             let node = PageTableNode::from_raw(paddr);
             //            debug_assert_eq!(node.level(), level - 1);
             return Child::PageTable(  /*RcuDrop::new(*/ node  /*)*/ );
@@ -113,7 +118,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     /// node that contains this PTE.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(entry_own): Tracked<EntryOwner<C>>
     )]
     pub fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
         requires
@@ -131,10 +137,14 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
+            assert(entry_own.is_node()) by { admit() };
+            let tracked mut entry_own = entry_own;
+            let tracked node_owner = entry_own.node.tracked_take();
+
             // SAFETY: The caller ensures that the lifetime of the child is
             // contained by the residing node, and the physical address is
             // valid since the entry is present.
-            #[verus_spec(with Tracked(regions))]
+            #[verus_spec(with Tracked(regions), Tracked(node_owner.as_node.meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
             //            debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);

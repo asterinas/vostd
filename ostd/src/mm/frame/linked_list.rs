@@ -272,16 +272,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             return None;
         };
 
-        let slot = slot_ptr.take(Tracked(&mut slot_perm));
+        let slot = slot_ptr.borrow(Tracked(&slot_perm));
         let in_list = slot.in_list.load(Tracked(&mut slot_own.in_list));
         let contains = in_list == #[verus_spec(with Tracked(owner))]
         Self::lazy_get_id(ptr);
-
-        proof {
-            assert(slot_perm.value() == slot) by {
-                admit();
-            }
-        }
 
         #[verus_spec(with Tracked(&slot_perm))]
         let meta_ptr = slot.as_meta_ptr::<Link<M>>();
@@ -292,7 +286,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             None
         };
 
-        slot_ptr.put(Tracked(&mut slot_perm), slot);
         proof {
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
