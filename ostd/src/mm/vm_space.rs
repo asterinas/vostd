@@ -220,7 +220,22 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// # Panics
     ///
     /// Panics if the length is longer than the remaining range of the cursor.
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).0.wf(*old(owner)),
+            old(regions).inv(),
+        ensures
+            owner.inv(),
+            self.0.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.0.find_next(len)
     }
 
@@ -271,7 +286,22 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(regions).inv(),
+        ensures
+            owner.inv(),
+            self.pt_cursor.inner.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.pt_cursor.find_next(len)
     }
 

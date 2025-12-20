@@ -35,29 +35,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// Returns if the entry maps to a page table node.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner) : Tracked<EntryOwner<C>>,
-            Tracked(guard_perm) : Tracked<&PointsTo<PageTableGuard<'rcu, C>>>,
-            Tracked(slot_own) : Tracked<&MetaSlotOwner>,
-            Tracked(inner_perm) : Tracked<&vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>>
+        with Tracked(owner): Tracked<EntryOwner<C>>,
+            Tracked(parent_owner): Tracked<&NodeEntryOwner<C>>,
     )]
-    #[verusfmt::skip]
     pub fn is_node(&self) -> bool
         requires
             owner.inv(),
             self.wf(owner),
-            self.node == guard_perm.pptr(),
-            guard_perm.is_init(),
-            owner.is_node(), // The owner is the owner of the parent node, so should always be a node
-            inner_perm.addr() == guard_perm.value().inner.inner.0.ptr.addr(),
-            inner_perm.points_to.addr() == guard_perm.value().inner.inner.0.ptr.addr(),
-            inner_perm.is_init(),
-            inner_perm.wf(),
+            owner.relate_parent_guard_perm(parent_owner.guard_perm),
+            parent_owner.inv(),
     {
-        let guard = self.node.borrow(Tracked(guard_perm));
-        let tracked node_owner = owner.node.tracked_borrow();
+        let guard = self.node.borrow(Tracked(&parent_owner.guard_perm));
 
-        #[verusfmt::skip]
-        self.pte.is_present() && !self.pte.is_last(#[verus_spec(with Tracked(inner_perm))] guard.level())
+        self.pte.is_present() && !self.pte.is_last(#[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))] guard.level())
     }
 
     /// Gets a reference to the child.

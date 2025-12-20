@@ -261,8 +261,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
     #[rustc_allow_incoherent_impl]
-    #[verifier::external_body]
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
+            Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).wf(*old(owner)),
+            old(regions).inv(),
+//            old(self).model(old(owner)).
+        ensures
+            owner.inv(),
+            self.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.find_next_impl(len, false, false)
     }
 
@@ -366,9 +381,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     #[verus_spec(with Tracked(&mut child_node_owner.guard_perm))]
                     let pt_guard = pt.make_guard_unchecked(rcu_guard);
 
-                    assert(parent_node_owner.guard_perm.value().inner.inner.0.wf(parent_node_owner.as_node));
-                    assert(parent_node_owner.as_node.inv()) by { admit() };
-
                     #[verus_spec(with Tracked(&mut child_node_owner.as_node))]
                     let nr_children = pt_guard.borrow(Tracked(&mut child_node_owner.guard_perm)).nr_children();
 
@@ -389,9 +401,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     } else {
                         let _ = ManuallyDrop::new(pt_guard);
-
-                        assert(owner.inv()) by { admit() };
-                        assert(self.wf(*owner)) by { admit() };
 
                         #[verus_spec(with Tracked(owner))]
                         self.move_forward();
@@ -657,7 +666,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///
     /// This is the same as [`Cursor::find_next`].
     #[rustc_allow_incoherent_impl]
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).inner.wf(*old(owner)),
+            old(regions).inv(),
+        ensures
+            owner.inv(),
+            self.inner.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.inner.find_next(len)
     }
 
