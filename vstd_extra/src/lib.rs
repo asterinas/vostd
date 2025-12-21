@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 #![feature(sized_hierarchy)]
+#![feature(generic_const_exprs)]
 
 pub mod arithmetic;
 pub mod array_ptr;
@@ -12,6 +13,7 @@ pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
 pub mod undroppable;
+pub mod virtual_ptr;
 
 #[macro_use]
 pub mod ptr_extra;
