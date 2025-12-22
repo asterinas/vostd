@@ -116,7 +116,6 @@ impl PageTableFlags {
     {
         lemma_log2_to64();
         assert(1usize << 63 == 0x8000_0000_0000_0000) by (bit_vector);
-        assert(Self::NO_EXECUTE().bits() == 0x8000_0000_0000_0000);
     }
 }
 

@@ -121,17 +121,9 @@ pub proof fn lemma_va_level_to_nid_inc(va: Vaddr, level: PagingLevel, nid: NodeI
     let trace_level = va_level_to_trace(va, level);
 
     // Show that trace_level = trace_level_plus_1.push(idx)
-    assert(trace_level == trace_level_plus_1.push(idx));
 
     // Now use the fact that nid = trace_to_nid(trace_level_plus_1)
     // and get_child(nid, idx) = trace_to_nid(nid_to_trace(nid).push(idx))
-    assert(NodeHelper::nid_to_trace(nid) == trace_level_plus_1) by {
-        // First establish that trace_level_plus_1 is a valid trace
-        assert(NodeHelper::valid_trace(trace_level_plus_1)) by {
-            lemma_va_level_to_trace_valid(va, (level + 1) as PagingLevel);
-        };
-        NodeHelper::lemma_trace_to_nid_bijective();
-    };
 }
 
 pub proof fn lemma_va_level_to_offset_range(va: Vaddr, level: PagingLevel)
@@ -141,12 +133,6 @@ pub proof fn lemma_va_level_to_offset_range(va: Vaddr, level: PagingLevel)
         0 <= va_level_to_offset(va, level) < 512,
 {
     let offset = va_level_to_offset(va, level);
-    assert(offset < 512) by {
-        assert(low_bits_mask(9) == 511) by {
-            lemma_low_bits_mask_values();
-        };
-        assert((va >> (12 + (level - 1) as usize * 9)) & 511 <= 511) by (bit_vector);
-    }
 }
 
 pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
@@ -159,10 +145,6 @@ pub proof fn lemma_va_level_to_trace_valid(va: Vaddr, level: PagingLevel)
     if level < 4 {
         lemma_va_level_to_trace_valid(va, (level + 1) as PagingLevel);
         lemma_va_level_to_offset_range(va, (level + 1) as PagingLevel);
-        assert(va_level_to_trace(va, level) == va_level_to_trace(
-            va,
-            (level + 1) as PagingLevel,
-        ).push(va_level_to_offset(va, (level + 1) as PagingLevel)));
     }
 }
 

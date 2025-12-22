@@ -267,7 +267,6 @@ pub fn unlock_range<C: PageTableConfig>(
         assert(cursor.path[level - 1] is None);
     }
 
-    assert(!forgot_guards.inner.dom().contains(guard_node.nid()));
     let res = dfs_release_lock(
         cursor.preempt_guard,
         guard_node,
