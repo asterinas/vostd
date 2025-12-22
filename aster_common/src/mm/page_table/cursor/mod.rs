@@ -436,7 +436,7 @@ pub open spec fn page_size_spec(level: PagingLevel) -> usize {
 #[verifier::when_used_as_spec(page_size_spec)]
 #[verifier::external_body]
 pub fn page_size(level: PagingLevel) -> usize
-    requires 1 <= level <= 4 
+    requires 1 <= level <= NR_LEVELS() + 1
     returns page_size_spec(level)
 {
     PAGE_SIZE() << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))

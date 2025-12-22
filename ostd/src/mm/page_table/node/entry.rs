@@ -207,9 +207,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// Otherwise, the lock guard of the new child page table node is returned.
     #[verifier::external_body]
     #[rustc_allow_incoherent_impl]
-    #[verusfmt::skip]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A)
-        -> Option<PPtr<PageTableGuard<'rcu, C>>> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
+    )]
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+        requires
+            old(owner).inv(),
+            old(self).wf(old(owner).value),
+        ensures
+            old(owner).value.is_absent() ==> {
+                &&& res is Some
+                &&& owner.value.is_node()
+                &&& owner.value.node.unwrap().guard_perm.addr() == res.unwrap().addr()
+                &&& owner.level == old(owner).level
+                &&& owner.value.guard_addr == old(owner).value.guard_addr
+                &&& owner.value.base_addr == old(owner).value.base_addr
+            },
+            !old(owner).value.is_absent() ==> {
+                &&& res is None
+                &&& owner == old(owner)
+            },
+            owner.inv()
+    {
         unimplemented!()
 
 /*        if !(self.is_none() && self.node.level() > 1) {
@@ -250,13 +269,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// `None`.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner) : Tracked<&EntryOwner<C>>
+        with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>
     )]
     #[verifier::external_body]
     #[verusfmt::skip]
     pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+        requires
+            old(owner).inv(),
+            old(self).wf(old(owner).value),
         ensures
-            res is Some
+            old(owner).value.is_frame() ==> {
+                &&& res is Some
+                &&& owner.value.is_node()
+                &&& owner.value.node.unwrap().guard_perm.addr() == res.unwrap().addr()
+                &&& owner.level == old(owner).level
+                &&& owner.value.guard_addr == old(owner).value.guard_addr
+                &&& owner.value.base_addr == old(owner).value.base_addr
+            },
+            !old(owner).value.is_frame() ==> {
+                &&& res is None
+                &&& owner == old(owner)
+            },
+            owner.inv()
     {
         unimplemented!()
 /*        let guard = self.node.borrow(Tracked(owner.guard_perm.borrow()));

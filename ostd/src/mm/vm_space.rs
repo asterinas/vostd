@@ -240,8 +240,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Jump to the virtual address.
-    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
-        self.0.jump(va)?;
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+        requires
+            old(owner).inv(),
+            old(self).0.wf(*old(owner))
+    {
+        (#[verus_spec(with Tracked(owner))] self.0.jump(va))?;
         Ok(())
     }
 
@@ -308,8 +315,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
-        self.pt_cursor.jump(va)?;
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+    {
+        (#[verus_spec(with Tracked(owner))] self.pt_cursor.jump(va))?;
         Ok(())
     }
 
@@ -328,12 +342,23 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(entry_own): Tracked<EntryOwner<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(regions).inv(),
+            entry_own.inv()
+    {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (unsafe { self.pt_cursor.map(item) }) else {
+        let Err(frag) = (#[verus_spec(with Tracked(owner), Tracked(entry_own), Tracked(regions))] self.pt_cursor.map(item)) else {
             return; // No mapping exists at the current address.
         };
 
