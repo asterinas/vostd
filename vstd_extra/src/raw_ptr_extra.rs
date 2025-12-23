@@ -75,6 +75,10 @@ impl<T> PointsTowithDealloc<T> {
         self.points_to.is_uninit()
     }
 
+    pub open spec fn value(self) -> T {
+        self.points_to.value()
+    }
+
     pub open spec fn dealloc_aligned(self) -> bool {
         match self.dealloc {
             Some(dealloc) => { dealloc.align() == vstd::layout::align_of::<T>() },

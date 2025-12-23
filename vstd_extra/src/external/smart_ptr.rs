@@ -47,6 +47,10 @@ impl<T> BoxPointsTo<T> {
         self.perm.is_init()
     }
 
+    pub open spec fn value(self) -> T {
+        self.perm.value()
+    }
+
     pub proof fn tracked_get_perm(tracked self) -> (tracked ret: PointsTowithDealloc<T>)
         returns
             self.perm,
@@ -85,6 +89,10 @@ impl<T> ArcPointsTo<T> {
 
     pub open spec fn is_init(self) -> bool {
         self.perm.is_init()
+    }
+
+    pub open spec fn value(self) -> T {
+        self.perm.value()
     }
 
     pub proof fn tracked_get_perm(tracked self) -> (tracked ret: &'static PointsTo<T>)

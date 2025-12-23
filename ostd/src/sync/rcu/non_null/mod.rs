@@ -138,16 +138,18 @@ impl<T> Deref for BoxRef<'_, T> {
     }
 }
 */
-/* 
+
+#[verus_verify]
 impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
+    #[verus_verify(external_body)]
     pub fn deref_target(&self) -> &'a T {
         // SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
         // the original owned pointer and target must outlive the lifetime parameter `'a`,
         // and during `'a` no mutable references to the pointer will exist.
         unsafe { &*(self.inner) }
     }
-}*/
+}
 
 #[verus_verify]
 unsafe impl<T: 'static> NonNullPtr for Box<T> {
