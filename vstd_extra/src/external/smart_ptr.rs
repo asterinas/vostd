@@ -238,6 +238,8 @@ impl<T> SmartPtrPointsTo<T> {
     }
 }
 
+pub uninterp spec fn box_pointer_spec<T>(b: Box<T>) -> *mut T;
+
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an exterbnal_body function
 // The memory layout ensures that Box<T> has the following properties:
 //  1. The pointer is aligned.
@@ -248,6 +250,7 @@ impl<T> SmartPtrPointsTo<T> {
 #[verifier::external_body]
 pub fn box_into_raw<T>(b: Box<T>) -> (ret: (*mut T, Tracked<PointsTo<T>>, Tracked<Option<Dealloc>>))
     ensures
+        ret.0 == box_pointer_spec(b),
         ret.0 == ret.1@.ptr(),
         ret.1@.ptr().addr() != 0,
         ret.1@.is_init(),
@@ -289,15 +292,20 @@ pub unsafe fn box_from_raw<T>(
             },
             None => { &&& vstd::layout::size_of::<T>() == 0 },
         },
+    ensures
+        box_pointer_spec(ret) == ptr,
 {
     unsafe { Box::from_raw(ptr) }
 }
+
+pub uninterp spec fn arc_pointer_spec<T>(a: Arc<T>) -> *const T;
 
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an exterbnal_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
 pub fn arc_into_raw<T>(p: Arc<T>) -> (ret: (*const T, Tracked<ArcPointsTo<T>>))
     ensures
+        ret.0 == arc_pointer_spec(p),
         ret.0 == ret.1@.ptr(),
         ret.1@.ptr().addr() != 0,
         ret.1@.is_init(),
@@ -316,6 +324,8 @@ pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPoint
         points_to@.ptr() == ptr,
         points_to@.is_init(),
         points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+    ensures
+        arc_pointer_spec(ret) == ptr,
 {
     unsafe { Arc::from_raw(ptr) }
 }
