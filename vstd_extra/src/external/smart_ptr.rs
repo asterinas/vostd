@@ -51,22 +51,34 @@ impl<T> BoxPointsTo<T> {
         self.perm.value()
     }
 
-    pub proof fn tracked_get_perm(tracked self) -> (tracked ret: PointsTowithDealloc<T>)
+    pub proof fn tracked_get_points_to_with_dealloc(tracked self) -> (tracked ret:
+        PointsTowithDealloc<T>)
         returns
             self.perm,
     {
         self.perm
     }
 
-    pub proof fn tracked_borrow_perm<'a>(tracked &'a self) -> (tracked ret: &'a PointsTowithDealloc<
-        T,
-    >)
-        ensures
-            ret == &self.perm,
+    pub proof fn tracked_borrow_points_to_with_dealloc(tracked &self) -> (tracked ret:
+        &PointsTowithDealloc<T>)
         returns
             &self.perm,
     {
         &self.perm
+    }
+
+    pub proof fn tracked_get_points_to(tracked self) -> (tracked ret: PointsTo<T>)
+        returns
+            self.perm.points_to,
+    {
+        self.tracked_get_points_to_with_dealloc().tracked_get_points_to()
+    }
+
+    pub proof fn tracked_borrow_points_to(tracked &self) -> (tracked ret: &PointsTo<T>)
+        returns
+            &self.perm.points_to,
+    {
+        &self.tracked_borrow_points_to_with_dealloc().tracked_borrow_points_to()
     }
 }
 
@@ -95,7 +107,7 @@ impl<T> ArcPointsTo<T> {
         self.perm.value()
     }
 
-    pub proof fn tracked_get_perm(tracked self) -> (tracked ret: &'static PointsTo<T>)
+    pub proof fn tracked_borrow_points_to(tracked &self) -> (tracked ret: &'static PointsTo<T>)
         returns
             self.perm,
     {

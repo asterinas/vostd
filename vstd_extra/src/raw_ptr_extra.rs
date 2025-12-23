@@ -86,6 +86,20 @@ impl<T> PointsTowithDealloc<T> {
         }
     }
 
+    pub proof fn tracked_borrow_points_to(tracked &self) -> (tracked ret: &PointsTo<T>)
+        returns
+            &self.points_to,
+    {
+        &self.points_to
+    }
+
+    pub proof fn tracked_get_points_to(tracked self) -> (tracked ret: PointsTo<T>)
+        returns
+            self.points_to,
+    {
+        self.points_to
+    }
+
     pub proof fn new(
         tracked points_to: PointsTo<T>,
         tracked dealloc: Option<Dealloc>,

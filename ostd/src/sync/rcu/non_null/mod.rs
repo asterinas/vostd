@@ -122,6 +122,10 @@ impl<'a, T> BoxRef<'a, T> {
     pub closed spec fn ptr(self) -> *mut T {
         self.inner
     }
+
+    pub closed spec fn value(self) -> T {
+        self.v_perm@.value()
+    }
 }
 
 /*
@@ -142,12 +146,18 @@ impl<T> Deref for BoxRef<'_, T> {
 #[verus_verify]
 impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
-    #[verus_verify(external_body)]
+    #[verus_spec(ret => ensures *ret == self.value())]
     pub fn deref_target(&self) -> &'a T {
-        // SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
+        // [VERIFIED] SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
         // the original owned pointer and target must outlive the lifetime parameter `'a`,
         // and during `'a` no mutable references to the pointer will exist.
-        unsafe { &*(self.inner) }
+        
+        let Tracked(perm) = self.v_perm;
+        proof!{
+            use_type_invariant(self);
+        }
+        //unsafe { &*(self.inner) }
+        vstd::raw_ptr::ptr_ref(self.inner, Tracked(perm.tracked_borrow_points_to())) // The function body of ptr_ref is exactly the same as `unsafe { &*(self.inner) }`
     }
 }
 
@@ -178,7 +188,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
 
     unsafe fn from_raw(ptr: NonNull<Self::Target>, Tracked(perm): Tracked<SmartPtrPointsTo<Self::Target>>) -> Self {
         proof_decl!{
-            let tracked perm = perm.get_box_points_to().tracked_get_perm();
+            let tracked perm = perm.get_box_points_to().tracked_get_points_to_with_dealloc();
         }
         let ptr = ptr.as_ptr();
         
@@ -240,15 +250,29 @@ pub struct ArcRef<'a, T> {
     _marker: PhantomData<&'a Arc<T>>,
 }
 
-/* 
+impl<'a, T> ArcRef<'a, T> {
+    pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
+        manually_drop_deref_spec(&self.inner)
+    }
+
+    /// A workaround that Verus does not support implementing spec for Deref trait yet.
+    pub broadcast axiom fn arcref_deref_spec_eq(self)
+        ensures
+            #[trigger] self.deref_as_arc_spec() == #[trigger] self.deref_spec(),
+    ;
+}
+
+#[verus_verify]
 impl<T> Deref for ArcRef<'_, T> {
     type Target = Arc<T>;
 
+    #[verus_verify]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
+/* 
 impl<'a, T> ArcRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
     pub fn deref_target(&self) -> &'a T {
