@@ -258,14 +258,14 @@ pub unsafe fn box_raw_as_ref<'a, T: 'static>(raw: NonNull<T>, perm: Tracked<&'a 
 pub struct ArcRef<'a, T: 'static> {
     inner: ManuallyDrop<Arc<T>>,
     _marker: PhantomData<&'a Arc<T>>,
-    v_perm: Tracked<ArcPointsTo<T>>,
+    // Note there is no permission field here, because `ArcRef` does not use a raw pointer directly.
 }
 
 impl<'a, T> ArcRef<'a, T> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
-        &&& self.ptr() == self.v_perm@.ptr()
-        &&& self.v_perm@.inv()
+        //&&& self.ptr() == self.v_perm@.ptr()
+        //&&& self.v_perm@.inv()
         &&& self.ptr()@.addr != 0
         &&& self.ptr()@.addr as int % vstd::layout::align_of::<T>() as int == 0
     }
@@ -383,6 +383,21 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_ ,T>) -> (ret:(NonNull<T>, T
     let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
     (ptr, Tracked(perm.get_arc_points_to()))
 }
+
+pub unsafe fn arc_raw_as_ref<'a, T: 'static>(raw: NonNull<T>, perm: Tracked<ArcPointsTo<T>>) -> (ret: ArcRef<'a, T>)
+    requires
+        perm@.ptr() == ptr_mut_from_nonull(raw),
+        perm@.inv(),
+    ensures
+        ret.ptr() == perm@.ptr(),
+    {
+        unsafe{
+            ArcRef {
+                inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)),
+                _marker: PhantomData,
+            }
+        }
+    }
 
 /* 
 /// A type that represents `&'a Weak<T>`.
