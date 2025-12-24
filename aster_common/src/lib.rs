@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
 #![allow(unused_attributes)]
+// #![feature(generic_const_exprs)]
 #![feature(proc_macro_hygiene)]
 #![feature(core_intrinsics)]
 

@@ -42,6 +42,7 @@ pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core
     (crate::mm::Error, usize),
 > {
     Ok(0)  // placeholder.
+
 }
 
 /// Copies `len` bytes from `src` to `dst`.
@@ -96,13 +97,16 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
+    // if so, we must also make it 
+    // phantom <ArrayPtr<u8, N>>???
+    // phantaom: PhantomData<PointsToArray<u8, N>>, ? // what should be here?
 }
 
 /// This looks like we can implement a single struct with a type parameter
 #[rustc_has_incoherent_inherent_impls]
 pub tracked struct VmIoOwner<'a> {
     pub range: Ghost<Range<int>>,
-    // Whether this reader is fallible.
+    /// Whether this reader is fallible.
     pub is_fallible: bool,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
 }
@@ -250,7 +254,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             let tracked mut perm;
         }
 
-        let (pnt, len) = val.as_bytes_mut();
+        let (pnt, len) = val.as_bytes_mut(); // do not return a slice but a iteratorptr
 
         if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
             > KERNEL_END_VADDR() - len) {
@@ -391,7 +395,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         true
     }
 
-    open spec fn try_from_spec(slice: &'a [u8]) -> Result<Self> {
+    open spec fn try_from_spec(slice: &'a [u8] /* length.. */) -> Result<Self> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
@@ -411,12 +415,16 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
 }
 
 // Perhaps we can implement `tryfrom` instead.
+
+// This trait method should be discarded as we do not want to make VmWriter <N> ?
 #[verus_verify]
 impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
     type Error = crate::mm::Error;
 
+    // fn try_from(slice: ArrayPtr<u8, N>, Tracked(owner))??
+
     #[verus_spec()]
-    fn try_from(slice: &'a [u8]) -> Result<Self> {
+    fn try_from(slice: &'a [u8] /* length... */) -> Result<Self> {
         proof_decl! {
             let tracked mut perm;
         }
@@ -793,7 +801,6 @@ impl VmReader<'_> {
         if core::mem::size_of::<T>() > self.remain() {
             return Err(crate::mm::Error::InvalidArgs);
         }
-
         // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
         // and that the cursor is properly aligned with respect to the type `T`. All other safety
         // requirements are the same as for `Self::read`.
@@ -873,10 +880,7 @@ impl VmWriter<'_> {
             reader.remain_spec() == old(reader).remain_spec() - r as usize,
             reader.cursor.addr() == old(reader).cursor.addr() + r as usize,
     )]
-    pub fn write(
-        &mut self,
-        reader: &mut VmReader,
-    ) -> usize {
+    pub fn write(&mut self, reader: &mut VmReader) -> usize {
         proof_with!(Tracked(owner_r), Tracked(owner_w));
         reader.read(self)
     }
@@ -911,7 +915,6 @@ impl VmWriter<'_> {
         if self.avail() < core::mem::size_of::<T>() {
             return Err(crate::mm::Error::InvalidArgs);
         }
-
         proof_with!(=> Tracked(owner_r));
         let mut reader = VmReader::from_pod(val)?;
 
@@ -960,7 +963,6 @@ impl VmWriter<'_> {
         if core::mem::size_of::<T>() > self.avail() {
             return Err(crate::mm::Error::InvalidArgs);
         }
-
         // SAFETY: We have checked that the number of bytes available is at least the size of `T`
         // and that the cursor is properly aligned with respect to the type `T`. All other safety
         // requirements are the same as for `Self::write`.

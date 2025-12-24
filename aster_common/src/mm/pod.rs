@@ -1,10 +1,13 @@
 use vstd::prelude::*;
+use vstd_extra::{
+    array_ptr::{self, PointsToArray},
+    prelude::ArrayPtr,
+};
 
 use core::mem::MaybeUninit;
 
 verus! {
 
-// TODO: This would need to integrate with the new array pointer thing.
 /// A trait for Plain Old Data (POD) types.
 pub trait Pod: Copy + Sized {
     /// Creates a new instance of Pod type that is filled with zeroes.
@@ -24,16 +27,26 @@ pub trait Pod: Copy + Sized {
 
     /// As a slice of bytes.
     #[verifier::external_body]
-    fn as_bytes(&self) -> (slice: &[u8])
+    fn as_bytes<const N: usize>(&self) -> (slice: (ArrayPtr<u8, N>, Tracked<&array_ptr::PointsTo<u8, N>>))
         ensures
-            slice.len() == core::mem::size_of::<Self>(),
+            slice.1@.value().len() == core::mem::size_of::<Self>(),
+            slice.1@.wf(),
+            slice.0.addr()== slice.1@.addr(),
     {
         let ptr = self as *const Self as *const u8;
-        let len = core::mem::size_of::<Self>();
-        unsafe { core::slice::from_raw_parts(ptr, len) }
+
+        (ArrayPtr::from_addr(ptr as usize), Tracked::assume_new())
     }
 
     /// As a mutable slice of bytes.
+    ///
+    /// Note that this does not create the permission to mutate the Pod value as
+    /// mutable reference is not yet supported in Verus.
+    ///
+    /// Instead, the caller must uphold a separate permission to mutate the Pod value.
+    /// 
+    /// This seems a bit awkward if we try to use `arrayptr` and then making a mutable
+    /// reference from it as verus cannot do it now.
     #[verifier::external_body]
     fn as_bytes_mut(&mut self) -> (r: (*mut u8, usize))
         ensures
