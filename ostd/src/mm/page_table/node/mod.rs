@@ -169,13 +169,20 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// Calling this function when a guard is already created is undefined behavior
     /// unless that guard was already forgotten.
     #[rustc_allow_incoherent_impl]
+    #[verus_spec(
+        with Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<C>>>
+    )]
     #[verifier::external_body]
-    #[verusfmt::skip]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>>
-        where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu
+        ensures
+            res == guard_perm.pptr(),
+            guard_perm == old(guard_perm),
+    {
         unimplemented!()
-        //        PageTableGuard { inner: self }
-
+/*        let guard = PageTableGuard { inner: self };
+        let ptr = PPtr::<PageTableGuard<C>>::from_addr(guard_perm.addr());
+        ptr.put(Tracked(guard_perm), guard);
+        ptr*/
     }
 }
 
@@ -193,11 +200,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
             Tracked(slot_own): Tracked<&MetaSlotOwner>
     )]
-    pub fn entry<'slot>(guard: PPtr<Self>, idx: usize) -> Entry<'rcu, C>
+    pub fn entry<'slot>(guard: PPtr<Self>, idx: usize) -> (res: Entry<'rcu, C>)
         requires
             owner.inv(),
             //            owner.node.unwrap().relate_slot_owner(slot_own),
             guard_perm.pptr() == guard,
+        ensures
+            res.wf(*owner)
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
@@ -208,25 +217,21 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Gets the number of valid PTEs in the node.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner) : Tracked<EntryOwner<C>>,
-            Tracked(slot_own) : Tracked<&MetaSlotOwner>
+        with Tracked(owner) : Tracked<&mut NodeOwner<C>>
     )]
-    pub fn nr_children(&self) -> u16
+    pub fn nr_children(&self) -> (nr: u16)
         requires
-            owner.is_node(),
-            self.inner.inner.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            self.inner.inner.ptr.addr() == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
-            owner.inv(),
-            //            owner.node.unwrap().relate_slot_owner(slot_own),
-            slot_own.inv(),
+            self.inner.inner.0.ptr.addr() == old(owner).meta_perm.addr(),
+            self.inner.inner.0.ptr.addr() == old(owner).meta_perm.points_to.addr(),
+            old(owner).inv(),
+        ensures
+            owner == old(owner)
     {
-        let tracked node_owner = owner.node.tracked_borrow();
-
         // SAFETY: The lock is held so we have an exclusive access.
-        #[verus_spec(with Tracked(&node_owner.as_node.meta_perm))]
+        #[verus_spec(with Tracked(&owner.meta_perm))]
         let meta = self.meta();
 
-        *meta.nr_children.borrow(Tracked(&node_owner.as_node.meta_own.nr_children))
+        *meta.nr_children.borrow(Tracked(&owner.meta_own.nr_children))
     }
 
     /// Returns if the page table node is detached from its parent.
@@ -237,9 +242,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn stray_mut(&mut self) -> PCell<bool>
         requires
             owner.is_node(),
-            old(self).inner.inner.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            old(self).inner.inner.ptr.addr()
-                == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
+            old(self).inner.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
+            old(self).inner.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
             owner.inv(),
     {
         let tracked node_owner = owner.node.tracked_borrow();
@@ -266,8 +270,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn read_pte(&self, idx: usize) -> C::E
         requires
-            self.inner.inner.ptr.addr() == owner.meta_perm.addr,
-            self.inner.inner.ptr.addr() == owner.meta_perm.points_to.addr(),
+            self.inner.inner.0.ptr.addr() == owner.meta_perm.addr,
+            self.inner.inner.0.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
             meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR()
                 - LINEAR_MAPPING_BASE_VADDR(),
@@ -336,8 +340,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     fn nr_children_mut<'a>(&'a mut self) -> &'a PCell<u16>
         requires
-            old(self).inner.inner.ptr.addr() == meta_perm.addr(),
-            old(self).inner.inner.ptr.addr() == meta_perm.points_to.addr(),
+            old(self).inner.inner.0.ptr.addr() == meta_perm.addr(),
+            old(self).inner.inner.0.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
             meta_perm.wf(),
     {

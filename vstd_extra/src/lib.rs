@@ -1,15 +1,19 @@
 #![allow(non_snake_case)]
+#![feature(sized_hierarchy)]
+#![feature(generic_const_exprs)]
 
 pub mod arithmetic;
 pub mod array_ptr;
+pub mod auxiliary;
 pub mod bit_mapping;
 pub mod cast_ptr;
 pub mod extern_const;
-pub mod extra_num;
+pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
-pub mod manually_drop;
 pub mod ownership;
+pub mod undroppable;
+pub mod virtual_ptr;
 
 #[macro_use]
 pub mod ptr_extra;
@@ -18,4 +22,5 @@ pub mod map_extra;
 pub mod prelude;
 pub mod seq_extra;
 pub mod set_extra;
-pub mod std_extra;
+pub mod state_machine;
+pub mod temporal_logic;

@@ -70,17 +70,27 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub open spec fn query_item_spec(self) -> Option<C::Item> {
+    pub open spec fn present(self) -> bool {
         let entry = self.rear[0];
-        if self.cur_va == entry.leaf.map_va {
-            Some(C::item_from_raw(entry.leaf.map_to_pa as usize, entry.leaf.level, entry.leaf.prop))
+        self.cur_va == entry.leaf.map_va
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn query_item_spec(self) -> C::Item
+        recommends self.present()
+    {
+        let entry = self.rear[0];
+        C::item_from_raw(entry.leaf.map_to_pa as usize, entry.leaf.level, entry.leaf.prop)
+    }
+
+    #[rustc_allow_incoherent_impl]
+    pub open spec fn find_next_spec(self, len: usize) -> Option<Vaddr> {
+        if self.rear.len() > 0 && self.rear[0].leaf.va_end() < self.cur_va + len {
+            Some(self.rear[0].leaf.map_va as usize)
         } else {
             None
         }
     }
-
-    #[rustc_allow_incoherent_impl]
-    pub closed spec fn find_next_spec(self) -> Option<Vaddr>;
 
     #[rustc_allow_incoherent_impl]
     pub closed spec fn jump(self, va: usize) -> Self;
@@ -112,17 +122,9 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub closed spec fn map_spec(
-        self,
-        item: C::Item,
-    ) -> Self;/*    #[rustc_allow_incoherent_impl]
-    pub open spec fn push_level_spec(self) -> Self {
-        Self {
-            path: self.path.push_tail(0 as usize),
-            ..self
-        }
-    }
+    pub closed spec fn map_spec(self, item: C::Item) -> Self;
 
+    /*
     #[rustc_allow_incoherent_impl]
     pub open spec fn pop_level_spec(self) -> Self {
         let (tail, popped) = self.path.pop_tail();
@@ -160,6 +162,39 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }*/
 
+}
+
+impl <'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    #[rustc_allow_incoherent_impl]
+    pub proof fn present_frame(self)
+        ensures
+            self.cur_entry_owner().unwrap().is_frame() ==> {
+                &&& self@.present()
+                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa == self@.rear[0].leaf.map_to_pa
+                &&& self.cur_entry_owner().unwrap().frame.unwrap().prop == self@.rear[0].leaf.prop
+                &&& self@.rear[0].leaf.level == self.level
+            }
+        { admit() }
+
+    #[rustc_allow_incoherent_impl]
+    pub proof fn present_not_absent(self)
+        ensures
+            self.cur_entry_owner().unwrap().is_absent() ==> !self@.present()
+        { admit() }
+
+    #[rustc_allow_incoherent_impl]
+    #[verifier::returns(proof)]
+    pub proof fn push_level_owner_spec(tracked &mut self)
+        requires
+            old(self).inv(),
+    {
+        let tracked mut cont = self.continuations.tracked_remove(self.level-1);
+        let tracked mut child = cont.make_cont(self.index);
+        self.continuations.tracked_insert(self.level-1, cont);
+        self.continuations.tracked_insert(self.level-2, child);
+        self.path.0.push(self.index);
+        self.level = (self.level - 1) as u8;
+    }
 }
 
 } // verus!

@@ -12,6 +12,15 @@ pub trait Inv {
     spec fn inv(self) -> bool;
 }
 
+impl<T: Inv> Inv for Option<T> {
+    open spec fn inv(self) -> bool {
+        match self {
+            Some(t) => t.inv(),
+            None => true
+        }
+    }
+}
+
 pub trait InvView: Inv + View where <Self as View>::V: Inv {
     proof fn view_preserves_inv(self)
         requires

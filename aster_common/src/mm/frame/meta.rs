@@ -110,7 +110,7 @@ impl MetaSlotStorage {
 /// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
 /// it can then be used to stand in for `dyn AnyFrameMeta`.
 impl AnyFrameMeta for MetaSlotStorage {
-    spec fn vtable_ptr(&self) -> usize;
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -199,17 +199,15 @@ pub trait AnyFrameMeta: Repr<MetaSlot> {
 }
 
 impl Repr<MetaSlot> for MetaSlotStorage {
-    closed spec fn wf(slot: mm::frame::meta::MetaSlot) -> bool;
+    uninterp spec fn wf(slot: mm::frame::meta::MetaSlot) -> bool;
 
-    closed spec fn to_repr_spec(self) -> mm::frame::meta::MetaSlot;
-
+    uninterp spec fn to_repr_spec(self) -> mm::frame::meta::MetaSlot;
+    
     #[verifier::external_body]
-    fn to_repr(self) -> mm::frame::meta::MetaSlot {
-        todo!()
-    }
-
-    closed spec fn from_repr_spec(slot: mm::frame::meta::MetaSlot) -> Self;
-
+    fn to_repr(self) -> mm::frame::meta::MetaSlot { todo!() }
+    
+    uninterp spec fn from_repr_spec(slot: mm::frame::meta::MetaSlot) -> Self;
+    
     #[verifier::external_body]
     fn from_repr(slot: mm::frame::meta::MetaSlot) -> Self {
         todo!()

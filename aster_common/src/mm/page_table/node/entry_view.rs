@@ -54,6 +54,10 @@ impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
     }
 }
 
+impl<C: PageTableConfig> LeafPageTableEntryView<C> {
+    pub closed spec fn va_end(self) -> Vaddr;
+}
+
 pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
     pub map_va: int,
     pub frame_pa: int,
@@ -130,11 +134,11 @@ impl<C: PageTableConfig> Inv for FrameView<C> {
 }
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
-    pub open spec fn to_frame_view(
-        self,
-        ancestors: Map<int, IntermediatePageTableEntryView<C>>,
-    ) -> FrameView<C> {
-        FrameView { ancestor_chain: ancestors, leaf: self }
+    pub open spec fn to_frame_view(self/*, ancestors: Map<int, IntermediatePageTableEntryView<C>>*/) -> FrameView<C> {
+        FrameView {
+            ancestor_chain: Map::empty(),
+            leaf: self,
+        }
     }
 }
 

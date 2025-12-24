@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Read-copy update (RCU).
-use core::{
+/* use core::{
     marker::PhantomData,
     mem::ManuallyDrop,
     ops::Deref,
@@ -20,9 +20,9 @@ use crate::task::{
     disable_preempt, DisabledPreemptGuard,
 };
 
-mod monitor;
+mod monitor;*/
 pub mod non_null;
-
+/* 
 /// A Read-Copy Update (RCU) cell for sharing a pointer between threads.
 ///
 /// The pointer should be a non-null pointer with type `P`, which implements
@@ -506,3 +506,4 @@ static RCU_MONITOR: Once<RcuMonitor> = Once::new();
 pub fn init() {
     RCU_MONITOR.call_once(RcuMonitor::new);
 }
+*/

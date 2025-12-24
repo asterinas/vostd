@@ -2,7 +2,7 @@ use vstd::arithmetic::power2::*;
 use vstd::layout::is_power_2;
 use vstd::prelude::*;
 
-use vstd_extra::extra_num::*;
+use vstd_extra::prelude::*;
 
 use super::*;
 

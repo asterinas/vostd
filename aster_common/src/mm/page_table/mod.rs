@@ -9,6 +9,7 @@ pub use owners::*;
 pub use view::*;
 
 use vstd::prelude::*;
+use vstd::std_specs::clone::*;
 
 use vstd_extra::prelude::lemma_usize_ilog2_ordered;
 
@@ -98,7 +99,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+        ensures
+            1 <= res.1 <= NR_LEVELS();
 
     /// Restores the item from the physical address and the paging level.
     ///
@@ -127,7 +130,9 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 
     #[verifier::when_used_as_spec(item_from_raw_spec)]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
+        returns Self::item_from_raw_spec(paddr, level, prop)
+    ;
 }
 
 // Implement it so that we can comfortably use low level functions

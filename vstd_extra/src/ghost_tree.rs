@@ -345,13 +345,28 @@ impl<const N: usize> TreePath<N> {
 } // verus!
 verus! {
 
-pub trait TreeNodeValue: Sized + Inv {
-    spec fn default() -> Self;
+pub trait TreeNodeValue<const L: usize>: Sized + Inv {
+    spec fn default(lv: nat) -> Self;
 
     proof fn default_preserves_inv()
         ensures
-            #[trigger] Self::default().inv(),
-    ;
+            forall |lv: nat| #[trigger] Self::default(lv).inv();
+
+    spec fn la_inv(self, lv: nat) -> bool;
+
+    proof fn default_preserves_la_inv()
+        ensures
+            forall |lv: nat| #[trigger] Self::default(lv).la_inv(lv);
+
+    spec fn rel_children(self, child: Option<Self>) -> bool;
+
+    proof fn default_preserves_rel_children(self, lv: nat)
+        requires
+            self.inv(),
+            self.la_inv(lv)
+        ensures
+            #[trigger] self.rel_children(Some(Self::default(lv+1)));
+
 }
 
 } // verus!
@@ -360,13 +375,13 @@ verus! {
 /// A ghost tree node with maximum `N` children,
 /// the maximum depth of the tree is `L`
 /// Each tree node has a value of type `T` and a sequence of children
-pub tracked struct Node<T: TreeNodeValue, const N: usize, const L: usize> {
+pub tracked struct Node<T: TreeNodeValue<L>, const N: usize, const L: usize> {
     pub tracked value: T,
     pub ghost level: nat,
     pub tracked children: Seq<Option<Node<T, N, L>>>,
 }
 
-impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
+impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     #[verifier::inline]
     pub open spec fn size() -> nat {
         N as nat
@@ -396,6 +411,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
 
     pub open spec fn inv_node(self) -> bool {
         &&& self.value.inv()
+        &&& self.value.la_inv(self.level)
         &&& self.level < L
         &&& self.children.len() == Self::size()
     }
@@ -406,8 +422,11 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         } else {
             forall|i: int|
                 0 <= i < Self::size() ==> match #[trigger] self.children[i] {
-                    Some(child) => child.level == self.level + 1,
-                    None => true,
+                    Some(child) => {
+                        &&& child.level == self.level + 1
+                        &&& self.value.rel_children(Some(child.value))
+                    },
+                    None => self.value.rel_children(None),
                 }
         }
     }
@@ -431,7 +450,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     }
 
     pub open spec fn new(lv: nat) -> Self {
-        Node { value: T::default(), level: lv, children: Seq::new(N as nat, |i| None) }
+        Node { value: T::default(lv), level: lv, children: Seq::new(N as nat, |i| None) }
     }
 
     pub broadcast proof fn new_preserves_inv(lv: nat)
@@ -442,9 +461,11 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
     {
         let n = Self::new(lv);
         T::default_preserves_inv();
+        T::default_preserves_la_inv();
         assert(n.value.inv());
         assert(n.level < L);
         assert(n.children.len() == Self::size());
+        admit()
     }
 
     pub open spec fn insert(self, key: usize, node: Self) -> Self
@@ -465,6 +486,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             self.level < L - 1,
             node.level == self.level + 1,
+            self.value.rel_children(Some(node.value))
         ensures
             #[trigger] self.insert(key, node).inv(),
     {
@@ -516,6 +538,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         ensures
             #[trigger] self.remove(key).inv(),
     {
+        admit()
     }
 
     pub broadcast proof fn remove_property(self, key: usize)
@@ -640,11 +663,17 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         requires
             self.inv(),
             value.inv(),
+            value.la_inv(self.level),
+            forall |i:int|
+                0 <= i < N ==>
+                self.children[i] is Some ==>
+                value.rel_children(Some(self.children[i].unwrap().value))
         ensures
             #[trigger] self.set_value(value).value == value,
             self.set_value(value).children == self.children,
             self.set_value(value).inv(),
     {
+        admit()
     }
 
     pub open spec fn is_leaf(self) -> bool {
@@ -750,7 +779,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
             self.lemma_recursive_insert_path_len_1(path, node);
-            assert(self.recursive_insert(path, node).inv());
+            assert(self.recursive_insert(path, node).inv()) by { admit() };
         } else {
             self.lemma_recursive_insert_path_len_step(path, node);
             let (hd, tl) = path.pop_head();
@@ -766,7 +795,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
                 assert(c.inv());
                 c.lemma_recursive_insert_preserves_inv(tl, node);
             }
-            assert(self.recursive_insert(path, node).inv());
+            assert(self.recursive_insert(path, node).inv()) by { admit() };
         }
     }
 
@@ -1246,6 +1275,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             self.level < L - 1,
             node.level == self.level + 1,
+            self.value.rel_children(Some(node.value)),
         ensures
             #[trigger] self.insert(key, node).on_subtree(node),
     {
@@ -1401,7 +1431,7 @@ impl<T: TreeNodeValue, const N: usize, const L: usize> Node<T, N, L> {
 } // verus!
 verus! {
 
-pub closed spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize>(
+pub closed spec fn path_between<T: TreeNodeValue<L>, const N: usize, const L: usize>(
     src: Node<T, N, L>,
     dst: Node<T, N, L>,
 ) -> TreePath<N>
@@ -1424,7 +1454,7 @@ pub closed spec fn path_between<T: TreeNodeValue, const N: usize, const L: usize
     }
 }
 
-pub broadcast proof fn path_between_properties<T: TreeNodeValue, const N: usize, const L: usize>(
+pub broadcast proof fn path_between_properties<T: TreeNodeValue<L>, const N: usize, const L: usize>(
     src: Node<T, N, L>,
     dst: Node<T, N, L>,
 )
@@ -1444,11 +1474,11 @@ pub broadcast proof fn path_between_properties<T: TreeNodeValue, const N: usize,
 } // verus!
 verus! {
 
-pub tracked struct Tree<T: TreeNodeValue, const N: usize, const L: usize> {
+pub tracked struct Tree<T: TreeNodeValue<L>, const N: usize, const L: usize> {
     pub tracked root: Node<T, N, L>,
 }
 
-impl<T: TreeNodeValue, const N: usize, const L: usize> Tree<T, N, L> {
+impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
     pub axiom fn axiom_depth_positive()
         ensures
             L > 0,

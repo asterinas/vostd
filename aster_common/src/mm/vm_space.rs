@@ -53,15 +53,13 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     }
 
-    closed spec fn item_from_raw_spec(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> Self::Item;
+    uninterp spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
 
     #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        unimplemented!()/*
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
+    {
+        unimplemented!()
+        /*
         debug_assert_eq!(level, 1);
         // SAFETY: The caller ensures safety.
         let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };

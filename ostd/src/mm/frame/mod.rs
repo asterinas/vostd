@@ -325,7 +325,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&FramePerm<M>>,
+            Tracked(perm): Tracked<&MetaPerm<M>>,
     )]
     pub fn borrow(&self) -> FrameRef<'_, M>
         requires
@@ -344,7 +344,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         #[verus_spec(with Tracked(&perm.points_to))]
         let paddr = self.start_paddr();
 
-        #[verus_spec(with Tracked(regions))]
+        #[verus_spec(with Tracked(regions), Tracked(perm))]
         FrameRef::borrow_paddr(paddr)
     }
 
@@ -400,6 +400,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             Self::from_raw_requires(*old(regions), paddr),
         ensures
@@ -409,9 +410,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 
-        let tracked perm = regions.dropped_slots.tracked_remove(frame_to_index(paddr));
         proof {
-            regions.slots.tracked_insert(frame_to_index(paddr), perm);
+            regions.slots.tracked_insert(frame_to_index(paddr), perm.points_to);
         }
 
         Self { ptr, _marker: PhantomData }

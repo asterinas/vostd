@@ -580,7 +580,7 @@ version = "0.0.0-2025-08-12-1837"
 
 [[package]]
 name = "verus_builtin_macros"
-version = "0.0.0-2025-11-16-0050"
+version = "0.0.0-2025-11-23-0022"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -600,7 +600,7 @@ dependencies = [
 
 [[package]]
 name = "verus_state_machines_macros"
-version = "0.0.0-2025-11-16-0050"
+version = "0.0.0-2025-11-23-0022"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -631,7 +631,7 @@ checksum = "af8ca9a5d4debca0633e697c88269395493cebf2e10db21ca2dbde37c1356452"
 
 [[package]]
 name = "vstd"
-version = "0.0.0-2025-11-16-0050"
+version = "0.0.0-2025-11-23-0022"
 dependencies = [
  "verus_builtin",
  "verus_builtin_macros",

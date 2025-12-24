@@ -351,10 +351,7 @@ impl<M: AnyFrameMeta> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<
-        Self,
-        GetFrameError,
-    > {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<Self, GetFrameError> {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
@@ -433,7 +430,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 }
             }
 
-            // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
+            // TODO: `ManuallyDrop` causes compiler crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
             // let _ = ManuallyDrop::new(frame);
             segment.range.end = paddr + PAGE_SIZE();
             proof {
@@ -453,7 +450,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 |addr: usize|
                     {
                         let perm = regions.slots[frame_to_index(addr)];
-                        FramePerm {
+                        MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
                             _T: core::marker::PhantomData,
@@ -553,7 +550,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             // Adjust the permission by transferring all
             // PointsTo perms from `owner` into `regions.dropped_slots`.
 
-            let new_keys = owner.perms.map_values(|v: FramePerm<M>| meta_to_frame_spec(v.addr()));
+            let new_keys = owner.perms.map_values(|v: MetaPerm<M>| meta_to_frame_spec(v.addr()));
             let new_dropped_slots = Map::new(
                 |i: usize| new_keys.contains(i),
                 |k: usize| { owner.perms[k as int].points_to },
@@ -612,7 +609,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 |i: int|
                     {
                         let paddr = (range.start + (i as u64) * PAGE_SIZE() as int) as Paddr;
-                        FramePerm {
+                        MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
                             _T: core::marker::PhantomData,
@@ -701,17 +698,20 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(owner): Tracked<&mut SegmentOwner<M>>
         requires
             Self::next_requires(*old(self), *old(regions)),
+            old(owner).perms.len() > 0
         ensures
             Self::next_ensures(*old(self), *self, *old(regions), *regions, res),
     )]
     pub fn next(&mut self) -> Option<Frame<M>> {
         if self.range.start < self.range.end {
+            let tracked perm = owner.perms.tracked_remove(0);
             // SAFETY: each frame in the range would be a handle forgotten
             // when creating the `Segment` object.
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions))]
+                #[verus_spec(with Tracked(regions), Tracked(&perm))]
                 Frame::<M>::from_raw(self.range.start)
             };
 

@@ -1,17 +1,22 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::prelude::*;
+
 use crate::{
-    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
-    trap::irq::{disable_local, DisabledLocalIrqGuard},
+    //task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
+    //trap::irq::{disable_local, DisabledLocalIrqGuard},
 };
 
 /// A guardian that denotes the guard behavior for holding a spin-based lock.
 ///
 /// It at least ensures that the atomic mode is maintained while the lock is held.
+#[verus_verify]
 pub trait SpinGuardian {
     /// The guard type for holding a spin lock or a spin-based write lock.
-    type Guard: AsAtomicModeGuard + GuardTransfer;
+    //type Guard: AsAtomicModeGuard + GuardTransfer;
+    type Guard;
     /// The guard type for holding a spin-based read lock.
-    type ReadGuard: AsAtomicModeGuard + GuardTransfer;
+    //type ReadGuard: AsAtomicModeGuard + GuardTransfer;
+    type ReadGuard;
 
     /// Creates a new guard.
     fn guard() -> Self::Guard;
@@ -19,6 +24,7 @@ pub trait SpinGuardian {
     fn read_guard() -> Self::ReadGuard;
 }
 
+/* 
 /// The Guard can be transferred atomically.
 pub trait GuardTransfer {
     /// Atomically transfers the current guard to a new instance.
@@ -91,3 +97,4 @@ impl SpinGuardian for WriteIrqDisabled {
         disable_preempt()
     }
 }
+*/

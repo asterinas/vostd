@@ -52,4 +52,26 @@ pub enum ChildRef<'a, C: PageTableConfig> {
     None,
 }
 
+impl<'a, C: PageTableConfig> Inv for ChildRef<'a, C> {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
+impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
+    type Owner = EntryOwner<'a, C>;
+
+    open spec fn wf(self, owner: Self::Owner) -> bool {
+        match self {
+            Self::PageTable(node) => owner.is_node(),
+            Self::Frame(paddr, level, prop) => {
+                &&& owner.is_frame()
+                &&& owner.frame.unwrap().mapped_pa == paddr
+                &&& owner.frame.unwrap().prop == prop
+            },
+            Self::None => owner.is_absent()
+        }
+    }
+}
+
 } // verus!

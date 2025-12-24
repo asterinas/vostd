@@ -23,6 +23,7 @@ use vstd::simple_pptr::{self, PPtr};
 
 use vstd_extra::cast_ptr;
 use vstd_extra::ownership::*;
+use vstd_extra::undroppable::*;
 
 use std::marker::PhantomData;
 
@@ -30,12 +31,10 @@ use super::*;
 
 verus! {
 
-/// A permission token for a frame.
+/// A permission token for frame metadata.
 ///
-/// [`Frame<M`] the high-level representation of the low-level pointer
+/// [`Frame<M>`] the high-level representation of the low-level pointer
 /// to the [`super::meta::MetaSlot`].
-pub type FramePerm<M> = cast_ptr::PointsTo<MetaSlot, Frame<M>>;
-
 pub type MetaPerm<M> = cast_ptr::PointsTo<MetaSlot, M>;
 
 /// A smart pointer to a frame.
@@ -56,6 +55,34 @@ pub struct Frame<M: AnyFrameMeta> {
 impl<M: AnyFrameMeta> Clone for Frame<M> {
     fn clone(&self) -> Self {
         Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
+    }
+}
+
+impl<M: AnyFrameMeta> Undroppable for Frame<M> {
+    type State = MetaRegionOwners;
+    
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        &&& s.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& !s.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.inv()
+    }
+
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        &&& !s1.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s0.slot_owners == s1.slot_owners
+        &&& forall |i:usize| i != frame_to_index(meta_to_frame(self.ptr.addr())) ==>
+            s0.dropped_slots[i] == s1.dropped_slots[i] && s0.slots[i] == s1.slots[i]
+        &&& s1.dropped_slots[frame_to_index(meta_to_frame(self.ptr.addr()))] == s0.slots[frame_to_index(meta_to_frame(self.ptr.addr()))]
+        &&& s1.inv()
+    }
+
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+    {
+        let meta_addr = self.ptr.addr();
+        let index = frame_to_index(meta_to_frame(meta_addr));
+        let tracked perm = s.slots.tracked_remove(index);
+        s.dropped_slots.tracked_insert(index, perm);
     }
 }
 

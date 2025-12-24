@@ -224,21 +224,17 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    #[verus_spec(r =>
-        with Tracked(owner): Tracked<&CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        requires
-            Self::query_requries(*old(self), *owner, *guard_perm, *old(regions)),
-        ensures
-            Self::query_ensures(*old(self), *self, *owner, *guard_perm, *old(regions), *regions, r),
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
-        #[verusfmt::skip]
-        Ok(
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
-            self.0.query()?
-        )
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+        requires
+            old(owner).inv(),
+            old(self).0.wf(*old(owner)),
+            old(regions).inv()
+    {
+        Ok(#[verus_spec(with Tracked(owner), Tracked(regions))] self.0.query()?)
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -253,13 +249,35 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// # Panics
     ///
     /// Panics if the length is longer than the remaining range of the cursor.
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).0.wf(*old(owner)),
+            old(regions).inv(),
+        ensures
+            owner.inv(),
+            self.0.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.0.find_next(len)
     }
 
     /// Jump to the virtual address.
-    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
-        self.0.jump(va)?;
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+        requires
+            old(owner).inv(),
+            old(self).0.wf(*old(owner))
+    {
+        (#[verus_spec(with Tracked(owner))] self.0.jump(va))?;
         Ok(())
     }
 
@@ -315,35 +333,54 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    #[verus_spec(r =>
-        with Tracked(owner): Tracked<&CursorOwner<'a, UserPtConfig>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        requires
-            Self::query_requries(*old(self), *owner, *guard_perm, *old(regions)),
-        ensures
-            Self::query_ensures(*old(self), *self, *owner, *guard_perm, *old(regions), *regions, r),
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
-        #[verusfmt::skip]
-        Ok(
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
-            self.pt_cursor.query()?
-        )
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(regions).inv()
+
+    {
+        Ok(#[verus_spec(with Tracked(owner), Tracked(regions))] self.pt_cursor.query()?)
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
-    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(regions).inv(),
+        ensures
+            owner.inv(),
+            self.pt_cursor.inner.wf(*owner),
+            regions.inv(),
+    {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.pt_cursor.find_next(len)
     }
 
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
-        self.pt_cursor.jump(va)?;
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+    {
+        (#[verus_spec(with Tracked(owner))] self.pt_cursor.jump(va))?;
         Ok(())
     }
 
@@ -364,13 +401,24 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(entry_own): Tracked<EntryOwner<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
+        requires
+            old(owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(regions).inv(),
+            entry_own.inv()
+    {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (unsafe { self.pt_cursor.map(item) }) else {
-            return ;  // No mapping exists at the current address.
+        let Err(frag) = (#[verus_spec(with Tracked(owner), Tracked(entry_own), Tracked(regions))] self.pt_cursor.map(item)) else {
+            return; // No mapping exists at the current address.
         };
 
         /*        match frag {
@@ -476,10 +524,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(slot_owner): Tracked<&MetaSlotOwner>,
-        requires
-            slot_owner.inv(),
-            old(owner).locked_subtree.inner.value.node is Some,
+            Tracked(regions): Tracked<&MetaRegionOwners>
     )]
     pub fn protect_next(
         &mut self,
@@ -487,10 +532,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         op: impl FnOnce(PageProperty) -> PageProperty,
     ) -> Option<Range<Vaddr>> {
         // SAFETY: It is safe to protect memory in the userspace.
-        unsafe {
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(slot_owner))]
-            self.pt_cursor.protect_next(len, op)
-        }
+        unsafe { #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))] self.pt_cursor.protect_next(len, op) }
     }
 }
 
