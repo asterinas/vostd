@@ -232,9 +232,12 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
-            old(regions).inv()
+            old(regions).inv(),
     {
-        Ok(#[verus_spec(with Tracked(owner), Tracked(regions))] self.0.query()?)
+        Ok(
+            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            self.0.query()?,
+        )
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -275,9 +278,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
             old(owner).inv(),
-            old(self).0.wf(*old(owner))
+            old(self).0.wf(*old(owner)),
     {
-        (#[verus_spec(with Tracked(owner))] self.0.jump(va))?;
+        (#[verus_spec(with Tracked(owner))]
+        self.0.jump(va))?;
         Ok(())
     }
 
@@ -341,10 +345,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
-            old(regions).inv()
-
+            old(regions).inv(),
     {
-        Ok(#[verus_spec(with Tracked(owner), Tracked(regions))] self.pt_cursor.query()?)
+        Ok(
+            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            self.pt_cursor.query()?,
+        )
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -380,7 +386,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
     {
-        (#[verus_spec(with Tracked(owner))] self.pt_cursor.jump(va))?;
+        (#[verus_spec(with Tracked(owner))]
+        self.pt_cursor.jump(va))?;
         Ok(())
     }
 
@@ -411,14 +418,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
-            entry_own.inv()
+            entry_own.inv(),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (#[verus_spec(with Tracked(owner), Tracked(entry_own), Tracked(regions))] self.pt_cursor.map(item)) else {
-            return; // No mapping exists at the current address.
+        let Err(frag) = (#[verus_spec(with Tracked(owner), Tracked(entry_own), Tracked(regions))]
+        self.pt_cursor.map(item)) else {
+            return ;  // No mapping exists at the current address.
         };
 
         /*        match frag {
@@ -532,7 +540,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         op: impl FnOnce(PageProperty) -> PageProperty,
     ) -> Option<Range<Vaddr>> {
         // SAFETY: It is safe to protect memory in the userspace.
-        unsafe { #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))] self.pt_cursor.protect_next(len, op) }
+        unsafe {
+            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
+            self.pt_cursor.protect_next(len, op)
+        }
     }
 }
 

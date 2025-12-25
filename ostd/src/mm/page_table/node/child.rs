@@ -128,7 +128,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             old(regions).inv(),
         ensures
             regions.inv(),
-            res.wf(*entry_own)
+            res.wf(*entry_own),
     {
         if !pte.is_present() {
             assert(entry_own.is_absent()) by { admit() };

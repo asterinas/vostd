@@ -202,12 +202,14 @@ impl Repr<MetaSlot> for MetaSlotStorage {
     uninterp spec fn wf(slot: mm::frame::meta::MetaSlot) -> bool;
 
     uninterp spec fn to_repr_spec(self) -> mm::frame::meta::MetaSlot;
-    
+
     #[verifier::external_body]
-    fn to_repr(self) -> mm::frame::meta::MetaSlot { todo!() }
-    
+    fn to_repr(self) -> mm::frame::meta::MetaSlot {
+        todo!()
+    }
+
     uninterp spec fn from_repr_spec(slot: mm::frame::meta::MetaSlot) -> Self;
-    
+
     #[verifier::external_body]
     fn from_repr(slot: mm::frame::meta::MetaSlot) -> Self {
         todo!()

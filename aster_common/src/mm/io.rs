@@ -96,8 +96,9 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
-    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
-    // if so, we must also make it 
+    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/
+    >,
+    // if so, we must also make it
     // phantom <ArrayPtr<u8, N>>???
     // phantaom: PhantomData<PointsToArray<u8, N>>, ? // what should be here?
 }
@@ -254,7 +255,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             let tracked mut perm;
         }
 
-        let (pnt, len) = val.as_bytes_mut(); // do not return a slice but a iteratorptr
+        let (pnt, len) = val.as_bytes_mut();  // do not return a slice but a iteratorptr
 
         if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
             > KERNEL_END_VADDR() - len) {
@@ -395,7 +396,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         true
     }
 
-    open spec fn try_from_spec(slice: &'a [u8] /* length.. */) -> Result<Self> {
+    open spec fn try_from_spec(slice: &'a [u8]  /* length.. */ ) -> Result<Self> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
@@ -415,16 +416,14 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
 }
 
 // Perhaps we can implement `tryfrom` instead.
-
 // This trait method should be discarded as we do not want to make VmWriter <N> ?
 #[verus_verify]
 impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
     type Error = crate::mm::Error;
 
     // fn try_from(slice: ArrayPtr<u8, N>, Tracked(owner))??
-
     #[verus_spec()]
-    fn try_from(slice: &'a [u8] /* length... */) -> Result<Self> {
+    fn try_from(slice: &'a [u8]  /* length... */ ) -> Result<Self> {
         proof_decl! {
             let tracked mut perm;
         }

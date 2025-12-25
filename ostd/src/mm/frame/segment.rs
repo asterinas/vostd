@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
 use vstd::prelude::*;
+use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_new, seq_tracked_subrange};
 
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
@@ -351,7 +352,10 @@ impl<M: AnyFrameMeta> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<Self, GetFrameError> {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<
+        Self,
+        GetFrameError,
+    > {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
@@ -446,7 +450,8 @@ impl<M: AnyFrameMeta> Segment<M> {
             broadcast use vstd::map::group_map_axioms;
             broadcast use vstd::map_lib::group_map_extra;
 
-            let owner_seq = addrs.map_values(
+            let tracked owner_seq = seq_tracked_map_values(
+                addrs,
                 |addr: usize|
                     {
                         let perm = regions.slots[frame_to_index(addr)];
@@ -517,9 +522,11 @@ impl<M: AnyFrameMeta> Segment<M> {
         // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
         // let _ = ManuallyDrop::new(self);
 
-        let tracked frame_perms1 = SegmentOwner { perms: owner.perms.subrange(0, idx as int) };
+        let tracked frame_perms1 = SegmentOwner {
+            perms: seq_tracked_subrange(owner.perms, 0, idx as int),
+        };
         let tracked frame_perms2 = SegmentOwner {
-            perms: owner.perms.subrange(idx as int, owner.perms.len() as int),
+            perms: seq_tracked_subrange(owner.perms, idx as int, owner.perms.len() as int),
         };
 
         proof {
@@ -604,7 +611,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             broadcast use vstd::arithmetic::div_mod::group_div_basics;
 
             let len = (range.end - range.start) / PAGE_SIZE() as int;
-            let owner_seq = Seq::new(
+            let tracked owner_seq = seq_tracked_new(
                 len as nat,
                 |i: int|
                     {

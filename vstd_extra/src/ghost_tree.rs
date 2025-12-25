@@ -350,23 +350,25 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
 
     proof fn default_preserves_inv()
         ensures
-            forall |lv: nat| #[trigger] Self::default(lv).inv();
+            forall|lv: nat| #[trigger] Self::default(lv).inv(),
+    ;
 
     spec fn la_inv(self, lv: nat) -> bool;
 
     proof fn default_preserves_la_inv()
         ensures
-            forall |lv: nat| #[trigger] Self::default(lv).la_inv(lv);
+            forall|lv: nat| #[trigger] Self::default(lv).la_inv(lv),
+    ;
 
     spec fn rel_children(self, child: Option<Self>) -> bool;
 
     proof fn default_preserves_rel_children(self, lv: nat)
         requires
             self.inv(),
-            self.la_inv(lv)
+            self.la_inv(lv),
         ensures
-            #[trigger] self.rel_children(Some(Self::default(lv+1)));
-
+            #[trigger] self.rel_children(Some(Self::default(lv + 1))),
+    ;
 }
 
 } // verus!
@@ -486,7 +488,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             self.level < L - 1,
             node.level == self.level + 1,
-            self.value.rel_children(Some(node.value))
+            self.value.rel_children(Some(node.value)),
         ensures
             #[trigger] self.insert(key, node).inv(),
     {
@@ -664,10 +666,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.inv(),
             value.inv(),
             value.la_inv(self.level),
-            forall |i:int|
-                0 <= i < N ==>
-                self.children[i] is Some ==>
-                value.rel_children(Some(self.children[i].unwrap().value))
+            forall|i: int|
+                0 <= i < N ==> self.children[i] is Some ==> value.rel_children(
+                    Some(self.children[i].unwrap().value),
+                ),
         ensures
             #[trigger] self.set_value(value).value == value,
             self.set_value(value).children == self.children,

@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
-use vstd::simple_pptr::PointsTo;
 use vstd::cell;
+use vstd::simple_pptr::PointsTo;
 use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 
@@ -76,7 +76,10 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
     // An `Entry` carries a pointer to the guard for its parent node,
     // which from the perspective of a single `EntryOwner` must be provided
     // separately. Its inner pointer corresponds to the base address of the entry.
-    pub open spec fn relate_parent_guard_perm(self, guard_perm: PointsTo<PageTableGuard<'rcu, C>>) -> bool {
+    pub open spec fn relate_parent_guard_perm(
+        self,
+        guard_perm: PointsTo<PageTableGuard<'rcu, C>>,
+    ) -> bool {
         &&& guard_perm.addr() == self.guard_addr
         &&& guard_perm.is_init()
         &&& guard_perm.value().inner.inner.0.ptr.addr() == self.base_addr

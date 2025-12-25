@@ -1,7 +1,7 @@
+use crate::external::manually_drop::*;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use vstd::prelude::*;
-use crate::external::manually_drop::*;
 
 verus! {
 
@@ -15,9 +15,10 @@ pub trait Undroppable {
     #[verifier::returns(proof)]
     proof fn constructor_spec(self, tracked s: &mut Self::State)
         requires
-            self.constructor_requires(*old(s))
+            self.constructor_requires(*old(s)),
         ensures
-            self.constructor_ensures(*old(s), *s);
+            self.constructor_ensures(*old(s), *s),
+    ;
 }
 
 pub struct NeverDrop<T: Undroppable>(pub ManuallyDrop<T>);
@@ -25,11 +26,13 @@ pub struct NeverDrop<T: Undroppable>(pub ManuallyDrop<T>);
 impl<T: Undroppable> NeverDrop<T> {
     pub fn new(t: T, Tracked(s): Tracked<&mut T::State>) -> (res: Self)
         requires
-            t.constructor_requires(*old(s))
+            t.constructor_requires(*old(s)),
         ensures
-            t.constructor_ensures(*old(s), *s)
+            t.constructor_ensures(*old(s), *s),
     {
-        proof { t.constructor_spec(s); }
+        proof {
+            t.constructor_spec(s);
+        }
         Self(ManuallyDrop::new(t))
     }
 }
@@ -38,7 +41,8 @@ impl<T: Undroppable> Deref for NeverDrop<T> {
     type Target = T;
 
     fn deref(&self) -> (res: &Self::Target)
-        ensures res == manually_drop_deref_spec(&self.0)
+        ensures
+            res == manually_drop_deref_spec(&self.0),
     {
         &self.0
     }

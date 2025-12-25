@@ -27,11 +27,14 @@ pub trait Pod: Copy + Sized {
 
     /// As a slice of bytes.
     #[verifier::external_body]
-    fn as_bytes<const N: usize>(&self) -> (slice: (ArrayPtr<u8, N>, Tracked<&array_ptr::PointsTo<u8, N>>))
+    fn as_bytes<const N: usize>(&self) -> (slice: (
+        ArrayPtr<u8, N>,
+        Tracked<&array_ptr::PointsTo<u8, N>>,
+    ))
         ensures
             slice.1@.value().len() == core::mem::size_of::<Self>(),
             slice.1@.wf(),
-            slice.0.addr()== slice.1@.addr(),
+            slice.0.addr() == slice.1@.addr(),
     {
         let ptr = self as *const Self as *const u8;
 
@@ -44,7 +47,7 @@ pub trait Pod: Copy + Sized {
     /// mutable reference is not yet supported in Verus.
     ///
     /// Instead, the caller must uphold a separate permission to mutate the Pod value.
-    /// 
+    ///
     /// This seems a bit awkward if we try to use `arrayptr` and then making a mutable
     /// reference from it as verus cannot do it now.
     #[verifier::external_body]

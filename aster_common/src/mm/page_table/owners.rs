@@ -90,18 +90,17 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
         }
     }
 
-    proof fn default_preserves_inv()
-    { }
+    proof fn default_preserves_inv() {
+    }
 
     open spec fn la_inv(self, lv: nat) -> bool {
         self.is_node() ==> lv < L - 1
     }
 
-    proof fn default_preserves_la_inv()
-    { }
+    proof fn default_preserves_la_inv() {
+    }
 
-    open spec fn rel_children(self, child: Option<Self>) -> bool
-    {
+    open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
             &&& child.unwrap().relate_parent_guard_perm(self.node.unwrap().guard_perm)
@@ -110,10 +109,10 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
         }
     }
 
-    proof fn default_preserves_rel_children(self, lv: nat)
-    { admit() }
+    proof fn default_preserves_rel_children(self, lv: nat) {
+        admit()
+    }
 }
-
 
 extern_const!(
 pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
@@ -146,7 +145,7 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
     /// A leaf entry cannot have children
     pub open spec fn is_leaf(self) -> bool {
         &&& self.inner.value.is_frame()
-        &&& forall |i:int| 0 <= i < NR_ENTRIES() ==> self.inner.children[i] is None
+        &&& forall|i: int| 0 <= i < NR_ENTRIES() ==> self.inner.children[i] is None
     }
 
     pub open spec fn is_table(self) -> bool {
@@ -167,17 +166,22 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
                 )
             }
     }
-    
-    pub open spec fn view_rec(node: OwnerSubtree<'rcu, C>, /*chain: Map<int, IntermediatePageTableEntryView<C>>,*/ level: int) -> Seq<FrameView<C>>
+
+    pub open spec fn view_rec(
+        node: OwnerSubtree<'rcu, C>,  /*chain: Map<int, IntermediatePageTableEntryView<C>>,*/
+        level: int,
+    ) -> Seq<FrameView<C>>
         decreases level,
     {
         if level <= 1 {
             Seq::empty()
         } else if node.value.is_frame() {
-            Seq::empty().push(node.value@->leaf.to_frame_view(/*chain*/))
+            Seq::empty().push(node.value@->leaf.to_frame_view(  /*chain*/ ))
         } else if node.value.is_node() {
-//            let chain = chain.insert(level, node.value@ -> node);
-            node.children.flat_map(|child: Option<OwnerSubtree<'rcu, C>>| Self::view_rec(child.unwrap(), level - 1))
+            //            let chain = chain.insert(level, node.value@ -> node);
+            node.children.flat_map(
+                |child: Option<OwnerSubtree<'rcu, C>>| Self::view_rec(child.unwrap(), level - 1),
+            )
         } else if node.value.is_locked() {
             node.value.locked.unwrap()@
         } else {
@@ -187,13 +191,13 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> Inv for OwnerAsTreeNode<'rcu, C> {
-    open spec fn inv(self) -> bool
-    {
+    open spec fn inv(self) -> bool {
         &&& self.is_table() ==> {
-            &&& forall |i:int| 0 <= i < NR_ENTRIES() ==> {
-                &&& self.inner.children[i] is Some
-                &&& self.inner.children[i].unwrap().inv()
-            }
+            &&& forall|i: int|
+                0 <= i < NR_ENTRIES() ==> {
+                    &&& self.inner.children[i] is Some
+                    &&& self.inner.children[i].unwrap().inv()
+                }
         }
         &&& self.inner.value.inv()
         &&& self.inner.inv()
@@ -219,9 +223,7 @@ impl<'rcu, C: PageTableConfig> View for PageTableOwner<'rcu, C> {
     type V = PageTableView<C>;
 
     open spec fn view(&self) -> Self::V {
-        PageTableView { 
-            leaves: OwnerAsTreeNode::view_rec(self.tree.inner, 4)
-        }
+        PageTableView { leaves: OwnerAsTreeNode::view_rec(self.tree.inner, 4) }
     }
 }
 

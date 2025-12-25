@@ -46,17 +46,19 @@ pub ghost struct ProgramState {
 }
 
 pub open spec fn init(num_procs: nat) -> StatePred<ProgramState> {
-    StatePred::new(|s: ProgramState|
-        {
-            &&& s.num_procs == num_procs
-            &&& s.locked == false
-            &&& s.wait_queue_num_wakers == 0
-            &&& s.wait_queue_wakers == Seq::<Tid>::empty()
-            &&& s.has_woken == Map::new(|i: Tid| 0 <= i < num_procs, |i| false)
-            &&& s.waker == Map::new(|i: Tid| 0 <= i < num_procs, |i| None::<Tid>)
-            &&& s.stack == Map::new(|i: Tid| 0 <= i < num_procs, |i| Seq::<StackFrame>::empty())
-            &&& s.pc == Map::new(|i: Tid| 0 <= i < num_procs, |i| Label::start)
-        })
+    StatePred::new(
+        |s: ProgramState|
+            {
+                &&& s.num_procs == num_procs
+                &&& s.locked == false
+                &&& s.wait_queue_num_wakers == 0
+                &&& s.wait_queue_wakers == Seq::<Tid>::empty()
+                &&& s.has_woken == Map::new(|i: Tid| 0 <= i < num_procs, |i| false)
+                &&& s.waker == Map::new(|i: Tid| 0 <= i < num_procs, |i| None::<Tid>)
+                &&& s.stack == Map::new(|i: Tid| 0 <= i < num_procs, |i| Seq::<StackFrame>::empty())
+                &&& s.pc == Map::new(|i: Tid| 0 <= i < num_procs, |i| Label::start)
+            },
+    )
 }
 
 pub open spec fn pre_check_lock() -> Action<ProgramState, Tid, ()> {
@@ -368,7 +370,12 @@ spec fn dead_and_alive_lock_free() -> TempPred<ProgramState> {
         |i: Tid|
             lift_state(StatePred::new(|s: ProgramState| s.valid_tid(i) && s.trying(i))).leads_to(
                 tla_exists(
-                    |j: Tid| lift_state(StatePred::new(|s: ProgramState| s.valid_tid(j) && s.pc[j] == Label::cs)),
+                    |j: Tid|
+                        lift_state(
+                            StatePred::new(
+                                |s: ProgramState| s.valid_tid(j) && s.pc[j] == Label::cs,
+                            ),
+                        ),
                 ),
             ),
     )

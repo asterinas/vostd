@@ -134,11 +134,10 @@ impl<C: PageTableConfig> Inv for FrameView<C> {
 }
 
 impl<C: PageTableConfig> LeafPageTableEntryView<C> {
-    pub open spec fn to_frame_view(self/*, ancestors: Map<int, IntermediatePageTableEntryView<C>>*/) -> FrameView<C> {
-        FrameView {
-            ancestor_chain: Map::empty(),
-            leaf: self,
-        }
+    pub open spec fn to_frame_view(
+        self,  /*, ancestors: Map<int, IntermediatePageTableEntryView<C>>*/
+    ) -> FrameView<C> {
+        FrameView { ancestor_chain: Map::empty(), leaf: self }
     }
 }
 

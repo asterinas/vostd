@@ -47,7 +47,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     {
         let guard = self.node.borrow(Tracked(&parent_owner.guard_perm));
 
-        self.pte.is_present() && !self.pte.is_last(#[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))] guard.level())
+        self.pte.is_present() && !self.pte.is_last(
+            #[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))]
+            guard.level(),
+        )
     }
 
     /// Gets a reference to the child.
@@ -68,7 +71,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.inv(),
         ensures
             regions.inv(),
-            res.wf(*owner)
+            res.wf(*owner),
     {
         let guard = self.node.borrow(Tracked(&parent_owner.guard_perm));
 
@@ -210,7 +213,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
     )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >)
         requires
             old(owner).inv(),
             old(self).wf(old(owner).value),
@@ -227,11 +232,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& res is None
                 &&& owner == old(owner)
             },
-            owner.inv()
+            owner.inv(),
     {
-        unimplemented!()
-
-/*        if !(self.is_none() && self.node.level() > 1) {
+        unimplemented!()/*        if !(self.is_none() && self.node.level() > 1) {
             return None;
         }
 
@@ -257,6 +260,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         *self.node.nr_children_mut() += 1;
 
         Some(pt_lock_guard) */
+
     }
 
     /// Splits the entry to smaller pages if it maps to a huge page.
@@ -349,7 +353,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             guard_perm.pptr() == guard,
         ensures
-            res.wf(*owner)
+            res.wf(*owner),
     {
         let tracked node_owner = owner.node.tracked_borrow();
 

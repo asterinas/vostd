@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module provides a trait and some auxiliary types to help abstract and
 //! work with non-null pointers.
+use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
-use alloc::{sync::Arc, boxed::Box};
 
 //mod either;
 
@@ -34,7 +34,8 @@ pub unsafe trait NonNullPtr: 'static {
     /*/// A type that behaves just like a shared reference to the `NonNullPtr`.
     type Ref<'a>
     where
-        Self: 'a;*/ //Verus does not support associated type with lifetime yet
+        Self: 'a;*/
+    //Verus does not support associated type with lifetime yet
 
     /// The power of two of the pointer alignment.
     //const ALIGN_BITS: u32; //Verus does not support associated consts yet
@@ -84,7 +85,6 @@ pub struct BoxRef<'a, T> {
     _marker: PhantomData<&'a T>,
 }
 
-
 impl<T> Deref for BoxRef<'_, T> {
     type Target = Box<T>;
 
@@ -97,7 +97,7 @@ impl<T> Deref for BoxRef<'_, T> {
         unsafe { core::mem::transmute(&self.inner) }
     }
 }
-/* 
+/*
 impl<'a, T> BoxRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
     pub fn deref_target(&self) -> &'a T {
@@ -154,7 +154,7 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }*/
 }
 
-/* 
+/*
 /// A type that represents `&'a Arc<T>`.
 #[derive(Debug)]
 pub struct ArcRef<'a, T> {

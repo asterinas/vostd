@@ -77,7 +77,8 @@ impl<C: PageTableConfig> CursorView<C> {
 
     #[rustc_allow_incoherent_impl]
     pub open spec fn query_item_spec(self) -> C::Item
-        recommends self.present()
+        recommends
+            self.present(),
     {
         let entry = self.rear[0];
         C::item_from_raw(entry.leaf.map_to_pa as usize, entry.leaf.level, entry.leaf.prop)
@@ -122,9 +123,10 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub closed spec fn map_spec(self, item: C::Item) -> Self;
-
-    /*
+    pub closed spec fn map_spec(
+        self,
+        item: C::Item,
+    ) -> Self;/*
     #[rustc_allow_incoherent_impl]
     pub open spec fn pop_level_spec(self) -> Self {
         let (tail, popped) = self.path.pop_tail();
@@ -164,23 +166,28 @@ impl<C: PageTableConfig> CursorView<C> {
 
 }
 
-impl <'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     #[rustc_allow_incoherent_impl]
     pub proof fn present_frame(self)
         ensures
             self.cur_entry_owner().unwrap().is_frame() ==> {
                 &&& self@.present()
-                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa == self@.rear[0].leaf.map_to_pa
+                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa
+                    == self@.rear[0].leaf.map_to_pa
                 &&& self.cur_entry_owner().unwrap().frame.unwrap().prop == self@.rear[0].leaf.prop
                 &&& self@.rear[0].leaf.level == self.level
-            }
-        { admit() }
+            },
+    {
+        admit()
+    }
 
     #[rustc_allow_incoherent_impl]
     pub proof fn present_not_absent(self)
         ensures
-            self.cur_entry_owner().unwrap().is_absent() ==> !self@.present()
-        { admit() }
+            self.cur_entry_owner().unwrap().is_absent() ==> !self@.present(),
+    {
+        admit()
+    }
 
     #[rustc_allow_incoherent_impl]
     #[verifier::returns(proof)]
@@ -188,10 +195,10 @@ impl <'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
     {
-        let tracked mut cont = self.continuations.tracked_remove(self.level-1);
+        let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         let tracked mut child = cont.make_cont(self.index);
-        self.continuations.tracked_insert(self.level-1, cont);
-        self.continuations.tracked_insert(self.level-2, child);
+        self.continuations.tracked_insert(self.level - 1, cont);
+        self.continuations.tracked_insert(self.level - 2, child);
         self.path.0.push(self.index);
         self.level = (self.level - 1) as u8;
     }

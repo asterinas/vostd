@@ -29,7 +29,7 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 
 /// A [`SegmentOnwer<M>`] holds the permission tokens for all frames in the
 /// [`Segment<M>`] for verification purposes.
-pub ghost struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
+pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
     pub perms: Seq<MetaPerm<M>>,
 }
 
