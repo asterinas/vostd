@@ -14,7 +14,7 @@ pub mod io;
 pub(crate) mod page_prop;
 pub(crate) mod page_table;
 //pub mod tlb;
-// pub mod vm_space;
+pub mod vm_space;
 
 #[cfg(ktest)]
 mod test;

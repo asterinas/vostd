@@ -1057,6 +1057,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(guard_perm): Tracked<&mut PointsTo<PageTableGuard<'rcu, C>>>,
             Tracked(regions): Tracked<&MetaRegionOwners>
+        requires
+            regions.inv(),
+            old(owner).cur_entry_owner() is Some,
     )]
     #[verifier::external_body]
     pub fn protect_next(
@@ -1064,9 +1067,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         len: usize,
         op: impl FnOnce(PageProperty) -> PageProperty,
     ) -> Option<Range<Vaddr>>
-        requires
-            regions.inv(),
-            old(owner).cur_entry_owner() is Some,
     {
         unimplemented!()/*
         self.inner.find_next_impl(len, false, true)?;

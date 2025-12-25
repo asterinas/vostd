@@ -533,6 +533,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
             Tracked(regions): Tracked<&MetaRegionOwners>
+        requires
+            regions.inv(),
+            old(owner).cur_entry_owner() is Some,
     )]
     pub fn protect_next(
         &mut self,
