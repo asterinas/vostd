@@ -295,17 +295,20 @@ impl<T> Deref for ArcRef<'_, T> {
     }
 }
 
-/* 
+#[verus_verify]
 impl<'a, T> ArcRef<'a, T> {
     /// Dereferences `self` to get a reference to `T` with the lifetime `'a`.
+    /// VERUS LIMITATION: The code includes a cast from `&T` to `*const T`, which is not specified yet in Verus.
+    /// This is also a nontrivial use case that extends the lifetime of the reference.
+    #[verus_verify(external_body)]
+    #[verus_spec(ret => ensures *ret == *(self.deref_as_arc_spec()))]
     pub fn deref_target(&self) -> &'a T {
         // SAFETY: The reference is created through `NonNullPtr::raw_as_ref`, hence
         // the original owned pointer and target must outlive the lifetime parameter `'a`,
         // and during `'a` no mutable references to the pointer will exist.
         unsafe { &*(self.deref().deref() as *const T) }
     }
-}*/
-
+}
 
 unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     type Target = T;
