@@ -6,11 +6,13 @@ By design, OSTD guarantees *soundness*: no undefined behavior is possible, regar
 
 This work is ongoing. Our current focus is on verifying OSTD’s *memory management subsystem*, a core component that is directly related to kernel memory safety. As we continue, we aim to extend formal verification to additional parts of OSTD to further ensure its reliability and correctness.
 
-## Verified Branch
+## Project Structure
 
-*Verified* holds all the verification code. Implementation code from the OSTD mainline (accompanied with proofs) resides in the `aster_common` and `ostd` directories, while specifications are located in `specs`.
+Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `aster_common` and `ostd` directories, while specifications are located under `specs`.
 
-This repository currently contains verification code for `ostd/src/mm` and `ostd/src/boot/memory_region.rs`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”* A merge of these efforts is planned but has not yet started.
+This repository currently contains verification code for `ostd/src/mm` and `ostd/src/boot/memory_region.rs`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
+
+A merge of these efforts is planned, but has not yet begun.
 
 ## Building the Proof Development
 
@@ -20,7 +22,7 @@ If you have not installed Rust yet, follow the [official instructions](https://w
 
 #### Clone Submodule
 
-`vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier), please run:
+`vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier), which serves as a more powerful alternative to `cargo-verus`. Please run:
 
 ```
 git submodule update --init --recursive
