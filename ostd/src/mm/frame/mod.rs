@@ -327,7 +327,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
     )]
-    pub fn borrow(&self) -> FrameRef<'_, M>
+    pub fn borrow(&self) -> FrameRef<'a, M>
         requires
             old(regions).inv(),
             self.paddr() % PAGE_SIZE() == 0,

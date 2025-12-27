@@ -70,7 +70,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
         meta.level
-    }/* TODO: stub out allocator
+    }
+    
+    /* TODO: stub out allocator
     /// Allocates a new empty page table node.
     pub(super) fn alloc(level: PagingLevel) -> Self {
         let meta = PageTablePageMeta::new(level);
@@ -315,6 +317,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(owner).inv(),
             meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
+        
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
@@ -335,12 +338,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, PageTablePageMeta<C>>>
     )]
-    fn nr_children_mut<'a>(&'a mut self) -> &'a PCell<u16>
+    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a PCell<u16>)
         requires
             old(self).inner.inner.0.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner.0.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
             meta_perm.wf(),
+        ensures
+            res.id() == meta_perm.value().nr_children.id()
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]

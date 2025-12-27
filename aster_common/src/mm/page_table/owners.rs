@@ -81,8 +81,6 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
             frame: None,
             locked: None,
             absent: true,
-            index: 0,
-            base_addr: 0,
             guard_addr: 0,
             path: TreePath(Seq::empty())
         }

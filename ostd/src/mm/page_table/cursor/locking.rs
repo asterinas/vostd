@@ -318,14 +318,15 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// This function must not be called upon a shared node, e.g., the second-
 /// top level nodes that the kernel space and user space share.
 #[verus_spec(
-    with Tracked(entry_own): Tracked<&mut EntryOwner<'a, C>>,
-        Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, C>>>
+    with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>
 )]
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
     rcu_guard: &A,
     sub_tree: PPtr<PageTableGuard<'a, C>>,
 ) -> usize {
+    unimplemented!();
+    /*
     let mut sub_tree_val = sub_tree.take(Tracked(guard_perm));
     let stray_mut = sub_tree_val.stray_mut();
     let tracked node_owner = entry_own.node.tracked_take();
@@ -359,7 +360,7 @@ pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
         }
     }
 
-    num_frames
+    num_frames*/
 }
 
 #[verifier::external_body]

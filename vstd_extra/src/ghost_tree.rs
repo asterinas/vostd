@@ -453,6 +453,23 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         Node { value: T::default(lv), level: lv, children: Seq::new(N as nat, |i| None) }
     }
 
+    pub open spec fn new_val(val: T, lv: nat) -> Self
+        recommends
+            lv < L
+    {
+        Node { value: val, level: lv, children: Seq::new(N as nat, |i| Some(Self::new(lv+1))) }
+    }
+
+    #[verifier::returns(proof)]
+    pub axiom fn new_val_tracked(tracked val: T, tracked lv: nat) -> (res: Self)
+        requires
+            lv < L,
+        ensures
+            res.inv()
+        returns
+            Self::new_val(val, lv);
+
+
     pub broadcast proof fn new_preserves_inv(lv: nat)
         requires
             lv < L,

@@ -14,6 +14,8 @@ use aster_common::prelude::page_table::*;
 use aster_common::prelude::frame::{UFrame, MetaRegionOwners, MetaSlotOwner};
 use aster_common::prelude::*;
 
+use vstd_extra::ghost_tree::*;
+
 use crate::{
 //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
 //    cpu_local_cell,
@@ -343,22 +345,26 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// This method will bring the cursor to the next slot after the modification.
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(entry_own): Tracked<EntryOwner<'a, UserPtConfig>>,
+        with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
-            old(owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(cursor_owner).inv(),
+            old(self).pt_cursor.inner.wf(*old(cursor_owner)),
             old(regions).inv(),
-            entry_own.inv()
+            entry_owner.inv(),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
+        let tracked lv = (5 - cursor_owner.level) as nat;
+
+        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, lv);
+
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (#[verus_spec(with Tracked(owner), Tracked(entry_own), Tracked(regions))] self.pt_cursor.map(item)) else {
+        let Err(frag) = (#[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions))] self.pt_cursor.map(item)) else {
             return; // No mapping exists at the current address.
         };
 
