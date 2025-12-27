@@ -4,7 +4,7 @@ use vstd::std_specs::convert::ExFrom;
 
 use crate::mm::page_table::PageTableError;
 
-verus!{
+verus! {
 
 /// The error type which is returned from the APIs of this crate.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -25,8 +25,7 @@ pub enum Error {
     pub Overflow,
 }
 
-}
-
+} // verus!
 impl From<PageTableError> for Error {
     fn from(_err: PageTableError) -> Error {
         Error::AccessDenied

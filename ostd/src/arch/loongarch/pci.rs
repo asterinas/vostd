@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! PCI bus access
-
 use core::alloc::Layout;
 
 use align_ext::AlignExt;

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use loongArch64::iocsr::{iocsr_read_d, iocsr_write_b, iocsr_write_d, iocsr_write_h};
 
 /// Reference: <https://loongson.github.io/LoongArch-Documentation/Loongson-3A5000-usermanual-EN.html#other-function-configuration-register>

@@ -58,6 +58,7 @@ pub ghost struct PointsToData<V, const N: usize, const F: usize> {
     }
 }
 */
+
 impl<T, const N: usize, const F: usize> View for PointsTo<T, N, F> {
     type V = PointsToData<T, N, F>;
 
@@ -65,11 +66,10 @@ impl<T, const N: usize, const F: usize> View for PointsTo<T, N, F> {
 }
 
 impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
-/*    #[verifier::inline]
+    /*    #[verifier::inline]
     pub open spec fn ptr(self) -> *mut [V; N] {
         self@.ptr
     }*/
-
     #[verifier::inline]
     pub open spec fn opt_value(self) -> Seq<raw_ptr::MemContents<V>> {
         self@.value
@@ -85,7 +85,7 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
         0 <= index < N && self.opt_value()[index].is_uninit()
     }
 
-/*    #[verifier::inline]
+    /*    #[verifier::inline]
     pub open spec fn is_init_all(self) -> bool {
         is_mem_contents_all_init(self.opt_value())
     }
@@ -94,16 +94,14 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
     pub open spec fn is_uninit_all(self) -> bool {
         is_mem_contents_all_uninit(self.opt_value())
     }*/
-
     #[verifier::inline]
     pub open spec fn value(self) -> Seq<V>
-//        recommends
-//            self.is_init_all(),
-    {
+    //        recommends
+    //            self.is_init_all(),
+     {
         let opt_value = self.opt_value();
         Seq::new(N as nat, |i: int| opt_value[i].value())
-    }
-/*
+    }/*
     #[verifier::external_body]
     pub proof fn leak_contents(tracked &mut self, index: int)
         ensures
@@ -142,6 +140,7 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
     {
         unimplemented!();
     }*/
+
 }
 
 /*
@@ -324,24 +323,24 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& forall |i:usize|
+        &&& forall|i: usize|
             0 <= i < N ==> {
-                &&& self.perms.contains_key(i)
-//                &&& self.perms[i].wf()
-            }
-        &&& self.addr() != 0
+                &&& self.perms.contains_key(
+                    i,
+                )
+                //                &&& self.perms[i].wf()
+
+            }&&& self.addr() != 0
     }
 
     pub open spec fn value_at(self, va: usize) -> raw_ptr::MemContents<V>
         recommends
-            self.base_vaddr <= va < self.base_vaddr + N*F
+            self.base_vaddr <= va < self.base_vaddr + N * F,
     {
         let page = va / F;
         let offset = va % F;
         self.perms[page].opt_value()[offset as int]
-    }
-
-    /*
+    }/*
     /// Spec: invariants for the ArrayPtr permissions
     /// TODO: uncomment the below if "external_type_specification: Const params not yet supported" is fixed
     /// #[verifier::type_invariant]
@@ -361,7 +360,7 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
         }
         &&& self.addr() != 0
     }
-    
+
     pub closed spec fn points_to(self) -> PointsToArray<V, N> {
         self.points_to
     }
@@ -437,6 +436,7 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
     {
         self.points_to.is_disjoint(&other.points_to);
     }*/
+
 }
 
 impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
@@ -461,6 +461,7 @@ impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
     {
         Tracked::<raw_ptr::PointsTo<[V; N]>>::assume_new().get()
     }*/
+
 }
 
 impl<V, const N: usize, const F: usize> Clone for VirtPtr<V, N, F> {
@@ -843,6 +844,7 @@ impl<V, const N: usize, const F: usize> VirtPtr<V, N, F> {
     {
         *self.borrow_at(Tracked(perm), index)
     }*/
+
 }
 
 } // verus!

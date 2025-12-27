@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! IRQ line and IRQ guards.
-
 use core::{fmt::Debug, ops::Deref};
 
 use id_alloc::IdAlloc;

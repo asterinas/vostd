@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
-use vstd::simple_pptr::PointsTo;
 use vstd::cell;
+use vstd::simple_pptr::PointsTo;
 use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 
@@ -29,7 +29,8 @@ impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {
         &&& meta_to_frame(self.as_node.meta_perm.addr()) == self.children_perm.addr()
         &&& forall|i: int|
             0 <= i < NR_ENTRIES() ==> self.children_perm.is_init(i as int) ==> {
-                &&& #[trigger] self.children_perm.opt_value()[i as int].value().node == self.guard_perm.pptr()
+                &&& #[trigger] self.children_perm.opt_value()[i as int].value().node
+                    == self.guard_perm.pptr()
             }
     }
 }
@@ -79,7 +80,10 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
     // An `Entry` carries a pointer to the guard for its parent node,
     // which from the perspective of a single `EntryOwner` must be provided
     // separately. Its inner pointer corresponds to the base address of the entry.
-    pub open spec fn relate_parent_guard_perm(self, guard_perm: PointsTo<PageTableGuard<'rcu, C>>) -> bool {
+    pub open spec fn relate_parent_guard_perm(
+        self,
+        guard_perm: PointsTo<PageTableGuard<'rcu, C>>,
+    ) -> bool {
         &&& guard_perm.addr() == self.guard_addr
         &&& guard_perm.is_init()
 //        &&& guard_perm.value().inner.inner.0.ptr.addr() == self.base_addr
@@ -121,25 +125,22 @@ impl<'rcu, C: PageTableConfig> View for EntryOwner<'rcu, C> {
                     map_to_pa: frame.mapped_pa as int,
                     level: (self.path.len() + 1) as u8,
                     prop: frame.prop,
-                    phantom: PhantomData
-                }
+                    phantom: PhantomData,
+                },
             }
-        }
-        else if let Some(node) = self.node {
+        } else if let Some(node) = self.node {
             EntryView::Intermediate {
-                node: IntermediatePageTableEntryView{
+                node: IntermediatePageTableEntryView {
                     map_va: vaddr(self.path) as int,
 //                    frame_pa: self.base_addr as int,
 //                    in_frame_index: self.index as int,
                     map_to_pa: meta_to_frame(node.as_node.meta_perm.addr()) as int,
                     level: (self.path.len() + 1) as u8,
-                    phantom: PhantomData
-                }
+                    phantom: PhantomData,
+                },
             }
         } else if let Some(view) = self.locked {
-            EntryView::LockedSubtree {
-                views: view@
-            }
+            EntryView::LockedSubtree { views: view@ }
         } else {
             EntryView::Absent
         }

@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Interrupts.
-
 use crate::cpu::PinCurrentCpu;
 
 pub(crate) const IRQ_NUM_MIN: u8 = 32;

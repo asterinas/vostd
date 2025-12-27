@@ -16,7 +16,7 @@ impl<T: Inv> Inv for Option<T> {
     open spec fn inv(self) -> bool {
         match self {
             Some(t) => t.inv(),
-            None => true
+            None => true,
         }
     }
 }

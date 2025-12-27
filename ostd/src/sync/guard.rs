@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::{
-    //task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
-    //trap::irq::{disable_local, DisabledLocalIrqGuard},
-};
-
 /// A guardian that denotes the guard behavior for holding a spin-based lock.
 ///
 /// It at least ensures that the atomic mode is maintained while the lock is held.
@@ -24,7 +19,7 @@ pub trait SpinGuardian {
     fn read_guard() -> Self::ReadGuard;
 }
 
-/* 
+/*
 /// The Guard can be transferred atomically.
 pub trait GuardTransfer {
     /// Atomically transfers the current guard to a new instance.

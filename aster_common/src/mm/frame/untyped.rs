@@ -9,7 +9,9 @@ verus! {
 /// If a structure `M` implements [`AnyUFrameMeta`], it can be used as the
 /// metadata of a type of untyped frames [`Frame<M>`]. All frames of such type
 /// will be accessible as untyped memory.
-pub trait AnyUFrameMeta: AnyFrameMeta {}
+pub trait AnyUFrameMeta: AnyFrameMeta {
+
+}
 
 /// A smart pointer to an untyped frame with any metadata.
 ///
@@ -29,8 +31,9 @@ pub type UFrame = Frame<MetaSlotStorage>;
 pub trait UntypedMem {
     /// Borrows a reader that can read the untyped memory.
     fn reader(&self) -> VmReader<'_>;
+
     /// Borrows a writer that can write the untyped memory.
     fn writer(&self) -> VmWriter<'_>;
 }
 
-}
+} // verus!

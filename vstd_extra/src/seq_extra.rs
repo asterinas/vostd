@@ -40,6 +40,24 @@ pub proof fn seq_tracked_add<T>(s1: Seq<T>, s2: Seq<T>) -> (tracked res: Seq<T>)
     unimplemented!();
 }
 
+#[verifier::external_body]
+pub proof fn seq_tracked_map_values<T, U>(s: Seq<T>, f: spec_fn(T) -> U) -> (tracked res: Seq<U>)
+    ensures
+        res == s.map_values(f),
+{
+    unimplemented!();
+}
+
+#[verifier::external_body]
+pub proof fn seq_tracked_subrange<T>(s: Seq<T>, start: int, end: int) -> (tracked res: Seq<T>)
+    requires
+        0 <= start <= end <= s.len(),
+    ensures
+        res == s.subrange(start, end),
+{
+    unimplemented!();
+}
+
 pub broadcast proof fn lemma_seq_add_head_back<T>(s: Seq<T>)
     requires
         s.len() > 0,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
 use vstd::prelude::*;
+use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_new, seq_tracked_subrange};
 
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
@@ -345,15 +346,18 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-                -> owner: Ghost<Option<SegmentOwner<M>>>,
+                -> owner: Tracked<Option<SegmentOwner<M>>>,
         requires
             Self::from_unused_requires(*old(regions), range, metadata_fn),
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<Self, GetFrameError> {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<
+        Self,
+        GetFrameError,
+    > {
         proof_decl! {
-            let ghost mut owner: Option<SegmentOwner<M>> = None;
+            let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
         }
         // Construct a segment early to recycle previously forgotten frames if
@@ -414,7 +418,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 Ok(f) => f,
                 Err(e) => {
                     return {
-                        proof_with!(|= Ghost(owner));
+                        proof_with!(|= Tracked(owner));
                         Err(e)
                     };
                 },
@@ -446,7 +450,8 @@ impl<M: AnyFrameMeta> Segment<M> {
             broadcast use vstd::map::group_map_axioms;
             broadcast use vstd::map_lib::group_map_extra;
 
-            let owner_seq = addrs.map_values(
+            let tracked owner_seq = seq_tracked_map_values(
+                addrs,
                 |addr: usize|
                     {
                         let perm = regions.slots[frame_to_index(addr)];
@@ -483,7 +488,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             }
         }
 
-        proof_with!(|= Ghost(owner));
+        proof_with!(|= Tracked(owner));
         Ok(segment)
     }
 
@@ -500,7 +505,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<SegmentOwner<M>>,
-                -> frame_perms: (Ghost<SegmentOwner<M>>, Ghost<SegmentOwner<M>>),
+                -> frame_perms: (Tracked<SegmentOwner<M>>, Tracked<SegmentOwner<M>>),
         requires
             Self::split_requires(self, owner, offset),
         ensures
@@ -517,16 +522,18 @@ impl<M: AnyFrameMeta> Segment<M> {
         // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
         // let _ = ManuallyDrop::new(self);
 
-        let ghost frame_perms1 = SegmentOwner { perms: owner.perms.subrange(0, idx as int) };
-        let ghost frame_perms2 = SegmentOwner {
-            perms: owner.perms.subrange(idx as int, owner.perms.len() as int),
+        let tracked frame_perms1 = SegmentOwner {
+            perms: seq_tracked_subrange(owner.perms, 0, idx as int),
+        };
+        let tracked frame_perms2 = SegmentOwner {
+            perms: seq_tracked_subrange(owner.perms, idx as int, owner.perms.len() as int),
         };
 
         proof {
             owner.perms.lemma_split_at(idx as int);
         }
 
-        proof_with!(|= (Ghost(frame_perms1), Ghost(frame_perms2)));
+        proof_with!(|= (Tracked(frame_perms1), Tracked(frame_perms2)));
         res
     }
 
@@ -587,7 +594,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-                -> frame_perms: Ghost<SegmentOwner<M>>,
+                -> frame_perms: Tracked<SegmentOwner<M>>,
         requires
             Self::from_raw_requires(*old(regions), range),
         ensures
@@ -595,7 +602,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         proof_decl! {
-            let ghost mut frame_perms: SegmentOwner<M>;
+            let tracked mut frame_perms: SegmentOwner<M>;
         }
         // We create new permissions from stealing the `PointsTo` perms
         // from `regions.dropped_slots` so we must ensure that all frames
@@ -604,7 +611,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             broadcast use vstd::arithmetic::div_mod::group_div_basics;
 
             let len = (range.end - range.start) / PAGE_SIZE() as int;
-            let owner_seq = Seq::new(
+            let tracked owner_seq = seq_tracked_new(
                 len as nat,
                 |i: int|
                     {
@@ -639,7 +646,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             }
         }
 
-        proof_with!(|= Ghost(frame_perms));
+        proof_with!(|= Tracked(frame_perms));
         Self { range, _marker: core::marker::PhantomData }
     }
 

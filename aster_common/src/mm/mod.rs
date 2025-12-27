@@ -3,6 +3,7 @@ mod io;
 mod kspace;
 mod page_prop;
 pub mod page_table;
+pub mod pod;
 mod vm_space;
 
 use frame::{

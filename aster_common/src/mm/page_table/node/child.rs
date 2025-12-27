@@ -97,7 +97,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
                 &&& owner.frame.unwrap().mapped_pa == paddr
                 &&& owner.frame.unwrap().prop == prop
             },
-            Self::None => owner.is_absent()
+            Self::None => owner.is_absent(),
         }
     }
 }

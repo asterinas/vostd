@@ -189,7 +189,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             perm.mem_contents().value().wf(owner),
             owner.inv(),
             old(regions).slots.contains_key(frame_to_index(owner.list[owner.list.len() - 1].paddr)),
-        
+
     )]
     pub fn pop_back(ptr: PPtr<Self>) -> Option<
         (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),

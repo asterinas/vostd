@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! Providing the ability to exit QEMU and return a value as debug result.
-
 use crate::arch::{boot::DEVICE_TREE, mm::paddr_to_daddr};
 
 /// The exit code of QEMU.

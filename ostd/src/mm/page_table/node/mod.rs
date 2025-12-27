@@ -175,16 +175,18 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<C>>>
     )]
     #[verifier::external_body]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<
+        PageTableGuard<'rcu, C>,
+    >) where 'a: 'rcu
         ensures
             res == guard_perm.pptr(),
             guard_perm == old(guard_perm),
     {
-        unimplemented!()
-/*        let guard = PageTableGuard { inner: self };
+        unimplemented!()/*        let guard = PageTableGuard { inner: self };
         let ptr = PPtr::<PageTableGuard<C>>::from_addr(guard_perm.addr());
         ptr.put(Tracked(guard_perm), guard);
         ptr*/
+
     }
 }
 
@@ -208,7 +210,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             //            owner.node.unwrap().relate_slot_owner(slot_own),
             guard_perm.pptr() == guard,
         ensures
-            res.wf(*owner)
+            res.wf(*owner),
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
@@ -227,7 +229,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner.0.ptr.addr() == old(owner).meta_perm.points_to.addr(),
             old(owner).inv(),
         ensures
-            owner == old(owner)
+            owner == old(owner),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(&owner.meta_perm))]
@@ -245,7 +247,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             owner.is_node(),
             old(self).inner.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            old(self).inner.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
+            old(self).inner.inner.0.ptr.addr()
+                == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
             owner.inv(),
     {
         let tracked node_owner = owner.node.tracked_borrow();
@@ -275,7 +278,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner.0.ptr.addr() == owner.meta_perm.addr,
             self.inner.inner.0.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
-            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
+            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR()
+                - LINEAR_MAPPING_BASE_VADDR(),
             FRAME_METADATA_RANGE().start <= owner.meta_perm.addr < FRAME_METADATA_RANGE().end,
             owner.meta_perm.addr % META_SLOT_SIZE() == 0,
             idx < NR_ENTRIES(),
@@ -286,7 +290,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr()
-            )
+            ),
         );
 
         // SAFETY:
@@ -315,16 +319,18 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(owner).inv(),
-            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
+            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR()
+                - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
         
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
+        #[verusfmt::skip]
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr()
-            )
+            ),
         );
 
         // SAFETY:

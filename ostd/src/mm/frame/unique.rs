@@ -208,11 +208,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
 
         (
             Self { ptr, _marker: PhantomData },
-            Tracked(UniqueFrameOwner::<M>::from_raw_owner(
-                meta_own,
-                Ghost(frame_to_index(paddr)),
-                meta_perm,
-            )),
+            Tracked(
+                UniqueFrameOwner::<M>::from_raw_owner(
+                    meta_own,
+                    Ghost(frame_to_index(paddr)),
+                    meta_perm,
+                ),
+            ),
         )
     }
 

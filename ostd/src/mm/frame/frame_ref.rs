@@ -3,8 +3,8 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 
-use vstd_extra::undroppable::*;
 use vstd_extra::ownership::*;
+use vstd_extra::undroppable::*;
 
 use aster_common::prelude::frame::*;
 use aster_common::prelude::*;
@@ -108,17 +108,22 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     ///
     /// The original pointer must outlive the lifetime parameter `'a`, and during `'a`
     /// no mutable references to the pointer will exist.
-    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> Self::Ref<'a>
+    unsafe fn raw_as_ref<'a>(
+        raw: PPtr<Self::Target>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> Self::Ref<'a>
         requires
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
-            !old(regions).dropped_slots.contains_key(frame_to_index(meta_to_frame(raw.addr())));
+            !old(regions).dropped_slots.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
+    ;
 
     /// Converts a shared reference to a raw pointer.
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
 }
 
-pub assume_specification [usize::trailing_zeros] (_0: usize) -> u32;
+pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32
+;
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.
@@ -138,28 +143,23 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
     }
 
     unsafe fn from_raw(raw: PPtr<Self::Target>) -> Self {
-        Self {
-            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
-            _marker: PhantomData,
-        }
+        Self { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData }
     }
 
-    unsafe fn raw_as_ref<'a>(raw: PPtr<Self::Target>, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> Self::Ref<'a>
-    {
+    unsafe fn raw_as_ref<'a>(
+        raw: PPtr<Self::Target>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>,
+    ) -> Self::Ref<'a> {
         let dropped = NeverDrop::<Frame<M>>::new(
-                        Frame {
-                            ptr: PPtr::<MetaSlot>::from_addr(raw.addr()),
-                            _marker: PhantomData,
-                        },
-                        Tracked(regions));
-        Self::Ref {
-            inner: dropped,
-            _marker: PhantomData,
-        }
+            Frame { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData },
+            Tracked(regions),
+        );
+        Self::Ref { inner: dropped, _marker: PhantomData }
     }
 
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target> {
         PPtr::from_addr(ptr_ref.inner.ptr.addr())
     }
 }
+
 } // verus!

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use alloc::vec::Vec;
 
 use crate::{boot::memory_region::MemoryRegionType, io::IoMemAllocatorBuilder};

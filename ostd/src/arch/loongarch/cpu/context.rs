@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
-
 //! CPU execution context control.
-
 use core::{arch::asm, fmt::Debug};
 
 use loongArch64::register::estat::{self, Exception, Interrupt, Trap};

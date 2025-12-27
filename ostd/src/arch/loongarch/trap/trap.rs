@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use core::arch::{asm, global_asm};
 
 use crate::arch::cpu::context::GeneralRegs;

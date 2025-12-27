@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     fmt,

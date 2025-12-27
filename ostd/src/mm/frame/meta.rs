@@ -148,7 +148,10 @@ pub use impl_frame_meta_for;
 verus! {
 
 /// Gets the reference to a metadata slot.
-pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: Result<PPtr<MetaSlot>, GetFrameError>)
+pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: Result<
+    PPtr<MetaSlot>,
+    GetFrameError,
+>)
     requires
         owner.self_addr == frame_to_meta(paddr),
         owner.inv(),
@@ -243,10 +246,7 @@ impl MetaSlot {
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(
-                Tracked(&mut slot_own.ref_count),
-                1,
-            );
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(Tracked(&mut slot_own.ref_count), 1);
         }
 
         proof {
@@ -328,7 +328,7 @@ impl MetaSlot {
             match Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
-                }
+                },
                 res => return res,
             }
         }

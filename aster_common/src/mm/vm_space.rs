@@ -2,9 +2,9 @@ use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
 
-use crate::*;
+use crate::frame::{AnyFrameMeta, Frame, UFrame};
 use crate::page_table::*;
-use crate::frame::{UFrame, Frame, AnyFrameMeta};
+use crate::*;
 
 use core::ops::Range;
 
@@ -19,7 +19,7 @@ pub struct UserPtConfig {}
 #[derive(Clone)]
 pub struct MappedItem {
     pub frame: UFrame,
-    pub prop: PageProperty
+    pub prop: PageProperty,
 }
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
@@ -37,33 +37,37 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     type E = PageTableEntry;
+
     type C = PagingConsts;
 
     type Item = MappedItem;
 
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        unimplemented!()
-        /*
+        unimplemented!()/*
         let (frame, prop) = item;
         let level = frame.map_level();
         let paddr = frame.into_raw();
         (paddr, level, prop)
         */
+
     }
 
-    uninterp spec fn item_from_raw_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item;
+    uninterp spec fn item_from_raw_spec(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> Self::Item;
 
     #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item
-    {
-        unimplemented!()
-        /*
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+        unimplemented!()/*
         debug_assert_eq!(level, 1);
         // SAFETY: The caller ensures safety.
         let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
         (frame, prop)
         */
+
     }
 }
 
@@ -105,7 +109,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 #[rustc_has_incoherent_inherent_impls]
 pub struct VmSpace {
     pub pt: PageTable<UserPtConfig>,
-//    cpus: AtomicCpuSet,
+    //    cpus: AtomicCpuSet,
 }
 
-}
+} // verus!
