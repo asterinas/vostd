@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
+use vstd_extra::ownership::Inv;
 
 use crate::frame::{AnyFrameMeta, Frame, UFrame};
 use crate::page_table::*;
@@ -107,9 +108,65 @@ unsafe impl PageTableConfig for UserPtConfig {
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
 #[rustc_has_incoherent_inherent_impls]
-pub struct VmSpace {
+pub struct VmSpace<'a> {
     pub pt: PageTable<UserPtConfig>,
     //    cpus: AtomicCpuSet,
+    pub marker: PhantomData<&'a ()>,
+}
+
+/// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
+#[rustc_has_incoherent_inherent_impls]
+pub tracked struct VmSpaceOwner<'a> {
+    /// Whether this VM space is currently active.
+    pub active: bool,
+    /// Active readers for this VM space.
+    pub readers: Map<nat, VmIoOwner<'a>>,
+    /// Active writers for this VM space.
+    pub writers: Map<nat, VmIoOwner<'a>>,
+}
+
+impl<'a> Inv for VmSpaceOwner<'a> {
+    open spec fn inv(self) -> bool {
+        &&& self.readers.dom().finite()
+        &&& self.writers.dom().finite()
+        &&& self.active ==> {
+            // Readers and writers are disjoint when the VM space is active.
+            &&& self.readers.dom().disjoint(
+                self.writers.dom(),
+            )
+            // Readers and writers are valid.
+            &&& forall|i: nat, reader: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader))]
+                self.readers.kv_pairs().contains((i, reader)) ==> reader.inv()
+            &&& forall|i: nat, writer: VmIoOwner<'a>|
+                #![trigger self.writers.kv_pairs().contains((i, writer))]
+                self.writers.kv_pairs().contains((i, writer))
+                    ==> writer.inv()
+            // Readers do not overlap with other readers, and writers do not overlap with other writers.
+            &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
+                self.readers.kv_pairs().contains((i, reader)) && self.writers.kv_pairs().contains(
+                    (j, writer),
+                ) && i != j ==> !reader.overlaps(writer)
+            &&& forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
+                self.readers.kv_pairs().contains((i, reader1)) && self.readers.kv_pairs().contains(
+                    (j, reader2),
+                ) && i != j ==> !reader1.overlaps(reader2)
+            &&& forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
+                #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
+                self.writers.kv_pairs().contains((i, writer1)) && self.writers.kv_pairs().contains(
+                    (j, writer2),
+                ) && i != j ==> !writer1.overlaps(writer2)
+        }
+    }
+}
+
+impl<'a> VmSpaceOwner<'a> {
+    /// The basic invariant between a VM space and its owner.
+    pub open spec fn inv_with(&self, vm_space: &VmSpace<'a>) -> bool {
+        &&& self.inv()
+    }
 }
 
 } // verus!

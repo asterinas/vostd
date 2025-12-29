@@ -70,9 +70,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
         meta.level
-    }
-    
-    /* TODO: stub out allocator
+    }/* TODO: stub out allocator
     /// Allocates a new empty page table node.
     pub(super) fn alloc(level: PagingLevel) -> Self {
         let meta = PageTablePageMeta::new(level);
@@ -322,7 +320,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR()
                 - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
-        
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         #[verusfmt::skip]
@@ -351,7 +348,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_perm.is_init(),
             meta_perm.wf(),
         ensures
-            res.id() == meta_perm.value().nr_children.id()
+            res.id() == meta_perm.value().nr_children.id(),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]

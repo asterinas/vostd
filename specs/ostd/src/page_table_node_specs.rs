@@ -39,10 +39,7 @@ impl<C: PageTableConfig> Child<C> {
 impl<'a, C: PageTableConfig> EntryOwner<'a, C> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn replace_new_spec(self, guard_addr: usize) -> Self {
-        Self {
-            guard_addr,
-            ..self
-        }
+        Self { guard_addr, ..self }
     }
 }
 

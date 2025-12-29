@@ -17,29 +17,45 @@ pub trait SubRepr<R: Sized>: Sized {
 
     #[verifier::when_used_as_spec(to_repr_spec)]
     fn inj_repr(self, old: R) -> R
-        returns self.inj_repr_spec(old);
+        returns
+            self.inj_repr_spec(old),
+    ;
 
     spec fn ext_repr_spec(r: R) -> Self;
 
     #[verifier::when_used_as_spec(from_repr_spec)]
     fn ext_repr(r: R) -> Self
-        requires Self::wf(r),
-        returns Self::ext_repr_spec(r);
+        requires
+            Self::wf(r),
+        returns
+            Self::ext_repr_spec(r),
+    ;
 
     fn from_borrowed<'a>(r: &'a R) -> (res: &'a Self)
-        requires Self::wf(*r),
-        ensures *res == Self::ext_repr_spec(*r);
+        requires
+            Self::wf(*r),
+        ensures
+            *res == Self::ext_repr_spec(*r),
+    ;
 
     proof fn ext_inj_repr(self, old: R)
-        ensures Self::ext_repr(self.inj_repr(old)) == self;
+        ensures
+            Self::ext_repr(self.inj_repr(old)) == self,
+    ;
 
     proof fn inj_ext_repr(r: R)
-        requires Self::wf(r),
-        ensures Self::ext_repr(r).inj_repr(r) == r;
+        requires
+            Self::wf(r),
+        ensures
+            Self::ext_repr(r).inj_repr(r) == r,
+    ;
 
     proof fn inj_repr_wf(self, old: R)
-        requires Self::wf(old)
-        ensures Self::wf(self.inj_repr(old));
+        requires
+            Self::wf(old),
+        ensures
+            Self::wf(self.inj_repr(old)),
+    ;
 }
 
 /// Concrete representation of a pointer to an array
@@ -83,7 +99,7 @@ impl<R, T: SubRepr<R>> ReprPtr<R, T> {
             perm.mem_contents() == MemContents::Uninit::<T>,
             v == old(perm).value(),
     {
-/*        proof {
+        /*        proof {
             T::from_to_repr(perm.value());
         }*/
         let val = T::ext_repr(self.ptr.take(Tracked(&mut perm.points_to)))
@@ -98,7 +114,7 @@ impl<R, T: SubRepr<R>> ReprPtr<R, T> {
             perm.mem_contents() == MemContents::Init(v),
             perm.wf(),
     {
-/*        proof {
+        /*        proof {
             v.from_to_repr();
             v.to_repr_wf();
         }*/

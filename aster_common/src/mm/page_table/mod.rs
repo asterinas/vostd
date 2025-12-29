@@ -209,7 +209,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + /*Pod + PodOnce + SameSizeAs<usize> +*/ Sized + Send + Sync + 'static {
+    Clone + Copy + Debug +   /*Pod + PodOnce + SameSizeAs<usize> +*/
+Sized + Send + Sync + 'static {
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.

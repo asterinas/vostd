@@ -121,6 +121,20 @@ impl Inv for VmIoOwner<'_> {
 }
 
 impl VmIoOwner<'_> {
+    /// Checks whether this owner overlaps with another owner.
+    #[verifier::inline]
+    pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
+        &&& self.range@.start < other.range@.end
+        &&& other.range@.start < self.range@.end
+    }
+
+    /// Checks whether this owner is disjoint with another owner.
+    #[verifier::inline]
+    pub open spec fn disjoint(self, other: VmIoOwner<'_>) -> bool {
+        !self.overlaps(other)
+    }
+
+    /// Checks whether this owner has the same parameters as another owner.
     pub open spec fn params_eq(self, other: VmIoOwner<'_>) -> bool {
         &&& self.range@ == other.range@
         &&& self.is_fallible == other.is_fallible

@@ -36,7 +36,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use aster_common::prelude::frame::{
-    frame_to_index, meta_to_frame, Frame, MetaRegionOwners, MetaSlotOwner, META_SLOT_SIZE
+    frame_to_index, meta_to_frame, Frame, MetaRegionOwners, MetaSlotOwner, META_SLOT_SIZE,
 };
 use aster_common::prelude::page_table::*;
 use aster_common::prelude::*;
@@ -1034,8 +1034,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &mut self,
         len: usize,
         op: impl FnOnce(PageProperty) -> PageProperty,
-    ) -> Option<Range<Vaddr>>
-    {
+    ) -> Option<Range<Vaddr>> {
         unimplemented!()/*
         self.inner.find_next_impl(len, false, true)?;
 
@@ -1084,7 +1083,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         #[verus_spec(with Tracked(owner), Tracked(regions))]
         let mut cur_entry = self.inner.cur_entry();
 
-        assert(regions.dropped_slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by { admit() };
+        assert(regions.dropped_slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by {
+            admit()
+        };
         assert(!regions.slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by { admit() };
 
         let tracked mut continuation = owner.continuations.tracked_remove((owner.level - 1) as int);
@@ -1144,8 +1145,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(!regions.slots.contains_key(pt.index())) by { admit() };
                 assert(regions.dropped_slots.contains_key(pt.index())) by { admit() };
                 assert(pt.ptr == old_node_owner.as_node.meta_perm.points_to.pptr()) by { admit() };
-                assert(FRAME_METADATA_RANGE().start <= old_node_owner.as_node.meta_perm.points_to.addr() < FRAME_METADATA_RANGE().end) by { admit() };
-                assert(old_node_owner.as_node.meta_perm.points_to.addr() % META_SLOT_SIZE() == 0) by { admit() };
+                assert(FRAME_METADATA_RANGE().start
+                    <= old_node_owner.as_node.meta_perm.points_to.addr()
+                    < FRAME_METADATA_RANGE().end) by { admit() };
+                assert(old_node_owner.as_node.meta_perm.points_to.addr() % META_SLOT_SIZE() == 0)
+                    by { admit() };
 
                 #[verus_spec(with Tracked(regions), Tracked(&old_node_owner.as_node.meta_perm))]
                 let borrow_pt = pt.borrow();
@@ -1163,12 +1167,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(owner.inv()) by { admit() };
                 assert(self.inner.wf(*owner)) by { admit() };
 
-                Some(PageTableFrag::StrayPageTable {
+                Some(
+                    PageTableFrag::StrayPageTable {
                         pt: pt.into(),
                         va,
                         len: page_size(self.inner.level),
                         num_frames,
-                })
+                    },
+                )
             },
         }
     }

@@ -27,8 +27,9 @@ impl<C: PageTableConfig> Child<C> {
     pub fn into_pte(self) -> (res: C::E)
         requires
             owner.inv(),
-            self.wf(*owner),
-/*            self is PageTable ==> {
+            self.wf(
+                *owner,
+            ),/*            self is PageTable ==> {
                 &&& slot_own is Some
                 &&& slot_own.unwrap()@.inv()
                 &&& slot_perm is Some
@@ -38,10 +39,11 @@ impl<C: PageTableConfig> Child<C> {
                 &&& slot_perm.unwrap()@.points_to.value().wf(*slot_own.unwrap()@)
                 &&& slot_perm.unwrap()@.addr() == slot_own.unwrap()@.self_addr
             }*/
-        ensures
-/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
+
+        ensures/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
             self is Frame ==> res == self.into_pte_frame_spec(self.get_frame_tuple().unwrap()),
             self is None ==> res == self.into_pte_none_spec(),*/
+
     {
         match self {
             Child::PageTable(node) => {
@@ -122,7 +124,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     )]
     pub fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
         requires
-//            pte.wf(*entry_owner),
+    //            pte.wf(*entry_owner),
+
             entry_owner.inv(),
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
@@ -131,7 +134,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             old(regions).inv(),
         ensures
             regions.inv(),
-            res.wf(*entry_owner)
+            res.wf(*entry_owner),
     {
         if !pte.is_present() {
             assert(entry_owner.is_absent()) by { admit() };
@@ -148,12 +151,12 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().as_node.meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
-            assert(node.inner.0.ptr.addr() == entry_owner.node.unwrap().as_node.meta_perm.addr()) by { admit() };
+            assert(node.inner.0.ptr.addr() == entry_owner.node.unwrap().as_node.meta_perm.addr())
+                by { admit() };
 
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
         }
-
         assert(entry_owner.is_frame()) by { admit() };
         assert(entry_owner.frame.unwrap().mapped_pa == paddr) by { admit() };
         assert(entry_owner.frame.unwrap().prop == pte.prop()) by { admit() };

@@ -8,7 +8,7 @@ verus! {
 #[rustc_has_incoherent_inherent_impls]
 pub enum Child<C: PageTableConfig> {
     /// A child page table node.
-    pub PageTable(  /*RcuDrop<*/ PageTableNode<C>  /*>*/),
+    pub PageTable(  /*RcuDrop<*/ PageTableNode<C>  /*>*/ ),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -72,7 +72,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
                 &&& owner.frame.unwrap().mapped_pa == paddr
                 &&& owner.frame.unwrap().prop == prop
             },
-            Self::None => owner.is_absent()
+            Self::None => owner.is_absent(),
         }
     }
 }

@@ -158,8 +158,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(regions).inv(),
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),
-            old(parent_owner).guard_perm.addr() == old(self).node.addr(),
-//            old(new_owner).relate_parent_guard_perm(old(parent_owner).guard_perm),
+            old(parent_owner).guard_perm.addr() == old(
+                self,
+            ).node.addr(),
+    //            old(new_owner).relate_parent_guard_perm(old(parent_owner).guard_perm),
+
         ensures
             parent_owner.inv(),
             regions.inv(),
@@ -201,7 +204,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             assert(_tmp > 0) by { admit() };
             nr_children.put(Tracked(&mut parent_owner.nr_children_perm), _tmp - 1);
         }
-
         assert(regions.slot_owners[frame_to_index(self.pte.paddr())]@.inv()) by { admit() };
         assert(new_child.wf(*new_owner)) by { admit() };
 
@@ -224,10 +226,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(self.wf(*new_owner)) by { admit() };
         assert(owner.inv()) by { admit() };
         assert(old_child.wf(*owner)) by { admit() };
-        
-//        proof {
-//           new_owner.base_addr = parent_owner.guard_perm.mem_contents().value().inner.inner.0.ptr.addr();
-//       }
+
+        //        proof {
+        //           new_owner.base_addr = parent_owner.guard_perm.mem_contents().value().inner.inner.0.ptr.addr();
+        //       }
 
         old_child
     }

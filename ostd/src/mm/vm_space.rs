@@ -41,7 +41,7 @@ verus! {
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl VmSpace {
+impl VmSpace<'_> {
     // /// Creates a new VM address space.
     // #[verus_spec(r =>
     //     ensures
@@ -430,8 +430,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, lv);
 
         // SAFETY: It is safe to map untyped memory into the userspace.
-        let Err(frag) = (#[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions))] self.pt_cursor.map(item)) else {
-            return; // No mapping exists at the current address.
+        let Err(frag) = (
+        #[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions))]
+        self.pt_cursor.map(item)) else {
+            return ;  // No mapping exists at the current address.
         };
 
         /*        match frag {

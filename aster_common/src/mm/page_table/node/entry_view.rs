@@ -30,8 +30,8 @@ pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
     pub map_va: int,
-//    pub frame_pa: int,
-//    pub in_frame_index: int,
+    //    pub frame_pa: int,
+    //    pub in_frame_index: int,
     pub map_to_pa: int,
     pub level: PagingLevel,
     pub prop: PageProperty,
@@ -40,8 +40,8 @@ pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {
 
 impl<C: PageTableConfig> Inv for LeafPageTableEntryView<C> {
     open spec fn inv(self) -> bool {
-//        &&& pa_is_valid_pt_address(self.frame_pa)
-//        &&& index_is_in_range(self.in_frame_index)
+        //        &&& pa_is_valid_pt_address(self.frame_pa)
+        //        &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_kernel_address(
             self.map_to_pa,
         )
@@ -60,8 +60,8 @@ impl<C: PageTableConfig> LeafPageTableEntryView<C> {
 
 pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
     pub map_va: int,
-//    pub frame_pa: int,
-//    pub in_frame_index: int,
+    //    pub frame_pa: int,
+    //    pub in_frame_index: int,
     pub map_to_pa: int,
     pub level: PagingLevel,
     pub phantom: PhantomData<C>,
@@ -69,12 +69,12 @@ pub ghost struct IntermediatePageTableEntryView<C: PageTableConfig> {
 
 impl<C: PageTableConfig> Inv for IntermediatePageTableEntryView<C> {
     open spec fn inv(self) -> bool {
-//        &&& pa_is_valid_pt_address(self.frame_pa)
-//        &&& index_is_in_range(self.in_frame_index)
+        //        &&& pa_is_valid_pt_address(self.frame_pa)
+        //        &&& index_is_in_range(self.in_frame_index)
         &&& pa_is_valid_pt_address(self.map_to_pa)
         &&& level_is_in_range(self.level as int)
         // No self-loop.
-//        &&& self.map_to_pa != self.frame_pa
+        //        &&& self.map_to_pa != self.frame_pa
         // The corresponding virtual address must be aligned to the page size.
         &&& self.map_va % (page_size_spec(self.level) as int) == 0
     }
@@ -105,18 +105,17 @@ impl<C: PageTableConfig> Inv for FrameView<C> {
                 &&& self.ancestor_chain[ancestor_level].level
                     == ancestor_level
                 // No loops.
-//                &&& #[trigger] self.ancestor_chain[ancestor_level].frame_pa
-//                    != self.leaf.map_to_pa
+                //                &&& #[trigger] self.ancestor_chain[ancestor_level].frame_pa
+                //                    != self.leaf.map_to_pa
                 // The map-to-addresses actually forms a chain.
                 &&& if ancestor_level == self.leaf.level + 1 {
                     self.ancestor_chain[ancestor_level].map_to_pa == self.leaf.map_to_pa
                 } else {
-/*                    &&& self.ancestor_chain.contains_key(ancestor_level - 1)
+                    /*                    &&& self.ancestor_chain.contains_key(ancestor_level - 1)
                         ==> #[trigger] self.ancestor_chain[ancestor_level].map_to_pa
                         == self.ancestor_chain[ancestor_level - 1].frame_pa*/
                     true
-                }
-/*                &&& if self.ancestor_chain.contains_key(ancestor_level + 1) {
+                }/*                &&& if self.ancestor_chain.contains_key(ancestor_level + 1) {
                     self.ancestor_chain[ancestor_level + 1].map_to_pa
                         == self.ancestor_chain[ancestor_level].frame_pa
                     } else {
