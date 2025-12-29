@@ -24,8 +24,8 @@ use super::{
 //    Pod,
 //};
 
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
 
 mod node;
 use node::*;

@@ -4,8 +4,8 @@ use vstd::simple_pptr::{self, PPtr};
 
 use vstd_extra::ownership::*;
 
-use std::marker::PhantomData;
-use std::ops::Deref;
+use core::marker::PhantomData;
+use core::ops::Deref;
 
 use super::*;
 

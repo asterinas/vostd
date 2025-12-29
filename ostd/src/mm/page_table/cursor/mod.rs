@@ -35,18 +35,18 @@ use vstd::simple_pptr::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::frame::{
+use crate::aster_common::frame::{
     frame_to_index, meta_to_frame, Frame, MetaRegionOwners, MetaSlotOwner, META_SLOT_SIZE
 };
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
 
 use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
 //use align_ext::AlignExt;
 
 use crate::{
-    mm::page_table::is_valid_range,
+    mm::{page_prop::PageProperty, page_table::is_valid_range},
     //    task::atomic_mode::InAtomicMode,
 };
 

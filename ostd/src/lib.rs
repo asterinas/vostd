@@ -50,6 +50,8 @@ pub mod sync;
 pub mod timer;
 pub mod trap;
 pub mod user;*/
+#[path = "../aster_common/mod.rs"]
+pub mod aster_common;
 #[path = "../specs/lib.rs"]
 pub mod specs;
 pub mod util;

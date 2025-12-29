@@ -12,7 +12,7 @@ use vstd_extra::ownership::*;
 
 use super::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 verus! {
 

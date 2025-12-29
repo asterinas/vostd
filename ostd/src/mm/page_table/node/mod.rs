@@ -36,9 +36,9 @@ use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -105,7 +105,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     pub(crate) unsafe fn activate(&self) {
         use crate::{
             arch::mm::{activate_page_table, current_page_table_paddr},
-            mm::CachePolicy,
+            mm::page_prop::CachePolicy,
         };
 
         assert_eq!(self.level(), C::NR_LEVELS);
@@ -128,7 +128,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     /// It will not try dropping the last activate page table. It is the same
     /// with [`Self::activate()`] in other senses.
     pub(super) unsafe fn first_activate(&self) {
-        use crate::{arch::mm::activate_page_table, mm::CachePolicy};
+        use crate::{arch::mm::activate_page_table, mm::page_prop::CachePolicy};
 
         // SAFETY: The safety is upheld by the caller.
         unsafe { activate_page_table(self.clone().into_raw(), CachePolicy::Writeback) };

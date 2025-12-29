@@ -22,7 +22,7 @@ mod test;
 
 use core::{fmt::Debug, ops::Range};
 
-pub use aster_common::prelude::*;
+pub use crate::aster_common::*;
 
 /// The maximum virtual address of user space (non inclusive).
 ///

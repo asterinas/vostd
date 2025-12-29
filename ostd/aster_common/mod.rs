@@ -10,9 +10,7 @@ mod error;
 mod mm;
 mod task;
 
-use arch::*;
-use error::*;
-use mm::*;
-use task::*;
-
-pub mod prelude;
+pub use arch::*;
+pub use error::*;
+pub use mm::*;
+pub use task::*;

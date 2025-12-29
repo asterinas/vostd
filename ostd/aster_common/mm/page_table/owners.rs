@@ -10,7 +10,7 @@ use vstd_extra::prelude::TreeNodeValue;
 
 use super::*;
 
-use std::ops::Deref;
+use core::ops::Deref;
 
 verus! {
 

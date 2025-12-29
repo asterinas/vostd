@@ -1,4 +1,4 @@
-use aster_common::prelude::CONST_MAX_PADDR;
+use crate::aster_common::CONST_MAX_PADDR;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 

@@ -16,6 +16,7 @@ use vstd_extra::prelude::lemma_usize_ilog2_ordered;
 use core::ops::Range;
 
 use super::*;
+use crate::mm::page_prop::PageProperty;
 
 verus! {
 

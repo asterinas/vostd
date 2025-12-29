@@ -6,7 +6,8 @@ use core::fmt::Debug;
 use vstd_extra::prelude::*;
 
 use super::*;
-use crate::page_table::*;
+use crate::aster_common::mm::page_table::*;
+use crate::mm::page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags};
 
 decl_bms_const!(
     PAGE_FLAG_MAPPING,

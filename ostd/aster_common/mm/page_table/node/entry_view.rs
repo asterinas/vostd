@@ -1,8 +1,9 @@
 use vstd::prelude::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use super::*;
+use crate::mm::page_prop::PageProperty;
 
 verus! {
 

@@ -1,8 +1,6 @@
 [workspace]
 members = [
     "vstd_extra",
-    "aster_common",
-    "demo",
     "ostd",
     "ostd/libs/align_ext",
 #    "ostd/libs/ostd-macros",

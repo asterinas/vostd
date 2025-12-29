@@ -9,8 +9,8 @@ use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta};
 
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 verus! {
 
@@ -553,7 +553,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     pub(crate) fn into_raw(self) -> Range<Paddr> {
         proof {
             broadcast use vstd_extra::seq_extra::lemma_seq_to_set_map_contains;
-            broadcast use aster_common::prelude::frame::lemma_paddr_to_meta_biinjective;
+            broadcast use crate::aster_common::frame::lemma_paddr_to_meta_biinjective;
             // Adjust the permission by transferring all
             // PointsTo perms from `owner` into `regions.dropped_slots`.
 

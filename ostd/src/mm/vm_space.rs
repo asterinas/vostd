@@ -10,10 +10,10 @@ use vstd::prelude::*;
 
 use core::{ops::Range, sync::atomic::Ordering};
 
-use aster_common::prelude::frame::{MetaRegionOwners, MetaSlotOwner};
+use crate::aster_common::frame::{MetaRegionOwners, MetaSlotOwner};
 use crate::mm::frame::untyped::UFrame;
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
 
 use vstd_extra::ghost_tree::*;
 
@@ -25,7 +25,7 @@ use crate::{
         // kspace::KERNEL_PAGE_TABLE,
         // page_table,
         //        tlb::{TlbFlushOp, TlbFlusher},
-        PageProperty,
+        page_prop::PageProperty,
         PagingLevel,
         io::{VmReader, VmWriter},
         MAX_USERSPACE_VADDR,
@@ -282,7 +282,7 @@ impl Default for VmSpace {
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
 pub struct Cursor<'a, A: InAtomicMode>(
-    pub aster_common::prelude::page_table::Cursor<'a, UserPtConfig, A>,
+    pub crate::aster_common::page_table::Cursor<'a, UserPtConfig, A>,
 );
 
 /*
@@ -397,7 +397,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: aster_common::prelude::page_table::CursorMut<
+    pub pt_cursor: crate::aster_common::page_table::CursorMut<
         'a,
         UserPtConfig,
         A,

@@ -1,6 +1,7 @@
 use vstd::prelude::*;
 
 use super::*;
+use crate::mm::page_prop::PageProperty;
 
 verus! {
 

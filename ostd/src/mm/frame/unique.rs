@@ -4,8 +4,8 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;

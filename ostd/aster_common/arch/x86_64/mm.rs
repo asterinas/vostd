@@ -5,6 +5,7 @@ use vstd_extra::prelude::*;
 use core::ops::Range;
 
 use super::*;
+use crate::mm::page_prop::CachePolicy;
 
 extern_const!(
 /// Page size.

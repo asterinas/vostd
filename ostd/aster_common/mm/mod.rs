@@ -1,6 +1,5 @@
 pub mod frame;
 mod kspace;
-mod page_prop;
 pub mod page_table;
 
 use frame::{
@@ -9,7 +8,6 @@ use frame::{
 };
 
 pub use kspace::*;
-pub use page_prop::*;
 use page_table::{PageTableConfig, PageTablePageMeta};
 
 use vstd::prelude::*;
@@ -22,7 +20,7 @@ use vstd_extra::extern_const;
 
 use super::*;
 
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 verus! {
 

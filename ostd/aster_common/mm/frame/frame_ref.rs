@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use std::ops::Deref;
+use core::ops::Deref;
 
 use vstd_extra::external::manually_drop::*;
 use vstd_extra::undroppable::*;

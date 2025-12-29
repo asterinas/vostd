@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use super::*;
 

@@ -4,8 +4,8 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 verus! {
 

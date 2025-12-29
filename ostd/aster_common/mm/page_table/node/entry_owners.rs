@@ -6,6 +6,7 @@ use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 
 use super::*;
+use crate::mm::page_prop::PageProperty;
 
 verus! {
 

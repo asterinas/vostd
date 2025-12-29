@@ -7,9 +7,9 @@ use vstd::simple_pptr::*;
 use vstd_extra::cast_ptr;
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
 
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;

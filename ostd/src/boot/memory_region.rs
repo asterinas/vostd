@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use aster_common::prelude::*;
+use crate::aster_common::*;
 use crate::specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;

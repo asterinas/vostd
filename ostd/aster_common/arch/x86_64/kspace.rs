@@ -3,7 +3,7 @@ use vstd::prelude::*;
 use vstd_extra::extern_const::*;
 
 use super::*;
-use crate::frame::*;
+use crate::aster_common::mm::frame::*;
 
 use core::ops::Range;
 

@@ -13,9 +13,9 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::ptr_extra::*;
 
-use aster_common::prelude::frame::CursorMut;
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::CursorMut;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 use core::borrow::BorrowMut;
 use core::{

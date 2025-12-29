@@ -2,9 +2,10 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::page_table::*;
+use crate::aster_common::*;
+use crate::mm::page_prop::PageProperty;
 
 verus! {
 

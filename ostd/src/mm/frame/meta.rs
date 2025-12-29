@@ -13,8 +13,8 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 use vstd::atomic::PermissionU64;
 use vstd::cell::{self, PCell};
@@ -44,11 +44,9 @@ use crate::{
         //        kspace::LINEAR_MAPPING_BASE_VADDR,
         paddr_to_vaddr,
         //        page_table::boot_pt,
-        CachePolicy,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
         /*Infallible,*/ Paddr,
-        PageFlags,
-        PageProperty,
-        PrivilegedPageFlags, //Segment,
+        //Segment,
         Vaddr,
         /*VmReader,*/ PAGE_SIZE,
     },

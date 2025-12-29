@@ -2,7 +2,7 @@
 use vstd::prelude::*;
 use vstd::std_specs::convert::ExFrom;
 
-use crate::mm::page_table::PageTableError;
+use crate::aster_common::mm::page_table::PageTableError;
 
 verus! {
 

@@ -49,7 +49,7 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::mm::pod::{Pod, PodOnce};
-use aster_common::prelude::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
+use crate::aster_common::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 
 verus! {
 

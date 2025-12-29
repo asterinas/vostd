@@ -6,8 +6,8 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
 
 use super::Frame;
 use crate::{mm::Paddr /*, sync::non_null::NonNullPtr*/};

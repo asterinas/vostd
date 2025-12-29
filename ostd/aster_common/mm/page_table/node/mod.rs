@@ -17,7 +17,7 @@ use vstd::cell::PCell;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use super::*;
 
