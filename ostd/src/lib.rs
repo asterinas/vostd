@@ -50,6 +50,8 @@ pub mod sync;
 pub mod timer;
 pub mod trap;
 pub mod user;*/
+#[path = "../specs/lib.rs"]
+pub mod specs;
 pub mod util;
 
 /*use core::sync::atomic::{AtomicBool, Ordering};

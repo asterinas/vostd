@@ -9,7 +9,7 @@ use aster_common::prelude::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use ostd_specs::*;
+use crate::specs::*;
 
 use crate::{
     mm::{Paddr, PagingLevel},

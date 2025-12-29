@@ -24,7 +24,7 @@ use core::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use ostd_specs::*;
+use crate::specs::*;
 
 use crate::mm::{Paddr, Vaddr};
 

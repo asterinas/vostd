@@ -302,7 +302,6 @@ dependencies = [
  "minicov",
  "multiboot2",
  "num-traits",
- "ostd_specs",
  "riscv",
  "sbi-rt",
  "smallvec",
@@ -314,15 +313,6 @@ dependencies = [
  "vstd_extra",
  "x86",
  "x86_64",
-]
-
-[[package]]
-name = "ostd_specs"
-version = "0.1.0"
-dependencies = [
- "aster_common",
- "vstd",
- "vstd_extra",
 ]
 
 [[package]]

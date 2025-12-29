@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use aster_common::prelude::*;
-use ostd_specs::{MemRegionModel, MemoryRegionArrayModel};
+use crate::specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;
 
