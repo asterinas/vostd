@@ -10,7 +10,8 @@ use vstd::prelude::*;
 
 use core::{ops::Range, sync::atomic::Ordering};
 
-use aster_common::prelude::frame::{MetaRegionOwners, MetaSlotOwner, UFrame};
+use aster_common::prelude::frame::{MetaRegionOwners, MetaSlotOwner};
+use crate::mm::frame::untyped::UFrame;
 use aster_common::prelude::page_table::*;
 use aster_common::prelude::*;
 
@@ -26,8 +27,7 @@ use crate::{
         //        tlb::{TlbFlushOp, TlbFlusher},
         PageProperty,
         PagingLevel,
-        VmReader,
-        VmWriter,
+        io::{VmReader, VmWriter},
         MAX_USERSPACE_VADDR,
     },
     prelude::*,

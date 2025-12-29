@@ -6,7 +6,6 @@ mod meta_owners;
 mod meta_region_owners;
 mod segment;
 mod unique;
-mod untyped;
 
 pub use frame_ref::*;
 pub use linked_list::*;
@@ -16,7 +15,6 @@ pub use meta_owners::*;
 pub use meta_region_owners::*;
 pub use segment::*;
 pub use unique::*;
-pub use untyped::*;
 
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};

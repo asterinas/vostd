@@ -5,7 +5,7 @@ use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_new, seq_tracked
 
 use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
-use crate::mm::frame::inc_frame_ref_count;
+use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta};
 
 use vstd_extra::ownership::*;
 
