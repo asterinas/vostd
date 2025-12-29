@@ -4,7 +4,6 @@ mod kspace;
 mod page_prop;
 pub mod page_table;
 pub mod pod;
-mod vm_space;
 
 use frame::{
     meta_to_frame, AnyFrameMeta, Frame, FrameRef, MetaSlot, MetaSlotOwner, MetaSlotStorage,
@@ -15,7 +14,6 @@ pub use io::*;
 pub use kspace::*;
 pub use page_prop::*;
 use page_table::{PageTableConfig, PageTablePageMeta};
-pub use vm_space::*;
 
 use vstd::prelude::*;
 
