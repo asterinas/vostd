@@ -198,6 +198,17 @@ impl VirtPtr {
         dst.write_offset(Tracked(mem), n, x)
     }
 
+    pub open spec fn memcpy_spec(src: Self, dst: Self, mem: MemView, n: usize) -> MemView
+        decreases n
+    {
+        if n == 0 {
+            mem
+        } else {
+            let mem = Self::copy_offset_spec(src, dst, mem, (n-1) as usize);
+            Self::memcpy_spec(src, dst, mem, (n-1) as usize)
+        }
+    }
+
     pub fn memcpy(src: &Self, dst: &Self, Tracked(mem): Tracked<&mut MemView>, n: usize)
         requires
             src.inv(),
@@ -217,6 +228,8 @@ impl VirtPtr {
                 dst.vaddr <= i < dst.vaddr + n ==> {
                     &&& old(mem).addr_transl(i) is Some
                 },
+        ensures
+            mem == Self::memcpy_spec(*src, *dst, *old(mem), n)
         decreases n
     {
         let ghost mem0 = *mem;
