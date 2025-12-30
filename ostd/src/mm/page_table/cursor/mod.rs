@@ -51,7 +51,7 @@ use crate::{
 };
 
 use super::{
-    pte_index, Child, ChildRef, Entry, PageTable, PageTableConfig, PageTableError, PageTableGuard,
+    pte_index, Child, ChildRef, Entry, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableError, PageTableGuard, PageTablePageMeta,
     PagingConstsTrait, PagingLevel,
 };
 

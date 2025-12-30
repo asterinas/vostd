@@ -8,7 +8,8 @@ use frame::{
 };
 
 pub use kspace::*;
-use page_table::{PageTableConfig, PageTablePageMeta};
+use page_table::PageTableConfig;
+use crate::mm::page_table::PageTablePageMeta;
 
 use vstd::prelude::*;
 

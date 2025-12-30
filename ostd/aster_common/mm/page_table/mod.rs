@@ -1,8 +1,6 @@
-mod node;
 mod owners;
 mod view;
 
-pub use node::*;
 pub use owners::*;
 pub use view::*;
 
@@ -328,7 +326,7 @@ pub trait PageTableEntryTrait:
 /// A page table can track the lifetime of the mapped physical pages.
 #[rustc_has_incoherent_inherent_impls]
 pub struct PageTable<C: PageTableConfig> {
-    pub root: PageTableNode<C>,
+    pub root: crate::mm::page_table::PageTableNode<C>,
 }
 
 #[verifier::inline]

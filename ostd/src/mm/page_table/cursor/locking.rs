@@ -9,7 +9,7 @@ use vstd::simple_pptr::*;
 use crate::mm::{
     nr_subpage_per_huge, paddr_to_vaddr,
     page_table::{
-        load_pte, page_size, pte_index, ChildRef, Cursor, CursorOwner, PageTable, PageTableConfig, PageTableEntryTrait,
+        load_pte, page_size, pte_index, ChildRef, Cursor, CursorOwner, EntryOwner, FrameView, PageTable, PageTableConfig, PageTableEntryTrait,
         PageTableGuard, PageTableNodeRef, PagingConstsTrait, PagingLevel,
     },
     Vaddr,

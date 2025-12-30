@@ -4,6 +4,7 @@ use vstd_extra::ownership::*;
 
 use crate::aster_common::frame::*;
 use crate::aster_common::page_table::*;
+use crate::mm::page_table::*;
 use crate::aster_common::*;
 use crate::mm::page_prop::PageProperty;
 

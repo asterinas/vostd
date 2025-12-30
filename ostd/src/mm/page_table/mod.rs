@@ -28,7 +28,7 @@ use crate::aster_common::page_table::*;
 use crate::aster_common::*;
 
 mod node;
-use node::*;
+pub use node::*;
 mod cursor;
 
 pub(crate) use cursor::*;

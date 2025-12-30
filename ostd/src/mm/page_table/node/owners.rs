@@ -5,7 +5,7 @@ use vstd::simple_pptr::*;
 
 use super::*;
 
-use crate::aster_common::mm::frame::META_SLOT_SIZE;
+use crate::aster_common::frame::META_SLOT_SIZE;
 
 verus! {
 
