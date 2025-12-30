@@ -6,845 +6,229 @@ use vstd::set;
 use vstd::set_lib;
 
 use core::marker::PhantomData;
+use core::ops::Range;
 
-use crate::array_ptr;
+use crate::prelude::Inv;
 
 verus! {
 
-/// Concrete representation of a pointer to an array of size N*F in virtual memory
-/// which maps to N underlying physical frames of size F.
-pub struct VirtPtr<V, const N: usize, const F: usize> {
-    pub base_vaddr: usize,
-    pub index: usize,
-    pub _type: PhantomData<[[V; F]; N]>,
+/// Concrete representation of a pointer 
+pub struct VirtPtr {
+    pub vaddr: usize,
+    pub ghost range: Ghost<Range<usize>>,
 }
 
-#[verifier::accept_recursive_types(V)]
-pub tracked struct PointsTo<V, const N: usize, const F: usize> {
-    pub base_vaddr: usize,
-    // Vaddr -> PointsTo
-    pub perms: Map<usize, crate::array_ptr::PointsToArray<V, F>>,
+pub struct Mapping {
+    pub va_range: Range<usize>,
+    pub base_paddr: usize,
 }
 
-/*/// Permission to access an array of values
-pub tracked struct PointsTo<V, const N: usize> {
-    exposed: raw_ptr::IsExposed,
-    dealloc: Option<raw_ptr::Dealloc>,
-}*/
-
-pub ghost struct PointsToData<V, const N: usize, const F: usize> {
-    pub base_vaddr: usize,
-    pub value: Seq<raw_ptr::MemContents<V>>,
+pub tracked struct MemView {
+    pub mappings: Set<Mapping>,
+    pub memory: Map<usize, raw_ptr::MemContents<u8>>
 }
 
-/*impl<V, const N: usize> PointsToArrayData<V, N> {
-    #[verifier::external_body]
-    pub proof fn into_ptr(tracked self) -> (tracked data: raw_ptr::PointsToData<[V; N]>)
-        ensures
-            data.ptr == self.ptr,
-            data.opt_value == mem_contents_unwrap(self.value),
-    {
-        unimplemented!();
+impl MemView {
+    pub open spec fn addr_transl(self, va: usize) -> Option<usize> {
+        let mappings = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+        if 0 < mappings.len() {
+            let m = mappings.choose(); // In a well-formed PT there will only be one, but if malformed this is non-deterministic!
+            let off = va - m.va_range.start;
+            Some((m.base_paddr + off) as usize)
+        } else {
+            None
+        }
     }
 
-    #[verifier::external_body]
-    pub proof fn into_array(tracked data: raw_ptr::PointsToData<[V; N]>) -> (tracked res:
-        PointsToArrayData<V, N>)
-        ensures
-            res.ptr == data.ptr,
-            res.value == mem_contents_wrap(data.opt_value),
-    {
-        unimplemented!();
-    }
-}
-*/
-
-impl<T, const N: usize, const F: usize> View for PointsTo<T, N, F> {
-    type V = PointsToData<T, N, F>;
-
-    uninterp spec fn view(&self) -> Self::V;
-}
-
-impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
-    /*    #[verifier::inline]
-    pub open spec fn ptr(self) -> *mut [V; N] {
-        self@.ptr
-    }*/
-    #[verifier::inline]
-    pub open spec fn opt_value(self) -> Seq<raw_ptr::MemContents<V>> {
-        self@.value
+    pub open spec fn read(self, va:usize) -> Option<raw_ptr::MemContents<u8>> {
+        let pa = self.addr_transl(va);
+        if pa is Some {
+            Some(self.memory[pa.unwrap()])
+        } else {
+            None
+        }
     }
 
-    #[verifier::inline]
-    pub open spec fn is_init(self, index: int) -> bool {
-        0 <= index < N && self.opt_value()[index].is_init()
+    pub open spec fn write(self, va:usize, x: u8) -> Option<Self> {
+        let pa = self.addr_transl(va);
+        if pa is Some {
+            Some(MemView { memory: self.memory.insert(pa.unwrap(), raw_ptr::MemContents::Init(x)), ..self } )
+        } else {
+            None
+        }
     }
 
-    #[verifier::inline]
-    pub open spec fn is_uninit(self, index: int) -> bool {
-        0 <= index < N && self.opt_value()[index].is_uninit()
-    }
-
-    /*    #[verifier::inline]
-    pub open spec fn is_init_all(self) -> bool {
-        is_mem_contents_all_init(self.opt_value())
-    }
-
-    #[verifier::inline]
-    pub open spec fn is_uninit_all(self) -> bool {
-        is_mem_contents_all_uninit(self.opt_value())
-    }*/
-    #[verifier::inline]
-    pub open spec fn value(self) -> Seq<V>
-    //        recommends
-    //            self.is_init_all(),
-     {
-        let opt_value = self.opt_value();
-        Seq::new(N as nat, |i: int| opt_value[i].value())
-    }/*
-    #[verifier::external_body]
-    pub proof fn leak_contents(tracked &mut self, index: int)
-        ensures
-            self.ptr() == old(self).ptr(),
-            self.is_uninit(index),
-            forall|i: int|
-                0 <= i < N && i != index ==> self.opt_value()[i] == old(self).opt_value()[i],
-    {
-        unimplemented!();
-    }
-
-    #[verifier::external_body]
-    pub proof fn is_disjoint<S, const M: usize, const G: usize>(&self, other: &PointsTo<S, M, G>)
-        ensures
-            self.ptr() as int + layout::size_of::<[V; N]>() <= other.ptr() as int
-                || other.ptr() as int + layout::size_of::<[S; M]>() <= self.ptr() as int,
-    {
-        unimplemented!();
-    }
-
-    #[verifier::external_body]
-    pub proof fn is_disjoint_ptr<S>(&self, other: &raw_ptr::PointsTo<S>)
-        ensures
-            self.ptr() as int + layout::size_of::<[V; N]>() <= other.ptr() as int
-                || other.ptr() as int + layout::size_of::<S>() <= self.ptr() as int,
-    {
-        unimplemented!();
-    }
-
-    #[verifier::external_body]
-    pub proof fn is_nonnull(tracked &self)
-        requires
-            layout::size_of::<[V; N]>() > 0,
-        ensures
-            self@.ptr@.addr != 0,
-    {
-        unimplemented!();
-    }*/
-
-}
-
-/*
-/// Reading and writing to an array of values
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_mut_fill<V, const N: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&mut PointsToArray<V, N>>,
-    value: V,
-) where V: Copy
-    requires
-        old(perm).ptr() == ptr,
-        old(perm).is_uninit_all(),
-    ensures
-        perm.ptr() == ptr,
-        perm.is_init_all(),
-        forall|i: int| 0 <= i < N ==> perm.opt_value()[i] == raw_ptr::MemContents::Init(value),
-    opens_invariants none
-    no_unwind
-{
-    for i in 0..N {
-        unsafe {
-            core::ptr::write((ptr as *mut V).add(i), value);
+    pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
+        let pa1 = self.addr_transl(va1);
+        let pa2 = self.addr_transl(va2);
+        if pa1 is Some && pa2 is Some {
+            self.memory[pa1.unwrap()] == self.memory[pa2.unwrap()]
+        } else {
+            false
         }
     }
 }
 
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_mut_write_at<V, const N: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&mut PointsToArray<V, N>>,
-    index: usize,
-    value: V,
-)
-    requires
-        old(perm).ptr() == ptr,
-        old(perm).is_uninit(index as int),
-        index < N,
-    ensures
-        perm.ptr() == ptr,
-        perm.is_init(index as int),
-        forall|i: int| 0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-        perm.opt_value()[index as int] == raw_ptr::MemContents::Init(value),
-    opens_invariants none
-    no_unwind
-{
-    unsafe {
-        core::ptr::write((ptr as *mut V).add(index), value);
+impl Inv for VirtPtr {
+    open spec fn inv(self) -> bool {
+        &&& self.range@.start > 0
+        &&& self.range@.end - self.range@.start > 0
     }
 }
 
-/// Read only once and the value will be moved out side of the array
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_mut_read_at<V, const N: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&mut PointsToArray<V, N>>,
-    index: usize,
-) -> (res: V) where V: Copy
-    requires
-        old(perm).ptr() == ptr,
-        old(perm).is_init(index as int),
-        index < N,
-    ensures
-        perm.ptr() == ptr,
-        perm.is_uninit(index as int),
-        forall|i: int| 0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-        res == old(perm).opt_value()[index as int].value(),
-    opens_invariants none
-    no_unwind
-{
-    unsafe { core::ptr::read((ptr as *const V).add(index)) }
-}
-
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_mut_read_all<V, const N: usize, const F: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&mut PointsTo<V, N>>,
-) -> (res: [V; N])
-    requires
-        old(perm).ptr() == ptr,
-        old(perm).is_init_all(),
-    ensures
-        perm.ptr() == ptr,
-        perm.is_uninit_all(),
-        res@ == old(perm).value(),
-    opens_invariants none
-    no_unwind
-{
-    unsafe { core::ptr::read(ptr) }
-}
-
-/// Get the immutable reference of the value at the index
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_ref_at<V, const N: usize, const F: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&PointsTo<V, N, F>>,
-    index: usize,
-) -> (res: &V)
-    requires
-        perm.ptr() == ptr,
-        perm.is_init(index as int),
-    ensures
-        res == perm.opt_value()[index as int].value(),
-    opens_invariants none
-    no_unwind
-{
-    unsafe { &*((ptr as *const V).add(index)) }
-}
-
-/// Get the immutable reference of the entire array
-#[inline(always)]
-#[verifier::external_body]
-pub exec fn ptr_ref<V, const N: usize>(
-    ptr: *mut [V; N],
-    Tracked(perm): Tracked<&PointsTo<V, N>>,
-) -> (res: &[V; N])
-    requires
-        perm.ptr() == ptr,
-        perm.is_init_all(),
-    ensures
-        forall|i: int| 0 <= i < N ==> #[trigger] res[i] == perm.opt_value()[i].value(),
-    opens_invariants none
-    no_unwind
-{
-    unsafe { &*ptr }
-}
-
-broadcast use {
-    raw_ptr::group_raw_ptr_axioms,
-    set_lib::group_set_lib_default,
-    set::group_set_axioms,
-};*/
-
-impl<V, const N: usize, const F: usize> VirtPtr<V, N, F> {
-    /// Impl: cast the pointer to an integer
-    #[inline(always)]
-    #[vstd::contrib::auto_spec]
-    pub exec fn addr(&self) -> usize
-        returns
-            self.base_vaddr,
-    {
-        self.base_vaddr
-    }
-
-    /// Impl: cast an integer to the pointer
-    #[inline(always)]
-    pub exec fn from_addr(addr: usize) -> (res: Self)
-        ensures
-            res.base_vaddr == addr,
-            res.index == 0,
-    {
-        Self { base_vaddr: addr, index: 0, _type: PhantomData }
-    }
-
-    #[vstd::contrib::auto_spec]
-    pub exec fn add(self, off: usize) -> Self
-        requires
-            self.index + off
-                <= N  // C standard style: don't exceed one-past the end of the array
-            ,
-    {
-        Self { base_vaddr: self.base_vaddr, index: (self.index + off) as usize, _type: PhantomData }
-    }
-}
-
-impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
-    /// Spec: cast the permission to an integer
-    pub closed spec fn addr(self) -> usize {
-        self.base_vaddr
-    }
-
-    /// Spec: cast the permission to a pointer
-    pub open spec fn is_pptr(self, ptr: VirtPtr<V, N, F>) -> bool {
-        ptr.base_vaddr == self.addr()
-    }
-
-    pub open spec fn inv(self) -> bool {
-        &&& forall|i: usize|
-            0 <= i < N ==> {
-                &&& self.perms.contains_key(
-                    i,
-                )
-                //                &&& self.perms[i].wf()
-
-            }&&& self.addr() != 0
-    }
-
-    pub open spec fn value_at(self, va: usize) -> raw_ptr::MemContents<V>
-        recommends
-            self.base_vaddr <= va < self.base_vaddr + N * F,
-    {
-        let page = va / F;
-        let offset = va % F;
-        self.perms[page].opt_value()[offset as int]
-    }/*
-    /// Spec: invariants for the ArrayPtr permissions
-    /// TODO: uncomment the below if "external_type_specification: Const params not yet supported" is fixed
-    /// #[verifier::type_invariant]
-    pub closed spec fn wf(self) -> bool {
-        /// The pointer is not a slice, so it is still thin
-        &&& self.points_to.ptr()@.metadata == ()
-        &&& self.points_to.ptr()@.provenance == self.exposed.provenance()
-        &&& match self.dealloc {
-            Some(dealloc) => {
-                &&& dealloc.addr() == self.addr()
-                &&& dealloc.size() == layout::size_of::<[V; N]>()
-                &&& dealloc.align() == layout::align_of::<[V; N]>()
-                &&& dealloc.provenance() == self.exposed.provenance()
-                &&& layout::size_of::<[V; N]>() > 0
-            },
-            None => { layout::size_of::<[V; N]>() == 0 },
-        }
-        &&& self.addr() != 0
-    }
-
-    pub closed spec fn points_to(self) -> PointsToArray<V, N> {
-        self.points_to
-    }
-
-    pub open spec fn opt_value(self) -> [raw_ptr::MemContents<V>; N] {
-        self.points_to().opt_value()
-    }
-
-    pub open spec fn value(self) -> Seq<V>
-        recommends
-            self.is_init_all(),
-    {
-        self.points_to().value()
-    }
-
-    #[verifier::inline]
-    pub open spec fn is_init(self, index: int) -> bool {
-        self.points_to().is_init(index)
-    }
-
-    #[verifier::inline]
-    pub open spec fn is_uninit(self, index: int) -> bool {
-        !self.points_to().is_init(index)
-    }
-
-    #[verifier::inline]
-    pub open spec fn is_init_all(self) -> bool {
-        self.points_to().is_init_all()
-    }
-
-    #[verifier::inline]
-    pub open spec fn is_uninit_all(self) -> bool {
-        self.points_to().is_uninit_all()
-    }
-
-    pub proof fn is_nonnull(tracked self)
-        requires
-            self.wf(),
-        ensures
-            self.addr() != 0,
-    {
-        self.wf();
-    }
-
-    pub proof fn leak_contents(tracked &mut self, index: int)
-        requires
-            old(self).wf(),
-        ensures
-            self.wf(),
-            self.addr() == old(self).addr(),
-            self.is_uninit(index),
-            forall|i: int|
-                0 <= i < N && i != index ==> self.opt_value()[i] == old(self).opt_value()[i],
-    {
-        self.wf();
-        self.points_to.leak_contents(index);
-    }
-
-    pub proof fn is_disjoint<S, const M: usize>(&self, other: &PointsTo<S, M>)
-        ensures
-            self.addr() + layout::size_of::<[V; N]>() <= other.addr() || other.addr()
-                + layout::size_of::<[S; M]>() <= self.addr(),
-    {
-        self.points_to.is_disjoint(&other.points_to)
-    }
-
-    pub proof fn is_distinct<S, const M: usize>(&self, other: &PointsTo<S, M>)
-        requires
-            layout::size_of::<[V; N]>() != 0,
-            layout::size_of::<[S; M]>() != 0,
-        ensures
-            self.addr() != other.addr(),
-    {
-        self.points_to.is_disjoint(&other.points_to);
-    }*/
-
-}
-
-impl<V, const N: usize, const F: usize> PointsTo<V, N, F> {
-    /*
-    #[verifier::external_body]
-    pub proof fn into_array(tracked pt: raw_ptr::PointsTo<[V; N]>) -> (tracked res: PointsToArray<
-        V,
-        N,
-    >)
-        ensures
-            res@.ptr == pt@.ptr,
-            res@.value == mem_contents_wrap(pt@.opt_value),
-    {
-        Tracked::<PointsToArray<V, N>>::assume_new().get()
-    }
-
-    #[verifier::external_body]
-    pub proof fn into_ptr(tracked self) -> (tracked res: raw_ptr::PointsTo<[V; N]>)
-        ensures
-            res@.ptr == self@.ptr,
-            res@.opt_value == mem_contents_unwrap(self@.value),
-    {
-        Tracked::<raw_ptr::PointsTo<[V; N]>>::assume_new().get()
-    }*/
-
-}
-
-impl<V, const N: usize, const F: usize> Clone for VirtPtr<V, N, F> {
+impl Clone for VirtPtr {
     fn clone(&self) -> (res: Self)
         ensures
-            res === *self,
+            res == self
     {
-        Self { ..*self }
+        Self {
+            vaddr: self.vaddr,
+            range: Ghost(self.range@)
+        }
     }
 }
 
-impl<V, const N: usize, const F: usize> Copy for VirtPtr<V, N, F> {
-
-}
-
-#[verifier::external_body]
-#[inline(always)]
-pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
-    ensures
-        layout::valid_layout(
-            layout::size_of::<[V; N]>() as usize,
-            layout::align_of::<[V; N]>() as usize,
-        ),
-        layout::size_of::<[V; N]>() as usize as nat == layout::size_of::<[V; N]>(),
-        layout::align_of::<[V; N]>() as usize as nat == layout::align_of::<[V; N]>(),
-    opens_invariants none
-    no_unwind
-{
-}
-
-impl<V, const N: usize, const F: usize> VirtPtr<V, N, F> {
-    /*
-    pub exec fn empty() -> (res: (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
-        requires
-            layout::size_of::<[V; N]>() > 0,
-        ensures
-            res.1@.wf(),
-            res.1@.is_pptr(res.0),
-            res.1@.is_uninit_all(),
-    {
-        layout_for_array_is_valid::<V, N>();
-        let (p, Tracked(raw_perm), Tracked(dealloc)) = raw_ptr::allocate(
-            core::mem::size_of::<[V; N]>(),
-            core::mem::align_of::<[V; N]>(),
-        );
-        let Tracked(exposed) = raw_ptr::expose_provenance(p);
-        let tracked ptr_perm = raw_perm.into_typed::<[V; N]>(p as usize);
-        proof {
-            ptr_perm.is_nonnull();
-            assert(ptr_perm.is_uninit());
-        }
-
-        let tracked arr_perm = PointsToArray::into_array(ptr_perm);
-        proof {
-            arr_perm.is_nonnull();
-            axiom_mem_contents_wrap_correctness(ptr_perm.opt_value(), arr_perm@.value);
-            assert(arr_perm.is_uninit_all());
-        }
-        let tracked pt = PointsTo { points_to: arr_perm, exposed, dealloc: Some(dealloc) };
-        proof {
-            assert(pt.is_uninit_all());
-        }
-        let ptr = ArrayPtr { addr: p as usize, index: 0, _type: PhantomData };
-        (ptr, Tracked(pt))
+impl VirtPtr {
+    pub open spec fn is_defined(self) -> bool {
+        &&& self.vaddr != 0
+        &&& self.range@.start <= self.vaddr <= self.range@.end
     }
 
-    #[inline(always)]
-    pub exec fn make_as(&self, Tracked(perm): Tracked<&mut PointsTo<V, N>>, value: V) where V: Copy
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            old(perm).is_uninit_all(),
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init_all(),
-            forall|i: int| 0 <= i < N ==> perm.opt_value()[i] == raw_ptr::MemContents::Init(value),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_uninit_all());
-        ptr_mut_fill(ptr, Tracked(&mut perm.points_to), value);
-    }
-
-    pub exec fn new(dft: V) -> (res: (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where V: Copy
-        requires
-            layout::size_of::<[V; N]>() > 0,
-        ensures
-            res.1@.wf(),
-            res.1@.is_pptr(res.0),
-            forall|i: int|
-                0 <= i < N ==> #[trigger] res.1@.opt_value()[i] == raw_ptr::MemContents::Init(dft),
-    {
-        let (p, Tracked(perm)) = ArrayPtr::empty();
-        proof {
-            assert(perm.wf());
-            assert(perm.is_pptr(p));
-            assert(perm.is_uninit_all());
-        }
-        p.make_as(Tracked(&mut perm), dft);
-        (p, Tracked(perm))
-    }
-
-    pub exec fn free(self, Tracked(perm): Tracked<PointsTo<V, N>>)
-        requires
-            perm.wf(),
-            perm.is_pptr(self),
-            perm.is_uninit_all(),
-    {
-        if core::mem::size_of::<[V; N]>() == 0 {
-            return ;
-        }
-        assert(core::mem::size_of::<[V; N]>() > 0);
-        let ptr: *mut u8 = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-        let tracked PointsTo { points_to, dealloc: dea, exposed } = perm;
-
-        proof {
-            assert(perm.is_uninit_all());
-            assert(points_to.is_uninit_all());
-        }
-        let tracked perm_ptr: raw_ptr::PointsTo<[V; N]> = points_to.into_ptr();
-        proof {
-            axiom_mem_contents_unwrap_uninit_correctness(points_to@.value, perm_ptr.opt_value());
-            assert(perm_ptr.is_uninit());
-        }
-        let tracked perm_raw = perm_ptr.into_raw();
-
-        raw_ptr::deallocate(
-            ptr,
-            core::mem::size_of::<[V; N]>(),
-            core::mem::align_of::<[V; N]>(),
-            Tracked(perm_raw),
-            Tracked(dea.tracked_unwrap()),
-        );
-    }
-
-    /// Insert `value` at `index`
-    /// The value is moved into the array.
-    /// Requires the slot at `index` to be uninitialized.
-    #[inline(always)]
-    pub exec fn insert(&self, Tracked(perm): Tracked<&mut PointsTo<V, N>>, value: V)
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            old(perm).is_uninit(self.index as int),
-            self.index < N,
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(self.index as int),
-            forall|i: int|
-                0 <= i < N && i != self.index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-            perm.opt_value()[self.index as int] == raw_ptr::MemContents::Init(value),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_uninit(self.index as int));
-        ptr_mut_write_at(ptr, Tracked(&mut perm.points_to), self.index, value);
-    }
-
-    /// Take the `value` at `index`
-    /// The value is moved out of the array.
-    /// Requires the slot at `index` to be initialized.
-    /// Afterwards, the slot is uninitialized.
-    #[inline(always)]
-    pub exec fn take_at(&self, Tracked(perm): Tracked<&mut PointsTo<V, N>>) -> (res: V) where
-        V: Copy,
-
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            old(perm).is_init(self.index as int),
-            self.index < N,
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_uninit(self.index as int),
-            forall|i: int|
-                0 <= i < N && i != self.index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-            res == old(perm).opt_value()[self.index as int].value(),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_init(self.index as int));
-        ptr_mut_read_at(ptr, Tracked(&mut perm.points_to), self.index)
-    }
-
-    /// Take all the values of the array
-    /// The values are moved out of the array.
-    /// Requires all slots to be initialized.
-    /// Afterwards, all slots are uninitialized.
-    #[inline(always)]
-    pub exec fn take_all(&self, Tracked(perm): Tracked<&mut PointsTo<V, N>>) -> (res: [V; N])
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            old(perm).is_init_all(),
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_uninit_all(),
-            res@ == old(perm).value(),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_init_all());
-        ptr_mut_read_all(ptr, Tracked(&mut perm.points_to))
-    }
-
-    /// Free the memory of the entire array and return the value
-    /// that was previously stored in the array.
-    /// Requires all slots to be initialized.
-    /// Afterwards, all slots are uninitialized.
-    #[inline(always)]
-    pub exec fn into_inner(self, Tracked(perm): Tracked<PointsTo<V, N>>) -> (res: [V; N])
-        requires
-            perm.wf(),
-            perm.is_pptr(self),
-            perm.is_init_all(),
-        ensures
-            res@ == perm.value(),
-    {
-        let tracked mut perm = perm;
-        let res = self.take_all(Tracked(&mut perm));
-        self.free(Tracked(perm));
-        res
-    }
-
-    /// Update the value at `index` with `value` and return the previous value
-    /// Requires the slot at `index` to be initialized.
-    /// Afterwards, the slot is initialized with `value`.
-    /// Returns the previous value.
-    #[inline(always)]
-    pub exec fn update(
-        &self,
-        Tracked(perm): Tracked<&mut PointsTo<V, N>>,
-        index: usize,
-        value: V,
-    ) -> (res: V) where V: Copy
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            old(perm).is_init(index as int),
-            index < N,
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(index as int),
-            forall|i: int|
-                0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-            perm.opt_value()[index as int] == raw_ptr::MemContents::Init(value),
-            res == old(perm).opt_value()[index as int].value(),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_init(index as int));
-        let res = ptr_mut_read_at(ptr, Tracked(&mut perm.points_to), index);
-        ptr_mut_write_at(ptr, Tracked(&mut perm.points_to), index, value);
-        res
-    }
-
-    /// Get the reference of the value at `index`
-    /// Borrow the immutable reference of the value at `index`
-    /// Requires the slot at `index` to be initialized.
-    /// Afterwards, the slot is still initialized.
-    /// Returns the immutable reference of the value.
-    /// The reference is valid as long as the permission is alive.
-    /// The reference is not allowed to be stored.
-    #[inline(always)]
-    pub exec fn borrow_at<'a>(
-        &self,
-        Tracked(perm): Tracked<&'a PointsTo<V, N>>,
-        index: usize,
-    ) -> (res: &'a V)
-        requires
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(index as int),
-            index < N,
-        ensures
-            res == perm.opt_value()[index as int].value(),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_init(index as int));
-        ptr_ref_at(ptr, Tracked(&perm.points_to), index)
-    }
-
-    /// Get the reference of the entire array
-    /// Borrow the immutable reference of the entire array
-    /// Requires all slots to be initialized.
-    /// Afterwards, all slots are still initialized.
-    /// Returns the immutable reference of the entire array.
-    /// The reference is valid as long as the permission is alive.
-    /// The reference is not allowed to be stored.
-    #[inline(always)]
-    pub exec fn borrow<'a>(&self, Tracked(perm): Tracked<&'a PointsTo<V, N>>) -> (res: &'a [V; N])
-        requires
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init_all(),
-        ensures
-            forall|i: int| 0 <= i < N ==> #[trigger] res[i] == perm.opt_value()[i].value(),
-    {
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        assert(perm.points_to().is_init_all());
-        ptr_ref(ptr, Tracked(&perm.points_to))
-    }
-
-    /// Overwrite the entry at `index` with `value`
-    /// The pervious value will be leaked if it was initialized.
-    #[inline(always)]
-    pub exec fn overwrite(
-        &self,
-        Tracked(perm): Tracked<&mut PointsTo<V, N>>,
-        index: usize,
-        value: V,
-    )
-        requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            index < N,
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(index as int),
-            forall|i: int|
-                0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-            perm.opt_value()[index as int] == raw_ptr::MemContents::Init(value),
-        opens_invariants none
-        no_unwind
-    {
-        proof {
-            perm.leak_contents(index as int);
-        }
-        assert(perm.is_uninit(index as int));
-        let ptr: *mut [V; N] = raw_ptr::with_exposed_provenance(self.addr, Tracked(perm.exposed));
-
-        ptr_mut_write_at(ptr, Tracked(&mut perm.points_to), index, value);
+    pub open spec fn is_valid(self) -> bool {
+        &&& self.is_defined()
+        &&& self.vaddr < self.range@.end
     }
 
     #[verifier::external_body]
-    pub proof fn tracked_overwrite(
-        tracked &self,
-        tracked perm: &mut PointsTo<V, N>,
-        tracked index: usize,
-        tracked value: V,
-    )
+    pub fn read(self, Tracked(mem): Tracked<&MemView>) -> u8
         requires
-            old(perm).wf(),
-            old(perm).is_pptr(*self),
-            index < N,
-        ensures
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(index as int),
-            forall|i: int|
-                0 <= i < N && i != index ==> perm.opt_value()[i] == old(perm).opt_value()[i],
-            perm.opt_value()[index as int] == raw_ptr::MemContents::Init(value),
+            mem.addr_transl(self.vaddr) is Some,
+            mem.memory[mem.addr_transl(self.vaddr).unwrap()] is Init,
+            self.is_valid()
+        returns mem.read(self.vaddr).unwrap().value()
     {
-        self.overwrite(Tracked(perm), index, value);
+        unimplemented!()
     }
 
-    /// Get the value at `index` and return it
-    /// The value is copied from the array
-    /// Requires the slot at `index` to be initialized.
-    /// Afterwards, the slot is still initialized.
-    #[inline(always)]
-    pub exec fn get(&self, Tracked(perm): Tracked<&PointsTo<V, N>>, index: usize) -> (res: V) where
-        V: Copy,
-
+    #[verifier::external_body]
+    pub fn write(self, Tracked(mem): Tracked<&mut MemView>, x: u8)
         requires
-            perm.wf(),
-            perm.is_pptr(*self),
-            perm.is_init(index as int),
-            index < N,
-        ensures
-            res == perm.opt_value()[index as int].value(),
+            old(mem).addr_transl(self.vaddr) is Some,
+            self.is_valid()
+        ensures mem == old(mem).write(self.vaddr, x).unwrap()
     {
-        *self.borrow_at(Tracked(perm), index)
-    }*/
+        unimplemented!()
+    }
 
+    pub open spec fn add_spec(self, n: usize) -> Self {
+        VirtPtr {
+            vaddr: (self.vaddr + n) as usize,
+            range: self.range
+        }
+    }
+
+    pub fn add(&mut self, n: usize)
+        requires
+            // Option 1: strict C standard compliance
+            // old(self).range@.start <= self.vaddr + n <= old(self).range@.end,
+            // Option 2: just make sure it doesn't overflow
+            0 <= old(self).vaddr + n < usize::MAX,
+        ensures
+            self == old(self).add_spec(n),
+            // If we take option 1, we can also ensure:
+            // self.is_defined()
+    {
+        self.vaddr = self.vaddr + n
+    }
+
+    pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
+        mem.read((self.vaddr + n) as usize).unwrap().value()
+    }
+
+    /// Unlike `add`, we just create a temporary pointer value and read that
+    /// When `self.vaddr == self.range.start` this acts like array index notation
+    pub fn read_offset(&self, Tracked(mem): Tracked<&MemView>, n: usize) -> u8
+        requires
+            0 < self.vaddr + n < usize::MAX,
+            self.range@.start <= self.vaddr + n < self.range@.end,
+            mem.addr_transl((self.vaddr + n) as usize) is Some,
+            mem.memory[mem.addr_transl((self.vaddr + n) as usize).unwrap()] is Init,
+        returns self.read_offset_spec(*mem, n)
+    {
+        let mut tmp = self.clone();
+        tmp.add(n);
+        tmp.read(Tracked(mem))
+    }
+
+    pub open spec fn write_offset_spec(self, mem: MemView, n: usize, x: u8) -> MemView {
+        mem.write((self.vaddr + n) as usize, x).unwrap()
+    }
+
+    pub fn write_offset(&self, Tracked(mem): Tracked<&mut MemView>, n: usize, x: u8)
+        requires
+            self.inv(),
+            self.range@.start <= self.vaddr + n < self.range@.end,
+            old(mem).addr_transl((self.vaddr + n) as usize) is Some,
+    {
+        let mut tmp = self.clone();
+        tmp.add(n);
+        tmp.write(Tracked(mem), x)
+    }
+
+    pub open spec fn copy_offset_spec(src: Self, dst: Self, mem: MemView, n: usize) -> MemView {
+        let x = src.read_offset_spec(mem, n);
+        dst.write_offset_spec(mem, n, x)
+    }
+
+    pub fn copy_offset(src: &Self, dst: &Self, Tracked(mem): Tracked<&mut MemView>, n: usize)
+        requires
+            src.inv(),
+            dst.inv(),
+            src.range@.start <= src.vaddr + n < src.range@.end,
+            dst.range@.start <= dst.vaddr + n < dst.range@.end,
+            old(mem).addr_transl((src.vaddr + n) as usize) is Some,
+            old(mem).addr_transl((dst.vaddr + n) as usize) is Some,
+            old(mem).memory.contains_key(old(mem).addr_transl((src.vaddr + n) as usize).unwrap()),
+            old(mem).memory[old(mem).addr_transl((src.vaddr + n) as usize).unwrap()] is Init,
+        ensures
+            mem == Self::copy_offset_spec(*src, *dst, *old(mem), n)
+    {
+        let x = src.read_offset(Tracked(mem), n);
+        proof { admit() };
+        dst.write_offset(Tracked(mem), n, x)
+    }
+
+    pub fn memcpy(src: &Self, dst: &Self, Tracked(mem): Tracked<&mut MemView>, n: usize)
+        requires
+            src.inv(),
+            dst.inv(),
+            src.range@.start <= src.vaddr,
+            src.vaddr + n < src.range@.end,
+            dst.range@.start <= dst.vaddr,
+            dst.vaddr + n < dst.range@.end,
+            src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
+            forall |i: usize|
+                src.vaddr <= i < src.vaddr + n ==> {
+                    &&& old(mem).addr_transl(i) is Some
+                    &&& old(mem).memory.contains_key(old(mem).addr_transl(i).unwrap())
+                    &&& old(mem).memory[old(mem).addr_transl(i).unwrap()] is Init
+                },
+            forall |i: usize|
+                dst.vaddr <= i < dst.vaddr + n ==> {
+                    &&& old(mem).addr_transl(i) is Some
+                },
+        decreases n
+    {
+        let ghost mem0 = *mem;
+
+        if n == 0 {
+            return;
+        } else {
+            Self::copy_offset(src, dst, Tracked(mem), n-1);
+            assert(forall |i: usize| src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
+            Self::memcpy(src, dst, Tracked(mem), n-1);
+        }
+    }
 }
 
 } // verus!
