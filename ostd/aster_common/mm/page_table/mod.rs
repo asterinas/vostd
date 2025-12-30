@@ -1,9 +1,7 @@
-mod cursor;
 mod node;
 mod owners;
 mod view;
 
-pub use cursor::*;
 pub use node::*;
 pub use owners::*;
 pub use view::*;

@@ -31,7 +31,7 @@ mod node;
 use node::*;
 mod cursor;
 
-//pub(crate) use cursor::{Cursor, CursorMut, PageTableFrag};
+pub(crate) use cursor::*;
 
 #[cfg(ktest)]
 mod test;

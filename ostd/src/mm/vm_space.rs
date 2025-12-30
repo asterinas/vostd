@@ -14,6 +14,7 @@ use crate::aster_common::frame::{MetaRegionOwners, MetaSlotOwner};
 use crate::mm::frame::untyped::UFrame;
 use crate::aster_common::page_table::*;
 use crate::aster_common::*;
+use crate::mm::page_table::{CursorOwner, PageTableFrag};
 
 use vstd_extra::ghost_tree::*;
 
@@ -282,7 +283,7 @@ impl Default for VmSpace {
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
 pub struct Cursor<'a, A: InAtomicMode>(
-    pub crate::aster_common::page_table::Cursor<'a, UserPtConfig, A>,
+    pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>,
 );
 
 /*
@@ -397,11 +398,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::aster_common::page_table::CursorMut<
-        'a,
-        UserPtConfig,
-        A,
-    >,
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,

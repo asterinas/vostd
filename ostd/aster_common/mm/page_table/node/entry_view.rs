@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 
 use super::*;
 use crate::mm::page_prop::PageProperty;
+use crate::mm::page_table::page_size_spec;
 
 verus! {
 
