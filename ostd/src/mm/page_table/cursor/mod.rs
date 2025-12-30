@@ -38,8 +38,8 @@ use vstd_extra::ownership::*;
 use crate::aster_common::frame::{
     frame_to_index, meta_to_frame, Frame, MetaRegionOwners, MetaSlotOwner, META_SLOT_SIZE
 };
-use crate::aster_common::page_table::*;
-use crate::aster_common::*;
+use crate::mm::page_table::*;
+use crate::mm::{Paddr, Vaddr};
 
 use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 

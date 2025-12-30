@@ -30,3 +30,4 @@ impl Mapping {
 pub type PageTableFlatView = Map<usize, Option<Mapping>>;
 
 } // verus!
+

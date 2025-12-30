@@ -1,6 +1,5 @@
 pub mod frame;
 mod kspace;
-pub mod page_table;
 
 use frame::{
     meta_to_frame, AnyFrameMeta, Frame, FrameRef, MetaSlot, MetaSlotOwner, MetaSlotStorage,
@@ -8,8 +7,7 @@ use frame::{
 };
 
 pub use kspace::*;
-use page_table::PageTableConfig;
-use crate::mm::page_table::PageTablePageMeta;
+use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use vstd::prelude::*;
 

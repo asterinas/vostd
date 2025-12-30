@@ -5,7 +5,7 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree;
 
 use crate::mm::page_table::*;
-use crate::mm::page_table::owners::{vaddr, vaddr_make, vaddr_shift};
+use crate::mm::page_table::owners::{rec_vaddr, vaddr, vaddr_make, vaddr_shift};
 use vstd_extra::prelude::TreePath;
 
 verus! {
@@ -106,11 +106,11 @@ impl PageTableTreePathModel {
             0 <= idx < path.len(),
             path.index(len - 1) == 0,
         ensures
-            rec_vaddr(path, idx) == rec_vaddr(path.pop_tail().1, idx),
+            Self::rec_vaddr(path, idx) == Self::rec_vaddr(path.pop_tail().1, idx),
         decreases (path.len() - idx),
     {
         if idx == len - 1 {
-            assert(rec_vaddr(path, idx + 1) == 0);
+            assert(Self::rec_vaddr(path, idx + 1) == 0);
         } else {
             assert(path.index(idx) == path.pop_tail().1.index(idx)) by { path.pop_tail_property() };
             Self::rec_vaddr_pop_0(path, len, idx + 1);
@@ -124,7 +124,7 @@ impl PageTableTreePathModel {
             0 <= idx <= path.len(),
             NR_ENTRIES() > 0,
         ensures
-            rec_vaddr(path, idx) == rec_vaddr(path.push_tail(0 as usize), idx),
+            Self::rec_vaddr(path, idx) == Self::rec_vaddr(path.push_tail(0 as usize), idx),
         decreases (path.len() - idx),
     {
         let val = 0 as usize;
@@ -132,8 +132,8 @@ impl PageTableTreePathModel {
         let pushed = path.push_tail(val);
         assert(pushed.index(len) == 0) by { path.push_tail_property(val) };
         if idx == len {
-            assert(rec_vaddr(path, idx) == 0);
-            assert(rec_vaddr(pushed, idx + 1) == 0);
+            assert(Self::rec_vaddr(path, idx) == 0);
+            assert(Self::rec_vaddr(pushed, idx + 1) == 0);
         } else {
             assert(path.index(idx) == pushed.index(idx)) by { path.push_tail_property(0 as usize) };
             Self::rec_vaddr_push_0(path, len, idx + 1);
@@ -164,11 +164,22 @@ impl PageTableTreePathModel {
         Self { inner: TreePath::new(Self::rec_from_va(va, 0)) }
     }
 
+    pub open spec fn rec_vaddr(path: TreePath<CONST_NR_ENTRIES>, idx: int) -> usize
+        decreases path.len() - idx,
+        when 0 <= idx <= path.len()
+    {
+        rec_vaddr(path, idx)
+    }
+
+    pub open spec fn vaddr(self) -> usize {
+        vaddr(self.inner)
+    }
+
     pub broadcast proof fn lemma_from_vaddr_to_vaddr_mod_page_size(va: usize)
         requires
             0 <= va < pow2(48),
         ensures
-            #[trigger] vaddr(Self::from_va(va).inner) == va % PAGE_SIZE(),
+            #[trigger] Self::from_va(va).vaddr() == va % PAGE_SIZE(),
     {
         admit();
     }

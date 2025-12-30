@@ -17,7 +17,7 @@ use crate::mm::{
 
 use vstd_extra::array_ptr::*;
 
-use crate::aster_common::page_table::*;
+use crate::mm::page_table::*;
 use crate::aster_common::*;
 
 use core::ops::IndexMut;

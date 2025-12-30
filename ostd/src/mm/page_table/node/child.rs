@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 
 use crate::aster_common::frame::*;
-use crate::aster_common::page_table::*;
+use crate::mm::page_table::*;
 use crate::aster_common::*;
 
 use vstd_extra::cast_ptr::*;
