@@ -5,6 +5,7 @@ use vstd_extra::prelude::TreePath;
 
 use crate::aster_common::*;
 use crate::mm::page_table::*;
+use crate::specs::mm::page_table::cursor::owners::*;
 
 use core::ops::Range;
 

@@ -14,7 +14,8 @@ use crate::aster_common::frame::{MetaRegionOwners, MetaSlotOwner};
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::page_table::*;
 use crate::aster_common::*;
-use crate::mm::page_table::{CursorOwner, EntryOwner, PageTableFrag, PageTableGuard};
+use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
+use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 
 use vstd_extra::ghost_tree::*;
 

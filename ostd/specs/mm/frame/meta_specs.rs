@@ -160,35 +160,6 @@ impl MetaSlot {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel) -> (
-        Self,
-        MetaRegionModel,
-    )
-        recommends
-            paddr % PAGE_SIZE() == 0,
-            paddr < MAX_PADDR(),
-            pre.inv(),
-            pre.slots[frame_to_index(paddr)].ref_count == REF_COUNT_UNUSED,
-    {
-        let (ptr, post) = MetaSlot::get_from_unused_spec(paddr, metadata, true, pre);
-        (UniqueFrame { ptr, _marker: PhantomData }, post)
-    }
-
-    #[rustc_allow_incoherent_impl]
-    pub proof fn from_unused_properties(paddr: Paddr, metadata: M, pre: MetaRegionModel)
-        requires
-            paddr % 4096 == 0,
-            paddr < MAX_PADDR(),
-            pre.inv(),
-            pre.slots[paddr / 4096].ref_count == REF_COUNT_UNUSED,
-        ensures
-            UniqueFrame::from_unused_spec(paddr, metadata, pre).1.inv(),
-    {
-    }
-}
-
 impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_spec(paddr: Paddr) -> Self {

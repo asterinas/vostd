@@ -1,3 +1,15 @@
+use vstd::prelude::*;
+
+use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
+
+use crate::aster_common::frame::*;
+use crate::aster_common::*;
+
+use core::marker::PhantomData;
+
+verus! {
+
 impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
 
     pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel)
@@ -22,3 +34,5 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
             UniqueFrame::from_unused_spec(paddr, metadata, pre).1.inv(),
     { }
 }
+
+} // verus!
