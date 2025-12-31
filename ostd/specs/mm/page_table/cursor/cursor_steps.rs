@@ -41,8 +41,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let steps = Self::max_steps_subtree(level) * (NR_ENTRIES() - cont.idx);
             // Then the number of steps for the remaining entries at higer levels
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
-            // Plus one for the 'pop'
-            (steps + remaining_steps + 1) as usize
+            (steps + remaining_steps) as usize
         }
     }
 
@@ -114,14 +113,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             ..self
         }
     }
-
-    pub proof fn pop_level_owner_decreases_steps(self)
-        requires
-            self.inv(),
-            self.level < NR_LEVELS(),
-        ensures
-            self.pop_level_owner_spec().max_steps() < self.max_steps()
-    { admit() }
 
     #[verifier::returns(proof)]
     pub proof fn pop_level_owner(tracked &mut self)
