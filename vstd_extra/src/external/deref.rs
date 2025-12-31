@@ -1,4 +1,3 @@
-use super::manually_drop::manually_drop_deref_spec;
 use core::hint::spin_loop;
 use core::mem::ManuallyDrop;
 use core::ops::Deref;
@@ -45,11 +44,6 @@ pub broadcast axiom fn rc_deref_spec<T>(r: std::rc::Rc<T>)
 pub broadcast axiom fn arc_deref_spec<T>(a: std::sync::Arc<T>)
     ensures
         #[trigger] *(a.deref_spec()) == *a,
-;
-
-pub broadcast axiom fn manually_drop_deref_spec_eq<T: ?Sized>(v: &ManuallyDrop<T>)
-    ensures
-        #[trigger] &**v == manually_drop_deref_spec(v),
 ;
 
 pub broadcast group group_deref_spec {

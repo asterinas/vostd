@@ -48,8 +48,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.node == guard_perm.pptr(),
             guard_perm.is_init(),
             owner.is_node(), // The owner is the owner of the parent node, so should always be a node
-            inner_perm.addr() == guard_perm.value().inner.inner.ptr.addr(),
-            inner_perm.points_to.addr() == guard_perm.value().inner.inner.ptr.addr(),
+            inner_perm.addr() == guard_perm.value().inner.inner@.ptr.addr(),
+            inner_perm.points_to.addr() == guard_perm.value().inner.inner@.ptr.addr(),
             inner_perm.is_init(),
             inner_perm.wf(),
     {
@@ -172,8 +172,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_child is PageTable,
             FRAME_METADATA_RANGE().start <= frame_to_index(new_child.get_node().unwrap().ptr.addr())
                 < FRAME_METADATA_RANGE().end,
-            inner_perm.addr() == old(guard_perm).value().inner.inner.ptr.addr(),
-            inner_perm.points_to.addr() == old(guard_perm).value().inner.inner.ptr.addr(),
+            inner_perm.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
+            inner_perm.points_to.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
             inner_perm.is_init(),
             inner_perm.wf(),
     {

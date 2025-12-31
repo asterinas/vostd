@@ -274,7 +274,7 @@ impl<'a, T> ArcRef<'a, T> {
     }
     
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
-        manually_drop_deref_spec(&self.inner)
+        &self.inner@
     }
 
     /// A workaround that Verus does not support implementing spec for Deref trait yet.

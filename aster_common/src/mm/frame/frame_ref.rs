@@ -4,8 +4,6 @@ use std::ops::Deref;
 
 use core::mem::ManuallyDrop;
 
-use vstd_extra::external::manually_drop::*;
-
 use super::*;
 
 verus! {
@@ -20,7 +18,7 @@ pub struct FrameRef<'a, M: AnyFrameMeta> {
 impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
-    #[verus_spec(ensures returns manually_drop_deref_spec(&self.inner))]
+    #[verus_spec(returns &self.inner@)]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
