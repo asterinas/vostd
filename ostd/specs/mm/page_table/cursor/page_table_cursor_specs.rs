@@ -190,19 +190,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         admit()
     }
 
-    #[rustc_allow_incoherent_impl]
-    #[verifier::returns(proof)]
-    pub proof fn push_level_owner_spec(tracked &mut self)
-        requires
-            old(self).inv(),
-    {
-        let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
-        let tracked mut child = cont.make_cont(self.index);
-        self.continuations.tracked_insert(self.level - 1, cont);
-        self.continuations.tracked_insert(self.level - 2, child);
-        self.path.0.push(self.index);
-        self.level = (self.level - 1) as u8;
-    }
 }
 
 } // verus!

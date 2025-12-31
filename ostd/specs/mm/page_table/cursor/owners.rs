@@ -23,32 +23,42 @@ pub type PagesState<C> = (Range<Vaddr>, Option<<C as PageTableConfig>::Item>);
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<'rcu, C>,
     pub idx: usize,
+    pub cur_va: usize,
     pub level: nat,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<'rcu, C>>>,
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
+
+    pub open spec fn take_child_spec(self, idx: usize) -> (OwnerSubtree<'rcu, C>, Self) {
+        let child = self.children[idx as int].unwrap();
+        let cont = Self {
+            children: self.children.remove(idx as int).insert(idx as int, None),
+            ..self
+        };
+        (child, cont)
+    }
+
     #[verifier::returns(proof)]
     pub proof fn take_child(tracked &mut self, idx: usize) -> (res: OwnerSubtree<'rcu, C>)
         requires
             0 <= idx < old(self).children.len(),
             old(self).children[idx as int] is Some,
         ensures
-            self.children.len() == old(self).children.len(),
-            res == old(self).children[idx as int].unwrap(),
-            forall|i: int| 0 <= i < idx ==> self.children[i] == old(self).children[i],
-            self.children[idx as int] is None,
-            forall|i: int|
-                idx < i < old(self).children.len() ==> self.children[i] == old(self).children[i],
-            self.level == old(self).level,
-            self.tree_level == old(self).tree_level,
-            self.idx == old(self).idx,
-            self.entry_own == old(self).entry_own,
+            res == old(self).take_child_spec(idx).0,
+            self == old(self).take_child_spec(idx).1,
     {
         let tracked child = self.children.tracked_remove(idx as int).tracked_unwrap();
         self.children.tracked_insert(idx as int, None);
         child
+    }
+
+    pub open spec fn put_child_spec(self, idx: usize, child: OwnerSubtree<'rcu, C>) -> Self {
+        Self {
+            children: self.children.remove(idx as int).insert(idx as int, Some(child)),
+            ..self
+        }
     }
 
     #[verifier::returns(proof)]
@@ -57,15 +67,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= idx < old(self).children.len(),
             old(self).children[idx as int] is None,
         ensures
-            self.children.len() == old(self).children.len(),
-            forall|i: int| 0 <= i < idx ==> self.children[i] == old(self).children[i],
-            self.children[idx as int] == Some(child),
-            forall|i: int|
-                idx < i < old(self).children.len() ==> self.children[i] == old(self).children[i],
-            self.level == old(self).level,
-            self.tree_level == old(self).tree_level,
-            self.idx == old(self).idx,
-            self.entry_own == old(self).entry_own,
+            self == old(self).put_child_spec(idx, child)
     {
         let _ = self.children.tracked_remove(idx as int);
         self.children.tracked_insert(idx as int, Some(child));
@@ -73,6 +75,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn make_cont_spec(self, idx: usize) -> (Self, Self) {
         let child = Self {
+            cur_va: (self.cur_va + idx * page_size(self.level as u8)) as usize,
             entry_own: self.children[idx as int].unwrap().value,
             level: (self.level - 1) as nat,
             tree_level: (self.tree_level + 1) as nat,
@@ -80,11 +83,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             children: self.children[idx as int].unwrap().children,
         };
         let cont = Self {
-            entry_own: self.entry_own,
-            level: self.level,
-            tree_level: self.tree_level,
-            idx: self.idx,
             children: self.children.update(idx as int, None),
+            ..self
         };
         (child, cont)
     }
@@ -107,7 +107,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }
     }
 
-    pub axiom fn restore(&mut self, child: Self)
+    #[verifier::returns(proof)]
+    pub axiom fn restore(tracked &mut self, tracked child: Self)
         ensures
             self == old(self).restore_spec(child),
     ;
@@ -165,7 +166,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 #[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
-    pub path: TreePath<CONST_NR_ENTRIES>,
+//    pub path: TreePath<CONST_NR_ENTRIES>,
     pub level: PagingLevel,
     pub index: usize,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
@@ -175,6 +176,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.index < NR_ENTRIES()
         &&& 1 <= self.level <= NR_LEVELS()
+//        &&& self.path.0.len() == NR_LEVELS() - self.level
         &&& forall|i: int|
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
         &&& forall|i: int|
@@ -182,43 +184,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 &&& self.continuations[i].inv()
                 &&& self.continuations[i].level == i
             }
-        &&& self.continuations[self.level
-            - 1].all_some()
+        &&& self.continuations[self.level - 1].all_some()
     }
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    /// The number of steps it will take to walk through every node of a full
-    /// page table at level `level`
-    pub open spec fn max_steps_subtree(level: usize) -> usize
-        decreases level,
-    {
-        if level <= 1 {
-            NR_ENTRIES()
-        } else {
-            (NR_ENTRIES() * (Self::max_steps_subtree((level - 1) as usize)
-                + 1)) as usize  // One step to push down a level, then the number for that subtree
-
-        }
-    }
-
-    pub open spec fn max_steps_partial(self, level: usize) -> usize
-        decreases NR_LEVELS() - level,
-        when level <= NR_LEVELS()
-    {
-        if level == NR_LEVELS() {
-            0
-        } else {
-            let cont = self.continuations[level as int];
-            (Self::max_steps_subtree(level) * (NR_ENTRIES() - cont.idx) + self.max_steps_partial(
-                (level + 1) as usize,
-            )) as usize
-        }
-    }
-
-    pub open spec fn max_steps(self) -> usize {
-        self.max_steps_partial((self.level - 1) as usize)
-    }
 
     pub proof fn inv_continuation(self, i: int)
         requires
@@ -289,7 +259,7 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
     open spec fn view(&self) -> Self::V {
         CursorView {
-            cur_va: vaddr(self.path),
+            cur_va: (self.continuations[self.level - 1].cur_va + self.index * page_size(self.level as u8)) as usize,
             scope: page_size(self.level as u8),
             fore: self.prev_views_rec(NR_LEVELS() as int),
             rear: self.next_views_rec(NR_LEVELS() as int),
