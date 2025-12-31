@@ -34,20 +34,13 @@ jobs:
           # Discard any uncommitted changes in tools/verus before upgrade
           git -C tools/verus reset --hard HEAD
           cargo dv bootstrap --upgrade --test_branch
-          make 2>&1 | tee verus_main.log
-          if grep -q "error:" verus_main.log; then
-            echo "::error title=Main Branch Verification Failed::Errors found in main branch"
-            grep "error:" verus_main.log | while read line; do
-              echo "::error::$line"
-            done
+          set -o pipefail
+          if ! make 2>&1; then
+            echo "❌ Verification failed"
             exit 1
           else
             echo "✅ Main branch verification passed!"
           fi
-
-      - name: Cleanup logs
-        if: always()
-        run: rm -f verus_main.log
 
       - name: Dispatch back to fork for promotion
         if: success()
