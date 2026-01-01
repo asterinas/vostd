@@ -5,7 +5,7 @@ use vstd::prelude::*;
 use vstd_extra::ghost_tree;
 
 use crate::mm::page_table::*;
-use crate::mm::page_table::owners::{rec_vaddr, vaddr, vaddr_make, vaddr_shift};
+use crate::specs::mm::page_table::node::owners::{rec_vaddr, vaddr, vaddr_make, vaddr_shift};
 use vstd_extra::prelude::TreePath;
 
 verus! {

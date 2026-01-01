@@ -4,9 +4,13 @@ use vstd::cell;
 use vstd::simple_pptr::PointsTo;
 use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
+use vstd_extra::ownership::*;
 
-use super::*;
+use crate::aster_common::*;
+use crate::aster_common::frame::meta_to_frame;
 use crate::mm::page_prop::PageProperty;
+use crate::mm::page_table::*;
+use core::marker::PhantomData;
 
 verus! {
 

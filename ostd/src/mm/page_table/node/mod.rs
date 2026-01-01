@@ -25,15 +25,10 @@
 //!
 mod child;
 mod entry;
-mod entry_owners;
-mod entry_view;
-mod owners;
 
 pub use child::*;
 pub use entry::*;
-pub use entry_owners::*;
-pub use entry_view::*;
-pub use owners::*;
+pub use crate::specs::mm::page_table::node::{entry_owners::*, entry_view::*, owners::*};
 
 use vstd::prelude::*;
 

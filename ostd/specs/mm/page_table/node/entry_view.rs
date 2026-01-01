@@ -2,9 +2,10 @@ use vstd::prelude::*;
 
 use core::marker::PhantomData;
 
-use super::*;
+use crate::aster_common::*;
 use crate::mm::page_prop::PageProperty;
-use crate::mm::page_table::page_size_spec;
+use crate::mm::page_table::*;
+use vstd_extra::ownership::*;
 
 verus! {
 

@@ -3,9 +3,11 @@ use vstd::prelude::*;
 use vstd::cell;
 use vstd::simple_pptr::*;
 
-use super::*;
-
-use crate::aster_common::frame::META_SLOT_SIZE;
+use crate::aster_common::*;
+use crate::aster_common::frame::{MetaSlot, META_SLOT_SIZE};
+use crate::mm::page_table::*;
+use vstd_extra::cast_ptr::Repr;
+use vstd_extra::ownership::*;
 
 verus! {
 
