@@ -9,7 +9,10 @@ use crate::mm::page_table::*;
 use core::marker::PhantomData;
 use core::ops::Range;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::task::InAtomicMode;
 
 verus! {
 

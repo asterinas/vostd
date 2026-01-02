@@ -40,7 +40,7 @@ use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame, META_SLOT_S
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::page_table::*;
-use crate::mm::{Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, MAX_NR_LEVELS, kspace::FRAME_METADATA_RANGE};
 
 use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
@@ -48,7 +48,7 @@ use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
 
 use crate::{
     mm::{page_prop::PageProperty, page_table::is_valid_range},
-    //    task::atomic_mode::InAtomicMode,
+    specs::task::InAtomicMode,
 };
 
 use super::{
@@ -196,10 +196,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>
     )]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: (Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    >))
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: (Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError>))
         ensures
             old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
     {
@@ -211,7 +208,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS()) };
 
-        #[verusfmt::skip]
         Ok(
             #[verus_spec(with Tracked(pt_own), Tracked(guard_perm))]
             locking::lock_range(pt, guard, va)

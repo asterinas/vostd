@@ -9,7 +9,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use super::*;
-use crate::mm::page_table::{EntryOwner, FrameView};
+use crate::mm::{MAX_NR_LEVELS, page_table::{EntryOwner, FrameView}};
 
 use core::ops::Deref;
 

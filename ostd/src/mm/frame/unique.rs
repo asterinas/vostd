@@ -4,7 +4,6 @@ use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
 
-use crate::aster_common::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
@@ -16,9 +15,9 @@ use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
 use super::meta::REF_COUNT_UNIQUE;
 use super::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame, max_meta_slots, META_SLOT_SIZE};
-use crate::mm::{Paddr, PagingConsts, PagingLevel};
-use crate::aster_common::FRAME_METADATA_RANGE;
-use crate::aster_common::MAX_NR_PAGES;
+use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::paging_consts::PagingConsts;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 
 verus! {
 

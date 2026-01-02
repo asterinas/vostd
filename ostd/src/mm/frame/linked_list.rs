@@ -13,7 +13,8 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::ptr_extra::*;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel};
+use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
@@ -28,8 +29,6 @@ use core::{
 };
 
 use crate::specs::*;
-
-use crate::mm::{Paddr, Vaddr};
 
 use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot};
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};

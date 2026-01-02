@@ -55,24 +55,24 @@ use core::{
 
 //pub use allocator::GlobalFrameAllocator;
 use meta::REF_COUNT_UNUSED;
-//pub use segment::Segment;
+pub use segment::Segment;
 
 // Re-export commonly used types
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, MetaSlotStorage, StoredPageTablePageMeta};
 pub use meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{Link, LinkedList, CursorMut};
 pub use unique::{UniqueFrame, UniqueFrameOwner};
 
-use super::{PagingLevel, PAGE_SIZE};
-use crate::mm::{Paddr, Vaddr};
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, kspace::LINEAR_MAPPING_BASE_VADDR, MAX_PADDR};
+use crate::specs::arch::{kspace::VMALLOC_BASE_VADDR, mm::{PAGE_SIZE, MAX_NR_PAGES}};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 

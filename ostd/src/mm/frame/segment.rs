@@ -9,7 +9,8 @@ use crate::mm::frame::{inc_frame_ref_count, Frame, untyped::AnyUFrameMeta};
 
 use vstd_extra::ownership::*;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel};
+use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, meta_addr, meta_to_frame_spec};

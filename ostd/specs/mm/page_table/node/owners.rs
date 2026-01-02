@@ -3,10 +3,13 @@ use vstd::prelude::*;
 use vstd::cell;
 use vstd::simple_pptr::*;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
 use crate::mm::page_table::*;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 

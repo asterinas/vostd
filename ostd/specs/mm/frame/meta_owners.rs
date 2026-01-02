@@ -13,7 +13,7 @@ use vstd_extra::ownership::*;
 use super::*;
 use crate::mm::frame::meta::{MetaSlot, MetaSlotStorage};
 use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
-use crate::aster_common::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 
 use core::marker::PhantomData;
 

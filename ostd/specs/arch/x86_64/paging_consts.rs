@@ -4,6 +4,8 @@ use vstd::prelude::*;
 
 use vstd_extra::prelude::*;
 
+use crate::mm::*;
+
 use super::*;
 
 verus! {

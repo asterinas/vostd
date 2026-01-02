@@ -2,8 +2,7 @@ use vstd::arithmetic::div_mod::*;
 use vstd::prelude::*;
 
 use super::*;
-use crate::mm::frame::*;
-use crate::mm::frame::meta::mapping::{meta_to_frame, lemma_meta_to_frame_soundness};
+use crate::mm::{Vaddr, Paddr, frame::*, frame::meta::mapping::{meta_to_frame, lemma_meta_to_frame_soundness}, PagingConsts, kspace::FRAME_METADATA_RANGE};
 
 use core::ops::Range;
 
@@ -12,6 +11,7 @@ verus! {
 /// The shortest supported address width is 39 bits. And the literal
 /// values are written for 48 bits address width. Adjust the values
 /// by arithmetic left shift.
+/// Can't use PagingConsts::ADDRESS_WIDTH() because it's not a const (because verus doesn't support const generics yet)
 pub const ADDR_WIDTH_SHIFT: isize = 48 - 48;
 
 /// Start of the kernel address space.

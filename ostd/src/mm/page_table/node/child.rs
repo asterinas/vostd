@@ -5,7 +5,8 @@ use vstd::prelude::*;
 use crate::mm::frame::Frame;
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::page_table::*;
-use crate::aster_common::*;
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
@@ -14,7 +15,7 @@ use vstd_extra::ownership::*;
 use crate::specs::*;
 
 use crate::{
-    mm::{Paddr, PagingLevel, page_prop::PageProperty},
+    mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait, page_prop::PageProperty},
     //    sync::RcuDrop,
 };
 use core::mem::ManuallyDrop;

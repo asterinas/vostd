@@ -5,17 +5,17 @@ use core::ops::Range;
 use super::{KERNEL_PAGE_TABLE, VMALLOC_VADDR_RANGE};
 use crate::{
     mm::{
-        frame::{meta::AnyFrameMeta, Frame},
+        frame::{meta::AnyFrameMeta, Frame, Segment},
         kspace::{KernelPtConfig, MappedItem},
         page_prop::PageProperty,
-        page_table::largest_pages,
+        largest_pages,
         Paddr, Vaddr, PAGE_SIZE,
     },
     task::disable_preempt,
-    util::range_alloc::RangeAllocator,
+//    util::range_alloc::RangeAllocator,
 };
 
-static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
+//static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
 
 /// Kernel virtual area.
 ///

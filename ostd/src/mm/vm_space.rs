@@ -14,9 +14,11 @@ use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::page_table::*;
-use crate::aster_common::*;
+use crate::specs::arch::{PageTableEntry, mm::{KERNEL_VADDR_RANGE, PAGE_SIZE, NR_ENTRIES, NR_LEVELS}, paging_consts::PagingConsts};
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::specs::task::InAtomicMode;
+use crate::error::Error;
 
 use vstd_extra::ghost_tree::*;
 
@@ -29,7 +31,7 @@ use crate::{
         // page_table,
         //        tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
-        PagingLevel,
+        PagingLevel, Vaddr, Paddr, PagingConstsTrait,
         io::{VmReader, VmWriter},
         MAX_USERSPACE_VADDR,
     },

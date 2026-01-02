@@ -2,7 +2,10 @@ use vstd::prelude::*;
 
 use core::marker::PhantomData;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::*;
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use vstd_extra::ownership::*;
@@ -27,8 +30,7 @@ pub open spec fn PHYSICAL_BASE_ADDRESS_SPEC() -> usize {
 }
 
 pub open spec fn pa_is_valid_kernel_address(pa: int) -> bool {
-    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE
-        * MAX_NR_PAGES as int
+    PHYSICAL_BASE_ADDRESS_SPEC() <= pa < PHYSICAL_BASE_ADDRESS_SPEC() + PAGE_SIZE * MAX_NR_PAGES as int
 }
 
 pub ghost struct LeafPageTableEntryView<C: PageTableConfig> {

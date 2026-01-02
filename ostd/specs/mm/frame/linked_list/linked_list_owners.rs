@@ -8,7 +8,9 @@ use vstd_extra::ownership::*;
 use super::*;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrameOwner};
 use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
-use crate::aster_common::{FRAME_METADATA_RANGE, MAX_NR_PAGES, Paddr};
+use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::MAX_NR_PAGES;
+use crate::mm::Paddr;
 
 verus! {
 

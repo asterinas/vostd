@@ -17,7 +17,6 @@ use vstd::prelude::*;
 
 pub mod mapping;
 
-use crate::aster_common::*;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use self::mapping::{frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
@@ -48,14 +47,14 @@ use crate::{
     //    const_assert,
     mm::{
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
-        //        kspace::LINEAR_MAPPING_BASE_VADDR,
         paddr_to_vaddr,
         //        page_table::boot_pt,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
         /*Infallible,*/ Paddr, PagingLevel,
         //Segment,
         Vaddr,
-        /*VmReader,*/ PAGE_SIZE,
+        /*VmReader,*/ PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES,
+        kspace::{FRAME_METADATA_RANGE, /*LINEAR_MAPPING_BASE_VADDR*/},
     },
     //    panic::abort,
     //    util::ops::range_difference,

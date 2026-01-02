@@ -4,7 +4,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ghost_tree;
 
-use crate::mm::page_table::*;
+use crate::mm::{MAX_NR_LEVELS, page_table::*};
 use vstd_extra::prelude::Node;
 
 verus! {

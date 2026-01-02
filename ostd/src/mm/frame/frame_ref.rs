@@ -7,14 +7,14 @@ use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel};
+use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot};
 use crate::mm::frame::MetaPerm;
 
 use super::Frame;
-use crate::{mm::Paddr /*, sync::non_null::NonNullPtr*/};
 
 use vstd::simple_pptr::PPtr;
 

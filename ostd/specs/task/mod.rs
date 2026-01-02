@@ -2,8 +2,8 @@ use vstd::prelude::*;
 
 verus! {
 
-pub trait InAtomicMode {
+    pub trait InAtomicMode {
 
-}
+    }
 
 } // verus!

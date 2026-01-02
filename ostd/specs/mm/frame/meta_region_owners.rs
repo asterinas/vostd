@@ -9,8 +9,9 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::meta::{MetaSlot, mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE}};
-use crate::aster_common::{MAX_PADDR, PAGE_SIZE, Paddr};
-use crate::aster_common::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::mm::Paddr;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use super::meta_owners::{MetaSlotModel, MetaSlotOwner};
 
 verus! {

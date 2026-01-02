@@ -12,7 +12,10 @@ use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::mm::page_table::*;
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::task::InAtomicMode;
 
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;

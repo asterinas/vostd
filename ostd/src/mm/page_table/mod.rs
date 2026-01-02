@@ -15,8 +15,10 @@ use core::{
 use super::{
     //    kspace::KernelPtConfig,
     nr_subpage_per_huge,
+    lemma_nr_subpage_per_huge_bounded,
     page_prop::PageProperty,
     //    vm_space::UserPtConfig,
+    PagingConstsTrait,
     Paddr,
     PagingLevel,
     //    PodOnce,
@@ -28,8 +30,10 @@ use super::{
 //    Pod,
 //};
 
-use crate::aster_common::*;
+use crate::specs::arch::mm::*;
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
+use crate::specs::task::InAtomicMode;
 
 mod node;
 pub use node::*;
@@ -395,7 +399,7 @@ pub proof fn lemma_nr_pte_index_bits_bounded<C: PagingConstsTrait>()
     }
 }
 
-/*/// Splits the address range into largest page table items.
+/// Splits the address range into largest page table items.
 ///
 /// Each of the returned items is a tuple of the physical address and the
 /// paging level. It is helpful when you want to map a physical address range
@@ -419,7 +423,8 @@ pub proof fn lemma_nr_pte_index_bits_bounded<C: PagingConstsTrait>()
 /// Panics if:
 ///  - any of `va`, `pa`, or `len` is not aligned to the base page size;
 ///  - the range `va..(va + len)` is not valid for the page table.
-pub(crate) fn largest_pages<C: PageTableConfig>(
+#[verifier::external_body]
+pub fn largest_pages<C: PageTableConfig>(
     mut va: Vaddr,
     mut pa: Paddr,
     mut len: usize,
@@ -449,7 +454,8 @@ pub(crate) fn largest_pages<C: PageTableConfig>(
 
         Some((item_start, level))
     })
-}*/
+}
+
 /// Gets the managed virtual addresses range for the page table.
 ///
 /// It returns a [`RangeInclusive`] because the end address, if being

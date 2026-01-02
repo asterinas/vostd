@@ -42,10 +42,11 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
 use crate::mm::frame::meta::{MetaSlot, mapping::{meta_to_frame, META_SLOT_SIZE}};
-use crate::aster_common::FRAME_METADATA_RANGE;
+use crate::mm::kspace::FRAME_METADATA_RANGE;
 use crate::mm::page_table::*;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
-use crate::mm::{Paddr, Vaddr};
+use crate::mm::{Paddr, Vaddr, paddr_to_vaddr, kspace::LINEAR_MAPPING_BASE_VADDR};
+use crate::specs::arch::kspace::VMALLOC_BASE_VADDR;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -57,7 +58,7 @@ use crate::{
         //        FrameAllocOptions, Infallible,
         //        VmReader,
     },
-    //    task::atomic_mode::InAtomicMode,
+    specs::task::InAtomicMode,
 };
 
 verus! {

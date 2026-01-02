@@ -49,7 +49,8 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::mm::pod::{Pod, PodOnce};
-use crate::aster_common::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
+use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
+use crate::error::*;
 
 verus! {
 
@@ -76,7 +77,7 @@ verus! {
             owner_w.params_eq(*old(owner_w)),
     )]
 pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) ->
-    core::result::Result<usize, (crate::mm::Error, usize)> {
+    core::result::Result<usize, (Error, usize)> {
     Ok(0)  // placeholder.
 
 }
@@ -294,8 +295,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 
         if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || pnt.addr()
             > KERNEL_END_VADDR - len) {
-            proof_with!(|= Tracked(Err(crate::mm::Error::IoError)));
-            Err(crate::mm::Error::IoError)
+            proof_with!(|= Tracked(Err(Error::IoError)));
+            Err(Error::IoError)
         } else {
             let r = unsafe {
                 #[verus_spec(with Tracked(false) => Tracked(perm))]
@@ -381,8 +382,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
         if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || pnt.addr()
             > KERNEL_END_VADDR - len) {
-            proof_with!(|= Tracked(Err(crate::mm::Error::IoError)));
-            Err(crate::mm::Error::IoError)
+            proof_with!(|= Tracked(Err(crate::error::Error::IoError)));
+            Err(crate::error::Error::IoError)
         } else {
             let r = unsafe {
                 #[verus_spec(with => Tracked(perm))]
@@ -397,7 +398,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
 #[verus_verify]
 impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
-    type Error = crate::mm::Error;
+    type Error = Error;
 
     #[verus_spec()]
     fn try_from(slice: &'a [u8]) -> Result<Self> {
@@ -409,7 +410,7 @@ impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
 
         if slice.len() != 0 && (addr < KERNEL_BASE_VADDR || slice.len() >= KERNEL_END_VADDR
             || addr > KERNEL_END_VADDR - slice.len()) {
-            return Err(crate::mm::Error::IoError);
+            return Err(Error::IoError);
         }
         // SAFETY:
         // - The memory range points to typed memory.
@@ -437,7 +438,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
 
         if len != 0 && (addr < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || addr
             > KERNEL_END_VADDR - slice.len()) {
-            Err(crate::mm::Error::IoError)
+            Err(Error::IoError)
         } else {
             Ok(
                 Self {
@@ -454,7 +455,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
 // This trait method should be discarded as we do not want to make VmWriter <N> ?
 #[verus_verify]
 impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
-    type Error = crate::mm::Error;
+    type Error = Error;
 
     // fn try_from(slice: ArrayPtr<u8, N>, Tracked(owner))??
     #[verus_spec()]
@@ -467,7 +468,7 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
 
         if slice.len() != 0 && (addr < KERNEL_BASE_VADDR || slice.len() >= KERNEL_END_VADDR
             || addr > KERNEL_END_VADDR - slice.len()) {
-            return Err(crate::mm::Error::IoError);
+            return Err(Error::IoError);
         }
         // SAFETY:
         // - The memory range points to typed memory.
@@ -495,7 +496,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
 
         if len != 0 && (addr < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || addr
             > KERNEL_END_VADDR - slice.len()) {
-            Err(crate::mm::Error::IoError)
+            Err(Error::IoError)
         } else {
             Ok(
                 Self {
@@ -509,7 +510,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
     }
 }
 
-type Result<T> = core::result::Result<T, crate::mm::Error>;
+type Result<T> = core::result::Result<T, Error>;
 
 /// A trait that enables reading/writing data from/to a VM object,
 /// e.g., [`USegment`], [`Vec<UFrame>`] and [`UFrame`].
@@ -773,7 +774,7 @@ impl VmReader<'_> {
     )]
     pub fn read_val<T: Pod>(&mut self) -> Result<T> {
         if self.remain() < core::mem::size_of::<T>() {
-            return Err(crate::mm::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         let mut v = T::new_uninit();
         proof_with!(=> Tracked(owner_w));
@@ -833,7 +834,7 @@ impl VmReader<'_> {
     )]
     pub fn read_val_once<T: PodOnce>(&mut self) -> Result<T> {
         if core::mem::size_of::<T>() > self.remain() {
-            return Err(crate::mm::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
         // and that the cursor is properly aligned with respect to the type `T`. All other safety
@@ -947,7 +948,7 @@ impl VmWriter<'_> {
     )]
     pub fn write_val<T: Pod>(&mut self, val: &mut T) -> Result<()> {
         if self.avail() < core::mem::size_of::<T>() {
-            return Err(crate::mm::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         proof_with!(=> Tracked(owner_r));
         let mut reader = VmReader::from_pod(val)?;
@@ -995,7 +996,7 @@ impl VmWriter<'_> {
     )]
     pub fn write_once<T: PodOnce>(&mut self, new_val: &mut T) -> Result<()> {
         if core::mem::size_of::<T>() > self.avail() {
-            return Err(crate::mm::Error::InvalidArgs);
+            return Err(Error::InvalidArgs);
         }
         // SAFETY: We have checked that the number of bytes available is at least the size of `T`
         // and that the cursor is properly aligned with respect to the type `T`. All other safety

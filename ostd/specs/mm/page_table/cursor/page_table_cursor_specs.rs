@@ -3,7 +3,9 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
-use crate::aster_common::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::page_table::*;
 use crate::specs::mm::page_table::cursor::owners::*;
 
