@@ -11,7 +11,7 @@ use vstd_extra::prelude::TreePath;
 verus! {
 
 pub tracked struct PageTableTreePathModel {
-    pub tracked inner: ghost_tree::TreePath<CONST_NR_ENTRIES>,
+    pub tracked inner: ghost_tree::TreePath<NR_ENTRIES>,
 }
 
 #[verifier::inline]
@@ -79,7 +79,7 @@ pub open spec fn page_size_at_level<const L: usize>(level: int) -> usize
 }
 
 impl View for PageTableTreePathModel {
-    type V = TreePath<CONST_NR_ENTRIES>;
+    type V = TreePath<NR_ENTRIES>;
 
     open spec fn view(&self) -> Self::V {
         self.inner
@@ -89,17 +89,17 @@ impl View for PageTableTreePathModel {
 impl PageTableTreePathModel {
     pub proof fn axiom_max_tree_depth()
         ensures
-            0 < NR_LEVELS(),
+            0 < NR_LEVELS,
     {
         admit();
     }
 
     pub open spec fn inv(&self) -> bool {
-        &&& self.inner.len() < NR_LEVELS()
+        &&& self.inner.len() < NR_LEVELS
         &&& self.inner.inv()
     }
 
-    pub proof fn rec_vaddr_pop_0(path: TreePath<CONST_NR_ENTRIES>, len: int, idx: int)
+    pub proof fn rec_vaddr_pop_0(path: TreePath<NR_ENTRIES>, len: int, idx: int)
         requires
             path.inv(),
             len == path.len(),
@@ -117,18 +117,18 @@ impl PageTableTreePathModel {
         }
     }
 
-    pub proof fn rec_vaddr_push_0(path: TreePath<CONST_NR_ENTRIES>, len: int, idx: int)
+    pub proof fn rec_vaddr_push_0(path: TreePath<NR_ENTRIES>, len: int, idx: int)
         requires
             path.inv(),
             len == path.len(),
             0 <= idx <= path.len(),
-            NR_ENTRIES() > 0,
+            NR_ENTRIES > 0,
         ensures
             Self::rec_vaddr(path, idx) == Self::rec_vaddr(path.push_tail(0 as usize), idx),
         decreases (path.len() - idx),
     {
         let val = 0 as usize;
-        assert(0 <= val < NR_ENTRIES());
+        assert(0 <= val < NR_ENTRIES);
         let pushed = path.push_tail(val);
         assert(pushed.index(len) == 0) by { path.push_tail_property(val) };
         if idx == len {
@@ -141,21 +141,21 @@ impl PageTableTreePathModel {
     }
 
     #[verifier::inline]
-    pub open spec fn from_path(path: TreePath<CONST_NR_ENTRIES>) -> Self {
+    pub open spec fn from_path(path: TreePath<NR_ENTRIES>) -> Self {
         Self { inner: path }
     }
 
     pub open spec fn rec_from_va(va: usize, idx: int) -> Seq<usize>
         recommends
-            0 < NR_LEVELS(),
-            0 <= idx <= NR_LEVELS(),
-        decreases (NR_LEVELS() - idx),
-        when 0 <= idx <= NR_LEVELS()
+            0 < NR_LEVELS,
+            0 <= idx <= NR_LEVELS,
+        decreases (NR_LEVELS - idx),
+        when 0 <= idx <= NR_LEVELS
     {
-        if idx == NR_LEVELS() {
+        if idx == NR_LEVELS {
             Seq::empty()
         } else {
-            let offset = vaddr_extract::<CONST_NR_LEVELS>(idx, va);
+            let offset = vaddr_extract::<MAX_NR_LEVELS>(idx, va);
             seq![offset].add(Self::rec_from_va(va, idx + 1))
         }
     }
@@ -164,7 +164,7 @@ impl PageTableTreePathModel {
         Self { inner: TreePath::new(Self::rec_from_va(va, 0)) }
     }
 
-    pub open spec fn rec_vaddr(path: TreePath<CONST_NR_ENTRIES>, idx: int) -> usize
+    pub open spec fn rec_vaddr(path: TreePath<NR_ENTRIES>, idx: int) -> usize
         decreases path.len() - idx,
         when 0 <= idx <= path.len()
     {
@@ -179,7 +179,7 @@ impl PageTableTreePathModel {
         requires
             0 <= va < pow2(48),
         ensures
-            #[trigger] Self::from_va(va).vaddr() == va % PAGE_SIZE(),
+            #[trigger] Self::from_va(va).vaddr() == va % PAGE_SIZE,
     {
         admit();
     }

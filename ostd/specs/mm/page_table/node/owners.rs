@@ -71,8 +71,8 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_perm.value().wf(self.meta_own)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
-        &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
-        &&& self.meta_perm.addr() % META_SLOT_SIZE() == 0
+        &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
+        &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
     }
 }
 

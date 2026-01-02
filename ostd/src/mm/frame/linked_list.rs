@@ -370,8 +370,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
         requires
             old(regions).inv(),
-            frame < MAX_PADDR(),
-            frame % PAGE_SIZE() == 0,
+            frame < MAX_PADDR,
+            frame % PAGE_SIZE == 0,
             old(regions).slots.contains_key(frame_to_index(frame)),
             old(regions).slots[frame_to_index(frame)].is_init(),
             old(regions).slot_owners.contains_key(frame_to_index(frame)),

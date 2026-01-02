@@ -141,11 +141,11 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
     /// Otherwise, It would lead to double-drop of the page table frames set up
     /// by the firmware, loader or the setup code.
     unsafe fn from_current_pt() -> Self {
-        let root_pt = current_page_table_paddr() / C::BASE_PAGE_SIZE();
+        let root_pt = current_page_table_paddr() / C::BASE_PAGE_SIZE;
         // Make sure the 2 available bits are not set for firmware page tables.
         dfs_walk_on_leave::<E, C>(
             root_pt,
-            C::NR_LEVELS(),
+            C::NR_LEVELS,
             &mut |pte: &mut E|
                 {
                     let mut prop = pte.prop();
@@ -160,7 +160,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
 
     /// Returns the root physical address of the boot page table.
     pub(crate) fn root_address(&self) -> Paddr {
-        self.root_pt * C::BASE_PAGE_SIZE()
+        self.root_pt * C::BASE_PAGE_SIZE
     }
 
     /// Maps a base page to a frame.
@@ -175,33 +175,33 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
     /// maps a page in the kernel address space.
     pub unsafe fn map_base_page(&mut self, from: Vaddr, to: FrameNumber, prop: PageProperty) {
         let mut pt = self.root_pt;
-        let mut level = C::NR_LEVELS();
+        let mut level = C::NR_LEVELS;
         // Walk to the last level of the page table.
         while level > 1 {
             let index = pte_index::<C>(from, level);
-            let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index)
+            let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE) as *mut E).add(index)
             };
             let pte = unsafe { pte_ptr.read() };
             pt =
             if !pte.is_present() {
                 let pte = self.alloc_child();
                 unsafe { pte_ptr.write(pte) };
-                pte.paddr() / C::BASE_PAGE_SIZE()
+                pte.paddr() / C::BASE_PAGE_SIZE
             } else if pte.is_last(level) {
                 panic!("mapping an already mapped huge page in the boot page table");
             } else {
-                pte.paddr() / C::BASE_PAGE_SIZE()
+                pte.paddr() / C::BASE_PAGE_SIZE
             };
             level -= 1;
         }
         // Map the page in the last level page table.
         let index = pte_index::<C>(from, 1);
-        let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index) };
+        let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE) as *mut E).add(index) };
         let pte = unsafe { pte_ptr.read() };
         if pte.is_present() {
             panic!("mapping an already mapped page in the boot page table");
         }
-        unsafe { pte_ptr.write(E::new_page(to * C::BASE_PAGE_SIZE(), 1, prop)) };
+        unsafe { pte_ptr.write(E::new_page(to * C::BASE_PAGE_SIZE, 1, prop)) };
     }
 
     /// Set protections of a base page mapping.
@@ -223,11 +223,11 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
         mut op: impl FnMut(&mut PageProperty),
     ) {
         let mut pt = self.root_pt;
-        let mut level = C::NR_LEVELS();
+        let mut level = C::NR_LEVELS;
         // Walk to the last level of the page table.
         while level > 1 {
             let index = pte_index::<C>(virt_addr, level);
-            let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index)
+            let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE) as *mut E).add(index)
             };
             let pte = unsafe { pte_ptr.read() };
             pt =
@@ -242,20 +242,20 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
                     let nxt_ptr = unsafe { (paddr_to_vaddr(child_frame_pa) as *mut E).add(i) };
                     unsafe {
                         nxt_ptr.write(
-                            E::new_page(huge_pa + i * C::BASE_PAGE_SIZE(), level - 1, pte.prop()),
+                            E::new_page(huge_pa + i * C::BASE_PAGE_SIZE, level - 1, pte.prop()),
                         )
                     };
                 }
                 unsafe { pte_ptr.write(E::new_pt(child_frame_pa)) };
-                child_frame_pa / C::BASE_PAGE_SIZE()
+                child_frame_pa / C::BASE_PAGE_SIZE
             } else {
-                pte.paddr() / C::BASE_PAGE_SIZE()
+                pte.paddr() / C::BASE_PAGE_SIZE
             };
             level -= 1;
         }
         // Do protection in the last level page table.
         let index = pte_index::<C>(virt_addr, 1);
-        let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E).add(index) };
+        let pte_ptr = unsafe { (paddr_to_vaddr(pt * C::BASE_PAGE_SIZE) as *mut E).add(index) };
         let pte = unsafe { pte_ptr.read() };
         if !pte.is_present() {
             panic!("protecting an unmapped page in the boot page table");
@@ -309,11 +309,11 @@ fn dfs_walk_on_leave<E: PageTableEntryTrait, C: PagingConstsTrait>(
 ) {
     unimplemented!()/*
     if level >= 2 {
-        let pt_vaddr = paddr_to_vaddr(pt * C::BASE_PAGE_SIZE()) as *mut E;
+        let pt_vaddr = paddr_to_vaddr(pt * C::BASE_PAGE_SIZE) as *mut E;
         let pt = unsafe { core::slice::from_raw_parts_mut(pt_vaddr, nr_subpage_per_huge::<C>()) };
         for pte in pt {
             if pte.is_present() && !pte.is_last(level) {
-                dfs_walk_on_leave::<E, C>(pte.paddr() / C::BASE_PAGE_SIZE(), level - 1, op);
+                dfs_walk_on_leave::<E, C>(pte.paddr() / C::BASE_PAGE_SIZE, level - 1, op);
                 op(pte)
             }
         }

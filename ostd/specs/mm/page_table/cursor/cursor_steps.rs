@@ -19,26 +19,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases level,
     {
         if level <= 1 {
-            NR_ENTRIES()
+            NR_ENTRIES
         } else {
             // One step to push down a level, then the number for that subtree
-            (NR_ENTRIES() * (Self::max_steps_subtree((level - 1) as usize) + 1)) as usize
+            (NR_ENTRIES * (Self::max_steps_subtree((level - 1) as usize) + 1)) as usize
         }
     }
 
     /// The number of steps it will take to walk through the remaining entries of the page table
     /// starting at the given level.
     pub open spec fn max_steps_partial(self, level: usize) -> usize
-        decreases NR_LEVELS() - level,
-        when level <= NR_LEVELS()
+        decreases NR_LEVELS - level,
+        when level <= NR_LEVELS
     {
-        if level == NR_LEVELS() {
+        if level == NR_LEVELS {
             0
         } else {
             // How many entries remain at this level?
             let cont = self.continuations[(level - 1) as int];
             // Each entry takes at most `max_step_subtree` steps.
-            let steps = Self::max_steps_subtree(level) * (NR_ENTRIES() - cont.idx);
+            let steps = Self::max_steps_subtree(level) * (NR_ENTRIES - cont.idx);
             // Then the number of steps for the remaining entries at higer levels
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
             (steps + remaining_steps) as usize
@@ -118,7 +118,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn pop_level_owner(tracked &mut self)
         requires
             old(self).inv(),
-            old(self).level < NR_LEVELS(),
+            old(self).level < NR_LEVELS,
         ensures
             self == old(self).pop_level_owner_spec(),
     {
@@ -137,15 +137,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
-        decreases NR_LEVELS() - self.level when self.level < NR_LEVELS()
+        decreases NR_LEVELS - self.level when self.level < NR_LEVELS
     {
-        if self.index + 1 < NR_ENTRIES() {
+        if self.index + 1 < NR_ENTRIES {
             Self {
                 index: (self.index + 1) as usize,
 //                path: TreePath::new(self.path.0.update(self.path.0.len() - 1, (self.index + 1) as usize)),
                 ..self
             }
-        } else if self.level < NR_LEVELS() {
+        } else if self.level < NR_LEVELS {
             self.pop_level_owner_spec().move_forward_owner_spec()
         } else {
             // We are at the last entry of the last level, so we stay at the same index
@@ -156,7 +156,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn move_forward_owner_decreases_steps(self)
         requires
             self.inv(),
-            self.level < NR_LEVELS(),
+            self.level < NR_LEVELS,
         ensures
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
@@ -167,13 +167,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
         ensures
             self == old(self).move_forward_owner_spec(),
-        decreases NR_LEVELS() - old(self).level 
+        decreases NR_LEVELS - old(self).level 
     {
-        if self.index + 1 < NR_ENTRIES() {
+        if self.index + 1 < NR_ENTRIES {
             self.index = (self.index + 1) as usize;
 //            self.path.0.tracked_pop();
 //            self.path.0.tracked_push((self.index + 1) as usize);
-        } else if self.level < NR_LEVELS() {
+        } else if self.level < NR_LEVELS {
             self.pop_level_owner();
             assert(self.inv()) by { admit() };
             self.move_forward_owner();

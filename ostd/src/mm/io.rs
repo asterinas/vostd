@@ -93,8 +93,8 @@ pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) ->
 #[verifier::external_body]
 #[verus_spec(
     requires
-        KERNEL_BASE_VADDR() <= dst && dst + len <= KERNEL_END_VADDR(),
-        KERNEL_BASE_VADDR() <= src && src + len <= KERNEL_END_VADDR(),
+        KERNEL_BASE_VADDR <= dst && dst + len <= KERNEL_END_VADDR,
+        KERNEL_BASE_VADDR <= src && src + len <= KERNEL_END_VADDR,
 )]
 unsafe fn memcpy(dst: usize, src: usize, len: usize) {
     // This method is implemented by calling `volatile_copy_memory`. Note that even with the
@@ -150,8 +150,8 @@ pub tracked struct VmIoOwner<'a> {
 impl Inv for VmIoOwner<'_> {
     open spec fn inv(self) -> bool {
         // We do allow ZSTs so that empty ranges are valid.
-        &&& self.range@.start != self.range@.end ==> KERNEL_BASE_VADDR() as int <= self.range@.start
-            <= self.range@.end <= KERNEL_END_VADDR() as int
+        &&& self.range@.start != self.range@.end ==> KERNEL_BASE_VADDR as int <= self.range@.start
+            <= self.range@.end <= KERNEL_END_VADDR as int
     }
 }
 
@@ -247,8 +247,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
                 -> owner: Tracked<VmIoOwner<'a>>,
         requires
             !fallible,
-            len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
-            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR(),
+            len == 0 || KERNEL_BASE_VADDR <= ptr.addr(),
+            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR,
         ensures
             owner@.inv(),
             owner@.inv_with_writer(r),
@@ -292,8 +292,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 
         let (pnt, len) = val.as_bytes_mut();  // do not return a slice but a iteratorptr
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
-            > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || pnt.addr()
+            > KERNEL_END_VADDR - len) {
             proof_with!(|= Tracked(Err(crate::mm::Error::IoError)));
             Err(crate::mm::Error::IoError)
         } else {
@@ -333,8 +333,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
         with
             -> owner: Tracked<VmIoOwner<'a>>,
         requires
-            len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
-            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR(),
+            len == 0 || KERNEL_BASE_VADDR <= ptr.addr(),
+            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR,
         ensures
             owner@.inv(),
             owner@.inv_with_reader(r),
@@ -379,8 +379,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
         let (pnt, len) = val.as_bytes_mut();
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
-            > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || pnt.addr()
+            > KERNEL_END_VADDR - len) {
             proof_with!(|= Tracked(Err(crate::mm::Error::IoError)));
             Err(crate::mm::Error::IoError)
         } else {
@@ -407,8 +407,8 @@ impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
 
         let addr = slice.as_ptr() as usize;
 
-        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR || slice.len() >= KERNEL_END_VADDR
+            || addr > KERNEL_END_VADDR - slice.len()) {
             return Err(crate::mm::Error::IoError);
         }
         // SAFETY:
@@ -435,8 +435,8 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
-        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
-            > KERNEL_END_VADDR() - slice.len()) {
+        if len != 0 && (addr < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || addr
+            > KERNEL_END_VADDR - slice.len()) {
             Err(crate::mm::Error::IoError)
         } else {
             Ok(
@@ -465,8 +465,8 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
 
         let addr = slice.as_ptr() as usize;
 
-        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+        if slice.len() != 0 && (addr < KERNEL_BASE_VADDR || slice.len() >= KERNEL_END_VADDR
+            || addr > KERNEL_END_VADDR - slice.len()) {
             return Err(crate::mm::Error::IoError);
         }
         // SAFETY:
@@ -493,8 +493,8 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
-        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
-            > KERNEL_END_VADDR() - slice.len()) {
+        if len != 0 && (addr < KERNEL_BASE_VADDR || len >= KERNEL_END_VADDR || addr
+            > KERNEL_END_VADDR - slice.len()) {
             Err(crate::mm::Error::IoError)
         } else {
             Ok(

@@ -46,9 +46,9 @@ pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
 impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
     /// The invariant of a [`Segment`].
     open spec fn inv(self) -> bool {
-        &&& self.range.start % PAGE_SIZE() == 0
-        &&& self.range.end % PAGE_SIZE() == 0
-        &&& self.range.start <= self.range.end < MAX_PADDR()
+        &&& self.range.start % PAGE_SIZE == 0
+        &&& self.range.end % PAGE_SIZE == 0
+        &&& self.range.start <= self.range.end < MAX_PADDR
     }
 }
 
@@ -58,8 +58,8 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
         &&& forall|i: int|
             #![trigger self.perms[i]]
             0 <= i < self.perms.len() as int ==> {
-                &&& self.perms[i].addr() % PAGE_SIZE() == 0
-                &&& self.perms[i].addr() < MAX_PADDR()
+                &&& self.perms[i].addr() % PAGE_SIZE == 0
+                &&& self.perms[i].addr() < MAX_PADDR
                 &&& self.perms[i].wf()
                 &&& self.perms[i].is_init()
             }
@@ -69,11 +69,11 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
     pub open spec fn inv_with(&self, owner: &SegmentOwner<M>) -> bool {
         &&& self.inv()
-        &&& owner.perms.len() * PAGE_SIZE() == self.range.end - self.range.start
+        &&& owner.perms.len() * PAGE_SIZE == self.range.end - self.range.start
         &&& forall|i: int|
             #![trigger owner.perms[i]]
             0 <= i < owner.perms.len() as int ==> owner.perms[i].addr() == meta_addr(
-                frame_to_index((self.range.start + i * PAGE_SIZE()) as usize),
+                frame_to_index((self.range.start + i * PAGE_SIZE) as usize),
             )
     }
 }
@@ -104,7 +104,7 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 
 // impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
 //     fn drop(&mut self) {
-//         for paddr in self.range.clone().step_by(PAGE_SIZE()()) {
+//         for paddr in self.range.clone().step_by(PAGE_SIZE()) {
 //             // SAFETY: for each frame there would be a forgotten handle
 //             // when creating the `Segment` object.
 //             drop(unsafe { Frame::<M>::from_raw(paddr) });
@@ -117,11 +117,11 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 //             res == *self,
 //     {
 //         let mut i = 0;
-//         let addr_len = (self.range.end - self.range.start) / PAGE_SIZE();
+//         let addr_len = (self.range.end - self.range.start) / PAGE_SIZE;
 //         while i < addr_len
 //             decreases addr_len - i,
 //         {
-//             let paddr = self.range.start + i * PAGE_SIZE();
+//             let paddr = self.range.start + i * PAGE_SIZE;
 //             // SAFETY: for each frame there would be a forgotten handle
 //             // when creating the `Segment` object, so we already have
 //             // reference counts for the frames.
@@ -167,18 +167,18 @@ impl<M: AnyFrameMeta> Segment<M> {
         recommends
             self.inv(),
     {
-        self.size_spec() / PAGE_SIZE()
+        self.size_spec() / PAGE_SIZE
     }
 
     #[rustc_allow_incoherent_impl]
     pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
         recommends
             self.inv(),
-            offset % PAGE_SIZE() == 0,
+            offset % PAGE_SIZE == 0,
             0 < offset < self.size_spec(),
     {
         let at = (self.range.start + offset) as usize;
-        let idx = at / PAGE_SIZE();
+        let idx = at / PAGE_SIZE;
         (
             Self { range: self.range.start..at, _marker: core::marker::PhantomData },
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
@@ -231,17 +231,17 @@ impl<M: AnyFrameMeta> Segment<M> {
         metadata_fn: impl Fn(Paddr) -> (Paddr, M),
     ) -> bool {
         &&& regions.inv()
-        &&& range.start % PAGE_SIZE() == 0
-        &&& range.end % PAGE_SIZE() == 0
-        &&& range.start <= range.end < MAX_PADDR()
+        &&& range.start % PAGE_SIZE == 0
+        &&& range.end % PAGE_SIZE == 0
+        &&& range.start <= range.end < MAX_PADDR
         &&& forall|paddr_in: Paddr|
-            (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE() == 0) ==> {
+            (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE == 0) ==> {
                 &&& metadata_fn.requires((paddr_in,))
             }
         &&& forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
             metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
-                &&& paddr_out < MAX_PADDR()
-                &&& paddr_out % PAGE_SIZE() == 0
+                &&& paddr_out < MAX_PADDR
+                &&& paddr_out % PAGE_SIZE == 0
                 &&& paddr_in == paddr_out
                 &&& regions.slots.contains_key(frame_to_index(paddr_out))
                 &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
@@ -269,7 +269,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                     #![trigger owner.perms[i]]
                     0 <= i < owner.perms.len() as int ==> {
                         &&& owner.perms[i].addr() == meta_addr(
-                            frame_to_index_spec((range.start + i * PAGE_SIZE()) as usize),
+                            frame_to_index_spec((range.start + i * PAGE_SIZE) as usize),
                         )
                     }
                 &&& new_regions.paddr_range_not_in_region(range)
@@ -280,7 +280,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn split_requires(self, owner: SegmentOwner<M>, offset: usize) -> bool {
         &&& self.inv_with(&owner)
-        &&& offset % PAGE_SIZE() == 0
+        &&& offset % PAGE_SIZE == 0
         &&& 0 < offset < self.size()
     }
 
@@ -328,9 +328,9 @@ impl<M: AnyFrameMeta> Segment<M> {
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, range: Range<Paddr>) -> bool {
         &&& regions.inv()
         &&& regions.paddr_range_in_dropped_region(range)
-        &&& range.start % PAGE_SIZE() == 0
-        &&& range.end % PAGE_SIZE() == 0
-        &&& range.start < range.end < MAX_PADDR()
+        &&& range.start % PAGE_SIZE == 0
+        &&& range.end % PAGE_SIZE == 0
+        &&& range.start < range.end < MAX_PADDR
     }
 
     #[rustc_allow_incoherent_impl]
@@ -350,8 +350,8 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn slice_requires(self, owner: SegmentOwner<M>, range: Range<Paddr>) -> bool {
         &&& self.inv_with(&owner)
-        &&& range.start % PAGE_SIZE() == 0
-        &&& range.end % PAGE_SIZE() == 0
+        &&& range.start % PAGE_SIZE == 0
+        &&& range.end % PAGE_SIZE == 0
         &&& self.range.start + range.start <= self.range.start + range.end <= self.range.end
     }
 
@@ -365,8 +365,8 @@ impl<M: AnyFrameMeta> Segment<M> {
         &&& res.inv_with(
             &SegmentOwner {
                 perms: owner.perms.subrange(
-                    (range.start / PAGE_SIZE()) as int,
-                    (range.end / PAGE_SIZE()) as int,
+                    (range.start / PAGE_SIZE) as int,
+                    (range.end / PAGE_SIZE) as int,
                 ),
             },
         )
@@ -393,7 +393,7 @@ impl<M: AnyFrameMeta> Segment<M> {
         &&& match res {
             None => { &&& new_self.range.start == old_self.range.end },
             Some(f) => {
-                &&& new_self.range.start == old_self.range.start + PAGE_SIZE()
+                &&& new_self.range.start == old_self.range.start + PAGE_SIZE
                 &&& f.paddr() == old_self.range.start
                 &&& forall|i: usize|
                     #![trigger new_regions.dropped_slots[i], old_regions.dropped_slots[i]]
@@ -442,26 +442,26 @@ impl<M: AnyFrameMeta> Segment<M> {
         };
 
         let mut i = 0;
-        let addr_len = (range.end - range.start) / PAGE_SIZE();
+        let addr_len = (range.end - range.start) / PAGE_SIZE;
 
         #[verus_spec(
             invariant
                 i <= addr_len,
                 i as int == addrs.len(),
-                range.start % PAGE_SIZE() == 0,
-                range.end % PAGE_SIZE() == 0,
-                range.start <= range.start + i * PAGE_SIZE() <= range.end,
-                range.end == range.start + addr_len * PAGE_SIZE(),
-                addr_len == (range.end - range.start) / PAGE_SIZE() as int,
+                range.start % PAGE_SIZE == 0,
+                range.end % PAGE_SIZE == 0,
+                range.start <= range.start + i * PAGE_SIZE <= range.end,
+                range.end == range.start + addr_len * PAGE_SIZE,
+                addr_len == (range.end - range.start) / PAGE_SIZE as int,
                 i <= addr_len,
                 forall|paddr_in: Paddr|
-                    (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE() == 0) ==> {
+                    (range.start <= paddr_in < range.end && paddr_in % PAGE_SIZE == 0) ==> {
                         &&& metadata_fn.requires((paddr_in,))
                     },
                 forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
                     metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
-                        &&& paddr_out < MAX_PADDR()
-                        &&& paddr_out % PAGE_SIZE() == 0
+                        &&& paddr_out < MAX_PADDR
+                        &&& paddr_out % PAGE_SIZE == 0
                         &&& paddr_in == paddr_out
                         &&& regions.slots.contains_key(frame_to_index(paddr_out))
                         &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
@@ -472,19 +472,19 @@ impl<M: AnyFrameMeta> Segment<M> {
                     0 <= j < addrs.len() as int ==> {
                         &&& regions.slots.contains_key(frame_to_index_spec(addrs[j]))
                         &&& !regions.dropped_slots.contains_key(frame_to_index_spec(addrs[j]))
-                        &&& addrs[j] % PAGE_SIZE() == 0
-                        &&& addrs[j] == range.start + (j as u64) * PAGE_SIZE()
+                        &&& addrs[j] % PAGE_SIZE == 0
+                        &&& addrs[j] == range.start + (j as u64) * PAGE_SIZE
                     },
                 forall|paddr: Paddr| #[trigger]
                     old(regions).slots.contains_key(frame_to_index(paddr))
                         ==> regions.slots.contains_key(frame_to_index(paddr)),
                 regions.inv(),
                 segment.range.start == range.start,
-                segment.range.end == range.start + i * PAGE_SIZE(),
+                segment.range.end == range.start + i * PAGE_SIZE,
             decreases addr_len - i,
         )]
         while i < addr_len {
-            let paddr = range.start + i * PAGE_SIZE();
+            let paddr = range.start + i * PAGE_SIZE;
             let (paddr, meta) = metadata_fn(paddr);
 
             let frame = match #[verus_spec(with Tracked(regions))]
@@ -510,7 +510,7 @@ impl<M: AnyFrameMeta> Segment<M> {
 
             // TODO: `ManuallyDrop` causes compiler crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
             // let _ = ManuallyDrop::new(frame);
-            segment.range.end = paddr + PAGE_SIZE();
+            segment.range.end = paddr + PAGE_SIZE;
             proof {
                 addrs.tracked_push(paddr);
             }
@@ -543,18 +543,18 @@ impl<M: AnyFrameMeta> Segment<M> {
 
             assert forall|addr: usize|
                 #![trigger frame_to_index_spec(addr)]
-                range.start <= addr < range.end && addr % PAGE_SIZE() == 0 implies {
+                range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
                 &&& !regions.slots.contains_key(frame_to_index_spec(addr))
                 &&& !regions.dropped_slots.contains_key(frame_to_index_spec(addr))
             } by {
                 // proof by contradiction
                 assert(addrs.contains(addr)) by {
                     if !addrs.contains(addr) {
-                        let j = (addr - range.start) / PAGE_SIZE() as int;
+                        let j = (addr - range.start) / PAGE_SIZE as int;
                         assert(0 <= j < addrs.len() as usize) by {
                             assert(addr >= range.start);
                             assert(addr < range.end);
-                            assert(addr % PAGE_SIZE() == 0);
+                            assert(addr % PAGE_SIZE == 0);
                         };
                         assert(addrs[j as int] == addr);
                     }
@@ -587,7 +587,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     )]
     pub fn split(self, offset: usize) -> (Self, Self) {
         let at = self.range.start + offset;
-        let idx = offset / PAGE_SIZE();
+        let idx = offset / PAGE_SIZE;
         let res = (
             Self { range: self.range.start..at, _marker: core::marker::PhantomData },
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
@@ -640,11 +640,11 @@ impl<M: AnyFrameMeta> Segment<M> {
             regions.dropped_slots.tracked_union_prefer_right(new_dropped_slots);
 
             assert forall|paddr: Paddr|
-                self.range.start <= paddr < self.range.end && paddr % PAGE_SIZE() == 0 implies {
+                self.range.start <= paddr < self.range.end && paddr % PAGE_SIZE == 0 implies {
                 &&& regions.dropped_slots.contains_key(#[trigger] frame_to_index_spec(paddr))
             } by {
                 assert(new_keys.to_set().contains(frame_to_index_spec(paddr))) by {
-                    let j = (paddr - self.range.start) / PAGE_SIZE() as int;
+                    let j = (paddr - self.range.start) / PAGE_SIZE as int;
                     assert(0 <= j < owner.perms.len() as int);
                     assert(owner.perms[j].addr() == meta_addr(frame_to_index_spec(paddr)));
                 }
@@ -684,12 +684,12 @@ impl<M: AnyFrameMeta> Segment<M> {
         proof {
             broadcast use vstd::arithmetic::div_mod::group_div_basics;
 
-            let len = (range.end - range.start) / PAGE_SIZE() as int;
+            let len = (range.end - range.start) / PAGE_SIZE as int;
             let tracked owner_seq = seq_tracked_new(
                 len as nat,
                 |i: int|
                     {
-                        let paddr = (range.start + (i as u64) * PAGE_SIZE() as int) as Paddr;
+                        let paddr = (range.start + (i as u64) * PAGE_SIZE as int) as Paddr;
                         MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
@@ -701,7 +701,7 @@ impl<M: AnyFrameMeta> Segment<M> {
 
             // Then remove the frames from `regions.dropped_slots`.
             let keys = Set::new(
-                |paddr: Paddr| { range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0 },
+                |paddr: Paddr| { range.start <= paddr < range.end && paddr % PAGE_SIZE == 0 },
             );
             let keys_to_remove = keys.map(|paddr: Paddr| frame_to_index(paddr));
 
@@ -709,7 +709,7 @@ impl<M: AnyFrameMeta> Segment<M> {
 
             assert forall|paddr: Paddr|
                 #![trigger frame_to_index(paddr)]
-                range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0 implies {
+                range.start <= paddr < range.end && paddr % PAGE_SIZE == 0 implies {
                 &&& !regions.dropped_slots.contains_key(#[trigger] frame_to_index(paddr))
             } by {
                 assert(keys.contains(paddr));
@@ -747,17 +747,17 @@ impl<M: AnyFrameMeta> Segment<M> {
         let end = self.range.start + range.end;
 
         let mut i = 0;
-        let addr_len = (end - start) / PAGE_SIZE();
+        let addr_len = (end - start) / PAGE_SIZE;
         while i < addr_len
             invariant
-                start % PAGE_SIZE() == 0,
-                end % PAGE_SIZE() == 0,
-                start + i * PAGE_SIZE() <= end,
+                start % PAGE_SIZE == 0,
+                end % PAGE_SIZE == 0,
+                start + i * PAGE_SIZE <= end,
                 i <= addr_len,
-                addr_len == (end - start) / PAGE_SIZE() as int,
+                addr_len == (end - start) / PAGE_SIZE as int,
             decreases addr_len - i,
         {
-            let paddr = start + i * PAGE_SIZE();
+            let paddr = start + i * PAGE_SIZE;
             // SAFETY: We already have reference counts for the frames since
             // for each frame there would be a forgotten handle when creating
             // the `Segment` object.
@@ -796,7 +796,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 Frame::<M>::from_raw(self.range.start)
             };
 
-            self.range.start = self.range.start + PAGE_SIZE();
+            self.range.start = self.range.start + PAGE_SIZE;
             Some(frame)
         } else {
             None
@@ -808,7 +808,7 @@ impl<M: AnyFrameMeta> Segment<M> {
 //     fn from(frame: Frame<M>) -> Self {
 //         let pa = frame.start_paddr();
 //         let _ = ManuallyDrop::new(frame);
-//         Self { range: pa..pa + PAGE_SIZE(), _marker: core::marker::PhantomData }
+//         Self { range: pa..pa + PAGE_SIZE, _marker: core::marker::PhantomData }
 //     }
 // }
 /*
@@ -839,7 +839,7 @@ impl<M: AnyFrameMeta> TryFrom<Segment<dyn AnyFrameMeta>> for Segment<M> {
         // of the frames are of the same type. We just debug-check here.
         #[cfg(debug_assertions)]
         {
-            for paddr in seg.range.clone().step_by(PAGE_SIZE()) {
+            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
                 let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
                 let frame = ManuallyDrop::new(frame);
                 debug_assert!((frame.dyn_meta() as &dyn core::any::Any).is::<M>());
@@ -876,7 +876,7 @@ impl TryFrom<Segment<dyn AnyFrameMeta>> for USegment {
         // of the frames are of the same type. We just debug-check here.
         #[cfg(debug_assertions)]
         {
-            for paddr in seg.range.clone().step_by(PAGE_SIZE()) {
+            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
                 let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
                 let frame = ManuallyDrop::new(frame);
                 debug_assert!(frame.dyn_meta().is_untyped());

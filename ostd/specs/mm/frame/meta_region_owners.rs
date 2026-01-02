@@ -116,22 +116,22 @@ impl MetaRegionOwners {
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),
-            range.start < range.end < MAX_PADDR(),
+            range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index_spec(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> self.slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub open spec fn paddr_range_in_dropped_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),
-            range.start < range.end < MAX_PADDR(),
+            range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index_spec(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> !self.slots.contains_key(frame_to_index_spec(paddr))
                 && self.dropped_slots.contains_key(frame_to_index_spec(paddr))
     }
@@ -139,19 +139,19 @@ impl MetaRegionOwners {
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),
-            range.start < range.end < MAX_PADDR(),
+            range.start < range.end < MAX_PADDR,
     {
         forall|paddr: Paddr|
             #![trigger frame_to_index_spec(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> !self.slots.contains_key(frame_to_index_spec(paddr))
                 && !self.dropped_slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub proof fn inv_implies_correct_addr(self, paddr: usize)
         requires
-            paddr < MAX_PADDR(),
-            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR,
+            paddr % PAGE_SIZE == 0,
             self.inv(),
         ensures
             self.slot_owners.contains_key(frame_to_index_spec(paddr) as usize),

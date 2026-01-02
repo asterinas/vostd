@@ -567,9 +567,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///  - the length is not page-aligned.
     #[verus_spec(r =>
         requires
-            len % PAGE_SIZE() == 0,
-            old(self).pt_cursor.inner.va % PAGE_SIZE() == 0,
-            old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE().end as int,
+            len % PAGE_SIZE == 0,
+            old(self).pt_cursor.inner.va % PAGE_SIZE == 0,
+            old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE.end as int,
     )]
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
@@ -578,13 +578,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let mut num_unmapped: usize = 0;
 
         proof {
-            assert((self.pt_cursor.inner.va + len) % PAGE_SIZE() as int == 0) by (compute);
+            assert((self.pt_cursor.inner.va + len) % PAGE_SIZE as int == 0) by (compute);
         }
 
         #[verus_spec(
             invariant_except_break
-                self.pt_cursor.inner.va % PAGE_SIZE() == 0,
-                end_va % PAGE_SIZE() == 0,
+                self.pt_cursor.inner.va % PAGE_SIZE == 0,
+                end_va % PAGE_SIZE == 0,
         )]
         loop {
             // SAFETY: It is safe to un-map memory in the userspace.

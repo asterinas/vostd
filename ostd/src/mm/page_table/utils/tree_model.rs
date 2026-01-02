@@ -10,11 +10,11 @@ use vstd_extra::prelude::Node;
 verus! {
 
 pub tracked struct PageTableNodeModel {
-    pub tracked inner: ghost_tree::Node<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>,
+    pub tracked inner: ghost_tree::Node<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>,
 }
 
 impl View for PageTableNodeModel {
-    type V = ghost_tree::Node<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>;
+    type V = ghost_tree::Node<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>;
 
     open spec fn view(&self) -> Self::V {
         self.inner
@@ -28,8 +28,8 @@ pub open spec fn between(low: usize, high: usize, i: usize) -> bool {
 impl PageTableNodeModel {
     pub open spec fn valid_ptrs(self) -> bool {
         forall|i: usize| #[trigger]
-            between(0, CONST_NR_ENTRIES, i) ==> forall|
-                child: Node<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>,
+            between(0, NR_ENTRIES, i) ==> forall|
+                child: Node<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>,
             |
                 self.inner.children.index(i as int) == Some(child)
                     ==> self.inner.value.perms.unwrap().wf()
@@ -39,18 +39,18 @@ impl PageTableNodeModel {
     }
 
     pub open spec fn from_node(
-        node: ghost_tree::Node<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>,
+        node: ghost_tree::Node<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>,
     ) -> PageTableNodeModel {
         PageTableNodeModel { inner: node }
     }
 }
 
 pub tracked struct PageTableTreeModel {
-    pub tracked inner: ghost_tree::Tree<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>,
+    pub tracked inner: ghost_tree::Tree<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>,
 }
 
 impl View for PageTableTreeModel {
-    type V = ghost_tree::Tree<PageTableNodeValue, CONST_NR_ENTRIES, CONST_NR_LEVELS>;
+    type V = ghost_tree::Tree<PageTableNodeValue, NR_ENTRIES, MAX_NR_LEVELS>;
 
     open spec fn view(&self) -> Self::V {
         self.inner

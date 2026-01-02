@@ -71,7 +71,7 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     ///
     /// The level 1 page table lock guard is at index 0, and the level N page
     /// table lock guard is at index N - 1.
-    pub path: [Option<PPtr<PageTableGuard<'rcu, C>>>; MAX_NR_LEVELS()],
+    pub path: [Option<PPtr<PageTableGuard<'rcu, C>>>; MAX_NR_LEVELS],
     /// The cursor should be used in a RCU read side critical section.
     pub rcu_guard: &'rcu A,
     /// The level of the page table that the cursor currently points to.
@@ -108,7 +108,7 @@ impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
 }
 
 pub open spec fn page_size_spec(level: PagingLevel) -> usize {
-    PAGE_SIZE() << (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1))
+    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1))
 }
 
 /// The page size at a given level.
@@ -116,11 +116,11 @@ pub open spec fn page_size_spec(level: PagingLevel) -> usize {
 #[verifier::external_body]
 pub fn page_size(level: PagingLevel) -> usize
     requires
-        1 <= level <= NR_LEVELS() + 1,
+        1 <= level <= NR_LEVELS + 1,
     returns
         page_size_spec(level),
 {
-    PAGE_SIZE() << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
+    PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
 
 pub const fn align_down(x: usize, align: usize) -> (res: usize)
@@ -572,7 +572,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).inv(),
             old(self).wf(*old(owner)),
     {
-        //        assert!(va % C::BASE_PAGE_SIZE() == 0);
+        //        assert!(va % C::BASE_PAGE_SIZE == 0);
         if !self.barrier_va.contains(&va) {
             return Err(PageTableError::InvalidVaddr(va));
         }
@@ -580,7 +580,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             invariant
                 owner.inv(),
                 self.wf(*owner),
-            decreases NR_LEVELS() - owner.level,
+            decreases NR_LEVELS - owner.level,
         {
             assert(page_size((self.level + 1) as u8) > 0) by { admit() };
 
@@ -921,7 +921,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner.inv(),
                 new_owner.inv(),
                 self.inner.wf(*owner),
-                1 <= level <= NR_LEVELS(),
+                1 <= level <= NR_LEVELS,
                 regions.inv(),
             decreases abs(level - self.inner.level),
         {
@@ -1063,7 +1063,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[verifier::external_body]
     pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>)
         ensures
-            self.inner.va == old(self).inner.va + PAGE_SIZE(),
+            self.inner.va == old(self).inner.va + PAGE_SIZE,
     {
         self.inner.find_next_impl(len, true, true)?;
 
@@ -1219,13 +1219,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let tracked mut old_node_owner = old_child_owner.value.node.tracked_take();
 
-                assert(pt.paddr() % PAGE_SIZE() == 0) by { admit() };
-                assert(pt.paddr() < MAX_PADDR()) by { admit() };
+                assert(pt.paddr() % PAGE_SIZE == 0) by { admit() };
+                assert(pt.paddr() < MAX_PADDR) by { admit() };
                 assert(!regions.slots.contains_key(pt.index())) by { admit() };
                 assert(regions.dropped_slots.contains_key(pt.index())) by { admit() };
                 assert(pt.ptr == old_node_owner.as_node.meta_perm.points_to.pptr()) by { admit() };
-                assert(FRAME_METADATA_RANGE().start <= old_node_owner.as_node.meta_perm.points_to.addr() < FRAME_METADATA_RANGE().end) by { admit() };
-                assert(old_node_owner.as_node.meta_perm.points_to.addr() % META_SLOT_SIZE() == 0) by { admit() };
+                assert(FRAME_METADATA_RANGE.start <= old_node_owner.as_node.meta_perm.points_to.addr() < FRAME_METADATA_RANGE.end) by { admit() };
+                assert(old_node_owner.as_node.meta_perm.points_to.addr() % META_SLOT_SIZE == 0) by { admit() };
 
                 #[verus_spec(with Tracked(regions), Tracked(&old_node_owner.as_node.meta_perm))]
                 let borrow_pt = pt.borrow();

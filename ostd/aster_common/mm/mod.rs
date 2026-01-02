@@ -15,7 +15,6 @@ use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::layout::is_power_2;
 
-use vstd_extra::extern_const;
 
 use super::*;
 
@@ -33,7 +32,7 @@ pub type Paddr = usize;
 pub type PagingLevel = u8;
 
 /// The maximum value of `PagingConstsTrait::NR_LEVELS`.
-extern_const!(pub MAX_NR_LEVELS [MAX_NR_LEVELS_SPEC, CONST_MAX_NR_LEVELS]: usize = 4);
+pub const MAX_NR_LEVELS: usize = 4;
 
 #[allow(non_snake_case)]
 pub trait PagingConstsTrait: Debug + Sync {
@@ -67,7 +66,7 @@ pub trait PagingConstsTrait: Debug + Sync {
     #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
         ensures
-            res == NR_LEVELS(),
+            res == NR_LEVELS,
             res == Self::NR_LEVELS_spec(),
             res > 0,
     ;

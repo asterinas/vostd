@@ -67,7 +67,7 @@ impl MemoryRegionType {
 
 impl Inv for MemoryRegion {
     closed spec fn inv(self) -> bool {
-        self.base + self.len <= CONST_MAX_PADDR
+        self.base + self.len <= MAX_PADDR
     }
 }
 
@@ -90,7 +90,7 @@ impl MemoryRegion {
     /// Constructs a valid memory region.
     #[verus_spec(ret =>
         requires
-            base + len <= MAX_PADDR(),
+            base + len <= MAX_PADDR,
         ensures
             ret.inv(),
             ret@ == (MemRegionModel {

@@ -138,7 +138,7 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     #[rustc_allow_incoherent_impl]
-    pub open spec fn inc_pop_aligned_rec(path: TreePath<CONST_NR_ENTRIES>) -> TreePath<CONST_NR_ENTRIES>
+    pub open spec fn inc_pop_aligned_rec(path: TreePath<NR_ENTRIES>) -> TreePath<NR_ENTRIES>
         decreases path.len(),
     {
         if path.len() == 0 {
@@ -148,7 +148,7 @@ impl<C: PageTableConfig> CursorView<C> {
             let val = path.0[n - 1];
             let new_path = path.0.update(n - 1, (val + 1) as usize);
 
-            if new_path[n - 1] % NR_ENTRIES() == 0 {
+            if new_path[n - 1] % NR_ENTRIES == 0 {
                 let (tail, popped) = path.pop_tail();
                 Self::inc_pop_aligned_rec(popped)
             } else {
