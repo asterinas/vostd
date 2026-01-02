@@ -13,9 +13,12 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::ptr_extra::*;
 
-use crate::aster_common::frame::CursorMut;
-use crate::aster_common::frame::*;
 use crate::aster_common::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
+use crate::mm::frame::{UniqueFrame, UniqueFrameOwner};
+use crate::mm::frame::meta::mapping::frame_to_meta;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -28,9 +31,124 @@ use crate::specs::*;
 
 use crate::mm::{Paddr, Vaddr};
 
-use super::{meta::get_slot, MetaSlot};
+use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
 
 verus! {
+
+#[rustc_has_incoherent_inherent_impls]
+pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
+    pub next: Option<ReprPtr<MetaSlot, Link<M>>>,
+    pub prev: Option<ReprPtr<MetaSlot, Link<M>>>,
+    pub meta: M,
+}
+
+/// A linked list of frames.
+///
+/// Two key features that [`LinkedList`] is different from
+/// [`alloc::collections::LinkedList`] is that:
+///  1. It is intrusive, meaning that the links are part of the frame metadata.
+///     This allows the linked list to be used without heap allocation. But it
+///     disallows a frame to be in multiple linked lists at the same time.
+///  2. The linked list exclusively own the frames, meaning that it takes
+///     unique pointers [`UniqueFrame`]. And other bodies cannot
+///     [`from_in_use`] a frame that is inside a linked list.
+///  3. We also allow creating cursors at a specific frame, allowing $O(1)$
+///     removal without iterating through the list at a cost of some checks.
+#[rustc_has_incoherent_inherent_impls]
+pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
+    pub front: Option<ReprPtr<MetaSlot, Link<M>>>,
+    pub back: Option<ReprPtr<MetaSlot, Link<M>>>,
+    /// The number of frames in the list.
+    pub size: usize,
+    /// A lazily initialized ID, used to check whether a frame is in the list.
+    /// 0 means uninitialized.
+    pub list_id: u64,
+}
+
+/// A cursor that can mutate the linked list links.
+///
+/// The cursor points to either a frame or the "ghost" non-element. It points
+/// to the "ghost" non-element when the cursor surpasses the back of the list.
+#[rustc_has_incoherent_inherent_impls]
+pub struct CursorMut<M: AnyFrameMeta + Repr<MetaSlot>> {
+    pub list: PPtr<LinkedList<M>>,
+    pub current: Option<ReprPtr<MetaSlot, Link<M>>>,
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
+    /// Creates a new linked list.
+    pub const fn new() -> Self {
+        Self { front: None, back: None, size: 0, list_id: 0 }
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot>> Default for LinkedList<M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub struct StoredLink {
+    pub next: Option<Paddr>,
+    pub prev: Option<Paddr>,
+    pub slot: MetaSlot,
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot>> Repr<MetaSlot> for Link<M> {
+    uninterp spec fn wf(r: MetaSlot) -> bool;
+
+    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+
+    #[verifier::external_body]
+    fn to_repr(self) -> MetaSlot {
+        unimplemented!()
+    }
+
+    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
+
+    #[verifier::external_body]
+    fn from_repr(r: MetaSlot) -> Self {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
+        unimplemented!()
+    }
+
+    proof fn from_to_repr(self)
+        ensures
+            Self::from_repr(self.to_repr()) == self,
+    {
+        admit();
+    }
+
+    proof fn to_from_repr(r: MetaSlot)
+        ensures
+            Self::from_repr(r).to_repr() == r,
+    {
+        admit();
+    }
+
+    proof fn to_repr_wf(self)
+        ensures
+            <Self as Repr<MetaSlot>>::wf(self.to_repr()),
+    {
+        admit();
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot>> AnyFrameMeta for Link<M> {
+    fn on_drop(&mut self) {
+    }
+
+    fn is_untyped(&self) -> bool {
+        false
+    }
+
+    uninterp spec fn vtable_ptr(&self) -> usize;
+}
 
 // SAFETY: Only the pointers are not `Send` and `Sync`. But our interfaces
 // enforces that only with `&mut` references can we access with the pointers.
@@ -191,9 +309,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             old(regions).slots.contains_key(frame_to_index(owner.list[owner.list.len() - 1].paddr)),
 
     )]
-    pub fn pop_back(ptr: PPtr<Self>) -> Option<
-        (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
-    > {
+    pub fn pop_back(ptr: PPtr<Self>) -> Option<(UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>)> {
         assert(owner.list.len() > 0 ==> owner.inv_at(owner.list.len() - 1));
 
         #[verus_spec(with Tracked(owner), Tracked(perm))]

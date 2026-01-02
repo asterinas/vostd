@@ -25,7 +25,7 @@ use crate::{
     //    sync::SpinLock,
 };
 
-use crate::aster_common::frame::Frame;
+use crate::mm::frame::Frame;
 use crate::aster_common::*;
 
 verus! {

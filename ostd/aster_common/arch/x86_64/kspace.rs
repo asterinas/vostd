@@ -3,7 +3,8 @@ use vstd::prelude::*;
 use vstd_extra::extern_const::*;
 
 use super::*;
-use crate::aster_common::mm::frame::*;
+use crate::mm::frame::*;
+use crate::mm::frame::meta::mapping::{meta_to_frame, lemma_meta_to_frame_soundness};
 
 use core::ops::Range;
 

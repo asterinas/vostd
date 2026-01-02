@@ -2,10 +2,12 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::*;
-use crate::mm::page_table::*;
+use crate::mm::frame::*;
 use crate::aster_common::*;
+use crate::mm::page_table::*;
 use crate::mm::page_prop::PageProperty;
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 

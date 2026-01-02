@@ -7,7 +7,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::aster_common::*;
-use crate::aster_common::frame::meta_to_frame;
+use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use core::marker::PhantomData;

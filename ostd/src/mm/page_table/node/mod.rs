@@ -40,8 +40,11 @@ use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
+use crate::mm::frame::meta::{MetaSlot, mapping::{meta_to_frame, META_SLOT_SIZE}};
+use crate::aster_common::FRAME_METADATA_RANGE;
 use crate::mm::page_table::*;
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::mm::{Paddr, Vaddr};
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};

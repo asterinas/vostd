@@ -10,7 +10,8 @@ use vstd::prelude::*;
 
 use core::{ops::Range, sync::atomic::Ordering};
 
-use crate::aster_common::frame::{MetaRegionOwners, MetaSlotOwner};
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::page_table::*;
 use crate::aster_common::*;

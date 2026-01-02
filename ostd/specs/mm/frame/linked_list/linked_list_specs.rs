@@ -4,8 +4,10 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::*;
+use crate::mm::frame::linked_list::Link;
 use crate::aster_common::*;
+use super::linked_list_owners::{CursorModel, CursorOwner, LinkModel, LinkOwner, LinkedListModel};
 
 verus! {
 

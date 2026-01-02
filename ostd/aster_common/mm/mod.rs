@@ -1,10 +1,10 @@
-pub mod frame;
 mod kspace;
 
-use frame::{
-    meta_to_frame, AnyFrameMeta, Frame, FrameRef, MetaSlot, MetaSlotOwner, MetaSlotStorage,
-    StoredPageTablePageMeta,
+use crate::mm::frame::{
+    AnyFrameMeta, Frame, FrameRef, MetaSlot, MetaSlotStorage, StoredPageTablePageMeta,
 };
+use crate::mm::frame::meta::mapping::meta_to_frame;
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 
 pub use kspace::*;
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};

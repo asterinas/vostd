@@ -35,9 +35,10 @@ use vstd::simple_pptr::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::{
-    frame_to_index, meta_to_frame, Frame, MetaRegionOwners, MetaSlotOwner, META_SLOT_SIZE
-};
+use crate::mm::frame::Frame;
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr};
 

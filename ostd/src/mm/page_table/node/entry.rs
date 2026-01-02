@@ -7,7 +7,10 @@ use vstd::simple_pptr::{self, PPtr, PointsTo};
 use vstd_extra::cast_ptr;
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::{Frame, FrameRef};
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::mm::page_table::*;
 use crate::aster_common::*;
 

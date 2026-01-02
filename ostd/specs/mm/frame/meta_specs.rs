@@ -5,8 +5,11 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::*;
+use crate::mm::frame::meta::{get_slot_spec, mapping::{frame_to_index, frame_to_meta}, REF_COUNT_MAX, REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::aster_common::*;
+use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use super::meta_owners::{MetaSlotModel, MetaSlotStatus, PageUsage};
 
 use core::marker::PhantomData;
 

@@ -3,8 +3,10 @@ use vstd::prelude::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::*;
+use crate::mm::frame::meta::{mapping::frame_to_index, REF_COUNT_UNUSED};
 use crate::aster_common::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionModel;
 
 use core::marker::PhantomData;
 

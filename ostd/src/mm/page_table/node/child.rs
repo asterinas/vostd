@@ -2,9 +2,11 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
-use crate::aster_common::frame::*;
+use crate::mm::frame::Frame;
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::page_table::*;
 use crate::aster_common::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
