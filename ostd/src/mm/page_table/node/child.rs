@@ -172,8 +172,8 @@ impl<C: PageTableConfig> Child<C> {
     )]
     pub fn from_pte(pte: C::E, level: PagingLevel) -> (res: Self)
         requires
-            pte.paddr() % PAGE_SIZE == 0,
-            pte.paddr() < MAX_PADDR,
+            pte.paddr() % PAGE_SIZE() == 0,
+            pte.paddr() < MAX_PADDR(),
             old(regions).inv(),
             !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
@@ -227,8 +227,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         requires
 //            pte.wf(*entry_owner),
             entry_owner.inv(),
-            pte.paddr() % PAGE_SIZE == 0,
-            pte.paddr() < MAX_PADDR,
+            pte.paddr() % PAGE_SIZE() == 0,
+            pte.paddr() < MAX_PADDR(),
             !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).inv(),

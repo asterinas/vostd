@@ -1,4 +1,4 @@
-use crate::specs::arch::mm::MAX_PADDR;
+use crate::specs::arch::mm::CONST_MAX_PADDR;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
@@ -12,7 +12,7 @@ pub ghost struct MemRegionModel {
 
 impl Inv for MemRegionModel {
     open spec fn inv(self) -> bool {
-        0 <= self.base <= self.end <= MAX_PADDR && 0 <= self.typ < 9
+        0 <= self.base <= self.end <= CONST_MAX_PADDR && 0 <= self.typ < 9
     }
 }
 

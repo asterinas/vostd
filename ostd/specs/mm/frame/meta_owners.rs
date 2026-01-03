@@ -12,8 +12,8 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::meta::{MetaSlot, MetaSlotStorage};
-use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
 use core::marker::PhantomData;
 
@@ -121,8 +121,8 @@ impl Inv for MetaSlotOwner {
             &&& self.vtable_ptr.is_uninit()
             &&& self.in_list.value() == 0
         }
-        &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
-        &&& self.self_addr % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE().start <= self.self_addr < FRAME_METADATA_RANGE().end
+        &&& self.self_addr % META_SLOT_SIZE() == 0
     }
 }
 

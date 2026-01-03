@@ -7,8 +7,8 @@ use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrameOwner};
-use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::mm::Paddr;
 
@@ -112,9 +112,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedListOwner<M> {
         &&& self.perms[i].addr() == self.list[i].paddr
         &&& self.perms[i].points_to.addr() == self.list[i].paddr
         &&& self.perms[i].wf()
-        &&& self.perms[i].addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= self.perms[i].addr() < FRAME_METADATA_RANGE.start
-            + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& self.perms[i].addr() % META_SLOT_SIZE() == 0
+        &&& FRAME_METADATA_RANGE().start <= self.perms[i].addr() < FRAME_METADATA_RANGE().start
+            + MAX_NR_PAGES() * META_SLOT_SIZE()
         &&& self.perms[i].is_init()
         &&& self.perms[i].value().wf(self.list[i])
         &&& i == 0 <==> self.perms[i].mem_contents().value().prev is None

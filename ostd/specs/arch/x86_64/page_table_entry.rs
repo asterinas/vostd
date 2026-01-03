@@ -54,8 +54,11 @@ pub struct PageTableEntry(pub usize);
 
 global layout PageTableEntry is size == 8, align == 8;
 
+extern_const!(
 /// Masks of the physical address.
-pub const PHYS_ADDR_MASK: usize = 0xffff_ffff_ffff_f000;
+pub PHYS_ADDR_MASK
+    [PHYS_ADDR_MASK_SPEC, CONST_PHYS_ADDR_MASK]: usize =
+    0xffff_ffff_ffff_f000);
 
 impl Clone for PageTableEntry {
     fn clone(&self) -> Self {
@@ -70,7 +73,7 @@ impl PageTableEntry {
     #[vstd::contrib::auto_spec]
     pub const fn PROP_MASK() -> (res: usize)
     {
-        !PHYS_ADDR_MASK & !(PageTableFlags::HUGE())
+        !PHYS_ADDR_MASK() & !(PageTableFlags::HUGE())
     }
 
     #[verifier::inline]
@@ -240,7 +243,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     open spec fn new_page_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
-        let addr = paddr & PHYS_ADDR_MASK;
+        let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
         let flags = Self::format_flags(prop) as usize;
         Self(addr | hp | flags)
@@ -249,34 +252,34 @@ impl PageTableEntryTrait for PageTableEntry {
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         ensures res == Self::new_page_spec(paddr, level, prop)
     {
-        let addr = paddr & PHYS_ADDR_MASK;
+        let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
         let flags = Self::format_flags(prop) as usize;
         Self(addr | hp | flags)
     }
 
     open spec fn new_pt_spec(paddr: Paddr) -> Self {
-        let addr = paddr & PHYS_ADDR_MASK;
+        let addr = paddr & PHYS_ADDR_MASK();
         Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
     }
 
     fn new_pt(paddr: Paddr) -> (res: Self)
         ensures res == Self::new_pt_spec(paddr)
     {
-        let addr = paddr & PHYS_ADDR_MASK;
+        let addr = paddr & PHYS_ADDR_MASK();
         Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
     }
 
     #[verifier::inline]
     open spec fn paddr_spec(&self) -> Paddr {
-        self.0 & PHYS_ADDR_MASK
+        self.0 & PHYS_ADDR_MASK()
     }
 
     #[inline(always)]
     fn paddr(&self) -> (res: Paddr)
         ensures res == self.paddr_spec()
     {
-        self.0 & PHYS_ADDR_MASK
+        self.0 & PHYS_ADDR_MASK()
     }
 
     #[verifier::inline]

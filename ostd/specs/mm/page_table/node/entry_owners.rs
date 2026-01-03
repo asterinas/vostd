@@ -20,7 +20,7 @@ verus! {
 pub tracked struct NodeEntryOwner<'rcu, C: PageTableConfig> {
     pub as_node: NodeOwner<C>,
     pub guard_perm: PointsTo<PageTableGuard<'rcu, C>>,
-    pub children_perm: array_ptr::PointsTo<Entry<'rcu, C>, NR_ENTRIES>,
+    pub children_perm: array_ptr::PointsTo<Entry<'rcu, C>, CONST_NR_ENTRIES>,
     pub nr_children_perm: vstd::cell::PointsTo<u16>,
 }
 
@@ -32,11 +32,11 @@ impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {
         &&& self.as_node.inv()
         &&& self.as_node.meta_perm.value().nr_children.id() == self.nr_children_perm.id()
         &&& self.nr_children_perm.is_init()
-        &&& 0 <= self.nr_children_perm.value() <= NR_ENTRIES
-        &&& meta_to_frame(self.as_node.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
+        &&& 0 <= self.nr_children_perm.value() <= NR_ENTRIES()
+        &&& meta_to_frame(self.as_node.meta_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
         &&& meta_to_frame(self.as_node.meta_perm.addr()) == self.children_perm.addr()
         &&& forall|i: int|
-            0 <= i < NR_ENTRIES ==> self.children_perm.is_init(i as int) ==> {
+            0 <= i < NR_ENTRIES() ==> self.children_perm.is_init(i as int) ==> {
                 &&& #[trigger] self.children_perm.opt_value()[i as int].value().node
                     == self.guard_perm.pptr()
             }
@@ -65,7 +65,7 @@ pub tracked struct EntryOwner<'rcu, C: PageTableConfig> {
 //    pub base_addr: usize,
     pub guard_addr: usize,
 //    pub index: usize,
-    pub path: TreePath<NR_ENTRIES>,
+    pub path: TreePath<CONST_NR_ENTRIES>,
 }
 
 impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
@@ -166,9 +166,9 @@ impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.node.addr() == owner.guard_addr
-        &&& self.idx < NR_ENTRIES
-        &&& self.pte.paddr() % PAGE_SIZE == 0
-        &&& self.pte.paddr() < MAX_PADDR
+        &&& self.idx < NR_ENTRIES()
+        &&& self.pte.paddr() % PAGE_SIZE() == 0
+        &&& self.pte.paddr() < MAX_PADDR()
     }
 }
 

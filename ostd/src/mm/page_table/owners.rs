@@ -44,11 +44,11 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
 }
 
 pub open spec fn rec_vaddr(
-    path: TreePath<NR_ENTRIES>,
+    path: TreePath<CONST_NR_ENTRIES>,
     idx: int,
 ) -> usize/*        recommends
-        0 < NR_LEVELS,
-        path.len() <= NR_LEVELS,
+        0 < NR_LEVELS(),
+        path.len() <= NR_LEVELS(),
         0 <= idx <= path.len(),*/
 
     decreases path.len() - idx,
@@ -58,11 +58,11 @@ pub open spec fn rec_vaddr(
         0
     } else {
         let offset: usize = path.index(idx);
-        (vaddr_make::<MAX_NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
+        (vaddr_make::<CONST_NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
     }
 }
 
-pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
+pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
@@ -113,7 +113,9 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
     }
 }
 
-pub const INC_LEVELS: usize = NR_LEVELS + 1;
+extern_const!(
+pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
+);
 
 /// `OwnerSubtree` is a tree `Node` (from `vstd_extra::ghost_tree`) containing an `EntryOwner`.
 /// It lives in a tree of maximum depth 5. Page table nodes can be at levels 0-3, and their entries are their children at the next
@@ -124,7 +126,7 @@ pub const INC_LEVELS: usize = NR_LEVELS + 1;
 ///                        tree level 2 ==> level 2 page table, or frame mapped by level 3 table
 ///                        tree level 3 ==> level 1 page table, or frame mapped by level 2 table
 ///                        tree level 4 ==> frame mapped by level 1 table
-pub type OwnerSubtree<'rcu, C> = Node<EntryOwner<'rcu, C>, NR_ENTRIES, INC_LEVELS>;
+pub type OwnerSubtree<'rcu, C> = Node<EntryOwner<'rcu, C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>;
 
 pub tracked struct OwnerAsTreeNode<'rcu, C: PageTableConfig> {
     pub inner: OwnerSubtree<'rcu, C>,
@@ -142,7 +144,7 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
     /// A leaf entry cannot have children
     pub open spec fn is_leaf(self) -> bool {
         &&& self.inner.value.is_frame()
-        &&& forall|i: int| 0 <= i < NR_ENTRIES ==> self.inner.children[i] is None
+        &&& forall|i: int| 0 <= i < NR_ENTRIES() ==> self.inner.children[i] is None
     }
 
     pub open spec fn is_table(self) -> bool {
@@ -152,7 +154,7 @@ impl<'rcu, C: PageTableConfig> OwnerAsTreeNode<'rcu, C> {
     pub open spec fn valid_ptrs(self) -> bool {
         forall|i: usize|
             #![auto]
-            0 <= i < NR_ENTRIES ==> self.inner.children[i as int] is Some ==> {
+            0 <= i < NR_ENTRIES() ==> self.inner.children[i as int] is Some ==> {
                 &&& self.inner.value.node is Some
                 &&& self.inner.value.node.unwrap().children_perm.is_init(
                     i as int,
@@ -191,7 +193,7 @@ impl<'rcu, C: PageTableConfig> Inv for OwnerAsTreeNode<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.is_table() ==> {
             &&& forall|i: int|
-                0 <= i < NR_ENTRIES ==> {
+                0 <= i < NR_ENTRIES() ==> {
                     &&& self.inner.children[i] is Some
                     &&& self.inner.children[i].unwrap().inv()
                 }

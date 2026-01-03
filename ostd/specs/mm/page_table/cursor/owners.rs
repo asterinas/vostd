@@ -95,7 +95,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     #[verifier::returns(proof)]
     pub axiom fn make_cont(tracked &mut self, idx: usize) -> (res: Self)
         requires
-            0 <= idx < NR_ENTRIES,
+            0 <= idx < NR_ENTRIES(),
         ensures
             res == old(self).make_cont_spec(idx).0,
             self == old(self).make_cont_spec(idx).1,
@@ -118,7 +118,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub proof fn cont_property(self, idx: usize)
         requires
-            0 <= idx < NR_ENTRIES,
+            0 <= idx < NR_ENTRIES(),
             self.children[idx as int] is Some,
         ensures
             self.make_cont_spec(idx).1.restore_spec(self.make_cont_spec(idx).0) == self,
@@ -147,13 +147,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& self.children.len() == NR_ENTRIES
-        &&& 0 <= self.idx < NR_ENTRIES
+        &&& self.children.len() == NR_ENTRIES()
+        &&& 0 <= self.idx < NR_ENTRIES()
         &&& forall|i: int|
-            0 <= i < NR_ENTRIES ==> self.children[i] is Some ==> {
+            0 <= i < NR_ENTRIES() ==> self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level
-                &&& self.tree_level == INC_LEVELS - self.level
+                &&& self.tree_level == INC_LEVELS() - self.level
                 &&& self.children[i].unwrap().value.relate_parent_guard_perm(
                     self.entry_own.node.unwrap().guard_perm,
                 )
@@ -163,13 +163,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn all_some(self) -> bool {
-        forall|i: int| 0 <= i < NR_ENTRIES ==> self.children[i] is Some
+        forall|i: int| 0 <= i < NR_ENTRIES() ==> self.children[i] is Some
     }
 }
 
 #[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
-//    pub path: TreePath<NR_ENTRIES>,
+//    pub path: TreePath<CONST_NR_ENTRIES>,
     pub level: PagingLevel,
     pub index: usize,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
@@ -177,13 +177,13 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
-        &&& 0 <= self.index < NR_ENTRIES
-        &&& 1 <= self.level <= NR_LEVELS
-//        &&& self.path.0.len() == NR_LEVELS - self.level
+        &&& 0 <= self.index < NR_ENTRIES()
+        &&& 1 <= self.level <= NR_LEVELS()
+//        &&& self.path.0.len() == NR_LEVELS() - self.level
         &&& forall|i: int|
-            self.level - 1 <= i <= NR_LEVELS - 1 ==> self.continuations.contains_key(i)
+            self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
         &&& forall|i: int|
-            self.level - 1 <= i <= NR_LEVELS - 1 ==> {
+            self.level - 1 <= i <= NR_LEVELS() - 1 ==> {
                 &&& self.continuations[i].inv()
                 &&& self.continuations[i].level == i
             }
@@ -196,11 +196,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn inv_continuation(self, i: int)
         requires
             self.inv(),
-            self.level - 1 <= i <= NR_LEVELS - 1,
+            self.level - 1 <= i <= NR_LEVELS() - 1,
         ensures
             self.continuations.contains_key(i),
             self.continuations[i].inv(),
-            self.continuations[i].children.len() == NR_ENTRIES,
+            self.continuations[i].children.len() == NR_ENTRIES(),
     {
         assert(self.continuations.contains_key(i));
     }
@@ -264,8 +264,8 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
         CursorView {
             cur_va: (self.continuations[self.level - 1].cur_va + self.index * page_size(self.level as u8)) as usize,
             scope: page_size(self.level as u8),
-            fore: self.prev_views_rec(NR_LEVELS as int),
-            rear: self.next_views_rec(NR_LEVELS as int),
+            fore: self.prev_views_rec(NR_LEVELS() as int),
+            rear: self.next_views_rec(NR_LEVELS() as int),
         }
     }
 }

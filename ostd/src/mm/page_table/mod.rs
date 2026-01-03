@@ -134,7 +134,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// forgotten after this function is called.
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
         ensures
-            1 <= res.1 <= NR_LEVELS,
+            1 <= res.1 <= NR_LEVELS(),
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -643,7 +643,7 @@ impl<C: PageTableConfig> PageTable<C> {
     #[verifier::external_body]
     pub fn empty() -> Self {
         unimplemented!()/*        PageTable {
-            root: PageTableNode::alloc(C::NR_LEVELS),
+            root: PageTableNode::alloc(C::NR_LEVELS()),
         }*/
 
     }
@@ -788,7 +788,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 /// The safety preconditions are same as those of [`AtomicUsize::from_ptr`].
 #[verifier::external_body]
 pub fn load_pte<E: PageTableEntryTrait>(
-    ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
+    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
     ordering: Ordering,
 ) -> E {
     unimplemented!()/*    // SAFETY: The safety is upheld by the caller.
@@ -805,7 +805,7 @@ pub fn load_pte<E: PageTableEntryTrait>(
 /// The safety preconditions are same as those of [`AtomicUsize::from_ptr`].
 #[verifier::external_body]
 pub fn store_pte<E: PageTableEntryTrait>(
-    ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
+    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
     new_val: E,
     ordering: Ordering,
 ) {

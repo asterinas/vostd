@@ -1,14 +1,16 @@
 use vstd::prelude::*;
 use vstd_extra::extern_const::*;
 
-use crate::mm::frame::meta::MetaSlot;
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::mm::Paddr;
-use crate::mm::Vaddr;
+use super::*;
 
 use core::mem::size_of;
 use core::ops::Range;
+
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
+use crate::mm::{Vaddr, Paddr};
+use crate::mm::frame::MetaSlot;
+use crate::mm::frame::meta::{lemma_meta_slot_size, meta_slot_size};
 
 verus! {
 
@@ -43,22 +45,19 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
 {
 }
 
-} // verus!
-verus! {
-
 #[verifier::inline]
 pub open spec fn frame_to_meta_spec(paddr: Paddr) -> (res: Vaddr)
     recommends
         paddr % PAGE_SIZE() == 0,
         paddr < MAX_PADDR(),
 {
-    (FRAME_METADATA_RANGE().start + (paddr / PAGE_SIZE()) * META_SLOT_SIZE()) as usize
+    (FRAME_METADATA_RANGE().start + (paddr / PAGE_SIZE()) * meta_slot_size()) as usize
 }
 
 #[verifier::inline]
 pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr
     recommends
-        vaddr % size_of::<super::MetaSlot>() == 0,
+        vaddr % size_of::<MetaSlot>() == 0,
         FRAME_METADATA_RANGE().start <= vaddr < FRAME_METADATA_RANGE().end,
 {
     ((vaddr - FRAME_METADATA_RANGE().start) / META_SLOT_SIZE() as int * PAGE_SIZE()) as usize
@@ -179,7 +178,7 @@ pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
 }
 
 pub broadcast group group_page_meta {
-    crate::mm::frame::meta::lemma_meta_slot_size,
+    lemma_meta_slot_size,
     lemma_FRAME_METADATA_RANGE_is_page_aligned,
     lemma_FRAME_METADATA_RANGE_is_large_enough,
     lemma_paddr_to_meta_biinjective,

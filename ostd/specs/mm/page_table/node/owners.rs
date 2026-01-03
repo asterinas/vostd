@@ -7,9 +7,9 @@ use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
 use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::meta::mapping::META_SLOT_SIZE;
 use crate::mm::page_table::*;
-use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 
@@ -74,8 +74,8 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_perm.value().wf(self.meta_own)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
-        &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
-        &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
+        &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
+        &&& self.meta_perm.addr() % META_SLOT_SIZE() == 0
     }
 }
 

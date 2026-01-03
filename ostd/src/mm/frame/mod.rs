@@ -60,7 +60,7 @@ pub use segment::Segment;
 // Re-export commonly used types
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, MetaSlotStorage, StoredPageTablePageMeta};
 pub use meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{Link, LinkedList, CursorMut};
 pub use unique::{UniqueFrame, UniqueFrameOwner};
@@ -198,10 +198,10 @@ impl<M: AnyFrameMeta> cast_ptr::Repr<MetaSlot> for Frame<M> {
 
 impl<M: AnyFrameMeta> Inv for Frame<M> {
     open spec fn inv(self) -> bool {
-        &&& self.ptr.addr() % META_SLOT_SIZE == 0
-        &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
-            + MAX_NR_PAGES * META_SLOT_SIZE
-        &&& self.ptr.addr() < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
+        &&& self.ptr.addr() % META_SLOT_SIZE() == 0
+        &&& FRAME_METADATA_RANGE().start <= self.ptr.addr() < FRAME_METADATA_RANGE().start
+            + MAX_NR_PAGES() * META_SLOT_SIZE()
+        &&& self.ptr.addr() < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
     }
 }
 
@@ -266,8 +266,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         paddr: Paddr,
         metadata: M,
     ) -> bool {
-        &&& paddr % PAGE_SIZE == 0
-        &&& paddr < MAX_PADDR
+        &&& paddr % PAGE_SIZE() == 0
+        &&& paddr < MAX_PADDR()
         &&& regions.slots.contains_key(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].usage is Unused
         &&& regions.slot_owners[frame_to_index(paddr)].in_list.points_to(0)
@@ -361,8 +361,8 @@ impl<M: AnyFrameMeta> Frame<M> {
 
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-        &&& paddr % PAGE_SIZE == 0
-        &&& paddr < MAX_PADDR
+        &&& paddr % PAGE_SIZE() == 0
+        &&& paddr < MAX_PADDR()
         &&& !regions.slots.contains_key(frame_to_index(paddr))
         &&& regions.dropped_slots.contains_key(frame_to_index(paddr))
         &&& regions.inv()
@@ -427,8 +427,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         requires
             perm.addr() == self.ptr.addr(),
             perm.is_init(),
-            FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
-            perm.addr() % META_SLOT_SIZE == 0,
+            FRAME_METADATA_RANGE().start <= perm.addr() < FRAME_METADATA_RANGE().end,
+            perm.addr() % META_SLOT_SIZE() == 0,
         returns
             meta_to_frame(self.ptr.addr()),
     {
@@ -454,7 +454,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     /// Gets the size of this page in bytes.
     #[rustc_allow_incoherent_impl]
     pub const fn size(&self) -> usize {
-        PAGE_SIZE
+        PAGE_SIZE()
     }
 
     /*    /// Gets the dyncamically-typed metadata of this frame.
@@ -502,14 +502,14 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     pub fn borrow(&self) -> FrameRef<'a, M>
         requires
             old(regions).inv(),
-            self.paddr() % PAGE_SIZE == 0,
-            self.paddr() < MAX_PADDR,
+            self.paddr() % PAGE_SIZE() == 0,
+            self.paddr() < MAX_PADDR(),
             !old(regions).slots.contains_key(self.index()),
             old(regions).dropped_slots.contains_key(self.index()),
             perm.points_to.pptr() == self.ptr,
             perm.is_init(),
-            FRAME_METADATA_RANGE.start <= perm.points_to.addr() < FRAME_METADATA_RANGE.end,
-            perm.points_to.addr() % META_SLOT_SIZE == 0,
+            FRAME_METADATA_RANGE().start <= perm.points_to.addr() < FRAME_METADATA_RANGE().end,
+            perm.points_to.addr() % META_SLOT_SIZE() == 0,
     {
         assert(regions.slot_owners.contains_key(self.index()));
         // SAFETY: Both the lifetime and the type matches `self`.
@@ -698,7 +698,7 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
 ///  2. The caller must have already held a reference to the frame.
 #[verifier::external_body]
 pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
-    debug_assert!(paddr % PAGE_SIZE == 0);
+    debug_assert!(paddr % PAGE_SIZE() == 0);
 
     let vaddr: Vaddr = frame_to_meta(paddr);
     // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking

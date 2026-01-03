@@ -133,7 +133,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         if !level_too_high {
             break ;
         }
-        let cur_pt_ptr = ArrayPtr::<C::E, NR_ENTRIES>::from_addr(paddr_to_vaddr(cur_pt_addr));
+        let cur_pt_ptr = ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(paddr_to_vaddr(cur_pt_addr));
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and
         //    (2) all child nodes cannot be recycled because we're in the RCU critical section.

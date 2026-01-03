@@ -49,7 +49,7 @@ impl MetaSlot {
     ) -> (PPtr<MetaSlot>, MetaRegionModel)
         recommends
             paddr % 4096 == 0,
-            paddr < MAX_PADDR,
+            paddr < MAX_PADDR(),
             pre.inv(),
             pre.slots[frame_to_index(paddr)].ref_count == REF_COUNT_UNUSED,
     {
@@ -99,7 +99,7 @@ impl MetaSlot {
     ) -> bool
         recommends
             paddr % 4096 == 0,
-            paddr < MAX_PADDR,
+            paddr < MAX_PADDR(),
             pre.inv(),
             pre.view().slots[paddr / 4096].ref_count == REF_COUNT_UNUSED,
     {
@@ -118,7 +118,7 @@ impl MetaSlot {
     )
         recommends
             paddr % 4096 == 0,
-            paddr < MAX_PADDR,
+            paddr < MAX_PADDR(),
             pre.inv(),
             0 <= pre.slots[paddr / 4096].ref_count < REF_COUNT_MAX,
     {
@@ -143,7 +143,7 @@ impl MetaSlot {
     ) -> bool
         recommends
             paddr % 4096 == 0,
-            paddr < MAX_PADDR,
+            paddr < MAX_PADDR(),
             pre.inv(),
             0 <= pre.view().slots[paddr / 4096].ref_count < REF_COUNT_MAX,
     {

@@ -41,10 +41,11 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
-use crate::mm::frame::meta::{MetaSlot, mapping::{meta_to_frame, META_SLOT_SIZE}};
-use crate::mm::kspace::FRAME_METADATA_RANGE;
+use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::mm::page_table::*;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::mm::frame::meta::MetaSlot;
 use crate::mm::{Paddr, Vaddr, paddr_to_vaddr, kspace::LINEAR_MAPPING_BASE_VADDR};
 use crate::specs::arch::kspace::VMALLOC_BASE_VADDR;
 
@@ -431,14 +432,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner.0.ptr.addr() == owner.meta_perm.addr,
             self.inner.inner.0.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
-            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR
-                - LINEAR_MAPPING_BASE_VADDR,
-            FRAME_METADATA_RANGE.start <= owner.meta_perm.addr < FRAME_METADATA_RANGE.end,
-            owner.meta_perm.addr % META_SLOT_SIZE == 0,
-            idx < NR_ENTRIES,
+            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
+            FRAME_METADATA_RANGE().start <= owner.meta_perm.addr < FRAME_METADATA_RANGE().end,
+            owner.meta_perm.addr % META_SLOT_SIZE() == 0,
+            idx < NR_ENTRIES(),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
+        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
             #[verusfmt::skip]
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
@@ -472,14 +472,13 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(owner).inv(),
-            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR
-                - LINEAR_MAPPING_BASE_VADDR,
-            idx < NR_ENTRIES,
+            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR(),
+            idx < NR_ENTRIES(),
         
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         #[verusfmt::skip]
-        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
+        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr()
