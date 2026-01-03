@@ -6,11 +6,11 @@ use super::*;
 use core::mem::size_of;
 use core::ops::Range;
 
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
-use crate::mm::{Vaddr, Paddr};
-use crate::mm::frame::MetaSlot;
 use crate::mm::frame::meta::{lemma_meta_slot_size, meta_slot_size};
+use crate::mm::frame::MetaSlot;
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 
 verus! {
 

@@ -17,9 +17,9 @@ use vstd::prelude::*;
 
 pub mod mapping;
 
+use self::mapping::{frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use self::mapping::{frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
 use vstd::cell::{self, PCell};
@@ -50,10 +50,13 @@ use crate::{
         paddr_to_vaddr,
         //        page_table::boot_pt,
         page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
-        /*Infallible,*/ Paddr, PagingLevel,
+        /*Infallible,*/ Paddr,
+        PagingLevel,
         //Segment,
         Vaddr,
-        /*VmReader,*/ PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES,
+        MAX_NR_PAGES,
+        MAX_PADDR,
+        /*VmReader,*/ PAGE_SIZE,
     },
     specs::arch::kspace::FRAME_METADATA_RANGE,
     //    panic::abort,

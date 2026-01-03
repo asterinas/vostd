@@ -2,10 +2,10 @@ use vstd::prelude::*;
 use vstd_extra::extern_const::*;
 
 use crate::mm::frame::meta::MetaSlot;
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::mm::Paddr;
 use crate::mm::Vaddr;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 
 use core::mem::size_of;
 use core::ops::Range;
@@ -39,7 +39,8 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_page_aligned()
 #[allow(non_snake_case)]
 pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
     ensures
-        #[trigger] FRAME_METADATA_RANGE().end >= FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE(),
+        #[trigger] FRAME_METADATA_RANGE().end >= FRAME_METADATA_RANGE().start + MAX_NR_PAGES()
+            * META_SLOT_SIZE(),
 {
 }
 

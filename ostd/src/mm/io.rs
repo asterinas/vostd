@@ -48,9 +48,9 @@ use vstd_extra::ownership::Inv;
 use core::marker::PhantomData;
 use core::ops::Range;
 
+use crate::error::*;
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
-use crate::error::*;
 
 verus! {
 
@@ -76,8 +76,10 @@ verus! {
             owner_r.params_eq(*old(owner_r)),
             owner_w.params_eq(*old(owner_w)),
     )]
-pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) ->
-    core::result::Result<usize, (Error, usize)> {
+pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<
+    usize,
+    (Error, usize),
+> {
     Ok(0)  // placeholder.
 
 }
@@ -133,7 +135,8 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
-    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/>,
+    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/
+    >,
     // if so, we must also make it
     // phantom <ArrayPtr<u8, N>>???
     // phantaom: PhantomData<PointsToArray<u8, N>>, ? // what should be here?
@@ -157,6 +160,20 @@ impl Inv for VmIoOwner<'_> {
 }
 
 impl VmIoOwner<'_> {
+    /// Checks whether this owner overlaps with another owner.
+    #[verifier::inline]
+    pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
+        &&& self.range@.start < other.range@.end
+        &&& other.range@.start < self.range@.end
+    }
+
+    /// Checks whether this owner is disjoint with another owner.
+    #[verifier::inline]
+    pub open spec fn disjoint(self, other: VmIoOwner<'_>) -> bool {
+        !self.overlaps(other)
+    }
+
+    #[verifier::inline]
     pub open spec fn params_eq(self, other: VmIoOwner<'_>) -> bool {
         &&& self.range@ == other.range@
         &&& self.is_fallible == other.is_fallible
@@ -293,8 +310,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 
         let (pnt, len) = val.as_bytes_mut();  // do not return a slice but a iteratorptr
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR()
-            || pnt.addr() > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
+            > KERNEL_END_VADDR() - len) {
             proof_with!(|= Tracked(Err(Error::IoError)));
             Err(Error::IoError)
         } else {
@@ -321,6 +338,21 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 
 #[verus_verify]
 impl<'a> VmReader<'a  /* Infallible */ > {
+    /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// a memory range in USER space.
+    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
+    #[verus_spec(r =>
+        with
+            -> owner: Tracked<Result<VmIoOwner<'a>>>,
+        requires
+
+    )]
+    pub unsafe fn from_user_space(ptr: *const u8, len: usize) -> Self {
+        // SAFETY: The caller must ensure the safety requirements.
+        unimplemented!()
+    }
+
     /// Constructs a `VmReader` from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
@@ -380,8 +412,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
         let (pnt, len) = val.as_bytes_mut();
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR()
-            || pnt.addr() > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
+            > KERNEL_END_VADDR() - len) {
             proof_with!(|= Tracked(Err(Error::IoError)));
             Err(Error::IoError)
         } else {
@@ -436,8 +468,8 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
-        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
+            > KERNEL_END_VADDR() - slice.len()) {
             Err(Error::IoError)
         } else {
             Ok(
@@ -494,8 +526,8 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
-        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+        if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
+            > KERNEL_END_VADDR() - slice.len()) {
             Err(Error::IoError)
         } else {
             Ok(

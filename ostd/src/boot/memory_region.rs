@@ -3,8 +3,8 @@
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use crate::mm::{Vaddr, Paddr};
-use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, CONST_MAX_PADDR};
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::arch::mm::{CONST_MAX_PADDR, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::memory_region_specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;

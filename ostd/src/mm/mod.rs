@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
-
-use vstd::prelude::*;
 use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::layout::is_power_2;
+use vstd::prelude::*;
 
 use core::fmt::Debug;
 
@@ -37,12 +36,11 @@ mod test;
 use core::ops::Range;
 
 // Import types and constants from arch
-pub use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES, NR_ENTRIES, NR_LEVELS};
+pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 pub use crate::specs::arch::paging_consts::PagingConsts;
 
 // Re-export paddr_to_vaddr from kspace
 pub use kspace::paddr_to_vaddr;
-
 
 // Re-export largest_pages from page_table
 pub use page_table::largest_pages;

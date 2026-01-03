@@ -2,10 +2,10 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
-use crate::mm::frame::Frame;
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
-use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -15,7 +15,7 @@ use vstd_extra::ownership::*;
 use crate::specs::*;
 
 use crate::{
-    mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait, page_prop::PageProperty},
+    mm::{page_prop::PageProperty, Paddr, PagingConstsTrait, PagingLevel, Vaddr},
     //    sync::RcuDrop,
 };
 use core::mem::ManuallyDrop;
@@ -28,7 +28,7 @@ verus! {
 #[rustc_has_incoherent_inherent_impls]
 pub enum Child<C: PageTableConfig> {
     /// A child page table node.
-    pub PageTable(  /*RcuDrop<*/ PageTableNode<C>  /*>*/),
+    pub PageTable(  /*RcuDrop<*/ PageTableNode<C>  /*>*/ ),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -92,7 +92,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
                 &&& owner.frame.unwrap().mapped_pa == paddr
                 &&& owner.frame.unwrap().prop == prop
             },
-            Self::None => owner.is_absent()
+            Self::None => owner.is_absent(),
         }
     }
 }

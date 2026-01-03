@@ -3,10 +3,10 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
-use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
-use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::page_table::*;
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 
 use core::ops::Range;
@@ -130,11 +130,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         parent.restore(child);
 
-        self.continuations.tracked_insert(self.level as int, parent);        
+        self.continuations.tracked_insert(self.level as int, parent);
 
         assert(self.continuations == self0.continuations.insert(self.level as int, parent).remove(self.level - 1));
 
-//        self.path.0.tracked_pop();        
+//        self.path.0.tracked_pop();
         self.level = (self.level + 1) as u8;
     }
 
@@ -169,7 +169,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
         ensures
             self == old(self).move_forward_owner_spec(),
-        decreases NR_LEVELS() - old(self).level 
+        decreases NR_LEVELS() - old(self).level
     {
         if self.index + 1 < NR_ENTRIES() {
             self.index = (self.index + 1) as usize;

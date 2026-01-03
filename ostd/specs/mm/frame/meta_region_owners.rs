@@ -7,12 +7,15 @@ use core::ops::Range;
 
 use vstd_extra::ownership::*;
 
+use super::meta_owners::{MetaSlotModel, MetaSlotOwner};
 use super::*;
-use crate::mm::frame::meta::{MetaSlot, mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE}};
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::mm::frame::meta::{
+    mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
+    MetaSlot,
+};
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use super::meta_owners::{MetaSlotModel, MetaSlotOwner};
+use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 
 verus! {
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::layout::is_power_2;
 use vstd::prelude::*;
 use vstd::std_specs::clone::*;
-use vstd::layout::is_power_2;
 
 use vstd_extra::prelude::lemma_usize_ilog2_ordered;
 
@@ -13,13 +13,13 @@ use core::{
 };
 
 use super::{
+    lemma_nr_subpage_per_huge_bounded,
     //    kspace::KernelPtConfig,
     nr_subpage_per_huge,
-    lemma_nr_subpage_per_huge_bounded,
     page_prop::PageProperty,
+    Paddr,
     //    vm_space::UserPtConfig,
     PagingConstsTrait,
-    Paddr,
     PagingLevel,
     //    PodOnce,
     Vaddr,

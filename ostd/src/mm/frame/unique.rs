@@ -13,11 +13,13 @@ use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
+use super::meta::mapping::{
+    frame_to_index, frame_to_meta, max_meta_slots, meta_to_frame, META_SLOT_SIZE,
+};
 use super::meta::REF_COUNT_UNIQUE;
-use super::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame, max_meta_slots, META_SLOT_SIZE};
 use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::paging_consts::PagingConsts;
 
 verus! {
 

@@ -3,10 +3,10 @@ use vstd::prelude::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::*;
 use crate::mm::frame::meta::{mapping::frame_to_index, REF_COUNT_UNUSED};
-use crate::mm::{Vaddr, Paddr, PagingLevel};
-use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
+use crate::mm::frame::*;
+use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionModel;
 
 use core::marker::PhantomData;

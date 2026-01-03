@@ -3,7 +3,11 @@ use vstd::prelude::*;
 use vstd_extra::extern_const::*;
 
 use super::*;
-use crate::mm::{Vaddr, Paddr, frame::*, frame::meta::mapping::{meta_to_frame, lemma_meta_to_frame_soundness}, PagingConsts};
+use crate::mm::{
+    frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
+    frame::*,
+    Paddr, PagingConsts, Vaddr,
+};
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
 use core::ops::Range;
@@ -30,11 +34,11 @@ pub KERNEL_END_VADDR [KERNEL_END_VADDR_SPEC, CONST_KERNEL_END_VADDR]:
 );
 
 extern_const!(
-    /// Kernel virtual address range for storing the page frame metadata.
-    pub FRAME_METADATA_RANGE
-        [FRAME_METADATA_RANGE_SPEC, CONST_FRAME_METADATA_RANGE]: Range<Vaddr>
-        = 0xffff_fff0_0000_0000..0xffff_fff0_8000_0000
-    );   
+/// Kernel virtual address range for storing the page frame metadata.
+pub FRAME_METADATA_RANGE
+    [FRAME_METADATA_RANGE_SPEC, CONST_FRAME_METADATA_RANGE]: Range<Vaddr>
+    = 0xffff_fff0_0000_0000..0xffff_fff0_8000_0000
+);
 
 extern_const!(
 pub FRAME_METADATA_CAP_VADDR [FRAME_METADATA_CAP_VADDR_SPEC, CONST_FRAME_METADATA_CAP_VADDR]:
@@ -42,10 +46,9 @@ pub FRAME_METADATA_CAP_VADDR [FRAME_METADATA_CAP_VADDR_SPEC, CONST_FRAME_METADAT
 );
 
 extern_const!(
-    pub FRAME_METADATA_BASE_VADDR [FRAME_METADATA_BASE_VADDR_SPEC, CONST_FRAME_METADATA_BASE_VADDR]:
-        Vaddr = 0xffff_fff0_0000_0000_usize << CONST_ADDR_WIDTH_SHIFT
-    );
-    
+pub FRAME_METADATA_BASE_VADDR [FRAME_METADATA_BASE_VADDR_SPEC, CONST_FRAME_METADATA_BASE_VADDR]:
+    Vaddr = 0xffff_fff0_0000_0000_usize << CONST_ADDR_WIDTH_SHIFT
+);
 
 extern_const!(
 pub LINEAR_MAPPING_BASE_VADDR [LINEAR_MAPPING_BASE_VADDR_SPEC, CONST_LINEAR_MAPPING_BASE_VADDR]:

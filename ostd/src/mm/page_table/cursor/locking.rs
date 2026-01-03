@@ -7,10 +7,8 @@ use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
 use crate::mm::{
-    nr_subpage_per_huge, paddr_to_vaddr,
-    page_table::*,
-    Vaddr, Paddr, PagingLevel, PagingConstsTrait, PagingConsts,
-    PAGE_SIZE, NR_ENTRIES, NR_LEVELS
+    nr_subpage_per_huge, paddr_to_vaddr, page_table::*, Paddr, PagingConsts, PagingConstsTrait,
+    PagingLevel, Vaddr, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
 };
 
 use vstd_extra::array_ptr::*;

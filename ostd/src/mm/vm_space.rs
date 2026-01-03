@@ -8,31 +8,32 @@
 //! to the page table.
 use vstd::prelude::*;
 
-use core::{ops::Range, sync::atomic::Ordering};
-
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
 use crate::mm::page_table::*;
-use crate::specs::arch::{PageTableEntry, mm::{KERNEL_VADDR_RANGE, PAGE_SIZE, NR_ENTRIES, NR_LEVELS}, paging_consts::PagingConsts};
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
+use crate::specs::arch::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::task::InAtomicMode;
-use crate::error::Error;
-
+use core::marker::PhantomData;
+use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
 
 use crate::{
     //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
     //    cpu_local_cell,
     mm::{
+        io::{VmIoOwner, VmReader, VmWriter},
         //        io::Fallible,
         // kspace::KERNEL_PAGE_TABLE,
         // page_table,
         //        tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
-        PagingLevel, Vaddr, Paddr, PagingConstsTrait,
-        io::{VmReader, VmWriter},        VmSpaceOwner,
+        Paddr,
+        PagingConstsTrait,
+        PagingLevel,
+        Vaddr,
         MAX_USERSPACE_VADDR,
     },
     prelude::*,
@@ -43,64 +44,7 @@ use alloc::sync::Arc;
 
 verus! {
 
-/// The configuration for user page tables.
-#[derive(Clone, Debug)]
-pub struct UserPtConfig {}
-
-/// The item that can be mapped into the [`VmSpace`].
-#[derive(Clone)]
-pub struct MappedItem {
-    pub frame: UFrame,
-    pub prop: PageProperty,
-}
-
-// SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
-unsafe impl PageTableConfig for UserPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
-    }
-
-    type E = PageTableEntry;
-
-    type C = PagingConsts;
-
-    type Item = MappedItem;
-
-    #[verifier::external_body]
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        unimplemented!()/*
-        let (frame, prop) = item;
-        let level = frame.map_level();
-        let paddr = frame.into_raw();
-        (paddr, level, prop)
-        */
-    }
-
-    uninterp spec fn item_from_raw_spec(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> Self::Item;
-
-    #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        unimplemented!()/*
-        debug_assert_eq!(level, 1);
-        // SAFETY: The caller ensures safety.
-        let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
-        (frame, prop)
-        */
-    }
-}
-
+verus! {
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
 ///
 /// The `VmSpace` type provides memory isolation guarantees between user-space and
@@ -137,9 +81,153 @@ unsafe impl PageTableConfig for UserPtConfig {
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
 #[rustc_has_incoherent_inherent_impls]
-pub struct VmSpace {
+pub struct VmSpace<'a> {
     pub pt: PageTable<UserPtConfig>,
     //    cpus: AtomicCpuSet,
+    pub marker: PhantomData<&'a ()>,
+}
+
+/// This struct is used for reading/writing memories represented by the
+/// [`VmReader`] or [`VmWriter`]. We also requrie a valid `vmspace_owner`
+/// must be present in this struct to ensure that the reader/writer is
+/// not created out of thin air.
+pub tracked struct VmIoPermission<'a> {
+    pub vmio_owner: VmIoOwner<'a>,
+    pub vmspace_owner: VmSpaceOwner<'a>,
+}
+
+/// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
+pub tracked struct VmSpaceOwner<'a> {
+    /// The owner of the page table of this VM space.
+    pub page_table_owner: PageTableOwner<'a, UserPtConfig>,
+    /// Whether this VM space is currently active.
+    pub active: bool,
+    /// Active readers for this VM space.
+    pub readers: Map<nat, VmIoOwner<'a>>,
+    /// Active writers for this VM space.
+    pub writers: Map<nat, VmIoOwner<'a>>,
+}
+
+impl<'a> Inv for VmSpaceOwner<'a> {
+    open spec fn inv(self) -> bool {
+        &&& self.page_table_owner.inv()
+        &&& self.readers.dom().finite()
+        &&& self.writers.dom().finite()
+        &&& self.active ==> {
+            // Readers and writers are disjoint when the VM space is active.
+            &&& self.readers.dom().disjoint(
+                self.writers.dom(),
+            )
+            // Readers and writers are valid.
+            &&& forall|i: nat, reader: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader))]
+                self.readers.kv_pairs().contains((i, reader)) ==> reader.inv()
+            &&& forall|i: nat, writer: VmIoOwner<'a>|
+                #![trigger self.writers.kv_pairs().contains((i, writer))]
+                self.writers.kv_pairs().contains((i, writer))
+                    ==> writer.inv()
+            // Readers do not overlap with other readers, and writers do not overlap with other writers.
+            &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
+                self.readers.kv_pairs().contains((i, reader)) && self.writers.kv_pairs().contains(
+                    (j, writer),
+                ) && i != j ==> !reader.overlaps(writer)
+            &&& forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
+                #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
+                self.readers.kv_pairs().contains((i, reader1)) && self.readers.kv_pairs().contains(
+                    (j, reader2),
+                ) && i != j ==> !reader1.overlaps(reader2)
+            &&& forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
+                #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
+                self.writers.kv_pairs().contains((i, writer1)) && self.writers.kv_pairs().contains(
+                    (j, writer2),
+                ) && i != j ==> !writer1.overlaps(writer2)
+        }
+    }
+}
+
+impl VmSpaceOwner<'_> {
+    /// The basic invariant between a VM space and its owner.
+    pub open spec fn inv_with(&self, vm_space: &VmSpace<'_>) -> bool {
+        &&& self.inv()
+    }
+
+    /// Checks if this given reader is valid under this VM space owner.
+    pub open spec fn valid_reader(&self, reader: &VmReader<'_>) -> bool {
+        arbitrary()
+    }
+
+    /// Checks if this given writer is valid under this VM space owner.
+    pub open spec fn valid_writer(&self, writer: &VmWriter<'_>) -> bool {
+        arbitrary()
+    }
+}
+
+}  // verus!
+
+
+/// The configuration for user page tables.
+#[derive(Clone, Debug)]
+pub struct UserPtConfig {}
+
+/// The item that can be mapped into the [`VmSpace`].
+#[derive(Clone)]
+pub struct MappedItem {
+    pub frame: UFrame,
+    pub prop: PageProperty,
+}
+
+// SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
+unsafe impl PageTableConfig for UserPtConfig {
+    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
+        0..256
+    }
+
+    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
+        true
+    }
+
+    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
+        0..256
+    }
+
+    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
+        true
+    }
+
+    type E = PageTableEntry;
+
+    type C = PagingConsts;
+
+    type Item = MappedItem;
+
+    #[verifier::external_body]
+    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        unimplemented!()/*
+        let (frame, prop) = item;
+        let level = frame.map_level();
+        let paddr = frame.into_raw();
+        (paddr, level, prop)
+        */
+
+    }
+
+    uninterp spec fn item_from_raw_spec(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> Self::Item;
+
+    #[verifier::external_body]
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+        unimplemented!()/*
+        debug_assert_eq!(level, 1);
+        // SAFETY: The caller ensures safety.
+        let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
+        (frame, prop)
+        */
+
+    }
 }
 
 type Result<A> = core::result::Result<A, Error>;
@@ -162,7 +250,6 @@ impl VmSpace<'_> {
     ///
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     pub fn cursor<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
         Cursor<'a, G>,
@@ -180,7 +267,6 @@ impl VmSpace<'_> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    #[rustc_allow_incoherent_impl]
     pub fn cursor_mut<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
         CursorMut<'a, G>,
     > {
@@ -194,7 +280,9 @@ impl VmSpace<'_> {
                     },
             )?,
         )
-    }/* TODO: We don't currently do per-CPU stuff
+    }
+
+    /* TODO: We don't currently do per-CPU stuff
     /// Activates the page table on the current CPU.
     pub fn activate(self: &Arc<Self>) {
         let preempt_guard = disable_preempt();
@@ -231,11 +319,11 @@ impl VmSpace<'_> {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
-    /// 
+    ///
     /// Note that this function will not return the reader's owner explicitly and the caller should
     /// always consult the [`VmSpaceOwner`] to ensure the validity of the created reader and "borrow"
     /// the reader from the owner.
-    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
@@ -249,15 +337,14 @@ impl VmSpace<'_> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             return Err(Error::AccessDenied);
         }
-
         if vaddr.checked_add(len).unwrap_or(usize::MAX) > MAX_USERSPACE_VADDR {
             return Err(Error::AccessDenied);
         }
-
         // SAFETY: The memory range is in user space, as checked above.
+
         Ok(unsafe { VmReader::from_user_space(vaddr as *const u8, len) })
     }
-
+    
     /*
     /// Creates a writer to write data into the user space.
     ///
@@ -266,7 +353,6 @@ impl VmSpace<'_> {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
-    #[rustc_allow_incoherent_impl]
     pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             return Err(Error::AccessDenied);
@@ -300,9 +386,7 @@ impl Default for VmSpace {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
-pub struct Cursor<'a, A: InAtomicMode>(
-    pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>,
-);
+pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>);
 
 /*
 impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
@@ -416,7 +500,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+    pub pt_cursor: crate::mm::page_table::CursorMut<
+        'a,
+        UserPtConfig,
+        A,
+    >,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
@@ -589,7 +677,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE().end as int,
     )]
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     pub fn unmap(&mut self, len: usize) -> usize {
         let end_va = self.virt_addr() + len;

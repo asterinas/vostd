@@ -4,11 +4,11 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::*;
 
-use crate::mm::frame::*;
-use crate::mm::frame::linked_list::Link;
-use crate::mm::{Vaddr, Paddr, PagingLevel};
-use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES};
 use super::linked_list_owners::{CursorModel, CursorOwner, LinkModel, LinkOwner, LinkedListModel};
+use crate::mm::frame::linked_list::Link;
+use crate::mm::frame::*;
+use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 
 verus! {
 

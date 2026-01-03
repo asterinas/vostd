@@ -12,7 +12,7 @@ use crate::prelude::Inv;
 
 verus! {
 
-/// Concrete representation of a pointer 
+/// Concrete representation of a pointer
 pub struct VirtPtr {
     pub vaddr: usize,
     pub ghost range: Ghost<Range<usize>>,
@@ -25,14 +25,14 @@ pub struct Mapping {
 
 pub tracked struct MemView {
     pub mappings: Set<Mapping>,
-    pub memory: Map<usize, raw_ptr::MemContents<u8>>
+    pub memory: Map<usize, raw_ptr::MemContents<u8>>,
 }
 
 impl MemView {
     pub open spec fn addr_transl(self, va: usize) -> Option<usize> {
         let mappings = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         if 0 < mappings.len() {
-            let m = mappings.choose(); // In a well-formed PT there will only be one, but if malformed this is non-deterministic!
+            let m = mappings.choose();  // In a well-formed PT there will only be one, but if malformed this is non-deterministic!
             let off = va - m.va_range.start;
             Some((m.base_paddr + off) as usize)
         } else {
@@ -40,7 +40,7 @@ impl MemView {
         }
     }
 
-    pub open spec fn read(self, va:usize) -> Option<raw_ptr::MemContents<u8>> {
+    pub open spec fn read(self, va: usize) -> Option<raw_ptr::MemContents<u8>> {
         let pa = self.addr_transl(va);
         if pa is Some {
             Some(self.memory[pa.unwrap()])
@@ -49,10 +49,15 @@ impl MemView {
         }
     }
 
-    pub open spec fn write(self, va:usize, x: u8) -> Option<Self> {
+    pub open spec fn write(self, va: usize, x: u8) -> Option<Self> {
         let pa = self.addr_transl(va);
         if pa is Some {
-            Some(MemView { memory: self.memory.insert(pa.unwrap(), raw_ptr::MemContents::Init(x)), ..self } )
+            Some(
+                MemView {
+                    memory: self.memory.insert(pa.unwrap(), raw_ptr::MemContents::Init(x)),
+                    ..self
+                },
+            )
         } else {
             None
         }
@@ -79,12 +84,9 @@ impl Inv for VirtPtr {
 impl Clone for VirtPtr {
     fn clone(&self) -> (res: Self)
         ensures
-            res == self
+            res == self,
     {
-        Self {
-            vaddr: self.vaddr,
-            range: Ghost(self.range@)
-        }
+        Self { vaddr: self.vaddr, range: Ghost(self.range@) }
     }
 }
 
@@ -104,8 +106,9 @@ impl VirtPtr {
         requires
             mem.addr_transl(self.vaddr) is Some,
             mem.memory[mem.addr_transl(self.vaddr).unwrap()] is Init,
-            self.is_valid()
-        returns mem.read(self.vaddr).unwrap().value()
+            self.is_valid(),
+        returns
+            mem.read(self.vaddr).unwrap().value(),
     {
         unimplemented!()
     }
@@ -114,29 +117,31 @@ impl VirtPtr {
     pub fn write(self, Tracked(mem): Tracked<&mut MemView>, x: u8)
         requires
             old(mem).addr_transl(self.vaddr) is Some,
-            self.is_valid()
-        ensures mem == old(mem).write(self.vaddr, x).unwrap()
+            self.is_valid(),
+        ensures
+            mem == old(mem).write(self.vaddr, x).unwrap(),
     {
         unimplemented!()
     }
 
     pub open spec fn add_spec(self, n: usize) -> Self {
-        VirtPtr {
-            vaddr: (self.vaddr + n) as usize,
-            range: self.range
-        }
+        VirtPtr { vaddr: (self.vaddr + n) as usize, range: self.range }
     }
 
     pub fn add(&mut self, n: usize)
         requires
-            // Option 1: strict C standard compliance
-            // old(self).range@.start <= self.vaddr + n <= old(self).range@.end,
-            // Option 2: just make sure it doesn't overflow
+    // Option 1: strict C standard compliance
+    // old(self).range@.start <= self.vaddr + n <= old(self).range@.end,
+    // Option 2: just make sure it doesn't overflow
+
             0 <= old(self).vaddr + n < usize::MAX,
         ensures
-            self == old(self).add_spec(n),
-            // If we take option 1, we can also ensure:
-            // self.is_defined()
+            self == old(self).add_spec(
+                n,
+            ),
+    // If we take option 1, we can also ensure:
+    // self.is_defined()
+
     {
         self.vaddr = self.vaddr + n
     }
@@ -153,7 +158,8 @@ impl VirtPtr {
             self.range@.start <= self.vaddr + n < self.range@.end,
             mem.addr_transl((self.vaddr + n) as usize) is Some,
             mem.memory[mem.addr_transl((self.vaddr + n) as usize).unwrap()] is Init,
-        returns self.read_offset_spec(*mem, n)
+        returns
+            self.read_offset_spec(*mem, n),
     {
         let mut tmp = self.clone();
         tmp.add(n);
@@ -191,21 +197,22 @@ impl VirtPtr {
             old(mem).memory.contains_key(old(mem).addr_transl((src.vaddr + n) as usize).unwrap()),
             old(mem).memory[old(mem).addr_transl((src.vaddr + n) as usize).unwrap()] is Init,
         ensures
-            mem == Self::copy_offset_spec(*src, *dst, *old(mem), n)
+            mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
     {
         let x = src.read_offset(Tracked(mem), n);
-        proof { admit() };
+        proof { admit() }
+        ;
         dst.write_offset(Tracked(mem), n, x)
     }
 
     pub open spec fn memcpy_spec(src: Self, dst: Self, mem: MemView, n: usize) -> MemView
-        decreases n
+        decreases n,
     {
         if n == 0 {
             mem
         } else {
-            let mem = Self::copy_offset_spec(src, dst, mem, (n-1) as usize);
-            Self::memcpy_spec(src, dst, mem, (n-1) as usize)
+            let mem = Self::copy_offset_spec(src, dst, mem, (n - 1) as usize);
+            Self::memcpy_spec(src, dst, mem, (n - 1) as usize)
         }
     }
 
@@ -218,28 +225,29 @@ impl VirtPtr {
             dst.range@.start <= dst.vaddr,
             dst.vaddr + n < dst.range@.end,
             src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
-            forall |i: usize|
+            forall|i: usize|
                 src.vaddr <= i < src.vaddr + n ==> {
                     &&& old(mem).addr_transl(i) is Some
                     &&& old(mem).memory.contains_key(old(mem).addr_transl(i).unwrap())
                     &&& old(mem).memory[old(mem).addr_transl(i).unwrap()] is Init
                 },
-            forall |i: usize|
+            forall|i: usize|
                 dst.vaddr <= i < dst.vaddr + n ==> {
                     &&& old(mem).addr_transl(i) is Some
                 },
         ensures
-            mem == Self::memcpy_spec(*src, *dst, *old(mem), n)
-        decreases n
+            mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
+        decreases n,
     {
         let ghost mem0 = *mem;
 
         if n == 0 {
-            return;
+            return ;
         } else {
-            Self::copy_offset(src, dst, Tracked(mem), n-1);
-            assert(forall |i: usize| src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
-            Self::memcpy(src, dst, Tracked(mem), n-1);
+            Self::copy_offset(src, dst, Tracked(mem), n - 1);
+            assert(forall|i: usize|
+                src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
+            Self::memcpy(src, dst, Tracked(mem), n - 1);
         }
     }
 }

@@ -9,7 +9,10 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use super::*;
-use crate::mm::{MAX_NR_LEVELS, page_table::{EntryOwner, FrameView}};
+use crate::mm::{
+    page_table::{EntryOwner, FrameView},
+    MAX_NR_LEVELS,
+};
 
 use core::ops::Deref;
 
@@ -227,4 +230,3 @@ impl<'rcu, C: PageTableConfig> View for PageTableOwner<'rcu, C> {
 }
 
 } // verus!
-

@@ -9,8 +9,8 @@ use crate::mm::page_table::*;
 use core::marker::PhantomData;
 use core::ops::Range;
 
-use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
-use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::task::InAtomicMode;
 
@@ -319,4 +319,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> ModelOf for Cursor<'rcu, C, A> {
 }
 
 } // verus!
-

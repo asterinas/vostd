@@ -3,10 +3,10 @@ use vstd::prelude::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
-use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
-use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
-use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::page_table::*;
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 
 use core::ops::Range;

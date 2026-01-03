@@ -45,19 +45,19 @@ mod test;
 use super::{
     frame::{
         meta::{mapping, AnyFrameMeta, MetaPageMeta},
-        Segment, Frame,
+        Frame, Segment,
     },
     page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
     page_table::{PageTable, PageTableConfig},
     Paddr, PagingConstsTrait, Vaddr,
 };
-use vstd_extra::extern_const::*;
 use crate::{
     boot::memory_region::MemoryRegionType,
     mm::{largest_pages, PagingLevel},
     specs::arch::{PageTableEntry, PagingConsts},
     //task::disable_preempt,
 };
+use vstd_extra::extern_const::*;
 
 verus! {
 
@@ -70,8 +70,10 @@ pub const ADDR_WIDTH_SHIFT: isize = 48 - 48;
 /// This is the _lowest_ address of the x86-64's _high_ canonical addresses.
 #[cfg(not(target_arch = "loongarch64"))]
 pub const KERNEL_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT;
+
 #[cfg(target_arch = "loongarch64")]
 pub const KERNEL_BASE_VADDR: Vaddr = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
+
 /// End of the kernel address space (non inclusive).
 pub const KERNEL_END_VADDR: Vaddr = 0xffff_ffff_ffff_0000 << ADDR_WIDTH_SHIFT;
 
@@ -87,8 +89,10 @@ pub fn kernel_loaded_offset() -> usize {
 
 #[cfg(target_arch = "x86_64")]
 pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_8000_0000 << ADDR_WIDTH_SHIFT;
+
 #[cfg(target_arch = "riscv64")]
 pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SHIFT;
+
 #[cfg(target_arch = "loongarch64")]
 pub const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
 
@@ -209,7 +213,6 @@ unsafe impl PageTableConfig for KernelPtConfig {
 }
 */
 } // verus!
-
 /*
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MappedItem {
@@ -217,7 +220,6 @@ pub(crate) enum MappedItem {
     Untracked(Paddr, PagingLevel, PageProperty),
 }
 */
-
 // /// Initializes the kernel page table.
 // ///
 // /// This function should be called after:
@@ -228,11 +230,9 @@ pub(crate) enum MappedItem {
 // ///  - any initializer that modifies the kernel page table.
 // pub fn init_kernel_page_table(meta_pages: Segment<MetaPageMeta>) {
 //     info!("Initializing the kernel page table");
-
 //     // Start to initialize the kernel page table.
 //     let kpt = PageTable::<KernelPtConfig>::new_kernel_page_table();
 //     let preempt_guard = disable_preempt();
-
 //     // In LoongArch64, we don't need to do linear mappings for the kernel because of DMW0.
 //     #[cfg(not(target_arch = "loongarch64"))]
 //     // Do linear mappings for the kernel.
@@ -251,7 +251,6 @@ pub(crate) enum MappedItem {
 //                 .expect("Kernel linear address space is mapped twice");
 //         }
 //     }
-
 //     // Map the metadata pages.
 //     {
 //         let start_va = mapping::frame_to_meta::<PagingConsts>(0);
@@ -274,7 +273,6 @@ pub(crate) enum MappedItem {
 //                 .expect("Frame metadata address space is mapped twice");
 //         }
 //     }
-
 //     // In LoongArch64, we don't need to do linear mappings for the kernel code because of DMW0.
 //     #[cfg(not(target_arch = "loongarch64"))]
 //     // Map for the kernel code itself.
@@ -299,10 +297,8 @@ pub(crate) enum MappedItem {
 //                 .expect("Kernel code mapped twice");
 //         }
 //     }
-
 //     KERNEL_PAGE_TABLE.call_once(|| kpt);
 // }
-
 // /// Activates the kernel page table.
 // ///
 // /// # Safety
@@ -317,7 +313,6 @@ pub(crate) enum MappedItem {
 //         kpt.first_activate_unchecked();
 //         crate::arch::mm::tlb_flush_all_including_global();
 //     }
-
 //     // SAFETY: the boot page table is OK to be dismissed now since
 //     // the kernel page table is activated just now.
 //     unsafe {
