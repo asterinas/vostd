@@ -238,7 +238,7 @@ mod range_checks {
 
 mod page_properties {
     use super::*;
-    use crate::mm::PrivilegedPageFlags;
+    use crate::mm::page_prop::PrivilegedPageFlags;
 
     /// Helper function to map a single page with given properties and verify the properties.
     #[track_caller]

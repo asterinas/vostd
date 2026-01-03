@@ -13,12 +13,17 @@
 //! The slots are placed in the metadata pages mapped to a certain virtual
 //! address in the kernel space. So finding the metadata of a frame often
 //! comes with no costs since the translation is a simple arithmetic operation.
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
-
-use vstd::atomic::PermissionU64;
-use vstd::cell::{self, PCell};
 use vstd::prelude::*;
+
+pub mod mapping;
+
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use self::mapping::{frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
+
+use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
+use vstd::cell::{self, PCell};
+
 use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
@@ -28,7 +33,8 @@ use core::{
     any::Any,
     cell::UnsafeCell,
     fmt::Debug,
-    mem::{size_of, ManuallyDrop, MaybeUninit},
+    marker::PhantomData,
+    mem::{align_of, size_of, ManuallyDrop, MaybeUninit},
     result::Result,
     sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
@@ -41,17 +47,15 @@ use crate::{
     //    const_assert,
     mm::{
         //        frame::allocator::{self, EarlyAllocatedFrameMeta},
-        //        kspace::LINEAR_MAPPING_BASE_VADDR,
         paddr_to_vaddr,
         //        page_table::boot_pt,
-        CachePolicy,
-        /*Infallible,*/ Paddr,
-        PageFlags,
-        PageProperty,
-        PrivilegedPageFlags, //Segment,
+        page_prop::{CachePolicy, PageFlags, PageProperty, PrivilegedPageFlags},
+        /*Infallible,*/ Paddr, PagingLevel,
+        //Segment,
         Vaddr,
-        /*VmReader,*/ PAGE_SIZE,
+        /*VmReader,*/ PAGE_SIZE, MAX_PADDR, MAX_NR_PAGES,
     },
+    specs::arch::kspace::FRAME_METADATA_RANGE,
     //    panic::abort,
     //    util::ops::range_difference,
 };
@@ -67,7 +71,7 @@ pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE();
 //const META_SLOT_SIZE: usize = 64;
 
 /*#[repr(C)]
-pub(in crate::mm) struct MetaSlot {
+pub struct MetaSlot {
     /// The metadata of a frame.
     ///
     /// It is placed at the beginning of a slot because:
@@ -147,6 +151,177 @@ pub use impl_frame_meta_for;
 */
 verus! {
 
+/// The error type for getting the frame from a physical address.
+#[derive(Debug)]
+pub enum GetFrameError {
+    /// The frame is in use.
+    InUse,
+    /// The frame is not in use.
+    Unused,
+    /// The frame is being initialized or destructed.
+    Busy,
+    /// The frame is private to an owner of [`UniqueFrame`].
+    ///
+    /// [`UniqueFrame`]: super::unique::UniqueFrame
+    Unique,
+    /// The provided physical address is out of bound.
+    OutOfBound,
+    /// The provided physical address is not aligned.
+    NotAligned,
+    /// Verification only: `compare_exchange` returned `Err`, retry
+    Retry,
+}
+
+pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
+    recommends
+        paddr % 4096 == 0,
+        paddr < MAX_PADDR(),
+{
+    let slot = frame_to_meta(paddr);
+    PPtr(slot, PhantomData::<MetaSlot>)
+}
+
+pub struct StoredPageTablePageMeta {
+    pub nr_children: PCell<u16>,
+    pub stray: PCell<bool>,
+    pub level: PagingLevel,
+    pub lock: PAtomicU8,
+}
+
+pub enum MetaSlotStorage {
+    Empty([u8; 39]),
+    FrameLink(super::linked_list::StoredLink),
+    PTNode(StoredPageTablePageMeta),
+}
+
+impl MetaSlotStorage {
+    pub open spec fn get_link_spec(self) -> Option<super::linked_list::StoredLink> {
+        match self {
+            MetaSlotStorage::FrameLink(link) => Some(link),
+            _ => None,
+        }
+    }
+
+    #[verifier::when_used_as_spec(get_link_spec)]
+    pub fn get_link(self) -> (res: Option<super::linked_list::StoredLink>)
+        ensures
+            res == self.get_link_spec(),
+    {
+        match self {
+            MetaSlotStorage::FrameLink(link) => Some(link),
+            _ => None,
+        }
+    }
+
+    pub open spec fn get_node_spec(self) -> Option<StoredPageTablePageMeta> {
+        match self {
+            MetaSlotStorage::PTNode(node) => Some(node),
+            _ => None,
+        }
+    }
+
+    #[verifier::when_used_as_spec(get_node_spec)]
+    pub fn get_node(self) -> (res: Option<StoredPageTablePageMeta>)
+        ensures
+            res == self.get_node_spec(),
+    {
+        match self {
+            MetaSlotStorage::PTNode(node) => Some(node),
+            _ => None,
+        }
+    }
+}
+
+/// Space-holder of the AnyFrameMeta virtual table.
+pub trait AnyFrameMeta: Repr<MetaSlot> {
+    exec fn on_drop(&mut self) {
+    }
+
+    exec fn is_untyped(&self) -> bool {
+        false
+    }
+
+    spec fn vtable_ptr(&self) -> usize;
+}
+
+/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
+/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
+/// it can then be used to stand in for `dyn AnyFrameMeta`.
+impl AnyFrameMeta for MetaSlotStorage {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+}
+
+impl Repr<MetaSlot> for MetaSlotStorage {
+    uninterp spec fn wf(slot: MetaSlot) -> bool;
+
+    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+
+    #[verifier::external_body]
+    fn to_repr(self) -> MetaSlot {
+        todo!()
+    }
+
+    uninterp spec fn from_repr_spec(slot: MetaSlot) -> Self;
+
+    #[verifier::external_body]
+    fn from_repr(slot: MetaSlot) -> Self {
+        todo!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(slot: &'a MetaSlot) -> &'a Self {
+        todo!()
+    }
+
+    proof fn from_to_repr(self) {
+        admit()
+    }
+
+    proof fn to_from_repr(slot: MetaSlot) {
+        admit()
+    }
+
+    proof fn to_repr_wf(self) {
+        admit()
+    }
+}
+
+#[rustc_has_incoherent_inherent_impls]
+pub struct MetaSlot {
+    pub storage: PPtr<MetaSlotStorage>,
+    pub ref_count: PAtomicU64,
+    pub vtable_ptr: PPtr<usize>,
+    pub in_list: PAtomicU64,
+}
+
+//global layout MetaSlot is size == 64, align == 8;
+pub broadcast proof fn lemma_meta_slot_size()
+    ensures
+        #[trigger] size_of::<MetaSlot>() == META_SLOT_SIZE(),
+{
+    admit()
+}
+
+pub proof fn size_of_meta_slot()
+    ensures
+        size_of::<MetaSlot>() == 64,
+        align_of::<MetaSlot>() == 8,
+{
+    admit()
+}
+
+#[inline(always)]
+#[verifier::allow_in_spec]
+pub const fn meta_slot_size() -> (res: usize)
+    returns
+        64usize,
+{
+    proof {
+        size_of_meta_slot();
+    }
+    size_of::<MetaSlot>()
+}
+
 /// Gets the reference to a metadata slot.
 pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: Result<
     PPtr<MetaSlot>,
@@ -173,6 +348,41 @@ pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: 
 }
 
 impl MetaSlot {
+    // These are the axioms for casting meta slots into other things
+    /// This is the equivalent of &self as *const as Vaddr, but we need to axiomatize it.
+    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
+    pub fn addr_of(&self, Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>) -> Paddr
+        requires
+            self == perm.value(),
+        returns
+            perm.addr(),
+    {
+        unimplemented!()
+    }
+
+    pub fn cast_slot<T: Repr<MetaSlot>>(
+        &self,
+        addr: usize,
+        Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
+    ) -> (res: ReprPtr<MetaSlot, T>)
+        requires
+            perm.value() == self,
+            addr == perm.addr(),
+        ensures
+            res.ptr.addr() == addr,
+            res.addr == addr,
+    {
+        ReprPtr::<MetaSlot, T> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+    }
+
+    pub fn cast_perm<T: Repr<MetaSlot>>(
+        addr: usize,
+        Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
+    ) -> Tracked<PointsTo<MetaSlot, T>> {
+        Tracked(PointsTo { addr: addr, points_to: perm, _T: PhantomData })
+    }
+
     /// Initializes the metadata slot of a frame assuming it is unused.
     ///
     /// If successful, the function returns a pointer to the metadata slot.

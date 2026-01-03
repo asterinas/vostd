@@ -8,17 +8,15 @@ use vstd::simple_pptr::*;
 
 use crate::mm::{
     nr_subpage_per_huge, paddr_to_vaddr,
-    page_table::{
-        load_pte, pte_index, ChildRef, PageTable, PageTableConfig, PageTableEntryTrait,
-        PageTableGuard, PageTableNodeRef, PagingConstsTrait, PagingLevel,
-    },
-    Vaddr,
+    page_table::*,
+    Vaddr, Paddr, PagingLevel, PagingConstsTrait, PagingConsts,
+    PAGE_SIZE, NR_ENTRIES, NR_LEVELS
 };
 
 use vstd_extra::array_ptr::*;
 
-use aster_common::prelude::page_table::*;
-use aster_common::prelude::*;
+use crate::mm::page_table::*;
+use crate::specs::task::InAtomicMode;
 
 use core::ops::IndexMut;
 

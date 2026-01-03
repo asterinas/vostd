@@ -37,19 +37,21 @@ pub mod arch;
 pub mod boot;
 /*pub mod bus;
 pub mod console;
-pub mod cpu;
-mod error;
-pub mod io;
+pub mod cpu;*/
+pub mod error;
+/*pub mod io;
 pub mod logger;*/
 pub mod mm;
 /*pub mod panic;
 pub mod prelude;
 pub mod smp;*/
 pub mod sync;
-/* pub mod task;
+/*pub mod task;
 pub mod timer;
 pub mod trap;
 pub mod user;*/
+#[path = "../specs/lib.rs"]
+pub mod specs;
 pub mod util;
 
 /*use core::sync::atomic::{AtomicBool, Ordering};

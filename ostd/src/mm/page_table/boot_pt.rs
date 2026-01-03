@@ -19,14 +19,16 @@ use crate::{
             self,
             //            allocator::{self, EarlyAllocatedFrameMeta},
         },
-        nr_subpage_per_huge, paddr_to_vaddr, Paddr, PageFlags, PageProperty, PagingConstsTrait,
+        nr_subpage_per_huge, paddr_to_vaddr, page_prop::{PageFlags, PageProperty}, Paddr, PagingConstsTrait,
         PagingLevel, Vaddr, PAGE_SIZE,
     },
     //    sync::SpinLock,
 };
 
-use aster_common::prelude::frame::Frame;
-use aster_common::prelude::*;
+use crate::mm::frame::Frame;
+use crate::mm::{Vaddr, Paddr, PagingLevel, PagingConstsTrait};
+use crate::specs::arch::mm::{PAGE_SIZE, NR_ENTRIES, NR_LEVELS};
+use crate::specs::arch::paging_consts::PagingConsts;
 
 verus! {
 

@@ -2,20 +2,107 @@
 //! The unique frame pointer that is not shared with others.
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
-use vstd::simple_pptr;
+use vstd::simple_pptr::{self, PPtr};
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
+use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
+
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
 use super::meta::REF_COUNT_UNIQUE;
-use crate::mm::{Paddr, PagingConsts, PagingLevel};
+use super::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame, max_meta_slots, META_SLOT_SIZE};
+use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 
 verus! {
+
+#[rustc_has_incoherent_inherent_impls]
+pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
+    pub ptr: PPtr<MetaSlot>,
+    pub _marker: PhantomData<M>,
+}
+
+pub tracked struct UniqueFrameOwner<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
+    pub meta_own: M::Owner,
+    pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, M>,
+    pub ghost slot_index: usize,
+}
+
+pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
+    pub meta: <M::Owner as View>::V,
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Inv for UniqueFrameOwner<M> {
+    open spec fn inv(self) -> bool {
+        &&& self.meta_perm.is_init()
+        &&& self.meta_perm.wf()
+        &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm.addr()))
+        &&& self.slot_index < max_meta_slots()
+        &&& (self.slot_index - FRAME_METADATA_RANGE().start) as usize % META_SLOT_SIZE() == 0
+        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE()
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Inv for UniqueFrameModel<M> {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> View for UniqueFrameOwner<M> {
+    type V = UniqueFrameModel<M>;
+
+    open spec fn view(&self) -> Self::V {
+        UniqueFrameModel { meta: self.meta_own@ }
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> InvView for UniqueFrameOwner<M> {
+    proof fn view_preserves_inv(self) {
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> OwnerOf for UniqueFrame<M> {
+    type Owner = UniqueFrameOwner<M>;
+
+    open spec fn wf(self, owner: Self::Owner) -> bool {
+        &&& self.ptr.addr() == owner.meta_perm.addr()
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> ModelOf for UniqueFrame<M> {
+
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrameOwner<M> {
+    pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
+        &&& perm.is_init()
+        &&& perm.value().storage.addr() == self.meta_perm.addr()
+        &&& perm.value().storage.addr() == self.meta_perm.points_to.addr()
+    }
+
+    pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
+        &&& regions.slots.contains_key(self.slot_index) ==> self.perm_inv(
+            regions.slots[self.slot_index],
+        )
+        &&& regions.dropped_slots.contains_key(self.slot_index) ==> self.perm_inv(
+            regions.dropped_slots[self.slot_index],
+        )
+    }
+
+    pub proof fn from_raw_owner(
+        owner: M::Owner,
+        index: Ghost<usize>,
+        perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, M>,
+    ) -> Self {
+        UniqueFrameOwner::<M> { meta_own: owner, meta_perm: perm, slot_index: index@ }
+    }
+}
 
 impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.

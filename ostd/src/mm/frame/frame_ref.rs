@@ -3,18 +3,38 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 
+use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use aster_common::prelude::frame::*;
-use aster_common::prelude::*;
+use crate::mm::{Vaddr, Paddr, PagingLevel};
+use crate::specs::arch::mm::{PAGE_SIZE, MAX_PADDR};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot};
+use crate::mm::frame::MetaPerm;
 
 use super::Frame;
-use crate::{mm::Paddr /*, sync::non_null::NonNullPtr*/};
 
 use vstd::simple_pptr::PPtr;
 
 verus! {
+
+/// A struct that can work as `&'a Frame<M>`.
+#[rustc_has_incoherent_inherent_impls]
+pub struct FrameRef<'a, M: AnyFrameMeta> {
+    pub inner: NeverDrop<Frame<M>>,
+    pub _marker: PhantomData<&'a Frame<M>>,
+}
+
+impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
+    type Target = Frame<M>;
+
+    #[verus_spec(ensures returns manually_drop_deref_spec(&self.inner.0))]
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
 
 #[verus_verify]
 impl<M: AnyFrameMeta> FrameRef<'_, M> {
