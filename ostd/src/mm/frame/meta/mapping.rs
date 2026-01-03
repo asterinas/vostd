@@ -31,8 +31,6 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_page_aligned()
         #[trigger] FRAME_METADATA_RANGE.start % PAGE_SIZE == 0,
         FRAME_METADATA_RANGE.end % PAGE_SIZE == 0,
 {
-    assert(FRAME_METADATA_RANGE.start == 0xffff_fff0_0000_0000) by (compute_only);
-    assert(FRAME_METADATA_RANGE.end == 0xffff_fff0_8000_0000) by (compute_only);
 }
 
 #[allow(non_snake_case)]
@@ -40,7 +38,6 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
     ensures
         #[trigger] FRAME_METADATA_RANGE.end >= FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE,
 {
-    assert(FRAME_METADATA_RANGE.end - FRAME_METADATA_RANGE.start >= MAX_NR_PAGES * META_SLOT_SIZE) by (compute_only);
 }
 
 } // verus!
@@ -124,7 +121,6 @@ pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
 {
     let base = FRAME_METADATA_RANGE.start;
     let offset = (vaddr - base) / META_SLOT_SIZE;
-    assert(offset * PAGE_SIZE < usize::MAX) by (nonlinear_arith);
     offset * PAGE_SIZE
 }
 
