@@ -32,7 +32,7 @@ use crate::{
         //        tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
         PagingLevel, Vaddr, Paddr, PagingConstsTrait,
-        io::{VmReader, VmWriter},
+        io::{VmReader, VmWriter},        VmSpaceOwner,
         MAX_USERSPACE_VADDR,
     },
     prelude::*,
@@ -223,7 +223,7 @@ impl VmSpace<'_> {
         self.pt.activate();
     }
     */
-    /* TODO: come back after IO
+    /// TODO: come back after IO
     /// Creates a reader to read data from the user space of the current task.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
@@ -231,7 +231,20 @@ impl VmSpace<'_> {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmReader`. This guarantees that the `VmReader` can operate correctly.
+    /// 
+    /// Note that this function will not return the reader's owner explicitly and the caller should
+    /// always consult the [`VmSpaceOwner`] to ensure the validity of the created reader and "borrow"
+    /// the reader from the owner.
     #[rustc_allow_incoherent_impl]
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
+        requires
+            old(owner).inv(),
+            // owner.page_table_owner.mapped(vaddr..len) // something like this.
+        // ensures
+
+    )]
     pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_>> {
         if current_page_table_paddr() != self.pt.root_paddr() {
             return Err(Error::AccessDenied);
@@ -245,6 +258,7 @@ impl VmSpace<'_> {
         Ok(unsafe { VmReader::from_user_space(vaddr as *const u8, len) })
     }
 
+    /*
     /// Creates a writer to write data into the user space.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task

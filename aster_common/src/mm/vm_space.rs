@@ -1,3 +1,4 @@
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
@@ -114,9 +115,20 @@ pub struct VmSpace<'a> {
     pub marker: PhantomData<&'a ()>,
 }
 
+/// This struct is used for reading/writing memories represented by the
+/// [`VmReader`] or [`VmWriter`]. We also requrie a valid `vmspace_owner`
+/// must be present in this struct to ensure that the reader/writer is
+/// not created out of thin air.
+pub tracked struct VmIoPermission<'a> {
+    pub vmio_owner: VmIoOwner<'a>,
+    pub vmspace_owner: VmSpaceOwner<'a>,
+}
+
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
 #[rustc_has_incoherent_inherent_impls]
 pub tracked struct VmSpaceOwner<'a> {
+    /// The owner of the page table of this VM space.
+    pub page_table_owner: PageTableOwner<'a, UserPtConfig>,
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
@@ -127,6 +139,7 @@ pub tracked struct VmSpaceOwner<'a> {
 
 impl<'a> Inv for VmSpaceOwner<'a> {
     open spec fn inv(self) -> bool {
+        &&& self.page_table_owner.inv()
         &&& self.readers.dom().finite()
         &&& self.writers.dom().finite()
         &&& self.active ==> {
@@ -162,10 +175,20 @@ impl<'a> Inv for VmSpaceOwner<'a> {
     }
 }
 
-impl<'a> VmSpaceOwner<'a> {
+impl VmSpaceOwner<'_> {
     /// The basic invariant between a VM space and its owner.
-    pub open spec fn inv_with(&self, vm_space: &VmSpace<'a>) -> bool {
+    pub open spec fn inv_with(&self, vm_space: &VmSpace<'_>) -> bool {
         &&& self.inv()
+    }
+
+    /// Checks if this given reader is valid under this VM space owner.
+    pub open spec fn valid_reader(&self, reader: &VmReader<'_>) -> bool {
+        arbitrary()
+    }
+
+    /// Checks if this given writer is valid under this VM space owner.
+    pub open spec fn valid_writer(&self, writer: &VmWriter<'_>) -> bool {
+        arbitrary()
     }
 }
 

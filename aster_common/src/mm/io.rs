@@ -300,6 +300,21 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 #[verus_verify]
 impl<'a> VmReader<'a  /* Infallible */ > {
     /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// a memory range in USER space.
+    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
+    #[verus_spec(r =>
+        with
+            -> owner: Tracked<Result<VmIoOwner<'a>>>,
+        requires
+
+    )]
+    pub unsafe fn from_user_space(ptr: PPtr<u8> /* perhaps we will need virt ptr. */, len: usize) -> Self {
+        // SAFETY: The caller must ensure the safety requirements.
+        unimplemented!()
+    }
+
+    /// Constructs a `VmReader` from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
     /// # Safety
@@ -320,7 +335,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             r.cursor.addr() == ptr.addr(),
             r.end.addr() == ptr.addr() + len,
     )]
-    pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
+    pub unsafe fn from_kernel_space(ptr: PPtr<u8> /* perhaps we will need virt ptr. */, len: usize) -> Self {
         let tracked owner = VmIoOwner {
             range: Ghost((ptr.addr() as int)..((ptr.addr() + len) as int)),
             is_fallible: false,
