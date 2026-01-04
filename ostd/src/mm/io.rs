@@ -44,6 +44,7 @@ use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::array_ptr::ArrayPtr;
 use vstd_extra::array_ptr::PointsToArray;
 use vstd_extra::ownership::Inv;
+use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -131,11 +132,24 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
 /// and physical address level. There is not guarantee for the operation results
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
-#[rustc_has_incoherent_inherent_impls]
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
+    // If virtual pointer is to come to the play,
+    // then we perhaps can replace `cursor` with a sinple `VirtPtr`.
+    // and we place the `MemView` inside the owner.
+    //
+    // so the picture becomes:
+    // [  vmreaders ] + [ vmioowners ] [with their mappings] .... /* and they
+    // will not overlap */
+    // <----------vmspace owners own the memory mappings ---------->
+    //
+    // Thus this invariant simply becomes self.cursor.inv()
+    //
+    // Then why do we still have readers and writer. perhaps just for identification
+    // purposes????
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
-    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/
+    pub phantom: PhantomData<
+        &'a [u8],  /*, Fallibility)*/
     >,
     // if so, we must also make it
     // phantom <ArrayPtr<u8, N>>???
@@ -143,7 +157,6 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
 }
 
 /// This looks like we can implement a single struct with a type parameter
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct VmIoOwner<'a> {
     pub range: Ghost<Range<int>>,
     /// Whether this reader is fallible.
@@ -160,6 +173,8 @@ impl Inv for VmIoOwner<'_> {
 }
 
 impl VmIoOwner<'_> {
+    pub uninterp spec fn id(self) -> nat;
+
     /// Checks whether this owner overlaps with another owner.
     #[verifier::inline]
     pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
@@ -212,6 +227,7 @@ impl VmIoOwner<'_> {
         &&& self.inv()
         &&& self.range@.start as usize <= reader.cursor.addr()
         &&& reader.end.addr() <= self.range@.end as usize
+        &&& self.id() == reader.id()
     }
 
     pub open spec fn inv_with_writer(
@@ -221,6 +237,7 @@ impl VmIoOwner<'_> {
         &&& self.inv()
         &&& self.range@.start as usize <= writer.cursor.addr()
         &&& writer.end.addr() <= self.range@.end as usize
+        &&& self.id() == writer.id()
     }
 }
 
@@ -241,7 +258,6 @@ impl VmIoOwner<'_> {
 /// and physical address level. There is not guarantee for the operation results
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
-#[rustc_has_incoherent_inherent_impls]
 pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
@@ -250,6 +266,8 @@ pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
 
 #[verus_verify]
 impl<'a> VmWriter<'a  /* Infallible */ > {
+    pub uninterp spec fn id(self) -> nat;
+
     /// Constructs a `VmWriter` from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
@@ -338,17 +356,21 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 
 #[verus_verify]
 impl<'a> VmReader<'a  /* Infallible */ > {
+    pub uninterp spec fn id(self) -> nat;
+
     /// Constructs a `VmReader` from a pointer and a length, which represents
     /// a memory range in USER space.
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     #[verus_spec(r =>
         with
-            -> owner: Tracked<Result<VmIoOwner<'a>>>,
+            Tracked(ptr_perm): Tracked<MemView>,
+                -> owner: Tracked<Result<VmIoOwner<'a>>>,
         requires
+            ptr.inv(),
 
     )]
-    pub unsafe fn from_user_space(ptr: *const u8, len: usize) -> Self {
+    pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
         // SAFETY: The caller must ensure the safety requirements.
         unimplemented!()
     }

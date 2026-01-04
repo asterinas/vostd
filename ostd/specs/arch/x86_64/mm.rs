@@ -60,7 +60,7 @@ pub unsafe fn activate_page_table(root_paddr: Paddr, root_pt_cache: CachePolicy)
 #[verifier::when_used_as_spec(current_page_table_paddr_spec)]
 #[verus_spec(
     returns
-    current_page_table_paddr_spec(),
+        current_page_table_paddr_spec(),
 )]
 pub fn current_page_table_paddr() -> Paddr {
     unimplemented!()
