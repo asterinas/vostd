@@ -50,7 +50,7 @@ impl SpinGuardian for PreemptDisabled {
         disable_preempt()
     }
 }
-
+*/
 /// A guardian that disables IRQs while holding a lock.
 ///
 /// This guardian would incur a certain time overhead over
@@ -59,7 +59,7 @@ impl SpinGuardian for PreemptDisabled {
 /// lock. For example, if a lock is never used in the interrupt
 /// context, then it is ok not to use this guardian in the process context.
 pub enum LocalIrqDisabled {}
-
+/*
 impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledLocalIrqGuard;

@@ -14,7 +14,7 @@ use core::{
     //    sync::atomic::{AtomicBool, Ordering},
 };
 
-use super::{guard::SpinGuardian /*LocalIrqDisabled, PreemptDisabled*/};
+use super::{guard::SpinGuardian, LocalIrqDisabled/*, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
 verus! {
