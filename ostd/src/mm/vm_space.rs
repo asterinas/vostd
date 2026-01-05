@@ -15,6 +15,7 @@ use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::specs::mm::page_table::*;
 use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};

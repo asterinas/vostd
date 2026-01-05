@@ -13,6 +13,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::page_table::owners::*;
 
 verus! {
 

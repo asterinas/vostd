@@ -24,11 +24,8 @@ use super::{
     //    PodOnce,
     Vaddr,
 };
-//use crate::{
-//    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
-//    util::marker::SameSizeAs,
-//    Pod,
-//};
+
+use crate::specs::mm::page_table::*;
 
 use crate::specs::arch::mm::*;
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -38,12 +35,8 @@ use crate::specs::task::InAtomicMode;
 mod node;
 pub use node::*;
 mod cursor;
-mod owners;
-mod view;
 
 pub(crate) use cursor::*;
-pub use owners::*;
-pub use view::*;
 
 #[cfg(ktest)]
 mod test;

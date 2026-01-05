@@ -8,11 +8,14 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
-use super::*;
+
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
     MAX_NR_LEVELS,
 };
+
+use crate::specs::arch::*;
+use crate::specs::mm::page_table::*;
 
 use core::ops::Deref;
 
@@ -206,7 +209,6 @@ impl<'rcu, C: PageTableConfig> Inv for OwnerAsTreeNode<'rcu, C> {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct PageTableOwner<'rcu, C: PageTableConfig> {
     pub tree: OwnerAsTreeNode<'rcu, C>,
 }

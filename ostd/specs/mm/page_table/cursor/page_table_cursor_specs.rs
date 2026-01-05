@@ -4,6 +4,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
 use crate::mm::page_table::*;
+use crate::specs::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
