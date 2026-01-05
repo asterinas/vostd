@@ -400,7 +400,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
         } else {
             None
         };
-
+        
         proof {
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
@@ -843,7 +843,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         update_field!(self.list => size += 1; owner.list_perm);
 
         // TODO: these broke, figure out why (it's related to meta-frame conversions)
-        assert(forall|i: int| 0 <= i < owner.index - 1 ==> owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by { admit() };
+        assert(forall|i: int| 0 <= i < owner.index - 1 ==> owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by {};
         assert(forall|i: int| owner.index <= i < owner.length() ==> owner0.list_own.inv_at(i - 1) == owner.list_own.inv_at(i)) by { admit() };
 
         proof {

@@ -377,8 +377,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn nr_children(&self) -> (nr: u16)
         requires
-            self.inner.inner.0.ptr.addr() == old(owner).meta_perm.addr(),
-            self.inner.inner.0.ptr.addr() == old(owner).meta_perm.points_to.addr(),
+            self.inner.inner@.ptr.addr() == old(owner).meta_perm.addr(),
+            self.inner.inner@.ptr.addr() == old(owner).meta_perm.points_to.addr(),
             old(owner).inv(),
         ensures
             owner == old(owner),
@@ -398,9 +398,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn stray_mut(&mut self) -> PCell<bool>
         requires
             owner.is_node(),
-            old(self).inner.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            old(self).inner.inner.0.ptr.addr()
-                == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
+            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
+            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
             owner.inv(),
     {
         let tracked node_owner = owner.node.tracked_borrow();
@@ -427,8 +426,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     pub fn read_pte(&self, idx: usize) -> C::E
         requires
-            self.inner.inner.0.ptr.addr() == owner.meta_perm.addr,
-            self.inner.inner.0.ptr.addr() == owner.meta_perm.points_to.addr(),
+            self.inner.inner@.ptr.addr() == owner.meta_perm.addr(),
+            self.inner.inner@.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
             meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR()
                 - LINEAR_MAPPING_BASE_VADDR(),
@@ -497,8 +496,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     )]
     fn nr_children_mut<'a>(&'a mut self) -> (res: &'a PCell<u16>)
         requires
-            old(self).inner.inner.0.ptr.addr() == meta_perm.addr(),
-            old(self).inner.inner.0.ptr.addr() == meta_perm.points_to.addr(),
+            old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
+            old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
             meta_perm.wf(),
         ensures

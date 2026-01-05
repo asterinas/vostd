@@ -684,7 +684,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             value.inv(),
             value.la_inv(self.level),
             forall|i: int|
-                0 <= i < N ==> self.children[i] is Some ==> value.rel_children(
+                0 <= i < N ==> #[trigger] self.children[i] is Some ==> value.rel_children(
                     Some(self.children[i].unwrap().value),
                 ),
         ensures

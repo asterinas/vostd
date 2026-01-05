@@ -23,6 +23,7 @@
 #![no_std]
 #![warn(missing_docs)]
 #![feature(proc_macro_hygiene)]
+#![feature(portable_simd)]
 
 extern crate alloc;
 
@@ -46,8 +47,8 @@ pub mod mm;
 pub mod prelude;
 pub mod smp;*/
 pub mod sync;
-/*pub mod task;
-pub mod timer;
+pub mod task;
+/* pub mod timer;
 pub mod trap;
 pub mod user;*/
 #[path = "../specs/lib.rs"]

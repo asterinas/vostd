@@ -3,7 +3,7 @@ use alloc::{collections::VecDeque, sync::Arc};
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
-use crate::task::{scheduler, Task};
+use crate::task::{/*scheduler,*/ Task};
 
 // # Explanation on the memory orders
 //
@@ -44,7 +44,7 @@ pub struct WaitQueue {
     num_wakers: AtomicU32,
     wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled>,
 }
-
+/*
 impl WaitQueue {
     /// Creates a new, empty wait queue.
     pub const fn new() -> Self {
@@ -153,6 +153,7 @@ impl Default for WaitQueue {
         Self::new()
     }
 }
+*/
 
 /// A waiter that can put the current thread to sleep until it is woken up by the associated
 /// [`Waker`].
@@ -174,7 +175,7 @@ pub struct Waker {
     has_woken: AtomicBool,
     task: Arc<Task>,
 }
-
+/*
 impl Waiter {
     /// Creates a waiter and its associated [`Waker`].
     pub fn new_pair() -> (Self, Arc<Waker>) {
@@ -397,3 +398,4 @@ mod test {
         assert!(cond2.load(Ordering::Relaxed));
     }
 }
+*/

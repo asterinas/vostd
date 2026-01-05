@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Tasks are the unit of code execution.
-pub mod atomic_mode;
+
+use vstd::prelude::*;
+
+/* pub mod atomic_mode;
 mod kernel_stack;
 mod preempt;
 mod processor;
@@ -40,16 +43,17 @@ pub fn inject_pre_schedule_handler(handler: fn()) {
 /// Injects a handler to be executed after scheduling.
 pub fn inject_post_schedule_handler(handler: fn()) {
     POST_SCHEDULE_HANDLER.call_once(|| handler);
-}
+}*/
 
 /// A task that executes a function to the end.
 ///
 /// Each task is associated with per-task data and an optional user space.
 /// If having a user space, the task can switch to the user space to
 /// execute user code. Multiple tasks can share a single user space.
+#[verus_verify]
 #[derive(Debug)]
 pub struct Task {
-    #[expect(clippy::type_complexity)]
+    /*#[expect(clippy::type_complexity)]
     func: ForceSync<Cell<Option<Box<dyn FnOnce() + Send>>>>,
 
     data: Box<dyn Any + Send + Sync>,
@@ -66,9 +70,9 @@ pub struct Task {
     /// See [`processor::switch_to_task`] for more details.
     switched_to_cpu: AtomicBool,
 
-    schedule_info: TaskScheduleInfo,
+    schedule_info: TaskScheduleInfo,*/
 }
-
+/* 
 impl Task {
     /// Gets the current task.
     ///
@@ -381,3 +385,4 @@ mod test {
         let _ = crate::task::TaskOptions::new(task).data(()).spawn();
     }
 }
+*/
