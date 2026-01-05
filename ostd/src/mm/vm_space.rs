@@ -7,6 +7,7 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use vstd::prelude::*;
+use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
@@ -107,6 +108,11 @@ pub tracked struct VmSpaceOwner<'a> {
     pub readers: Map<nat, VmIoOwner<'a>>,
     /// Active writers for this VM space.
     pub writers: Map<nat, VmIoOwner<'a>>,
+    /// The memory view is the abstract view of memory.
+    /// Models what is actually mapped and the memory points.
+    pub mem_view: MemView,
+    /// Whether we allow shared reading.
+    pub shared_reader: bool,
 }
 
 impl<'a> Inv for VmSpaceOwner<'a> {
@@ -133,7 +139,8 @@ impl<'a> Inv for VmSpaceOwner<'a> {
                 self.readers.kv_pairs().contains((i, reader)) && self.writers.kv_pairs().contains(
                     (j, writer),
                 ) && i != j ==> !reader.overlaps(writer)
-            &&& forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
+            &&& self.shared_reader ==>
+            forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
                 #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
                 self.readers.kv_pairs().contains((i, reader1)) && self.readers.kv_pairs().contains(
                     (j, reader2),
@@ -149,18 +156,32 @@ impl<'a> Inv for VmSpaceOwner<'a> {
 
 impl VmSpaceOwner<'_> {
     /// The basic invariant between a VM space and its owner.
-    pub open spec fn inv_with(&self, vm_space: &VmSpace<'_>) -> bool {
+    pub open spec fn inv_with(&self, vm_space: VmSpace<'_>) -> bool {
         &&& self.inv()
+        /* self.page_table_owner.is_for(vm_space.page_table) */
     }
 
     /// Checks if this given reader is valid under this VM space owner.
-    pub open spec fn valid_reader(&self, reader: &VmReader<'_>) -> bool {
-        arbitrary()
+    #[verifier::inline]
+    pub open spec fn valid_reader(&self, reader: VmReader<'_>, owner: VmIoOwner<'_>) -> bool
+        recommends
+            self.inv(),
+            reader.inv(),
+            owner.inv(),
+    {
+        &&& owner.inv_with_reader(reader)
+        &&& self.readers.contains_key(owner.id())
     }
 
     /// Checks if this given writer is valid under this VM space owner.
-    pub open spec fn valid_writer(&self, writer: &VmWriter<'_>) -> bool {
-        arbitrary()
+    pub open spec fn valid_writer(&self, writer: VmWriter<'_>, owner: VmIoOwner<'_>) -> bool
+        recommends
+            self.inv(),
+            writer.inv(),
+            owner.inv(),
+    {
+        &&& owner.inv_with_writer(writer)
+        &&& self.writers.contains_key(owner.id())
     }
 }
 
@@ -341,12 +362,15 @@ impl VmSpace<'_> {
         if vaddr.checked_add(len).unwrap_or(usize::MAX) > MAX_USERSPACE_VADDR {
             return Err(Error::AccessDenied);
         }
-        // SAFETY: The memory range is in user space, as checked above.
+        if vaddr == 0 {
+            return Err(Error::InvalidArgs);
+        }
 
-        Ok(unsafe { VmReader::from_user_space(vaddr as *const u8, len) })
-    }
-    
-    /*
+        // SAFETY: The memory range is in user space, as checked above.
+        let vptr = VirtPtr::from_vaddr(vaddr, len);
+
+        Ok(unsafe { VmReader::from_user_space(vptr, len) })
+    }/*
     /// Creates a writer to write data into the user space.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task

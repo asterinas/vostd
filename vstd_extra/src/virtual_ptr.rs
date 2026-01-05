@@ -14,7 +14,10 @@ verus! {
 
 /// Concrete representation of a pointer
 pub struct VirtPtr {
+    // The virtual address
     pub vaddr: usize,
+    // what is the range?
+    // so it's the range of the allocated memories?
     pub ghost range: Ghost<Range<usize>>,
 }
 
@@ -88,6 +91,10 @@ impl Clone for VirtPtr {
     {
         Self { vaddr: self.vaddr, range: Ghost(self.range@) }
     }
+}
+
+impl Copy for VirtPtr {
+
 }
 
 impl VirtPtr {
@@ -249,6 +256,18 @@ impl VirtPtr {
                 src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
             Self::memcpy(src, dst, Tracked(mem), n - 1);
         }
+    }
+
+    pub fn from_vaddr(vaddr: usize, len: usize) -> (r: Self)
+        requires
+            vaddr != 0,
+            0 < len <= usize::MAX - vaddr,
+        ensures
+            r.is_valid(),
+            r.range@.start == vaddr,
+            r.range@.end == (vaddr + len) as usize,
+    {
+        Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 }
 
