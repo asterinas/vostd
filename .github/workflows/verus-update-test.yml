@@ -33,7 +33,7 @@ jobs:
           cargo dv bootstrap
           # Discard any uncommitted changes in tools/verus before upgrade
           git -C tools/verus reset --hard HEAD
-          cargo dv bootstrap --upgrade --test_branch
+          cargo dv bootstrap --upgrade --branch update-test
           set -o pipefail
           if ! make 2>&1; then
             echo "❌ Verification failed"
