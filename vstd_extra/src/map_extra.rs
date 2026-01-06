@@ -156,7 +156,7 @@ pub proof fn lemma_insert_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) ->
 /// If the predicate function `f` is false for the newly inserted value `v`,
 /// then inserting `(k,v)` into the map `m` and then applying the value filter
 /// is equivalent to applying the value filter to the original map `m` and
-/// then removing `k` from the result (if 'k' exists in 'm') or leaving it unchanged
+/// then removing `k` from the result (if `k` exists in `m`) or leaving it unchanged
 /// (if it doesn't).
 pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K, v: V)
     requires

@@ -69,7 +69,7 @@ pub broadcast proof fn lemma_seq_push_head_take_head<T>(s: Seq<T>, hd: T)
 } // verus!
 verus! {
 
-/// The result of pushing elemrnt 'needle' into the sequence 's' contains 'needle'.
+/// The result of pushing element `needle` into the sequence `s` contains `needle`.
 pub proof fn lemma_push_contains_same<T>(s: Seq<T>, needle: T)
     ensures
         #[trigger] s.push(needle).contains(needle),
@@ -77,8 +77,8 @@ pub proof fn lemma_push_contains_same<T>(s: Seq<T>, needle: T)
     assert(s.push(needle).last() == needle);
 }
 
-/// If element 'needle' is different from 'new_elem', then whether the sequence 's' contains 'needle'
-/// after pushing 'new_elem' depends on whether 's' contains 'needle' before the push.
+/// If element `needle` is different from `new_elem`, then whether the sequence `s` contains `needle`
+/// after pushing `new_elem` depends on whether `s` contains `needle` before the push.
 pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     requires
         new_elem != needle,
@@ -92,8 +92,8 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     }
 }
 
-/// If the last element of the sequence 's' is different from 'needle', then whether the sequence
-/// 's' contains 'needle' after dropping the last element depends on whether 's' contains 'needle'
+/// If the last element of the sequence `s` is different from `needle`, then whether the sequence
+/// `s` contains `needle` after dropping the last element depends on whether `s` contains `needle`
 /// before the drop.
 pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
     requires
@@ -111,7 +111,7 @@ pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
 } // verus!
 verus! {
 
-/// Returns true if predicate `f(i,seq[i])` holds for all indices 'i'.
+/// Returns true if predicate `f(i,seq[i])` holds for all indices `i`.
 pub open spec fn forall_seq<T>(seq: Seq<T>, f: spec_fn(int, T) -> bool) -> bool {
     forall|i| #![trigger seq[i]] 0 <= i < seq.len() ==> f(i, seq[i])
 }
