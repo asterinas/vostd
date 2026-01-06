@@ -769,6 +769,7 @@ pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
 }
 
 /// Lift entails `TempPred::and` to Verus meta-level.
+/// 
 /// If entails `p` and entails `q`, then entails `p` and `q`.
 /// 
 /// pre:  
@@ -791,6 +792,7 @@ pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q:
 }
 
 /// Lift entails `TempPred::and` to Verus meta-level (reversed direction).
+/// 
 /// If entails `p` and `q`, then entails `p` and entails `q`.
 ///
 /// pre:  
@@ -819,6 +821,7 @@ pub broadcast proof fn entails_and_temp_reverse<T>(
 }
 
 /// Lift entails `TempPred::or` to Verus meta-level.
+/// 
 /// If entails `p` or entails `q`, then entails `p` or `q`.
 ///
 /// pre:  
@@ -844,6 +847,7 @@ pub broadcast proof fn entails_or_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: 
 }
 
 /// Lift entails `TempPred::not` to Verus meta-level (reversed direction).
+/// 
 /// If entails `not(p)`, then not (entails `p`).
 ///
 /// pre:  
@@ -868,7 +872,8 @@ pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPre
     assert(!spec.implies(p).satisfied_by(ex));
 }
 
-/// Lift entails TempPred::implies to Verus meta-level
+/// Lift entails `TempPred::implies` to Verus meta-level.
+/// 
 /// If entails (`p` => `q`), then entails `p` implies entails `q`.
 /// 
 /// pre:  
@@ -1199,12 +1204,14 @@ pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>
     };
 }
 
-// Weaken always lifted state predicate by implies.
-// pre:
-//     forall |s| p(s) => q(s)
-//     spec |= []lift_state(p)
-// post:
-//     spec |= []lift_state(q)
+/// Weaken always lifted state predicate by implies.
+/// 
+/// pre:  
+///     `forall |s| p(s) => q(s)`  
+///     `spec |= []lift_state(p)`
+/// 
+/// post:  
+///     `spec |= []lift_state(q)`
 pub proof fn always_lift_state_weaken<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
     requires
         forall|s: T| #[trigger] p.apply(s) ==> q.apply(s),
@@ -1215,11 +1222,12 @@ pub proof fn always_lift_state_weaken<T>(spec: TempPred<T>, p: StatePred<T>, q: 
     always_weaken::<T>(spec, lift_state(p), lift_state(q));
 }
 
-// Introduce always to both sides of always implies.
-// pre:
-//     spec |= [](p => q)
-// post:
-//     spec |= []([]p => []q)
+/// Introduce always to both sides of always implies.
+/// 
+/// pre:  
+///     `spec |= [](p => q)`  
+/// post:  
+///     `spec |= []([]p => []q)`
 pub proof fn always_implies_preserved_by_always<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1247,12 +1255,13 @@ pub proof fn always_implies_preserved_by_always<T>(
     };
 }
 
-// Combine the premises of two leads_to using or.
-// pre:
-//     spec |= p ~> r
-//     spec |= q ~> r
-// post:
-//     spec |= (p \/ q) ~> r
+/// Combine the premises of two leads to using or.
+/// 
+/// pre:  
+///     `spec |= p ~> r`  
+///     `spec |= q ~> r`
+/// post:  
+///     `spec |= (p \/ q) ~> r`
 pub broadcast proof fn or_leads_to_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1279,7 +1288,7 @@ pub broadcast proof fn or_leads_to_combine<T>(
     };
 }
 
-/// Prove `p` leads_to `r` by case analysis on `q`.
+/// Prove `p` leads to `r` by case analysis on `q`.
 /// 
 /// pre:  
 ///     `spec |= (p /\ q) ~> r`  
@@ -1314,12 +1323,14 @@ pub proof fn or_leads_to_case_analysis<T>(
     }
 }
 
-// Combine the conclusions of two leads_to if the conclusions are stable.
-// pre:
-//     spec |= p ~> []q
-//     spec |= p ~> []r
-// post:
-//     spec |= p ~> [](q /\ r)
+/// Combine the conclusions of two leads to if the conclusions are stable.
+/// 
+/// pre:  
+///     `spec |= p ~> []q`  
+///     `spec |= p ~> []r`
+/// 
+/// post:  
+///     `spec |= p ~> [](q /\ r)`
 pub broadcast proof fn leads_to_always_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
