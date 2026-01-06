@@ -114,7 +114,7 @@ pub proof fn lemma_empty_bad_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
         forall|x: T| #[trigger] p(x) ==> q(x),
 {
     assert forall|x: T| #[trigger] p(x) implies q(x) by {
-        if (!q(x)) {
+        if !q(x) {
             assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
         };
     }
@@ -131,7 +131,7 @@ pub proof fn lemma_full_good_set_implies_forall<T>(p: spec_fn(T) -> bool, q: spe
 {
     lemma_set_separation(Set::new(|x: T| p(x)), q);
     assert forall|x: T| #[trigger] p(x) implies q(x) by {
-        if (!q(x)) {
+        if !q(x) {
             assert(Set::new(|x: T| p(x)).filter(|x| !q(x)).contains(x));
         };
     }

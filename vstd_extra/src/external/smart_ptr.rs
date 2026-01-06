@@ -9,13 +9,13 @@ use vstd::raw_ptr::*;
 verus! {
 
 // The permssion to access memory given by the `into_raw` methods of smart pointers like `Box` and `Arc`.
-/// For Box<T>, the `into_raw` method gives you the ownership of the memory
+/// For `Box<T>`, the `into_raw` method gives you the ownership of the memory
 pub tracked struct BoxPointsTo<T> {
     pub perm: PointsTowithDealloc<T>,
 }
 
-/// For Arc<T>, the `into_raw` method gives shared access to the memory, and the reference count is not decreased,
-/// so the value will not be deallocated until we convert back to Arc<T> and drop it.
+/// For `Arc<T>`, the `into_raw` method gives shared access to the memory, and the reference count is not decreased,
+/// so the value will not be deallocated until we convert back to `Arc<T>` and drop it.
 /// See https://doc.rust-lang.org/src/alloc/sync.rs.html#1480.
 pub tracked struct ArcPointsTo<T: 'static> {
     pub perm: &'static PointsTo<T>,
@@ -316,7 +316,7 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> (ret: (*const T, Tracked<ArcPointsTo<T>>))
 
 #[verifier::external_body]
 /// According to the documentation, `[Arc::from_raw`](https://doc.rust-lang.org/std/sync/struct.Arc.html#method.from_raw) allows transmuting between different types as long as the pointer has the same size and alignment.
-/// In verification this responsibility is dispatched to casting the PointsTo<T> appropriately, which is not handled here.
+/// In verification this responsibility is dispatched to casting the `PointsTo<T>` appropriately, which is not handled here.
 pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPointsTo<T>>) -> (ret:
     Arc<T>)
     requires

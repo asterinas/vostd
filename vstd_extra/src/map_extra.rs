@@ -223,7 +223,7 @@ pub broadcast proof fn lemma_insert_value_filter_different_len_contains<K, V>(
         },
 {
     lemma_value_filter_finite(m, f);
-    if (f(v)) {
+    if f(v) {
         lemma_insert_value_filter_true(m, f, k, v);
         lemma_map_insert_len(m, k, v);
     } else {

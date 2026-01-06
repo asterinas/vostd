@@ -85,7 +85,7 @@ pub proof fn lemma_push_contains_different<T>(s: Seq<T>, new_elem: T, needle: T)
     ensures
         #[trigger] s.push(new_elem).contains(needle) == s.contains(needle),
 {
-    if (s.contains(needle)) {
+    if s.contains(needle) {
         let i = choose|i: int| 0 <= i < s.len() && s[i] == needle;
         axiom_seq_push_index_different(s, needle, i);
         assert(0 <= i < s.push(new_elem).len() && s.push(new_elem)[i] == needle);
@@ -102,7 +102,7 @@ pub proof fn lemma_drop_last_contains_different<T>(s: Seq<T>, needle: T)
     ensures
         #[trigger] s.drop_last().contains(needle) == s.contains(needle),
 {
-    if (s.contains(needle)) {
+    if s.contains(needle) {
         let i = choose|i: int| 0 <= i < s.len() && s[i] == needle;
         assert(0 <= i < s.drop_last().len() && s.drop_last()[i] == needle);
     }
@@ -151,7 +151,7 @@ pub broadcast proof fn lemma_forall_seq_push<T>(s: Seq<T>, f: spec_fn(int, T) ->
     ensures
         forall_seq(s, f) && f(s.len() as int, v) <==> #[trigger] forall_seq(s.push(v), f),
 {
-    if (forall_seq(s.push(v), f)) {
+    if forall_seq(s.push(v), f) {
         assert forall|i| 0 <= i < s.len() implies f(i, s[i]) by {
             assert(s[i] === s.push(v)[i]);
         }
@@ -164,7 +164,7 @@ pub broadcast proof fn lemma_seq_all_push<T>(s: Seq<T>, f: spec_fn(T) -> bool, v
     ensures
         #[trigger] s.push(v).all(f) <==> s.all(f) && f(v),
 {
-    if (s.push(v).all(f)) {
+    if s.push(v).all(f) {
         assert forall|i| 0 <= i < s.len() implies f(s[i]) by {
             assert(s[i] === s.push(v)[i]);
         }
