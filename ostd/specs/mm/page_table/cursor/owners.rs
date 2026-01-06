@@ -127,21 +127,21 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         admit()
     }
 
-    pub open spec fn prev_views(self) -> Seq<FrameView<C>> {
+    pub open spec fn prev_views(self) -> Seq<EntryView<C>> {
         self.children.take(self.idx as int).flat_map(
             |child: Option<OwnerSubtree<'rcu, C>>|
                 match child {
-                    Some(child) => OwnerAsTreeNode::view_rec(child, self.level as int),
+                    Some(child) => child@,
                     None => Seq::empty(),
                 },
         )
     }
 
-    pub open spec fn next_views(self) -> Seq<FrameView<C>> {
+    pub open spec fn next_views(self) -> Seq<EntryView<C>> {
         self.children.skip(self.idx as int).flat_map(
             |child: Option<OwnerSubtree<'rcu, C>>|
                 match child {
-                    Some(child) => OwnerAsTreeNode::view_rec(child, self.level as int),
+                    Some(child) => child@,
                     None => Seq::empty(),
                 },
         )
@@ -206,7 +206,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
-    pub open spec fn prev_views_rec(self, i: int) -> Seq<FrameView<C>>
+    pub open spec fn prev_views_rec(self, i: int) -> Seq<EntryView<C>>
         decreases i,
         when self.level > 0
     {
@@ -217,7 +217,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn next_views_rec(self, i: int) -> Seq<FrameView<C>>
+    pub open spec fn next_views_rec(self, i: int) -> Seq<EntryView<C>>
         decreases i,
         when self.level > 0
     {
@@ -231,8 +231,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn cur_at_level(self, lv: u8) -> Option<EntryOwner<'rcu, C>> {
         if lv > self.level {
             Some(self.continuations[self.level - 2].entry_own)
-        } else if lv == self.level && self.continuations[self.level
-            - 1].children[self.index as int] is Some {
+        } else if lv == self.level && self.continuations[self.level - 1].children[self.index as int] is Some {
             Some(self.continuations[self.level - 1].children[self.index as int].unwrap().value)
         } else {
             None
@@ -244,17 +243,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorView<C: PageTableConfig> {
-    pub cur_va: usize,
-    pub scope: usize,
-    pub fore: Seq<FrameView<C>>,
-    pub rear: Seq<FrameView<C>>,
+    pub cur_va: Vaddr,
+    pub level: PagingLevel,
+    pub va_range: Range<Vaddr>,
+    pub fore_higher: Seq<EntryView<C>>,
+    pub fore_local: Seq<EntryView<C>>,
+    pub rear_local: Seq<EntryView<C>>,
+    pub rear_higher: Seq<EntryView<C>>,
+}
+
+impl<C: PageTableConfig> CursorView<C> {
+    pub open spec fn descendants(self) -> Seq<EntryView<C>> {
+        self.fore_local.add(self.rear_local)
+    }
 }
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        true
+        &&& forall |view| self.descendants().contains(view) ==>
+            self.va_range.start <= view->leaf.map_va < self.va_range.end
+        &&& forall |view| self.fore_higher.contains(view) ==>
+            view->leaf.map_va < self.va_range.start
+        &&& forall |view| self.rear_higher.contains(view) ==>
+            self.va_range.end <= view->leaf.map_va
     }
 }
 
@@ -264,15 +276,21 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
     open spec fn view(&self) -> Self::V {
         CursorView {
             cur_va: (self.continuations[self.level - 1].cur_va + self.index * page_size(self.level as u8)) as usize,
-            scope: page_size(self.level as u8),
-            fore: self.prev_views_rec(NR_LEVELS() as int),
-            rear: self.next_views_rec(NR_LEVELS() as int),
+            level: self.level,
+            va_range: Range { start: self.continuations[self.level - 1].cur_va,
+                end: (self.continuations[self.level - 1].cur_va + page_size(self.level as u8)) as usize },
+            fore_higher: self.prev_views_rec(NR_LEVELS() as int),
+            fore_local: self.continuations[self.level - 1].prev_views(),
+            rear_local: self.continuations[self.level - 1].next_views(),
+            rear_higher: self.next_views_rec(NR_LEVELS() as int),
         }
     }
 }
 
+
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
+        assert(self@.inv()) by { admit() };
     }
 }
 

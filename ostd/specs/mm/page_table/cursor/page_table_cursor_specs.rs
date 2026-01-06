@@ -15,8 +15,7 @@ use core::ops::Range;
 verus! {
 
 impl<'rcu, C: PageTableConfig> PageTableOwner<'rcu, C> {
-    #[rustc_allow_incoherent_impl]
-    pub closed spec fn new_spec(self) -> (Self, CursorOwner<'rcu, C>);
+    pub closed spec fn new_cursor_owner_spec(self) -> (Self, CursorOwner<'rcu, C>);
 }
 
 impl<C: PageTableConfig> CursorView<C> {
@@ -30,74 +29,63 @@ impl<C: PageTableConfig> CursorView<C> {
        `step` until it is no longer aligned, if possible. Functions that remove entries from the page table entirely
        remove them in `step`-sized chunks.
     */
-    #[rustc_allow_incoherent_impl]
     pub closed spec fn push_size(size: usize) -> usize;
 
-    #[rustc_allow_incoherent_impl]
     pub closed spec fn pop_size(size: usize) -> usize;
 
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn push_level_spec(self) -> Self {
+    pub open spec fn push_level_spec(self) -> Self;
+    /* {
         Self {
             cur_va: self.cur_va,
             scope: Self::push_size(self.scope),
             fore: self.fore,
             rear: self.rear,
         }
-    }
+    }*/
 
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn pop_level_spec(self) -> Self {
+    pub open spec fn pop_level_spec(self) -> Self;
+    /* {
         Self {
             cur_va: self.cur_va,
+            va_range: self.va_range
             scope: Self::pop_size(self.scope),
             fore: self.fore,
             rear: self.rear,
         }
-    }
+    }*/
 
-    #[rustc_allow_incoherent_impl]
     pub closed spec fn pop_to_alignment(va: usize, scope: usize) -> usize;
 
-    #[rustc_allow_incoherent_impl]
-    pub closed spec fn take_until(max_va: int, list: Seq<FrameView<C>>) -> (
-        Seq<FrameView<C>>,
-        Seq<FrameView<C>>,
-    );
+    pub closed spec fn take_until(max_va: int, list: Seq<EntryView<C>>) -> (Seq<EntryView<C>>, Seq<EntryView<C>>);
 
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn move_forward_spec(self) -> Self {
-        let va = self.cur_va + self.scope;
+    pub open spec fn move_forward_spec(self) -> Self;/* {
+        let new_va = self.cur_va + page_size(level);
         let scope = Self::pop_to_alignment(self.cur_va, self.scope);
-        let (taken, rear) = Self::take_until(va, self.rear);
-        Self { cur_va: va as usize, scope: scope, fore: self.fore.add(taken), rear: rear }
-    }
+        let (taken, rear) = Self::take_until(va, self.rear_local);
+        Self { cur_va: va as usize, scope: scope, fore_local: self.fore_local.add(taken), rear_local: rear }
+    }*/
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn present(self) -> bool {
-        let entry = self.rear[0];
-        self.cur_va == entry.leaf.map_va
+        let entry = self.rear_local[0]->leaf;
+        self.cur_va == entry.map_va
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn query_item_spec(self) -> C::Item
         recommends
             self.present(),
     {
-        let entry = self.rear[0];
-        C::item_from_raw(entry.leaf.map_to_pa as usize, entry.leaf.level, entry.leaf.prop)
+        let entry = self.rear_local[0]->leaf;
+        C::item_from_raw(entry.map_to_pa as usize, entry.level, entry.prop)
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn find_next_spec(self, len: usize) -> Option<Vaddr> {
-        if self.rear.len() > 0 && self.rear[0].leaf.va_end() < self.cur_va + len {
-            Some(self.rear[0].leaf.map_va as usize)
+        if self.rear_local.len() > 0 && self.rear_local[0]->leaf.va_end() < self.cur_va + len {
+            Some(self.rear_local[0]->leaf.map_va as usize)
         } else {
             None
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub closed spec fn jump(self, va: usize) -> Self;
 
     /*    #[rustc_allow_incoherent_impl]
@@ -105,33 +93,31 @@ impl<C: PageTableConfig> CursorView<C> {
         let end_va = self.cur_va.
         let (taken, rear) = Self::take_until(self.cur_va, self.rear[0]
     }*/
-    #[rustc_allow_incoherent_impl]
     pub open spec fn cur_va_range_spec(self) -> Range<Vaddr> {
-        self.cur_va..(self.cur_va + self.scope) as usize
+        self.cur_va..(self.cur_va + page_size(self.level)) as usize
     }
 
-    #[rustc_allow_incoherent_impl]
-    pub open spec fn replace_cur_entry_spec(self, replacement: FrameView<C>) -> (
-        Seq<FrameView<C>>,
-        Self,
-    ) {
-        let va = self.cur_va + self.scope;
-        let (taken, rear) = Self::take_until(va, self.rear);
+    pub open spec fn replace_cur_entry_spec(self, replacement: EntryView<C>) -> (Seq<EntryView<C>>, Self) {
+        let va = self.cur_va + page_size(self.level);
+        let (taken, rear) = Self::take_until(va, self.rear_local);
         let view = Self {
             cur_va: va as usize,
-            scope: self.scope,
-            fore: self.fore.insert(self.fore.len() as int, replacement),
-            rear: rear,
+            level: self.level,
+            va_range: self.va_range,
+            fore_higher: self.fore_higher,
+            fore_local: self.fore_local,
+            rear_local: rear,
+            rear_higher: self.rear_higher,
         };
         (taken, view)
     }
 
-    #[rustc_allow_incoherent_impl]
     pub closed spec fn map_spec(
         self,
         item: C::Item,
-    ) -> Self;/*
-    #[rustc_allow_incoherent_impl]
+    ) -> Self;
+    
+    /*
     pub open spec fn pop_level_spec(self) -> Self {
         let (tail, popped) = self.path.pop_tail();
         Self {
@@ -140,7 +126,6 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn inc_pop_aligned_rec(path: TreePath<CONST_NR_ENTRIES>) -> TreePath<CONST_NR_ENTRIES>
         decreases path.len(),
     {
@@ -160,7 +145,6 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn move_forward_spec(self) -> Self {
         Self {
             path: Self::inc_pop_aligned_rec(self.path),
@@ -176,10 +160,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.cur_entry_owner().unwrap().is_frame() ==> {
                 &&& self@.present()
-                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa
-                    == self@.rear[0].leaf.map_to_pa
-                &&& self.cur_entry_owner().unwrap().frame.unwrap().prop == self@.rear[0].leaf.prop
-                &&& self@.rear[0].leaf.level == self.level
+                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa == self@.rear_local[0]->leaf.map_to_pa
+                &&& self.cur_entry_owner().unwrap().frame.unwrap().prop == self@.rear_local[0]->leaf.prop
+                &&& self@.rear_local[0]->leaf.level == self.level
             },
     {
         admit()

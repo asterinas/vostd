@@ -8,6 +8,10 @@ use super::*;
 
 verus! {
 
+pub ghost struct PageTableView<C: PageTableConfig> {
+    pub leaves: Seq<FrameView<C>>
+}
+
 pub tracked struct Mapping {
     pub pa: usize,
     pub is_locked: bool,

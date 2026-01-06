@@ -695,7 +695,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// block or be overridden by the mapping of another cursor.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut PageTableOwner<C>>,
+        with Tracked(owner): Tracked<&mut OwnerSubtree<'rcu, C>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(

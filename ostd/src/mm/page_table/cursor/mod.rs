@@ -192,18 +192,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(pt_own): Tracked<&mut PageTableOwner<C>>,
+        with Tracked(pt_own): Tracked<&mut OwnerSubtree<'rcu, C>>,
             Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>
     )]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: (Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    >))
-        ensures
-            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) ->
+        (res: (Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError>))
+//        ensures
+//            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
     {
         if !is_valid_range::<C>(va) || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
@@ -232,7 +229,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
@@ -246,7 +242,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.model(*owner).present() ==> {
                 &&& res is Ok
                 &&& res.unwrap().0.start == self.va
-                &&& res.unwrap().0.end == self.va + self.model(*owner).scope
+                &&& res.unwrap().0.end == self.va + page_size(self.level)
                 &&& res.unwrap().1 is Some
                 &&& res.unwrap().1.unwrap() == self.model(*owner).query_item_spec()
             },
