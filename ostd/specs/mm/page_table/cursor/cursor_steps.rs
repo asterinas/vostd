@@ -54,7 +54,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn push_level_owner_spec(self) -> Self
     {
         let cont = self.continuations[self.level - 1];
-        let (child, cont) = cont.make_cont_spec(self.index);
+        let (child, cont) = cont.make_cont_spec();
         let new_continuations = self.continuations.insert(self.level - 1, cont);
         let new_continuations = new_continuations.insert(self.level - 2, child);
 //        let new_path = self.path.0.push(self.index);
@@ -86,16 +86,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         let ghost cont0 = cont;
-        let tracked child = cont.make_cont(self.index);
+        let tracked child = cont.make_cont();
 
-        assert((child, cont) == cont0.make_cont_spec(self.index));
+        assert((child, cont) == cont0.make_cont_spec());
 
         self.continuations.tracked_insert(self.level - 1, cont);
         self.continuations.tracked_insert(self.level - 2, child);
 
         assert(self.continuations == self0.continuations.insert(self.level - 1, cont).insert(self.level - 2, child));
 
-//        self.path.0.tracked_push(self.index);
         self.level = (self.level - 1) as u8;
     }
 
@@ -141,12 +140,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn move_forward_owner_spec(self) -> Self
         decreases NR_LEVELS() - self.level when self.level < NR_LEVELS()
     {
-        if self.index + 1 < NR_ENTRIES() {
-            Self {
-                index: (self.index + 1) as usize,
-//                path: TreePath::new(self.path.0.update(self.path.0.len() - 1, (self.index + 1) as usize)),
-                ..self
-            }
+        if self.index() + 1 < NR_ENTRIES() {
+            self.inc_index()
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner_spec().move_forward_owner_spec()
         } else {
@@ -171,10 +166,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self == old(self).move_forward_owner_spec(),
         decreases NR_LEVELS() - old(self).level
     {
-        if self.index + 1 < NR_ENTRIES() {
-            self.index = (self.index + 1) as usize;
-//            self.path.0.tracked_pop();
-//            self.path.0.tracked_push((self.index + 1) as usize);
+        if self.index() + 1 < NR_ENTRIES() {
+            self.inc_index();
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner();
             assert(self.inv()) by { admit() };

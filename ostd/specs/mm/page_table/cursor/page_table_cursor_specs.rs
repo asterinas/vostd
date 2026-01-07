@@ -29,9 +29,6 @@ impl<C: PageTableConfig> CursorView<C> {
        `step` until it is no longer aligned, if possible. Functions that remove entries from the page table entirely
        remove them in `step`-sized chunks.
     */
-    pub closed spec fn push_size(size: usize) -> usize;
-
-    pub closed spec fn pop_size(size: usize) -> usize;
 
     pub open spec fn push_level_spec(self) -> Self;
     /* {
@@ -155,13 +152,13 @@ impl<C: PageTableConfig> CursorView<C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    #[rustc_allow_incoherent_impl]
+
     pub proof fn present_frame(self)
         ensures
-            self.cur_entry_owner().unwrap().is_frame() ==> {
+            self.cur_entry_owner().is_frame() ==> {
                 &&& self@.present()
-                &&& self.cur_entry_owner().unwrap().frame.unwrap().mapped_pa == self@.rear_local[0]->leaf.map_to_pa
-                &&& self.cur_entry_owner().unwrap().frame.unwrap().prop == self@.rear_local[0]->leaf.prop
+                &&& self.cur_entry_owner().frame.unwrap().mapped_pa == self@.rear_local[0]->leaf.map_to_pa
+                &&& self.cur_entry_owner().frame.unwrap().prop == self@.rear_local[0]->leaf.prop
                 &&& self@.rear_local[0]->leaf.level == self.level
             },
     {
@@ -171,7 +168,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     #[rustc_allow_incoherent_impl]
     pub proof fn present_not_absent(self)
         ensures
-            self.cur_entry_owner().unwrap().is_absent() ==> !self@.present(),
+            self.cur_entry_owner().is_absent() ==> !self@.present(),
     {
         admit()
     }
