@@ -918,7 +918,7 @@ broadcast group group_definition_basics {
     entails_implies_temp_reverse,
 }
 
-/// Double always can be simplified.
+/// Double `always` can be simplified.
 /// 
 /// post:  
 ///  `[][]p == []p`
@@ -1009,7 +1009,7 @@ pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPre
     };
 }
 
-/// If entails always(`p`), then entails `p`.
+/// If entails `always(p)`, then entails `p`.
 /// 
 /// pre:  
 ///     `spec |= []p`
@@ -1056,7 +1056,7 @@ pub broadcast proof fn always_implies_to_leads_to<T>(
     };
 }
 
-/// If entails always(`p`), then entails always(later(`p`)).
+/// If entails `always(p)`, then entails `always(later(p))`.
 /// 
 /// pre:  
 ///  `spec |= []p`
@@ -1143,7 +1143,7 @@ pub proof fn always_weaken<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     };
 }
 
-/// If entails `p` and entails `p` leads to `q`, then entails eventually `q`.
+/// If entails `p` and entails `p` leads to `q`, then entails `eventually(q)`.
 /// 
 /// pre:  
 ///     `spec |= p`  
@@ -1255,7 +1255,7 @@ pub proof fn always_implies_preserved_by_always<T>(
     };
 }
 
-/// Combine the premises of two leads to using or.
+/// Combine the premises of two leads-to using or.
 /// 
 /// pre:  
 ///     `spec |= p ~> r`  
@@ -1323,7 +1323,7 @@ pub proof fn or_leads_to_case_analysis<T>(
     }
 }
 
-/// Combine the conclusions of two leads to if the conclusions are stable.
+/// Combine the conclusions of two leads-to if the conclusions are stable.
 /// 
 /// pre:  
 ///     `spec |= p ~> []q`  
@@ -1389,13 +1389,15 @@ pub broadcast proof fn leads_to_always_combine<T>(
     always_and_equality(q, r);
 }
 
-// Prove p leads_to always q by showing that q is preserved.
-// pre:
-//     spec |= [](q /\ next => q')
-//     spec |= []next
-//     spec |= p ~> q
-// post:
-//     spec |= p ~> []q
+/// Prove `p` leads to `always(q)` by showing that `q` is preserved.
+/// 
+/// pre:  
+///     `spec |= [](q /\ next => q')`  
+///     `spec |= []next`  
+///     `spec |= p ~> q`  
+/// 
+/// post:
+///     `spec |= p ~> []q`
 pub proof fn leads_to_stable<T>(
     spec: TempPred<T>,
     next: TempPred<T>,
@@ -1456,11 +1458,13 @@ pub proof fn leads_to_stable<T>(
     };
 }
 
-// Sandwich leads-to with or r.
-// pre:
-//     spec |= p ~> q
-// post:
-//     spec |= p \/ r ~> q \/ r
+/// Sandwich leads-to with or `r`.
+/// 
+/// pre:  
+///     `spec |= p ~> q`
+/// 
+/// post:  
+///     `spec |= p \/ r ~> q \/ r`
 pub broadcast proof fn leads_to_framed_by_or<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1493,12 +1497,14 @@ pub broadcast proof fn leads_to_framed_by_or<T>(
     }
 }
 
-// Combine two leads-to with a shortcut.
-// pre:
-//     spec |= p ~> q \/ s
-//     spec |= q ~> r \/ s
-// post:
-//     spec |= p ~> r \/ s
+/// Combine two leads-to with a shortcut.
+/// 
+/// pre:  
+///     `spec |= p ~> q \/ s`  
+///     `spec |= q ~> r \/ s`
+/// 
+/// post:  
+///     `spec |= p ~> r \/ s`
 pub proof fn leads_to_shortcut_temp<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1538,12 +1544,14 @@ pub broadcast proof fn entails_always_lift_state_and<T>(
 
 }
 
-// Eliminate and split two state predicates under always.
-// pre:
-//     spec |= []lift_state(p /\ q)
-// post:
-//    spec |= []lift_state(p)
-//    spec |= []lift_state(q)
+/// Eliminate and split two state predicates under `always`.
+///
+/// pre:  
+///     `spec |= []lift_state(p /\ q)`
+/// 
+/// post:  
+///    `spec |= []lift_state(p)`  
+///    `spec |= []lift_state(q)`
 pub broadcast proof fn entails_always_lift_state_and_elim<T>(
     spec: TempPred<T>,
     p: StatePred<T>,
@@ -1560,9 +1568,10 @@ pub broadcast proof fn entails_always_lift_state_and_elim<T>(
 }
 
 // Rules about quantifiers.
-// Lift the "exists" outside lift_state
-// post:
-//  lift_state(∃ a: A. p(a)) == ∃ a: A. lift_state(p(a))
+/// Lift the `exists` outside `lift_state`.
+/// 
+/// post:  
+///  `lift_state(∃ a: A. p(a)) == ∃ a: A. lift_state(p(a))`
 pub broadcast proof fn lift_state_exists_equality<T, A>(a_to_state_pred: spec_fn(A) -> StatePred<T>)
     ensures
         #[trigger] lift_state_exists(a_to_state_pred) == tla_exists(
@@ -1582,9 +1591,13 @@ pub broadcast proof fn lift_state_exists_equality<T, A>(a_to_state_pred: spec_fn
     temp_pred_equality::<T>(p, q);
 }
 
-// Lift the "always" outside tla_forall if the function is previously wrapped by an "always"
-// Note: Verus may not able to infer that (|a| func(a))(a) equals func(a).
-//       Please turn to lemma tla_forall_always_equality_variant for troubleshooting.
+/// Lift the `always` outside `tla_forall` if the function is previously wrapped by an `always`.
+/// 
+/// post:  
+///     `∀ a:A. []P(a) == [](∀ a:A. P(a)))`
+/// 
+/// NOTE: Verus may not able to infer that `(|a| func(a))(a)` equals `func(a)`.
+///       Please turn to lemma [`tla_forall_always_equality_variant`](tla_forall_always_equality_variant) for troubleshooting.
 pub proof fn tla_forall_always_equality<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>)
     ensures
         tla_forall(|a: A| always(a_to_temp_pred(a))) == always(tla_forall(a_to_temp_pred)),
@@ -1626,9 +1639,10 @@ pub proof fn tla_forall_always_equality_variant<T, A>(
     tla_forall_always_equality::<T, A>(a_to_temp_pred);
 }
 
-// If forall a. P(a) holds, then P holds for any particular a.
-// post:
-//  ∀ a: A. P(a) |= P(a)
+/// If `forall a. P(a)` holds, then `P` holds for any particular `a`.
+/// 
+/// post:  
+///  `∀ a: A. P(a) |= P(a)`
 pub broadcast proof fn tla_forall_apply<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>, a: A)
     ensures
         #[trigger] tla_forall(a_to_temp_pred).entails(a_to_temp_pred(a)),
@@ -1637,12 +1651,13 @@ pub broadcast proof fn tla_forall_apply<T, A>(a_to_temp_pred: spec_fn(A) -> Temp
 
 }
 
-// If entails always(forall a. P(a)), then entails always(P(a)) for any particular a.
 // Used to be named as always_tla_forall_apply
-// pre:
-//  spec |= [](∀ a: A. P(a))
-// post:
-//  spec |= [](P(a))
+/// If entails `always(forall a. P(a))`, then entails `always(P(a))` for any particular `a`.
+/// 
+/// pre:  
+///  `spec |= [](∀ a: A. P(a))`
+/// post:  
+///  `spec |= [](P(a))`
 pub proof fn use_always_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1657,11 +1672,13 @@ pub proof fn use_always_tla_forall<T, A>(
     entails_trans(spec, always(tla_forall(a_to_temp_pred)), always(a_to_temp_pred(a)));
 }
 
-// If entails P(a) for all a, then entails forall a. P(a).
-// pre:
-//  forall a: A. spec |= P(a)
-// post:
-//  spec |= ∀ a: A. P(a)
+/// If entails `P(a)` for all `a`, then entails `forall a. P(a)`.
+/// 
+/// pre:  
+///  `forall a: A. spec |= P(a)`
+/// 
+/// post:  
+///  `spec |= ∀ a: A. P(a)`
 pub broadcast proof fn spec_entails_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1680,11 +1697,13 @@ pub broadcast proof fn spec_entails_tla_forall<T, A>(
     };
 }
 
-// If entails always(P(a)) for all a, then entails always(forall a. P(a)).
-// pre:
-//  forall a: A. spec |= []P(a)
-// post:
-//  spec |= [](∀ a: A. P(a))
+/// If entails `always(P(a))` for all `a`, then entails `always(forall a. P(a))`.
+/// 
+/// pre:  
+///  `forall a: A. spec |= []P(a)`
+/// 
+/// post:  
+///  `spec |= [](∀ a: A. P(a))`
 pub proof fn spec_entails_always_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1699,11 +1718,12 @@ pub proof fn spec_entails_always_tla_forall<T, A>(
     tla_forall_always_equality_variant::<T, A>(a_to_always, a_to_temp_pred);
 }
 
-// If entails always(p implies P(a)) for all a, then entails always(p implies forall a. P(a)).
-// pre:
-//  forall a: A. spec |= [](p => P(a))
-// post:
-//  spec |= [](p => (∀ a: A. P(a)))
+/// If entails `always(p implies P(a))` for all `a`, then entails `always(p implies forall a. P(a))`.
+/// 
+/// pre:  
+///  `forall a: A. spec |= [](p => P(a))`
+/// post:  
+///  `spec |= [](p => (∀ a: A. P(a)))`
 pub broadcast proof fn always_implies_forall_intro<T, A>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1724,11 +1744,13 @@ pub broadcast proof fn always_implies_forall_intro<T, A>(
     };
 }
 
-// If entails P(a) leads_to q for all a, then entails exists a. P(a) leads_to q.
-// pre:
-//  forall a: A. spec |= P(a) ~> q
-// post:
-//  spec |= (∃ a: A. P(a)) ~> q
+/// If entails `P(a)` leads to `q` for all `a`, then entails `exists a. P(a) leads_to q`.
+/// 
+/// pre:  
+///  `forall a: A. spec |= P(a) ~> q`
+/// 
+/// post:  
+///  `spec |= (∃ a: A. P(a)) ~> q`
 pub broadcast proof fn tla_exists_leads_to_intro<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1749,11 +1771,13 @@ pub broadcast proof fn tla_exists_leads_to_intro<T, A>(
     };
 }
 
-// If entails forall a. P(a), then entails P(a) for any particular a.
-// pre:
-//  spec |= (∀ a: A. P(a))
-// post:
-//  spec |= P(a)
+/// If entails `forall a. P(a)`, then entails `P(a)` for any particular `a`.
+/// 
+/// pre:  
+///  `spec |= (∀ a: A. P(a))`
+/// 
+/// post:  
+///  `spec |= P(a)`
 pub proof fn use_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1938,12 +1962,14 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
     temp_pred_equality(lhs, rhs);
 }
 
-// Prove lift_state_exists leads_to by case analysis on another StatePred.
-// pre:
-//     spec |= lift_state_exists(absorb(a_to_temp_pred, p)) ~> q
-//     spec |= lift_state_exists(absorb(a_to_temp_pred, ~p)) ~> q
-// post:
-//     spec |= lift_state_exists(a_to_temp_pred) ~> q
+/// Prove `lift_state_exists` leads to by case analysis on another `StatePred`.
+/// 
+/// pre:  
+///     `spec |= lift_state_exists(absorb(a_to_temp_pred, p)) ~> q`  
+///     `spec |= lift_state_exists(absorb(a_to_temp_pred, ~p)) ~> q`
+/// 
+/// post:  
+///     `spec |= lift_state_exists(a_to_temp_pred) ~> q`
 pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> StatePred<T>,
@@ -1961,14 +1987,16 @@ pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     or_leads_to_case_analysis(spec, lift_state_exists(a_to_temp_pred), lift_state(p), q);
 }
 
-// Leads to []tla_forall(a_to_temp_pred) if forall a, it leads []a_to_temp_pred(a).
-// pre:
-//     forall |a: A|, spec |= p ~> []a_to_temp_pred(a)
-//     forall |a: A|, a \in domain
-//     domain.is_finite() && domain.len() > 0
-// post:
-//     spec |= []tla_forall(a_to_temp_pred)
-// The domain set assist in showing type A contains finite elements.
+/// Leads to `[]tla_forall(a_to_temp_pred)` if forall `a`, it leads to `[]a_to_temp_pred(a)`.
+/// 
+/// pre:  
+///     `forall |a: A|, spec |= p ~> []a_to_temp_pred(a)`  
+///     `forall |a: A|, a \in domain`  
+///     `domain.is_finite() && domain.len() > 0`  
+/// post:  
+///     `spec |= []tla_forall(a_to_temp_pred)`
+/// 
+/// The domain set assist in showing type A contains finite elements.
 //
 // This lemma is actually similar to leads_to_always_combine_n when the n predicates are all a_to_temp_pred(a) for some a.
 // This is because tla_forall(a_to_temp_pred) == a_to_temp_pred(a1).and(a_to_temp_pred(a2))....and(a_to_temp_pred(an)), We only consider the case when
@@ -2050,9 +2078,10 @@ pub proof fn leads_to_always_tla_forall<T, A>(
 }
 
 // Rules about stability.
-// An always predicate is stable.
-// post:
-//     |= stable(always(p))
+/// An `always` predicate is `stable`.
+/// 
+/// post:  
+///     |= stable(always(p))
 pub broadcast proof fn always_p_is_stable<T>(p: TempPred<T>)
     ensures
         #[trigger] valid(stable(always(p))),
@@ -2061,9 +2090,10 @@ pub broadcast proof fn always_p_is_stable<T>(p: TempPred<T>)
 
 }
 
-// A leads-to predicate is stable.
-// post:
-//     |= stable(p ~> q)
+/// A leads-to predicate is stable.
+/// 
+/// post:  
+///     `|= stable(p ~> q)`
 pub proof fn p_leads_to_q_is_stable<T>(p: TempPred<T>, q: TempPred<T>)
     ensures
         valid(stable(p.leads_to(q))),
@@ -2071,12 +2101,14 @@ pub proof fn p_leads_to_q_is_stable<T>(p: TempPred<T>, q: TempPred<T>)
     always_p_is_stable(p.implies(eventually(q)));
 }
 
-// p and q is stable if both p and q are stable.
-// pre:
-//     |= stable(p)
-//     |= stable(q)
-// post:
-//     |= stable(p /\ q)
+/// `p` and `q` is stable if both `p` and `q` are stable.
+/// 
+/// pre:  
+///     `|= stable(p)`  
+///     `|= stable(q)`  
+/// 
+/// post:  
+///     `|= stable(p /\ q)`
 pub broadcast proof fn stable_and_temp<T>(p: TempPred<T>, q: TempPred<T>)
     requires
         valid(stable(p)),
@@ -2092,11 +2124,13 @@ pub broadcast proof fn stable_and_temp<T>(p: TempPred<T>, q: TempPred<T>)
     }
 }
 
-// Forall a leads-to predicate p -> q(a) is stable.
-// pre:
-//     forall |a| |= stable(p -> q(a))
-// post:
-//     |= stable(tla_forall(|a| p -> q(a)))
+/// `forall a leads-to p -> q(a)` is stable.
+/// 
+/// pre:  
+///     `∀ a. |= stable(p -> q(a))`  
+/// 
+/// post:  
+///     `|= stable(∀ a. p -> q(a)))`
 pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
     p: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -2130,12 +2164,14 @@ pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
     }
 }
 
-// Unpack the conditions from the left to the right side of |=
-// pre:
-//     |= stable(spec)
-//     spec /\ c |= p ~> q
-// post:
-//     spec |= p /\ c ~> q
+/// Unpack the conditions from the left to the right side of `|=`
+/// 
+/// pre:  
+///     `|= stable(spec)`  
+///     `spec /\ c |= p ~> q`
+/// 
+/// post:  
+///     `spec |= p /\ c ~> q`
 pub proof fn unpack_conditions_from_spec<T>(
     spec: TempPred<T>,
     c: TempPred<T>,
@@ -2257,7 +2293,7 @@ pub proof fn leads_to_by_borrowing_inv<T>(
     }
 }
 
-// Enhance the conclusion of leads to always using invariant.
+// Enhance the conclusion of leads-to always using invariant.
 // pre:
 //     spec |= []inv
 //     spec |= p ~> []q1
