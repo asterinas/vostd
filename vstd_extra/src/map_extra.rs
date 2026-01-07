@@ -1,3 +1,4 @@
+//! Extra properties of [`vstd::map::Map`](https://verus-lang.github.io/verus/verusdoc/vstd/map/struct.Map.html).
 use vstd::prelude::*;
 use vstd::{map::*, set::*};
 

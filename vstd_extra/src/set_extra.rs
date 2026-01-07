@@ -1,3 +1,4 @@
+//! Extra properties of [`vstd::set::Set`](https://verus-lang.github.io/verus/verusdoc/vstd/set/struct.Set.html).
 use vstd::{prelude::*, set::fold::*, set_lib::*};
 
 verus! {

@@ -1,3 +1,4 @@
+//! Extra properties of [`vstd::seq::Seq`](https://verus-lang.github.io/verus/verusdoc/vstd/seq/struct.Seq.html).
 use vstd::prelude::*;
 use vstd::seq::*;
 use vstd::seq_lib::*;
