@@ -41,5 +41,5 @@ test-ledger
 *.txt
 *.log
 
+#doc
 doc
-tmp.ps1
