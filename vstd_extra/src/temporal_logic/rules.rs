@@ -712,7 +712,7 @@ pub broadcast proof fn state_pred_implies_apply_equality<T>(p: StatePred<T>, q: 
 /// `StatePred::and` distributes over `lift_state`.
 /// 
 /// post:  
-///  `lift_state(p /\ q) == lift_state(p) /\ lift_state(q)`
+///  `lift_state(p ∧ q) == lift_state(p) ∧ lift_state(q)`
 pub broadcast proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
         #![trigger lift_state(p.and(q))]
@@ -724,7 +724,7 @@ pub broadcast proof fn lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<
 /// `StatePred::or` distributes over `lift_state`.
 /// 
 /// post:  
-///  `lift_state(p \/ q) == lift_state(p) \/ lift_state(q)`
+///  `lift_state(p ∨ q) == lift_state(p) ∨ lift_state(q)`
 pub broadcast proof fn lift_state_or_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
         #![trigger lift_state(p.or(q))]
@@ -748,17 +748,17 @@ pub broadcast proof fn lift_state_not_equality<T>(p: StatePred<T>)
 /// `StatePred::implies` distributes over `lift_state`.
 ///
 /// post:  
-///  `lift_state(p => q) == lift_state(p) => lift_state(q)`
+///  `lift_state(p ⇒ q) == lift_state(p) ⇒ lift_state(q)`
 pub broadcast proof fn lift_state_implies_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
         #[trigger] lift_state(p.implies(q)) == lift_state(p).implies(lift_state(q)),
 {
 }
 
-/// `StatePred::and` distributes over `always`.
+/// `StatePred::and` distributes over `□`.
 ///
 /// post:  
-///  `[](p /\ q) == []p /\ []q`
+///  `□(p ∧ q) == □p ∧ □q`
 pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
     ensures
         #[trigger] always(p.and(q)) == always(p).and(always(q)),
@@ -770,14 +770,14 @@ pub broadcast proof fn always_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
 
 /// Lift entails `TempPred::and` to Verus meta-level.
 /// 
-/// If entails `p` and entails `q`, then entails `p` and `q`.
+/// If `⊧ p` and `⊧ q`, then `⊧ p ∧ q`.
 /// 
 /// pre:  
-///     `spec |= p`  
-///     `spec |= q`  
+///     `spec ⊧ p`  
+///     `spec ⊧ q`  
 /// 
 /// post:  
-///     `spec |= p /\ q`
+///     `spec ⊧ p ∧ q`
 pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         spec.entails(p),
@@ -793,14 +793,14 @@ pub broadcast proof fn entails_and_temp<T>(spec: TempPred<T>, p: TempPred<T>, q:
 
 /// Lift entails `TempPred::and` to Verus meta-level (reversed direction).
 /// 
-/// If entails `p` and `q`, then entails `p` and entails `q`.
+/// If `⊧ p ∧ q`, then `⊧ p` and `⊧ q`.
 ///
 /// pre:  
-///     `spec |= p /\ q`
+///     `spec ⊧ p ∧ q`
 ///
 /// post:  
-///     `spec |= p`
-///     `spec |= q`
+///     `spec ⊧ p`
+///     `spec ⊧ q`
 pub broadcast proof fn entails_and_temp_reverse<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -822,13 +822,13 @@ pub broadcast proof fn entails_and_temp_reverse<T>(
 
 /// Lift entails `TempPred::or` to Verus meta-level.
 /// 
-/// If entails `p` or entails `q`, then entails `p` or `q`.
+/// If `⊧ p` or `⊧ q`, then `⊧ p ∨ q`.
 ///
 /// pre:  
-///     `spec |= p` or `spec |= q`
+///     `spec ⊧ p` or `spec ⊧ q`
 ///
 /// post:  
-///     `spec |= p \/ q`
+///     `spec ⊧ p ∨ q`
 ///
 /// NOTE: The other direction does not hold in general.
 pub broadcast proof fn entails_or_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
@@ -848,13 +848,13 @@ pub broadcast proof fn entails_or_temp<T>(spec: TempPred<T>, p: TempPred<T>, q: 
 
 /// Lift entails `TempPred::not` to Verus meta-level (reversed direction).
 /// 
-/// If entails `not(p)`, then not (entails `p`).
+/// If `⊧ !p`, then `!(⊧ p)`.
 ///
 /// pre:  
-///     `spec |= !p`
+///     `spec ⊧ !p`
 ///
 /// post:  
-///     `!(spec |= p)`
+///     `!(spec ⊧ p)`
 ///
 /// NOTE: The other direction does not hold in general.
 pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPred<T>)
@@ -874,13 +874,13 @@ pub broadcast proof fn entails_not_temp_reverse<T>(spec: TempPred<T>, p: TempPre
 
 /// Lift entails `TempPred::implies` to Verus meta-level.
 /// 
-/// If entails (`p` => `q`), then entails `p` implies entails `q`.
+/// If `⊧ p ⇒ q`, then `⊧ p` implies `⊧ q`.
 /// 
 /// pre:  
-///     `spec |= (p => q)`
+///     `spec ⊧ (p ⇒ q)`
 /// 
 /// post:  
-///     `(spec |= p) => (spec |= q)`
+///     `(spec ⊧ p) ⇒ (spec ⊧ q)`
 /// 
 /// NOTE: The other direction does not hold in general.
 pub broadcast proof fn entails_implies_temp_reverse<T>(
@@ -918,10 +918,10 @@ broadcast group group_definition_basics {
     entails_implies_temp_reverse,
 }
 
-/// Double `always` can be simplified.
+/// Double `□` can be simplified.
 /// 
 /// post:  
-///  `[][]p == []p`
+///  `□□p == □p`
 pub broadcast proof fn always_double_equality<T>(p: TempPred<T>)
     ensures
         #[trigger] always(always(p)) == always(p),
@@ -936,10 +936,10 @@ pub broadcast proof fn always_double_equality<T>(p: TempPred<T>)
     temp_pred_equality::<T>(always(always(p)), always(p));
 }
 
-/// `StatePred::and` distributes over `always` and `lift_state`.
+/// `StatePred::and` distributes over `□` and `lift_state`.
 ///
 /// post:
-///  `[](lift_state(p /\ q)) == []lift_state(p) /\ []lift_state(q)`
+///  `□(lift_state(p ∧ q)) == □lift_state(p) ∧ □lift_state(q)`
 pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: StatePred<T>)
     ensures
         #[trigger] always(lift_state(p.and(q))) == always(lift_state(p)).and(always(lift_state(q))),
@@ -948,10 +948,10 @@ pub broadcast proof fn always_lift_state_and_equality<T>(p: StatePred<T>, q: Sta
 
 }
 
-/// Obviously `p ~> p` is valid.
+/// Obviously `p ⇝ p` is valid.
 /// 
 /// post:  
-///     `|= p ~> p`
+///     `⊧ p ⇝ p`
 pub broadcast proof fn leads_to_self_temp<T>(p: TempPred<T>)
     ensures
         #[trigger] valid(p.leads_to(p)),
@@ -971,10 +971,10 @@ pub broadcast proof fn leads_to_self_temp<T>(p: TempPred<T>)
 /// Entails is transitive.
 /// 
 /// pre:  
-///     `p |= q`  
-///     `q |= r`  
+///     `p ⊧ q`  
+///     `q ⊧ r`  
 /// post:  
-///     `p |= r`  
+///     `p ⊧ r`  
 pub proof fn entails_trans<T>(p: TempPred<T>, q: TempPred<T>, r: TempPred<T>)
     requires
         p.entails(q),
@@ -988,12 +988,12 @@ pub proof fn entails_trans<T>(p: TempPred<T>, q: TempPred<T>, r: TempPred<T>)
     };
 }
 
-/// Introduce always to both sides of entails.
+/// Introduce `□` to both sides of `⊧`.
 /// 
 /// pre:  
-///     `p |= q`  
+///     `p ⊧ q`  
 /// post:  
-///     `[]p |= []q`
+///     `□p ⊧ □q`
 pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPred<T>)
     requires
         p.entails(q),
@@ -1009,13 +1009,13 @@ pub broadcast proof fn entails_preserved_by_always<T>(p: TempPred<T>, q: TempPre
     };
 }
 
-/// If entails `always(p)`, then entails `p`.
+/// If `⊧ □p`, then `⊧ p`.
 /// 
 /// pre:  
-///     `spec |= []p`
+///     `spec ⊧ □p`
 /// 
 /// post:  
-///     `spec |= p`
+///     `spec ⊧ p`
 pub proof fn eliminate_always<T>(spec: TempPred<T>, p: TempPred<T>)
     requires
         spec.entails(always(p)),
@@ -1028,12 +1028,12 @@ pub proof fn eliminate_always<T>(spec: TempPred<T>, p: TempPred<T>)
     }
 }
 
-/// If entails always(`p` implies `q`), then entails `p` leads to `q`.
+/// If `⊧ □(p ⇒ q)`, then `⊧ p ⇝ q`.
 /// 
 /// pre:    
-///  `spec |= [](p => q)`
+///  `spec ⊧ □(p ⇒ q)`
 /// post:  
-///  `spec |= p ~> q`
+///  `spec ⊧ p ⇝ q`
 pub broadcast proof fn always_implies_to_leads_to<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1056,13 +1056,13 @@ pub broadcast proof fn always_implies_to_leads_to<T>(
     };
 }
 
-/// If entails `always(p)`, then entails `always(later(p))`.
+/// If entails `□p`, then entails `□(later(p))`.
 /// 
 /// pre:  
-///  `spec |= []p`
+///  `spec ⊧ □p`
 /// 
 /// post:  
-///  `spec |= [](p')`
+///  `spec ⊧ □p'`
 pub broadcast proof fn always_to_always_later<T>(spec: TempPred<T>, p: TempPred<T>)
     requires
         spec.entails(always(p)),
@@ -1077,11 +1077,11 @@ pub broadcast proof fn always_to_always_later<T>(spec: TempPred<T>, p: TempPred<
 /// If `spec1` entails `p` and `spec2` entails `q`, then `spec1` and `spec2` entails `p` and `q`.
 /// 
 /// pre:  
-///     `spec1 |= p`  
-///     `spec2 |= q`
+///     `spec1 ⊧ p`  
+///     `spec2 ⊧ q`
 /// 
 /// post:    
-///     `spec1 /\ spec2 |= p /\ q`
+///     `spec1 ∧ spec2 ⊧ p ∧ q`
 pub broadcast proof fn entails_and_different_temp<T>(
     spec1: TempPred<T>,
     spec2: TempPred<T>,
@@ -1102,13 +1102,13 @@ pub broadcast proof fn entails_and_different_temp<T>(
     };
 }
 
-/// If `p` implies `q` for all executions, `p` will leads to `q` anyway.
+/// If `p ⇒ q` for all executions, then `p ⇝ q`.
 /// 
 /// pre:  
-///     `p |= q`
+///     `p ⊧ q`
 /// 
 /// post:    
-///     `spec |= p ~> q`
+///     `spec ⊧ p ⇝ q`
 /// 
 /// NOTE: there is no constraint on `spec`, it can be true_pred().
 pub proof fn entails_implies_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
@@ -1121,14 +1121,14 @@ pub proof fn entails_implies_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: T
     always_implies_to_leads_to(spec, p, q);
 }
 
-/// Weaken always by implies.
+/// Weaken `□` by `⇒`.
 /// 
 /// pre:  
-///   `|= p => q`  
-///   `spec |= []p`
+///   `⊧ p ⇒ q`  
+///   `spec ⊧ □p`
 /// 
 /// post:    
-///   `spec |= []q`
+///   `spec ⊧ □q`
 pub proof fn always_weaken<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         valid(p.implies(q)),
@@ -1143,14 +1143,14 @@ pub proof fn always_weaken<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     };
 }
 
-/// If entails `p` and entails `p` leads to `q`, then entails `eventually(q)`.
+/// If entails `p` and entails `p ⇝ q`, then entails `◊(q)`.
 /// 
 /// pre:  
-///     `spec |= p`  
-///     `spec |= p ~> q`
+///     `spec ⊧ p`  
+///     `spec ⊧ p ⇝ q`
 /// 
 /// post:    
-///     `spec |= <>q`
+///     `spec ⊧ ◊q`
 pub broadcast proof fn leads_to_apply<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         spec.entails(p),
@@ -1170,10 +1170,10 @@ pub broadcast proof fn leads_to_apply<T>(spec: TempPred<T>, p: TempPred<T>, q: T
 /// Leads to is transitive.
 /// 
 /// pre:  
-///     `spec |= p ~> q`    
-///     `spec |= q ~> r`
+///     `spec ⊧ p ⇝ q`    
+///     `spec ⊧ q ⇝ r`
 /// post:  
-///     `spec |= p ~> r`
+///     `spec ⊧ p ⇝ r`
 pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>, r: TempPred<T>)
     requires
         spec.entails(p.leads_to(q)),
@@ -1204,14 +1204,14 @@ pub proof fn leads_to_trans<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>
     };
 }
 
-/// Weaken always lifted state predicate by implies.
+/// Weaken `□` lifted state predicate by `⇒`.
 /// 
 /// pre:  
-///     `forall |s| p(s) => q(s)`  
-///     `spec |= []lift_state(p)`
+///     `forall |s| p(s) ⇒ q(s)`  
+///     `spec ⊧ □lift_state(p)`
 /// 
 /// post:  
-///     `spec |= []lift_state(q)`
+///     `spec ⊧ □lift_state(q)`
 pub proof fn always_lift_state_weaken<T>(spec: TempPred<T>, p: StatePred<T>, q: StatePred<T>)
     requires
         forall|s: T| #[trigger] p.apply(s) ==> q.apply(s),
@@ -1222,12 +1222,12 @@ pub proof fn always_lift_state_weaken<T>(spec: TempPred<T>, p: StatePred<T>, q: 
     always_weaken::<T>(spec, lift_state(p), lift_state(q));
 }
 
-/// Introduce always to both sides of always implies.
+/// Introduce `□` to both sides of `⇒`.
 /// 
 /// pre:  
-///     `spec |= [](p => q)`  
+///     `spec ⊧ □(p ⇒ q)`  
 /// post:  
-///     `spec |= []([]p => []q)`
+///     `spec ⊧ □(□p ⇒ □q)`
 pub proof fn always_implies_preserved_by_always<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1255,13 +1255,13 @@ pub proof fn always_implies_preserved_by_always<T>(
     };
 }
 
-/// Combine the premises of two leads-to using or.
+/// Combine the premises of two `⇝` using or.
 /// 
 /// pre:  
-///     `spec |= p ~> r`  
-///     `spec |= q ~> r`
+///     `spec ⊧ p ⇝ r`  
+///     `spec ⊧ q ⇝ r`
 /// post:  
-///     `spec |= (p \/ q) ~> r`
+///     `spec ⊧ (p ∨ q) ⇝ r`
 pub broadcast proof fn or_leads_to_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1288,14 +1288,14 @@ pub broadcast proof fn or_leads_to_combine<T>(
     };
 }
 
-/// Prove `p` leads to `r` by case analysis on `q`.
+/// Prove `p ⇝ r` by case analysis on `q`.
 /// 
 /// pre:  
-///     `spec |= (p /\ q) ~> r`  
-///     `spec |= (p /\ ~q) ~> r`  
+///     `spec ⊧ (p ∧ q) ⇝ r`  
+///     `spec ⊧ (p ∧ ~q) ⇝ r`  
 /// 
 /// post:  
-///     `spec |= p ~> r`
+///     `spec ⊧ p ⇝ r`
 pub proof fn or_leads_to_case_analysis<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1323,14 +1323,14 @@ pub proof fn or_leads_to_case_analysis<T>(
     }
 }
 
-/// Combine the conclusions of two leads-to if the conclusions are stable.
+/// Combine the conclusions of two `⇝` if the conclusions are stable.
 /// 
 /// pre:  
-///     `spec |= p ~> []q`  
-///     `spec |= p ~> []r`
+///     `spec ⊧ p ⇝ □q`  
+///     `spec ⊧ p ⇝ □r`
 /// 
 /// post:  
-///     `spec |= p ~> [](q /\ r)`
+///     `spec ⊧ p ⇝ □(q ∧ r)`
 pub broadcast proof fn leads_to_always_combine<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1389,15 +1389,15 @@ pub broadcast proof fn leads_to_always_combine<T>(
     always_and_equality(q, r);
 }
 
-/// Prove `p` leads to `always(q)` by showing that `q` is preserved.
+/// Prove `p ⇝ □q` by showing that `q` is preserved.
 /// 
 /// pre:  
-///     `spec |= [](q /\ next => q')`  
-///     `spec |= []next`  
-///     `spec |= p ~> q`  
+///     `spec ⊧ □(q ∧ next ⇒ q')`  
+///     `spec ⊧ □next`  
+///     `spec ⊧ p ⇝ q`  
 /// 
 /// post:
-///     `spec |= p ~> []q`
+///     `spec ⊧ p ⇝ □q`
 pub proof fn leads_to_stable<T>(
     spec: TempPred<T>,
     next: TempPred<T>,
@@ -1458,13 +1458,13 @@ pub proof fn leads_to_stable<T>(
     };
 }
 
-/// Sandwich leads-to with or `r`.
+/// Sandwich `⇝` with or `r`.
 /// 
 /// pre:  
-///     `spec |= p ~> q`
+///     `spec ⊧ p ⇝ q`
 /// 
 /// post:  
-///     `spec |= p \/ r ~> q \/ r`
+///     `spec ⊧ p ∨ r ⇝ q ∨ r`
 pub broadcast proof fn leads_to_framed_by_or<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1497,14 +1497,14 @@ pub broadcast proof fn leads_to_framed_by_or<T>(
     }
 }
 
-/// Combine two leads-to with a shortcut.
+/// Combine two `⇝` with a shortcut.
 /// 
 /// pre:  
-///     `spec |= p ~> q \/ s`  
-///     `spec |= q ~> r \/ s`
+///     `spec ⊧ p ⇝ q ∨ s`  
+///     `spec ⊧ q ⇝ r ∨ s`
 /// 
 /// post:  
-///     `spec |= p ~> r \/ s`
+///     `spec ⊧ p ⇝ r ∨ s`
 pub proof fn leads_to_shortcut_temp<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1523,12 +1523,14 @@ pub proof fn leads_to_shortcut_temp<T>(
     leads_to_trans(spec, p, q.or(s), r.or(s));
 }
 
-// If entails always(lift_state(p)) and entails always(lift_state(q)), then entails always(lift_state(p and q)).
-// pre:
-//     spec |= []lift_state(p)
-//     spec |= []lift_state(q)
-// post:
-//    spec |= []lift_state(p /\ q)
+/// If `⊧ □(lift_state(p))` and `⊧ □(lift_state(q))`, then `⊧ □(lift_state(p ∧ q))`.
+/// 
+/// pre:  
+///     `spec ⊧ □lift_state(p)`  
+///     `spec ⊧ □lift_state(q)`
+/// 
+/// post:  
+///    `spec ⊧ □lift_state(p ∧ q)`
 pub broadcast proof fn entails_always_lift_state_and<T>(
     spec: TempPred<T>,
     p: StatePred<T>,
@@ -1544,14 +1546,14 @@ pub broadcast proof fn entails_always_lift_state_and<T>(
 
 }
 
-/// Eliminate and split two state predicates under `always`.
+/// Eliminate and split two state predicates under `□`.
 ///
 /// pre:  
-///     `spec |= []lift_state(p /\ q)`
+///     `spec ⊧ □lift_state(p ∧ q)`
 /// 
 /// post:  
-///    `spec |= []lift_state(p)`  
-///    `spec |= []lift_state(q)`
+///    `spec ⊧ □lift_state(p)`  
+///    `spec ⊧ □lift_state(q)`
 pub broadcast proof fn entails_always_lift_state_and_elim<T>(
     spec: TempPred<T>,
     p: StatePred<T>,
@@ -1591,13 +1593,13 @@ pub broadcast proof fn lift_state_exists_equality<T, A>(a_to_state_pred: spec_fn
     temp_pred_equality::<T>(p, q);
 }
 
-/// Lift the `always` outside `tla_forall` if the function is previously wrapped by an `always`.
+/// Lift the `□` outside `tla_forall` if the function is previously wrapped by an `□`.
 /// 
 /// post:  
-///     `∀ a:A. []P(a) == [](∀ a:A. P(a)))`
+///     `∀ a:A. □P(a) == □(∀ a:A. P(a)))`
 /// 
 /// NOTE: Verus may not able to infer that `(|a| func(a))(a)` equals `func(a)`.
-///       Please turn to lemma [`tla_forall_always_equality_variant`](tla_forall_always_equality_variant) for troubleshooting.
+///       Please turn to lemma [`tla_forall_always_equality_variant`] for troubleshooting.
 pub proof fn tla_forall_always_equality<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>)
     ensures
         tla_forall(|a: A| always(a_to_temp_pred(a))) == always(tla_forall(a_to_temp_pred)),
@@ -1642,7 +1644,7 @@ pub proof fn tla_forall_always_equality_variant<T, A>(
 /// If `forall a. P(a)` holds, then `P` holds for any particular `a`.
 /// 
 /// post:  
-///  `∀ a: A. P(a) |= P(a)`
+///  `∀ a: A. P(a) ⊧ P(a)`
 pub broadcast proof fn tla_forall_apply<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>, a: A)
     ensures
         #[trigger] tla_forall(a_to_temp_pred).entails(a_to_temp_pred(a)),
@@ -1652,12 +1654,12 @@ pub broadcast proof fn tla_forall_apply<T, A>(a_to_temp_pred: spec_fn(A) -> Temp
 }
 
 // Used to be named as always_tla_forall_apply
-/// If entails `always(forall a. P(a))`, then entails `always(P(a))` for any particular `a`.
+/// If `⊧ □(∀ a. P(a))`, then `⊧ □(P(a))` for any particular `a`.
 /// 
 /// pre:  
-///  `spec |= [](∀ a: A. P(a))`
+///  `spec ⊧ □(∀ a: A. P(a))`
 /// post:  
-///  `spec |= [](P(a))`
+///  `spec ⊧ □(P(a))`
 pub proof fn use_always_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1672,13 +1674,13 @@ pub proof fn use_always_tla_forall<T, A>(
     entails_trans(spec, always(tla_forall(a_to_temp_pred)), always(a_to_temp_pred(a)));
 }
 
-/// If entails `P(a)` for all `a`, then entails `forall a. P(a)`.
+/// If ⊧ `P(a)` for all `a`, then ⊧ `forall a. P(a)`.
 /// 
 /// pre:  
-///  `forall a: A. spec |= P(a)`
+///  `forall a: A. spec ⊧ P(a)`
 /// 
 /// post:  
-///  `spec |= ∀ a: A. P(a)`
+///  `spec ⊧ ∀ a: A. P(a)`
 pub broadcast proof fn spec_entails_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1697,13 +1699,13 @@ pub broadcast proof fn spec_entails_tla_forall<T, A>(
     };
 }
 
-/// If entails `always(P(a))` for all `a`, then entails `always(forall a. P(a))`.
+/// If ⊧ `□(P(a))` for all `a`, then ⊧ `□(forall a. P(a))`.
 /// 
 /// pre:  
-///  `forall a: A. spec |= []P(a)`
+///  `forall a: A. spec ⊧ □P(a)`
 /// 
 /// post:  
-///  `spec |= [](∀ a: A. P(a))`
+///  `spec ⊧ □(∀ a: A. P(a))`
 pub proof fn spec_entails_always_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1718,12 +1720,12 @@ pub proof fn spec_entails_always_tla_forall<T, A>(
     tla_forall_always_equality_variant::<T, A>(a_to_always, a_to_temp_pred);
 }
 
-/// If entails `always(p implies P(a))` for all `a`, then entails `always(p implies forall a. P(a))`.
+/// If ⊧ `□(p ⇒ P(a))` for all `a`, then ⊧ `□(p ⇒ forall a. P(a))`.
 /// 
 /// pre:  
-///  `forall a: A. spec |= [](p => P(a))`
+///  `forall a: A. spec ⊧ □(p ⇒ P(a))`
 /// post:  
-///  `spec |= [](p => (∀ a: A. P(a)))`
+///  `spec ⊧ □(p ⇒ (∀ a: A. P(a)))`
 pub broadcast proof fn always_implies_forall_intro<T, A>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -1744,13 +1746,13 @@ pub broadcast proof fn always_implies_forall_intro<T, A>(
     };
 }
 
-/// If entails `P(a)` leads to `q` for all `a`, then entails `exists a. P(a) leads_to q`.
+/// If ⊧ `P(a) ⇝ q` for all `a`, then ⊧ `exists a. P(a) leads_to q`.
 /// 
 /// pre:  
-///  `forall a: A. spec |= P(a) ~> q`
+///  `forall a: A. spec ⊧ P(a) ⇝ q`
 /// 
 /// post:  
-///  `spec |= (∃ a: A. P(a)) ~> q`
+///  `spec ⊧ (∃ a: A. P(a)) ⇝ q`
 pub broadcast proof fn tla_exists_leads_to_intro<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1771,13 +1773,13 @@ pub broadcast proof fn tla_exists_leads_to_intro<T, A>(
     };
 }
 
-/// If entails `forall a. P(a)`, then entails `P(a)` for any particular `a`.
+/// If ⊧ `forall a. P(a)`, then ⊧ `P(a)` for any particular `a`.
 /// 
 /// pre:  
-///  `spec |= (∀ a: A. P(a))`
+///  `spec ⊧ (∀ a: A. P(a))`
 /// 
 /// post:  
-///  `spec |= P(a)`
+///  `spec ⊧ P(a)`
 pub proof fn use_tla_forall<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -1965,11 +1967,11 @@ pub broadcast proof fn lift_state_forall_absorb_equality<T, A>(
 /// Prove `lift_state_exists` leads to by case analysis on another `StatePred`.
 /// 
 /// pre:  
-///     `spec |= lift_state_exists(absorb(a_to_temp_pred, p)) ~> q`  
-///     `spec |= lift_state_exists(absorb(a_to_temp_pred, ~p)) ~> q`
+///     `spec ⊧ lift_state_exists(absorb(a_to_temp_pred, p)) ⇝ q`  
+///     `spec ⊧ lift_state_exists(absorb(a_to_temp_pred, ~p)) ⇝ q`
 /// 
 /// post:  
-///     `spec |= lift_state_exists(a_to_temp_pred) ~> q`
+///     `spec ⊧ lift_state_exists(a_to_temp_pred) ⇝ q`
 pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     spec: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> StatePred<T>,
@@ -1987,14 +1989,14 @@ pub proof fn lift_state_exists_leads_to_case_analysis<T, A>(
     or_leads_to_case_analysis(spec, lift_state_exists(a_to_temp_pred), lift_state(p), q);
 }
 
-/// Leads to `[]tla_forall(a_to_temp_pred)` if forall `a`, it leads to `[]a_to_temp_pred(a)`.
+/// Leads to `□tla_forall(a_to_temp_pred)` if forall `a`, it leads to `□a_to_temp_pred(a)`.
 /// 
 /// pre:  
-///     `forall |a: A|, spec |= p ~> []a_to_temp_pred(a)`  
+///     `forall |a: A|, spec ⊧ p ⇝ □a_to_temp_pred(a)`  
 ///     `forall |a: A|, a \in domain`  
 ///     `domain.is_finite() && domain.len() > 0`  
 /// post:  
-///     `spec |= []tla_forall(a_to_temp_pred)`
+///     `spec ⊧ □tla_forall(a_to_temp_pred)`
 /// 
 /// The domain set assist in showing type A contains finite elements.
 //
@@ -2078,10 +2080,10 @@ pub proof fn leads_to_always_tla_forall<T, A>(
 }
 
 // Rules about stability.
-/// An `always` predicate is `stable`.
+/// An `□` predicate is `stable`.
 /// 
 /// post:  
-///     |= stable(always(p))
+///     ⊧ stable(□p)
 pub broadcast proof fn always_p_is_stable<T>(p: TempPred<T>)
     ensures
         #[trigger] valid(stable(always(p))),
@@ -2090,10 +2092,10 @@ pub broadcast proof fn always_p_is_stable<T>(p: TempPred<T>)
 
 }
 
-/// A leads-to predicate is stable.
+/// A `⇝` predicate is stable.
 /// 
 /// post:  
-///     `|= stable(p ~> q)`
+///     `⊧ stable(p ⇝ q)`
 pub proof fn p_leads_to_q_is_stable<T>(p: TempPred<T>, q: TempPred<T>)
     ensures
         valid(stable(p.leads_to(q))),
@@ -2101,14 +2103,14 @@ pub proof fn p_leads_to_q_is_stable<T>(p: TempPred<T>, q: TempPred<T>)
     always_p_is_stable(p.implies(eventually(q)));
 }
 
-/// `p` and `q` is stable if both `p` and `q` are stable.
+/// `p ∧ q` is stable if both `p` and `q` are stable.
 /// 
 /// pre:  
-///     `|= stable(p)`  
-///     `|= stable(q)`  
+///     `⊧ stable(p)`  
+///     `⊧ stable(q)`  
 /// 
 /// post:  
-///     `|= stable(p /\ q)`
+///     `⊧ stable(p ∧ q)`
 pub broadcast proof fn stable_and_temp<T>(p: TempPred<T>, q: TempPred<T>)
     requires
         valid(stable(p)),
@@ -2124,13 +2126,13 @@ pub broadcast proof fn stable_and_temp<T>(p: TempPred<T>, q: TempPred<T>)
     }
 }
 
-/// `forall a leads-to p -> q(a)` is stable.
+/// `forall a ⇝ p -> q(a)` is stable.
 /// 
 /// pre:  
-///     `∀ a. |= stable(p -> q(a))`  
+///     `∀ a. ⊧ stable(p -> q(a))`  
 /// 
 /// post:  
-///     `|= stable(∀ a. p -> q(a)))`
+///     `⊧ stable(∀ a. p -> q(a)))`
 pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
     p: TempPred<T>,
     a_to_temp_pred: spec_fn(A) -> TempPred<T>,
@@ -2164,14 +2166,14 @@ pub proof fn tla_forall_a_p_leads_to_q_a_is_stable<T, A>(
     }
 }
 
-/// Unpack the conditions from the left to the right side of `|=`
+/// Unpack the conditions from the left to the right side of `⊧`
 /// 
 /// pre:  
-///     `|= stable(spec)`  
-///     `spec /\ c |= p ~> q`
+///     `⊧ stable(spec)`  
+///     `spec ∧ c ⊧ p ⇝ q`
 /// 
 /// post:  
-///     `spec |= p /\ c ~> q`
+///     `spec ⊧ p ∧ c ⇝ q`
 pub proof fn unpack_conditions_from_spec<T>(
     spec: TempPred<T>,
     c: TempPred<T>,
@@ -2200,11 +2202,13 @@ pub proof fn unpack_conditions_from_spec<T>(
     };
 }
 
-// Pack the conditions from the right to the left side of |=
-// pre:
-//     spec |= p /\ c ~> q
-// post:
-//     spec /\ []c |= p ~> q
+/// Pack the conditions from the right to the left side of `⊧`.
+/// 
+/// pre:  
+///     `spec ⊧ p ∧ c ⇝ q`
+/// 
+/// post:  
+///     `spec ∧ □c ⊧ p ⇝ q`
 pub proof fn pack_conditions_to_spec<T>(
     spec: TempPred<T>,
     c: TempPred<T>,
@@ -2227,14 +2231,17 @@ pub proof fn pack_conditions_to_spec<T>(
     }
 }
 
-// This lemma is used to make the predicate as concise as possible.
-// Similar to the first-order logic where p equals p /\ q when p -> q is satisfied,
-// we can reduce the size of predicate when some part of it implies the rest.
+/// Make the predicate as concise as possible.
+/// 
+/// Similar to the first-order logic where `p` equals `p ∧ q` when `p -> q` is satisfied,
+/// we can reduce the size of predicate when some part of it implies the rest.
+///
+/// pre:  
+///     `p ⊧ q`  
+/// 
+/// post:  
+///     `p == p ∧ q`
 // Used to be named as simplify_predicate.
-// pre:
-//     p |= q
-// post:
-//     p == p /\ q
 pub proof fn entails_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
     requires
         p.entails(q),
@@ -2248,12 +2255,14 @@ pub proof fn entails_and_equality<T>(p: TempPred<T>, q: TempPred<T>)
     temp_pred_equality::<T>(p, p.and(q));
 }
 
-// Transitivity of entails with simplification.
-// pre:
-//     spec |= p
-//     spec /\ p |= q
-// post:
-//     spec |= q
+/// Transitivity of `⊧` with simplification.
+/// 
+/// pre:  
+///     `spec ⊧ p`  
+///     `spec ∧ p ⊧ q`
+/// 
+/// post:  
+///     `spec ⊧ q`
 pub proof fn entails_trans_by_simplify<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>)
     requires
         spec.entails(p),
@@ -2265,12 +2274,14 @@ pub proof fn entails_trans_by_simplify<T>(spec: TempPred<T>, p: TempPred<T>, q: 
 }
 
 // More advanced rules.
-// Proving p leads to q by borrowing the inv.
-// pre:
-//     spec |= p /\ inv ~> q
-//     spec |= []inv
-// post:
-//     spec |= p ~> q
+/// Proving `p ⇝ q` by borrowing the inv.
+/// 
+/// pre:  
+///     `spec ⊧ p ∧ inv ⇝ q`  
+///     `spec ⊧ □inv`
+/// 
+/// post:  
+///     `spec ⊧ p ⇝ q`
 pub proof fn leads_to_by_borrowing_inv<T>(
     spec: TempPred<T>,
     p: TempPred<T>,
@@ -2293,13 +2304,15 @@ pub proof fn leads_to_by_borrowing_inv<T>(
     }
 }
 
-// Enhance the conclusion of leads-to always using invariant.
-// pre:
-//     spec |= []inv
-//     spec |= p ~> []q1
-//     q1 /\ inv |= q2
-// post:
-//     spec |= p ~> []q2
+/// Enhance the conclusion of leads-to □ using invariant.
+/// 
+/// pre:  
+///     `spec ⊧ □inv`  
+///     `spec ⊧ p ⇝ □q1`  
+///     `q1 ∧ inv ⊧ q2`
+/// 
+/// post:  
+//     spec ⊧ p ⇝ □q2
 pub proof fn leads_to_always_enhance<T>(
     spec: TempPred<T>,
     inv: TempPred<T>,
@@ -2334,13 +2347,15 @@ pub proof fn leads_to_always_enhance<T>(
     }
 }
 
-// Weaken leads_to by implies.
-// pre:
-//     spec |= [](p2 => p1)
-//     spec |= [](q1 => q2)
-//     spec |= p1 ~> q1
-// post:
-//     spec |= p2 ~> q2
+/// Weaken `⇝` by `⇒`.
+/// 
+/// pre:  
+///     `spec ⊧ □(p2 ⇒ p1)`  
+///     `spec ⊧ □(q1 ⇒ q2)`  
+///     `spec ⊧ p1 ⇝ q1`
+/// 
+/// post:  
+///     `spec ⊧ p2 ⇝ q2`
 pub proof fn leads_to_weaken<T>(
     spec: TempPred<T>,
     p1: TempPred<T>,
@@ -2361,12 +2376,14 @@ pub proof fn leads_to_weaken<T>(
     leads_to_trans::<T>(spec, p2, q1, q2);
 }
 
-// Proving p leads to q vacuously.
-// pre:
-//     spec |= []r
-//     p /\ r == false
-// post:
-//     spec |= p ~> q
+/// Proving `p ⇝ q` vacuously.
+/// 
+/// pre:  
+///     `spec ⊧ □r`  
+///     `p ∧ r == false`
+/// 
+/// post:
+///     `spec ⊧ p ⇝ q`
 pub proof fn vacuous_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<T>, r: TempPred<T>)
     requires
         spec.entails(always(r)),
@@ -2393,20 +2410,23 @@ pub proof fn vacuous_leads_to<T>(spec: TempPred<T>, p: TempPred<T>, q: TempPred<
     }
 }
 
-// Derive p ~> q from []p ~> q with the assumption that p is preserved unless q happens
-// pre:
-//      spec |= []p ~> q
-//      spec |= [](p /\ next => p' \/ q')
-//      spec |= []next
-// post:
-//      spec |= p ~> q
+/// Derive `p ⇝ q` from `□p ⇝ q` with the assumption that `p` is preserved unless `q` happens.
+/// 
+/// This lemma is useful if we want to show that given `□p ⇝ q`, `q` will eventually hold
+/// even if `□p` doesn't hold, as long as `p` is preserved until `q` happens.
+/// A concrete usage is to reason about a pair of concurrent components A and B, where
+/// (1) A guarantees `□p ⇝ q`, and (2) B makes `p` hold at some point and keeps `p` until `q` holds.
+/// Note that we formalize "p is preserved until q happens" using `□(p ∧ next ⇒ p' ∨ q')`:
+/// if `p` holds now, then for any possible next state, either `p` or `q` holds.
+/// 
+/// pre:  
+///      `spec ⊧ □p ⇝ q`  
+///      `spec ⊧ □(p ∧ next ⇒ p' ∨ q')`  
+///      `spec ⊧ □next`  
+/// 
+/// post:  
+///     `spec ⊧ p ⇝ q`
 //
-// This lemma is useful if we want to show that given []p ~> q, q will eventually hold
-// even if []p doesn't hold, as long as p is preserved until q happens.
-// A concrete usage is to reason about a pair of concurrent components A and B, where
-// (1) A guarantees []p ~> q, and (2) B makes p hold at some point and keeps p until q holds.
-// Note that we formalize "p is preserved until q happens" using [](p /\ next => p' \/ q'):
-// if p holds now, then for any possible next state, either p or q holds.
 pub proof fn strengthen_leads_to_with_until<T>(
     spec: TempPred<T>,
     next: TempPred<T>,
@@ -2441,27 +2461,31 @@ pub proof fn strengthen_leads_to_with_until<T>(
     }
 }
 
-// Get a new leads-to condition with an until condition.
-// pre:
-//      spec |= p1 ~> q1
-//      spec |= [](p2 /\ next => p2' \/ q2')
-//      spec |= []next
-// post:
-//      spec |= p1 /\ p2 ~> (q1 /\ p2) \/ q2
-//
-// This lemma can be used in compositional proof.
-// Suppose that a system consists of two concurrent components A and B,
-// and we want to prove that the entire system makes P1 ~> P3.
-// If we have already proved that (1) A makes P1 ~> P2 hold, and
-// (2) P2 holds until P3 holds, and
-// (3) if P2 holds until P3 holds, then B makes P2 ~> P3
-// (in other words, B requires that P2 should hold until B makes P3 hold),
-// then we can apply this lemma and prove that the entire system makes P2 ~> P3,
-// then by transitivity we have P1 ~> P3.
-// Such a case could happen between components with liveness dependencies:
-// A at some point needs to delegate the task to B and A needs to wait until B finish
-// so A can start the next task, meanwhile when B is working A should not disable B's
-// progress (i.e., A should make sure P2 holds until P3 holds).
+/// Get a new `⇝` condition with an until condition.
+///
+/// This lemma can be used in compositional proof.
+/// Suppose that a system consists of two concurrent components `A` and `B`,
+/// and we want to prove that the entire system makes `P1 ⇝ P3`.
+/// If we have already proved that   
+/// (1) `A` makes `P1 ⇝ P2` hold, and  
+/// (2) `P2` holds until `P3` holds, and  
+/// (3) if `P2` holds until `P3` holds, then `B` makes `P2 ⇝ P3`  
+/// (in other words, `B` requires that `P2` should hold until `B` makes `P3` hold),
+/// then we can apply this lemma and prove that the entire system makes `P2 ⇝ P3`,
+/// then by transitivity we have `P1 ⇝ P3`.
+/// 
+/// Such a case could happen between components with liveness dependencies:
+/// `A` at some point needs to delegate the task to `B` and `A` needs to wait until `B` finish
+/// so `A` can start the next task, meanwhile when `B` is working `A` should not disable `B`'s
+/// progress (i.e., `A` should make sure `P2` holds until `P3` holds).
+///
+/// pre:  
+///    `spec ⊧ p1 ⇝ q1`  
+///    `spec ⊧ □(p2 ∧ next ⇒ p2' ∨ q2')`  
+///    `spec ⊧ □next`  
+/// 
+/// post:  
+///     `spec ⊧ p1 ∧ p2 ⇝ (q1 ∧ p2) ∨ q2`
 pub proof fn transform_leads_to_with_until<T>(
     spec: TempPred<T>,
     next: TempPred<T>,
@@ -2508,11 +2532,13 @@ pub proof fn transform_leads_to_with_until<T>(
     }
 }
 
-// Concluding p(n) ~> p(0) using ranking functions, with a step of one.
-// pre:
-//     forall |n: nat|, n > 0 ==> spec |= p(n) ~> p(n - 1)
-// post:
-//     forall |n: nat|, spec |= p(n) ~> p(0).
+/// Concluding `p(n) ⇝ p(0)` using ranking functions, with a step of one.
+/// 
+/// pre:  
+///     `forall |n: nat|, n > 0 ==> spec ⊧ p(n) ⇝ p(n - 1)`
+/// 
+/// post:  
+///     `forall |n: nat|, spec ⊧ p(n) ⇝ p(0)`
 pub proof fn leads_to_rank_step_one<T>(spec: TempPred<T>, p: spec_fn(nat) -> TempPred<T>)
     requires
         forall|n: nat| #![trigger p(n)] (n > 0 ==> spec.entails(p(n).leads_to(p((n - 1) as nat)))),
@@ -2535,17 +2561,17 @@ proof fn leads_to_rank_step_one_help<T>(spec: TempPred<T>, p: spec_fn(nat) -> Te
     decreases n,
 {
     if n > 0 {
-        // p(n) ~> p(n - 1), p(n - 1) ~> p(0)
+        // p(n) ⇝ p(n - 1), p(n - 1) ⇝ p(0)
         // combine with leads-to transitivity
         leads_to_rank_step_one_help(spec, p, (n - 1) as nat);
         leads_to_trans_n!(spec, p(n), p((n - 1) as nat), p(0));
     } else {
-        // p(0) ~> p(0) trivially
+        // p(0) ⇝ p(0) trivially
         leads_to_self_temp(p(0));
     }
 }
 
-// usize version of the proof rule leads_to_rank_step_one.
+/// `usize` version of the proof rule [leads_to_rank_step_one].
 pub proof fn leads_to_rank_step_one_usize<T>(spec: TempPred<T>, p: spec_fn(usize) -> TempPred<T>)
     requires
         forall|n: usize|
@@ -2578,24 +2604,25 @@ proof fn leads_to_rank_step_one_usize_help<T>(
     decreases n,
 {
     if n > 0 {
-        // p(n) ~> p(n - 1), p(n - 1) ~> p(0)
+        // p(n) ⇝ p(n - 1), p(n - 1) ⇝ p(0)
         // combine with leads-to transitivity
         leads_to_rank_step_one_usize_help(spec, p, (n - 1) as usize);
         leads_to_trans_n!(spec, p(n), p((n - 1) as usize), p(0));
     } else {
-        // p(0) ~> p(0) trivially
+        // p(0) ⇝ p(0) trivially
         leads_to_self_temp(p(0));
     }
 }
 
 // Rules about state machine transitions.
-// Prove safety by induction.
-// pre:
-//     |= init => inv
-//     |= inv /\ next => inv'
-//     spec |= init /\ []next
-// post:
-//     spec |= []inv
+/// Prove safety by induction.
+/// 
+/// pre:  
+///     `⊧ init ⇒ inv``
+///     `⊧ inv ∧ next ⇒ inv'`
+///     `spec ⊧ init ∧ □next`
+/// post:  
+///     `spec ⊧ □inv`
 pub proof fn init_invariant<T>(
     spec: TempPred<T>,
     init: StatePred<T>,
@@ -2624,13 +2651,15 @@ pub proof fn init_invariant<T>(
     };
 }
 
-// Implies new invariant from proved invariant by induction.
-// pre:
-//     |= init => inv
-//     |= inv /\ proved_inv /\ next => inv'
-//     spec |= init /\ []next /\ []proved_inv
-// post:
-//     spec |= []inv
+/// Implies new invariant from proved invariant by induction.
+/// 
+/// pre:  
+///     `⊧ init ⇒ inv`  
+///     `⊧ inv ∧ proved_inv ∧ next ⇒ inv'`  
+///     `spec ⊧ init ∧ □next ∧ □proved_inv`  
+/// 
+/// post:  
+///     `spec ⊧ □inv`
 pub proof fn implies_new_invariant<T>(
     spec: TempPred<T>,
     init: StatePred<T>,
@@ -2664,14 +2693,16 @@ pub proof fn implies_new_invariant<T>(
     };
 }
 
-// Get the initial leads_to.
-// pre:
-//     spec |= [](p /\ next => p' \/ q')
-//     spec |= [](p /\ next /\ forward => q')
-//     spec |= []next
-//     spec |= []p ~> forward
-// post:
-//     spec |= p ~> q
+/// Get the initial `⇝`.
+/// 
+/// pre:  
+///     `spec ⊧ □(p ∧ next ⇒ p' ∨ q')`  
+///     `spec ⊧ □(p ∧ next ∧ forward ⇒ q')`  
+///     `spec ⊧ □next`  
+///     `spec ⊧ □p ⇝ forward`
+/// 
+/// post:  
+//     spec ⊧ p ⇝ q
 pub proof fn wf1_variant_temp<T>(
     spec: TempPred<T>,
     next: TempPred<T>,
@@ -2721,15 +2752,17 @@ pub proof fn wf1_variant_temp<T>(
     }
 }
 
-// Get the initial leads_to with a stronger wf assumption than wf1_variant.
-// pre:
-//     |= p /\ next => p' \/ q'
-//     |= p /\ next /\ forward => q'
-//     |= p => enabled(forward)
-//     spec |= []lift_action(next)
-//     spec |= wf(forward)
-// post:
-//     spec |= p ~> q
+/// Get the initial `⇝` with a stronger wf assumption than [`wf1_variant_temp`].
+/// 
+/// pre:  
+///     `⊧ p ∧ next ⇒ p' ∨ q'`  
+///     `⊧ p ∧ next ∧ forward ⇒ q'`  
+///     `⊧ p ⇒ enabled(forward)`  
+///     `spec ⊧ □lift_action(next)`  
+///     `spec ⊧ wf(forward)`
+///   
+/// post:    
+///     `spec ⊧ p ⇝ q`
 pub proof fn wf1<T>(
     spec: TempPred<T>,
     next: ActionPred<T>,
@@ -2785,16 +2818,18 @@ pub proof fn wf1<T>(
     );
 }
 
-// Get the initial leads_to with a stronger wf assumption than wf1_variant by borrowing existing inv.
-// pre:
-//     |= p /\ inv /\ next => p' \/ q'
-//     |= p /\ inv /\ next /\ forward => q'
-//     |= p /\ inv => enabled(forward)
-//     spec |= []lift_action(next)
-//     spec |= []lift_state(inv)
-//     spec |= wf(forward)
-// post:
-//     spec |= p ~> q
+/// Get the initial `⇝` with a stronger wf assumption by borrowing existing inv.
+/// 
+/// pre:  
+///     `⊧ p ∧ inv ∧ next ⇒ p' ∨ q'`  
+///     `⊧ p ∧ inv ∧ next ∧ forward ⇒ q'`  
+///     `⊧ p ∧ inv ⇒ enabled(forward)`  
+///     `spec ⊧ □lift_action(next)`  
+///     `spec ⊧ □lift_state(inv)`  
+///     `spec ⊧ wf(forward)`  
+/// 
+/// post:  
+///     `spec ⊧ p ⇝ q`
 pub proof fn wf1_by_borrowing_inv<T>(
     spec: TempPred<T>,
     next: ActionPred<T>,
@@ -2857,13 +2892,15 @@ pub proof fn wf1_by_borrowing_inv<T>(
     wf1_variant_temp::<T>(spec, next_and_inv, lift_action(forward), lift_state(p), lift_state(q));
 }
 
-// Strengthen next with inv.
-// pre:
-//     spec |= []next
-//     spec |= []inv
-//     |= next /\ inv <=> next_and_inv
-// post:
-//     spec |= []next_and_inv
+/// Strengthen next with inv.
+/// 
+/// pre:  
+///     `spec ⊧ □next`  
+///     `spec ⊧ □inv`  
+///     `⊧ next ∧ inv <=> next_and_inv`  
+/// 
+/// post:  
+///     `spec ⊧ □next_and_inv`
 pub proof fn strengthen_next<T>(
     spec: TempPred<T>,
     next: ActionPred<T>,
@@ -2956,12 +2993,12 @@ pub use temp_pred_and_internal;
 
 // Entails the conjunction of all the p if entails each of them.
 // pre:
-//     spec |= p1
-//     spec |= p2
+//     spec ⊧ p1
+//     spec ⊧ p2
 //        ...
-//     spec |= pn
+//     spec ⊧ pn
 // post:
-//     spec |= p1 /\ p2 /\ ... /\ pn
+//     spec ⊧ p1 ∧ p2 ∧ ... ∧ pn
 //
 // Usage: entails_and_n!(spec, p1, p2, p3, p4)
 #[macro_export]
@@ -2985,14 +3022,14 @@ macro_rules! entails_and_n_internal {
 pub use entails_and_n;
 pub use entails_and_n_internal;
 
-// Entails always the conjunction of all the p if entails each always p.
+// Entails □ the conjunction of all the p if entails each always p.
 // pre:
-//     spec |= []p1
-//     spec |= []p2
+//     spec ⊧ □p1
+//     spec ⊧ □p2
 //        ...
-//     spec |= []pn
+//     spec ⊧ □pn
 // post:
-//     spec |= [](p1 /\ p2 /\ ... /\ pn)
+//     spec ⊧ □(p1 ∧ p2 ∧ ... ∧ pn)
 //
 // Usage: entails_always_and_n!(spec, p1, p2, p3, p4)
 #[macro_export]
@@ -3040,7 +3077,7 @@ macro_rules! always_and_equality_n_internal {
 pub use always_and_equality_n;
 pub use always_and_equality_n_internal;
 
-// always(lift_state(state_pred_and!(p1, p2, ..., pn))) == always(lift_state(p1)).and(always(lift_state(p2))).and(...).and(always(lift_state(pn)))
+// □(lift_state(state_pred_and!(p1, p2, ..., pn))) == □(lift_state(p1)).and(□(lift_state(p2))).and(...).and(□(lift_state(pn)))
 #[macro_export]
 macro_rules! always_lift_state_and_equality_n {
     [$($tail:tt)*] => {
@@ -3064,12 +3101,12 @@ pub use always_lift_state_and_equality_n_internal;
 
 // Combine the premises of all the leads_to using or.
 // pre:
-//     spec |= p1 ~> q
-//     spec |= p2 ~> q
+//     spec ⊧ p1 ⇝ q
+//     spec ⊧ p2 ⇝ q
 //         ...
-//     spec |= pn ~> q
+//     spec ⊧ pn ⇝ q
 // post:
-//     spec |= (p1 \/ p2 \/ ... \/ pn) ~> q
+//     spec ⊧ (p1 ∨ p2 ∨ ... ∨ pn) ⇝ q
 //
 // Usage: or_leads_to_combine_n!(spec, p1, p2, p3, p4; q)
 #[macro_export]
@@ -3094,7 +3131,7 @@ pub use or_leads_to_combine_n;
 pub use or_leads_to_combine_n_internal;
 
 // Combine or_leads_to_combine and temp_pred_equality.
-// The 'result' is the equivalent temporal predicate of joining all following predicates with \/.
+// The 'result' is the equivalent temporal predicate of joining all following predicates with ∨.
 #[macro_export]
 macro_rules! or_leads_to_combine_and_equality2 {
     ($spec:expr, $result:expr, $p1:expr, $($rest:expr),+; $q:expr) => {
@@ -3108,14 +3145,14 @@ macro_rules! or_leads_to_combine_and_equality2 {
 
 pub use or_leads_to_combine_and_equality2;
 
-// Leads to the conjunction of all the []q if leads to each of them.
+// Leads to the conjunction of all the □q if leads to each of them.
 // pre:
-//     spec |= p ~> []q1
-//     spec |= p ~> []q2
+//     spec ⊧ p ⇝ □q1
+//     spec ⊧ p ⇝ □q2
 //        ...
-//     spec |= p ~> []qn
+//     spec ⊧ p ⇝ □qn
 // post:
-//     spec |= p ~> [](q1 /\ q2 /\ ... /\ qn)
+//     spec ⊧ p ⇝ □(q1 ∧ q2 ∧ ... ∧ qn)
 //
 // Usage: leads_to_always_combine_n!(spec, p, q1, q2, q3, q4)
 #[macro_export]
@@ -3160,13 +3197,13 @@ pub use leads_to_always_combine_n_with_equality_internal;
 
 // Strengthen next with arbitrary number of predicates.
 // pre:
-//     spec |= []p1
-//     spec |= []p2
+//     spec ⊧ □p1
+//     spec ⊧ □p2
 //        ...
-//     spec |= []pn
-//     p1 /\ p2 /\ ... /\ pn ==> partial_spec
+//     spec ⊧ □pn
+//     p1 ∧ p2 ∧ ... ∧ pn ==> partial_spec
 // post:
-//     spec |= []all
+//     spec ⊧ □all
 //
 // Usage: combine_spec_entails_always_n!(spec, partial_spec, p1, p2, p3, p4)
 #[macro_export]
@@ -3193,14 +3230,14 @@ macro_rules! combine_spec_entails_always_n_internal {
 pub use combine_spec_entails_always_n;
 pub use combine_spec_entails_always_n_internal;
 
-// Combine multiple always lift_state predicates using AND.
+// Combine multiple □ lift_state predicates using AND.
 // pre:
-//     spec |= []lift_state(p1)
-//     spec |= []lift_state(p2)
+//     spec ⊧ □lift_state(p1)
+//     spec ⊧ □lift_state(p2)
 //     ...
-//     spec |= []lift_state(pn)
+//     spec ⊧ □lift_state(pn)
 // post:
-// spec |= []lift_state(combine_state_pred!(p1, p2, ..., pn))  // spec |= []lift_state(|s| p1(s) && p2(s) && ... && pn(s))
+// spec ⊧ □lift_state(combine_state_pred!(p1, p2, ..., pn))  // spec ⊧ □lift_state(|s| p1(s) && p2(s) && ... && pn(s))
 //
 // Usage: entails_always_lift_state_and_n!(spec, p1, p2, p3, p4)
 #[macro_export]
@@ -3238,14 +3275,14 @@ pub use entails_always_lift_state_and_n_internal;
 
 // Show that an spec entails the invariant by a group of action/state predicates which are also invariants entailed by spec.
 // pre:
-//     partial_spec |= inv
-//     spec |= []p1
-//     spec |= []p2
+//     partial_spec ⊧ inv
+//     spec ⊧ □p1
+//     spec ⊧ □p2
 //         ...
-//     spec |= []pn
-//     p1 /\ p2 /\ ... /\ pn ==> partial_spec
+//     spec ⊧ □pn
+//     p1 ∧ p2 ∧ ... ∧ pn ==> partial_spec
 // post:
-//     spec |= []inv
+//     spec ⊧ □inv
 //
 // Usage: invariant_n!(spec, partial_spec, inv, p1, p2, ..., pn)
 #[macro_export]
@@ -3276,12 +3313,12 @@ pub use invariant_n_internal;
 
 // The conjunction of all the p is stable if each p is stable.
 // pre:
-//     |= stable(p1)
-//     |= stable(p2)
+//     ⊧ stable(p1)
+//     ⊧ stable(p2)
 //      ...
-//     |= stable(pn)
+//     ⊧ stable(pn)
 // post:
-//     |= stable(p1 /\ p2 /\ ... /\ pn)
+//     ⊧ stable(p1 ∧ p2 ∧ ... ∧ pn)
 //
 // Usage: stable_and_n!(p1, p2, p3, p4)
 #[macro_export]
@@ -3307,7 +3344,7 @@ pub use stable_and_n_internal;
 
 // The conjunction of all the p is stable if each p is stable.
 // post:
-//     |= stable(always(p1) /\ always(p2) /\ ... /\ always(pn))
+//     ⊧ stable(□p1 ∧ □p2 ∧ ... ∧ □pn)
 //
 // Usage: stable_and_always_n!(p1, p2, p3, p4)
 #[macro_export]
@@ -3331,16 +3368,16 @@ pub use stable_and_always_n_internal;
 
 // Implies new invariant from multiple proved invariants.
 // pre:
-//     |= init => inv
-//     |= inv /\ p1 /\ p2 /\ ... /\ pn /\ next => inv'
-//     spec |= lift_state(init)
-//     spec |= always(lift_action(next))
-//     spec |= []lift_state(p1)
-//     spec |= []lift_state(p2)
+//     ⊧ init ⇒ inv
+//     ⊧ inv ∧ p1 ∧ p2 ∧ ... ∧ pn ∧ next ⇒ inv'
+//     spec ⊧ lift_state(init)
+//     spec ⊧ □(lift_action(next))
+//     spec ⊧ □lift_state(p1)
+//     spec ⊧ □lift_state(p2)
 //     ...
-//     spec |= []lift_state(pn)
+//     spec ⊧ □lift_state(pn)
 // post:
-//     spec |= []lift_state(inv)
+//     spec ⊧ □lift_state(inv)
 //
 // Usage: implies_new_invariant_n!(spec, init, next, inv, p1, p2, p3, ...)
 #[macro_export]
@@ -3375,17 +3412,17 @@ pub use implies_new_invariant_n_internal;
 
 // Strengthen wf1_by_borrowing_inv with multiple invariants.
 // pre:
-//     spec |= []next
-//     spec |= []inv1
-//     spec |= []inv2
+//     spec ⊧ □next
+//     spec ⊧ □inv1
+//     spec ⊧ □inv2
 //        ...
-//     spec |= []invn
-//     |= p /\ inv1 /\ inv2 /\ ... /\ invn /\ next => p' \/ q'
-//     |= p /\ inv1 /\ inv2 /\ ... /\ invn /\ next /\ forward => q'
-//     |= p /\ inv1 /\ inv2 /\ ... /\ invn => enabled(forward)
-//     spec |= wf(forward)
+//     spec ⊧ □invn
+//     ⊧ p ∧ inv1 ∧ inv2 ∧ ... ∧ invn ∧ next ⇒ p' ∨ q'
+//     ⊧ p ∧ inv1 ∧ inv2 ∧ ... ∧ invn ∧ next ∧ forward ⇒ q'
+//     ⊧ p ∧ inv1 ∧ inv2 ∧ ... ∧ invn ⇒ enabled(forward)
+//     spec ⊧ wf(forward)
 // post:
-//     spec |= p ~> q
+//     spec ⊧ p ⇝ q
 // Usage: wf1_by_borrowing_inv_n!(spec, next, forward, p, q, inv1, inv2, inv3, ...)
 #[macro_export]
 macro_rules! wf1_by_borrowing_inv_n {
@@ -3403,12 +3440,12 @@ pub use wf1_by_borrowing_inv_n;
 // Apply always_lift_state_weaken with multiple predicates.
 // pre:
 //     forall |s| p1(s) && p2(s) && ... && pn(s) ==> h(s)
-//     spec |= []lift_state(p1)
-//     spec |= []lift_state(p2)
+//     spec ⊧ □lift_state(p1)
+//     spec ⊧ □lift_state(p2)
 //     ...
-//     spec |= []lift_state(pn)
+//     spec ⊧ □lift_state(pn)
 // post:
-//     spec |= []lift_state(h)
+//     spec ⊧ □lift_state(h)
 //
 // Usage: always_lift_state_weaken_n!(spec, p1, p2, p3, ..., h)
 #[macro_export]
