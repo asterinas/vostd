@@ -37,7 +37,7 @@ verus! {
 ///
 /// # Verified Properties
 /// ## Verification Design
-/// To verify the correctness of spinn lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
+/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
 /// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data. 
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
 /// 
@@ -48,7 +48,7 @@ verus! {
 /// [`try_lock`]: Self::try_lock
 /// 
 /// ## Invariant
-/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock.
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock.  
 /// When the internal `AtomicBool` is `false`, the permission is held by the spin lock and can be acquired by a user.
 /// 
 /// ## Safety
