@@ -1,6 +1,6 @@
-//! Basic PCM implementations inspired by Iris resource algebra
+//! Basic PCM implementations inspired by Iris resource algebra.
 
-/// Exclusive resource algebra - inspired by Iris iris.algebra.excl
+/// Exclusive resource algebra
 pub mod excl;
 
 pub use excl::*;
