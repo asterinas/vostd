@@ -48,8 +48,8 @@ verus! {
 /// [`try_lock`]: Self::try_lock
 /// 
 /// ## Invariant
-/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock.  
-/// When the internal `AtomicBool` is `false`, the permission is held by the spin lock and can be acquired by a user.
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`, 
+/// the permission is held by the spin lock and can be acquired by a user.
 /// 
 /// ## Safety
 /// There are no data races.
