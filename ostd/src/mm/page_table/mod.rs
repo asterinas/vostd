@@ -513,7 +513,10 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
 // Here are some const values that are determined by the paging constants.
 /// The index of a VA's PTE in a page table node at the given level.
 #[verifier::external_body]
-fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> usize {
+fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
+    ensures
+        res == AbstractVaddr::from_vaddr(va).index[level-1],
+{
     (va >> pte_index_bit_offset::<C>(level)) & (nr_subpage_per_huge::<C>() - 1)
 }
 

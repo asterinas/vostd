@@ -100,16 +100,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn pop_level_owner_spec(self) -> Self
     {
-        let ghost child = self.continuations[self.level - 1];
+        let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
         let new_cont = cont.restore_spec(child);
         let new_continuations = self.continuations.insert(self.level as int, new_cont);
         let new_continuations = new_continuations.remove(self.level - 1);
-//        let new_path = self.path.0.take(self.path.0.len() - 1);
         let new_level = (self.level + 1) as u8;
         Self {
             continuations: new_continuations,
-//            path: TreePath::new(new_path),
             level: new_level,
             ..self
         }
@@ -138,7 +136,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
-        decreases NR_LEVELS() - self.level when self.level < NR_LEVELS()
+        decreases NR_LEVELS() - self.level when self.level <= NR_LEVELS()
     {
         if self.index() + 1 < NR_ENTRIES() {
             self.inc_index()
@@ -158,23 +156,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
 
-    #[verifier::returns(proof)]
-    pub proof fn move_forward_owner(tracked &mut self)
-        requires
-            old(self).inv(),
-        ensures
-            self == old(self).move_forward_owner_spec(),
-        decreases NR_LEVELS() - old(self).level
-    {
-        if self.index() + 1 < NR_ENTRIES() {
-            self.inc_index();
-        } else if self.level < NR_LEVELS() {
-            self.pop_level_owner();
-            assert(self.inv()) by { admit() };
-            self.move_forward_owner();
-        }
-        admit();
-    }
 }
 
 }

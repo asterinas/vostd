@@ -179,6 +179,15 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             ..self
         }
     }
+
+    pub proof fn do_inc_index(tracked &mut self)
+        requires
+            old(self).idx + 1 < NR_ENTRIES(),
+        ensures
+            self == old(self).inc_index(),
+    {
+        self.idx = (self.idx + 1) as usize;
+    }
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -215,6 +224,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             continuations: self.continuations.insert(self.level - 1, self.continuations[self.level - 1].inc_index()),
             ..self
         }
+    }
+
+    pub proof fn do_inc_index(tracked &mut self)
+        requires
+            old(self).inv(),
+            old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES(),
+        ensures
+            self.inv(),
+            self == old(self).inc_index(),
+    {
+        let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
+        cont.do_inc_index();
+        self.continuations.tracked_insert(self.level - 1, cont);
+        assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
     }
 
     pub open spec fn cur_va(self) -> Vaddr {

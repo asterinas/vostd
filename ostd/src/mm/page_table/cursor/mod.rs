@@ -663,27 +663,59 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost owner0 = *owner;
         proof { owner.move_forward_owner_decreases_steps() };
 
+        let ghost start_level = self.level;
         let ghost guard_level = self.guard_level;
+        let ghost va = self.va;
 
         let next_va = (#[verus_spec(with Tracked(owner))] self.cur_va_range()).end;
+
+        let ghost abs_va = AbstractVaddr::from_vaddr(va);
+        let ghost abs_next_va = AbstractVaddr::from_vaddr(next_va);
+
+        assert(abs_next_va == abs_va.next_index(start_level as int)) by { admit() };
+
+        proof {
+            AbstractVaddr::from_vaddr_wf(self.va);
+            AbstractVaddr::from_vaddr(self.va).next_index_wrap_condition(start_level as int);
+        }
+
+        assert(forall |i: int| start_level <= i < NR_LEVELS() ==> #[trigger] abs_va.index[i - 1] == owner.continuations[i - 1].idx) by { admit() };
+
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
                 owner.inv(),
                 self.wf(*owner),
                 self.inv(),
                 self.guard_level == guard_level,
-                self.level <= guard_level,
+                abs_va == AbstractVaddr::from_vaddr(va),
+                abs_next_va == AbstractVaddr::from_vaddr(next_va),
+                owner.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
+                abs_va.next_index(start_level as int) == abs_next_va,
+                abs_va.wrapped(start_level as int, self.level as int),
+                1 <= start_level <= self.level <= self.guard_level <= NR_LEVELS(),
+                forall |i: int| self.level <= i < NR_LEVELS() ==> #[trigger] abs_va.index[i - 1] == owner.continuations[i - 1].idx
             decreases self.guard_level - self.level,
         {
-            let ghost level = self.level;
+            proof {
+                assert(owner.move_forward_owner_spec() == owner.pop_level_owner_spec().move_forward_owner_spec());
+            }
+
             #[verus_spec(with Tracked(owner))]
             self.pop_level();
-            assert(self.level == level + 1);
         }
+
+        let ghost index = abs_next_va.index[self.level - 1];
+        assert(self.level >= self.guard_level || index != 0);
+        assert(self.level < self.guard_level) by { admit() };
+
+        assert(owner.move_forward_owner_spec() == owner0.move_forward_owner_spec());
+        assert(owner.move_forward_owner_spec() == owner.inc_index());
+
         self.va = next_va;
 
-        assert(owner == owner0.move_forward_owner_spec()) by { admit() };
-        
+        proof {
+            owner.do_inc_index();
+        }
     }
 
     /// Goes up a level.
