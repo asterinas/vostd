@@ -35,7 +35,27 @@ verus! {
 /// The guard behavior can be temporarily upgraded from [`PreemptDisabled`] to
 /// [`LocalIrqDisabled`] using the [`disable_irq`] method.
 ///
+/// # Verified Properties
+/// ## Verification Design
+/// To verify the correctness of spinn lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
+/// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data. 
+/// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
+/// 
+/// For curious readers, details of the permission can be found in [`vstd::cell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.PointsTo.html).
+/// 
 /// [`disable_irq`]: Self::disable_irq
+/// [`lock`]: Self::lock
+/// [`try_lock`]: Self::try_lock
+/// 
+/// ## Invariant
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock.
+/// When the internal `AtomicBool` is `false`, the permission is held by the spin lock and can be acquired by a user.
+/// 
+/// ## Safety
+/// There are no data races.
+/// 
+/// ## Functional Correctness
+/// - At most one user can hold the lock at the same time.
 #[repr(transparent)]
 #[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
@@ -76,8 +96,19 @@ impl<T> Inv for SpinLockInner<T>
 #[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
-    #[verus_verify]
-    pub const fn new(val: T) -> Self {
+    /// 
+    /// # Verified Properties
+    /// ## Safety
+    /// This function is written in safe Rust and there is no undefined behavior.
+    /// ## Preconditions
+    /// None.
+    /// ## Postconditions
+    /// - The function will not panic.
+    /// - The created spin lock satisfies the invariant.
+    pub const fn new(val: T) -> (ret:Self) 
+        ensures
+            ret.inv()
+    {
         let (val, Tracked(perm)) = PCell::new(val);
         let lock_inner = SpinLockInner {
             lock: AtomicBool::new(Ghost(val),false,Tracked(Some(perm))),
@@ -355,8 +386,9 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian>
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
+}*/
 
+/* 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> !Send
     for SpinLockGuard_<T, R, G>
 {

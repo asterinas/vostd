@@ -89,7 +89,7 @@ macro_rules! impl_align_ext {
         $(
                 /// # Verified Properties
                 /// ## Safety
-                /// There is no undefined behaviour in the implementation.
+                /// The implementation is written in safe Rust and there is no undefined behavior.
                 /// ## Functional correctness
                 /// The implementation meets the specification given in the trait `AlignExt`.
             #[verus_verify]
@@ -171,6 +171,7 @@ macro_rules! impl_align_ext {
                         ret == nat_align_down(self as nat, align as nat),
                         forall |n: nat|  !(n<=self && #[trigger] (n % align as nat) == 0) || (ret >= n),
                 )]
+                
                 /// ## Preconditions
                 /// - `align` is a power of two.
                 /// - `align >= 2`.
