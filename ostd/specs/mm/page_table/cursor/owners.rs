@@ -14,6 +14,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::owners::*;
+use crate::specs::mm::page_table::AbstractVaddr;
 
 verus! {
 
@@ -83,14 +84,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(cont.put_child_spec(child).children == self.children);
     }
 
-    pub open spec fn make_cont_spec(self) -> (Self, Self) {
+    pub open spec fn make_cont_spec(self, idx: usize) -> (Self, Self) {
         let child = Self {
             base_va: (self.base_va + self.idx * page_size((self.level - 1) as u8)) as usize,
             bound_va: (self.base_va + page_size(self.level as u8)) as usize,
             entry_own: self.children[self.idx as int].unwrap().value,
             level: (self.level - 1) as nat,
             tree_level: (self.tree_level + 1) as nat,
-            idx: 0,
+            idx: idx,
             children: self.children[self.idx as int].unwrap().children,
         };
         let cont = Self {
@@ -101,13 +102,14 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     #[verifier::returns(proof)]
-    pub axiom fn make_cont(tracked &mut self) -> (res: Self)
+    pub axiom fn make_cont(tracked &mut self, idx: usize) -> (res: Self)
         requires
             old(self).all_some(),
             old(self).idx < NR_ENTRIES(),
+            idx < NR_ENTRIES(),
         ensures
-            res == old(self).make_cont_spec().0,
-            self == old(self).make_cont_spec().1,
+            res == old(self).make_cont_spec(idx).0,
+            self == old(self).make_cont_spec(idx).1,
     ;
 
     pub open spec fn restore_spec(self, child: Self) -> Self {
@@ -194,11 +196,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
+    pub va: AbstractVaddr,
+    pub guard_level: PagingLevel,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
-        &&& 0 <= self.index() < NR_ENTRIES()
+        &&& self.va.inv()
         &&& 1 <= self.level <= NR_LEVELS()
         &&& forall|i: int|
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
@@ -207,6 +211,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 &&& self.continuations[i].inv()
                 &&& self.continuations[i].level == i + 1
             }
+        &&& forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.va.index[i] == self.continuations[i].idx
 //        &&& forall|i: int| self.level - 1 <= i <= NR_LEVELS() - 2 ==> self.va_relate_parent(i)
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int| self.level <= i < NR_LEVELS() ==> self.continuations[i].all_but_index_some()
@@ -222,6 +227,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn inc_index(self) -> Self {
         Self {
             continuations: self.continuations.insert(self.level - 1, self.continuations[self.level - 1].inc_index()),
+            va: AbstractVaddr {
+                offset: self.va.offset,
+                index: self.va.index.insert(self.level - 1, self.continuations[self.level - 1].inc_index().idx as int)
+            },
             ..self
         }
     }
@@ -236,6 +245,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         cont.do_inc_index();
+        self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
     }
@@ -346,37 +356,31 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
     type Owner = CursorOwner<'rcu, C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
+        &&& owner.va == AbstractVaddr::from_vaddr(self.va)
         &&& self.level == owner.level
 //        &&& owner.index() == self.va % page_size(self.level)
         &&& self.level <= 4 ==> {
             &&& self.path[3] is Some
             &&& owner.continuations.contains_key(3)
-            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.pptr()
-                == self.path[3].unwrap()
+            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.pptr() == self.path[3].unwrap()
         }
         &&& self.level <= 3 ==> {
             &&& self.path[2] is Some
             &&& owner.continuations.contains_key(2)
-            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.pptr()
-                == self.path[2].unwrap()
-            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.addr()
-                == owner.continuations[2].entry_own.guard_addr
+            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.pptr() == self.path[2].unwrap()
+            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[2].entry_own.guard_addr
         }
         &&& self.level <= 2 ==> {
             &&& self.path[1] is Some
             &&& owner.continuations.contains_key(1)
-            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.pptr()
-                == self.path[1].unwrap()
-            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.addr()
-                == owner.continuations[1].entry_own.guard_addr
+            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.pptr() == self.path[1].unwrap()
+            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[1].entry_own.guard_addr
         }
         &&& self.level == 1 ==> {
             &&& self.path[0] is Some
             &&& owner.continuations.contains_key(0)
-            &&& owner.continuations[0].entry_own.node.unwrap().guard_perm.pptr()
-                == self.path[0].unwrap()
-            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.addr()
-                == owner.continuations[0].entry_own.guard_addr
+            &&& owner.continuations[0].entry_own.node.unwrap().guard_perm.pptr() == self.path[0].unwrap()
+            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[0].entry_own.guard_addr
         }
     }
 }

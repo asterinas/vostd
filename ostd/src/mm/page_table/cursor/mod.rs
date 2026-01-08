@@ -715,6 +715,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             owner.do_inc_index();
+            assert(owner.va == abs_next_va) by { admit() };
         }
     }
 
@@ -764,8 +765,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).inv(),
             old(self).wf(*old(owner)),
             old(owner).cur_entry_owner().is_node(),
-            old(owner).cur_entry_owner().node.unwrap().guard_perm.addr()
-                == child_pt.addr(),
+            old(owner).cur_entry_owner().node.unwrap().guard_perm.addr() == child_pt.addr(),
         ensures
             owner.inv(),
             self.wf(*owner),
@@ -775,6 +775,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner == old(owner).push_level_owner_spec(),
             owner.max_steps() < old(owner).max_steps(),
     {
+        assert(owner.va.index.contains_key(owner.level - 2));
+
         self.level = self.level - 1;
         //        debug_assert_eq!(self.level, child_pt.level());
 
@@ -783,6 +785,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             owner.push_level_owner_decreases_steps();
+            owner.push_level_owner_preserves_va();
             owner.push_level_owner();
         }
         //        debug_assert!(old.is_none());

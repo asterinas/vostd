@@ -54,14 +54,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn push_level_owner_spec(self) -> Self
     {
         let cont = self.continuations[self.level - 1];
-        let (child, cont) = cont.make_cont_spec();
+        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize);
         let new_continuations = self.continuations.insert(self.level - 1, cont);
         let new_continuations = new_continuations.insert(self.level - 2, child);
-//        let new_path = self.path.0.push(self.index);
+
         let new_level = (self.level - 1) as u8;
         Self {
             continuations: new_continuations,
-//            path: TreePath::new(new_path),
             level: new_level,
             ..self
         }
@@ -75,6 +74,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner_spec().max_steps() < self.max_steps()
     { admit() }
 
+    pub proof fn push_level_owner_preserves_va(self)
+        requires
+            self.inv(),
+            self.level > 1,
+        ensures
+            self.push_level_owner_spec().va == self.va,
+            self.push_level_owner_spec().continuations[self.level - 2].idx == self.va.index[self.level - 2],
+    {
+        assert(self.va.index.contains_key(self.level - 2));
+    }
+
     #[verifier::returns(proof)]
     pub proof fn push_level_owner(tracked &mut self)
         requires
@@ -83,12 +93,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self == old(self).push_level_owner_spec(),
     {
+        assert(self.va.index.contains_key(self.level - 2));
+
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         let ghost cont0 = cont;
-        let tracked child = cont.make_cont();
+        let tracked child = cont.make_cont(self.va.index[self.level - 2] as usize);
 
-        assert((child, cont) == cont0.make_cont_spec());
+        assert((child, cont) == cont0.make_cont_spec(self.va.index[self.level - 2] as usize));
 
         self.continuations.tracked_insert(self.level - 1, cont);
         self.continuations.tracked_insert(self.level - 2, child);
