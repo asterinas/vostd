@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Virtual memory (VM).
+use crate::specs::arch::CONST_PAGE_SIZE;
+use core::fmt::Debug;
 use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::layout::is_power_2;
 use vstd::prelude::*;
-
-use core::fmt::Debug;
+use vstd_extra::extern_const;
 
 /// Virtual addresses.
 pub type Vaddr = usize;
@@ -55,7 +56,10 @@ pub use page_table::largest_pages;
 /// for some x86_64 CPUs' bugs. See
 /// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
 /// for the rationale.
-pub const MAX_USERSPACE_VADDR: Vaddr = 0x0000_8000_0000_0000 - PAGE_SIZE();
+extern_const!(
+/// Page size.
+pub MAX_USERSPACE_VADDR [MAX_USERSPACE_VADDR_SPEC, CONST_MAX_USERSPACE_VADDR]: usize =
+    0x0000_8000_0000_0000 - CONST_PAGE_SIZE);
 
 /// The kernel address space.
 ///

@@ -8,7 +8,6 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
-
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
     MAX_NR_LEVELS,

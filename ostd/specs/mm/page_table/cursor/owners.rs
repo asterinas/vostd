@@ -12,8 +12,8 @@ use core::ops::Range;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::owners::*;
+use crate::specs::task::InAtomicMode;
 
 verus! {
 
@@ -149,6 +149,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& self.children.len() == NR_ENTRIES()
         &&& 0 <= self.idx < NR_ENTRIES()
         &&& forall|i: int|
+            #![trigger self.children[i]]
             0 <= i < NR_ENTRIES() ==> self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
@@ -192,15 +193,17 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& 0 <= self.index() < NR_ENTRIES()
         &&& 1 <= self.level <= NR_LEVELS()
         &&& forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
         &&& forall|i: int|
+            #![trigger self.continuations[i]]
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> {
                 &&& self.continuations[i].inv()
                 &&& self.continuations[i].level == i + 1
             }
 //        &&& forall|i: int| self.level - 1 <= i <= NR_LEVELS() - 2 ==> self.va_relate_parent(i)
         &&& self.continuations[self.level - 1].all_some()
-        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> self.continuations[i].all_but_index_some()
+        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> (#[trigger] self.continuations[i]).all_but_index_some()
     }
 }
 
@@ -209,7 +212,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn index(self) -> usize {
         self.continuations[self.level - 1].idx
     }
-    
+
     pub open spec fn inc_index(self) -> Self {
         Self {
             continuations: self.continuations.insert(self.level - 1, self.continuations[self.level - 1].inc_index()),
@@ -278,11 +281,11 @@ impl<C: PageTableConfig> CursorView<C> {
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& forall |view| self.descendants().contains(view) ==>
+        &&& forall |view| #[trigger] self.descendants().contains(view) ==>
             self.va_range.start <= view->leaf.map_va < self.va_range.end
-        &&& forall |view| self.fore_higher.contains(view) ==>
+        &&& forall |view| #[trigger] self.fore_higher.contains(view) ==>
             view->leaf.map_va < self.va_range.start
-        &&& forall |view| self.rear_higher.contains(view) ==>
+        &&& forall |view| #[trigger] self.rear_higher.contains(view) ==>
             self.va_range.end <= view->leaf.map_va
     }
 }

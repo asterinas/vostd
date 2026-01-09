@@ -1,3 +1,4 @@
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 
 use vstd::layout;
@@ -75,6 +76,18 @@ impl MemView {
             false
         }
     }
+    // pub open spec fn split(vaddr: usize, len: usize) -> (Self, Self) {
+    //     arbitrary()
+    // }
+    // /// Splits the memory view into two disjoint views.
+    // #[verifier::external_body]
+    // pub proof fn tracked_split(self) -> (r: (Self, Self))
+    //     ensures
+    //         r == self.split(),
+    // {
+    //     unimplemented!()
+    // }
+
 }
 
 impl Inv for VirtPtr {

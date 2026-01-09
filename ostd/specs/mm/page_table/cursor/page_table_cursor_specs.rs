@@ -4,11 +4,11 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
+use crate::specs::mm::page_table::*;
 
 use core::ops::Range;
 
@@ -113,7 +113,7 @@ impl<C: PageTableConfig> CursorView<C> {
         self,
         item: C::Item,
     ) -> Self;
-    
+
     /*
     pub open spec fn pop_level_spec(self) -> Self {
         let (tail, popped) = self.path.pop_tail();

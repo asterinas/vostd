@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Tasks are the unit of code execution.
-
 use vstd::prelude::*;
 
 /* pub mod atomic_mode;
@@ -72,7 +71,7 @@ pub struct Task {
 
     schedule_info: TaskScheduleInfo,*/
 }
-/* 
+/*
 impl Task {
     /// Gets the current task.
     ///

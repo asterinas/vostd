@@ -400,7 +400,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
         } else {
             None
         };
-        
+
         proof {
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
