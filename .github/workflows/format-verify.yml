@@ -3,10 +3,10 @@ name: Format and Verify VOSTD Code
 on:
   push:
     branches:
-      - main
+      - main-archive-20251225
   pull_request:
     branches:
-      - main
+      - main-archive-20251225
   workflow_dispatch:
 
 jobs:
