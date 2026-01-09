@@ -11,8 +11,7 @@ verus! {
 ///
 /// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
 /// Here we add a unit element to stick to the PCM definition.
-#[derive(PartialEq, Eq, Clone, Copy, Debug)]
-pub enum Agree<A> {
+pub tracked enum Agree<A> {
     Unit,
     /// Agreement on a value.
     Agree(A),
