@@ -14,7 +14,7 @@ use core::{
     //    sync::atomic::{AtomicBool, Ordering},
 };
 
-use super::{guard::SpinGuardian /*LocalIrqDisabled, PreemptDisabled*/};
+use super::{guard::SpinGuardian, LocalIrqDisabled/*, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
 verus! {
@@ -236,8 +236,9 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         proof_decl!{
             let tracked mut perm = perm.tracked_unwrap();
         }
+        // VERUS LIMITATION： Explicit return value to bind the ghost permission return value 
         #[verus_spec(with |= Tracked(perm))]
-        () // The return value is used to bind the ghost permission
+        ()    
     }
 
     #[verus_spec(ret =>

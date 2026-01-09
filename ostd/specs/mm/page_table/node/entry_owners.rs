@@ -9,6 +9,7 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::meta::mapping::meta_to_frame;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
+use crate::specs::mm::page_table::owners::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -27,8 +28,8 @@ pub tracked struct NodeEntryOwner<'rcu, C: PageTableConfig> {
 impl<'rcu, C: PageTableConfig> Inv for NodeEntryOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.guard_perm.is_init()
-        &&& self.guard_perm.value().inner.inner.0.ptr.addr() == self.as_node.meta_perm.addr()
-        &&& self.guard_perm.value().inner.inner.0.wf(self.as_node)
+        &&& self.guard_perm.value().inner.inner@.ptr.addr() == self.as_node.meta_perm.addr()
+        &&& self.guard_perm.value().inner.inner@.wf(self.as_node)
         &&& self.as_node.inv()
         &&& self.as_node.meta_perm.value().nr_children.id() == self.nr_children_perm.id()
         &&& self.nr_children_perm.is_init()
@@ -96,7 +97,6 @@ impl<'rcu, C: PageTableConfig> EntryOwner<'rcu, C> {
         &&& guard_perm.addr() == self.guard_addr
         &&& guard_perm.is_init()
         //        &&& guard_perm.value().inner.inner.0.ptr.addr() == self.base_addr
-
     }
 }
 

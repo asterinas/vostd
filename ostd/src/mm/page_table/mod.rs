@@ -24,11 +24,8 @@ use super::{
     //    PodOnce,
     Vaddr,
 };
-//use crate::{
-//    task::{atomic_mode::AsAtomicModeGuard, disable_preempt},
-//    util::marker::SameSizeAs,
-//    Pod,
-//};
+
+use crate::specs::mm::page_table::*;
 
 use crate::specs::arch::mm::*;
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -38,12 +35,8 @@ use crate::specs::task::InAtomicMode;
 mod node;
 pub use node::*;
 mod cursor;
-mod owners;
-mod view;
 
 pub(crate) use cursor::*;
-pub use owners::*;
-pub use view::*;
 
 #[cfg(ktest)]
 mod test;
@@ -702,7 +695,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// block or be overridden by the mapping of another cursor.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut PageTableOwner<C>>,
+        with Tracked(owner): Tracked<&mut OwnerSubtree<'rcu, C>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(

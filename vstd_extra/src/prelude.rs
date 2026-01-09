@@ -20,6 +20,8 @@ pub use super::ownership::*;
 
 pub use super::ptr_extra::*;
 
+pub use super::raw_ptr_extra::*;
+
 pub use super::seq_extra::*;
 
 pub use super::set_extra::*;

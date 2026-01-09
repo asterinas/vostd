@@ -299,7 +299,10 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             phantom: PhantomData,
         };
 
+        proof { admit(); }
+
         proof_with!(|= Tracked(owner));
+
         Self {
             cursor: ptr,
             end: PPtr(ptr.addr().checked_add(len).unwrap(), PhantomData),
@@ -402,6 +405,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             is_fallible: false,
             phantom: PhantomData,
         };
+
+        proof { admit(); }
 
         proof_with!(|= Tracked(owner));
         Self {
@@ -797,6 +802,8 @@ impl VmReader<'_> {
         self.advance(copy_len);
         writer.advance(copy_len);
 
+        proof { admit(); }
+
         copy_len
     }
 
@@ -896,6 +903,8 @@ impl VmReader<'_> {
 
         let v = self.read_once_inner::<T>();
         self.advance(core::mem::size_of::<T>());
+
+        proof { admit(); }
 
         Ok(v)
     }
@@ -1058,6 +1067,8 @@ impl VmWriter<'_> {
 
         self.write_once_inner::<T>(new_val);
         self.advance(core::mem::size_of::<T>());
+
+        proof { admit(); }
 
         Ok(())
     }

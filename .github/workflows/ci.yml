@@ -1,18 +1,18 @@
-name: Format and Verify VOSTD (PhaseII)
+name: Format and Verify VOSTD (Main)
 
 on:
   push:
     branches:
-      - phaseII/verified
+      - main
   pull_request:
     branches:
-      - phaseII/verified
+      - main
   workflow_dispatch:
     inputs:
       branch:
         description: "Branch to run the workflow on"
         required: true
-        default: "phaseII/verified"
+        default: "main"
 
 jobs:
   format-and-verify:

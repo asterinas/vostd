@@ -1,0 +1,52 @@
+name: Run Verus Update Test
+
+on:
+  repository_dispatch:
+    types: [verus-update-test]
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.branch }}
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -qq
+          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+      - name: Run tests on main branch
+        run: |
+          echo "=== Running tests on main branch ==="
+          git fetch origin main
+          git checkout main
+          git submodule update --init --recursive
+          git config --global user.name "Verus CI Bot"
+          git config --global user.email "ci@asterinas.verus"
+          cargo dv bootstrap
+          # Discard any uncommitted changes in tools/verus before upgrade
+          git -C tools/verus reset --hard HEAD
+          cargo dv bootstrap --upgrade --test_branch
+          set -o pipefail
+          if ! make 2>&1; then
+            echo "❌ Verification failed"
+            exit 1
+          else
+            echo "✅ Main branch verification passed!"
+          fi
+
+      - name: Dispatch back to fork for promotion
+        if: success()
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.VERUS_TEST_TOKEN }}
+          repository: asterinas/verus
+          event-type: verus-update-test-success
+          client-payload: '{"branch":"update-test"}'

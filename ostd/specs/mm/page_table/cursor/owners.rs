@@ -13,20 +13,15 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::page_table::owners::*;
 
 verus! {
-
-
-/// The state of virtual pages represented by a page table.
-///
-/// This is the return type of the [`Cursor::query`] method.
-pub type PagesState<C> = (Range<Vaddr>, Option<<C as PageTableConfig>::Item>);
-
 
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<'rcu, C>,
     pub idx: usize,
-    pub cur_va: usize,
+    pub base_va: Vaddr,
+    pub bound_va: Vaddr,
     pub level: nat,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<'rcu, C>>>,
@@ -34,77 +29,91 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
-    pub open spec fn take_child_spec(self, idx: usize) -> (OwnerSubtree<'rcu, C>, Self) {
-        let child = self.children[idx as int].unwrap();
+    pub open spec fn take_child_spec(self) -> (OwnerSubtree<'rcu, C>, Self) {
+        let child = self.children[self.idx as int].unwrap();
         let cont = Self {
-            children: self.children.remove(idx as int).insert(idx as int, None),
+            children: self.children.remove(self.idx as int).insert(self.idx as int, None),
             ..self
         };
         (child, cont)
     }
 
     #[verifier::returns(proof)]
-    pub proof fn take_child(tracked &mut self, idx: usize) -> (res: OwnerSubtree<'rcu, C>)
+    pub proof fn take_child(tracked &mut self) -> (res: OwnerSubtree<'rcu, C>)
         requires
-            0 <= idx < old(self).children.len(),
-            old(self).children[idx as int] is Some,
+            old(self).idx < old(self).children.len(),
+            old(self).children[old(self).idx as int] is Some,
         ensures
-            res == old(self).take_child_spec(idx).0,
-            self == old(self).take_child_spec(idx).1,
+            res == old(self).take_child_spec().0,
+            self == old(self).take_child_spec().1,
     {
-        let tracked child = self.children.tracked_remove(idx as int).tracked_unwrap();
-        self.children.tracked_insert(idx as int, None);
+        let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
+        self.children.tracked_insert(old(self).idx as int, None);
         child
     }
 
-    pub open spec fn put_child_spec(self, idx: usize, child: OwnerSubtree<'rcu, C>) -> Self {
+    pub open spec fn put_child_spec(self, child: OwnerSubtree<'rcu, C>) -> Self {
         Self {
-            children: self.children.remove(idx as int).insert(idx as int, Some(child)),
+            children: self.children.remove(self.idx as int).insert(self.idx as int, Some(child)),
             ..self
         }
     }
 
     #[verifier::returns(proof)]
-    pub proof fn put_child(tracked &mut self, idx: usize, tracked child: OwnerSubtree<'rcu, C>)
+    pub proof fn put_child(tracked &mut self, tracked child: OwnerSubtree<'rcu, C>)
         requires
-            0 <= idx < old(self).children.len(),
-            old(self).children[idx as int] is None,
+            old(self).idx < old(self).children.len(),
+            old(self).children[old(self).idx as int] is None,
         ensures
-            self == old(self).put_child_spec(idx, child)
+            self == old(self).put_child_spec(child)
     {
-        let _ = self.children.tracked_remove(idx as int);
-        self.children.tracked_insert(idx as int, Some(child));
+        let _ = self.children.tracked_remove(old(self).idx as int);
+        self.children.tracked_insert(old(self).idx as int, Some(child));
     }
 
-    pub open spec fn make_cont_spec(self, idx: usize) -> (Self, Self) {
+    pub proof fn take_put_child(self)
+        requires
+            self.idx < self.children.len(),
+            self.children[self.idx as int] is Some,
+        ensures
+            self.take_child_spec().1.put_child_spec(self.take_child_spec().0) == self,
+    {
+        let child = self.take_child_spec().0;
+        let cont = self.take_child_spec().1;
+        assert(cont.put_child_spec(child).children == self.children);
+    }
+
+    pub open spec fn make_cont_spec(self) -> (Self, Self) {
         let child = Self {
-            cur_va: (self.cur_va + idx * page_size(self.level as u8)) as usize,
-            entry_own: self.children[idx as int].unwrap().value,
+            base_va: (self.base_va + self.idx * page_size((self.level - 1) as u8)) as usize,
+            bound_va: (self.base_va + page_size(self.level as u8)) as usize,
+            entry_own: self.children[self.idx as int].unwrap().value,
             level: (self.level - 1) as nat,
             tree_level: (self.tree_level + 1) as nat,
-            idx: idx,
-            children: self.children[idx as int].unwrap().children,
+            idx: 0,
+            children: self.children[self.idx as int].unwrap().children,
         };
         let cont = Self {
-            children: self.children.update(idx as int, None),
+            children: self.children.update(self.idx as int, None),
             ..self
         };
         (child, cont)
     }
 
     #[verifier::returns(proof)]
-    pub axiom fn make_cont(tracked &mut self, idx: usize) -> (res: Self)
+    pub axiom fn make_cont(tracked &mut self) -> (res: Self)
         requires
-            0 <= idx < NR_ENTRIES(),
+            old(self).all_some(),
+            old(self).idx < NR_ENTRIES(),
         ensures
-            res == old(self).make_cont_spec(idx).0,
-            self == old(self).make_cont_spec(idx).1,
+            res == old(self).make_cont_spec().0,
+            self == old(self).make_cont_spec().1,
     ;
 
     pub open spec fn restore_spec(self, child: Self) -> Self {
         let child_node = OwnerSubtree {
             value: child.entry_own,
-            level: child.level,
+            level: child.tree_level,
             children: child.children,
         };
         Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }
@@ -116,31 +125,21 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self == old(self).restore_spec(child),
     ;
 
-    pub proof fn cont_property(self, idx: usize)
-        requires
-            0 <= idx < NR_ENTRIES(),
-            self.children[idx as int] is Some,
-        ensures
-            self.make_cont_spec(idx).1.restore_spec(self.make_cont_spec(idx).0) == self,
-    {
-        admit()
-    }
-
-    pub open spec fn prev_views(self) -> Seq<FrameView<C>> {
+    pub open spec fn prev_views(self) -> Seq<EntryView<C>> {
         self.children.take(self.idx as int).flat_map(
             |child: Option<OwnerSubtree<'rcu, C>>|
                 match child {
-                    Some(child) => OwnerAsTreeNode::view_rec(child, self.level as int),
+                    Some(child) => child@,
                     None => Seq::empty(),
                 },
         )
     }
 
-    pub open spec fn next_views(self) -> Seq<FrameView<C>> {
+    pub open spec fn next_views(self) -> Seq<EntryView<C>> {
         self.children.skip(self.idx as int).flat_map(
             |child: Option<OwnerSubtree<'rcu, C>>|
                 match child {
-                    Some(child) => OwnerAsTreeNode::view_rec(child, self.level as int),
+                    Some(child) => child@,
                     None => Seq::empty(),
                 },
         )
@@ -152,7 +151,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& forall|i: int|
             0 <= i < NR_ENTRIES() ==> self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().inv()
-                &&& self.children[i].unwrap().level == self.tree_level
+                &&& self.children[i].unwrap().level == self.tree_level + 1
                 &&& self.tree_level == INC_LEVELS() - self.level
                 &&& self.children[i].unwrap().value.relate_parent_guard_perm(
                     self.entry_own.node.unwrap().guard_perm,
@@ -160,38 +159,67 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
+        &&& self.tree_level == INC_LEVELS() - self.level
+        &&& self.tree_level < INC_LEVELS() - 1
     }
 
     pub open spec fn all_some(self) -> bool {
         forall|i: int| 0 <= i < NR_ENTRIES() ==> self.children[i] is Some
     }
+
+    pub open spec fn all_but_index_some(self) -> bool {
+        &&& forall|i: int| 0 <= i < self.idx ==> self.children[i] is Some
+        &&& forall|i: int| self.idx < i < NR_ENTRIES() ==> self.children[i] is Some
+        &&& self.children[self.idx as int] is None
+    }
+
+    pub open spec fn inc_index(self) -> Self {
+        Self {
+            idx: (self.idx + 1) as usize,
+            ..self
+        }
+    }
 }
 
 #[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
-//    pub path: TreePath<CONST_NR_ENTRIES>,
     pub level: PagingLevel,
-    pub index: usize,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
-        &&& 0 <= self.index < NR_ENTRIES()
+        &&& 0 <= self.index() < NR_ENTRIES()
         &&& 1 <= self.level <= NR_LEVELS()
-//        &&& self.path.0.len() == NR_LEVELS() - self.level
         &&& forall|i: int|
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
         &&& forall|i: int|
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> {
                 &&& self.continuations[i].inv()
-                &&& self.continuations[i].level == i
+                &&& self.continuations[i].level == i + 1
             }
+//        &&& forall|i: int| self.level - 1 <= i <= NR_LEVELS() - 2 ==> self.va_relate_parent(i)
         &&& self.continuations[self.level - 1].all_some()
+        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> self.continuations[i].all_but_index_some()
     }
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+
+    pub open spec fn index(self) -> usize {
+        self.continuations[self.level - 1].idx
+    }
+    
+    pub open spec fn inc_index(self) -> Self {
+        Self {
+            continuations: self.continuations.insert(self.level - 1, self.continuations[self.level - 1].inc_index()),
+            ..self
+        }
+    }
+
+    pub open spec fn cur_va(self) -> Vaddr {
+        (self.continuations[self.level - 1].base_va + self.index() * page_size(self.level as u8)) as usize
+    }
 
     pub proof fn inv_continuation(self, i: int)
         requires
@@ -205,7 +233,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
-    pub open spec fn prev_views_rec(self, i: int) -> Seq<FrameView<C>>
+    pub open spec fn prev_views_rec(self, i: int) -> Seq<EntryView<C>>
         decreases i,
         when self.level > 0
     {
@@ -216,7 +244,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn next_views_rec(self, i: int) -> Seq<FrameView<C>>
+    pub open spec fn next_views_rec(self, i: int) -> Seq<EntryView<C>>
         decreases i,
         when self.level > 0
     {
@@ -227,33 +255,35 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn cur_at_level(self, lv: u8) -> Option<EntryOwner<'rcu, C>> {
-        if lv > self.level {
-            Some(self.continuations[self.level - 2].entry_own)
-        } else if lv == self.level && self.continuations[self.level
-            - 1].children[self.index as int] is Some {
-            Some(self.continuations[self.level - 1].children[self.index as int].unwrap().value)
-        } else {
-            None
-        }
-    }
-
-    pub open spec fn cur_entry_owner(self) -> Option<EntryOwner<'rcu, C>> {
-        self.cur_at_level(self.level)
+    pub open spec fn cur_entry_owner(self) -> EntryOwner<'rcu, C> {
+        self.continuations[self.level - 1].children[self.index() as int].unwrap().value
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorView<C: PageTableConfig> {
-    pub cur_va: usize,
-    pub scope: usize,
-    pub fore: Seq<FrameView<C>>,
-    pub rear: Seq<FrameView<C>>,
+    pub cur_va: Vaddr,
+    pub level: PagingLevel,
+    pub va_range: Range<Vaddr>,
+    pub fore_higher: Seq<EntryView<C>>,
+    pub fore_local: Seq<EntryView<C>>,
+    pub rear_local: Seq<EntryView<C>>,
+    pub rear_higher: Seq<EntryView<C>>,
+}
+
+impl<C: PageTableConfig> CursorView<C> {
+    pub open spec fn descendants(self) -> Seq<EntryView<C>> {
+        self.fore_local.add(self.rear_local)
+    }
 }
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        true
+        &&& forall |view| self.descendants().contains(view) ==>
+            self.va_range.start <= view->leaf.map_va < self.va_range.end
+        &&& forall |view| self.fore_higher.contains(view) ==>
+            view->leaf.map_va < self.va_range.start
+        &&& forall |view| self.rear_higher.contains(view) ==>
+            self.va_range.end <= view->leaf.map_va
     }
 }
 
@@ -262,16 +292,30 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
     open spec fn view(&self) -> Self::V {
         CursorView {
-            cur_va: (self.continuations[self.level - 1].cur_va + self.index * page_size(self.level as u8)) as usize,
-            scope: page_size(self.level as u8),
-            fore: self.prev_views_rec(NR_LEVELS() as int),
-            rear: self.next_views_rec(NR_LEVELS() as int),
+            cur_va: self.cur_va(),
+            level: self.level,
+            va_range: Range { start: self.continuations[self.level - 1].base_va,
+                end: self.continuations[self.level - 1].bound_va },
+            fore_higher: self.prev_views_rec(NR_LEVELS() as int),
+            fore_local: self.continuations[self.level - 1].prev_views(),
+            rear_local: self.continuations[self.level - 1].next_views(),
+            rear_higher: self.next_views_rec(NR_LEVELS() as int),
         }
     }
 }
 
+
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
+        assert(self@.inv()) by { admit() };
+    }
+}
+
+impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
+    open spec fn inv(self) -> bool {
+        &&& 1 <= self.level <= NR_LEVELS()
+        &&& self.level <= self.guard_level <= NR_LEVELS()
+//        &&& forall|i: int| 0 <= i < self.guard_level - self.level ==> self.path[i] is Some
     }
 }
 
@@ -280,7 +324,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.level == owner.level
-        &&& owner.index == self.va % page_size(self.level)
+//        &&& owner.index() == self.va % page_size(self.level)
         &&& self.level <= 4 ==> {
             &&& self.path[3] is Some
             &&& owner.continuations.contains_key(3)

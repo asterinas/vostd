@@ -16,6 +16,7 @@ use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::specs::mm::page_table::*;
 use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
@@ -100,7 +101,7 @@ pub tracked struct VmIoPermission<'a> {
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
 pub tracked struct VmSpaceOwner<'a> {
     /// The owner of the page table of this VM space.
-    pub page_table_owner: PageTableOwner<'a, UserPtConfig>,
+    pub page_table_owner: OwnerSubtree<'a, UserPtConfig>,
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
@@ -491,6 +492,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
             old(regions).inv(),
+            old(self).0.level < old(self).0.guard_level,
+            old(self).0.inv(),
         ensures
             owner.inv(),
             self.0.wf(*owner),
@@ -508,6 +511,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
+            old(self).0.level < old(self).0.guard_level,
+            old(self).0.inv(),
     {
         (#[verus_spec(with Tracked(owner))]
         self.0.jump(va))?;
@@ -595,6 +600,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
+            old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
+            old(self).pt_cursor.inner.inv(),
         ensures
             owner.inv(),
             self.pt_cursor.inner.wf(*owner),
@@ -614,6 +621,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
+            old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
+            old(self).pt_cursor.inner.inv(),
     {
         (#[verus_spec(with Tracked(owner))]
         self.pt_cursor.jump(va))?;
@@ -648,6 +657,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.wf(*old(cursor_owner)),
             old(regions).inv(),
             entry_owner.inv(),
+            old(self).pt_cursor.inner.inv(),
+            old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -768,7 +779,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(regions): Tracked<&MetaRegionOwners>
         requires
             regions.inv(),
-            old(owner).cur_entry_owner() is Some,
+            !old(owner).cur_entry_owner().is_absent(),
     )]
     pub fn protect_next(
         &mut self,
