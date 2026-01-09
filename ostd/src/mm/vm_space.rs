@@ -109,6 +109,7 @@ pub tracked struct VmSpaceOwner<'a> {
     pub writers: Map<nat, VmIoOwner<'a>>,
     /// The memory view is the abstract view of memory.
     /// Models what is actually mapped and the memory points.
+    /// How page table invariants 
     pub mem_view: MemView,
     /// Whether we allow shared reading.
     pub shared_reader: bool,
