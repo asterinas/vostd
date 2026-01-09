@@ -312,7 +312,7 @@ struct BootstrapArgs {
     restart: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.91.0", action = ArgAction::Set)]
+        default_value = "archive-20251225", action = ArgAction::Set)]
     rust_version: String,
 }
 
@@ -323,7 +323,7 @@ struct UpdateArgs {
     no_verus: bool,
 
     #[arg(long = "rust-version", help = "The rust version to use",
-        default_value = "1.91.0", action = ArgAction::Set)]
+        default_value = "archive-20251225", action = ArgAction::Set)]
     rust_version: String,
 
     #[arg(long = "test", help = "Use the test branch of Verus",
