@@ -1,46 +1,56 @@
-use vstd::prelude::*;
+//! This module defines an exclusive PCM.
+//!
+//! For Iris definition, see:
+//! <https://iris-project.org/iris-resource-algebras.html#exclusive-resource-algebra>
 use vstd::pcm::PCM;
+use vstd::prelude::*;
 
 verus! {
 
-
+/// Exclusive PCM
+///
+/// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
+/// Here we add a unit element to stick to the PCM definition.
 #[derive(PartialEq, Eq)]
-pub tracked enum Excl_<A> {
-    /// Exclusive ownership of a value
+pub tracked enum Excl<A> {
+    Unit,
+    /// Exclusive ownership of a value.
     Excl(A),
-    /// Invalid state
+    /// Invalid state.
     ExclInvalid,
 }
 
-// None represents the unit element
-pub tracked struct Excl<A>(pub Option<Excl_<A>>);
-
 impl<A> PCM for Excl<A> {
     open spec fn valid(self) -> bool {
-        match self.0 {
-            None => true,
-            Some(Excl_::Excl(_)) => true,
-            Some(Excl_::ExclInvalid) => false,
-        }
+        self !is ExclInvalid
     }
-    
+
     open spec fn op(self, other: Self) -> Self {
-        match (self.0, other.0) {
-            (None, x) => Excl(x),
-            (x, None) => Excl(x),
-            (Some(_), Some(_)) => Excl(Some(Excl_::ExclInvalid)),
+        match (self, other) {
+            (Excl::Unit, x) => x,
+            (x, Excl::Unit) => x,
+            _ => Excl::ExclInvalid,
         }
     }
-    
+
     open spec fn unit() -> Self {
-        Excl(None)
+        Excl::Unit
     }
-    
-    proof fn closed_under_incl(a: Self, b: Self){}
-    proof fn commutative(a: Self, b: Self) {}
-    proof fn associative(a: Self, b: Self, c: Self) {}
-    proof fn op_unit(a: Self) {}
-    proof fn unit_valid() {}
+
+    proof fn closed_under_incl(a: Self, b: Self) {
+    }
+
+    proof fn commutative(a: Self, b: Self) {
+    }
+
+    proof fn associative(a: Self, b: Self, c: Self) {
+    }
+
+    proof fn op_unit(a: Self) {
+    }
+
+    proof fn unit_valid() {
+    }
 }
 
 } // verus!
