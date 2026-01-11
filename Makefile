@@ -9,13 +9,11 @@ VERIFICATION_TARGETS := \
 .PHONY: all verify $(VERIFICATION_TARGETS) fmt clean
 
 $(VERIFICATION_TARGETS):
-	mkdir -p target
 	cargo dv verify --targets $@
 
 all: verify
 
 verify:
-	mkdir -p target
 	cargo dv verify --targets $(VERIFICATION_TARGETS)
 
 fmt:
