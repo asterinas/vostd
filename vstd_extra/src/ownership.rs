@@ -1,7 +1,6 @@
 use vstd::atomic::*;
 use vstd::cell;
 use vstd::prelude::*;
-use vstd::simple_pptr::{self, *};
 
 use std::marker::PhantomData;
 use std::ops::Range;
