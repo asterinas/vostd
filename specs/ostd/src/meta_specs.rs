@@ -8,7 +8,7 @@ use vstd_extra::ownership::*;
 use aster_common::prelude::frame::*;
 use aster_common::prelude::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 verus! {
 

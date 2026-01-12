@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use super::*;
 

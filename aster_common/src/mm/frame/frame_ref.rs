@@ -1,8 +1,7 @@
 use vstd::prelude::*;
 
-use std::ops::Deref;
-
 use core::mem::ManuallyDrop;
+use core::ops::Deref;
 
 use super::*;
 

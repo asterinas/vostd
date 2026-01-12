@@ -26,7 +26,7 @@ use vstd_extra::extern_const;
 
 use super::*;
 
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 verus! {
 

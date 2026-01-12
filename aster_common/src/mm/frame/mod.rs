@@ -24,7 +24,7 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr;
 use vstd_extra::ownership::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 use super::*;
 

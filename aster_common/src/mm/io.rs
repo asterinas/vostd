@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
 
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 verus! {
 

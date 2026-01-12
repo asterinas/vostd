@@ -2,8 +2,8 @@ use vstd::atomic::*;
 use vstd::cell;
 use vstd::prelude::*;
 
-use std::marker::PhantomData;
-use std::ops::Range;
+use core::marker::PhantomData;
+use core::ops::Range;
 
 verus! {
 

@@ -6,9 +6,8 @@ use crate::*;
 use crate::page_table::*;
 use crate::frame::{UFrame, Frame, AnyFrameMeta};
 
+use core::marker::PhantomData;
 use core::ops::Range;
-
-use std::marker::PhantomData;
 
 verus! {
 
