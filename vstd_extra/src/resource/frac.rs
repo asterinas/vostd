@@ -12,6 +12,7 @@ use vstd::prelude::*;
 
 verus! {
 
+/// Fractional PCM
 #[verifier::ext_equal]
 pub enum Frac<A> {
     Unit,
@@ -53,8 +54,12 @@ impl<A: PartialEq> PCM for Frac<A> {
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }
-    proof fn op_unit(a: Self) {}
-    proof fn unit_valid() {}
+
+    proof fn op_unit(a: Self) {
+    }
+    
+    proof fn unit_valid() {
+    }
 }
 
 } // verus!
