@@ -3,7 +3,6 @@
 //! We model fractions as real numbers `q : real` in (0, 1], where 1.0 is full
 //! ownership.
 //!
-//!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/frac.v>
 
