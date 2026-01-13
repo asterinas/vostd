@@ -1,6 +1,6 @@
 use crate::ownership::*;
 use crate::raw_ptr_extra::*;
-use std::sync::Arc;
+use alloc::sync::Arc;
 use vstd::layout::valid_layout;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;

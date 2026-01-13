@@ -5,6 +5,8 @@
 #![feature(sized_hierarchy)]
 #![feature(proc_macro_hygiene)]
 
+extern crate alloc;
+
 pub mod arithmetic;
 pub mod array_ptr;
 pub mod auxiliary;
