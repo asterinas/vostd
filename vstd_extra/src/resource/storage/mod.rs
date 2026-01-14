@@ -1,10 +1,6 @@
 //! Leaf-style resource algebras based on storage-protocol.
 
-/// Fractional permission for shared read access
+/// Fractional permission which supports fractional ghost resource and counting mechanism.
 pub mod frac;
 
-
 use vstd::prelude::*;
-
-pub type SingleStorage<T> = Map<(), T>;
-pub type OptionSingleStorage<T> = Map<(), Option<T>>;
