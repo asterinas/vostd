@@ -16,43 +16,44 @@ verus! {
 
 /// Fractional PCM
 #[verifier::ext_equal]
-pub tracked enum Frac<T> {
+pub tracked enum FracR<T> {
     Unit,
     Frac(real, T),
     Invalid,
 }
 
-impl<T: PartialEq> PCM for Frac<T> {
+impl<T: PartialEq> PCM for FracR<T> {
     open spec fn valid(self) -> bool {
         match self {
-            Frac::Unit => true,
-            Frac::Frac(q, _) => 0.0real < q && q <= 1.0real,
-            Frac::Invalid => false,
+            FracR::Unit => true,
+            FracR::Frac(q, _) => 0.0real < q && q <= 1.0real,
+            FracR::Invalid => false,
         }
     }
 
     /// Two Frac combine iff they agree on the value and the sum of fractions does not exceed 1.0. This follows the original Iris design.
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
-            (Frac::Unit, x) => x,
-            (x, Frac::Unit) => x,
-            (Frac::Frac(q1, a1), Frac::Frac(q2, a2)) => {
+            (FracR::Unit, x) => x,
+            (x, FracR::Unit) => x,
+            (FracR::Frac(q1, a1), FracR::Frac(q2, a2)) => {
                 if a1 == a2 && 0.0real < q1 && 0.0real < q2 && q1 + q2 <= 1.0real {
-                    Frac::Frac(q1 + q2, a1)
+                    FracR::Frac(q1 + q2, a1)
                 } else {
-                    Frac::Invalid
+                    FracR::Invalid
                 }
             }
-            _ => Frac::Invalid,
+            _ => FracR::Invalid,
         }
     }
 
-    open spec fn unit() -> Self { Frac::Unit }
+    open spec fn unit() -> Self { FracR::Unit }
 
     proof fn closed_under_incl(a: Self, b: Self) {
     }
 
-    proof fn commutative(a: Self, b: Self) {}
+    proof fn commutative(a: Self, b: Self) {
+    }
 
     proof fn associative(a: Self, b: Self, c: Self) {
     }

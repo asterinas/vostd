@@ -1,3 +1,4 @@
+//! Partial commutative monoid (PCM) based resource algebras.
 /// Agreement resource algebra
 pub mod agree;
 /// Csum resource algebra

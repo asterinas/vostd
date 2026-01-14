@@ -31,7 +31,7 @@ impl<A: PartialEq> PCM for AgreeR<A> {
             (x, AgreeR::Unit) => x,
             (AgreeR::Agree(a), AgreeR::Agree(b)) => {
                 if a == b {
-                    Agree::Agree(a)
+                    AgreeR::Agree(a)
                 } else {
                     AgreeR::AgreeInvalid
                 }
