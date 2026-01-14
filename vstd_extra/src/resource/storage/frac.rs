@@ -94,26 +94,31 @@ impl<T> FracS<T> {
     }
 }
 
-/// The authoritative fractional storage resource, who counts how many references exist.
+/// The authoritative fractional storage resource, 
+/// who records the number of fractional references created and their fractions.
 pub tracked struct FracStorage<T> {
-    ref_nums: nat,
+    /// Map from reference IDs to their fractional permissions.
+    ref_fracs: Map<nat, real>,
     resource: StorageResource<(), T, FracS<T>>,
 }
 
 /// A fractional storage resource reference.
 pub tracked struct FracStorageRef<T> {
+    /// Unique identifier.
+    id: nat,
     resource: StorageResource<(), T, FracS<T>>,
 }
 
 impl<T> Inv for FracStorage<T> {
     closed spec fn inv(self) -> bool {
         &&& self.protocol_monoid() is Frac
-        &&& if self.ref_nums == 0 {self.has_full_frac()} else {0.0real < self.frac() && self.frac() < 1.0real}
+        &&& if self.ref_nums() == 0 {self.has_full_frac()} else {0.0real < self.frac() && self.frac() < 1.0real}
     }
 }
 
 impl<T> FracStorage<T> {
-    pub closed spec fn id(self) -> Loc{
+    /// Track whether the FracStorage and FracStorageRef points to the same resource.
+    pub closed spec fn instance(self) -> Loc{
         self.resource.loc()
     }
 
@@ -134,12 +139,21 @@ impl<T> FracStorage<T> {
     }
 
     pub closed spec fn ref_nums(self) -> nat {
-        self.ref_nums
+        self.ref_fracs.len()
     }
 
-    pub open spec fn match_ref(self, r: FracStorageRef<T>) -> bool {
-        &&& self.id() == r.id()
+    pub closed spec fn ref_frac(self, id: nat) -> real {
+        match self.ref_fracs.get(id) {
+            Some(q) => q,
+            None => 0.0real,
+        }
+    }
+
+    pub closed spec fn match_ref(self, r: FracStorageRef<T>) -> bool {
+        &&& self.instance() == r.instance()
         &&& self.value() == r.value()
+        &&& self.ref_fracs.contains_key(r.id())
+        &&& self.ref_fracs[r.id()] == r.frac()
     }
     
     /// Allocate a new fractional storage resource with full permission.
@@ -151,7 +165,7 @@ impl<T> FracStorage<T> {
         let tracked mut m = Map::<(),T>::tracked_empty();
         m.tracked_insert((), v);
         let tracked resource = StorageResource::alloc(FracS::new(v), m);
-        FracStorage { ref_nums:0, resource }
+        FracStorage { ref_fracs: Map::tracked_empty(), resource }
     }
 
     /// Create a fractional reference from the authoritative storage.
@@ -169,13 +183,17 @@ impl<T> Inv for FracStorageRef<T> {
 }
 
 impl<T> FracStorageRef<T> {
-
-    pub closed spec fn id(self) -> Loc{
+    /// Track whether the FracStorage and FracStorageRef points to the same resource.
+    pub closed spec fn instance(self) -> Loc{
         self.resource.loc()
     }
 
     pub closed spec fn protocol_monoid(self) -> FracS<T> {
         self.resource.value()
+    }
+
+    pub closed spec fn id(self) -> nat {
+        self.id
     }
 
     /// The value stored in `FracStorage`.
@@ -201,7 +219,7 @@ impl<T> FracStorageRef<T> {
     }
 
     /// Borrowing the ghost resource from the fractional reference.
-    pub proof fn borrow(tracked &self) -> (tracked s: &T)
+    pub proof fn tracked_borrow(tracked &self) -> (tracked s: &T)
     requires
         self.inv(),
     ensures
