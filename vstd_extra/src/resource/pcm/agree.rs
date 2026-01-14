@@ -11,7 +11,7 @@ verus! {
 ///
 /// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
 /// Here we add a unit element to stick to the PCM definition.
-pub tracked enum Agree<A> {
+pub tracked enum AgreeR<A> {
     Unit,
     /// Agreement on a value.
     Agree(A),
@@ -19,7 +19,7 @@ pub tracked enum Agree<A> {
     AgreeInvalid,
 }
 
-impl<A: PartialEq> PCM for Agree<A> {
+impl<A: PartialEq> PCM for AgreeR<A> {
     open spec fn valid(self) -> bool {
         self !is AgreeInvalid
     }
@@ -27,21 +27,21 @@ impl<A: PartialEq> PCM for Agree<A> {
     /// Composition: two agreeing values must be equal.
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
-            (Agree::Unit, x) => x,
-            (x, Agree::Unit) => x,
-            (Agree::Agree(a), Agree::Agree(b)) => {
+            (AgreeR::Unit, x) => x,
+            (x, AgreeR::Unit) => x,
+            (AgreeR::Agree(a), AgreeR::Agree(b)) => {
                 if a == b {
                     Agree::Agree(a)
                 } else {
-                    Agree::AgreeInvalid
+                    AgreeR::AgreeInvalid
                 }
             },
-            _ => Agree::AgreeInvalid,
+            _ => AgreeR::AgreeInvalid,
         }
     }
 
     open spec fn unit() -> Self {
-        Agree::Unit
+        AgreeR::Unit
     }
 
     proof fn closed_under_incl(a: Self, b: Self) {

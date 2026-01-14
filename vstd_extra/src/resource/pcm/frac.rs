@@ -1,7 +1,9 @@
 //! This module defines the real-based fractional permissions PCM.
 //!
-//! We model fractions as real numbers `q : real` in (0, 1], where 1.0 is full
-//! ownership.
+//! Unlike the [`FracGhost`](https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html) in vstd,
+//! which requires a compile-time constant TOTTL to define integer-based fractions,
+//! we model fractions as real numbers `q : real` in (0, 1] like Iris, where 1.0 is full
+//! ownership, which allows arbitrary splitting of fractions at runtime.
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/frac.v>
@@ -14,13 +16,13 @@ verus! {
 
 /// Fractional PCM
 #[verifier::ext_equal]
-pub enum Frac<A> {
+pub tracked enum Frac<T> {
     Unit,
-    Frac(real, A),
+    Frac(real, T),
     Invalid,
 }
 
-impl<A: PartialEq> PCM for Frac<A> {
+impl<T: PartialEq> PCM for Frac<T> {
     open spec fn valid(self) -> bool {
         match self {
             Frac::Unit => true,
@@ -57,7 +59,7 @@ impl<A: PartialEq> PCM for Frac<A> {
 
     proof fn op_unit(a: Self) {
     }
-    
+
     proof fn unit_valid() {
     }
 }
