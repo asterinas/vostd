@@ -1,15 +1,16 @@
 //! This module defines the real-based fractional permissions storage protocol.
-//! 
+//!
 //! - `FracS` defines the basic fractional protocol monoid.
-//! - `FracStorage` and `FracStorageRef` define the actual storage resource that 
-//! can be split into fractional references for shared read access.
-use vstd::prelude::*;
-use vstd::pcm::Loc;
-use vstd::storage_protocol::*;
-use vstd::map::*;
+//! - `FracStorage` define the actual storage resource that can be split
+//! into arbitrary finite pieces for shared read access, it can be seen
+//! as a real-based re-implemetation of `FracGhost`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
 use crate::ownership::Inv;
+use vstd::map::*;
+use vstd::pcm::Loc;
+use vstd::prelude::*;
+use vstd::storage_protocol::*;
 
-verus!{
+verus! {
 
 broadcast use group_map_axioms;
 
@@ -40,7 +41,7 @@ impl <T> Protocol<(),T> for FracS<T> {
     open spec fn rel(self, s:Map<(),T>) -> bool {
         match self {
             FracS::Frac(q, v) => {
-                &&& s.contains_key(()) 
+                &&& s.contains_key(())
                 &&& s[()] == v
                 &&& q == 1.0real
             }
@@ -75,7 +76,12 @@ impl<T> FracS<T> {
         FracS::Frac(1.0real, v)
     }
 
-    pub open spec fn value(self) -> T 
+    pub open spec fn construct_frac(q:real, v:T) -> Self
+    {
+        FracS::Frac(q, v)
+    }
+
+    pub open spec fn value(self) -> T
     recommends
         self is Frac,
     {
@@ -94,31 +100,29 @@ impl<T> FracS<T> {
     }
 }
 
-/// The authoritative fractional storage resource, who counts how many references exist.
+/// The authoritative fractional storage resource.
 pub tracked struct FracStorage<T> {
-    ref_nums: nat,
-    resource: StorageResource<(), T, FracS<T>>,
-}
-
-/// A fractional storage resource reference.
-pub tracked struct FracStorageRef<T> {
-    resource: StorageResource<(), T, FracS<T>>,
+    resource: Option<StorageResource<(), T, FracS<T>>>,
 }
 
 impl<T> Inv for FracStorage<T> {
     closed spec fn inv(self) -> bool {
+        &&& self.resource is Some
         &&& self.protocol_monoid() is Frac
-        &&& if self.ref_nums == 0 {self.has_full_frac()} else {0.0real < self.frac() && self.frac() < 1.0real}
+        &&& 0.0real < self.frac() && self.frac() <= 1.0real}
     }
-}
 
 impl<T> FracStorage<T> {
+    pub closed spec fn resource(self) -> StorageResource<(), T, FracS<T>> {
+        self.resource -> Some_0
+    }
+
     pub closed spec fn id(self) -> Loc{
-        self.resource.loc()
+        self.resource().loc()
     }
 
     pub closed spec fn protocol_monoid(self) -> FracS<T> {
-        self.resource.value()
+        self.resource().value()
     }
 
     pub open spec fn value(self) -> T {
@@ -128,20 +132,16 @@ impl<T> FracStorage<T> {
     pub closed spec fn frac(self) -> real {
         self.protocol_monoid().frac()
     }
-    
+
     pub open spec fn has_full_frac(self) -> bool {
         self.frac() == 1.0real
     }
 
-    pub closed spec fn ref_nums(self) -> nat {
-        self.ref_nums
-    }
-
-    pub open spec fn match_ref(self, r: FracStorageRef<T>) -> bool {
+    pub open spec fn match_ref(self, r: FracStorage<T>) -> bool {
         &&& self.id() == r.id()
         &&& self.value() == r.value()
     }
-    
+
     /// Allocate a new fractional storage resource with full permission.
     pub proof fn alloc(tracked v:T) -> (tracked res: Self)
     ensures
@@ -151,44 +151,24 @@ impl<T> FracStorage<T> {
         let tracked mut m = Map::<(),T>::tracked_empty();
         m.tracked_insert((), v);
         let tracked resource = StorageResource::alloc(FracS::new(v), m);
-        FracStorage { ref_nums:0, resource }
+        FracStorage { resource: Some(resource) }
     }
 
-    /// Create a fractional reference from the authoritative storage.
-    #[verifier::external_body]
-    pub proof fn create_ref(tracked &mut self) -> (tracked r: FracStorageRef<T>){
-        unimplemented!()
-    }
-}
-
-impl<T> Inv for FracStorageRef<T> {
-    open spec fn inv(self) -> bool {
-        &&& self.protocol_monoid() is Frac
-        &&& 0.0real < self.frac() && self.frac() < 1.0real
-    }
-}
-
-impl<T> FracStorageRef<T> {
-
-    pub closed spec fn id(self) -> Loc{
-        self.resource.loc()
-    }
-
-    pub closed spec fn protocol_monoid(self) -> FracS<T> {
-        self.resource.value()
-    }
-
-    /// The value stored in `FracStorage`.
-    pub open spec fn value(self) -> T {
-        self.protocol_monoid().value()
-    }
-
-    pub closed spec fn frac(self) -> real {
-        self.protocol_monoid().frac()
-    }
-    
-    pub open spec fn has_full_frac(self) -> bool {
-        self.frac() == 1.0real
+    /// Split the fractional storage resource into two fractions.
+    pub proof fn split(tracked &mut self) -> (tracked r: FracStorage<T>)
+    requires
+        old(self).inv(),
+    ensures
+        self.inv(),
+        true,
+    {
+        let frac = self.frac();
+        let half_frac = frac / 2.0real;
+        let m = FracS::construct_frac(half_frac, self.value());
+        let tracked resource = self.resource.tracked_take();
+        let tracked (resource_1, resource_2) = resource.split(m,m);
+        self.resource = Some(resource_1);
+        FracStorage { resource: Some(resource_2) }
     }
 
     pub proof fn lemma_guards(self)
@@ -201,7 +181,7 @@ impl<T> FracStorageRef<T> {
     }
 
     /// Borrowing the ghost resource from the fractional reference.
-    pub proof fn borrow(tracked &self) -> (tracked s: &T)
+    pub proof fn tracked_borrow(tracked &self) -> (tracked s: &T)
     requires
         self.inv(),
     ensures
@@ -209,7 +189,7 @@ impl<T> FracStorageRef<T> {
     {
         let m = Map::<(),T>::empty().insert((), self.value());
         self.lemma_guards();
-        let tracked resource = StorageResource::guard(&self.resource, m);
+        let tracked resource = StorageResource::guard(self.resource.tracked_borrow(), m);
         resource.tracked_borrow(())
     }
 }
