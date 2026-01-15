@@ -5,4 +5,5 @@ pub mod hybrid_product;
 /// Fractional permission which supports fractional ghost resource and counting mechanism.
 pub mod frac;
 
-use vstd::prelude::*;
+pub use hybrid_product::*;
+pub use frac::*;
