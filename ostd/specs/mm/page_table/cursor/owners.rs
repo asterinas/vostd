@@ -206,7 +206,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.va.inv()
         &&& 1 <= self.level <= NR_LEVELS()
         &&& forall|i: int|
-            #![trigger self.continuations[i]]
+//            #![trigger self.continuations[i]]
             self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
         &&& forall|i: int|
             #![trigger self.continuations[i]]
