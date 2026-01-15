@@ -51,9 +51,9 @@ impl<T: Undroppable> Deref for NeverDrop<T> {
 impl<T: Undroppable> View for NeverDrop<T> {
     type V = T;
 
-    open spec fn view(&self) -> (res: Self::V)
-    {
+    open spec fn view(&self) -> (res: Self::V) {
         *manually_drop_deref_spec(&self.0)
     }
 }
+
 } // verus!

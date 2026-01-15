@@ -38,6 +38,7 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
+use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 use vstd::std_specs::convert::TryFromSpecImpl;
@@ -52,6 +53,7 @@ use core::ops::Range;
 use crate::error::*;
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
+use crate::specs::arch::MAX_USERSPACE_VADDR_SPEC;
 
 verus! {
 
@@ -97,8 +99,8 @@ pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core
 #[verifier::external_body]
 #[verus_spec(
     requires
-        KERNEL_BASE_VADDR() <= dst && dst + len <= KERNEL_END_VADDR(),
-        KERNEL_BASE_VADDR() <= src && src + len <= KERNEL_END_VADDR(),
+        KERNEL_BASE_VADDR() <= dst && dst + len <= KERNEL_END_VADDR() &&
+        KERNEL_BASE_VADDR() <= src && src + len <= KERNEL_END_VADDR()
 )]
 unsafe fn memcpy(dst: usize, src: usize, len: usize) {
     // This method is implemented by calling `volatile_copy_memory`. Note that even with the
@@ -133,23 +135,10 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
-    // If virtual pointer is to come to the play,
-    // then we perhaps can replace `cursor` with a sinple `VirtPtr`.
-    // and we place the `MemView` inside the owner.
-    //
-    // so the picture becomes:
-    // [  vmreaders ] + [ vmioowners ] [with their mappings] .... /* and they
-    // will not overlap */
-    // <----------vmspace owners own the memory mappings ---------->
-    //
-    // Thus this invariant simply becomes self.cursor.inv()
-    //
-    // Then why do we still have readers and writer. perhaps just for identification
-    // purposes????
+    pub id: Ghost<nat>,
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
-    pub phantom: PhantomData<
-        &'a [u8],  /*, Fallibility)*/
+    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/
     >,
     // if so, we must also make it
     // phantom <ArrayPtr<u8, N>>???
@@ -158,23 +147,36 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
 
 /// This looks like we can implement a single struct with a type parameter
 pub tracked struct VmIoOwner<'a> {
-    pub range: Ghost<Range<int>>,
+    /// The unique identifier of this owner.
+    pub id: Ghost<nat>,
+    /// The virtual address range owned by this owner.
+    pub range: Ghost<Range<usize>>,
     /// Whether this reader is fallible.
     pub is_fallible: bool,
+    /// The mem view associated with this owner.
+    // pub mem_view: MemView,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
+    /// Whether this owner is for kernel space.
+    pub is_kernel: bool,
 }
 
 impl Inv for VmIoOwner<'_> {
     open spec fn inv(self) -> bool {
         // We do allow ZSTs so that empty ranges are valid.
-        &&& self.range@.start != self.range@.end ==> KERNEL_BASE_VADDR() as int <= self.range@.start
-            <= self.range@.end <= KERNEL_END_VADDR() as int
+        &&& self.range@.start <= self.range@.end
+        &&& self.is_kernel ==> {
+            // Kernel space range
+            &&& KERNEL_BASE_VADDR() <= self.range@.start
+            &&& self.range@.end <= KERNEL_END_VADDR()
+        }
+        &&& !self.is_kernel ==> {
+            // User space range
+            &&& self.range@.end <= MAX_USERSPACE_VADDR_SPEC()
+        }
     }
 }
 
 impl VmIoOwner<'_> {
-    pub uninterp spec fn id(self) -> nat;
-
     /// Checks whether this owner overlaps with another owner.
     #[verifier::inline]
     pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
@@ -227,7 +229,7 @@ impl VmIoOwner<'_> {
         &&& self.inv()
         &&& self.range@.start as usize <= reader.cursor.addr()
         &&& reader.end.addr() <= self.range@.end as usize
-        &&& self.id() == reader.id()
+        &&& self.id == reader.id
     }
 
     pub open spec fn inv_with_writer(
@@ -237,7 +239,7 @@ impl VmIoOwner<'_> {
         &&& self.inv()
         &&& self.range@.start as usize <= writer.cursor.addr()
         &&& writer.end.addr() <= self.range@.end as usize
-        &&& self.id() == writer.id()
+        &&& self.id == writer.id
     }
 }
 
@@ -259,6 +261,7 @@ impl VmIoOwner<'_> {
 /// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
+    pub id: Ghost<nat>,
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
@@ -266,8 +269,6 @@ pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
 
 #[verus_verify]
 impl<'a> VmWriter<'a  /* Infallible */ > {
-    pub uninterp spec fn id(self) -> nat;
-
     /// Constructs a `VmWriter` from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
@@ -279,6 +280,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             Tracked(fallible): Tracked<bool>,
                 -> owner: Tracked<VmIoOwner<'a>>,
         requires
@@ -291,19 +293,25 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             owner@.is_fallible == fallible,
             r.cursor.addr() == ptr.addr(),
             r.end.addr() == ptr.addr() + len,
+            owner@.id == id,
     )]
     pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
         let tracked owner = VmIoOwner {
-            range: Ghost((ptr.addr() as int)..((ptr.addr() + len) as int)),
+            id: Ghost(id),
+            range: Ghost(ptr.addr()..(ptr.addr() + len) as usize),
             is_fallible: fallible,
             phantom: PhantomData,
+            is_kernel: true,
         };
 
-        proof { admit(); }
+        proof {
+            admit();
+        }
 
         proof_with!(|= Tracked(owner));
 
         Self {
+            id: Ghost(id),
             cursor: ptr,
             end: PPtr(ptr.addr().checked_add(len).unwrap(), PhantomData),
             phantom: PhantomData,
@@ -312,6 +320,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             -> owner: Tracked<Result<VmIoOwner<'a>>>,
         ensures
             r is Ok <==> owner@ is Ok,
@@ -337,7 +346,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             Err(Error::IoError)
         } else {
             let r = unsafe {
-                #[verus_spec(with Tracked(false) => Tracked(perm))]
+                #[verus_spec(with Ghost(id), Tracked(false) => Tracked(perm))]
                 VmWriter::from_kernel_space(PPtr(pnt.addr(), PhantomData), len)
             };
 
@@ -353,27 +362,32 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 // because it can represent mutable references, which must remain exclusive.
 impl Clone for VmReader<'_  /* Fallibility */ > {
     fn clone(&self) -> Self {
-        Self { cursor: self.cursor, end: self.end, phantom: PhantomData }
+        Self { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
 }
 
 #[verus_verify]
 impl<'a> VmReader<'a  /* Infallible */ > {
-    pub uninterp spec fn id(self) -> nat;
-
     /// Constructs a `VmReader` from a pointer and a length, which represents
     /// a memory range in USER space.
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     #[verus_spec(r =>
         with
-            Tracked(ptr_perm): Tracked<MemView>,
-                -> owner: Tracked<Result<VmIoOwner<'a>>>,
+            Ghost(id): Ghost<nat>,
+            -> owner: Tracked<VmIoOwner<'a>>,
         requires
             ptr.inv(),
-
+        ensures
+            r.inv(),
+            owner@.id == id,
+            owner@.inv(),
+            owner@.inv_with_reader(r),
+            owner@.range == ptr.range@,
+            !owner@.is_kernel,
+            !owner@.is_fallible,
     )]
-    pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
+    pub unsafe fn from_user_space(ptr: VirtPtr) -> Self {
         // SAFETY: The caller must ensure the safety requirements.
         unimplemented!()
     }
@@ -389,6 +403,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             -> owner: Tracked<VmIoOwner<'a>>,
         requires
             len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
@@ -398,18 +413,25 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             owner@.inv_with_reader(r),
             r.cursor.addr() == ptr.addr(),
             r.end.addr() == ptr.addr() + len,
+            owner@.is_kernel,
+            owner@.id == id,
     )]
     pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
         let tracked owner = VmIoOwner {
-            range: Ghost((ptr.addr() as int)..((ptr.addr() + len) as int)),
+            id: Ghost(id),
+            range: Ghost(ptr.addr()..(ptr.addr() + len) as usize),
             is_fallible: false,
             phantom: PhantomData,
+            is_kernel: true,
         };
 
-        proof { admit(); }
+        proof {
+            admit();
+        }
 
         proof_with!(|= Tracked(owner));
         Self {
+            id: Ghost(id),
             cursor: ptr,
             end: PPtr(ptr.addr().checked_add(len).unwrap(), PhantomData),
             phantom: PhantomData,
@@ -418,6 +440,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             -> owner: Tracked<Result<VmIoOwner<'a>>>,
         ensures
             r is Ok <==> owner@ is Ok,
@@ -445,7 +468,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             Err(Error::IoError)
         } else {
             let r = unsafe {
-                #[verus_spec(with => Tracked(perm))]
+                #[verus_spec(with Ghost(id) => Tracked(perm))]
                 VmReader::from_kernel_space(PPtr(pnt.addr(), PhantomData), len)
             };
 
@@ -479,7 +502,7 @@ impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
 
         Ok(
             unsafe {
-                #[verus_spec(with => Tracked(perm))]
+                #[verus_spec(with Ghost(arbitrary()) => Tracked(perm))]
                 Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
             },
         )
@@ -501,6 +524,8 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         } else {
             Ok(
                 Self {
+                    /* TODO: Perhaps more information needed. */
+                    id: Ghost(arbitrary()),
                     cursor: PPtr(addr, PhantomData),
                     end: PPtr((addr + len) as usize, PhantomData),
                     phantom: PhantomData,
@@ -537,7 +562,7 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
 
         Ok(
             unsafe {
-                #[verus_spec(with Tracked(false) => Tracked(perm))]
+                #[verus_spec(with Ghost(arbitrary()), Tracked(false) => Tracked(perm))]
                 Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
             },
         )
@@ -559,6 +584,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
         } else {
             Ok(
                 Self {
+                    id: Ghost(arbitrary()),
                     cursor: PPtr(addr, PhantomData),
                     end: PPtr((addr + len) as usize, PhantomData),
                     phantom: PhantomData,
@@ -796,13 +822,16 @@ impl VmReader<'_> {
         // and writer (owners), so they are valid for reading and writing.
 
         unsafe {
-            memcpy(writer.cursor.addr(), self.cursor.addr(), copy_len);
+            // memcpy currently requires all kernel spaces.
+            // memcpy(writer.cursor.addr(), self.cursor.addr(), copy_len);
         }
 
         self.advance(copy_len);
         writer.advance(copy_len);
 
-        proof { admit(); }
+        proof {
+            admit();
+        }
 
         copy_len
     }
@@ -813,6 +842,7 @@ impl VmReader<'_> {
     /// this method will return `Err`.
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
@@ -838,7 +868,7 @@ impl VmReader<'_> {
             return Err(Error::InvalidArgs);
         }
         let mut v = T::new_uninit();
-        proof_with!(=> Tracked(owner_w));
+        proof_with!(Ghost(id) => Tracked(owner_w));
         let mut writer = VmWriter::from_pod(v)?;
 
         let tracked mut owner_w = owner_w.tracked_unwrap();
@@ -904,15 +934,39 @@ impl VmReader<'_> {
         let v = self.read_once_inner::<T>();
         self.advance(core::mem::size_of::<T>());
 
-        proof { admit(); }
+        proof {
+            admit();
+        }
 
         Ok(v)
     }
 }
 
-impl VmWriter<'_> {
+#[verus_verify]
+impl<'a> VmWriter<'a> {
     pub open spec fn avail_spec(&self) -> usize {
         (self.end.addr() - self.cursor.addr()) as usize
+    }
+
+    #[verifier::external_body]
+    #[verus_spec(r =>
+        with
+            Ghost(id): Ghost<nat>,
+            -> owner: Tracked<VmIoOwner<'a>>,
+        requires
+            ptr.inv(),
+        ensures
+            r.inv(),
+            owner@.id == id,
+            owner@.inv(),
+            owner@.inv_with_writer(r),
+            owner@.range == ptr.range@,
+            !owner@.is_kernel,
+            !owner@.is_fallible,
+    )]
+    pub unsafe fn from_user_space(ptr: VirtPtr) -> Self {
+        // SAFETY: The caller must ensure the safety requirements.
+        unimplemented!()
     }
 
     /// Returns the number of available bytes that can be written.
@@ -989,6 +1043,7 @@ impl VmWriter<'_> {
     /// this method will return `Err`.
     #[verus_spec(r =>
         with
+            Ghost(id): Ghost<nat>,
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
@@ -1013,7 +1068,7 @@ impl VmWriter<'_> {
         if self.avail() < core::mem::size_of::<T>() {
             return Err(Error::InvalidArgs);
         }
-        proof_with!(=> Tracked(owner_r));
+        proof_with!(Ghost(id) => Tracked(owner_r));
         let mut reader = VmReader::from_pod(val)?;
 
         let tracked mut owner_r = owner_r.tracked_unwrap();
@@ -1068,7 +1123,9 @@ impl VmWriter<'_> {
         self.write_once_inner::<T>(new_val);
         self.advance(core::mem::size_of::<T>());
 
-        proof { admit(); }
+        proof {
+            admit();
+        }
 
         Ok(())
     }

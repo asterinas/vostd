@@ -369,44 +369,52 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
         ensures
             #[trigger] self.rel_children(Some(Self::default(lv + 1))),
     ;
-
 }
 
-pub trait TreeNodeView<const L: usize> : TreeNodeValue<L> + View {
+pub trait TreeNodeView<const L: usize>: TreeNodeValue<L> + View {
     spec fn view_rec_step(self, rec: Seq<Self::V>) -> Seq<Self::V>;
 }
 
-impl<T:TreeNodeView<L>, const N: usize, const L: usize> Node<T, N, L> {
-
+impl<T: TreeNodeView<L>, const N: usize, const L: usize> Node<T, N, L> {
     pub open spec fn view_rec(self) -> Seq<<T as View>::V>
-        decreases L - self.level when self.level < L && self.inv()
+        decreases L - self.level,
+        when self.level < L && self.inv()
     {
         if self.level == L - 1 {
             Seq::empty().push(self.value.view())
         } else {
             proof {
                 assert(self.inv_children());
-                assert(forall|child: Option<Node<T,N,L>>| self.children.contains(child) ==> child.is_some() ==> child.unwrap().level < L);
-                assert(forall|child: Option<Node<T,N,L>>| self.children.contains(child) ==> child.is_some() ==> L - child.unwrap().level < L - self.level);
-                assert(forall|child: Option<Node<T,N,L>>| self.children.contains(child) ==> child.is_some() ==> child.unwrap().inv());
+                assert(forall|child: Option<Node<T, N, L>>|
+                    self.children.contains(child) ==> child.is_some() ==> child.unwrap().level < L);
+                assert(forall|child: Option<Node<T, N, L>>|
+                    self.children.contains(child) ==> child.is_some() ==> L - child.unwrap().level
+                        < L - self.level);
+                assert(forall|child: Option<Node<T, N, L>>|
+                    self.children.contains(child) ==> child.is_some() ==> child.unwrap().inv());
             }
 
             self.value.view_rec_step(
-                Seq::flat_map(self.children, |child: Option<Node<T, N, L>>|
-                    match child {
-                        Some(child) => {
-                            proof {
-                                assert(self.children.contains(Some(child))) by { admit() };
-                            }
-                            child.view_rec()
-                        }
-                        None => Seq::empty(),
-                    }))
+                Seq::flat_map(
+                    self.children,
+                    |child: Option<Node<T, N, L>>|
+                        match child {
+                            Some(child) => {
+                                proof {
+                                    assert(self.children.contains(Some(child))) by { admit() };
+                                }
+                                child.view_rec()
+                            },
+                            None => Seq::empty(),
+                        },
+                ),
+            )
         }
     }
 
     pub open spec fn view_wrapper(self) -> Seq<<T as View>::V>
-        decreases L - self.level when self.level < L && self.inv()
+        decreases L - self.level,
+        when self.level < L && self.inv()
     {
         self.view_rec()
     }
@@ -416,7 +424,7 @@ impl<T: TreeNodeView<L>, const N: usize, const L: usize> View for Node<T, N, L> 
     type V = Seq<<T as View>::V>;
 
     open spec fn view(&self) -> Self::V
-        decreases L - self.level
+        decreases L - self.level,
     {
         self.view_wrapper()
     }

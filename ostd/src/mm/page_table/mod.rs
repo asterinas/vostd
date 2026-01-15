@@ -632,6 +632,8 @@ impl PageTable<KernelPtConfig> {
 }*/
 
 impl<C: PageTableConfig> PageTable<C> {
+    pub uninterp spec fn root_paddr_spec(&self) -> Paddr;
+
     /// Create a new empty page table.
     ///
     /// Useful for the IOMMU page tables only.
@@ -660,7 +662,11 @@ impl<C: PageTableConfig> PageTable<C> {
     /// resulting in UAF.
     #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
-    pub fn root_paddr(&self) -> Paddr {
+    #[verifier::when_used_as_spec(root_paddr_spec)]
+    pub fn root_paddr(&self) -> (r: Paddr)
+        returns
+            self.root_paddr_spec(),
+     {
         unimplemented!()
         //        self.root.start_paddr()
 

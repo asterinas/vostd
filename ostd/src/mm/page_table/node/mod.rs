@@ -404,7 +404,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         requires
             owner.is_node(),
             old(self).inner.inner@.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
+            old(self).inner.inner@.ptr.addr()
+                == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
             owner.inv(),
     {
         let tracked node_owner = owner.node.tracked_borrow();
