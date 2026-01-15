@@ -2,8 +2,10 @@
 /// Product of a PCM and a storage-protocol resource algebra.
 pub mod hybrid_product;
 
-/// Fractional permission which supports fractional ghost resource and counting mechanism.
+/// Fractional ownership.
 pub mod frac;
+/// A combination of fractional ownership and counter PCM.
+pub mod count_frac;
 
 pub use hybrid_product::*;
 pub use frac::*;

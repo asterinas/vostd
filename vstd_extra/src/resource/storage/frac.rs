@@ -3,7 +3,7 @@
 //! - `FracS` defines the basic fractional protocol monoid.
 //! - `FracStorage` define the actual storage resource that can be split
 //! into arbitrary finite pieces for shared read access, it can be seen
-//! as a real-based re-implemetation of `FracGhost`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
+//! as a real-based re-implemetation of `Frac`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
 use crate::ownership::Inv;
 use vstd::map::*;
 use vstd::pcm::Loc;
@@ -101,31 +101,31 @@ impl<T> FracS<T> {
 }
 
 /// The authoritative fractional storage resource.
-pub tracked struct FracStorage<T> {
-    resource: Option<StorageResource<(), T, FracS<T>>>,
+pub struct FracStorage<T> {
+    r: Option<StorageResource<(), T, FracS<T>>>,
 }
 
 impl<T> Inv for FracStorage<T> {
     closed spec fn inv(self) -> bool {
-        &&& self.resource is Some
+        &&& self.r is Some
         &&& self.protocol_monoid() is Frac
         &&& 0.0real < self.frac() && self.frac() <= 1.0real}
     }
 
 impl<T> FracStorage<T> {
-    pub closed spec fn resource(self) -> StorageResource<(), T, FracS<T>> {
-        self.resource -> Some_0
+    pub closed spec fn storage_resource(self) -> StorageResource<(), T, FracS<T>> {
+        self.r -> Some_0
     }
 
     pub closed spec fn id(self) -> Loc{
-        self.resource().loc()
+        self.storage_resource().loc()
     }
 
     pub closed spec fn protocol_monoid(self) -> FracS<T> {
-        self.resource().value()
+        self.storage_resource().value()
     }
 
-    pub open spec fn value(self) -> T {
+    pub open spec fn resource(self) -> T {
         self.protocol_monoid().value()
     }
 
@@ -137,13 +137,8 @@ impl<T> FracStorage<T> {
         self.frac() == 1.0real
     }
 
-    pub open spec fn match_ref(self, r: FracStorage<T>) -> bool {
-        &&& self.id() == r.id()
-        &&& self.value() == r.value()
-    }
-
     /// Allocate a new fractional storage resource with full permission.
-    pub proof fn alloc(tracked v:T) -> (tracked res: Self)
+    pub proof fn new(tracked v:T) -> (tracked res: Self)
     ensures
         res.inv(),
         res.has_full_frac(),
@@ -151,7 +146,7 @@ impl<T> FracStorage<T> {
         let tracked mut m = Map::<(),T>::tracked_empty();
         m.tracked_insert((), v);
         let tracked resource = StorageResource::alloc(FracS::new(v), m);
-        FracStorage { resource: Some(resource) }
+        FracStorage { r: Some(resource) }
     }
 
     /// Split the fractional storage resource into two fractions.
@@ -160,36 +155,37 @@ impl<T> FracStorage<T> {
         old(self).inv(),
     ensures
         self.inv(),
-        true,
+        r.inv(),
+        r.frac() + self.frac() == old(self).frac(),
     {
         let frac = self.frac();
         let half_frac = frac / 2.0real;
-        let m = FracS::construct_frac(half_frac, self.value());
-        let tracked resource = self.resource.tracked_take();
+        let m = FracS::construct_frac(half_frac, self.resource());
+        let tracked resource = self.r.tracked_take();
         let tracked (resource_1, resource_2) = resource.split(m,m);
-        self.resource = Some(resource_1);
-        FracStorage { resource: Some(resource_2) }
+        self.r = Some(resource_1);
+        FracStorage { r: Some(resource_2) }
     }
 
     pub proof fn lemma_guards(self)
     requires
         self.inv(),
     ensures
-        guards::<(),T,FracS<T>>(self.protocol_monoid(),map![() => self.value()]),
+        guards::<(),T,FracS<T>>(self.protocol_monoid(),map![() => self.resource()]),
     {
         self.protocol_monoid().lemma_guards();
     }
 
     /// Borrowing the ghost resource from the fractional reference.
-    pub proof fn tracked_borrow(tracked &self) -> (tracked s: &T)
+    pub proof fn borrow(tracked &self) -> (tracked s: &T)
     requires
         self.inv(),
     ensures
-        *s == self.value(),
+        *s == self.resource(),
     {
-        let m = Map::<(),T>::empty().insert((), self.value());
+        let m = Map::<(),T>::empty().insert((), self.resource());
         self.lemma_guards();
-        let tracked resource = StorageResource::guard(self.resource.tracked_borrow(), m);
+        let tracked resource = StorageResource::guard(self.r.tracked_borrow(), m);
         resource.tracked_borrow(())
     }
 }
