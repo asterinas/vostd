@@ -224,19 +224,24 @@ impl<C: PageTableConfig> PageTableNode<C> {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
         meta.level
-    }/* TODO: stub out allocator
+    }
+    
     /// Allocates a new empty page table node.
+    #[verifier::external_body]
     pub(super) fn alloc(level: PagingLevel) -> Self {
+        unimplemented!()
+        /*
         let meta = PageTablePageMeta::new(level);
         let frame = FrameAllocOptions::new()
             .zeroed(true)
             .alloc_frame_with(meta)
             .expect("Failed to allocate a page table node");
         // The allocated frame is zeroed. Make sure zero is absent PTE.
-        debug_assert_eq!(C::E::new_absent().as_usize(), 0);
+        //debug_assert_eq!(C::E::new_absent().as_usize(), 0);
 
-        frame
-    } */
+        frame*/
+    }
+
     /*
     /// Activates the page table assuming it is a root page table.
     ///

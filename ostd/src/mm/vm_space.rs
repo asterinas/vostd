@@ -461,6 +461,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
+            old(self).0.inv(),
             old(regions).inv(),
     {
         Ok(
@@ -579,6 +580,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
+            old(self).pt_cursor.inner.inv(),
     {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions))]
