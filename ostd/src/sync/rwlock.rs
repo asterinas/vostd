@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
+use vstd::cell::PCell;
+use vstd_extra::resource::*;
+
 use alloc::sync::Arc;
 use core::{
     cell::UnsafeCell,
@@ -95,7 +99,7 @@ use super::{
 /// ```
 ///
 /// [`SpinLock`]: super::SpinLock
-pub struct RwLock<T: ?Sized, Guard /* = PreemptDisabled*/> {
+pub struct RwLock<T/* : ?Sized*/, Guard /* = PreemptDisabled*/> {
     guard: PhantomData<Guard>,
     /// The internal representation of the lock state is as follows:
     /// - **Bit 63:** Writer lock.
@@ -103,7 +107,8 @@ pub struct RwLock<T: ?Sized, Guard /* = PreemptDisabled*/> {
     /// - **Bit 61:** Indicates if an upgradeable reader is being upgraded.
     /// - **Bits 60-0:** Reader lock count.
     lock: AtomicUsize,
-    val: UnsafeCell<T>,
+    val: PCell<T>,
+    //val: UnsafeCell<T>,
 }
 
 const READER: usize = 1;
@@ -112,6 +117,7 @@ const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 
+/* 
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
     pub const fn new(val: T) -> Self {
@@ -609,3 +615,4 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
         fmt::Debug::fmt(&**self, f)
     }
 }
+*/

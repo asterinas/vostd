@@ -11,7 +11,7 @@ verus! {
 ///
 /// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
 /// Here we add a unit element to stick to the PCM definition.
-pub tracked enum Excl<A> {
+pub tracked enum ExclR<A> {
     Unit,
     /// Exclusive ownership of a value.
     Excl(A),
@@ -19,7 +19,7 @@ pub tracked enum Excl<A> {
     ExclInvalid,
 }
 
-impl<A> PCM for Excl<A> {
+impl<A> PCM for ExclR<A> {
     open spec fn valid(self) -> bool {
         self !is ExclInvalid
     }
@@ -27,14 +27,14 @@ impl<A> PCM for Excl<A> {
     // Compositio of two non-unit elements is always invalid.
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
-            (Excl::Unit, x) => x,
-            (x, Excl::Unit) => x,
-            _ => Excl::ExclInvalid,
+            (ExclR::Unit, x) => x,
+            (x, ExclR::Unit) => x,
+            _ => ExclR::ExclInvalid,
         }
     }
 
     open spec fn unit() -> Self {
-        Excl::Unit
+        ExclR::Unit
     }
 
     proof fn closed_under_incl(a: Self, b: Self) {

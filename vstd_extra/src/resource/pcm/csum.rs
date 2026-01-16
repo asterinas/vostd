@@ -11,44 +11,44 @@ verus! {
 ///
 /// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
 /// Here we add a unit element to stick to the PCM definition.
-pub tracked enum Csum<A, B> {
+pub tracked enum CsumR<A, B> {
     Unit,
     Cinl(A),
     Cinr(B),
     CsumInvalid,
 }
 
-impl<A: PCM, B: PCM> PCM for Csum<A, B> {
+impl<A: PCM, B: PCM> PCM for CsumR<A, B> {
     open spec fn valid(self) -> bool {
         match self {
-            Csum::Unit => true,
-            Csum::Cinl(a) => A::valid(a),
-            Csum::Cinr(b) => B::valid(b),
-            Csum::CsumInvalid => false,
+            CsumR::Unit => true,
+            CsumR::Cinl(a) => A::valid(a),
+            CsumR::Cinr(b) => B::valid(b),
+            CsumR::CsumInvalid => false,
         }
     }
 
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
-            (Csum::Unit, x) => x,
-            (x, Csum::Unit) => x,
-            (Csum::Cinl(a1), Csum::Cinl(a2)) => Csum::Cinl(A::op(a1, a2)),
-            (Csum::Cinr(b1), Csum::Cinr(b2)) => Csum::Cinr(B::op(b1, b2)),
-            _ => Csum::CsumInvalid,
+            (CsumR::Unit, x) => x,
+            (x, CsumR::Unit) => x,
+            (CsumR::Cinl(a1), CsumR::Cinl(a2)) => CsumR::Cinl(A::op(a1, a2)),
+            (CsumR::Cinr(b1), CsumR::Cinr(b2)) => CsumR::Cinr(B::op(b1, b2)),
+            _ => CsumR::CsumInvalid,
         }
     }
 
     open spec fn unit() -> Self {
-        Csum::Unit
+        CsumR::Unit
     }
 
     proof fn closed_under_incl(a: Self, b: Self) {
         if Self::op(a, b).valid() {
             match (a, b) {
-                (Csum::Cinl(a1), Csum::Cinl(a2)) => {
+                (CsumR::Cinl(a1), CsumR::Cinl(a2)) => {
                     A::closed_under_incl(a1, a2);
                 },
-                (Csum::Cinr(b1), Csum::Cinr(b2)) => {
+                (CsumR::Cinr(b1), CsumR::Cinr(b2)) => {
                     B::closed_under_incl(b1, b2);
                 },
                 _ => {},
@@ -58,10 +58,10 @@ impl<A: PCM, B: PCM> PCM for Csum<A, B> {
 
     proof fn commutative(a: Self, b: Self) {
         match (a, b) {
-            (Csum::Cinl(a1), Csum::Cinl(a2)) => {
+            (CsumR::Cinl(a1), CsumR::Cinl(a2)) => {
                 A::commutative(a1, a2);
             },
-            (Csum::Cinr(b1), Csum::Cinr(b2)) => {
+            (CsumR::Cinr(b1), CsumR::Cinr(b2)) => {
                 B::commutative(b1, b2);
             },
             _ => {},
@@ -70,10 +70,10 @@ impl<A: PCM, B: PCM> PCM for Csum<A, B> {
 
     proof fn associative(a: Self, b: Self, c: Self) {
         match (a, b, c) {
-            (Csum::Cinl(a1), Csum::Cinl(a2), Csum::Cinl(a3)) => {
+            (CsumR::Cinl(a1), CsumR::Cinl(a2), CsumR::Cinl(a3)) => {
                 A::associative(a1, a2, a3);
             },
-            (Csum::Cinr(b1), Csum::Cinr(b2), Csum::Cinr(b3)) => {
+            (CsumR::Cinr(b1), CsumR::Cinr(b2), CsumR::Cinr(b3)) => {
                 B::associative(b1, b2, b3);
             },
             _ => {},
