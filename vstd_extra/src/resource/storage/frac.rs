@@ -1,6 +1,6 @@
 //! This module defines the real-based fractional permissions storage protocol.
 //!
-//! - `FracS` defines the basic fractional protocol monoid.
+//! - `FracP` defines the basic fractional protocol monoid.
 //! - `FracStorage` define the actual storage resource that can be split
 //! into arbitrary finite pieces for shared read access, it can be seen
 //! as a real-based re-implemetation of `Frac`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
@@ -16,31 +16,31 @@ broadcast use group_map_axioms;
 
 /// The fractional protocol monoid
 #[verifier::ext_equal]
-pub tracked enum FracS<T> {
+pub tracked enum FracP<T> {
     Unit,
     Frac(real, T),
     Invalid,
 }
 
-impl <T> Protocol<(),T> for FracS<T> {
+impl <T> Protocol<(),T> for FracP<T> {
     open spec fn op(self,other: Self) -> Self {
         match (self,other) {
-            (FracS::Unit, x) => x,
-            (x, FracS::Unit) => x,
-            (FracS::Frac(q1, v1), FracS::Frac(q2, v2)) => {
+            (FracP::Unit, x) => x,
+            (x, FracP::Unit) => x,
+            (FracP::Frac(q1, v1), FracP::Frac(q2, v2)) => {
                 if v1 == v2 && 0.0real < q1 && 0.0real < q2 && q1 + q2 <= 1.0real {
-                    FracS::Frac(q1 + q2, v1)
+                    FracP::Frac(q1 + q2, v1)
                 } else {
-                    FracS::Invalid
+                    FracP::Invalid
                 }
             }
-            _ => FracS::Invalid,
+            _ => FracP::Invalid,
         }
     }
 
     open spec fn rel(self, s:Map<(),T>) -> bool {
         match self {
-            FracS::Frac(q, v) => {
+            FracP::Frac(q, v) => {
                 &&& s.contains_key(())
                 &&& s[()] == v
                 &&& q == 1.0real
@@ -50,7 +50,7 @@ impl <T> Protocol<(),T> for FracS<T> {
     }
 
     open spec fn unit() -> Self {
-        FracS::Unit
+        FracP::Unit
     }
 
     proof fn commutative(a: Self, b: Self){
@@ -63,22 +63,22 @@ impl <T> Protocol<(),T> for FracS<T> {
     }
 }
 
-impl<T> FracS<T> {
+impl<T> FracP<T> {
     pub open spec fn frac(self) -> real {
         match self {
-            FracS::Frac(q, _) => q,
+            FracP::Frac(q, _) => q,
             _ => 0.0real,
         }
     }
 
     pub open spec fn new(v:T) -> Self
     {
-        FracS::Frac(1.0real, v)
+        FracP::Frac(1.0real, v)
     }
 
     pub open spec fn construct_frac(q:real, v:T) -> Self
     {
-        FracS::Frac(q, v)
+        FracP::Frac(q, v)
     }
 
     pub open spec fn value(self) -> T
@@ -86,7 +86,7 @@ impl<T> FracS<T> {
         self is Frac,
     {
         match self {
-            FracS::Frac(_, v) => v,
+            FracP::Frac(_, v) => v,
             _ => arbitrary()
         }
     }
@@ -102,7 +102,7 @@ impl<T> FracS<T> {
 
 /// The authoritative fractional storage resource.
 pub struct FracStorage<T> {
-    r: Option<StorageResource<(), T, FracS<T>>>,
+    r: Option<StorageResource<(), T, FracP<T>>>,
 }
 
 impl<T> FracStorage<T> {
@@ -113,7 +113,7 @@ impl<T> FracStorage<T> {
         &&& 0.0real < self.frac() && self.frac() <= 1.0real
     }
 
-    pub closed spec fn storage_resource(self) -> StorageResource<(), T, FracS<T>> {
+    pub closed spec fn storage_resource(self) -> StorageResource<(), T, FracP<T>> {
         self.r -> Some_0
     }
 
@@ -121,7 +121,7 @@ impl<T> FracStorage<T> {
         self.storage_resource().loc()
     }
 
-    pub closed spec fn protocol_monoid(self) -> FracS<T> {
+    pub closed spec fn protocol_monoid(self) -> FracP<T> {
         self.storage_resource().value()
     }
 
@@ -144,7 +144,7 @@ impl<T> FracStorage<T> {
     {
         let tracked mut m = Map::<(),T>::tracked_empty();
         m.tracked_insert((), v);
-        let tracked resource = StorageResource::alloc(FracS::new(v), m);
+        let tracked resource = StorageResource::alloc(FracP::new(v), m);
         FracStorage { r: Some(resource) }
     }
 
@@ -162,7 +162,7 @@ impl<T> FracStorage<T> {
     }
 
     /// Avoid breaking the type invariant.
-    proof fn split_helper(tracked r: &mut Option<StorageResource<(),T,FracS<T>>>) -> (tracked res: Self)
+    proof fn split_helper(tracked r: &mut Option<StorageResource<(),T,FracP<T>>>) -> (tracked res: Self)
     requires
         *old(r) is Some,
         old(r)->Some_0.value() is Frac,
@@ -182,7 +182,7 @@ impl<T> FracStorage<T> {
         let tracked mut storage_resource = r.tracked_take();
         let frac = storage_resource.value().frac();
         let half_frac = frac / 2.0real;
-        let m = FracS::construct_frac(half_frac, storage_resource.value().value());
+        let m = FracP::construct_frac(half_frac, storage_resource.value().value());
         let tracked (resource_1, resource_2) = storage_resource.split(m,m);
         *r = Some(resource_1);
         FracStorage { r: Some(resource_2) }
