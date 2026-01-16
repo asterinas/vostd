@@ -438,9 +438,7 @@ impl VmSpace<'_> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        Cursor<'a, G>,
-    > {
+    pub fn cursor<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -454,9 +452,7 @@ impl VmSpace<'_> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    pub fn cursor_mut<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -469,7 +465,6 @@ impl VmSpace<'_> {
         )
     }
 
-    /// TODO: come back after IO
     /// Creates a reader to read data from the user space of the current task.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
@@ -690,11 +685,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<
-        'a,
-        UserPtConfig,
-        A,
-    >,
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,

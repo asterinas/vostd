@@ -79,12 +79,8 @@ verus! {
             owner_r.params_eq(*old(owner_r)),
             owner_w.params_eq(*old(owner_w)),
     )]
-pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<
-    usize,
-    (Error, usize),
-> {
+pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<usize, (Error, usize)> {
     Ok(0)  // placeholder.
-
 }
 
 /// Copies `len` bytes from `src` to `dst`.
@@ -138,8 +134,7 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub id: Ghost<nat>,
     pub cursor: PPtr<u8>,
     pub end: PPtr<u8>,
-    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/
-    >,
+    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/>,
     // if so, we must also make it
     // phantom <ArrayPtr<u8, N>>???
     // phantaom: PhantomData<PointsToArray<u8, N>>, ? // what should be here?
@@ -1132,6 +1127,7 @@ impl<'a> VmWriter<'a> {
 }
 
 } // verus!
+
 // pub trait VmIo: Send + Sync {
 //     /// Reads a slice of a specified type at a specified offset.
 //     ///
@@ -1710,11 +1706,6 @@ impl<'a> VmWriter<'a> {
 //     }
 // }
 // impl<'a> VmWriter<'a /* Fallibility */> {
-//     /// Returns the number of bytes for the available space.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn avail(&self) -> usize {
-//         self.end.addr() - self.cursor.addr()
-//     }
 //     /// Returns the cursor pointer, which refers to the address of the next byte to write.
 //     #[rustc_allow_incoherent_impl]
 //     pub fn cursor(&self) -> *mut u8 {
