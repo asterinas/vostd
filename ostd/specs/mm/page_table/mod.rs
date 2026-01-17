@@ -44,6 +44,36 @@ impl AbstractVaddr {
         ensures
             AbstractVaddr::from_vaddr(va).inv();
 
+    pub closed spec fn to_vaddr(self) -> Vaddr;
+
+    pub closed spec fn reflect(self, va: Vaddr) -> bool;
+
+    pub broadcast axiom fn reflect_prop(self, va: Vaddr)
+        requires
+            self.inv(),
+            self.reflect(va),
+        ensures
+            self.to_vaddr() == va,
+            Self::from_vaddr(va) == self;
+
+    pub broadcast axiom fn reflect_from_vaddr(va: Vaddr)
+        ensures
+            Self::from_vaddr(va).reflect(va),
+            Self::from_vaddr(va).inv();
+
+    pub broadcast axiom fn reflect_to_vaddr(self)
+        requires
+            self.inv(),
+        ensures
+            self.reflect(self.to_vaddr());
+
+    pub broadcast axiom fn reflect_eq(self, other: Self, va: Vaddr)
+        requires
+            self.reflect(va),
+            other.reflect(va),
+        ensures
+            self == other;
+
     pub open spec fn align_down(self, level: int) -> Self
         decreases level when level >= 1
     {
@@ -78,32 +108,30 @@ impl AbstractVaddr {
         }
     }
 
-    pub axiom fn align_down_concrete(va: Vaddr, level: int)
+    pub axiom fn align_down_concrete(self, level: int)
         requires
             1 <= level <= NR_LEVELS(),
         ensures
-            AbstractVaddr::from_vaddr(va).align_down(level) ==
-            AbstractVaddr::from_vaddr(nat_align_down(va as nat, page_size(level as PagingLevel) as nat) as Vaddr);
+            self.align_down(level).reflect(nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) as Vaddr);
 
     pub open spec fn align_up(self, level: int) -> Self {
         let lower_aligned = self.align_down(level - 1);
         lower_aligned.next_index(level)
     }
 
-    pub axiom fn align_up_concrete(va: Vaddr, level: int)
+    pub axiom fn align_up_concrete(self, level: int)
         requires
             1 <= level <= NR_LEVELS(),
         ensures
-            AbstractVaddr::from_vaddr(va).align_up(level) ==
-            AbstractVaddr::from_vaddr(nat_align_up(va as nat, page_size(level as PagingLevel) as nat) as Vaddr);
+            self.align_up(level).reflect(nat_align_up(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) as Vaddr);
 
-    pub axiom fn align_diff(va: Vaddr, level: int)
+    pub axiom fn align_diff(self, level: int)
         requires
             1 <= level <= NR_LEVELS(),
         ensures
-            nat_align_up(va as nat, page_size(level as PagingLevel) as nat) ==
-            nat_align_down(va as nat, page_size(level as PagingLevel) as nat) + page_size(level as PagingLevel),
-            nat_align_up(va as nat, page_size(level as PagingLevel) as nat) < usize::MAX;
+            nat_align_up(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) ==
+            nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) + page_size(level as PagingLevel),
+            nat_align_up(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) < usize::MAX;
 
     pub open spec fn next_index(self, level: int) -> Self
         decreases NR_LEVELS() - level when 1 <= level <= NR_LEVELS()

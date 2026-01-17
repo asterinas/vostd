@@ -125,9 +125,13 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///
     /// The ownership of the item will be consumed, i.e., the item will be
     /// forgotten after this function is called.
+    spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+
+    #[verifier::when_used_as_spec(item_into_raw_spec)]
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
         ensures
             1 <= res.1 <= NR_LEVELS(),
+            res == Self::item_into_raw_spec(item),
     ;
 
     /// Restores the item from the physical address and the paging level.

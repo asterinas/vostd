@@ -199,25 +199,50 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
     pub va: AbstractVaddr,
     pub guard_level: PagingLevel,
+    pub prefix: AbstractVaddr,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.va.inv()
         &&& 1 <= self.level <= NR_LEVELS()
-        &&& forall|i: int|
-//            #![trigger self.continuations[i]]
-            self.level - 1 <= i <= NR_LEVELS() - 1 ==> self.continuations.contains_key(i)
-        &&& forall|i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i <= NR_LEVELS() - 1 ==> {
-                &&& self.continuations[i].inv()
-                &&& self.continuations[i].level == i + 1
-            }
-        &&& forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.va.index[i] == self.continuations[i].idx
-//        &&& forall|i: int| self.level - 1 <= i <= NR_LEVELS() - 2 ==> self.va_relate_parent(i)
         &&& self.continuations[self.level - 1].all_some()
-        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> (#[trigger] self.continuations[i]).all_but_index_some()
+        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> {
+            (#[trigger] self.continuations[i]).all_but_index_some()
+        }
+        &&& self.prefix.inv()
+        &&& forall|i: int| i < self.guard_level ==> self.prefix.index[i] == 0
+        &&& self.level <= 4 ==> {
+            &&& self.continuations.contains_key(3)
+            &&& self.continuations[3].inv()
+            &&& self.continuations[3].level == 4
+            &&& self.continuations[3].entry_own.is_node()
+            &&& self.va.index[3] == self.continuations[3].idx
+        }
+        &&& self.level <= 3 ==> {
+            &&& self.continuations.contains_key(2)
+            &&& self.continuations[2].inv()
+            &&& self.continuations[2].level == 3
+            &&& self.continuations[2].entry_own.is_node()
+            &&& self.continuations[2].entry_own.relate_parent_guard_perm(self.continuations[3].entry_own.node.unwrap().guard_perm)
+            &&& self.va.index[2] == self.continuations[2].idx
+        }
+        &&& self.level <= 2 ==> {
+            &&& self.continuations.contains_key(1)
+            &&& self.continuations[1].inv()
+            &&& self.continuations[1].level == 2
+            &&& self.continuations[1].entry_own.is_node()
+            &&& self.continuations[1].entry_own.relate_parent_guard_perm(self.continuations[2].entry_own.node.unwrap().guard_perm)
+            &&& self.va.index[1] == self.continuations[1].idx
+        }
+        &&& self.level == 1 ==> {
+            &&& self.continuations.contains_key(0)
+            &&& self.continuations[0].inv()
+            &&& self.continuations[0].level == 1
+            &&& self.continuations[0].entry_own.is_node()
+            &&& self.continuations[0].entry_own.relate_parent_guard_perm(self.continuations[1].entry_own.node.unwrap().guard_perm)
+            &&& self.va.index[0] == self.continuations[0].idx
+        }
     }
 }
 
@@ -252,6 +277,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
     }
+
+    pub proof fn inc_index_increases_va(self)
+        requires
+            self.inv()
+        ensures
+            self.inc_index().va.to_vaddr() > self.va.to_vaddr(),
+    { admit() }
 
     pub open spec fn cur_va(self) -> Vaddr {
         (self.continuations[self.level - 1].base_va + self.index() * page_size(self.level as u8)) as usize
@@ -294,6 +326,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn cur_entry_owner(self) -> EntryOwner<'rcu, C> {
         self.continuations[self.level - 1].children[self.index() as int].unwrap().value
     }
+
+    pub open spec fn locked_range(self) -> Range<Vaddr> {
+        let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
+        let end = self.prefix.align_up(self.guard_level as int).to_vaddr();
+        Range { start, end }
+    }
+
+    pub open spec fn in_locked_range(self) -> bool {
+        self.locked_range().start <= self.va.to_vaddr() < self.locked_range().end
+    }
+
+    pub proof fn prefix_in_locked_range(self)
+        requires
+            forall|i:int| i >= self.guard_level ==> self.va.index[i] == self.prefix.index[i],
+        ensures
+            self.in_locked_range(),
+    { admit() }
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {
@@ -359,7 +408,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
     type Owner = CursorOwner<'rcu, C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& owner.va == AbstractVaddr::from_vaddr(self.va)
+        &&& owner.va.reflect(self.va)
         &&& self.level == owner.level
 //        &&& owner.index() == self.va % page_size(self.level)
         &&& self.level <= 4 ==> {
@@ -385,6 +434,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
             &&& owner.continuations[0].entry_own.node.unwrap().guard_perm.pptr() == self.path[0].unwrap()
             &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[0].entry_own.guard_addr
         }
+        &&& self.barrier_va.start == owner.locked_range().start
+        &&& self.barrier_va.end == owner.locked_range().end
     }
 }
 

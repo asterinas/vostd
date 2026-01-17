@@ -141,13 +141,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    pub proof fn pop_level_owner_preserves_inv(self)
+        requires
+            self.inv(),
+            self.level < NR_LEVELS(),
+        ensures
+            self.pop_level_owner_spec().inv()
+    { }
+
     #[verifier::returns(proof)]
     pub proof fn pop_level_owner(tracked &mut self)
         requires
             old(self).inv(),
             old(self).level < NR_LEVELS(),
         ensures
-            self == old(self).pop_level_owner_spec(),
+            self == old(self).pop_level_owner_spec()
     {
         let ghost self0 = *self;
         let tracked mut parent = self.continuations.tracked_remove(self.level as int);
@@ -159,7 +167,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert(self.continuations == self0.continuations.insert(self.level as int, parent).remove(self.level - 1));
 
-//        self.path.0.tracked_pop();
         self.level = (self.level + 1) as u8;
     }
 
@@ -176,10 +183,28 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
+    pub proof fn move_forward_increases_va(self)
+        requires
+            self.inv(),
+            self.level <= NR_LEVELS(),
+            self.in_locked_range(),
+        ensures
+            self.move_forward_owner_spec().va.to_vaddr() > self.va.to_vaddr(),
+        decreases NR_LEVELS() - self.level
+    {
+        if self.index() + 1 < NR_ENTRIES() {
+            self.inc_index_increases_va();
+        } else if self.level < NR_LEVELS() {
+            self.pop_level_owner_spec().move_forward_increases_va();
+        } else {
+            admit();
+        }
+    }
+
     pub proof fn move_forward_owner_decreases_steps(self)
         requires
             self.inv(),
-            self.level < NR_LEVELS(),
+            self.level <= NR_LEVELS(),
         ensures
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }

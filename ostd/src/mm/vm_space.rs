@@ -309,6 +309,8 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = MappedItem;
 
+    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
         unimplemented!()/*
@@ -649,6 +651,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(regions).inv(),
             old(self).0.level < old(self).0.guard_level,
             old(self).0.inv(),
+            old(owner).in_locked_range(),
+            len % PAGE_SIZE() == 0,
+            old(self).0.va + len <= old(self).0.barrier_va.end,
         ensures
             owner.inv(),
             self.0.wf(*owner),
@@ -668,6 +673,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.wf(*old(owner)),
             old(self).0.level < old(self).0.guard_level,
             old(self).0.inv(),
+            old(owner).in_locked_range(),
     {
         (#[verus_spec(with Tracked(owner))]
         self.0.jump(va))?;
@@ -754,6 +760,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(regions).inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
+            old(owner).in_locked_range(),
+            len % PAGE_SIZE() == 0,
+            old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
             owner.inv(),
             self.pt_cursor.inner.wf(*owner),
@@ -811,6 +820,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             entry_owner.inv(),
             old(self).pt_cursor.inner.inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
+            old(cursor_owner).in_locked_range(),
+            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1 <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+            old(self).pt_cursor.inner.va % page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) == 0,
+            old(self).pt_cursor.inner.va + page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) < old(self).pt_cursor.inner.barrier_va.end,
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
