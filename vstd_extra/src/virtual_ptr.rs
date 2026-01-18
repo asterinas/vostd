@@ -74,34 +74,54 @@ impl MemView {
         }
     }
 
-    pub open spec fn borrow_at_spec(&self, vaddr: usize, len: usize) -> &MemView {
-        arbitrary()
+    pub open spec fn borrow_at_spec(&self, vaddr: usize, len: usize) -> MemView {
+        let range_end = vaddr + len;
+
+        let valid_pas = Set::new(
+            |pa: usize|
+                exists|va: usize|
+                    vaddr <= va < range_end && #[trigger] self.addr_transl(va) == Some(pa),
+        );
+
+        MemView {
+            mappings: self.mappings.filter(
+                |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr,
+            ),
+            memory: self.memory.restrict(valid_pas),
+        }
     }
 
     pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
         // The left part.
-        let left = MemView {
-            mappings: self.mappings.filter(
-                |m: Mapping| m.va_range.start >= vaddr && m.va_range.end <= split_end,
-            ),
-            memory: self.memory.restrict(Set::new(|k: usize| vaddr <= k && k < split_end)),
-        };
+        let left_mappings = self.mappings.filter(
+            |m: Mapping| m.va_range.start < split_end && m.va_range.end > vaddr,
+        );
+        let right_mappings = self.mappings.filter(|m: Mapping| m.va_range.end > split_end);
 
-        let right = MemView {
-            mappings: self.mappings.filter(|m: Mapping| m.va_range.start >= split_end),
-            memory: self.memory.restrict(
-            // Map restriction: keep keys k where k >= split_end
-            Set::new(|k: usize| k >= split_end)),
-        };
+        let left_pas = Set::new(
+            |pa: usize|
+                exists|va: usize| vaddr <= va < split_end && self.addr_transl(va) == Some(pa),
+        );
+        let right_pas = Set::new(
+            |pa: usize| exists|va: usize| va >= split_end && self.addr_transl(va) == Some(pa),
+        );
 
-        (left, right)
+        (
+            MemView { mappings: left_mappings, memory: self.memory.restrict(left_pas) },
+            MemView { mappings: right_mappings, memory: self.memory.restrict(right_pas) },
+        )
     }
 
     /// Borrows a memory view for a sub-range.
     #[verifier::external_body]
     pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
+        requires
+            forall|va: usize|
+                vaddr <= va < vaddr + len ==> {
+                    &&& #[trigger] self.addr_transl(va) is Some
+                },
         ensures
             r == self.borrow_at_spec(vaddr, len),
     {
@@ -136,8 +156,9 @@ impl MemView {
 
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
+        &&& self.range@.start <= self.vaddr <= self.range@.end
         &&& self.range@.start > 0
-        &&& self.range@.end - self.range@.start >= 0
+        &&& self.range@.end >= self.range@.start
     }
 }
 

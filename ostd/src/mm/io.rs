@@ -48,6 +48,7 @@ use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::array_ptr::ArrayPtr;
 use vstd_extra::array_ptr::PointsToArray;
 use vstd_extra::ownership::Inv;
+use vstd_extra::virtual_ptr::Mapping;
 use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use crate::error::*;
@@ -173,22 +174,23 @@ impl Inv for VmIoOwner<'_> {
         &&& match self.mem_view {
             // Case 1: Write (exclusive)
             Some(VmIoMemView::WriteView(mv)) => {
-                &&& mv.memory.dom().len() == (self.range@.end - self.range@.start)
-                    / PAGE_SIZE() as int
-                &&& forall|i: usize|
-                    self.range@.start <= i < self.range@.end && i % PAGE_SIZE() == 0 ==> {
-                        #[trigger] mv.memory.dom().contains(i)
+                &&& mv.mappings.finite()
+                &&& forall|va: usize|
+                    self.range@.start <= va < self.range@.end ==> {
+                        #[trigger] mv.addr_transl(va) is Some
                     }
             },
             // Case 2: Read (shared)
             Some(VmIoMemView::ReadView(mv)) => {
-                &&& forall|i: usize|
-                    self.range@.start <= i < self.range@.end && i % PAGE_SIZE() == 0 ==> {
-                        #[trigger] mv.memory.dom().contains(i)
+                &&& mv.mappings.finite()
+                &&& forall|va: usize|
+                    self.range@.start <= va < self.range@.end ==> {
+                        #[trigger] mv.addr_transl(va) is Some
                     }
             },
-            // Case 3: Empty/Invalid
-            None => self.range@.start == self.range@.end,
+            // Case 3: Empty/Invalid; this means no memory is accessible,
+            //         and we are just creating a placeholder.
+            None => true,
         }
     }
 }
@@ -223,6 +225,112 @@ impl VmIoOwner<'_> {
             self.is_fallible == fallible,
     {
         self.is_fallible = fallible;
+    }
+
+    /// Advances the cursor of the reader/writer by the given number of bytes.
+    ///
+    /// Note this will return the advanced `VmIoMemView` as the previous permission
+    /// is no longer needed and must be discarded then.
+    pub proof fn advance(tracked &mut self, tracked nbytes: usize) -> (tracked res: VmIoMemView<'_>)
+        requires
+            old(self).inv(),
+            old(self).mem_view is Some,
+            nbytes <= old(self).range@.end - old(self).range@.start,
+        ensures
+            self.inv(),
+            self.range@.start == old(self).range@.start + nbytes,
+            self.range@.end == old(self).range@.end,
+            self.is_fallible == old(self).is_fallible,
+            self.id == old(self).id,
+            self.is_kernel == old(self).is_kernel,
+    {
+        let start = self.range@.start;
+        let old_end = self.range@.end;
+        self.range = Ghost((start + nbytes) as usize..self.range@.end);
+        // Take this option and leaves the `None` in its place temporarily.
+        let tracked inner = self.mem_view.tracked_take();
+        let tracked ret_perm = match inner {
+            VmIoMemView::WriteView(mv) => {
+                let tracked (lhs, rhs) = mv.split(start, nbytes);
+
+                assert(forall|va: usize|
+                    start <= va < start + nbytes ==> mv.addr_transl(va) is Some);
+
+                // Update the mem view to the remaining part.
+                self.mem_view = Some(VmIoMemView::WriteView(rhs));
+
+                assert(self.inv()) by {
+                    assert forall|va: usize| start + nbytes <= va < old_end implies {
+                        #[trigger] rhs.addr_transl(va) is Some
+                    } by {
+                        assert(mv.addr_transl(va) is Some) by {
+                            assert(old(self).inv());
+                        }
+
+                        let old_mappings = mv.mappings.filter(
+                            |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                        );
+                        let new_mappings = rhs.mappings.filter(
+                            |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                        );
+                        assert(old_mappings.len() != 0);
+                        assert(rhs.mappings =~= mv.mappings.filter(
+                            |m: Mapping| m.va_range.end > start + nbytes,
+                        ));
+                        assert(new_mappings =~= mv.mappings.filter(
+                            |m: Mapping|
+                                m.va_range.start <= va < m.va_range.end && m.va_range.end > start
+                                    + nbytes,
+                        ));
+
+                        assert(new_mappings.len() != 0) by {
+                            broadcast use vstd::set::group_set_axioms;
+
+                            let m = old_mappings.choose();
+                            // m.start <= va < m.end
+                            assert(start + nbytes <= va);
+                            assert(m.va_range.end > va) by {
+                                if (m.va_range.end <= va) {
+                                    assert(!old_mappings.contains(m));
+                                }
+                            }
+                            assert(m.va_range.end > start + nbytes);
+                            assert(old_mappings.contains(m));
+                            assert(old_mappings.subset_of(mv.mappings));
+                            assert(rhs.mappings.contains(m));
+                            assert(new_mappings.contains(m));
+                            assert(new_mappings.len() >= 1);
+                        }
+                    }
+                }
+
+                VmIoMemView::WriteView(lhs)
+            },
+            VmIoMemView::ReadView(mv) => {
+                let tracked sub_view = mv.borrow_at(start, nbytes);
+                // Since reads are shared so we don't need to
+                // modify the original view; here we just put
+                // it back.
+                self.mem_view = Some(VmIoMemView::ReadView(mv));
+                VmIoMemView::ReadView(sub_view)
+            },
+        };
+
+        ret_perm
+    }
+
+    /// Unwraps the read view.
+    pub proof fn tracked_read_view_unwrap(tracked &self) -> (tracked r: &MemView)
+        requires
+            self.inv(),
+            self.mem_view matches Some(VmIoMemView::ReadView(_)),
+        ensures
+            VmIoMemView::ReadView(r) == self.mem_view.unwrap(),
+    {
+        match self.mem_view {
+            Some(VmIoMemView::ReadView(r)) => r,
+            _ => { proof_from_false() },
+        }
     }
 }
 
@@ -311,6 +419,9 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
                 -> owner: Tracked<VmIoOwner<'a>>,
         requires
             !fallible,
+            ptr.inv(),
+            ptr.range@.start == ptr.vaddr,
+            len == ptr.range@.end - ptr.range@.start,
             len == 0 || KERNEL_BASE_VADDR() <= ptr.vaddr,
             len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR(),
         ensures
@@ -319,7 +430,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             owner@.is_fallible == fallible,
             owner@.id == id,
             owner@.is_kernel,
-            r.cursor.vaddr == ptr.vaddr,
+            owner@.mem_view is None,
+            r.cursor == ptr,
             r.end.vaddr == ptr.vaddr + len,
             r.cursor.range@ == ptr.range@,
             r.end.range@ == ptr.range@,
@@ -335,12 +447,8 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             mem_view: None,
         };
 
-        proof {
-            admit();
-        }
-
         let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
-        let end = VirtPtr { vaddr: ptr.vaddr.checked_add(len).unwrap(), range: Ghost(range) };
+        let end = VirtPtr { vaddr: ptr.vaddr + len, range: Ghost(range) };
 
         proof_with!(|= Tracked(owner));
         Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
@@ -400,7 +508,6 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 impl<'a> VmReader<'a  /* Infallible */ > {
     /// Constructs a `VmReader` from a pointer and a length, which represents
     /// a memory range in USER space.
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     #[verus_spec(r =>
         with
@@ -430,12 +537,14 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     /// `ptr` must be [valid] for reads of `len` bytes during the entire lifetime `a`.
     ///
     /// [valid]: crate::mm::io#safety
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
             -> owner: Tracked<VmIoOwner<'a>>,
         requires
+            ptr.inv(),
+            ptr.range@.start == ptr.vaddr,
+            len == ptr.range@.end - ptr.range@.start,
             len == 0 || KERNEL_BASE_VADDR() <= ptr.vaddr,
             len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR(),
         ensures
@@ -443,7 +552,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             owner@.inv_with_reader(r),
             r.cursor.vaddr == ptr.vaddr,
             r.end.vaddr == ptr.vaddr + len,
-            r.cursor.range@ == ptr.range@,
+            r.cursor == ptr,
             r.end.range@ == ptr.range@,
             owner@.is_kernel,
             owner@.id == id,
@@ -459,12 +568,8 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             mem_view: None,
         };
 
-        proof {
-            admit();
-        }
-
         let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
-        let end = VirtPtr { vaddr: ptr.vaddr.checked_add(len).unwrap(), range: Ghost(range) };
+        let end = VirtPtr { vaddr: ptr.vaddr + len, range: Ghost(range) };
 
         proof_with!(|= Tracked(owner));
         Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
@@ -528,7 +633,7 @@ impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
         let addr = slice.as_ptr() as usize;
 
         if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+            || addr > KERNEL_END_VADDR() - slice.len()) || addr == 0 {
             return Err(Error::IoError);
         }
         // SAFETY:
@@ -559,7 +664,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         let len = slice.len();
 
         if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
-            > KERNEL_END_VADDR() - slice.len()) {
+            > KERNEL_END_VADDR() - slice.len()) || addr == 0 {
             Err(Error::IoError)
         } else {
             Ok(
@@ -594,7 +699,7 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
         let addr = slice.as_ptr() as usize;
 
         if slice.len() != 0 && (addr < KERNEL_BASE_VADDR() || slice.len() >= KERNEL_END_VADDR()
-            || addr > KERNEL_END_VADDR() - slice.len()) {
+            || addr > KERNEL_END_VADDR() - slice.len()) || addr == 0 {
             return Err(Error::IoError);
         }
         // SAFETY:
@@ -605,6 +710,10 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
 
         let ghost range = addr..(addr + slice.len()) as usize;
         let vptr = VirtPtr { vaddr: addr, range: Ghost(range) };
+
+        proof {
+            assert(vptr.inv());
+        }
 
         Ok(
             unsafe {
@@ -625,7 +734,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
         let len = slice.len();
 
         if len != 0 && (addr < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || addr
-            > KERNEL_END_VADDR() - slice.len()) {
+            > KERNEL_END_VADDR() - slice.len()) || addr == 0 {
             Err(Error::IoError)
         } else {
             Ok(
@@ -830,7 +939,6 @@ impl VmReader<'_> {
     /// 2. The writer has no available space.
     ///
     /// Returns the number of bytes read.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,

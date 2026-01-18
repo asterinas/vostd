@@ -394,7 +394,9 @@ impl<'a> VmSpace<'a> {
                 phantom: PhantomData,
                 is_fallible: false,
                 is_kernel: false,
-                mem_view: Some(VmIoMemView::ReadView(vm_owner_old.mem_view.borrow_at_spec(vaddr, len))),
+                mem_view: Some(
+                    VmIoMemView::ReadView(vm_owner_old.mem_view.borrow_at_spec(vaddr, len)),
+                ),
             },
         )
     }
@@ -416,7 +418,9 @@ impl<'a> VmSpace<'a> {
                 phantom: PhantomData,
                 is_fallible: false,
                 is_kernel: false,
-                mem_view: Some(VmIoMemView::WriteView(vm_owner_old.mem_view.split_spec(vaddr, len).0)),
+                mem_view: Some(
+                    VmIoMemView::WriteView(vm_owner_old.mem_view.split_spec(vaddr, len).0),
+                ),
             },
         )
     }
@@ -443,7 +447,9 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
+    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        Cursor<'a, G>,
+    > {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -457,7 +463,9 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        CursorMut<'a, G>,
+    > {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -482,6 +490,7 @@ impl<'a> VmSpace<'a> {
     /// always consult the [`VmSpaceOwner`] to ensure the validity of the created reader and "borrow"
     /// the reader from the owner.
     #[inline]
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
@@ -506,7 +515,9 @@ impl<'a> VmSpace<'a> {
 
         proof {
             // Give the corresponding memory view to the reader owner.
-            vm_reader_owner.mem_view = Some(VmIoMemView::ReadView(owner.mem_view.borrow_at(vaddr, len)));
+            vm_reader_owner.mem_view = Some(
+                VmIoMemView::ReadView(owner.mem_view.borrow_at(vaddr, len)),
+            );
             owner.readers.tracked_insert(vm_reader_owner.id@, vm_reader_owner);
         }
 
@@ -529,6 +540,7 @@ impl<'a> VmSpace<'a> {
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
     #[inline]
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<VmSpaceOwner<'a>>,
@@ -717,7 +729,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+    pub pt_cursor: crate::mm::page_table::CursorMut<
+        'a,
+        UserPtConfig,
+        A,
+    >,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
@@ -846,9 +862,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(cursor_owner).in_locked_range(),
-            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1 <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-            old(self).pt_cursor.inner.va % page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) == 0,
-            old(self).pt_cursor.inner.va + page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) < old(self).pt_cursor.inner.barrier_va.end,
+            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1
+                <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+            old(self).pt_cursor.inner.va % page_size(
+                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+            ) == 0,
+            old(self).pt_cursor.inner.va + page_size(
+                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+            ) < old(self).pt_cursor.inner.barrier_va.end,
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
