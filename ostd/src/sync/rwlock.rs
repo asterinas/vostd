@@ -1,18 +1,21 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::PCell;
+use vstd::cell::{self, PCell};
+use vstd::tokens::frac::Frac;
+use vstd::prelude::*;
 use vstd_extra::resource::*;
 
 use alloc::sync::Arc;
+use core::char::MAX;
 use core::{
     cell::UnsafeCell,
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::atomic::{
+    /* sync::atomic::{
         AtomicUsize,
         Ordering::{AcqRel, Acquire, Relaxed, Release},
-    },
+    },*/
 };
 
 use super::{
@@ -21,6 +24,12 @@ use super::{
 };
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
+verus!{
+
+pub type RwFrac<T> = Frac<cell::PointsTo<T>,MAX_READER_U64>;
+const MAX_READER_U64: u64 = MAX_READER as u64;
+
+struct_with_invariants! {
 /// Spin-based Read-write Lock
 ///
 /// # Overview
@@ -106,9 +115,20 @@ pub struct RwLock<T/* : ?Sized*/, Guard /* = PreemptDisabled*/> {
     /// - **Bit 62:** Upgradeable reader lock.
     /// - **Bit 61:** Indicates if an upgradeable reader is being upgraded.
     /// - **Bits 60-0:** Reader lock count.
-    lock: AtomicUsize,
+    lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
     val: PCell<T>,
     //val: UnsafeCell<T>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on lock with (val,guard) is (v:usize, g:Option<RwFrac<T>>) {
+        match g {
+            None => v == 0,
+            Some(_) => true
+        }
+    }
+}
+
 }
 
 const READER: usize = 1;
@@ -116,6 +136,7 @@ const WRITER: usize = 1 << (usize::BITS - 1);
 const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 const MAX_READER: usize = 1 << (usize::BITS - 4);
+}
 
 /* 
 impl<T, G> RwLock<T, G> {

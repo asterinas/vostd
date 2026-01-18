@@ -67,9 +67,8 @@ pub struct SpinLock<T, G> {
 }
 
 verus! {
-struct_with_invariants! {
 
-#[verus_verify]
+struct_with_invariants! {
 struct SpinLockInner<T> {
     lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
     val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
