@@ -15,10 +15,7 @@ verus! {
 
 /// Concrete representation of a pointer
 pub struct VirtPtr {
-    // The virtual address
     pub vaddr: usize,
-    // what is the range?
-    // so it's the range of the allocated memories?
     pub ghost range: Ghost<Range<usize>>,
 }
 
@@ -76,24 +73,71 @@ impl MemView {
             false
         }
     }
-    // pub open spec fn split(vaddr: usize, len: usize) -> (Self, Self) {
-    //     arbitrary()
-    // }
-    // /// Splits the memory view into two disjoint views.
-    // #[verifier::external_body]
-    // pub proof fn tracked_split(self) -> (r: (Self, Self))
-    //     ensures
-    //         r == self.split(),
-    // {
-    //     unimplemented!()
-    // }
 
+    pub open spec fn borrow_at_spec(&self, vaddr: usize, len: usize) -> &MemView {
+        arbitrary()
+    }
+
+    pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
+        let split_end = vaddr + len;
+
+        // The left part.
+        let left = MemView {
+            mappings: self.mappings.filter(
+                |m: Mapping| m.va_range.start >= vaddr && m.va_range.end <= split_end,
+            ),
+            memory: self.memory.restrict(Set::new(|k: usize| vaddr <= k && k < split_end)),
+        };
+
+        let right = MemView {
+            mappings: self.mappings.filter(|m: Mapping| m.va_range.start >= split_end),
+            memory: self.memory.restrict(
+            // Map restriction: keep keys k where k >= split_end
+            Set::new(|k: usize| k >= split_end)),
+        };
+
+        (left, right)
+    }
+
+    /// Borrows a memory view for a sub-range.
+    #[verifier::external_body]
+    pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
+        ensures
+            r == self.borrow_at_spec(vaddr, len),
+    {
+        unimplemented!()
+    }
+
+    /// Splits the memory view into two disjoint views.
+    ///
+    /// Returns the split memory views where the first is
+    /// for `[vaddr, vaddr + len)` and the second is for the rest.
+    #[verifier::external_body]
+    pub proof fn split(tracked self, vaddr: usize, len: usize) -> (tracked r: (Self, Self))
+        ensures
+            r == self.split_spec(vaddr, len),
+    {
+        unimplemented!()
+    }
+
+    pub open spec fn join_spec(self, other: MemView) -> MemView {
+        arbitrary()
+    }
+
+    /// Merges two disjoint memory views back into one.
+    #[verifier::external_body]
+    pub proof fn join(tracked self, tracked other: Self) -> (tracked r: Self)
+        ensures
+            r == self.join_spec(other),
+    {
+        unimplemented!()
+    }
 }
 
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
         &&& self.range@.start > 0
-        &&& self.range@.end - self.range@.start > 0
+        &&& self.range@.end - self.range@.start >= 0
     }
 }
 
@@ -281,6 +325,35 @@ impl VirtPtr {
             r.range@.end == (vaddr + len) as usize,
     {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
+    }
+
+    /// Executable helper to split the VirtPtr struct
+    /// This updates the ghost ranges to match a MemView::split operation
+    #[verus_spec(r =>
+        requires
+            self.is_valid(),
+            0 <= n <= (self.range@.end - self.range@.start),
+            self.vaddr == self.range@.start,
+        ensures
+            r.0.range@.start == self.range@.start,
+            r.0.range@.end == self.range@.start + n,
+            r.0.vaddr == self.range@.start,
+            r.1.range@.start == self.range@.start + n,
+            r.1.range@.end == self.range@.end,
+            r.1.vaddr == self.range@.start + n,
+    )]
+    pub fn split(self, n: usize) -> (Self, Self) {
+        let left = VirtPtr {
+            vaddr: self.vaddr,
+            range: Ghost(Range { start: self.vaddr, end: (self.vaddr + n) as usize }),
+        };
+
+        let right = VirtPtr {
+            vaddr: self.vaddr + n,
+            range: Ghost(Range { start: (self.vaddr + n) as usize, end: self.range@.end }),
+        };
+
+        (left, right)
     }
 }
 

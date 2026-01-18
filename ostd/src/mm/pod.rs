@@ -51,11 +51,11 @@ pub trait Pod: Copy + Sized {
     /// This seems a bit awkward if we try to use `arrayptr` and then making a mutable
     /// reference from it as verus cannot do it now.
     #[verifier::external_body]
-    fn as_bytes_mut(&mut self) -> (r: (*mut u8, usize))
+    fn as_bytes_mut(&mut self) -> (r: (usize, usize))
         ensures
             r.1 == core::mem::size_of::<Self>(),
     {
-        let ptr = self as *mut Self as *mut u8;
+        let ptr = self as *mut Self as usize;
         let len = core::mem::size_of::<Self>();
         // unsafe { core::slice::from_raw_parts_mut(ptr, len) }
         (ptr, len)

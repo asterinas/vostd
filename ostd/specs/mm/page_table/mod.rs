@@ -9,13 +9,13 @@ pub use owners::*;
 pub use view::*;
 
 use vstd::prelude::*;
-use vstd_extra::ownership::*;
 use vstd_extra::arithmetic::*;
+use vstd_extra::ownership::*;
 
-use crate::mm::page_table::PageTableConfig;
 use crate::mm::page_table::page_size;
+use crate::mm::page_table::PageTableConfig;
+use crate::mm::{PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::mm::{Vaddr, PagingLevel};
 
 use align_ext::AlignExt;
 

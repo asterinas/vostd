@@ -38,6 +38,9 @@
 //! Note that data races on untyped memory are explicitly allowed (since pages can be mapped to
 //! user space, making it impossible to avoid data races). However, they may produce erroneous
 //! results, such as unexpected bytes being copied, but do not cause soundness problems.
+use crate::specs::arch::PAGE_SIZE;
+use core::marker::PhantomData;
+use core::ops::Range;
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
@@ -46,9 +49,6 @@ use vstd_extra::array_ptr::ArrayPtr;
 use vstd_extra::array_ptr::PointsToArray;
 use vstd_extra::ownership::Inv;
 use vstd_extra::virtual_ptr::{MemView, VirtPtr};
-
-use core::marker::PhantomData;
-use core::ops::Range;
 
 use crate::error::*;
 use crate::mm::pod::{Pod, PodOnce};
@@ -79,8 +79,12 @@ verus! {
             owner_r.params_eq(*old(owner_r)),
             owner_w.params_eq(*old(owner_w)),
     )]
-pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<usize, (Error, usize)> {
+pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<
+    usize,
+    (Error, usize),
+> {
     Ok(0)  // placeholder.
+
 }
 
 /// Copies `len` bytes from `src` to `dst`.
@@ -132,12 +136,17 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
 /// the user's responsibility to handle this situation.
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub id: Ghost<nat>,
-    pub cursor: PPtr<u8>,
-    pub end: PPtr<u8>,
-    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/>,
-    // if so, we must also make it
-    // phantom <ArrayPtr<u8, N>>???
-    // phantaom: PhantomData<PointsToArray<u8, N>>, ? // what should be here?
+    pub cursor: VirtPtr,
+    pub end: VirtPtr,
+    pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
+}
+
+/// The memory view used for VM I/O operations.
+pub tracked enum VmIoMemView<'a> {
+    /// An owned memory for writing.
+    WriteView(MemView),
+    /// A shared memory for reading.
+    ReadView(&'a MemView),
 }
 
 /// This looks like we can implement a single struct with a type parameter
@@ -153,20 +162,33 @@ pub tracked struct VmIoOwner<'a> {
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
     /// Whether this owner is for kernel space.
     pub is_kernel: bool,
+    /// The mem view associated with this owner.
+    pub mem_view: Option<VmIoMemView<'a>>,
 }
 
 impl Inv for VmIoOwner<'_> {
     open spec fn inv(self) -> bool {
         // We do allow ZSTs so that empty ranges are valid.
         &&& self.range@.start <= self.range@.end
-        &&& self.is_kernel ==> {
-            // Kernel space range
-            &&& KERNEL_BASE_VADDR() <= self.range@.start
-            &&& self.range@.end <= KERNEL_END_VADDR()
-        }
-        &&& !self.is_kernel ==> {
-            // User space range
-            &&& self.range@.end <= MAX_USERSPACE_VADDR_SPEC()
+        &&& match self.mem_view {
+            // Case 1: Write (exclusive)
+            Some(VmIoMemView::WriteView(mv)) => {
+                &&& mv.memory.dom().len() == (self.range@.end - self.range@.start)
+                    / PAGE_SIZE() as int
+                &&& forall|i: usize|
+                    self.range@.start <= i < self.range@.end && i % PAGE_SIZE() == 0 ==> {
+                        #[trigger] mv.memory.dom().contains(i)
+                    }
+            },
+            // Case 2: Read (shared)
+            Some(VmIoMemView::ReadView(mv)) => {
+                &&& forall|i: usize|
+                    self.range@.start <= i < self.range@.end && i % PAGE_SIZE() == 0 ==> {
+                        #[trigger] mv.memory.dom().contains(i)
+                    }
+            },
+            // Case 3: Empty/Invalid
+            None => self.range@.start == self.range@.end,
         }
     }
 }
@@ -206,13 +228,23 @@ impl VmIoOwner<'_> {
 
 impl Inv for VmWriter<'_> {
     open spec fn inv(self) -> bool {
-        &&& self.cursor.addr() <= self.end.addr()
+        &&& self.cursor.inv()
+        &&& self.end.inv()
+        &&& self.cursor.vaddr
+            <= self.end.vaddr
+        // Ensure that they point to the same range as in VmIoOwner.
+        &&& self.cursor.range@ == self.end.range@
     }
 }
 
 impl Inv for VmReader<'_> {
     open spec fn inv(self) -> bool {
-        &&& self.cursor.addr() <= self.end.addr()
+        &&& self.cursor.inv()
+        &&& self.end.inv()
+        &&& self.cursor.vaddr
+            <= self.end.vaddr
+        // Ensure that they point to the same range as in VmIoOwner.
+        &&& self.cursor.range@ == self.end.range@
     }
 }
 
@@ -222,8 +254,8 @@ impl VmIoOwner<'_> {
         reader: VmReader<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
-        &&& self.range@.start as usize <= reader.cursor.addr()
-        &&& reader.end.addr() <= self.range@.end as usize
+        &&& self.range@.start <= reader.cursor.vaddr
+        &&& reader.end.vaddr <= self.range@.end
         &&& self.id == reader.id
     }
 
@@ -232,8 +264,8 @@ impl VmIoOwner<'_> {
         writer: VmWriter<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
-        &&& self.range@.start as usize <= writer.cursor.addr()
-        &&& writer.end.addr() <= self.range@.end as usize
+        &&& self.range@.start <= writer.cursor.vaddr
+        &&& writer.end.vaddr <= self.range@.end
         &&& self.id == writer.id
     }
 }
@@ -257,8 +289,8 @@ impl VmIoOwner<'_> {
 /// the user's responsibility to handle this situation.
 pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
     pub id: Ghost<nat>,
-    pub cursor: PPtr<u8>,
-    pub end: PPtr<u8>,
+    pub cursor: VirtPtr,
+    pub end: VirtPtr,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
 }
 
@@ -272,7 +304,6 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
     /// `ptr` must be [valid] for writes of `len` bytes during the entire lifetime `a`.
     ///
     /// [valid]: crate::mm::io#safety
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
@@ -280,37 +311,39 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
                 -> owner: Tracked<VmIoOwner<'a>>,
         requires
             !fallible,
-            len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
-            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR(),
+            len == 0 || KERNEL_BASE_VADDR() <= ptr.vaddr,
+            len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR(),
         ensures
             owner@.inv(),
             owner@.inv_with_writer(r),
             owner@.is_fallible == fallible,
-            r.cursor.addr() == ptr.addr(),
-            r.end.addr() == ptr.addr() + len,
             owner@.id == id,
+            owner@.is_kernel,
+            r.cursor.vaddr == ptr.vaddr,
+            r.end.vaddr == ptr.vaddr + len,
+            r.cursor.range@ == ptr.range@,
+            r.end.range@ == ptr.range@,
     )]
-    pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
+    pub unsafe fn from_kernel_space(ptr: VirtPtr, len: usize) -> Self {
+        let ghost range = ptr.range@;
         let tracked owner = VmIoOwner {
             id: Ghost(id),
-            range: Ghost(ptr.addr()..(ptr.addr() + len) as usize),
+            range: Ghost(range),
             is_fallible: fallible,
             phantom: PhantomData,
             is_kernel: true,
+            mem_view: None,
         };
 
         proof {
             admit();
         }
 
-        proof_with!(|= Tracked(owner));
+        let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
+        let end = VirtPtr { vaddr: ptr.vaddr.checked_add(len).unwrap(), range: Ghost(range) };
 
-        Self {
-            id: Ghost(id),
-            cursor: ptr,
-            end: PPtr(ptr.addr().checked_add(len).unwrap(), PhantomData),
-            phantom: PhantomData,
-        }
+        proof_with!(|= Tracked(owner));
+        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
     #[verus_spec(r =>
@@ -333,16 +366,18 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             let tracked mut perm;
         }
 
-        let (pnt, len) = val.as_bytes_mut();  // do not return a slice but a iteratorptr
+        let (pnt, len) = val.as_bytes_mut();
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
-            > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt
+            > KERNEL_END_VADDR() - len) || pnt == 0 {
             proof_with!(|= Tracked(Err(Error::IoError)));
             Err(Error::IoError)
         } else {
+            let ghost range = pnt..(pnt + len) as usize;
+            let vptr = VirtPtr { vaddr: pnt as usize, range: Ghost(range) };
             let r = unsafe {
                 #[verus_spec(with Ghost(id), Tracked(false) => Tracked(perm))]
-                VmWriter::from_kernel_space(PPtr(pnt.addr(), PhantomData), len)
+                VmWriter::from_kernel_space(vptr, len)
             };
 
             proof_with!(|= Tracked(Ok(perm)));
@@ -401,36 +436,38 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             Ghost(id): Ghost<nat>,
             -> owner: Tracked<VmIoOwner<'a>>,
         requires
-            len == 0 || KERNEL_BASE_VADDR() <= ptr.addr(),
-            len == 0 || ptr.addr() + len <= KERNEL_END_VADDR(),
+            len == 0 || KERNEL_BASE_VADDR() <= ptr.vaddr,
+            len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR(),
         ensures
             owner@.inv(),
             owner@.inv_with_reader(r),
-            r.cursor.addr() == ptr.addr(),
-            r.end.addr() == ptr.addr() + len,
+            r.cursor.vaddr == ptr.vaddr,
+            r.end.vaddr == ptr.vaddr + len,
+            r.cursor.range@ == ptr.range@,
+            r.end.range@ == ptr.range@,
             owner@.is_kernel,
             owner@.id == id,
     )]
-    pub unsafe fn from_kernel_space(ptr: PPtr<u8>, len: usize) -> Self {
+    pub unsafe fn from_kernel_space(ptr: VirtPtr, len: usize) -> Self {
         let tracked owner = VmIoOwner {
             id: Ghost(id),
-            range: Ghost(ptr.addr()..(ptr.addr() + len) as usize),
+            range: Ghost(ptr.vaddr..(ptr.vaddr + len) as usize),
             is_fallible: false,
             phantom: PhantomData,
             is_kernel: true,
+            // This is left empty as will be populated later.
+            mem_view: None,
         };
 
         proof {
             admit();
         }
 
+        let ghost range = ptr.vaddr..(ptr.vaddr + len) as usize;
+        let end = VirtPtr { vaddr: ptr.vaddr.checked_add(len).unwrap(), range: Ghost(range) };
+
         proof_with!(|= Tracked(owner));
-        Self {
-            id: Ghost(id),
-            cursor: ptr,
-            end: PPtr(ptr.addr().checked_add(len).unwrap(), PhantomData),
-            phantom: PhantomData,
-        }
+        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
     #[verus_spec(r =>
@@ -445,8 +482,6 @@ impl<'a> VmReader<'a  /* Infallible */ > {
                     &&& r.remain_spec() == core::mem::size_of::<T>()
                     &&& owner.inv()
                     &&& owner.inv_with_reader(r)
-                    // &&& r.cursor.addr() == ptr.addr(),
-                    // &&& r.end.addr() == ptr.addr() + len,
                 }
             }
     )]
@@ -457,15 +492,22 @@ impl<'a> VmReader<'a  /* Infallible */ > {
 
         let (pnt, len) = val.as_bytes_mut();
 
-        if len != 0 && (pnt.addr() < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt.addr()
-            > KERNEL_END_VADDR() - len) {
+        if len != 0 && (pnt < KERNEL_BASE_VADDR() || len >= KERNEL_END_VADDR() || pnt
+            > KERNEL_END_VADDR() - len) || pnt == 0 {
             proof_with!(|= Tracked(Err(Error::IoError)));
             Err(Error::IoError)
         } else {
+            let ghost range = pnt..(pnt + len) as usize;
+            let vptr = VirtPtr { vaddr: pnt, range: Ghost(range) };
             let r = unsafe {
                 #[verus_spec(with Ghost(id) => Tracked(perm))]
-                VmReader::from_kernel_space(PPtr(pnt.addr(), PhantomData), len)
+                VmReader::from_kernel_space(vptr, len)
             };
+
+            proof {
+                assert(r.inv());
+                assert(perm.inv());
+            }
 
             proof_with!(|= Tracked(Ok(perm)));
             Ok(r)
@@ -495,10 +537,13 @@ impl<'a> TryFrom<&'a [u8]> for VmReader<'a  /* Infallible */ > {
         //   from an immutable reference that outlives the lifetime `'a`.
         // - The type, i.e., the `u8` slice, is plain-old-data.
 
+        let ghost range = addr..(addr + slice.len()) as usize;
+        let vptr = VirtPtr { vaddr: addr, range: Ghost(range) };
+
         Ok(
             unsafe {
                 #[verus_spec(with Ghost(arbitrary()) => Tracked(perm))]
-                Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
+                Self::from_kernel_space(vptr, slice.len())
             },
         )
     }
@@ -509,7 +554,7 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         true
     }
 
-    open spec fn try_from_spec(slice: &'a [u8]  /* length.. */ ) -> Result<Self> {
+    open spec fn try_from_spec(slice: &'a [u8]) -> Result<Self> {
         let addr = slice.as_ptr() as usize;
         let len = slice.len();
 
@@ -519,10 +564,13 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmReader<'a> {
         } else {
             Ok(
                 Self {
-                    /* TODO: Perhaps more information needed. */
+                    // Id is not important here.
                     id: Ghost(arbitrary()),
-                    cursor: PPtr(addr, PhantomData),
-                    end: PPtr((addr + len) as usize, PhantomData),
+                    cursor: VirtPtr { vaddr: addr, range: Ghost(addr..(addr + len) as usize) },
+                    end: VirtPtr {
+                        vaddr: (addr + len) as usize,
+                        range: Ghost(addr..(addr + len) as usize),
+                    },
                     phantom: PhantomData,
                 },
             )
@@ -555,10 +603,13 @@ impl<'a> TryFrom<&'a [u8]> for VmWriter<'a  /* Infallible */ > {
         //   from a mutable reference that outlives the lifetime `'a`.
         // - The type, i.e., the `u8` slice, is plain-old-data.
 
+        let ghost range = addr..(addr + slice.len()) as usize;
+        let vptr = VirtPtr { vaddr: addr, range: Ghost(range) };
+
         Ok(
             unsafe {
                 #[verus_spec(with Ghost(arbitrary()), Tracked(false) => Tracked(perm))]
-                Self::from_kernel_space(PPtr(addr, PhantomData), slice.len())
+                Self::from_kernel_space(vptr, slice.len())
             },
         )
     }
@@ -580,8 +631,11 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
             Ok(
                 Self {
                     id: Ghost(arbitrary()),
-                    cursor: PPtr(addr, PhantomData),
-                    end: PPtr((addr + len) as usize, PhantomData),
+                    cursor: VirtPtr { vaddr: addr, range: Ghost(addr..(addr + len) as usize) },
+                    end: VirtPtr {
+                        vaddr: (addr + len) as usize,
+                        range: Ghost(addr..(addr + len) as usize),
+                    },
                     phantom: PhantomData,
                 },
             )
@@ -740,7 +794,7 @@ pub trait VmIoOnce: Sized {
 #[verus_verify]
 impl VmReader<'_> {
     pub open spec fn remain_spec(&self) -> usize {
-        (self.end.addr() - self.cursor.addr()) as usize
+        (self.end.vaddr - self.cursor.vaddr) as usize
     }
 
     /// Returns the number of remaining bytes that can be read.
@@ -753,7 +807,7 @@ impl VmReader<'_> {
     )]
     #[verifier::when_used_as_spec(remain_spec)]
     pub fn remain(&self) -> usize {
-        self.end.addr() - self.cursor.addr()
+        self.end.vaddr - self.cursor.vaddr
     }
 
     /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes remaining.
@@ -764,11 +818,11 @@ impl VmReader<'_> {
             len <= old(self).remain_spec(),
         ensures
             self.inv(),
-            self.cursor.addr() == old(self).cursor.addr() + len,
+            self.cursor.vaddr == old(self).cursor.vaddr + len,
             self.remain_spec() == old(self).remain_spec() - len,
     )]
     pub fn advance(&mut self, len: usize) {
-        self.cursor = PPtr(self.cursor.addr() + len, PhantomData);
+        self.cursor.vaddr = self.cursor.vaddr + len;
     }
 
     /// Reads all data into the writer until one of the two conditions is met:
@@ -799,9 +853,9 @@ impl VmReader<'_> {
             owner_w.params_eq(*old(owner_w)),
             r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
             self.remain_spec() == old(self).remain_spec() - r as usize,
-            self.cursor.addr() == old(self).cursor.addr() + r as usize,
+            self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
             writer.avail_spec() == old(writer).avail_spec() - r as usize,
-            writer.cursor.addr() == old(writer).cursor.addr() + r as usize,
+            writer.cursor.vaddr == old(writer).cursor.vaddr + r as usize,
     )]
     pub fn read(&mut self, writer: &mut VmWriter) -> usize {
         let mut copy_len = if self.remain() < writer.avail() {
@@ -818,7 +872,7 @@ impl VmReader<'_> {
 
         unsafe {
             // memcpy currently requires all kernel spaces.
-            // memcpy(writer.cursor.addr(), self.cursor.addr(), copy_len);
+            // memcpy(writer.cursor.vaddr, self.cursor.vaddr, copy_len);
         }
 
         self.advance(copy_len);
@@ -851,7 +905,7 @@ impl VmReader<'_> {
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
                     old(self) == self
@@ -881,7 +935,7 @@ impl VmReader<'_> {
             core::mem::size_of::<T>() <= self.remain_spec(),
     )]
     fn read_once_inner<T: PodOnce>(&self) -> T {
-        let pnt = self.cursor.addr() as *const T;
+        let pnt = self.cursor.vaddr as *const T;
         unsafe { pnt.read_volatile() }
     }
 
@@ -911,7 +965,7 @@ impl VmReader<'_> {
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
                     old(self) == self
@@ -940,7 +994,7 @@ impl VmReader<'_> {
 #[verus_verify]
 impl<'a> VmWriter<'a> {
     pub open spec fn avail_spec(&self) -> usize {
-        (self.end.addr() - self.cursor.addr()) as usize
+        (self.end.vaddr - self.cursor.vaddr) as usize
     }
 
     #[verifier::external_body]
@@ -977,7 +1031,7 @@ impl<'a> VmWriter<'a> {
     )]
     #[verifier::when_used_as_spec(avail_spec)]
     pub fn avail(&self) -> usize {
-        self.end.addr() - self.cursor.addr()
+        self.end.vaddr - self.cursor.vaddr
     }
 
     /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes available.
@@ -989,10 +1043,11 @@ impl<'a> VmWriter<'a> {
         ensures
             self.inv(),
             self.avail_spec() == old(self).avail_spec() - len,
-            self.cursor.addr() == old(self).cursor.addr() + len,
+            self.cursor.vaddr == old(self).cursor.vaddr + len,
+            self.cursor.range@ == old(self).cursor.range@,
     )]
     pub fn advance(&mut self, len: usize) {
-        self.cursor = PPtr(self.cursor.addr() + len, PhantomData);
+        self.cursor.vaddr = self.cursor.vaddr + len;
     }
 
     /// Writes all data from the reader until one of the two conditions is met:
@@ -1023,9 +1078,9 @@ impl<'a> VmWriter<'a> {
             owner_r.params_eq(*old(owner_r)),
             r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
             self.avail_spec() == old(self).avail_spec() - r as usize,
-            self.cursor.addr() == old(self).cursor.addr() + r as usize,
+            self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
             reader.remain_spec() == old(reader).remain_spec() - r as usize,
-            reader.cursor.addr() == old(reader).cursor.addr() + r as usize,
+            reader.cursor.vaddr == old(reader).cursor.vaddr + r as usize,
     )]
     pub fn write(&mut self, reader: &mut VmReader) -> usize {
         proof_with!(Tracked(owner_r), Tracked(owner_w));
@@ -1052,7 +1107,7 @@ impl<'a> VmWriter<'a> {
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
                     old(self) == self
@@ -1081,7 +1136,7 @@ impl<'a> VmWriter<'a> {
             core::mem::size_of::<T>() <= self.avail_spec(),
     )]
     fn write_once_inner<T: PodOnce>(&self, new_val: &mut T) {
-        let cursor = self.cursor.addr() as *mut T;
+        let cursor = self.cursor.vaddr as *mut T;
         unsafe { cursor.write_volatile(*new_val) };
     }
 
@@ -1100,7 +1155,7 @@ impl<'a> VmWriter<'a> {
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.addr() == old(self).cursor.addr() + core::mem::size_of::<T>()
+                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
                     old(self) == self
@@ -1127,648 +1182,3 @@ impl<'a> VmWriter<'a> {
 }
 
 } // verus!
-
-// pub trait VmIo: Send + Sync {
-//     /// Reads a slice of a specified type at a specified offset.
-//     ///
-//     /// # No short reads
-//     ///
-//     /// Similar to [`read`].
-//     ///
-//     /// [`read`]: VmIo::read
-//     fn read_slice<T>(&self, offset: usize, slice: &mut [T]) -> Result<()> {
-//         let len_in_bytes = core::mem::size_of_val(slice);
-//         let ptr = slice as *mut [T] as *mut u8;
-//         // SAFETY: the slice can be transmuted to a writable byte slice since the elements
-//         // are all Plain-Old-Data (Pod) types.
-//         let buf = unsafe { core::slice::from_raw_parts_mut(ptr, len_in_bytes) };
-//         self.read_bytes(offset, buf)
-//     }
-//     /// Writes a specified number of bytes from a given buffer at a specified offset.
-//     ///
-//     /// # No short writes
-//     ///
-//     /// Similar to [`write`].
-//     ///
-//     /// [`write`]: VmIo::write
-//     fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()> {
-//         let mut reader = VmReader::from(buf).to_fallible();
-//         self.write(offset, &mut reader)
-//     }
-//     /// Writes a value of a specified type at a specified offset.
-//     fn write_val<T>(&self, offset: usize, new_val: &T) -> Result<()> {
-//         self.write_bytes(offset, new_val.as_bytes())?;
-//         Ok(())
-//     }
-//     /// Writes a slice of a specified type at a specified offset.
-//     ///
-//     /// # No short write
-//     ///
-//     /// Similar to [`write`].
-//     ///
-//     /// [`write`]: VmIo::write
-//     fn write_slice<T>(&self, offset: usize, slice: &[T]) -> Result<()> {
-//         let len_in_bytes = core::mem::size_of_val(slice);
-//         let ptr = slice as *const [T] as *const u8;
-//         // SAFETY: the slice can be transmuted to a readable byte slice since the elements
-//         // are all Plain-Old-Data (Pod) types.
-//         let buf = unsafe { core::slice::from_raw_parts(ptr, len_in_bytes) };
-//         self.write_bytes(offset, buf)
-//     }
-//     /// Writes a sequence of values given by an iterator (`iter`) from the specified offset (`offset`).
-//     ///
-//     /// The write process stops until the VM object does not have enough remaining space
-//     /// or the iterator returns `None`. If any value is written, the function returns `Ok(nr_written)`,
-//     /// where `nr_written` is the number of the written values.
-//     ///
-//     /// The offset of every value written by this method is aligned to the `align`-byte boundary.
-//     /// Naturally, when `align` equals to `0` or `1`, then the argument takes no effect:
-//     /// the values will be written in the most compact way.
-//     ///
-//     /// # Example
-//     ///
-//     /// Initializes an VM object with the same value can be done easily with `write_values`.
-//     ///
-//     /// ```
-//     /// use core::iter::self;
-//     ///
-//     /// let _nr_values = vm_obj.write_vals(0, iter::repeat(0_u32), 0).unwrap();
-//     /// ```
-//     ///
-//     /// # Panics
-//     ///
-//     /// This method panics if `align` is greater than two,
-//     /// but not a power of two, in release mode.
-//     fn write_vals<'a, T: 'a, I: Iterator<Item = &'a T>>(
-//         &self,
-//         offset: usize,
-//         iter: I,
-//         align: usize,
-//     ) -> Result<usize> {
-//         let mut nr_written = 0;
-//         let (mut offset, item_size) = if (align >> 1) == 0 {
-//             // align is 0 or 1
-//             (offset, core::mem::size_of::<T>())
-//         } else {
-//             // align is more than 2
-//             (
-//                 offset.align_up(align),
-//                 core::mem::size_of::<T>().align_up(align),
-//             )
-//         };
-//         for item in iter {
-//             match self.write_val(offset, item) {
-//                 Ok(_) => {
-//                     offset += item_size;
-//                     nr_written += 1;
-//                 }
-//                 Err(e) => {
-//                     if nr_written > 0 {
-//                         return Ok(nr_written);
-//                     }
-//                     return Err(e);
-//                 }
-//             }
-//         }
-//         Ok(nr_written)
-//     }
-// }
-// #[allow(unused_macros)]
-// macro_rules! impl_vm_io_pointer {
-//     ($typ:ty,$from:tt) => {
-//         // #[inherit_methods(from = $from)]
-//         impl<T: VmIo> VmIo for $typ {
-//             fn read(&self, offset: usize, writer: &mut VmWriter) -> Result<()>;
-//             fn read_bytes(&self, offset: usize, buf: &mut [u8]) -> Result<()>;
-//             fn read_val<F>(&self, offset: usize) -> Result<F>;
-//             fn read_slice<F>(&self, offset: usize, slice: &mut [F]) -> Result<()>;
-//             fn write(&self, offset: usize, reader: &mut VmReader) -> Result<()>;
-//             fn write_bytes(&self, offset: usize, buf: &[u8]) -> Result<()>;
-//             fn write_val<F>(&self, offset: usize, new_val: &F) -> Result<()>;
-//             fn write_slice<F>(&self, offset: usize, slice: &[F]) -> Result<()>;
-//         }
-//     };
-// }
-// // impl_vm_io_pointer!(&T, "(**self)");
-// // impl_vm_io_pointer!(&mut T, "(**self)");
-// // impl_vm_io_pointer!(Box<T>, "(**self)");
-// // impl_vm_io_pointer!(Arc<T>, "(**self)");
-// #[allow(unused_macros)]
-// macro_rules! impl_vm_io_once_pointer {
-//     ($typ:ty,$from:tt) => {
-//         // #[inherit_methods(from = $from)]
-//         impl<T: VmIoOnce> VmIoOnce for $typ {
-//             fn read_once<F>(&self, offset: usize) -> Result<F>;
-//             fn write_once<F>(&self, offset: usize, new_val: &F) -> Result<()>;
-//         }
-//     };
-// }
-// // impl_vm_io_once_pointer!(&T, "(**self)");
-// // impl_vm_io_once_pointer!(&mut T, "(**self)");
-// // impl_vm_io_once_pointer!(Box<T>, "(**self)");
-// // impl_vm_io_once_pointer!(Arc<T>, "(**self)");
-// /// A marker type used for [`VmReader`] and [`VmWriter`],
-// /// representing whether reads or writes on the underlying memory region are fallible.
-// pub enum Fallible {}
-// /// A marker type used for [`VmReader`] and [`VmWriter`],
-// /// representing whether reads or writes on the underlying memory region are infallible.
-// pub enum Infallible {}
-// /// Copies `len` bytes from `src` to `dst`.
-// /// This function will early stop copying if encountering an unresolvable page fault.
-// ///
-// /// Returns the number of successfully copied bytes.
-// ///
-// /// In the following cases, this method may cause unexpected bytes to be copied, but will not cause
-// /// safety problems as long as the safety requirements are met:
-// /// - The source and destination overlap.
-// /// - The current context is not associated with valid user space (e.g., in the kernel thread).
-// ///
-// /// # Safety
-// ///
-// /// - `src` must either be [valid] for reads of `len` bytes or be in user space for `len` bytes.
-// /// - `dst` must either be [valid] for writes of `len` bytes or be in user space for `len` bytes.
-// ///
-// /// [valid]: crate::mm::io#safety
-// #[verifier::external_body]
-// unsafe fn memcpy_fallible(dst: *mut u8, src: *const u8, len: usize) -> usize {
-//     // SAFETY: The safety is upheld by the caller.
-//     let failed_bytes = unsafe { __memcpy_fallible(dst, src, len) };
-//     len - failed_bytes
-// }
-// /// Fills `len` bytes of memory at `dst` with the specified `value`.
-// /// This function will early stop filling if encountering an unresolvable page fault.
-// ///
-// /// Returns the number of successfully set bytes.
-// ///
-// /// # Safety
-// ///
-// /// - `dst` must either be [valid] for writes of `len` bytes or be in user space for `len` bytes.
-// ///
-// /// [valid]: crate::mm::io#safety
-// unsafe fn memset_fallible(dst: *mut u8, value: u8, len: usize) -> usize {
-//     // SAFETY: The safety is upheld by the caller.
-//     let failed_bytes = unsafe { __memset_fallible(dst, value, len) };
-//     len - failed_bytes
-// }
-// /// Fallible memory read from a `VmWriter`.
-// pub trait FallibleVmRead {
-//     /// Reads all data into the writer until one of the three conditions is met:
-//     /// 1. The reader has no remaining data.
-//     /// 2. The writer has no available space.
-//     /// 3. The reader/writer encounters some error.
-//     ///
-//     /// On success, the number of bytes read is returned;
-//     /// On error, both the error and the number of bytes read so far are returned.
-//     fn read_fallible(
-//         &mut self,
-//         writer: &mut VmWriter<'_>,
-//     ) -> core::result::Result<usize, (Error, usize)>;
-// }
-// /// Fallible memory write from a `VmReader`.
-// pub trait FallibleVmWrite {
-//     /// Writes all data from the reader until one of the three conditions is met:
-//     /// 1. The reader has no remaining data.
-//     /// 2. The writer has no available space.
-//     /// 3. The reader/writer encounters some error.
-//     ///
-//     /// On success, the number of bytes written is returned;
-//     /// On error, both the error and the number of bytes written so far are returned.
-//     fn write_fallible(
-//         &mut self,
-//         reader: &mut VmReader<'_>,
-//     ) -> core::result::Result<usize, (Error, usize)>;
-// }
-// macro_rules! impl_read_fallible {
-//     ($reader_fallibility:ty, $writer_fallibility:ty) => {
-//         impl<'a> FallibleVmRead for VmReader<'a /* $reader_fallibility */> {
-//             fn read_fallible(
-//                 &mut self,
-//                 writer: &mut VmWriter<'_ /* $writer_fallibility */>,
-//             ) -> core::result::Result<usize, (Error, usize)> {
-//                 let copy_len = self.remain().min(writer.avail());
-//                 if copy_len == 0 {
-//                     return Ok(0);
-//                 }
-//                 // SAFETY: The source and destination are subsets of memory ranges specified by
-//                 // the reader and writer, so they are either valid for reading and writing or in
-//                 // user space.
-//                 let copied_len = unsafe { memcpy_fallible(writer.cursor, self.cursor, copy_len) };
-//                 self.cursor = self.cursor.wrapping_add(copied_len);
-//                 writer.cursor = writer.cursor.wrapping_add(copied_len);
-//                 if copied_len < copy_len {
-//                     Err((Error::PageFault, copied_len))
-//                 } else {
-//                     Ok(copied_len)
-//                 }
-//             }
-//         }
-//     };
-// }
-// macro_rules! impl_write_fallible {
-//     ($writer_fallibility:ty, $reader_fallibility:ty) => {
-//         impl<'a> FallibleVmWrite for VmWriter<'a /* $writer_fallibility */> {
-//             fn write_fallible(
-//                 &mut self,
-//                 reader: &mut VmReader<'_ /* $reader_fallibility */>,
-//             ) -> core::result::Result<usize, (Error, usize)> {
-//                 reader.read_fallible(self)
-//             }
-//         }
-//     };
-// }
-// // impl_read_fallible!(Fallible, Infallible);
-// // impl_read_fallible!(Fallible, Fallible);
-// // impl_read_fallible!(Infallible, Fallible);
-// // impl_write_fallible!(Fallible, Infallible);
-// // impl_write_fallible!(Fallible, Fallible);
-// // impl_write_fallible!(Infallible, Fallible);
-// impl<'a> VmReader<'a /* Infallible */> {
-//     #[rustc_allow_incoherent_impl]
-//     pub fn read(&mut self, writer: &mut VmWriter<'_ /* Infallible */>) -> usize {
-//         let copy_len = self.remain().min(writer.avail());
-//         if copy_len == 0 {
-//             return 0;
-//         }
-//         // SAFETY: The source and destination are subsets of memory ranges specified by the reader
-//         // and writer, so they are valid for reading and writing.
-//         unsafe { memcpy(writer.cursor, self.cursor, copy_len) };
-//         self.cursor = self.cursor.wrapping_add(copy_len);
-//         writer.cursor = writer.cursor.wrapping_add(copy_len);
-//         copy_len
-//     }
-//     /// Reads a value of `Pod` type.
-//     ///
-//     /// If the length of the `Pod` type exceeds `self.remain()`,
-//     /// this method will return `Err`.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn read_val<T>(&mut self) -> Result<T> {
-//         if self.remain() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let mut val = T::new_uninit();
-//         let mut writer = VmWriter::from(val.as_bytes_mut());
-//         self.read(&mut writer);
-//         Ok(val)
-//     }
-//     /// Reads a value of the `PodOnce` type using one non-tearing memory load.
-//     ///
-//     /// If the length of the `PodOnce` type exceeds `self.remain()`, this method will return `Err`.
-//     ///
-//     /// This method will not compile if the `Pod` type is too large for the current architecture
-//     /// and the operation must be tear into multiple memory loads.
-//     ///
-//     /// # Panics
-//     ///
-//     /// This method will panic if the current position of the reader does not meet the alignment
-//     /// requirements of type `T`.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn read_once<T>(&mut self) -> Result<T> {
-//         if self.remain() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let cursor = self.cursor.cast::<T>();
-//         assert!(cursor.is_aligned());
-//         const { assert!(pod_once_impls::is_non_tearing::<T>()) };
-//         // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
-//         // and that the cursor is properly aligned with respect to the type `T`. All other safety
-//         // requirements are the same as for `Self::read`.
-//         let val = unsafe { cursor.read_volatile() };
-//         self.cursor = self.cursor.wrapping_add(core::mem::size_of::<T>());
-//         Ok(val)
-//     }
-//     /// Converts to a fallible reader.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn to_fallible(self) -> VmReader<'a /* Fallible */> {
-//         // It is safe to construct a fallible reader since an infallible reader covers the
-//         // capabilities of a fallible reader.
-//         VmReader {
-//             cursor: self.cursor,
-//             end: self.end,
-//             phantom: PhantomData,
-//         }
-//     }
-// }
-// impl VmReader<'_ /* Fallible */> {
-//     /// Constructs a `VmReader` from a pointer and a length, which represents
-//     /// a memory range in user space.
-//     ///
-//     /// # Safety
-//     ///
-//     /// The virtual address range `ptr..ptr + len` must be in user space.
-//     #[rustc_allow_incoherent_impl]
-//     pub unsafe fn from_user_space(ptr: *const u8, len: usize) -> Self {
-//         debug_assert!(ptr.addr().checked_add(len).unwrap() <= MAX_USERSPACE_VADDR);
-//         Self {
-//             cursor: ptr,
-//             end: ptr.wrapping_add(len),
-//             phantom: PhantomData,
-//         }
-//     }
-//     /// Reads a value of `Pod` type.
-//     ///
-//     /// If the length of the `Pod` type exceeds `self.remain()`,
-//     /// or the value can not be read completely,
-//     /// this method will return `Err`.
-//     ///
-//     /// If the memory read failed, this method will return `Err`
-//     /// and the current reader's cursor remains pointing to
-//     /// the original starting position.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn read_val<T>(&mut self) -> Result<T> {
-//         if self.remain() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let mut val = T::new_uninit();
-//         let mut writer = VmWriter::from(val.as_bytes_mut());
-//         self.read_fallible(&mut writer)
-//             .map_err(|(err, copied_len)| {
-//                 // SAFETY: The `copied_len` is the number of bytes read so far.
-//                 // So the `cursor` can be moved back to the original position.
-//                 unsafe {
-//                     self.cursor = self.cursor.sub(copied_len);
-//                 }
-//                 err
-//             })?;
-//         Ok(val)
-//     }
-//     /// Collects all the remaining bytes into a `Vec<u8>`.
-//     ///
-//     /// If the memory read failed, this method will return `Err`
-//     /// and the current reader's cursor remains pointing to
-//     /// the original starting position.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn collect(&mut self) -> Result<Vec<u8>> {
-//         let mut buf = vec![0u8; self.remain()];
-//         self.read_fallible(&mut buf.as_mut_slice().into())
-//             .map_err(|(err, copied_len)| {
-//                 // SAFETY: The `copied_len` is the number of bytes read so far.
-//                 // So the `cursor` can be moved back to the original position.
-//                 unsafe {
-//                     self.cursor = self.cursor.sub(copied_len);
-//                 }
-//                 err
-//             })?;
-//         Ok(buf)
-//     }
-// }
-// impl<'a> VmReader<'a /* Fallibility */> {
-//     /// Returns the number of bytes for the remaining data.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn remain(&self) -> usize {
-//         self.end.addr() - self.cursor.addr()
-//     }
-//     /// Returns the cursor pointer, which refers to the address of the next byte to read.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn cursor(&self) -> *const u8 {
-//         self.cursor
-//     }
-//     /// Returns if it has remaining data to read.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn has_remain(&self) -> bool {
-//         self.remain() > 0
-//     }
-//     // /// Limits the length of remaining data.
-//     // ///
-//     // /// This method ensures the post condition of `self.remain() <= max_remain`.
-//     // #[rustc_allow_incoherent_impl]
-//     // pub fn limit(&mut self, max_remain: usize) -> &mut Self {
-//     //     if max_remain < self.remain() {
-//     //         self.end = self.cursor.wrapping_add(max_remain);
-//     //     }
-//     //     self
-//     // }
-//     // /// Skips the first `nbytes` bytes of data.
-//     // /// The length of remaining data is decreased accordingly.
-//     // ///
-//     // /// # Panics
-//     // ///
-//     // /// If `nbytes` is greater than `self.remain()`, then the method panics.
-//     // #[rustc_allow_incoherent_impl]
-//     // pub fn skip(&mut self, nbytes: usize) -> &mut Self {
-//     //     assert!(nbytes <= self.remain());
-//     //     self.cursor = self.cursor.wrapping_add(nbytes);
-//     //     self
-//     // }
-// }
-// impl<'a> VmWriter<'a /* Infallible */> {
-//     /// Writes all data from the reader until one of the two conditions is met:
-//     /// 1. The reader has no remaining data.
-//     /// 2. The writer has no available space.
-//     ///
-//     /// Returns the number of bytes written.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn write(&mut self, reader: &mut VmReader<'_ /* Infallible */>) -> usize {
-//         reader.read(self)
-//     }
-//     /// Writes a value of `Pod` type.
-//     ///
-//     /// If the length of the `Pod` type exceeds `self.avail()`,
-//     /// this method will return `Err`.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn write_val<T>(&mut self, new_val: &T) -> Result<()> {
-//         if self.avail() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let mut reader = VmReader::from(new_val.as_bytes());
-//         self.write(&mut reader);
-//         Ok(())
-//     }
-//     /// Writes a value of the `PodOnce` type using one non-tearing memory store.
-//     ///
-//     /// If the length of the `PodOnce` type exceeds `self.remain()`, this method will return `Err`.
-//     ///
-//     /// # Panics
-//     ///
-//     /// This method will panic if the current position of the writer does not meet the alignment
-//     /// requirements of type `T`.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn write_once<T>(&mut self, new_val: &T) -> Result<()> {
-//         if self.avail() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let cursor = self.cursor.cast::<T>();
-//         assert!(cursor.is_aligned());
-//         const { assert!(pod_once_impls::is_non_tearing::<T>()) };
-//         // SAFETY: We have checked that the number of bytes remaining is at least the size of `T`
-//         // and that the cursor is properly aligned with respect to the type `T`. All other safety
-//         // requirements are the same as for `Self::write`.
-//         unsafe { cursor.write_volatile(*new_val) };
-//         self.cursor = self.cursor.wrapping_add(core::mem::size_of::<T>());
-//         Ok(())
-//     }
-//     /// Fills the available space by repeating `value`.
-//     ///
-//     /// Returns the number of values written.
-//     ///
-//     /// # Panics
-//     ///
-//     /// The size of the available space must be a multiple of the size of `value`.
-//     /// Otherwise, the method would panic.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn fill<T>(&mut self, value: T) -> usize {
-//         let cursor = self.cursor.cast::<T>();
-//         assert!(cursor.is_aligned());
-//         let avail = self.avail();
-//         assert!(avail % core::mem::size_of::<T>() == 0);
-//         let written_num = avail / core::mem::size_of::<T>();
-//         for i in 0..written_num {
-//             let cursor_i = cursor.wrapping_add(i);
-//             // SAFETY: `written_num` is calculated by the avail size and the size of the type `T`,
-//             // so the `write` operation will only manipulate the memory managed by this writer.
-//             // We've checked that the cursor is properly aligned with respect to the type `T`. All
-//             // other safety requirements are the same as for `Self::write`.
-//             unsafe { cursor_i.write_volatile(value) };
-//         }
-//         // The available space has been filled so this cursor can be moved to the end.
-//         self.cursor = self.end;
-//         written_num
-//     }
-//     /// Converts to a fallible writer.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn to_fallible(self) -> VmWriter<'a /* Fallible */> {
-//         // It is safe to construct a fallible reader since an infallible reader covers the
-//         // capabilities of a fallible reader.
-//         VmWriter {
-//             cursor: self.cursor,
-//             end: self.end,
-//             phantom: PhantomData,
-//         }
-//     }
-// }
-// impl VmWriter<'_ /* Fallible */> {
-//     /// Constructs a `VmWriter` from a pointer and a length, which represents
-//     /// a memory range in user space.
-//     ///
-//     /// The current context should be consistently associated with valid user space during the
-//     /// entire lifetime `'a`. This is for correct semantics and is not a safety requirement.
-//     ///
-//     /// # Safety
-//     ///
-//     /// The virtual address range `ptr..ptr + len` must be in user space.
-//     #[rustc_allow_incoherent_impl]
-//     pub unsafe fn from_user_space(ptr: *mut u8, len: usize) -> Self {
-//         debug_assert!(ptr.addr().checked_add(len).unwrap() <= MAX_USERSPACE_VADDR);
-//         Self {
-//             cursor: ptr,
-//             end: ptr.wrapping_add(len),
-//             phantom: PhantomData,
-//         }
-//     }
-//     /// Writes a value of `Pod` type.
-//     ///
-//     /// If the length of the `Pod` type exceeds `self.avail()`,
-//     /// or the value can not be write completely,
-//     /// this method will return `Err`.
-//     ///
-//     /// If the memory write failed, this method will return `Err`
-//     /// and the current writer's cursor remains pointing to
-//     /// the original starting position.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn write_val<T>(&mut self, new_val: &T) -> Result<()> {
-//         if self.avail() < core::mem::size_of::<T>() {
-//             return Err(Error::InvalidArgs);
-//         }
-//         let mut reader = VmReader::from(new_val.as_bytes());
-//         self.write_fallible(&mut reader)
-//             .map_err(|(err, copied_len)| {
-//                 // SAFETY: The `copied_len` is the number of bytes written so far.
-//                 // So the `cursor` can be moved back to the original position.
-//                 unsafe {
-//                     self.cursor = self.cursor.sub(copied_len);
-//                 }
-//                 err
-//             })?;
-//         Ok(())
-//     }
-//     /// Writes `len` zeros to the target memory.
-//     ///
-//     /// This method attempts to fill up to `len` bytes with zeros. If the available
-//     /// memory from the current cursor position is less than `len`, it will only fill
-//     /// the available space.
-//     ///
-//     /// If the memory write failed due to an unresolvable page fault, this method
-//     /// will return `Err` with the length set so far.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn fill_zeros(&mut self, len: usize) -> core::result::Result<usize, (Error, usize)> {
-//         let len_to_set = self.avail().min(len);
-//         if len_to_set == 0 {
-//             return Ok(0);
-//         }
-//         // SAFETY: The destination is a subset of the memory range specified by
-//         // the current writer, so it is either valid for writing or in user space.
-//         let set_len = unsafe { memset_fallible(self.cursor, 0u8, len_to_set) };
-//         self.cursor = self.cursor.wrapping_add(set_len);
-//         if set_len < len_to_set {
-//             Err((Error::PageFault, set_len))
-//         } else {
-//             Ok(len_to_set)
-//         }
-//     }
-// }
-// impl<'a> VmWriter<'a /* Fallibility */> {
-//     /// Returns the cursor pointer, which refers to the address of the next byte to write.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn cursor(&self) -> *mut u8 {
-//         self.cursor
-//     }
-//     /// Returns if it has available space to write.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn has_avail(&self) -> bool {
-//         self.avail() > 0
-//     }
-//     /// Limits the length of available space.
-//     ///
-//     /// This method ensures the post condition of `self.avail() <= max_avail`.
-//     #[rustc_allow_incoherent_impl]
-//     pub fn limit(&mut self, max_avail: usize) -> &mut Self {
-//         if max_avail < self.avail() {
-//             self.end = self.cursor.wrapping_add(max_avail);
-//         }
-//         self
-//     }
-//     // /// Skips the first `nbytes` bytes of data.
-//     // /// The length of available space is decreased accordingly.
-//     // ///
-//     // /// # Panics
-//     // ///
-//     // /// If `nbytes` is greater than `self.avail()`, then the method panics.
-//     // pub fn skip(&mut self, nbytes: usize) -> &mut Self {
-//     //     assert!(nbytes <= self.avail());
-//     //     self.cursor = self.cursor.wrapping_add(nbytes);
-//     //     self
-//     // }
-// }
-// /// A marker trait for POD types that can be read or written with one instruction.
-// ///
-// /// This trait is mostly a hint, since it's safe and can be implemented for _any_ POD type. If it
-// /// is implemented for a type that cannot be read or written with a single instruction, calling
-// /// `read_once`/`write_once` will lead to a failed compile-time assertion.
-// pub trait PodOnce /* Pod */ {}
-// #[cfg(any(
-//     target_arch = "x86_64",
-//     target_arch = "riscv64",
-//     target_arch = "loongarch64"
-// ))]
-// mod pod_once_impls {
-//     use super::PodOnce;
-//     impl PodOnce for u8 {}
-//     impl PodOnce for u16 {}
-//     impl PodOnce for u32 {}
-//     impl PodOnce for u64 {}
-//     impl PodOnce for usize {}
-//     impl PodOnce for i8 {}
-//     impl PodOnce for i16 {}
-//     impl PodOnce for i32 {}
-//     impl PodOnce for i64 {}
-//     impl PodOnce for isize {}
-//     /// Checks whether the memory operation created by `ptr::read_volatile` and
-//     /// `ptr::write_volatile` doesn't tear.
-//     ///
-//     /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
-//     /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
-//     /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
-//     pub(super) const fn is_non_tearing<T>() -> bool {
-//         let size = core::mem::size_of::<T>();
-//         size == 1 || size == 2 || size == 4 || size == 8
-//     }
-// }

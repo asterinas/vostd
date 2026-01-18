@@ -12,6 +12,7 @@ use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
+use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
@@ -47,7 +48,6 @@ use alloc::sync::Arc;
 
 verus! {
 
-verus! {
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
 ///
 /// The `VmSpace` type provides memory isolation guarantees between user-space and
@@ -152,18 +152,21 @@ impl<'a> Inv for VmSpaceOwner<'a> {
                 self.readers.kv_pairs().contains((i, reader)) ==> reader.inv() && reader.id@ == i
             &&& forall|i: nat, writer: VmIoOwner<'a>|
                 #![trigger self.writers.kv_pairs().contains((i, writer))]
-                self.writers.kv_pairs().contains((i, writer))
-                    ==> writer.inv() && writer.id@ == i
-
-            // --- Memory Range Overlap Checks ---
-            // Readers do not overlap with other readers, and writers do not overlap with other writers.
+                self.writers.kv_pairs().contains((i, writer)) ==> writer.inv() && writer.id@
+                    == i
+                // --- Memory Range Overlap Checks ---
+                // Readers do not overlap with other readers, and writers do not overlap with other writers.
             &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
                 #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
                 self.readers.kv_pairs().contains((i, reader)) && self.writers.kv_pairs().contains(
                     (j, writer),
                 ) && i != j ==> !reader.overlaps(writer)
-            &&& !self.shared_reader ==>
-            forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
+            &&& !self.shared_reader ==> forall|
+                i,
+                j: nat,
+                reader1: VmIoOwner<'a>,
+                reader2: VmIoOwner<'a>,
+            |
                 #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
                 self.readers.kv_pairs().contains((i, reader1)) && self.readers.kv_pairs().contains(
                     (j, reader2),
@@ -177,16 +180,17 @@ impl<'a> Inv for VmSpaceOwner<'a> {
     }
 }
 
-impl VmSpaceOwner<'_> {
+impl<'a> VmSpaceOwner<'a> {
     /// The basic invariant between a VM space and its owner.
-    pub open spec fn inv_with(&self, vm_space: VmSpace<'_>) -> bool {
-        &&& self.shared_reader == vm_space.shared_reader
-        /* self.page_table_owner.is_for(vm_space.page_table) */
+    pub open spec fn inv_with(&self, vm_space: VmSpace<'a>) -> bool {
+        &&& self.shared_reader
+            == vm_space.shared_reader  /* self.page_table_owner.is_for(vm_space.page_table) */
+
     }
 
     /// Checks if this given reader is valid under this VM space owner.
     #[verifier::inline]
-    pub open spec fn valid_reader(&self, reader: VmReader<'_>, owner: VmIoOwner<'_>) -> bool
+    pub open spec fn valid_reader(&self, reader: VmReader<'a>, owner: VmIoOwner<'a>) -> bool
         recommends
             self.inv(),
             reader.inv(),
@@ -197,7 +201,7 @@ impl VmSpaceOwner<'_> {
     }
 
     /// Checks if this given writer is valid under this VM space owner.
-    pub open spec fn valid_writer(&self, writer: VmWriter<'_>, owner: VmIoOwner<'_>) -> bool
+    pub open spec fn valid_writer(&self, writer: VmWriter<'a>, owner: VmIoOwner<'a>) -> bool
         recommends
             self.inv(),
             writer.inv(),
@@ -220,12 +224,12 @@ impl VmSpaceOwner<'_> {
             phantom: PhantomData,
             is_fallible: false,
             is_kernel: false,
+            mem_view: arbitrary(),
         };
 
-        &&& forall|i: nat, writer: VmIoOwner<'_>|
+        &&& forall|i: nat, writer: VmIoOwner<'a>|
             #![trigger self.writers.kv_pairs().contains((i, writer))]
-            self.writers.kv_pairs().contains((i, writer))
-                ==> !writer.overlaps(reader)
+            self.writers.kv_pairs().contains((i, writer)) ==> !writer.overlaps(reader)
     }
 
     /// Checks if we can create a new writer under this VM space owner.
@@ -241,20 +245,19 @@ impl VmSpaceOwner<'_> {
             phantom: PhantomData,
             is_fallible: false,
             is_kernel: false,
+            mem_view: arbitrary(),
         };
 
         &&& forall|i: nat, reader: VmIoOwner<'_>|
             #![trigger self.readers.kv_pairs().contains((i, reader))]
-            self.readers.kv_pairs().contains((i, reader))
-                ==> !reader.overlaps(writer)
+            self.readers.kv_pairs().contains((i, reader)) ==> !reader.overlaps(writer)
         &&& forall|i: nat, writer2: VmIoOwner<'_>|
             #![trigger self.writers.kv_pairs().contains((i, writer2))]
-            self.writers.kv_pairs().contains((i, writer2))
-                ==> !writer2.overlaps(writer)
+            self.writers.kv_pairs().contains((i, writer2)) ==> !writer2.overlaps(writer)
     }
 
     /// Generates a new unique ID for VM IO owners.
-    /// 
+    ///
     /// This assumes that we always generate a fresh ID that is not used by any existing
     /// readers or writers. This should be safe as the ID space is unbounded and only used
     /// to reason about different VM IO owners in verification.
@@ -271,8 +274,6 @@ impl VmSpaceOwner<'_> {
         unimplemented!()
     }
 }
-
-}  // verus!
 
 /// The configuration for user page tables.
 #[derive(Clone, Debug)]
@@ -343,12 +344,12 @@ unsafe impl PageTableConfig for UserPtConfig {
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl VmSpace<'_> {
+impl<'a> VmSpace<'a> {
     pub uninterp spec fn new_spec() -> Self;
 
     pub open spec fn reader_requires(
         &self,
-        vm_owner: VmSpaceOwner<'_>,
+        vm_owner: VmSpaceOwner<'a>,
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
@@ -363,7 +364,7 @@ impl VmSpace<'_> {
 
     pub open spec fn writer_requires(
         &self,
-        vm_owner: VmSpaceOwner<'_>,
+        vm_owner: VmSpaceOwner<'a>,
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
@@ -393,17 +394,18 @@ impl VmSpace<'_> {
                 phantom: PhantomData,
                 is_fallible: false,
                 is_kernel: false,
+                mem_view: Some(VmIoMemView::ReadView(vm_owner_old.mem_view.borrow_at_spec(vaddr, len))),
             },
         )
     }
 
     pub open spec fn writer_ensures(
         &self,
-        vm_owner_old: VmSpaceOwner<'_>,
-        vm_owner_new: VmSpaceOwner<'_>,
+        vm_owner_old: VmSpaceOwner<'a>,
+        vm_owner_new: VmSpaceOwner<'a>,
         vaddr: Vaddr,
         len: usize,
-        r: Result<VmWriter<'_>>,
+        r: Result<VmWriter<'a>>,
     ) -> bool {
         &&& vm_owner_new.inv()
         &&& r matches Ok(writer) && vm_owner_new.writers == vm_owner_old.writers.insert(
@@ -414,6 +416,7 @@ impl VmSpace<'_> {
                 phantom: PhantomData,
                 is_fallible: false,
                 is_kernel: false,
+                mem_view: Some(VmIoMemView::WriteView(vm_owner_old.mem_view.split_spec(vaddr, len).0)),
             },
         )
     }
@@ -481,13 +484,13 @@ impl VmSpace<'_> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
+            Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
         requires
             self.reader_requires(*old(owner), vaddr, len),
         ensures
             self.reader_ensures(*old(owner), *owner, vaddr, len, r),
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
 
@@ -502,15 +505,22 @@ impl VmSpace<'_> {
         };
 
         proof {
-            owner.readers.tracked_insert(
-                vm_reader_owner.id@,
-                vm_reader_owner,
-            );
+            // Give the corresponding memory view to the reader owner.
+            vm_reader_owner.mem_view = Some(VmIoMemView::ReadView(owner.mem_view.borrow_at(vaddr, len)));
+            owner.readers.tracked_insert(vm_reader_owner.id@, vm_reader_owner);
         }
-
 
         Ok(reader)
     }
+
+    /// Disposes the given reader, releasing its ownership on the memory range.
+    pub proof fn dispose_reader(tracked &mut self) {
+    }
+
+    /// Disposes the given writer, releasing its ownership on the memory range.
+    pub proof fn dispose_writer(tracked &mut self) {
+    }
+
     /// Creates a writer to write data into the user space.
     ///
     /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
@@ -521,19 +531,27 @@ impl VmSpace<'_> {
     #[inline]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
+            Tracked(owner): Tracked<VmSpaceOwner<'a>>,
+                -> new_owner: Tracked<VmSpaceOwner<'a>>,
         requires
-            self.writer_requires(*old(owner), vaddr, len),
+            self.writer_requires(owner, vaddr, len),
         ensures
-            self.writer_ensures(*old(owner), *owner, vaddr, len, r),
+            self.writer_ensures(owner, new_owner@, vaddr, len, r),
     )]
-    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_>> {
+    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
-        proof_decl! {
-            let tracked mut vm_writer_owner;
-        }
-        
+        let tracked mut vm_writer_owner;
+        let tracked VmSpaceOwner {
+            page_table_owner,
+            active,
+            readers,
+            writers,
+            mut mem_view,
+            shared_reader,
+        } = owner;
+        let tracked (writer_mem_view, remaining_mem_view) = mem_view.split(vaddr, len);
+
         // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
         // task. This ensures that the correct page table is activated during the usage period of
         // the `VmWriter`.
@@ -545,12 +563,20 @@ impl VmSpace<'_> {
         };
 
         proof {
-            owner.writers.tracked_insert(
-                vm_writer_owner.id@,
-                vm_writer_owner,
-            );
+            vm_writer_owner.mem_view = Some(VmIoMemView::WriteView(writer_mem_view));
+            writers.tracked_insert(vm_writer_owner.id@, vm_writer_owner);
         }
 
+        let tracked new_owner = VmSpaceOwner {
+            page_table_owner,
+            active,
+            readers,
+            writers,
+            mem_view: remaining_mem_view,
+            shared_reader,
+        };
+
+        proof_with!(|= Tracked(new_owner));
         Ok(writer)
     }
 }
@@ -730,15 +756,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// it will return the virtual address range and the mapped item.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
             old(self).pt_cursor.inner.inv(),
-    {
+    )]
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions))]
             self.pt_cursor.query()?,

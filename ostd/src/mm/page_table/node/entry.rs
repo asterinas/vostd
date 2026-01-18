@@ -360,15 +360,21 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
     )]
     #[verifier::external_body]
-    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >)
         requires
             old(regions).inv(),
             old(owner).inv(),
             old(self).wf(old(owner).value),
             old(self).node.addr() == old(parent_owner).guard_perm.addr(),
             old(parent_owner).guard_perm.is_init(),
-            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(parent_owner).as_node.meta_perm.addr(),
-            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(parent_owner).as_node.meta_perm.points_to.addr(),
+            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(
+                parent_owner,
+            ).as_node.meta_perm.addr(),
+            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(
+                parent_owner,
+            ).as_node.meta_perm.points_to.addr(),
             old(parent_owner).guard_perm.value().inner.inner@.wf(old(parent_owner).as_node),
             old(parent_owner).as_node.meta_perm.is_init(),
             old(parent_owner).as_node.meta_perm.wf(),
@@ -384,7 +390,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& res is None
                 &&& owner == old(owner)
             },
-            owner.inv()
+            owner.inv(),
     {
         let node_guard = self.node.borrow(Tracked(&mut parent_owner.guard_perm));
 
@@ -395,15 +401,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             assert(!owner.value.is_frame()) by { admit() };
             return None;
         }
+        //        #[verus_spec(with Tracked(&mut parent_owner.as_node.meta_perm))]
 
-//        #[verus_spec(with Tracked(&mut parent_owner.as_node.meta_perm))]
         let pa = self.pte.paddr();
         let prop = self.pte.prop();
 
-        let new_page = /*RcuDrop::new(*/PageTableNode::<C>::alloc(level - 1)/*)*/;
+        let new_page =   /*RcuDrop::new(*/
+        PageTableNode::<C>::alloc(level - 1)  /*)*/
+        ;
 
-        assert(new_page.ptr.addr() == parent_owner.as_node.meta_perm.points_to.addr()) by { admit() };
-        assert(FRAME_METADATA_RANGE().start <= new_page.ptr.addr() < FRAME_METADATA_RANGE().end) by { admit() };
+        assert(new_page.ptr.addr() == parent_owner.as_node.meta_perm.points_to.addr()) by { admit()
+        };
+        assert(FRAME_METADATA_RANGE().start <= new_page.ptr.addr() < FRAME_METADATA_RANGE().end)
+            by { admit() };
         assert(new_page.ptr.addr() % META_SLOT_SIZE() == 0) by { admit() };
 
         #[verus_spec(with Tracked(&mut parent_owner.as_node.meta_perm.points_to))]
@@ -415,7 +425,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         // SAFETY: The page table won't be dropped before the RCU grace period
         // ends, so it outlives `'rcu`.
-//        #[verus_spec(with Tracked(regions), Tracked())]
+        //        #[verus_spec(with Tracked(regions), Tracked())]
         let pt_ref = PageTableNodeRef::borrow_paddr(paddr);
 
         // Lock before writing the PTE, so no one else can operate on it.
@@ -424,11 +434,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(1 < level < NR_LEVELS()) by { admit() };
 
         for i in 0..nr_subpage_per_huge::<C>()
-            invariant 1 < level < NR_LEVELS()
+            invariant
+                1 < level < NR_LEVELS(),
         {
             assert(pa + i * page_size((level - 1) as u8) < MAX_PADDR()) by { admit() };
             let small_pa = pa + i * page_size(level - 1);
-//            #[verus_spec(with Tracked())]
+            //            #[verus_spec(with Tracked())]
             let mut entry = PageTableGuard::entry(pt_lock_guard, i);
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
             //debug_assert!(old.is_none());
@@ -451,7 +462,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.value.node = Some(node_owner);
             admit();
         }
-        
+
         self.node.put(Tracked(&mut parent_owner.guard_perm), guard);
 
         Some(pt_lock_guard)
