@@ -116,9 +116,9 @@ extern_const!(
         Range<Vaddr> = CONST_VMALLOC_BASE_VADDR..CONST_FRAME_METADATA_BASE_VADDR
 );
 
-/// The base address of the linear mapping of all physical
-/// memory in the kernel address space.
 extern_const!(
+    /// The base address of the linear mapping of all physical
+    /// memory in the kernel address space.
     pub LINEAR_MAPPING_BASE_VADDR [LINEAR_MAPPING_BASE_VADDR_SPEC, CONST_LINEAR_MAPPING_BASE_VADDR]:
         Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT
 );

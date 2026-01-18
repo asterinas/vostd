@@ -158,7 +158,7 @@ uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMe
 >;
 
 #[verifier::external_body]
-extern  fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
+extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
     ensures
         _page == drop_tree_spec::<C>(*old(_page)),
 ;

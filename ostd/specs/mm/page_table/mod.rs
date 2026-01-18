@@ -1,3 +1,5 @@
+#![allow(hidden_glob_reexports)]
+
 pub mod cursor;
 pub mod node;
 mod owners;
@@ -29,7 +31,9 @@ pub struct AbstractVaddr {
 impl Inv for AbstractVaddr {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.offset < PAGE_SIZE()
-        &&& forall |i: int| 0 <= i < NR_LEVELS() ==> {
+        &&& forall |i: int|
+            #![trigger self.index.contains_key(i)]
+        0 <= i < NR_LEVELS() ==> {
             &&& self.index.contains_key(i)
             &&& 0 <= self.index[i]
             &&& self.index[i] < NR_ENTRIES()
@@ -38,41 +42,41 @@ impl Inv for AbstractVaddr {
 }
 
 impl AbstractVaddr {
-    pub closed spec fn from_vaddr(va: Vaddr) -> Self;
+    pub uninterp spec fn from_vaddr(va: Vaddr) -> Self;
 
     pub axiom fn from_vaddr_wf(va: Vaddr)
         ensures
             AbstractVaddr::from_vaddr(va).inv();
 
-    pub closed spec fn to_vaddr(self) -> Vaddr;
+    pub uninterp spec fn to_vaddr(self) -> Vaddr;
 
-    pub closed spec fn reflect(self, va: Vaddr) -> bool;
+    pub uninterp spec fn reflect(self, va: Vaddr) -> bool;
 
     pub broadcast axiom fn reflect_prop(self, va: Vaddr)
         requires
             self.inv(),
             self.reflect(va),
         ensures
-            self.to_vaddr() == va,
-            Self::from_vaddr(va) == self;
+            #[trigger] self.to_vaddr() == va,
+            #[trigger] Self::from_vaddr(va) == self;
 
     pub broadcast axiom fn reflect_from_vaddr(va: Vaddr)
         ensures
-            Self::from_vaddr(va).reflect(va),
-            Self::from_vaddr(va).inv();
+            #[trigger] Self::from_vaddr(va).reflect(va),
+            #[trigger] Self::from_vaddr(va).inv();
 
     pub broadcast axiom fn reflect_to_vaddr(self)
         requires
             self.inv(),
         ensures
-            self.reflect(self.to_vaddr());
+            #[trigger] self.reflect(self.to_vaddr());
 
     pub broadcast axiom fn reflect_eq(self, other: Self, va: Vaddr)
         requires
             self.reflect(va),
             other.reflect(va),
         ensures
-            self == other;
+            #![auto] (self == other);
 
     pub open spec fn align_down(self, level: int) -> Self
         decreases level when level >= 1

@@ -45,19 +45,18 @@ pub use kspace::paddr_to_vaddr;
 
 // Re-export largest_pages from page_table
 pub use page_table::largest_pages;
-
-/// The maximum virtual address of user space (non inclusive).
-///
-/// Typical 64-bit systems have at least 48-bit virtual address space.
-/// A typical way to reserve half of the address space for the kernel is
-/// to use the highest 48-bit virtual address space.
-///
-/// Also, the top page is not regarded as usable since it's a workaround
-/// for some x86_64 CPUs' bugs. See
-/// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
-/// for the rationale.
 extern_const!(
-/// Page size.
+    /// The maximum virtual address of user space (non inclusive).
+    ///
+    /// Typical 64-bit systems have at least 48-bit virtual address space.
+    /// A typical way to reserve half of the address space for the kernel is
+    /// to use the highest 48-bit virtual address space.
+    ///
+    /// Also, the top page is not regarded as usable since it's a workaround
+    /// for some x86_64 CPUs' bugs. See
+    /// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
+    /// for the rationale.
+    /// Page size.
 pub MAX_USERSPACE_VADDR [MAX_USERSPACE_VADDR_SPEC, CONST_MAX_USERSPACE_VADDR]: usize =
     0x0000_8000_0000_0000 - CONST_PAGE_SIZE);
 
@@ -92,7 +91,6 @@ pub trait PagingConstsTrait: Debug + Sync {
 
     /// The smallest page size.
     /// This is also the page size at level 1 page tables.
-    #[inline(always)]
     #[verifier::when_used_as_spec(BASE_PAGE_SIZE_spec)]
     fn BASE_PAGE_SIZE() -> (res: usize)
         ensures
@@ -108,7 +106,6 @@ pub trait PagingConstsTrait: Debug + Sync {
     /// the level 1 to 5 on AMD64 corresponds to Page Tables, Page Directory Tables,
     /// Page Directory Pointer Tables, Page-Map Level-4 Table, and Page-Map Level-5
     /// Table, respectively.
-    #[inline(always)]
     #[verifier::when_used_as_spec(NR_LEVELS_spec)]
     fn NR_LEVELS() -> (res: PagingLevel)
         ensures
@@ -120,7 +117,6 @@ pub trait PagingConstsTrait: Debug + Sync {
 
     /// The highest level that a PTE can be directly used to translate a VA.
     /// This affects the the largest page size supported by the page table.
-    #[inline(always)]
     #[verifier::when_used_as_spec(HIGHEST_TRANSLATION_LEVEL_spec)]
     fn HIGHEST_TRANSLATION_LEVEL() -> (res: PagingLevel)
         ensures
@@ -130,7 +126,6 @@ pub trait PagingConstsTrait: Debug + Sync {
     spec fn PTE_SIZE_spec() -> usize;
 
     /// The size of a PTE.
-    #[inline(always)]
     #[verifier::when_used_as_spec(PTE_SIZE_spec)]
     fn PTE_SIZE() -> (res: usize)
         ensures
@@ -149,7 +144,6 @@ pub trait PagingConstsTrait: Debug + Sync {
 
     /// The address width may be BASE_PAGE_SIZE.ilog2() + NR_LEVELS * IN_FRAME_INDEX_BITS.
     /// If it is shorter than that, the higher bits in the highest level are ignored.
-    #[inline(always)]
     #[verifier::when_used_as_spec(ADDRESS_WIDTH_spec)]
     fn ADDRESS_WIDTH() -> (res: usize)
         ensures
@@ -169,7 +163,6 @@ pub trait PagingConstsTrait: Debug + Sync {
     /// That means, `0xffff_ffff_ffff_0000 < 0xffff_ffff_ffff_0001` is `true`.
     spec fn VA_SIGN_EXT_spec() -> bool;
 
-    #[inline(always)]
     #[verifier::when_used_as_spec(VA_SIGN_EXT_spec)]
     fn VA_SIGN_EXT() -> bool;
 }

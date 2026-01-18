@@ -15,7 +15,7 @@ use core::ops::Range;
 verus! {
 
 impl<'rcu, C: PageTableConfig> PageTableOwner<'rcu, C> {
-    pub closed spec fn new_cursor_owner_spec(self) -> (Self, CursorOwner<'rcu, C>);
+    pub uninterp spec fn new_cursor_owner_spec(self) -> (Self, CursorOwner<'rcu, C>);
 }
 
 impl<C: PageTableConfig> CursorView<C> {
@@ -30,7 +30,7 @@ impl<C: PageTableConfig> CursorView<C> {
        remove them in `step`-sized chunks.
     */
 
-    pub open spec fn push_level_spec(self) -> Self;
+    pub uninterp spec fn push_level_spec(self) -> Self;
     /* {
         Self {
             cur_va: self.cur_va,
@@ -40,7 +40,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }*/
 
-    pub open spec fn pop_level_spec(self) -> Self;
+    pub uninterp spec fn pop_level_spec(self) -> Self;
     /* {
         Self {
             cur_va: self.cur_va,
@@ -51,11 +51,11 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }*/
 
-    pub closed spec fn pop_to_alignment(va: usize, scope: usize) -> usize;
+    pub uninterp spec fn pop_to_alignment(va: usize, scope: usize) -> usize;
 
-    pub closed spec fn take_until(max_va: int, list: Seq<EntryView<C>>) -> (Seq<EntryView<C>>, Seq<EntryView<C>>);
+    pub uninterp spec fn take_until(max_va: int, list: Seq<EntryView<C>>) -> (Seq<EntryView<C>>, Seq<EntryView<C>>);
 
-    pub open spec fn move_forward_spec(self) -> Self;/* {
+    pub uninterp spec fn move_forward_spec(self) -> Self;/* {
         let new_va = self.cur_va + page_size(level);
         let scope = Self::pop_to_alignment(self.cur_va, self.scope);
         let (taken, rear) = Self::take_until(va, self.rear_local);
@@ -83,7 +83,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    pub closed spec fn jump(self, va: usize) -> Self;
+    pub uninterp spec fn jump(self, va: usize) -> Self;
 
     /*    #[rustc_allow_incoherent_impl]
     pub open spec fn cur_entry_spec(self) -> FrameView<C> {
@@ -109,7 +109,7 @@ impl<C: PageTableConfig> CursorView<C> {
         (taken, view)
     }
 
-    pub closed spec fn map_spec(
+    pub uninterp spec fn map_spec(
         self,
         item: C::Item,
     ) -> Self;
