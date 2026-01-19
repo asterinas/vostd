@@ -140,6 +140,83 @@ impl MemView {
         unimplemented!()
     }
 
+    /// This proves that if split is performed and we have
+    /// (lhs, rhs) = self.split(vaddr, len), then we have
+    /// all translations preserved in lhs and rhs.
+    pub proof fn lemma_split_preserves_transl(
+        original: MemView,
+        vaddr: usize,
+        len: usize,
+        left: MemView,
+        right: MemView,
+    )
+        requires
+            original.split_spec(vaddr, len) == (left, right),
+        ensures
+            right.memory.dom().subset_of(original.memory.dom()),
+            forall|va: usize|
+                vaddr <= va < vaddr + len ==> {
+                    #[trigger] original.addr_transl(va) == left.addr_transl(va)
+                },
+            forall|va: usize|
+                va >= vaddr + len ==> {
+                    #[trigger] original.addr_transl(va) == right.addr_transl(va)
+                },
+    {
+        // Auto.
+        assert(right.memory.dom().subset_of(original.memory.dom()));
+
+        assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
+            == left.addr_transl(va) by {
+            assert(left.mappings =~= original.mappings.filter(
+                |m: Mapping| m.va_range.start < vaddr + len && m.va_range.end > vaddr,
+            ));
+            let o_mappings = original.mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
+            );
+            let l_mappings = left.mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
+            );
+
+            assert(l_mappings.subset_of(o_mappings));
+            assert(o_mappings.subset_of(l_mappings)) by {
+                assert forall|m: Mapping| #[trigger]
+                    o_mappings.contains(m) implies l_mappings.contains(m) by {
+                    assume(o_mappings.contains(m));
+                    assert(m.va_range.start < vaddr + len);
+                    assert(m.va_range.end > vaddr);
+                    assert(m.va_range.start <= va < m.va_range.end);
+                    assert(left.mappings.contains(m));
+                }
+            };
+
+            assert(o_mappings =~= l_mappings);
+        }
+
+        assert forall|va: usize| va >= vaddr + len implies original.addr_transl(va)
+            == right.addr_transl(va) by {
+            let split_end = vaddr + len;
+
+            let o_mappings = original.mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end
+            );
+            let r_mappings = right.mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end
+            );
+
+            assert forall |m: Mapping| o_mappings.contains(m) implies r_mappings.contains(m) by {
+                assert(m.va_range.end > va);
+                assert(va >= split_end);
+                assert(m.va_range.end > split_end);
+
+                assert(right.mappings.contains(m));
+                assert(r_mappings.contains(m));
+            }
+
+            assert(o_mappings =~= r_mappings);
+        }
+    }
+
     pub open spec fn join_spec(self, other: MemView) -> MemView {
         arbitrary()
     }
@@ -312,7 +389,7 @@ impl VirtPtr {
             src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
             forall|i: usize|
                 src.vaddr <= i < src.vaddr + n ==> {
-                    &&& old(mem).addr_transl(i) is Some
+                    &&& #[trigger] old(mem).addr_transl(i) is Some
                     &&& old(mem).memory.contains_key(old(mem).addr_transl(i).unwrap())
                     &&& old(mem).memory[old(mem).addr_transl(i).unwrap()] is Init
                 },
