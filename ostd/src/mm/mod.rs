@@ -29,7 +29,7 @@ pub(crate) mod page_prop;
 pub mod page_table;
 pub mod pod;
 //pub mod tlb;
-// pub mod vm_space;
+pub mod vm_space;
 
 #[cfg(ktest)]
 mod test;

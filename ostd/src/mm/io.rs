@@ -199,8 +199,13 @@ impl VmIoOwner<'_> {
     /// Checks whether this owner overlaps with another owner.
     #[verifier::inline]
     pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
-        &&& self.range@.start < other.range@.end
-        &&& other.range@.start < self.range@.end
+        self.overlaps_with_range(other.range@)
+    }
+
+    #[verifier::inline]
+    pub open spec fn overlaps_with_range(self, range: Range<usize>) -> bool {
+        &&& self.range@.start < range.end
+        &&& range.start < self.range@.end
     }
 
     /// Checks whether this owner is disjoint with another owner.
@@ -365,6 +370,8 @@ impl VmIoOwner<'_> {
         &&& self.range@.start <= reader.cursor.vaddr
         &&& reader.end.vaddr <= self.range@.end
         &&& self.id == reader.id
+        &&& self.range@ == reader.cursor.range@
+        &&& self.range@ == reader.end.range@
     }
 
     pub open spec fn inv_with_writer(
@@ -375,6 +382,8 @@ impl VmIoOwner<'_> {
         &&& self.range@.start <= writer.cursor.vaddr
         &&& writer.end.vaddr <= self.range@.end
         &&& self.id == writer.id
+        &&& self.range@ == writer.cursor.range@
+        &&& self.range@ == writer.end.range@
     }
 }
 
@@ -944,12 +953,14 @@ impl VmReader<'_> {
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
         requires
-            old(self).inv(),
+        old(self).inv(),
             old(writer).inv(),
             old(owner_r).inv(),
             old(owner_w).inv(),
             old(owner_r).inv_with_reader(*old(self)),
             old(owner_w).inv_with_writer(*old(writer)),
+            old(owner_r).mem_view is Some,
+            old(owner_w).mem_view is Some,
         ensures
             self.inv(),
             writer.inv(),
@@ -987,6 +998,7 @@ impl VmReader<'_> {
         writer.advance(copy_len);
 
         proof {
+            owner_w.advance(copy_len);
             admit();
         }
 
@@ -997,6 +1009,7 @@ impl VmReader<'_> {
     ///
     /// If the length of the `Pod` type exceeds `self.remain()`,
     /// this method will return `Err`.
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
@@ -1005,6 +1018,7 @@ impl VmReader<'_> {
             old(self).inv(),
             old(owner).inv(),
             old(owner).inv_with_reader(*old(self)),
+            old(owner).mem_view is Some,
         ensures
             self.inv(),
             owner.inv(),
@@ -1175,6 +1189,8 @@ impl<'a> VmWriter<'a> {
             old(owner_r).inv(),
             old(owner_w).inv_with_writer(*old(self)),
             old(owner_r).inv_with_reader(*old(reader)),
+            old(owner_r).mem_view is Some,
+            old(owner_w).mem_view is Some,
         ensures
             self.inv(),
             reader.inv(),
@@ -1199,14 +1215,17 @@ impl<'a> VmWriter<'a> {
     ///
     /// If the length of the `Pod` type exceeds `self.avail()`,
     /// this method will return `Err`.
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
+            Tracked(memview_r): Tracked<&MemView>,
         requires
             old(self).inv(),
             old(owner_w).inv(),
             old(owner_w).inv_with_writer(*old(self)),
+            old(owner_w).mem_view is Some,
         ensures
             self.inv(),
             owner_w.inv(),
