@@ -91,6 +91,15 @@ impl MemView {
         }
     }
 
+    pub open spec fn mappings_are_disjoint(self) -> bool {
+        forall|m1: Mapping, m2: Mapping|
+            #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
+            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2
+            ==> {
+                m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
+            }
+    }
+
     pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
@@ -198,13 +207,13 @@ impl MemView {
             let split_end = vaddr + len;
 
             let o_mappings = original.mappings.filter(
-                |m: Mapping| m.va_range.start <= va < m.va_range.end
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
             );
             let r_mappings = right.mappings.filter(
-                |m: Mapping| m.va_range.start <= va < m.va_range.end
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
             );
 
-            assert forall |m: Mapping| o_mappings.contains(m) implies r_mappings.contains(m) by {
+            assert forall|m: Mapping| o_mappings.contains(m) implies r_mappings.contains(m) by {
                 assert(m.va_range.end > va);
                 assert(va >= split_end);
                 assert(m.va_range.end > split_end);

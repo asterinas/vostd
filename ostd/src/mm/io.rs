@@ -177,7 +177,8 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                        #[trigger] mv.addr_transl(va) is Some
+                        &&& #[trigger] mv.addr_transl(va) is Some
+                        // &&& mv.mappings_are_disjoint()
                     }
             },
             // Case 2: Read (shared)
@@ -185,7 +186,8 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                        #[trigger] mv.addr_transl(va) is Some
+                       &&& #[trigger] mv.addr_transl(va) is Some
+                    //    &&& mv.mappings_are_disjoint()
                     }
             },
             // Case 3: Empty/Invalid; this means no memory is accessible,
@@ -236,7 +238,7 @@ impl VmIoOwner<'_> {
     ///
     /// Note this will return the advanced `VmIoMemView` as the previous permission
     /// is no longer needed and must be discarded then.
-    pub proof fn advance(tracked &mut self, tracked nbytes: usize) -> (tracked res: VmIoMemView<'_>)
+    pub proof fn advance(tracked &mut self, nbytes: usize) -> (tracked res: VmIoMemView<'_>)
         requires
             old(self).inv(),
             old(self).mem_view is Some,
@@ -367,11 +369,9 @@ impl VmIoOwner<'_> {
         reader: VmReader<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
-        &&& self.range@.start <= reader.cursor.vaddr
-        &&& reader.end.vaddr <= self.range@.end
+        &&& self.range@.start == reader.cursor.vaddr
+        &&& self.range@.end == reader.end.vaddr
         &&& self.id == reader.id
-        &&& self.range@ == reader.cursor.range@
-        &&& self.range@ == reader.end.range@
     }
 
     pub open spec fn inv_with_writer(
@@ -379,11 +379,9 @@ impl VmIoOwner<'_> {
         writer: VmWriter<'_  /* Fallibility */ >,
     ) -> bool {
         &&& self.inv()
-        &&& self.range@.start <= writer.cursor.vaddr
-        &&& writer.end.vaddr <= self.range@.end
+        &&& self.range@.start == writer.cursor.vaddr
+        &&& self.range@.end == writer.end.vaddr
         &&& self.id == writer.id
-        &&& self.range@ == writer.cursor.range@
-        &&& self.range@ == writer.end.range@
     }
 }
 
@@ -938,6 +936,8 @@ impl VmReader<'_> {
             self.inv(),
             self.cursor.vaddr == old(self).cursor.vaddr + len,
             self.remain_spec() == old(self).remain_spec() - len,
+            self.id == old(self).id,
+            self.end == old(self).end,
     )]
     pub fn advance(&mut self, len: usize) {
         self.cursor.vaddr = self.cursor.vaddr + len;
@@ -968,8 +968,6 @@ impl VmReader<'_> {
             owner_w.inv(),
             owner_r.inv_with_reader(*self),
             owner_w.inv_with_writer(*writer),
-            owner_r.params_eq(*old(owner_r)),
-            owner_w.params_eq(*old(owner_w)),
             r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
             self.remain_spec() == old(self).remain_spec() - r as usize,
             self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
@@ -999,7 +997,7 @@ impl VmReader<'_> {
 
         proof {
             owner_w.advance(copy_len);
-            admit();
+            owner_r.advance(copy_len);
         }
 
         copy_len
@@ -1077,13 +1075,13 @@ impl VmReader<'_> {
             Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
+            old(owner).mem_view is Some,
             old(owner).inv(),
             old(owner).inv_with_reader(*old(self)),
         ensures
             self.inv(),
             owner.inv(),
             owner.inv_with_reader(*self),
-            owner.params_eq(*old(owner)),
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
@@ -1106,7 +1104,7 @@ impl VmReader<'_> {
         self.advance(core::mem::size_of::<T>());
 
         proof {
-            admit();
+            owner.advance(core::mem::size_of::<T>());
         }
 
         Ok(v)
@@ -1167,6 +1165,9 @@ impl<'a> VmWriter<'a> {
             self.avail_spec() == old(self).avail_spec() - len,
             self.cursor.vaddr == old(self).cursor.vaddr + len,
             self.cursor.range@ == old(self).cursor.range@,
+            self.id == old(self).id,
+            self.end == old(self).end,
+            self.cursor.range@ == old(self).cursor.range@,
     )]
     pub fn advance(&mut self, len: usize) {
         self.cursor.vaddr = self.cursor.vaddr + len;
@@ -1198,8 +1199,6 @@ impl<'a> VmWriter<'a> {
             owner_r.inv(),
             owner_w.inv_with_writer(*self),
             owner_r.inv_with_reader(*reader),
-            owner_w.params_eq(*old(owner_w)),
-            owner_r.params_eq(*old(owner_r)),
             r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
             self.avail_spec() == old(self).avail_spec() - r as usize,
             self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
@@ -1272,13 +1271,13 @@ impl<'a> VmWriter<'a> {
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
+            old(owner_w).mem_view is Some,
             old(owner_w).inv(),
             old(owner_w).inv_with_writer(*old(self)),
         ensures
             self.inv(),
             owner_w.inv(),
             owner_w.inv_with_writer(*self),
-            owner_w.params_eq(*old(owner_w)),
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
@@ -1301,7 +1300,7 @@ impl<'a> VmWriter<'a> {
         self.advance(core::mem::size_of::<T>());
 
         proof {
-            admit();
+            owner_w.advance(core::mem::size_of::<T>());
         }
 
         Ok(())

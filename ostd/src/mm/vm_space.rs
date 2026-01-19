@@ -335,6 +335,7 @@ impl<'a> VmSpaceOwner<'a> {
     )
         requires
             old(self).inv(),
+            old(self).active,
             !old(self).writers.contains_key(writer.id@),
             !old(self).readers.contains_key(writer.id@),
             owner.inv_with_writer(writer),
@@ -354,13 +355,12 @@ impl<'a> VmSpaceOwner<'a> {
             self.writers.contains_key(writer.id@),
             !self.readers.contains_key(writer.id@),
     {
+        let start = writer.cursor.vaddr;
+        let len = (writer.cursor.range@.end - writer.cursor.range@.start) as usize;
         // Temporarily take the mem_view out.
         let tracked remaining = self.mem_view.tracked_take();
         // Split the remaining view into two parts: the requested part and the leftover part.
-        let tracked(requested, new_remaining) = remaining.split(
-            writer.cursor.vaddr,
-            (writer.cursor.range@.end - writer.cursor.range@.start) as usize,
-        );
+        let tracked (requested, new_remaining) = remaining.split(start, len);
 
         self.mem_view = Some(new_remaining);
         owner.mem_view = Some(VmIoMemView::WriteView(requested));
@@ -369,6 +369,46 @@ impl<'a> VmSpaceOwner<'a> {
         self.writers.tracked_insert(writer.id@, owner);
 
         assert(self.inv()) by {
+            // Now we prove that new ⊆ old_remaining ⊆ holstic.
+            let holistic = self.mv_range.borrow().unwrap();
+
+            MemView::lemma_split_preserves_transl(remaining, start, len, requested, new_remaining);
+
+            assert(new_remaining.mappings =~= remaining.mappings.filter(
+                |m: vstd_extra::virtual_ptr::Mapping| { m.va_range.end > start + len },
+            ));
+            assert forall|va: usize|
+                #![trigger new_remaining.addr_transl(va)]
+                #![trigger holistic.addr_transl(va)]
+                new_remaining.memory.contains_key(va) implies holistic.addr_transl(va)
+                == new_remaining.addr_transl(va) by {
+                // A -> B -> C transitivity.
+                let candidates_old = remaining.mappings.filter(
+                    |m: vstd_extra::virtual_ptr::Mapping|
+                        { m.va_range.start <= va < m.va_range.end },
+                );
+                let candidates_new = new_remaining.mappings.filter(
+                    |m: vstd_extra::virtual_ptr::Mapping|
+                        { m.va_range.start <= va < m.va_range.end },
+                );
+
+                if va >= start + len {
+                    assert(candidates_new.subset_of(candidates_old));
+                    assert forall|m: vstd_extra::virtual_ptr::Mapping|
+                        candidates_old.contains(m) implies candidates_new.contains(m) by {
+                        assert(m.va_range.start <= va < m.va_range.end);
+                        assert(va >= start + len);
+                        assert(m.va_range.end > start + len);
+                        assert(new_remaining.mappings.contains(m));
+                    }
+                    assert(candidates_new =~= candidates_old);
+                    assert(new_remaining.addr_transl(va) == remaining.addr_transl(va));
+                    assert(remaining.addr_transl(va) == holistic.addr_transl(va));
+                } else {
+                    admit();
+                }
+            }
+
             admit();
         }
     }
@@ -376,7 +416,7 @@ impl<'a> VmSpaceOwner<'a> {
     /// Requests a reader for the given virtual address range.
     ///
     /// This function will try to take the necessary permissions into the VM space owner if exists.
-    pub proof fn register_read(
+    pub proof fn register_reader(
         tracked &mut self,
         reader: VmReader<'a>,
         tracked owner: VmIoOwner<'a>,
@@ -622,29 +662,40 @@ impl<'a> VmSpace<'a> {
         };
 
         proof {
-            owner.register_read(reader, vm_reader_owner);
+            owner.register_reader(reader, vm_reader_owner);
         }
 
         Ok(reader)
     }
 
     /// Disposes the given reader, releasing its ownership on the memory range.
-    pub proof fn dispose_reader(tracked &mut self)
+    pub proof fn dispose_reader(tracked &mut self, owner: VmIoOwner<'a>)
         requires
             old(self).inv(),
+            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
         ensures
             self.inv(),
     {
     }
 
     /// Disposes the given writer, releasing its ownership on the memory range.
-    pub proof fn dispose_writer(tracked &mut self)
+    pub proof fn dispose_writer(tracked &mut self, owner: VmIoOwner<'a>)
         requires
             old(self).inv(),
+            owner.mem_view matches Some(VmIoMemView::WriteView(_)),
         ensures
             self.inv(),
     {
-    }  // /
+        // If the writer has consumed all the memory, nothing to do;
+        // just discard the writer and return the permission back to
+        // the vm space owner.
+        match owner.mem_view {
+            Some(VmIoMemView::WriteView(writer_mv)) => {},
+            _ => {
+                assert(false);
+            },
+        }
+    }
     // Creates a writer to write data into the user space.
     // ///
     // /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+#![allow(unused_macros)]
 #![cfg_attr(not(test), no_std)]
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
