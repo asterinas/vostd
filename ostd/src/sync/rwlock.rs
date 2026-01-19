@@ -122,11 +122,15 @@ pub struct RwLock<T/* : ?Sized*/, Guard /* = PreemptDisabled*/> {
     //val: UnsafeCell<T>,
 }
 
+/// This invariant holds at any time, i.e. not violated during any method execution.
 closed spec fn wf(self) -> bool {
     invariant on lock with (val,guard) is (v:usize, g:Option<RwFrac<T>>) {
         match g {
-            None => v == 0,
-            Some(_) => true
+            None => v == WRITER,
+            Some(perm) => {
+                &&& perm.resource().id() == val.id()
+                &&& perm.resource().is_init()
+            }
         }
     }
 }
