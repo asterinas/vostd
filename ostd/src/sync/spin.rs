@@ -315,8 +315,7 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-//pub struct SpinLockGuard_<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
-pub struct SpinLockGuard_<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+pub struct SpinLockGuard_<T/*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
     v_perm: Tracked<cell::PointsTo<T>>, //Ghost permission for verification

@@ -3,6 +3,7 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, PCell};
 use vstd::tokens::frac::Frac;
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 use vstd_extra::resource::*;
 
 use alloc::sync::Arc;
@@ -26,7 +27,8 @@ use super::{
 
 verus!{
 
-pub type RwFrac<T> = Frac<cell::PointsTo<T>,MAX_READER_U64>;
+broadcast use group_deref_spec;
+type RwFrac<T> = Frac<cell::PointsTo<T>,MAX_READER_U64>;
 const MAX_READER_U64: u64 = MAX_READER as u64;
 
 struct_with_invariants! {
@@ -410,12 +412,12 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
 unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
     for RwLockUpgradeableGuard_<T, R, G>
 {
-}
+}*/
 
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct RwLockReadGuard_<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
+pub struct RwLockReadGuard_<T/*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: R,
 }
@@ -429,12 +431,14 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtom
     }
 }
 */
+
 /// A guard that provides shared read access to the data protected by a [`RwLock`].
 pub type RwLockReadGuard<'a, T, G> = RwLockReadGuard_<T, &'a RwLock<T, G>, G>;
 
 /// A guard that provides shared read access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockReadGuard<T, G> = RwLockReadGuard_<T, Arc<RwLock<T, G>>, G>;
 
+/*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockReadGuard_<T, R, G>
 {
@@ -459,10 +463,10 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
+}*/
 
 /// A guard that provides mutable data access.
-pub struct RwLockWriteGuard_<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
+pub struct RwLockWriteGuard_<T/*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
     guard: G::Guard,
     inner: R,
 }
@@ -480,6 +484,7 @@ pub type RwLockWriteGuard<'a, T, G> = RwLockWriteGuard_<T, &'a RwLock<T, G>, G>;
 /// A guard that provides exclusive write access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockWriteGuard<T, G> = RwLockWriteGuard_<T, Arc<RwLock<T, G>>, G>;
 
+/*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockWriteGuard_<T, R, G>
 {
@@ -547,11 +552,11 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
     }
 }
 */
-
+*/
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 pub struct RwLockUpgradeableGuard_<
-    T: ?Sized,
+    T/*: ?Sized*/,
     R: Deref<Target = RwLock<T, G>> + Clone,
     G: SpinGuardian,
 > {
@@ -571,7 +576,7 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtom
 pub type RwLockUpgradeableGuard<'a, T, G> = RwLockUpgradeableGuard_<T, &'a RwLock<T, G>, G>;
 /// A upgradable guard that provides read access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockUpgradeableGuard<T, G> = RwLockUpgradeableGuard_<T, Arc<RwLock<T, G>>, G>;
-
+/*
 /* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     RwLockUpgradeableGuard_<T, R, G>
