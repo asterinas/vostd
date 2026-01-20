@@ -177,8 +177,11 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                        &&& #[trigger] mv.addr_transl(va) is Some
+                        &&& #[trigger] mv.addr_transl(
+                            va,
+                        ) is Some
                         // &&& mv.mappings_are_disjoint()
+
                     }
             },
             // Case 2: Read (shared)
@@ -186,8 +189,11 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                       &&& #[trigger] mv.addr_transl(va) is Some
-                    //    &&& mv.mappings_are_disjoint()
+                        &&& #[trigger] mv.addr_transl(
+                            va,
+                        ) is Some
+                        //    &&& mv.mappings_are_disjoint()
+
                     }
             },
             // Case 3: Empty/Invalid; this means no memory is accessible,
@@ -372,6 +378,8 @@ impl VmIoOwner<'_> {
         &&& self.range@.start == reader.cursor.vaddr
         &&& self.range@.end == reader.end.vaddr
         &&& self.id == reader.id
+        // TODO: Add the mapped region checks.
+
     }
 
     pub open spec fn inv_with_writer(
@@ -382,6 +390,8 @@ impl VmIoOwner<'_> {
         &&& self.range@.start == writer.cursor.vaddr
         &&& self.range@.end == writer.end.vaddr
         &&& self.id == writer.id
+        // TODO: Add the mapped region checks.
+
     }
 }
 
@@ -953,14 +963,17 @@ impl VmReader<'_> {
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
         requires
-        old(self).inv(),
+            old(self).inv(),
             old(writer).inv(),
             old(owner_r).inv(),
             old(owner_w).inv(),
             old(owner_r).inv_with_reader(*old(self)),
             old(owner_w).inv_with_writer(*old(writer)),
             old(owner_r).mem_view is Some,
-            old(owner_w).mem_view is Some,
+            old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
+            // Non-overlapping requirements.
+            old(writer).cursor.range@.start >= old(self).cursor.range@.end
+                || old(self).cursor.range@.start >= old(writer).cursor.range@.end,
         ensures
             self.inv(),
             writer.inv(),
@@ -984,18 +997,22 @@ impl VmReader<'_> {
         if copy_len == 0 {
             return 0;
         }
-        // SAFETY: The source and destination are subsets of memory ranges specified by the reader
-        // and writer (owners), so they are valid for reading and writing.
+        // Now `memcpy` becomes a `safe` APIs since now we have the tracked permissions
+        // for both reader and writer to guarantee that the memory accesses are valid.
+        //
+        // This is equivalent to: memcpy(writer.cursor.vaddr, self.cursor.vaddr, copy_len);
+        // TODO: Still wait for VirtPtr to finish their implementation.
 
-        unsafe {
-            // memcpy currently requires all kernel spaces.
-            // memcpy(writer.cursor.vaddr, self.cursor.vaddr, copy_len);
-        }
+        let tracked mut mv = match owner_w.mem_view.tracked_take() {
+            VmIoMemView::WriteView(mv) => mv,
+            _ => { proof_from_false() },
+        };
 
         self.advance(copy_len);
         writer.advance(copy_len);
 
         proof {
+            owner_w.mem_view = Some(VmIoMemView::WriteView(mv));
             owner_w.advance(copy_len);
             owner_r.advance(copy_len);
         }
@@ -1191,7 +1208,10 @@ impl<'a> VmWriter<'a> {
             old(owner_w).inv_with_writer(*old(self)),
             old(owner_r).inv_with_reader(*old(reader)),
             old(owner_r).mem_view is Some,
-            old(owner_w).mem_view is Some,
+            old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
+            // Non-overlapping requirements.
+            old(self).cursor.range@.start >= old(reader).cursor.range@.end
+                || old(reader).cursor.range@.start >= old(self).cursor.range@.end,
         ensures
             self.inv(),
             reader.inv(),

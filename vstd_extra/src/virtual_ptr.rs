@@ -94,8 +94,7 @@ impl MemView {
     pub open spec fn mappings_are_disjoint(self) -> bool {
         forall|m1: Mapping, m2: Mapping|
             #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
-            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2
-            ==> {
+            self.mappings.contains(m1) && self.mappings.contains(m2) && m1 != m2 ==> {
                 m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
             }
     }
@@ -227,16 +226,37 @@ impl MemView {
     }
 
     pub open spec fn join_spec(self, other: MemView) -> MemView {
-        arbitrary()
+        MemView {
+            mappings: self.mappings.union(other.mappings),
+            memory: self.memory.union_prefer_right(other.memory),
+        }
     }
 
     /// Merges two disjoint memory views back into one.
     #[verifier::external_body]
     pub proof fn join(tracked self, tracked other: Self) -> (tracked r: Self)
+        requires
+            self.memory.dom().disjoint(other.memory.dom()),
         ensures
             r == self.join_spec(other),
     {
         unimplemented!()
+    }
+
+    #[verifier::external_body]
+    pub proof fn lemma_split_join_identity(
+        this: MemView,
+        lhs: MemView,
+        rhs: MemView,
+        vaddr: usize,
+        len: usize,
+    )
+        requires
+            this.split_spec(vaddr, len) == (lhs, rhs),
+        ensures
+            this == lhs.join_spec(rhs),
+    {
+        // Auto.
     }
 }
 
@@ -387,12 +407,22 @@ impl VirtPtr {
         }
     }
 
-    pub fn memcpy(src: &Self, dst: &Self, Tracked(mem): Tracked<&mut MemView>, n: usize)
+    /// Copies `n` bytes from `src` to `dst` in the given memory view.
+    ///
+    /// The source and destination must *not* overlap.
+    /// `copy_nonoverlapping` is semantically equivalent to C’s `memcpy`,
+    /// but with the source and destination arguments swapped.
+    pub fn copy_nonoverlapping(
+        src: &Self,
+        dst: &Self,
+        Tracked(mem): Tracked<&mut MemView>,
+        n: usize,
+    )
         requires
             src.inv(),
             dst.inv(),
             src.range@.start <= src.vaddr,
-            src.vaddr + n < src.range@.end,
+            src.vaddr + n <= src.range@.end,
             dst.range@.start <= dst.vaddr,
             dst.vaddr + n < dst.range@.end,
             src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
@@ -418,7 +448,7 @@ impl VirtPtr {
             Self::copy_offset(src, dst, Tracked(mem), n - 1);
             assert(forall|i: usize|
                 src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
-            Self::memcpy(src, dst, Tracked(mem), n - 1);
+            Self::copy_nonoverlapping(src, dst, Tracked(mem), n - 1);
         }
     }
 

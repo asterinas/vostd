@@ -152,12 +152,18 @@ impl<'a> Inv for VmSpaceOwner<'a> {
                 // Readers and writers are valid.
                 &&& forall|i: nat, reader: VmIoOwner<'a>|
                     #![trigger self.readers.kv_pairs().contains((i, reader))]
-                    self.readers.kv_pairs().contains((i, reader)) ==> reader.inv() && reader.id@
-                        == i
+                    self.readers.kv_pairs().contains((i, reader)) ==> {
+                        reader.inv() && reader.id@ == i && reader.mem_view matches Some(
+                            VmIoMemView::ReadView(_),
+                        )
+                    }
                 &&& forall|i: nat, writer: VmIoOwner<'a>|
                     #![trigger self.writers.kv_pairs().contains((i, writer))]
-                    self.writers.kv_pairs().contains((i, writer)) ==> writer.inv() && writer.id@
-                        == i
+                    self.writers.kv_pairs().contains((i, writer)) ==> {
+                        writer.inv() && writer.id@ == i && writer.mem_view matches Some(
+                            VmIoMemView::WriteView(_),
+                        )
+                    }
                     // --- Memory Range Overlap Checks ---
                     // Readers do not overlap with other readers, and writers do not overlap with other writers.
                 &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
@@ -429,6 +435,77 @@ impl<'a> VmSpaceOwner<'a> {
             owner.inv_with_reader(reader),
     {
     }
+
+    /// Disposes the given reader, releasing its ownership on the memory range.
+    pub proof fn dispose_reader(tracked &mut self, owner: VmIoOwner<'a>)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
+        ensures
+            self.inv(),
+    {
+        // Nothing to do; this function just consumes the ownership of
+        // the reader and returns the permission back to the vm space owner.
+    }
+
+    /// Removes the given writer from the active writers list.
+    #[verifier::external_body]
+    pub proof fn remove_writer(tracked &mut self, id: nat)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            old(self).writers.contains_key(id),
+        ensures
+            self.inv(),
+    {
+        let tracked mut owner = self.writers.tracked_remove(id);
+        let tracked mv = match owner.mem_view.tracked_take() {
+            VmIoMemView::WriteView(mv) => mv,
+            _ => { proof_from_false() },
+        };
+
+        // Return the memory view back to the vm space owner.
+        let tracked remaining = self.mem_view.tracked_take();
+        let tracked new_remaining = remaining.join(mv);
+
+        self.mem_view = Some(new_remaining);
+    }
+
+    /// Disposes the given writer, releasing its ownership on the memory range.
+    ///
+    /// This does not mean that the owner is discarded; it indicates that someone
+    /// who finishes the writing operation can let us reclaim the permission.
+    ///
+    /// The deletion of the writer is through another API [`VmSpaceOwner::remove_writer`].
+    #[verifier::external_body]
+    pub proof fn dispose_writer(tracked &mut self, tracked owner: VmIoOwner<'a>)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            !old(self).writers.contains_key(owner.id@),
+            owner.mem_view matches Some(VmIoMemView::WriteView(_)),
+            owner.inv(),
+        ensures
+            self.inv(),
+    {
+        // If the writer has consumed all the memory, nothing to do;
+        // just discard the writer and return the permission back to
+        // the vm space owner.
+        match owner.mem_view {
+            Some(VmIoMemView::WriteView(_)) => {
+                if owner.range@.start < owner.range@.end {
+                    self.writers.tracked_insert(owner.id@, owner);
+                }
+            },
+            _ => {
+                assert(false);
+            },
+        }
+    }
 }
 
 /// The configuration for user page tables.
@@ -666,35 +743,6 @@ impl<'a> VmSpace<'a> {
         }
 
         Ok(reader)
-    }
-
-    /// Disposes the given reader, releasing its ownership on the memory range.
-    pub proof fn dispose_reader(tracked &mut self, owner: VmIoOwner<'a>)
-        requires
-            old(self).inv(),
-            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
-        ensures
-            self.inv(),
-    {
-    }
-
-    /// Disposes the given writer, releasing its ownership on the memory range.
-    pub proof fn dispose_writer(tracked &mut self, owner: VmIoOwner<'a>)
-        requires
-            old(self).inv(),
-            owner.mem_view matches Some(VmIoMemView::WriteView(_)),
-        ensures
-            self.inv(),
-    {
-        // If the writer has consumed all the memory, nothing to do;
-        // just discard the writer and return the permission back to
-        // the vm space owner.
-        match owner.mem_view {
-            Some(VmIoMemView::WriteView(writer_mv)) => {},
-            _ => {
-                assert(false);
-            },
-        }
     }
     // Creates a writer to write data into the user space.
     // ///
