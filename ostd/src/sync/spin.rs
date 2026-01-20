@@ -154,10 +154,7 @@ verus! {
 impl<T, G: SpinGuardian> SpinLock<T, G> {
 
     /// Acquires the spin lock.
-    #[verus_spec(ret =>
-        requires
-            true,
-    )]
+    #[verus_spec]
     pub fn lock(&self) -> SpinLockGuard<T, G> {
         // Notice the guard must be created before acquiring the lock.
         proof!{ use_type_invariant(self);}
@@ -165,7 +162,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
-        proof_with!{ => Tracked(perm)}
+        proof_with! {=> Tracked(perm)}
         self.acquire_lock();
         SpinLockGuard_ {
             lock: self,
@@ -180,17 +177,14 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// for compile-time checked lifetimes of the lock guard.
     ///
     /// [`lock`]: Self::lock
-    #[verus_spec(ret =>
-        requires
-            true,
-            )]
+    #[verus_spec]
     pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
         proof!{ use_type_invariant(self);}
         proof_decl!{
             let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
-        proof_with!{ => Tracked(perm)}
+        proof_with! {=> Tracked(perm)}
         self.acquire_lock();
         proof!{
             assert(perm.id() == (*self.clone().deref_spec()).cell_id());
@@ -203,7 +197,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 
-    #[verus_verify]
+    #[verus_spec]
     /// Tries acquiring the spin lock immedidately.
     pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
         let inner_guard = G::guard();
