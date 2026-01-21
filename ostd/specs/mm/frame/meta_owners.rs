@@ -20,6 +20,7 @@ use core::marker::PhantomData;
 verus! {
 
 // TODO: this all feels a bit redundant, think about whether we can simplify it.
+#[allow(non_camel_case_types)]
 pub enum MetaSlotStatus {
     UNUSED,
     UNIQUE,

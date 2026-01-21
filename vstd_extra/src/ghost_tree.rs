@@ -385,12 +385,12 @@ impl<T: TreeNodeView<L>, const N: usize, const L: usize> Node<T, N, L> {
         } else {
             proof {
                 assert(self.inv_children());
-                assert(forall|child: Option<Node<T, N, L>>|
+                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
                     self.children.contains(child) ==> child.is_some() ==> child.unwrap().level < L);
-                assert(forall|child: Option<Node<T, N, L>>|
+                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
                     self.children.contains(child) ==> child.is_some() ==> L - child.unwrap().level
                         < L - self.level);
-                assert(forall|child: Option<Node<T, N, L>>|
+                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
                     self.children.contains(child) ==> child.is_some() ==> child.unwrap().inv());
             }
 

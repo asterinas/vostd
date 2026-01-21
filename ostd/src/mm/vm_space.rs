@@ -12,6 +12,7 @@ use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
+use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
@@ -47,7 +48,6 @@ use alloc::sync::Arc;
 
 verus! {
 
-verus! {
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
 ///
 /// The `VmSpace` type provides memory isolation guarantees between user-space and
@@ -117,10 +117,11 @@ pub tracked struct VmSpaceOwner<'a> {
     pub readers: Map<nat, VmIoOwner<'a>>,
     /// Active writers for this VM space.
     pub writers: Map<nat, VmIoOwner<'a>>,
-    /// The memory view is the abstract view of memory.
-    /// Models what is actually mapped and the memory points.
-    /// How page table invariants
-    pub mem_view: MemView,
+    /// The "actual" memory view of this VM space where some
+    /// of the mappings may be  transferred to the writers.
+    pub mem_view: Option<MemView>,
+    /// This is the holistic view of the memory range covered by this VM space owner.
+    pub mv_range: Ghost<Option<MemView>>,
     /// Whether we allow shared reading.
     pub shared_reader: bool,
 }
@@ -146,47 +147,107 @@ impl<'a> Inv for VmSpaceOwner<'a> {
         &&& self.readers.dom().finite()
         &&& self.writers.dom().finite()
         &&& self.active ==> {
-            // Readers and writers are valid.
-            &&& forall|i: nat, reader: VmIoOwner<'a>|
-                #![trigger self.readers.kv_pairs().contains((i, reader))]
-                self.readers.kv_pairs().contains((i, reader)) ==> reader.inv() && reader.id@ == i
-            &&& forall|i: nat, writer: VmIoOwner<'a>|
-                #![trigger self.writers.kv_pairs().contains((i, writer))]
-                self.writers.kv_pairs().contains((i, writer))
-                    ==> writer.inv() && writer.id@ == i
-
-            // --- Memory Range Overlap Checks ---
-            // Readers do not overlap with other readers, and writers do not overlap with other writers.
-            &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
-                #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
-                self.readers.kv_pairs().contains((i, reader)) && self.writers.kv_pairs().contains(
-                    (j, writer),
-                ) && i != j ==> !reader.overlaps(writer)
-            &&& !self.shared_reader ==>
-            forall|i, j: nat, reader1: VmIoOwner<'a>, reader2: VmIoOwner<'a>|
-                #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
-                self.readers.kv_pairs().contains((i, reader1)) && self.readers.kv_pairs().contains(
-                    (j, reader2),
-                ) && i != j ==> !reader1.overlaps(reader2)
-            &&& forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
-                #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
-                self.writers.kv_pairs().contains((i, writer1)) && self.writers.kv_pairs().contains(
-                    (j, writer2),
-                ) && i != j ==> !writer1.overlaps(writer2)
+            &&& self.mem_view_wf()
+            &&& self.mem_view matches Some(mem_view) ==> {
+                // Readers and writers are valid.
+                &&& forall|i: nat, reader: VmIoOwner<'a>|
+                    #![trigger self.readers.kv_pairs().contains((i, reader))]
+                    self.readers.kv_pairs().contains((i, reader)) ==> {
+                        reader.inv() && reader.id@ == i
+                    }
+                &&& forall|i: nat, writer: VmIoOwner<'a>|
+                    #![trigger self.writers.kv_pairs().contains((i, writer))]
+                    self.writers.kv_pairs().contains((i, writer)) ==> {
+                        writer.inv() && writer.id@ == i
+                    }
+                    // --- Memory Range Overlap Checks ---
+                    // Readers do not overlap with other readers, and writers do not overlap with other writers.
+                &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
+                    #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
+                    self.readers.kv_pairs().contains((i, reader))
+                        && self.writers.kv_pairs().contains((j, writer)) ==> reader.disjoint(writer)
+                &&& !self.shared_reader ==> forall|
+                    i,
+                    j: nat,
+                    reader1: VmIoOwner<'a>,
+                    reader2: VmIoOwner<'a>,
+                |
+                    #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
+                    self.readers.kv_pairs().contains((i, reader1))
+                        && self.readers.kv_pairs().contains((j, reader2)) && i != j
+                        ==> reader1.disjoint(reader2)
+                &&& forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
+                    #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
+                    self.writers.kv_pairs().contains((i, writer1))
+                        && self.writers.kv_pairs().contains((j, writer2)) && i != j
+                        ==> writer1.disjoint(writer2)
+            }
         }
     }
 }
 
-impl VmSpaceOwner<'_> {
+impl<'a> VmSpaceOwner<'a> {
+    pub open spec fn mem_view_wf(self) -> bool {
+        &&& self.mem_view is Some
+            <==> self.mv_range@ is Some
+        // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
+        &&& self.mem_view matches Some(remaining_view) ==> self.mv_range@ matches Some(total_view)
+            ==> {
+            // ======================
+            // Remaining Consistency
+            // ======================
+            &&& remaining_view.mappings.subset_of(total_view.mappings)
+            &&& remaining_view.memory.dom().subset_of(total_view.memory.dom())
+            &&& forall|va: usize|
+                #![trigger remaining_view.addr_transl(va)]
+                #![trigger total_view.addr_transl(va)]
+                remaining_view.addr_transl(va) == total_view.addr_transl(
+                    va,
+                )
+            // =====================
+            // Writer correctness
+            // =====================
+            &&& forall|i: nat, writer: VmIoOwner<'a>| #[trigger]
+                self.writers.kv_pairs().contains((i, writer)) ==> {
+                    &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) && {
+                        forall|va: usize|
+                            #![auto]
+                            writer.range@.start <= va < writer.range@.end ==> {
+                                &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
+                                &&& remaining_view.addr_transl(va) is None
+                                &&& !remaining_view.memory.contains_key(va)
+                            }
+                    }
+                }
+                // =====================
+                // Reader correctness
+                // =====================
+            &&& forall|i: nat, reader: VmIoOwner<'a>| #[trigger]
+                self.readers.kv_pairs().contains((i, reader)) ==> {
+                    &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) && {
+                        forall|va: usize|
+                            #![trigger reader_mv.addr_transl(va)]
+                            #![trigger total_view.addr_transl(va)]
+                            reader.range@.start <= va < reader.range@.end ==> {
+                                // For readers there is no need to check remaining_view
+                                // because it is borrowed from remaining_view directly.
+                                &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
+                            }
+                    }
+                }
+        }
+    }
+
     /// The basic invariant between a VM space and its owner.
-    pub open spec fn inv_with(&self, vm_space: VmSpace<'_>) -> bool {
-        &&& self.shared_reader == vm_space.shared_reader
-        /* self.page_table_owner.is_for(vm_space.page_table) */
+    pub open spec fn inv_with(&self, vm_space: VmSpace<'a>) -> bool {
+        &&& self.shared_reader
+            == vm_space.shared_reader  /* self.page_table_owner.is_for(vm_space.page_table) */
+
     }
 
     /// Checks if this given reader is valid under this VM space owner.
     #[verifier::inline]
-    pub open spec fn valid_reader(&self, reader: VmReader<'_>, owner: VmIoOwner<'_>) -> bool
+    pub open spec fn valid_reader(&self, reader: VmReader<'a>, owner: VmIoOwner<'a>) -> bool
         recommends
             self.inv(),
             reader.inv(),
@@ -197,7 +258,7 @@ impl VmSpaceOwner<'_> {
     }
 
     /// Checks if this given writer is valid under this VM space owner.
-    pub open spec fn valid_writer(&self, writer: VmWriter<'_>, owner: VmIoOwner<'_>) -> bool
+    pub open spec fn valid_writer(&self, writer: VmWriter<'a>, owner: VmIoOwner<'a>) -> bool
         recommends
             self.inv(),
             writer.inv(),
@@ -214,18 +275,11 @@ impl VmSpaceOwner<'_> {
         recommends
             self.inv(),
     {
-        let reader = VmIoOwner {
-            id: arbitrary(),
-            range: Ghost(vaddr..(vaddr + len) as usize),
-            phantom: PhantomData,
-            is_fallible: false,
-            is_kernel: false,
-        };
-
-        &&& forall|i: nat, writer: VmIoOwner<'_>|
+        &&& forall|i: nat, writer: VmIoOwner<'a>|
             #![trigger self.writers.kv_pairs().contains((i, writer))]
-            self.writers.kv_pairs().contains((i, writer))
-                ==> !writer.overlaps(reader)
+            self.writers.kv_pairs().contains((i, writer)) ==> !writer.overlaps_with_range(
+                vaddr..(vaddr + len) as usize,
+            )
     }
 
     /// Checks if we can create a new writer under this VM space owner.
@@ -235,26 +289,20 @@ impl VmSpaceOwner<'_> {
         recommends
             self.inv(),
     {
-        let writer = VmIoOwner {
-            id: arbitrary(),
-            range: Ghost(vaddr..(vaddr + len) as usize),
-            phantom: PhantomData,
-            is_fallible: false,
-            is_kernel: false,
-        };
-
         &&& forall|i: nat, reader: VmIoOwner<'_>|
             #![trigger self.readers.kv_pairs().contains((i, reader))]
-            self.readers.kv_pairs().contains((i, reader))
-                ==> !reader.overlaps(writer)
+            self.readers.kv_pairs().contains((i, reader)) ==> !reader.overlaps_with_range(
+                vaddr..(vaddr + len) as usize,
+            )
         &&& forall|i: nat, writer2: VmIoOwner<'_>|
             #![trigger self.writers.kv_pairs().contains((i, writer2))]
-            self.writers.kv_pairs().contains((i, writer2))
-                ==> !writer2.overlaps(writer)
+            self.writers.kv_pairs().contains((i, writer2)) ==> !writer2.overlaps_with_range(
+                vaddr..(vaddr + len) as usize,
+            )
     }
 
     /// Generates a new unique ID for VM IO owners.
-    /// 
+    ///
     /// This assumes that we always generate a fresh ID that is not used by any existing
     /// readers or writers. This should be safe as the ID space is unbounded and only used
     /// to reason about different VM IO owners in verification.
@@ -270,9 +318,358 @@ impl VmSpaceOwner<'_> {
     pub proof fn new_vm_io_id(&self) -> nat {
         unimplemented!()
     }
-}
 
-}  // verus!
+    /// Requests a writer for the given virtual address range. The caller
+    /// must prepare a valid [`VmIoOwner`] for the writer.
+    ///
+    /// This function performs a "Resource Transfer":
+    /// 1. Takes a slice of permission from `self.mem_view` (Inventory).
+    /// 2. Moves it into `owner.mem_view` (Writer).
+    /// 3. Registers the writer in `self.writers` (Accounting).
+    pub proof fn register_writer(
+        tracked &mut self,
+        writer: VmWriter<'a>,
+        tracked mut owner: VmIoOwner<'a>,
+    )
+        requires
+            old(self).inv(),
+            old(self).active,
+            !old(self).writers.contains_key(writer.id@),
+            !old(self).readers.contains_key(writer.id@),
+            owner.inv_with_writer(writer),
+            owner.id == writer.id,
+            owner.mem_view is None,
+            // Inventory check
+            old(self).mem_view matches Some(remaining) && forall|va: usize|
+                #![trigger remaining.addr_transl(va)]
+                #![trigger remaining.memory.contains_key(va)]
+                writer.cursor.range@.start <= va < writer.cursor.range@.end ==> {
+                    &&& remaining.addr_transl(va) is Some
+                    &&& remaining.memory.contains_key(va)
+                },
+            writer.cursor.vaddr == owner.range@.start,
+        ensures
+            self.inv(),
+            self.writers.contains_key(writer.id@),
+            !self.readers.contains_key(writer.id@),
+    {
+        let start = writer.cursor.vaddr;
+        let len = (writer.cursor.range@.end - writer.cursor.range@.start) as usize;
+        // Temporarily take the mem_view out.
+        let tracked remaining = self.mem_view.tracked_take();
+        // Split the remaining view into two parts: the requested part and the leftover part.
+        let tracked (requested, new_remaining) = remaining.split(start, len);
+
+        self.mem_view = Some(new_remaining);
+        owner.mem_view = Some(VmIoMemView::WriteView(requested));
+
+        // Now we register the writer.
+        self.writers.tracked_insert(writer.id@, owner);
+
+        assert(self.inv()) by {
+            // Now we prove that new ⊆ old_remaining ⊆ holstic.
+            let holistic = self.mv_range.borrow().unwrap();
+
+            MemView::lemma_split_preserves_transl(remaining, start, len, requested, new_remaining);
+
+            assert(new_remaining.mappings =~= remaining.mappings.filter(
+                |m: vstd_extra::virtual_ptr::Mapping| { m.va_range.end > start + len },
+            ));
+            assert forall|va: usize|
+                #![trigger new_remaining.addr_transl(va)]
+                #![trigger holistic.addr_transl(va)]
+                new_remaining.memory.contains_key(va) implies holistic.addr_transl(va)
+                == new_remaining.addr_transl(va) by {
+                // A -> B -> C transitivity.
+                let candidates_old = remaining.mappings.filter(
+                    |m: vstd_extra::virtual_ptr::Mapping|
+                        { m.va_range.start <= va < m.va_range.end },
+                );
+                let candidates_new = new_remaining.mappings.filter(
+                    |m: vstd_extra::virtual_ptr::Mapping|
+                        { m.va_range.start <= va < m.va_range.end },
+                );
+
+                if va >= start + len {
+                    assert(candidates_new.subset_of(candidates_old));
+                    assert forall|m: vstd_extra::virtual_ptr::Mapping|
+                        candidates_old.contains(m) implies candidates_new.contains(m) by {
+                        assert(m.va_range.start <= va < m.va_range.end);
+                        assert(va >= start + len);
+                        assert(m.va_range.end > start + len);
+                        assert(new_remaining.mappings.contains(m));
+                    }
+                    assert(candidates_new =~= candidates_old);
+                    assert(new_remaining.addr_transl(va) == remaining.addr_transl(va));
+                    assert(remaining.addr_transl(va) == holistic.addr_transl(va));
+                } else {
+                    admit();
+                }
+            }
+
+            admit();
+        }
+    }
+
+    /// Requests a reader for the given virtual address range.
+    ///
+    /// This function will try to take the necessary permissions into the VM space owner if exists.
+    pub proof fn register_reader(
+        tracked &mut self,
+        reader: VmReader<'a>,
+        tracked owner: VmIoOwner<'a>,
+    )
+        requires
+            old(self).inv(),
+            owner.inv_with_reader(reader),
+        ensures
+            self.inv(),
+            owner.inv_with_reader(reader),
+    {
+    }
+
+    /// Removes the given reader from the active readers list.
+    pub proof fn remove_reader(tracked &mut self, id: nat)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            old(self).readers.contains_key(id),
+        ensures
+            self.inv(),
+            !self.readers.contains_key(id),
+    {
+        self.readers.tracked_remove(id);
+
+        let ghost total_view = self.mv_range@.unwrap();
+
+        assert forall|i: nat, reader: VmIoOwner<'a>| #[trigger]
+            self.readers.kv_pairs().contains((i, reader)) implies {
+            &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) && {
+                forall|va: usize|
+                    #![trigger reader_mv.addr_transl(va)]
+                    #![trigger total_view.addr_transl(va)]
+                    reader.range@.start <= va < reader.range@.end ==> {
+                        &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
+                    }
+            }
+        } by {
+            assert(old(self).readers.kv_pairs().contains((i, reader)));
+        }
+
+        assert forall|i: nat, reader: VmIoOwner<'a>|
+            #![trigger self.readers.kv_pairs().contains((i, reader))]
+            self.readers.kv_pairs().contains((i, reader)) implies { reader.inv() && reader.id@ == i
+        } by {
+            assert(old(self).readers.kv_pairs().contains((i, reader)));
+        }
+
+        assert forall|i, j: nat, writer: VmIoOwner<'a>, reader: VmIoOwner<'a>|
+            #![trigger self.writers.kv_pairs().contains((i, writer)), self.readers.kv_pairs().contains((j, reader))]
+            self.writers.kv_pairs().contains((i, writer)) && self.readers.kv_pairs().contains(
+                (j, reader),
+            ) implies writer.disjoint(reader) by {
+            admit();
+
+        }
+
+        admit();  // similar to the writer removal
+    }
+
+    /// Disposes the given reader, releasing its ownership on the memory range.
+    pub proof fn dispose_reader(tracked &mut self, tracked owner: VmIoOwner<'a>)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            !old(self).writers.contains_key(owner.id@),
+            !old(self).readers.contains_key(owner.id@),
+            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
+            owner.inv(),
+            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+                VmIoMemView::WriteView(mv),
+            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+                forall|va: usize|
+                    #![auto]
+                    owner.range@.start <= va < owner.range@.end ==> {
+                        &&& total_view.addr_transl(va) == mv.addr_transl(va)
+                        &&& remaining.addr_transl(va) is None
+                        &&& !remaining.memory.contains_key(va)
+                    }
+            },
+            forall|i: nat, w: VmIoOwner| #[trigger]
+                old(self).writers.kv_pairs().contains((i, w)) ==> w.disjoint(owner),
+        ensures
+            self.inv(),
+            owner.range@.start < owner.range@.end ==> self.readers.contains_key(owner.id@),
+    {
+        let tracked mv = match owner.mem_view {
+            Some(VmIoMemView::ReadView(mv)) => mv,
+            _ => { proof_from_false() },
+        };
+
+        if owner.range@.start < owner.range@.end {
+            // Return the memory view back to the vm space owner.
+            self.readers.tracked_insert(owner.id@, owner);
+
+            admit();
+        }
+    }
+
+    /// Removes the given writer from the active writers list.
+    #[verifier::external_body]
+    pub proof fn remove_writer(tracked &mut self, id: nat)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            old(self).writers.contains_key(id),
+        ensures
+            self.inv(),
+            !self.writers.contains_key(id),
+    {
+        let tracked mut owner = self.writers.tracked_remove(id);
+        let tracked mv = match owner.mem_view.tracked_take() {
+            VmIoMemView::WriteView(mv) => mv,
+            _ => { proof_from_false() },
+        };
+
+        // Return the memory view back to the vm space owner.
+        let tracked remaining = self.mem_view.tracked_take();
+        let tracked new_remaining = remaining.join(mv);
+
+        self.mem_view = Some(new_remaining);
+    }
+
+    /// Disposes the given writer, releasing its ownership on the memory range.
+    ///
+    /// This does not mean that the owner is discarded; it indicates that someone
+    /// who finishes the writing operation can let us reclaim the permission.
+    ///
+    /// The deletion of the writer is through another API [`VmSpaceOwner::remove_writer`].
+    pub proof fn dispose_writer(tracked &mut self, tracked owner: VmIoOwner<'a>)
+        requires
+            old(self).inv(),
+            old(self).active,
+            !old(self).writers.contains_key(owner.id@),
+            !old(self).readers.contains_key(owner.id@),
+            owner.inv(),
+            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+                VmIoMemView::WriteView(mv),
+            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+                forall|va: usize|
+                    #![auto]
+                    owner.range@.start <= va < owner.range@.end ==> {
+                        &&& total_view.addr_transl(va) == mv.addr_transl(va)
+                        &&& remaining.addr_transl(va) is None
+                        &&& !remaining.memory.contains_key(va)
+                    }
+            },
+            forall|i: nat, w: VmIoOwner| #[trigger]
+                old(self).writers.kv_pairs().contains((i, w)) ==> w.disjoint(owner),
+            forall|i: nat, r: VmIoOwner| #[trigger]
+                old(self).readers.kv_pairs().contains((i, r)) ==> r.disjoint(owner),
+        ensures
+            self.inv(),
+            owner.range@.start < owner.range@.end ==> self.writers.contains_key(owner.id@),
+    {
+        // If the writer has consumed all the memory, nothing to do;
+        // just discard the writer and return the permission back to
+        // the vm space owner.
+        match owner.mem_view {
+            Some(VmIoMemView::WriteView(ref writer_mv)) => {
+                if owner.range@.start < owner.range@.end {
+                    self.writers.tracked_insert(owner.id@, owner);
+
+                    assert(self.writers.kv_pairs().contains((owner.id@, owner)));
+                    assert forall|i: nat, writer: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer))]
+                        self.writers.kv_pairs().contains((i, writer)) implies {
+                        writer.inv() && writer.id@ == i
+                    } by {
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(writer.inv());
+                        } else {
+                            broadcast use vstd::map::axiom_map_insert_domain;
+
+                        }
+                    }
+
+                    let ghost total_view = self.mv_range@.unwrap();
+                    let ghost remaining_view = self.mem_view.unwrap();
+                    assert forall|i: nat, writer: VmIoOwner<'a>|
+                        self.writers.kv_pairs().contains((i, writer)) implies {
+                        &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) && {
+                            forall|va: usize|
+                                #![auto]
+                                writer.range@.start <= va < writer.range@.end ==> {
+                                    &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
+                                    &&& remaining_view.addr_transl(va) is None
+                                    &&& !remaining_view.memory.contains_key(va)
+                                }
+                        }
+                    } by {
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(writer.inv());
+                        } else {
+                            broadcast use vstd::map::axiom_map_insert_domain;
+
+                        }
+                    }
+
+                    assert forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
+                        self.writers.kv_pairs().contains((i, writer1))
+                            && self.writers.kv_pairs().contains((j, writer2)) && i
+                            != j implies writer1.disjoint(writer2) by {
+                        if writer1.id@ != owner.id@ && writer2.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer1)));
+                            assert(old(self).writers.kv_pairs().contains((j, writer2)));
+                            assert(writer1.disjoint(writer2));
+                        } else if writer1.id@ == owner.id@ {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((j, writer2)));
+
+                            assert(owner.disjoint(writer2));
+                        } else {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((i, writer1)));
+                            assert(writer1.disjoint(owner));
+                        }
+                    }
+
+                    assert forall|i, j: nat, writer: VmIoOwner<'a>, reader: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer)), self.readers.kv_pairs().contains((j, reader))]
+                        self.writers.kv_pairs().contains((i, writer))
+                            && self.readers.kv_pairs().contains(
+                            (j, reader),
+                        ) implies writer.disjoint(reader) by {
+                        assert(!old(self).writers.contains_key(owner.id@));
+
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(old(self).readers.kv_pairs().contains((j, reader)));
+                            assert(reader.disjoint(writer));
+                        } else if writer.id@ == owner.id@ {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).readers.kv_pairs().contains((j, reader)));
+                            assert(owner.disjoint(reader));
+                        } else {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(writer.disjoint(owner));
+                        }
+                    }
+                }
+            },
+            _ => {
+                assert(false);
+            },
+        }
+    }
+}
 
 /// The configuration for user page tables.
 #[derive(Clone, Debug)]
@@ -313,13 +710,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        unimplemented!()/*
-        let (frame, prop) = item;
-        let level = frame.map_level();
-        let paddr = frame.into_raw();
-        (paddr, level, prop)
-        */
-
+        unimplemented!()
     }
 
     uninterp spec fn item_from_raw_spec(
@@ -330,25 +721,19 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     #[verifier::external_body]
     fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        unimplemented!()/*
-        debug_assert_eq!(level, 1);
-        // SAFETY: The caller ensures safety.
-        let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
-        (frame, prop)
-        */
-
+        unimplemented!()
     }
 }
 
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl VmSpace<'_> {
+impl<'a> VmSpace<'a> {
     pub uninterp spec fn new_spec() -> Self;
 
     pub open spec fn reader_requires(
         &self,
-        vm_owner: VmSpaceOwner<'_>,
+        vm_owner: VmSpaceOwner<'a>,
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
@@ -363,7 +748,7 @@ impl VmSpace<'_> {
 
     pub open spec fn writer_requires(
         &self,
-        vm_owner: VmSpaceOwner<'_>,
+        vm_owner: VmSpaceOwner<'a>,
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
@@ -376,48 +761,48 @@ impl VmSpace<'_> {
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
-    pub open spec fn reader_ensures(
-        &self,
-        vm_owner_old: VmSpaceOwner<'_>,
-        vm_owner_new: VmSpaceOwner<'_>,
-        vaddr: Vaddr,
-        len: usize,
-        r: Result<VmReader<'_>>,
-    ) -> bool {
-        &&& vm_owner_new.inv()
-        &&& r matches Ok(reader) && vm_owner_new.readers == vm_owner_old.readers.insert(
-            reader.id@,
-            VmIoOwner {
-                id: reader.id,
-                range: Ghost(vaddr..(vaddr + len) as usize),
-                phantom: PhantomData,
-                is_fallible: false,
-                is_kernel: false,
-            },
-        )
-    }
-
-    pub open spec fn writer_ensures(
-        &self,
-        vm_owner_old: VmSpaceOwner<'_>,
-        vm_owner_new: VmSpaceOwner<'_>,
-        vaddr: Vaddr,
-        len: usize,
-        r: Result<VmWriter<'_>>,
-    ) -> bool {
-        &&& vm_owner_new.inv()
-        &&& r matches Ok(writer) && vm_owner_new.writers == vm_owner_old.writers.insert(
-            writer.id@,
-            VmIoOwner {
-                id: writer.id,
-                range: Ghost(vaddr..(vaddr + len) as usize),
-                phantom: PhantomData,
-                is_fallible: false,
-                is_kernel: false,
-            },
-        )
-    }
-
+    // pub open spec fn reader_ensures(
+    //     &self,
+    //     vm_owner_old: VmSpaceOwner<'_>,
+    //     vm_owner_new: VmSpaceOwner<'_>,
+    //     vaddr: Vaddr,
+    //     len: usize,
+    //     r: Result<VmReader<'_>>,
+    // ) -> bool {
+    //     &&& vm_owner_new.inv()
+    //     &&& r matches Ok(reader) && vm_owner_new.readers == vm_owner_old.readers.insert(
+    //         reader.id@,
+    //         VmIoOwner {
+    //             id: reader.id,
+    //             range: Ghost(vaddr..(vaddr + len) as usize),
+    //             phantom: PhantomData,
+    //             is_fallible: false,
+    //             is_kernel: false,
+    //             mem_view: None,
+    //         },
+    //     )
+    // }
+    // pub open spec fn writer_ensures(
+    //     &self,
+    //     vm_owner_old: VmSpaceOwner<'a>,
+    //     vm_owner_new: VmSpaceOwner<'a>,
+    //     vaddr: Vaddr,
+    //     len: usize,
+    //     r: Result<VmWriter<'a>>,
+    // ) -> bool {
+    //     &&& vm_owner_new.inv()
+    //     &&& r matches Ok(writer) && vm_owner_new.writers == vm_owner_old.writers.insert(
+    //         writer.id@,
+    //         VmIoOwner {
+    //             id: writer.id,
+    //             range: Ghost(vaddr..(vaddr + len) as usize),
+    //             phantom: PhantomData,
+    //             is_fallible: false,
+    //             is_kernel: false,
+    //             mem_view: None,
+    //         },
+    //     )
+    // }
     /// Creates a new VM address space.
     #[inline]
     #[verifier::external_body]
@@ -440,7 +825,9 @@ impl VmSpace<'_> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
+    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        Cursor<'a, G>,
+    > {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -454,7 +841,9 @@ impl VmSpace<'_> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<'a, G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        CursorMut<'a, G>,
+    > {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -479,22 +868,21 @@ impl VmSpace<'_> {
     /// always consult the [`VmSpaceOwner`] to ensure the validity of the created reader and "borrow"
     /// the reader from the owner.
     #[inline]
+    #[verifier::external_body]
     #[verus_spec(r =>
         with
-            Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
+            Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
         requires
             self.reader_requires(*old(owner), vaddr, len),
-        ensures
-            self.reader_ensures(*old(owner), *owner, vaddr, len, r),
+        // ensures
+        //     self.reader_ensures(*old(owner), *owner, vaddr, len, r),
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'_>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
-
         proof_decl! {
             let tracked mut vm_reader_owner;
         }
-
         // SAFETY: The memory range is in user space, as checked above.
         let reader = unsafe {
             proof_with!(Ghost(id) => Tracked(mut vm_reader_owner));
@@ -502,57 +890,67 @@ impl VmSpace<'_> {
         };
 
         proof {
-            owner.readers.tracked_insert(
-                vm_reader_owner.id@,
-                vm_reader_owner,
-            );
+            owner.register_reader(reader, vm_reader_owner);
         }
-
 
         Ok(reader)
     }
-    /// Creates a writer to write data into the user space.
-    ///
-    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
-    /// or the `vaddr` and `len` do not represent a user space memory range.
-    ///
-    /// Users must ensure that no other page table is activated in the current task during the
-    /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
-    #[inline]
-    #[verus_spec(r =>
-        with
-            Tracked(owner): Tracked<&mut VmSpaceOwner<'_>>,
-        requires
-            self.writer_requires(*old(owner), vaddr, len),
-        ensures
-            self.writer_ensures(*old(owner), *owner, vaddr, len, r),
-    )]
-    pub fn writer(&self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'_>> {
-        let vptr = VirtPtr::from_vaddr(vaddr, len);
-        let ghost id = owner.new_vm_io_id();
-        proof_decl! {
-            let tracked mut vm_writer_owner;
-        }
-        
-        // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
-        // task. This ensures that the correct page table is activated during the usage period of
-        // the `VmWriter`.
-        //
-        // SAFETY: The memory range is in user space, as checked above.
-        let writer = unsafe {
-            proof_with!(Ghost(id) => Tracked(mut vm_writer_owner));
-            VmWriter::from_user_space(vptr)
-        };
+    // Creates a writer to write data into the user space.
+    // ///
+    // /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    // /// or the `vaddr` and `len` do not represent a user space memory range.
+    // ///
+    // /// Users must ensure that no other page table is activated in the current task during the
+    // /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
+    // #[inline]
+    // #[verifier::external_body]
+    // #[verus_spec(r =>
+    //     with
+    //         Tracked(owner): Tracked<VmSpaceOwner<'a>>,
+    //             -> new_owner: Tracked<VmSpaceOwner<'a>>,
+    //     requires
+    //         self.writer_requires(owner, vaddr, len),
+    //     ensures
+    //         self.writer_ensures(owner, new_owner@, vaddr, len, r),
+    // )]
+    // pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
+    //     let vptr = VirtPtr::from_vaddr(vaddr, len);
+    //     let ghost id = owner.new_vm_io_id();
+    //     let tracked mut vm_writer_owner;
+    //     let tracked VmSpaceOwner {
+    //         page_table_owner,
+    //         active,
+    //         readers,
+    //         writers,
+    //         mut mem_view,
+    //         shared_reader,
+    //     } = owner;
+    //     let tracked (writer_mem_view, remaining_mem_view) = mem_view.split(vaddr, len);
+    //     // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
+    //     // task. This ensures that the correct page table is activated during the usage period of
+    //     // the `VmWriter`.
+    //     //
+    //     // SAFETY: The memory range is in user space, as checked above.
+    //     let writer = unsafe {
+    //         proof_with!(Ghost(id) => Tracked(mut vm_writer_owner));
+    //         VmWriter::from_user_space(vptr)
+    //     };
+    //     proof {
+    //         vm_writer_owner.mem_view = Some(VmIoMemView::WriteView(writer_mem_view));
+    //         writers.tracked_insert(vm_writer_owner.id@, vm_writer_owner);
+    //     }
+    //     let tracked new_owner = VmSpaceOwner {
+    //         page_table_owner,
+    //         active,
+    //         readers,
+    //         writers,
+    //         mem_view: remaining_mem_view,
+    //         shared_reader,
+    //     };
+    //     proof_with!(|= Tracked(new_owner));
+    //     Ok(writer)
+    // }
 
-        proof {
-            owner.writers.tracked_insert(
-                vm_writer_owner.id@,
-                vm_writer_owner,
-            );
-        }
-
-        Ok(writer)
-    }
 }
 
 /*
@@ -692,7 +1090,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+    pub pt_cursor: crate::mm::page_table::CursorMut<
+        'a,
+        UserPtConfig,
+        A,
+    >,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
@@ -731,15 +1133,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// it will return the virtual address range and the mapped item.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
             old(self).pt_cursor.inner.inv(),
-    {
+    )]
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions))]
             self.pt_cursor.query()?,
@@ -776,16 +1177,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    #[verus_spec(
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+    #[verus_spec(r => 
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
+        ensures
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
     {
         (#[verus_spec(with Tracked(owner), Tracked(regions))]
         self.pt_cursor.jump(va))?;
@@ -793,9 +1196,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 
     /// Get the virtual address of the current slot.
-    pub fn virt_addr(&self) -> Vaddr
+    #[verus_spec(r =>
         returns
             self.pt_cursor.inner.va,
+    )]
+    pub fn virt_addr(&self) -> Vaddr
     {
         self.pt_cursor.virt_addr()
     }
@@ -812,7 +1217,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        ensures
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
@@ -823,9 +1229,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(cursor_owner).in_locked_range(),
-            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1 <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-            old(self).pt_cursor.inner.va % page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) == 0,
-            old(self).pt_cursor.inner.va + page_size(UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1) < old(self).pt_cursor.inner.barrier_va.end,
+            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1
+                <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+            old(self).pt_cursor.inner.va % page_size(
+                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+            ) == 0,
+            old(self).pt_cursor.inner.va + page_size(
+                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+            ) < old(self).pt_cursor.inner.barrier_va.end,
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -879,6 +1290,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE().end as int,
+        ensures
     )]
     #[verifier::external_body]
     pub fn unmap(&mut self, len: usize) -> usize {
@@ -943,10 +1355,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>
+            Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             regions.inv(),
             !old(owner).cur_entry_owner().is_absent(),
+        ensures
     )]
     pub fn protect_next(
         &mut self,

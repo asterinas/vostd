@@ -158,7 +158,7 @@ uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMe
 >;
 
 #[verifier::external_body]
-extern  fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
+extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
     ensures
         _page == drop_tree_spec::<C>(*old(_page)),
 ;
@@ -225,12 +225,11 @@ impl<C: PageTableConfig> PageTableNode<C> {
         let meta = self.meta();
         meta.level
     }
-    
+
     /// Allocates a new empty page table node.
     #[verifier::external_body]
     pub(super) fn alloc(level: PagingLevel) -> Self {
-        unimplemented!()
-        /*
+        unimplemented!()/*
         let meta = PageTablePageMeta::new(level);
         let frame = FrameAllocOptions::new()
             .zeroed(true)
@@ -240,9 +239,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
         //debug_assert_eq!(C::E::new_absent().as_usize(), 0);
 
         frame*/
-    }
 
-    /*
+    }/*
     /// Activates the page table assuming it is a root page table.
     ///
     /// Here we ensure not dropping an active page table by making a

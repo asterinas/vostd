@@ -57,7 +57,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.inv(),
             self.level == other.level,
             self.level <= level <= NR_LEVELS(),
-            forall |i: int| self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].idx == other.continuations[i].idx,
+            forall |i: int|
+                #![trigger self.continuations[i].idx]
+                #![trigger other.continuations[i].idx]
+            self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].idx == other.continuations[i].idx,
         ensures
             self.max_steps_partial(level) == other.max_steps_partial(level),
         decreases NR_LEVELS() - level,

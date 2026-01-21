@@ -509,8 +509,7 @@ impl<M: AnyFrameMeta> Segment<M> {
                 }
             }
 
-            // TODO: `ManuallyDrop` causes compiler crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
-            // let _ = ManuallyDrop::new(frame);
+            let _ = ManuallyDrop::new(frame);
             segment.range.end = paddr + PAGE_SIZE();
             proof {
                 addrs.tracked_push(paddr);
@@ -595,7 +594,7 @@ impl<M: AnyFrameMeta> Segment<M> {
         );
 
         // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
-        // let _ = ManuallyDrop::new(self);
+        let _ = ManuallyDrop::new(self);
 
         let tracked frame_perms1 = SegmentOwner {
             perms: seq_tracked_subrange(owner.perms, 0, idx as int),
@@ -652,9 +651,8 @@ impl<M: AnyFrameMeta> Segment<M> {
             }
         }
 
-        let range = self.range;
-        // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
-        // let _ = ManuallyDrop::new(self);
+        let range = self.range.clone();
+        let _ = ManuallyDrop::new(self);
         range
     }
 
