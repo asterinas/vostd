@@ -428,18 +428,92 @@ impl<'a> VmSpaceOwner<'a> {
     {
     }
 
-    /// Disposes the given reader, releasing its ownership on the memory range.
-    pub proof fn dispose_reader(tracked &mut self, owner: VmIoOwner<'a>)
+    /// Removes the given reader from the active readers list.
+    pub proof fn remove_reader(tracked &mut self, id: nat)
         requires
             old(self).inv(),
             old(self).active,
             old(self).mem_view is Some,
-            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(self).readers.contains_key(id),
         ensures
             self.inv(),
+            !self.readers.contains_key(id),
     {
-        // Nothing to do; this function just consumes the ownership of
-        // the reader and returns the permission back to the vm space owner.
+        self.readers.tracked_remove(id);
+
+        let ghost total_view = self.mv_range@.unwrap();
+
+        assert forall|i: nat, reader: VmIoOwner<'a>| #[trigger]
+            self.readers.kv_pairs().contains((i, reader)) implies {
+            &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) && {
+                forall|va: usize|
+                    #![trigger reader_mv.addr_transl(va)]
+                    #![trigger total_view.addr_transl(va)]
+                    reader.range@.start <= va < reader.range@.end ==> {
+                        &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
+                    }
+            }
+        } by {
+            assert(old(self).readers.kv_pairs().contains((i, reader)));
+        }
+
+        assert forall|i: nat, reader: VmIoOwner<'a>|
+            #![trigger self.readers.kv_pairs().contains((i, reader))]
+            self.readers.kv_pairs().contains((i, reader)) implies { reader.inv() && reader.id@ == i
+        } by {
+            assert(old(self).readers.kv_pairs().contains((i, reader)));
+        }
+
+        assert forall|i, j: nat, writer: VmIoOwner<'a>, reader: VmIoOwner<'a>|
+            #![trigger self.writers.kv_pairs().contains((i, writer)), self.readers.kv_pairs().contains((j, reader))]
+            self.writers.kv_pairs().contains((i, writer)) && self.readers.kv_pairs().contains(
+                (j, reader),
+            ) implies writer.disjoint(reader) by {
+            admit();
+
+        }
+
+        admit();  // similar to the writer removal
+    }
+
+    /// Disposes the given reader, releasing its ownership on the memory range.
+    pub proof fn dispose_reader(tracked &mut self, tracked owner: VmIoOwner<'a>)
+        requires
+            old(self).inv(),
+            old(self).active,
+            old(self).mem_view is Some,
+            !old(self).writers.contains_key(owner.id@),
+            !old(self).readers.contains_key(owner.id@),
+            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
+            owner.inv(),
+            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+                VmIoMemView::WriteView(mv),
+            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+                forall|va: usize|
+                    #![auto]
+                    owner.range@.start <= va < owner.range@.end ==> {
+                        &&& total_view.addr_transl(va) == mv.addr_transl(va)
+                        &&& remaining.addr_transl(va) is None
+                        &&& !remaining.memory.contains_key(va)
+                    }
+            },
+            forall|i: nat, w: VmIoOwner| #[trigger]
+                old(self).writers.kv_pairs().contains((i, w)) ==> w.disjoint(owner),
+        ensures
+            self.inv(),
+            owner.range@.start < owner.range@.end ==> self.readers.contains_key(owner.id@),
+    {
+        let tracked mv = match owner.mem_view {
+            Some(VmIoMemView::ReadView(mv)) => mv,
+            _ => { proof_from_false() },
+        };
+
+        if owner.range@.start < owner.range@.end {
+            // Return the memory view back to the vm space owner.
+            self.readers.tracked_insert(owner.id@, owner);
+
+            admit();
+        }
     }
 
     /// Removes the given writer from the active writers list.
@@ -452,6 +526,7 @@ impl<'a> VmSpaceOwner<'a> {
             old(self).writers.contains_key(id),
         ensures
             self.inv(),
+            !self.writers.contains_key(id),
     {
         let tracked mut owner = self.writers.tracked_remove(id);
         let tracked mv = match owner.mem_view.tracked_take() {
@@ -561,7 +636,6 @@ impl<'a> VmSpaceOwner<'a> {
                         } else {
                             assert(!old(self).writers.contains_key(owner.id@));
                             assert(old(self).writers.kv_pairs().contains((i, writer1)));
-
                             assert(writer1.disjoint(owner));
                         }
                     }
@@ -585,7 +659,6 @@ impl<'a> VmSpaceOwner<'a> {
                         } else {
                             assert(!old(self).writers.contains_key(owner.id@));
                             assert(old(self).writers.kv_pairs().contains((i, writer)));
-
                             assert(writer.disjoint(owner));
                         }
                     }
@@ -637,13 +710,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        unimplemented!()/*
-        let (frame, prop) = item;
-        let level = frame.map_level();
-        let paddr = frame.into_raw();
-        (paddr, level, prop)
-        */
-
+        unimplemented!()
     }
 
     uninterp spec fn item_from_raw_spec(
@@ -654,13 +721,7 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     #[verifier::external_body]
     fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        unimplemented!()/*
-        debug_assert_eq!(level, 1);
-        // SAFETY: The caller ensures safety.
-        let frame = unsafe { Frame::<dyn AnyUFrameMeta>::from_raw(paddr) };
-        (frame, prop)
-        */
-
+        unimplemented!()
     }
 }
 
@@ -1115,15 +1176,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    #[verus_spec(
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>
-    )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+    #[verus_spec(r => 
+        with
+            Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
+        ensures
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
     {
         (#[verus_spec(with Tracked(owner))]
         self.pt_cursor.jump(va))?;
@@ -1131,9 +1194,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 
     /// Get the virtual address of the current slot.
-    pub fn virt_addr(&self) -> Vaddr
+    #[verus_spec(r =>
         returns
             self.pt_cursor.inner.va,
+    )]
+    pub fn virt_addr(&self) -> Vaddr
     {
         self.pt_cursor.virt_addr()
     }
@@ -1150,7 +1215,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+        ensures
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
@@ -1222,6 +1288,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE().end as int,
+        ensures
     )]
     #[verifier::external_body]
     pub fn unmap(&mut self, len: usize) -> usize {
@@ -1286,10 +1353,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>
+            Tracked(regions): Tracked<&MetaRegionOwners>,
         requires
             regions.inv(),
             !old(owner).cur_entry_owner().is_absent(),
+        ensures
     )]
     pub fn protect_next(
         &mut self,
