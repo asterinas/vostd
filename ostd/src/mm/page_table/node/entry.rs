@@ -295,13 +295,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
     )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
-        PPtr<PageTableGuard<'rcu, C>>,
-    >)
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
         requires
             old(owner).inv(),
             old(self).wf(old(owner).value),
+            old(regions).inv(),
         ensures
             old(owner).value.is_absent() ==> {
                 &&& res is Some
@@ -315,6 +315,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& owner == old(owner)
             },
             owner.inv(),
+            regions.inv(),
     {
         unimplemented!()/*        if !(self.is_none() && self.node.level() > 1) {
             return None;
@@ -384,7 +385,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& res is None
                 &&& owner == old(owner)
             },
-            owner.inv()
+            owner.inv(),
+            regions.inv(),
+            parent_owner.inv(),
+            owner.value.relate_parent_guard_perm(parent_owner.guard_perm)
     {
         let node_guard = self.node.borrow(Tracked(&mut parent_owner.guard_perm));
 

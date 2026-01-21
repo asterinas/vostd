@@ -666,6 +666,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Jump to the virtual address.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
@@ -675,7 +676,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.inv(),
             old(owner).in_locked_range(),
     {
-        (#[verus_spec(with Tracked(owner))]
+        (#[verus_spec(with Tracked(owner), Tracked(regions))]
         self.0.jump(va))?;
         Ok(())
     }
@@ -776,7 +777,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// This is the same as [`Cursor::jump`].
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>
+        with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
@@ -785,7 +787,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
     {
-        (#[verus_spec(with Tracked(owner))]
+        (#[verus_spec(with Tracked(owner), Tracked(regions))]
         self.pt_cursor.jump(va))?;
         Ok(())
     }
