@@ -212,8 +212,8 @@ impl VmIoOwner<'_> {
 
     #[verifier::inline]
     pub open spec fn overlaps_with_range(self, range: Range<usize>) -> bool {
-        &&& self.range@.start < range.end
-        &&& range.start < self.range@.end
+        &&& self.range@.start <= range.end
+        &&& range.start <= self.range@.end
     }
 
     /// Checks whether this owner is disjoint with another owner.

@@ -153,24 +153,19 @@ impl<'a> Inv for VmSpaceOwner<'a> {
                 &&& forall|i: nat, reader: VmIoOwner<'a>|
                     #![trigger self.readers.kv_pairs().contains((i, reader))]
                     self.readers.kv_pairs().contains((i, reader)) ==> {
-                        reader.inv() && reader.id@ == i && reader.mem_view matches Some(
-                            VmIoMemView::ReadView(_),
-                        )
+                        reader.inv() && reader.id@ == i
                     }
                 &&& forall|i: nat, writer: VmIoOwner<'a>|
                     #![trigger self.writers.kv_pairs().contains((i, writer))]
                     self.writers.kv_pairs().contains((i, writer)) ==> {
-                        writer.inv() && writer.id@ == i && writer.mem_view matches Some(
-                            VmIoMemView::WriteView(_),
-                        )
+                        writer.inv() && writer.id@ == i
                     }
                     // --- Memory Range Overlap Checks ---
                     // Readers do not overlap with other readers, and writers do not overlap with other writers.
                 &&& forall|i, j: nat, reader: VmIoOwner<'a>, writer: VmIoOwner<'a>|
                     #![trigger self.readers.kv_pairs().contains((i, reader)), self.writers.kv_pairs().contains((j, writer))]
                     self.readers.kv_pairs().contains((i, reader))
-                        && self.writers.kv_pairs().contains((j, writer)) && i != j
-                        ==> !reader.overlaps(writer)
+                        && self.writers.kv_pairs().contains((j, writer)) ==> reader.disjoint(writer)
                 &&& !self.shared_reader ==> forall|
                     i,
                     j: nat,
@@ -180,12 +175,12 @@ impl<'a> Inv for VmSpaceOwner<'a> {
                     #![trigger self.readers.kv_pairs().contains((i, reader1)), self.readers.kv_pairs().contains((j, reader2))]
                     self.readers.kv_pairs().contains((i, reader1))
                         && self.readers.kv_pairs().contains((j, reader2)) && i != j
-                        ==> !reader1.overlaps(reader2)
+                        ==> reader1.disjoint(reader2)
                 &&& forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
                     #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
                     self.writers.kv_pairs().contains((i, writer1))
                         && self.writers.kv_pairs().contains((j, writer2)) && i != j
-                        ==> !writer1.overlaps(writer2)
+                        ==> writer1.disjoint(writer2)
             }
         }
     }
@@ -214,12 +209,9 @@ impl<'a> VmSpaceOwner<'a> {
             // =====================
             &&& forall|i: nat, writer: VmIoOwner<'a>| #[trigger]
                 self.writers.kv_pairs().contains((i, writer)) ==> {
-                    &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) ==> {
+                    &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) && {
                         forall|va: usize|
-                            #![trigger writer_mv.addr_transl(va)]
-                            #![trigger total_view.addr_transl(va)]
-                            #![trigger remaining_view.addr_transl(va)]
-                            #![trigger remaining_view.memory.contains_key(va)]
+                            #![auto]
                             writer.range@.start <= va < writer.range@.end ==> {
                                 &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
                                 &&& remaining_view.addr_transl(va) is None
@@ -232,7 +224,7 @@ impl<'a> VmSpaceOwner<'a> {
                 // =====================
             &&& forall|i: nat, reader: VmIoOwner<'a>| #[trigger]
                 self.readers.kv_pairs().contains((i, reader)) ==> {
-                    &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) ==> {
+                    &&& reader.mem_view matches Some(VmIoMemView::ReadView(reader_mv)) && {
                         forall|va: usize|
                             #![trigger reader_mv.addr_transl(va)]
                             #![trigger total_view.addr_transl(va)]
@@ -480,25 +472,123 @@ impl<'a> VmSpaceOwner<'a> {
     /// who finishes the writing operation can let us reclaim the permission.
     ///
     /// The deletion of the writer is through another API [`VmSpaceOwner::remove_writer`].
-    #[verifier::external_body]
     pub proof fn dispose_writer(tracked &mut self, tracked owner: VmIoOwner<'a>)
         requires
             old(self).inv(),
             old(self).active,
-            old(self).mem_view is Some,
             !old(self).writers.contains_key(owner.id@),
-            owner.mem_view matches Some(VmIoMemView::WriteView(_)),
+            !old(self).readers.contains_key(owner.id@),
             owner.inv(),
+            old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
+                VmIoMemView::WriteView(mv),
+            ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
+                forall|va: usize|
+                    #![auto]
+                    owner.range@.start <= va < owner.range@.end ==> {
+                        &&& total_view.addr_transl(va) == mv.addr_transl(va)
+                        &&& remaining.addr_transl(va) is None
+                        &&& !remaining.memory.contains_key(va)
+                    }
+            },
+            forall|i: nat, w: VmIoOwner| #[trigger]
+                old(self).writers.kv_pairs().contains((i, w)) ==> w.disjoint(owner),
+            forall|i: nat, r: VmIoOwner| #[trigger]
+                old(self).readers.kv_pairs().contains((i, r)) ==> r.disjoint(owner),
         ensures
             self.inv(),
+            owner.range@.start < owner.range@.end ==> self.writers.contains_key(owner.id@),
     {
         // If the writer has consumed all the memory, nothing to do;
         // just discard the writer and return the permission back to
         // the vm space owner.
         match owner.mem_view {
-            Some(VmIoMemView::WriteView(_)) => {
+            Some(VmIoMemView::WriteView(ref writer_mv)) => {
                 if owner.range@.start < owner.range@.end {
                     self.writers.tracked_insert(owner.id@, owner);
+
+                    assert(self.writers.kv_pairs().contains((owner.id@, owner)));
+                    assert forall|i: nat, writer: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer))]
+                        self.writers.kv_pairs().contains((i, writer)) implies {
+                        writer.inv() && writer.id@ == i
+                    } by {
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(writer.inv());
+                        } else {
+                            broadcast use vstd::map::axiom_map_insert_domain;
+
+                        }
+                    }
+
+                    let ghost total_view = self.mv_range@.unwrap();
+                    let ghost remaining_view = self.mem_view.unwrap();
+                    assert forall|i: nat, writer: VmIoOwner<'a>|
+                        self.writers.kv_pairs().contains((i, writer)) implies {
+                        &&& writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv)) && {
+                            forall|va: usize|
+                                #![auto]
+                                writer.range@.start <= va < writer.range@.end ==> {
+                                    &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
+                                    &&& remaining_view.addr_transl(va) is None
+                                    &&& !remaining_view.memory.contains_key(va)
+                                }
+                        }
+                    } by {
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(writer.inv());
+                        } else {
+                            broadcast use vstd::map::axiom_map_insert_domain;
+
+                        }
+                    }
+
+                    assert forall|i, j: nat, writer1: VmIoOwner<'a>, writer2: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer1)), self.writers.kv_pairs().contains((j, writer2))]
+                        self.writers.kv_pairs().contains((i, writer1))
+                            && self.writers.kv_pairs().contains((j, writer2)) && i
+                            != j implies writer1.disjoint(writer2) by {
+                        if writer1.id@ != owner.id@ && writer2.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer1)));
+                            assert(old(self).writers.kv_pairs().contains((j, writer2)));
+                            assert(writer1.disjoint(writer2));
+                        } else if writer1.id@ == owner.id@ {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((j, writer2)));
+
+                            assert(owner.disjoint(writer2));
+                        } else {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((i, writer1)));
+
+                            assert(writer1.disjoint(owner));
+                        }
+                    }
+
+                    assert forall|i, j: nat, writer: VmIoOwner<'a>, reader: VmIoOwner<'a>|
+                        #![trigger self.writers.kv_pairs().contains((i, writer)), self.readers.kv_pairs().contains((j, reader))]
+                        self.writers.kv_pairs().contains((i, writer))
+                            && self.readers.kv_pairs().contains(
+                            (j, reader),
+                        ) implies writer.disjoint(reader) by {
+                        assert(!old(self).writers.contains_key(owner.id@));
+
+                        if writer.id@ != owner.id@ {
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+                            assert(old(self).readers.kv_pairs().contains((j, reader)));
+                            assert(reader.disjoint(writer));
+                        } else if writer.id@ == owner.id@ {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).readers.kv_pairs().contains((j, reader)));
+                            assert(owner.disjoint(reader));
+                        } else {
+                            assert(!old(self).writers.contains_key(owner.id@));
+                            assert(old(self).writers.kv_pairs().contains((i, writer)));
+
+                            assert(writer.disjoint(owner));
+                        }
+                    }
                 }
             },
             _ => {
