@@ -36,13 +36,21 @@ impl PCM for CountR {
             (CountR::Token, CountR::Tokens(n))
             | (CountR::Tokens(n), CountR::Token) => CountR::Tokens(n + 1),
             (CountR::Tokens(n1), CountR::Tokens(n2)) => CountR::Tokens(n1 + n2),
-            // Auth reclaims tokens: Auth(n) + Token -> Auth(n-1) 
+            // Auth reclaims tokens: Auth(n) + Token -> Auth(n-1)
             (CountR::Auth(n), CountR::Token) | (CountR::Token, CountR::Auth(n)) => {
-                if n > 0 { CountR::Auth((n - 1) as nat) } else { CountR::Invalid }
+                if n > 0 {
+                    CountR::Auth((n - 1) as nat)
+                } else {
+                    CountR::Invalid
+                }
             },
             // Auth reclaims multiple tokens: Auth(n) + Tokens(m) -> Auth(n-m)
             (CountR::Auth(n), CountR::Tokens(m)) | (CountR::Tokens(m), CountR::Auth(n)) => {
-                if n >= m { CountR::Auth((n - m) as nat) } else { CountR::Invalid }
+                if n >= m {
+                    CountR::Auth((n - m) as nat)
+                } else {
+                    CountR::Invalid
+                }
             },
             // Invalid combinations (Auth + Auth)
             _ => CountR::Invalid,
