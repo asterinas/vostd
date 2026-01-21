@@ -10,23 +10,25 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::prelude::Inv;
+use crate::mm::{Paddr, Vaddr};
+use crate::specs::mm::page_table::Mapping;
 
 verus! {
 
 /// Concrete representation of a pointer
 pub struct VirtPtr {
-    pub vaddr: usize,
-    pub ghost range: Ghost<Range<usize>>,
+    pub vaddr: Vaddr,
+    pub ghost range: Ghost<Range<Vaddr>>,
 }
 
-pub struct Mapping {
-    pub va_range: Range<usize>,
-    pub base_paddr: usize,
+pub struct FrameContents {
+    pub contents: Map<Paddr, raw_ptr::MemContents<u8>>,
+    pub ghost range: Ghost<Range<Paddr>>,
 }
 
 pub tracked struct MemView {
     pub mappings: Set<Mapping>,
-    pub memory: Map<usize, raw_ptr::MemContents<u8>>,
+    pub memory: Map<Paddr, raw_ptr::MemContents<u8>>
 }
 
 impl MemView {
@@ -35,7 +37,7 @@ impl MemView {
         if 0 < mappings.len() {
             let m = mappings.choose();  // In a well-formed PT there will only be one, but if malformed this is non-deterministic!
             let off = va - m.va_range.start;
-            Some((m.base_paddr + off) as usize)
+            Some((m.pa_range.start + off) as usize)
         } else {
             None
         }

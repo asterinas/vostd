@@ -8,7 +8,8 @@
 //! to the page table.
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
-use vstd_extra::virtual_ptr::{MemView, VirtPtr};
+
+use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
@@ -373,7 +374,7 @@ impl<'a> VmSpaceOwner<'a> {
             MemView::lemma_split_preserves_transl(remaining, start, len, requested, new_remaining);
 
             assert(new_remaining.mappings =~= remaining.mappings.filter(
-                |m: vstd_extra::virtual_ptr::Mapping| { m.va_range.end > start + len },
+                |m: crate::specs::mm::page_table::Mapping| { m.va_range.end > start + len },
             ));
             assert forall|va: usize|
                 #![trigger new_remaining.addr_transl(va)]
@@ -382,17 +383,17 @@ impl<'a> VmSpaceOwner<'a> {
                 == new_remaining.addr_transl(va) by {
                 // A -> B -> C transitivity.
                 let candidates_old = remaining.mappings.filter(
-                    |m: vstd_extra::virtual_ptr::Mapping|
+                    |m: crate::specs::mm::page_table::Mapping|
                         { m.va_range.start <= va < m.va_range.end },
                 );
                 let candidates_new = new_remaining.mappings.filter(
-                    |m: vstd_extra::virtual_ptr::Mapping|
+                    |m: crate::specs::mm::page_table::Mapping|
                         { m.va_range.start <= va < m.va_range.end },
                 );
 
                 if va >= start + len {
                     assert(candidates_new.subset_of(candidates_old));
-                    assert forall|m: vstd_extra::virtual_ptr::Mapping|
+                    assert forall|m: crate::specs::mm::page_table::Mapping|
                         candidates_old.contains(m) implies candidates_new.contains(m) by {
                         assert(m.va_range.start <= va < m.va_range.end);
                         assert(va >= start + len);

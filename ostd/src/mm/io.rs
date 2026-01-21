@@ -48,13 +48,13 @@ use vstd::std_specs::convert::TryFromSpecImpl;
 use vstd_extra::array_ptr::ArrayPtr;
 use vstd_extra::array_ptr::PointsToArray;
 use vstd_extra::ownership::Inv;
-use vstd_extra::virtual_ptr::Mapping;
-use vstd_extra::virtual_ptr::{MemView, VirtPtr};
 
 use crate::error::*;
 use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::specs::arch::MAX_USERSPACE_VADDR_SPEC;
+use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::virt_mem::{MemView, VirtPtr};
 
 verus! {
 
