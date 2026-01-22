@@ -256,8 +256,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().as_node.meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
-            assert(manually_drop_deref_spec(&node.inner.0).ptr.addr() == entry_owner.node.unwrap().as_node.meta_perm.addr())
-                by { admit() };
+            assert(manually_drop_deref_spec(&node.inner.0).ptr.addr()
+                == entry_owner.node.unwrap().as_node.meta_perm.addr()) by { admit() };
 
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
