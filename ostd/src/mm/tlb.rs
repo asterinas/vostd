@@ -233,7 +233,7 @@ struct OpsStack {
     ops: [Option<TlbFlushOp>; FLUSH_ALL_OPS_THRESHOLD],
     need_flush_all: bool,
     size: usize,
-//    page_keeper: Vec<Frame<dyn AnyFrameMeta>>,
+    //    page_keeper: Vec<Frame<dyn AnyFrameMeta>>,
 }
 
 impl OpsStack {
@@ -242,7 +242,7 @@ impl OpsStack {
             ops: [const { None }; FLUSH_ALL_OPS_THRESHOLD],
             need_flush_all: false,
             size: 0,
-//            page_keeper: Vec::new(),
+            //            page_keeper: Vec::new(),
         }
     }
 
@@ -252,7 +252,7 @@ impl OpsStack {
 
     fn push<M: AnyFrameMeta>(&mut self, op: TlbFlushOp, drop_after_flush: Option<Frame<M>>) {
         if let Some(frame) = drop_after_flush {
-//            self.page_keeper.push(frame);
+            //            self.page_keeper.push(frame);
         }
 
         if self.need_flush_all {
@@ -270,7 +270,7 @@ impl OpsStack {
     }
 
     fn push_from(&mut self, other: &OpsStack) {
-//        self.page_keeper.extend(other.page_keeper.iter().cloned());
+        //        self.page_keeper.extend(other.page_keeper.iter().cloned());
 
         if self.need_flush_all {
             return;
@@ -305,6 +305,6 @@ impl OpsStack {
     fn clear_without_flush(&mut self) {
         self.need_flush_all = false;
         self.size = 0;
-//        self.page_keeper.clear();
+        //        self.page_keeper.clear();
     }
 }

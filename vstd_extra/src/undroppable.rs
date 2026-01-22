@@ -40,6 +40,7 @@ impl<T: Undroppable> NeverDrop<T> {
 impl<T: Undroppable> Deref for NeverDrop<T> {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> (res: &Self::Target)
         ensures
             res == manually_drop_deref_spec(&self.0),

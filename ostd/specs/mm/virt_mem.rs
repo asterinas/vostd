@@ -9,8 +9,8 @@ use vstd::set_lib;
 use core::marker::PhantomData;
 use core::ops::Range;
 
-use crate::prelude::Inv;
 use crate::mm::{Paddr, Vaddr};
+use crate::prelude::Inv;
 use crate::specs::mm::page_table::Mapping;
 
 verus! {

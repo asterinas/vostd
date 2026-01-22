@@ -297,7 +297,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
     )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >)
         requires
             old(owner).inv(),
             old(self).wf(old(owner).value),
@@ -394,7 +396,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             regions.inv(),
             parent_owner.inv(),
-            owner.value.relate_parent_guard_perm(parent_owner.guard_perm)
+            owner.value.relate_parent_guard_perm(parent_owner.guard_perm),
     {
         let node_guard = self.node.borrow(Tracked(&mut parent_owner.guard_perm));
 

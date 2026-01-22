@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
+use vstd_extra::external::manually_drop_deref_spec;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::frame::Frame;
@@ -85,7 +86,8 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.inner.0.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr()
+                &&& manually_drop_deref_spec(&node.inner.0).ptr.addr()
+                    == owner.node.unwrap().as_node.meta_perm.addr()
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -254,7 +256,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().as_node.meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
-            assert(node.inner.0.ptr.addr() == entry_owner.node.unwrap().as_node.meta_perm.addr())
+            assert(manually_drop_deref_spec(&node.inner.0).ptr.addr() == entry_owner.node.unwrap().as_node.meta_perm.addr())
                 by { admit() };
 
             // debug_assert_eq!(node.level(), level - 1);

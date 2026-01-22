@@ -478,17 +478,19 @@ impl<'a> VmSpaceOwner<'a> {
     }
 
     /// Disposes the given reader, releasing its ownership on the memory range.
+    ///
+    /// This does not mean that the owner is discarded; it indicates that someone
+    /// who finishes the reading operation can let us reclaim the permission.
+    /// The deletion of the reader is through another API [`VmSpaceOwner::remove_reader`].
     pub proof fn dispose_reader(tracked &mut self, tracked owner: VmIoOwner<'a>)
         requires
             old(self).inv(),
             old(self).active,
-            old(self).mem_view is Some,
             !old(self).writers.contains_key(owner.id@),
             !old(self).readers.contains_key(owner.id@),
-            owner.mem_view matches Some(VmIoMemView::ReadView(_)),
             owner.inv(),
             old(self).mv_range@ matches Some(total_view) && owner.mem_view matches Some(
-                VmIoMemView::WriteView(mv),
+                VmIoMemView::ReadView(mv),
             ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
                 forall|va: usize|
                     #![auto]
@@ -512,6 +514,8 @@ impl<'a> VmSpaceOwner<'a> {
         if owner.range@.start < owner.range@.end {
             // Return the memory view back to the vm space owner.
             self.readers.tracked_insert(owner.id@, owner);
+
+            assert(self.readers.kv_pairs().contains((owner.id@, owner)));
 
             admit();
         }
@@ -1178,7 +1182,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    #[verus_spec(r => 
+    #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
@@ -1189,8 +1193,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.inv(),
         ensures
     )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<()>
-    {
+    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions))]
         self.pt_cursor.jump(va))?;
         Ok(())
@@ -1201,8 +1204,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         returns
             self.pt_cursor.inner.va,
     )]
-    pub fn virt_addr(&self) -> Vaddr
-    {
+    pub fn virt_addr(&self) -> Vaddr {
         self.pt_cursor.virt_addr()
     }
 
