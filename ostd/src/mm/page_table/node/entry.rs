@@ -204,7 +204,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[verus_spec(
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
             Tracked(owner): Tracked<&EntryOwner<C>>,
-            Tracked(new_owner): Tracked<&mut EntryOwner<C>>,
+            Tracked(new_owner): Tracked<&EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
             Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>
     )]
@@ -212,7 +212,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         requires
             old(self).wf(*owner),
             owner.inv(),
-            old(new_owner).inv(),
+            new_owner.inv(),
             old(parent_owner).inv(),
             old(regions).inv(),
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
@@ -224,11 +224,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(guard_perm).value().inner.inner@.wf(*old(parent_owner)),
             old(parent_owner).meta_perm.is_init(),
             old(parent_owner).meta_perm.wf(),
-
         ensures
             parent_owner.inv(),
+            parent_owner.relate_guard_perm(*guard_perm),
+            guard_perm.pptr() == old(guard_perm).pptr(),
             regions.inv(),
             self.wf(*new_owner),
+            new_owner.inv(),
             res.wf(*owner),
     {
         /* match &new_child {
@@ -248,7 +250,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
         let level = guard.level();
 
-        #[verus_spec(with Tracked(regions), Tracked(owner))]
+        #[verus_spec(with Tracked(regions), Tracked(&owner))]
         let old_child = Child::from_pte(self.pte, level);
 
         if old_child.is_none() && !new_child.is_none() {
@@ -267,7 +269,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(regions.slot_owners[frame_to_index(self.pte.paddr())]@.inv()) by { admit() };
         assert(new_child.wf(*new_owner)) by { admit() };
 
-        #[verus_spec(with Tracked(new_owner), Tracked(regions))]
+        #[verus_spec(with Tracked(&new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
 
         // SAFETY:
@@ -283,7 +285,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         assert(regions.inv()) by { admit() };
         assert(parent_owner.inv()) by { admit() };
+        assert(parent_owner.relate_guard_perm(*guard_perm)) by { admit() };
+        assert(guard_perm.pptr() == old(guard_perm).pptr()) by { admit() };
         assert(self.wf(*new_owner)) by { admit() };
+        assert(new_owner.inv()) by { admit() };
         assert(owner.inv()) by { admit() };
         assert(old_child.wf(*owner)) by { admit() };
 
@@ -316,6 +321,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& guard_perm@ is Some
                 &&& guard_perm@.unwrap().addr() == res.unwrap().addr()
                 &&& owner.level == old(owner).level
+                &&& owner.value.node.unwrap().relate_guard_perm(guard_perm@.unwrap())
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
@@ -387,8 +393,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& owner.level == old(owner).level
                 &&& parent_owner.relate_guard_perm(*guard_perm)
                 &&& guards.guards.contains_key(res.unwrap().addr())
+                &&& guards.guards[res.unwrap().addr()] is Some
                 &&& guards.guards[res.unwrap().addr()].unwrap().pptr() == res.unwrap()
                 &&& owner.value.node.unwrap().relate_guard_perm(guards.guards[res.unwrap().addr()].unwrap())
+                &&& owner.value.node.unwrap().meta_perm.addr() == res.unwrap().addr()
             },
             !old(owner).value.is_frame() ==> {
                 &&& res is None
@@ -397,6 +405,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             regions.inv(),
             parent_owner.inv(),
+            guard_perm.pptr() == old(guard_perm).pptr(),
     )]
     #[verifier::external_body]
     pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)

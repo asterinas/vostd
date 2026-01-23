@@ -500,11 +500,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
 
     /// Borrows a reference from the given frame.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
-    )]
-    pub fn borrow(&self) -> FrameRef<'a, M>
         requires
             old(regions).inv(),
             self.paddr() % PAGE_SIZE() == 0,
@@ -515,6 +513,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.is_init(),
             FRAME_METADATA_RANGE().start <= perm.points_to.addr() < FRAME_METADATA_RANGE().end,
             perm.points_to.addr() % META_SLOT_SIZE() == 0,
+        ensures
+            regions.inv(),
+    )]
+    pub fn borrow(&self) -> FrameRef<'a, M>
     {
         assert(regions.slot_owners.contains_key(self.index()));
         // SAFETY: Both the lifetime and the type matches `self`.

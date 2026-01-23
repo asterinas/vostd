@@ -5,6 +5,7 @@ use core::{marker::PhantomData, mem::ManuallyDrop, ops::Range, sync::atomic::Ord
 use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
+use vstd_extra::ownership::*;
 
 use crate::mm::{
     nr_subpage_per_huge, paddr_to_vaddr, page_table::*, Paddr, PagingConsts, PagingConstsTrait,
@@ -313,8 +314,21 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 ///
 /// This function must not be called upon a shared node, e.g., the second-
 /// top level nodes that the kernel space and user space share.
-#[verus_spec(
+#[verus_spec(res =>
     with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>
+    requires
+        old(owner).inv(),
+    ensures
+        owner.inv(),
+        owner.guard_level == old(owner).guard_level,
+        owner.level == old(owner).level,
+        owner.va == old(owner).va,
+        owner.prefix == old(owner).prefix,
+        // Preserve the guard_perm.pptr() for each continuation level
+        owner.level <= 4 ==> owner.continuations[3].guard_perm.pptr() == old(owner).continuations[3].guard_perm.pptr(),
+        owner.level <= 3 ==> owner.continuations[2].guard_perm.pptr() == old(owner).continuations[2].guard_perm.pptr(),
+        owner.level <= 2 ==> owner.continuations[1].guard_perm.pptr() == old(owner).continuations[1].guard_perm.pptr(),
+        owner.level == 1 ==> owner.continuations[0].guard_perm.pptr() == old(owner).continuations[0].guard_perm.pptr(),
 )]
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
