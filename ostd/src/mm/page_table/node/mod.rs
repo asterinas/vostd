@@ -336,19 +336,21 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             owner.inv(),
-            !old(guards).guards.contains_key(owner.meta_perm.addr())
+            self.inner@.wf(*owner),
+            !old(guards).guards.contains_key(owner.meta_perm.addr()),
         ensures
             guards.guards.contains_key(owner.meta_perm.addr()),
-            res.addr() == guards.guards[owner.meta_perm.addr()]@.addr(),
-            guards.guards[owner.meta_perm.addr()]@.is_init(),
-            guards.guards[owner.meta_perm.addr()]@.value().inner.inner@.ptr.addr() == owner.meta_perm.addr(),
+            guards.guards[owner.meta_perm.addr()] is Some,
+            res.addr() == guards.guards[owner.meta_perm.addr()].unwrap().addr(),
+            owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()),
     )]
     pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu
     {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
         proof {
-            guards.guards.tracked_insert(owner.meta_perm.addr(), guard_perm);
+            guards.guards.tracked_insert(owner.meta_perm.addr(), Some(guard_perm.get()));
+            assert(owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()));
         }
 
         ptr
@@ -364,20 +366,24 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Panics if the index is not within the bound of
     /// [`nr_subpage_per_huge<C>`].
     #[verus_spec(res =>
-        with Tracked(owner): Tracked<&OwnerSubtree<C>>,
-            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>,
+        with Tracked(owner): Tracked<&NodeOwner<C>>,
+            Tracked(child_owner): Tracked<&EntryOwner<C>>,
+            Tracked(guard_perm): Tracked<&GuardPerm<'rcu, C>>,
     )]
     pub fn entry(guard: PPtr<Self>, idx: usize) -> (res: Entry<'rcu, C>)
         requires
             owner.inv(),
-            old(guard_perm).addr() == guard.addr(),
+            child_owner.inv(),
+            owner.relate_guard_perm(*guard_perm),
+            guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES(), // NR_ENTRIES == nr_subpage_per_huge::<C>()
         ensures
-            res.wf(owner.children[idx as int].unwrap().value),
+            res.wf(*child_owner),
+            res.node.addr() == guard_perm.addr(),
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
+        #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(guard_perm))]
         Entry::new_at(guard, idx);
     }
 
