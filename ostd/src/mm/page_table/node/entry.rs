@@ -293,13 +293,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// Otherwise, the lock guard of the new child page table node is returned.
     #[verifier::external_body]
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
-        PPtr<PageTableGuard<'rcu, C>>,
-    >)
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            -> guard_perm: Tracked<Option<GuardPerm<'rcu, C>>>
         requires
             old(owner).inv(),
             old(self).wf(old(owner).value),
@@ -318,8 +316,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             },
             owner.inv(),
             regions.inv(),
+    )]
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
     {
-        unimplemented!()/*        if !(self.is_none() && self.node.level() > 1) {
+        proof_with!{|= Tracked(None)};
+        None
+
+        /*        if !(self.is_none() && self.node.level() > 1) {
             return None;
         }
 
@@ -357,13 +360,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// If the entry does not map to a untracked huge page, the method returns
     /// `None`.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner) : Tracked<&mut OwnerSubtree<C>>,
             Tracked(parent_owner): Tracked<&mut NodeEntryOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-    )]
-    #[verifier::external_body]
-    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>,
+            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>
         requires
             old(regions).inv(),
             old(owner).inv(),
@@ -395,8 +397,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             regions.inv(),
             parent_owner.inv(),
             owner.value.relate_parent_guard_perm(parent_owner.guard_perm),
+    )]
+    #[verifier::external_body]
+    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
     {
-        let node_guard = self.node.borrow(Tracked(&mut parent_owner.guard_perm));
+        let tracked Tracked(guard_perm) = guards.guards.tracked_remove(parent_owner.as_node.meta_perm.addr());
+        let node_guard = self.node.borrow(Tracked(&guard_perm));
 
         #[verus_spec(with Tracked(&mut parent_owner.as_node.meta_perm))]
         let level = node_guard.level();
@@ -467,7 +473,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             admit();
         }
 
-        self.node.put(Tracked(&mut parent_owner.guard_perm), guard);
+        self.node.put(Tracked(&mut guard_perm), guard);
 
         Some(pt_lock_guard)
     }

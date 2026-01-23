@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-use vstd::simple_pptr::*;
 
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
@@ -15,6 +14,7 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::page_table::node::GuardPerm;
 
 verus! {
 
@@ -26,6 +26,7 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub level: nat,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<'rcu, C>>>,
+    pub guard_perm: GuardPerm<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
@@ -84,7 +85,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         assert(cont.put_child_spec(child).children == self.children);
     }
 
-    pub open spec fn make_cont_spec(self, idx: usize) -> (Self, Self) {
+    pub open spec fn make_cont_spec(self, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> (Self, Self) {
         let child = Self {
             base_va: (self.base_va + self.idx * page_size((self.level - 1) as u8)) as usize,
             bound_va: (self.base_va + page_size(self.level as u8)) as usize,
@@ -93,6 +94,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int].unwrap().children,
+            guard_perm: guard_perm,
         };
         let cont = Self {
             children: self.children.update(self.idx as int, None),
@@ -102,29 +104,30 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     #[verifier::returns(proof)]
-    pub axiom fn make_cont(tracked &mut self, idx: usize) -> (res: Self)
+    pub axiom fn make_cont(tracked &mut self, idx: usize, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>) -> (res: Self)
         requires
             old(self).all_some(),
             old(self).idx < NR_ENTRIES(),
             idx < NR_ENTRIES(),
         ensures
-            res == old(self).make_cont_spec(idx).0,
-            self == old(self).make_cont_spec(idx).1,
+            res == old(self).make_cont_spec(idx, guard_perm@).0,
+            self == old(self).make_cont_spec(idx, guard_perm@).1,
     ;
 
-    pub open spec fn restore_spec(self, child: Self) -> Self {
+    pub open spec fn restore_spec(self, child: Self) -> (Self, GuardPerm<'rcu, C>) {
         let child_node = OwnerSubtree {
             value: child.entry_own,
             level: child.tree_level,
             children: child.children,
         };
-        Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }
+        (Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }, self.guard_perm)
     }
 
     #[verifier::returns(proof)]
-    pub axiom fn restore(tracked &mut self, tracked child: Self)
+    pub axiom fn restore(tracked &mut self, tracked child: Self) -> (tracked guard_perm: Tracked<GuardPerm<'rcu, C>>)
         ensures
-            self == old(self).restore_spec(child),
+            self == old(self).restore_spec(child).0,
+            guard_perm@ == old(self).restore_spec(child).1,
     ;
 
     pub open spec fn prev_views(self) -> Seq<EntryView<C>> {

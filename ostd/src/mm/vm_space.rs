@@ -1099,7 +1099,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// it will return the virtual address range and the mapped item.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
         requires
@@ -1109,7 +1110,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(regions).inv(),
     {
         Ok(
-            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.0.query()?,
         )
     }
@@ -1128,8 +1129,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Panics if the length is longer than the remaining range of the cursor.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
@@ -1146,14 +1147,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             self.0.wf(*owner),
             regions.inv(),
     {
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
     }
 
     /// Jump to the virtual address.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
@@ -1163,7 +1165,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.inv(),
             old(owner).in_locked_range(),
     {
-        (#[verus_spec(with Tracked(owner), Tracked(regions))]
+        (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va))?;
         Ok(())
     }
@@ -1223,6 +1225,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
@@ -1231,7 +1234,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
-            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pt_cursor.query()?,
         )
     }
@@ -1241,8 +1244,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// This is the same as [`Cursor::find_next`].
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
@@ -1259,7 +1262,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             self.pt_cursor.inner.wf(*owner),
             regions.inv(),
     {
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.find_next(len)
     }
 
@@ -1269,16 +1272,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
-        ensures
+
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
-        (#[verus_spec(with Tracked(owner), Tracked(regions))]
+        (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.jump(va))?;
         Ok(())
     }
@@ -1305,7 +1309,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        ensures
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
@@ -1334,7 +1338,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
-        #[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions))]
+        #[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
             return ;  // No mapping exists at the current address.
         };

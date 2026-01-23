@@ -8,6 +8,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
+use crate::specs::mm::page_table::node::GuardPerm;
 
 use core::ops::Range;
 
@@ -70,10 +71,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn push_level_owner_spec(self) -> Self
+    pub open spec fn push_level_owner_spec(self, guard_perm: GuardPerm<'rcu, C>) -> Self
     {
         let cont = self.continuations[self.level - 1];
-        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize);
+        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
         let new_continuations = self.continuations.insert(self.level - 1, cont);
         let new_continuations = new_continuations.insert(self.level - 2, child);
 
@@ -85,41 +86,41 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn push_level_owner_decreases_steps(self)
+    pub proof fn push_level_owner_decreases_steps(self, guard_perm: GuardPerm<'rcu, C>)
         requires
             self.inv(),
             self.level > 0,
         ensures
-            self.push_level_owner_spec().max_steps() < self.max_steps()
+            self.push_level_owner_spec(guard_perm).max_steps() < self.max_steps()
     { admit() }
 
-    pub proof fn push_level_owner_preserves_va(self)
+    pub proof fn push_level_owner_preserves_va(self, guard_perm: GuardPerm<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
         ensures
-            self.push_level_owner_spec().va == self.va,
-            self.push_level_owner_spec().continuations[self.level - 2].idx == self.va.index[self.level - 2],
+            self.push_level_owner_spec(guard_perm).va == self.va,
+            self.push_level_owner_spec(guard_perm).continuations[self.level - 2].idx == self.va.index[self.level - 2],
     {
         assert(self.va.index.contains_key(self.level - 2));
     }
 
     #[verifier::returns(proof)]
-    pub proof fn push_level_owner(tracked &mut self)
+    pub proof fn push_level_owner(tracked &mut self, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>)
         requires
             old(self).inv(),
             old(self).level > 1,
         ensures
-            self == old(self).push_level_owner_spec(),
+            self == old(self).push_level_owner_spec(guard_perm@),
     {
         assert(self.va.index.contains_key(self.level - 2));
 
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         let ghost cont0 = cont;
-        let tracked child = cont.make_cont(self.va.index[self.level - 2] as usize);
+        let tracked child = cont.make_cont(self.va.index[self.level - 2] as usize, guard_perm);
 
-        assert((child, cont) == cont0.make_cont_spec(self.va.index[self.level - 2] as usize));
+        assert((child, cont) == cont0.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm@));
 
         self.continuations.tracked_insert(self.level - 1, cont);
         self.continuations.tracked_insert(self.level - 2, child);
@@ -129,19 +130,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.level = (self.level - 1) as u8;
     }
 
-    pub open spec fn pop_level_owner_spec(self) -> Self
+    pub open spec fn pop_level_owner_spec(self) -> (Self, GuardPerm<'rcu, C>)
     {
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
-        let new_cont = cont.restore_spec(child);
+        let (new_cont, guard_perm) = cont.restore_spec(child);
         let new_continuations = self.continuations.insert(self.level as int, new_cont);
         let new_continuations = new_continuations.remove(self.level - 1);
         let new_level = (self.level + 1) as u8;
-        Self {
+        (Self {
             continuations: new_continuations,
             level: new_level,
             ..self
-        }
+        }, guard_perm)
     }
 
     pub proof fn pop_level_owner_preserves_inv(self)
@@ -149,28 +150,31 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.level < NR_LEVELS(),
         ensures
-            self.pop_level_owner_spec().inv()
+            self.pop_level_owner_spec().0.inv()
     { }
 
     #[verifier::returns(proof)]
-    pub proof fn pop_level_owner(tracked &mut self)
+    pub proof fn pop_level_owner(tracked &mut self) -> (guard_perm: Tracked<GuardPerm<'rcu, C>>)
         requires
             old(self).inv(),
             old(self).level < NR_LEVELS(),
         ensures
-            self == old(self).pop_level_owner_spec()
+            self == old(self).pop_level_owner_spec().0,
+            guard_perm@ == old(self).pop_level_owner_spec().1,
     {
         let ghost self0 = *self;
         let tracked mut parent = self.continuations.tracked_remove(self.level as int);
         let tracked child = self.continuations.tracked_remove(self.level - 1);
 
-        parent.restore(child);
+        let tracked guard_perm = parent.restore(child);
 
         self.continuations.tracked_insert(self.level as int, parent);
 
         assert(self.continuations == self0.continuations.insert(self.level as int, parent).remove(self.level - 1));
 
         self.level = (self.level + 1) as u8;
+
+        guard_perm
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
@@ -179,7 +183,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self.index() + 1 < NR_ENTRIES() {
             self.inc_index()
         } else if self.level < NR_LEVELS() {
-            self.pop_level_owner_spec().move_forward_owner_spec()
+            self.pop_level_owner_spec().0.move_forward_owner_spec()
         } else {
             // We are at the last entry of the last level, so we stay at the same index
             self
@@ -198,7 +202,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self.index() + 1 < NR_ENTRIES() {
             self.inc_index_increases_va();
         } else if self.level < NR_LEVELS() {
-            self.pop_level_owner_spec().move_forward_increases_va();
+            self.pop_level_owner_spec().0.move_forward_increases_va();
         } else {
             admit();
         }
