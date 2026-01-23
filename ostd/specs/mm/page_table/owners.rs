@@ -142,6 +142,19 @@ pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
 ///                        tree level 4 ==> frame mapped by level 1 table
 pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>;
 
-pub struct PageTableOwner<C: PageTableConfig>(OwnerSubtree<C>);
+pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
+
+impl<C: PageTableConfig> PageTableOwner<C> {
+    pub open spec fn unlocked<'rcu>(subtree: OwnerSubtree<C>, guards: Guards<'rcu, C>) -> bool
+        decreases INC_LEVELS() - subtree.level when subtree.inv()
+    {
+        if subtree.value.is_node() {
+            &&& guards.unlocked(subtree.value.node.unwrap().meta_perm.addr())
+            &&& forall|child| subtree.children.contains(Some(child)) ==> Self::unlocked(child, guards)
+        } else {
+            true
+        }
+    }
+}
 
 } // verus!

@@ -1108,6 +1108,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.wf(*old(owner)),
             old(self).0.inv(),
             old(regions).inv(),
+            old(owner).children_not_locked(*old(guards)),
     {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -1140,6 +1141,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.level < old(self).0.guard_level,
             old(self).0.inv(),
             old(owner).in_locked_range(),
+            old(owner).children_not_locked(*old(guards)),
             len % PAGE_SIZE() == 0,
             old(self).0.va + len <= old(self).0.barrier_va.end,
         ensures
@@ -1231,6 +1233,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(regions).inv(),
             old(self).pt_cursor.inner.inv(),
+            old(owner).children_not_locked(*old(guards)),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -1255,6 +1258,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
             old(owner).in_locked_range(),
+            old(owner).children_not_locked(*old(guards)),
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
@@ -1328,6 +1332,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va + page_size(
                 UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
             ) < old(self).pt_cursor.inner.barrier_va.end,
+            old(cursor_owner).children_not_locked(*old(guards)),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };

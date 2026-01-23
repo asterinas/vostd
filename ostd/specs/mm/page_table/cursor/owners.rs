@@ -15,6 +15,7 @@ use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::node::GuardPerm;
+use crate::specs::mm::page_table::Guards;
 
 verus! {
 
@@ -30,6 +31,10 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
+
+    pub open spec fn child(self) -> OwnerSubtree<C> {
+        self.children[self.idx as int].unwrap()
+    }
 
     pub open spec fn take_child_spec(self) -> (OwnerSubtree<C>, Self) {
         let child = self.children[self.idx as int].unwrap();
@@ -162,6 +167,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
+        &&& self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm)
         &&& self.tree_level == INC_LEVELS() - self.level
         &&& self.tree_level < INC_LEVELS() - 1
     }
@@ -190,6 +196,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self == old(self).inc_index(),
     {
         self.idx = (self.idx + 1) as usize;
+    }
+
+    pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
+        forall|child| self.children.contains(Some(child)) ==> {
+            PageTableOwner::unlocked(child, guards)
+        }
     }
 }
 
@@ -244,6 +256,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+    pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> {
+            self.continuations[i].children_not_locked(guards)
+        }
+    }
 
     pub open spec fn index(self) -> usize {
         self.continuations[self.level - 1].idx

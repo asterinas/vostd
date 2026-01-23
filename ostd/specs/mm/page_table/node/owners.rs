@@ -26,6 +26,7 @@ pub tracked struct PageMetaOwner {
 impl Inv for PageMetaOwner {
     open spec fn inv(self) -> bool {
         &&& self.nr_children.is_init()
+        &&& 0 <= self.nr_children.value() <= NR_ENTRIES()
         &&& self.stray.is_init()
     }
 }
@@ -125,7 +126,7 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
     type Owner = NodeOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        true
+        &&& self.ptr.addr() == owner.meta_perm.addr()
     }
 }
 

@@ -162,6 +162,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(owner).inv(),
             old(self).wf(*old(owner)),
             old(owner).is_node(),
+            old(parent_owner).inv(),
             old(self).node.addr() == old(guard_perm).addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
             op.requires((old(self).pte.prop(),)),
@@ -254,7 +255,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
             let nr_children = guard.nr_children_mut();
             let _tmp = nr_children.take(Tracked(&mut parent_owner.meta_own.nr_children));
-            assert(_tmp < usize::MAX) by { admit() };
+            assert(_tmp < NR_ENTRIES()) by { admit() };
             nr_children.put(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -378,18 +379,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(self).wf(old(owner).value),
             old(self).node.addr() == old(guard_perm).addr(),
             old(guard_perm).is_init(),
-            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).meta_perm.addr(),
-            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).meta_perm.points_to.addr(),
-            old(guard_perm).value().inner.inner@.wf(*old(parent_owner)),
-            old(parent_owner).meta_perm.is_init(),
-            old(parent_owner).meta_perm.wf(),
+            old(parent_owner).relate_guard_perm(*old(guard_perm)),
         ensures
             old(owner).value.is_frame() ==> {
                 &&& res is Some
                 &&& owner.value.is_node()
                 &&& owner.level == old(owner).level
                 &&& parent_owner.relate_guard_perm(*guard_perm)
-                &&& guard_perm.addr() == res.unwrap().addr()
+                &&& guards.guards.contains_key(res.unwrap().addr())
+                &&& guards.guards[res.unwrap().addr()].unwrap().pptr() == res.unwrap()
+                &&& owner.value.node.unwrap().relate_guard_perm(guards.guards[res.unwrap().addr()].unwrap())
             },
             !old(owner).value.is_frame() ==> {
                 &&& res is None
@@ -448,7 +447,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         {
             assert(pa + i * page_size((level - 1) as u8) < MAX_PADDR()) by { admit() };
             let small_pa = pa + i * page_size(level - 1);
-            //            #[verus_spec(with Tracked())]
+
             let mut entry = PageTableGuard::entry(pt_lock_guard, i);
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
             //debug_assert!(old.is_none());
@@ -482,20 +481,22 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// The caller must ensure that the index is within the bounds of the node.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner): Tracked<&OwnerSubtree<C>>,
-            Tracked(guard_perm): Tracked<&mut PointsTo<PageTableGuard<'rcu, C>>>
+        with Tracked(owner): Tracked<&EntryOwner<C>>,
+            Tracked(parent_owner): Tracked<&NodeOwner<C>>,
+            Tracked(guard_perm): Tracked<&GuardPerm<'rcu, C>>
     )]
     #[verifier::external_body]
     pub fn new_at(guard: PPtr<PageTableGuard<'rcu, C>>, idx: usize) -> (res: Self)
         requires
             owner.inv(),
-            owner.value.is_node(),
-            old(guard_perm).pptr() == guard,
+            guard_perm.addr() == guard.addr(),
+            parent_owner.relate_guard_perm(*guard_perm),
         ensures
-            res.wf(owner.children[idx as int].unwrap().value),
+            res.wf(*owner),
+            res.node.addr() == guard_perm.addr(),
     {
         // SAFETY: The index is within the bound.
-        #[verus_spec(with Tracked(owner.value.node.tracked_borrow()))]
+        #[verus_spec(with Tracked(parent_owner))]
         let pte = guard.borrow(Tracked(guard_perm)).read_pte(idx);
         Self { pte, idx, node: guard }
     }
