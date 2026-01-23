@@ -363,24 +363,22 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///
     /// Panics if the index is not within the bound of
     /// [`nr_subpage_per_huge<C>`].
-    #[rustc_allow_incoherent_impl]
-    #[verus_spec(
-        with Tracked(owner): Tracked<&EntryOwner<C>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
-            Tracked(slot_own): Tracked<&MetaSlotOwner>
+    #[verus_spec(res =>
+        with Tracked(owner): Tracked<&OwnerSubtree<C>>,
+            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>,
     )]
-    pub fn entry<'slot>(guard: PPtr<Self>, idx: usize) -> (res: Entry<'rcu, C>)
+    pub fn entry(guard: PPtr<Self>, idx: usize) -> (res: Entry<'rcu, C>)
         requires
             owner.inv(),
-            //            owner.node.unwrap().relate_slot_owner(slot_own),
-            guard_perm.pptr() == guard,
+            old(guard_perm).addr() == guard.addr(),
+            idx < NR_ENTRIES(), // NR_ENTRIES == nr_subpage_per_huge::<C>()
         ensures
-            res.wf(*owner),
+            res.wf(owner.children[idx as int].unwrap().value),
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(slot_own))]
-        Entry::new_at(guard, idx)
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
+        Entry::new_at(guard, idx);
     }
 
     /// Gets the number of valid PTEs in the node.
@@ -411,15 +409,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn stray_mut(&mut self) -> PCell<bool>
         requires
             owner.is_node(),
-            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr(),
-            old(self).inner.inner@.ptr.addr()
-                == owner.node.unwrap().as_node.meta_perm.points_to.addr(),
+            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().meta_perm.addr(),
+            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().meta_perm.points_to.addr(),
             owner.inv(),
     {
         let tracked node_owner = owner.node.tracked_borrow();
 
         // SAFETY: The lock is held so we have an exclusive access.
-        #[verus_spec(with Tracked(&node_owner.as_node.meta_perm))]
+        #[verus_spec(with Tracked(&node_owner.meta_perm))]
         let meta = self.meta();
 
         meta.get_stray()
@@ -436,7 +433,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// The caller must ensure that the index is within the bound.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner): Tracked<NodeOwner<C>>
+        with Tracked(owner): Tracked<&NodeOwner<C>>
     )]
     pub fn read_pte(&self, idx: usize) -> C::E
         requires

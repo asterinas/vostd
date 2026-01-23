@@ -26,7 +26,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
 ;
 
 #[verus_spec(
-    with Tracked(pt_own): Tracked<&mut OwnerSubtree<'rcu, C>>,
+    with Tracked(pt_own): Tracked<&mut OwnerSubtree<C>>,
         Tracked(guard_perm): Tracked<& vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
 )]
 #[verifier::external_body]
@@ -109,7 +109,7 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
 /// page table recycling), it will return `None`. The caller should retry in
 /// this case to lock the proper node.
 #[verus_spec(
-    with Tracked(pt_own): Tracked<&mut OwnerSubtree<'rcu, C>>,
+    with Tracked(pt_own): Tracked<&mut OwnerSubtree<C>>,
         Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
 )]
 #[verifier::external_body]
@@ -160,14 +160,14 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         let mut guard_val = pt_guard.take(Tracked(guard_perm));
         let tracked node_owner = pt_own.value.node.tracked_take();
-        let stray_mut = guard_val.stray_mut(); //.borrow(Tracked(&node_owner.as_node.meta_own.stray));
+        let stray_mut = guard_val.stray_mut(); //.borrow(Tracked(&node_owner.meta_own.stray));
 
         proof {
             pt_guard.put(Tracked(guard_perm), guard_val);
             pt_own.value.node = Some(node_owner);
         }
 
-        if *(stray_mut.borrow(Tracked(&node_owner.as_node.meta_own.stray))) {
+        if *(stray_mut.borrow(Tracked(&node_owner.meta_own.stray))) {
             return None;
         }
         let mut cur_entry = PageTableGuard::<'rcu, C>::entry(pt_guard, start_idx);
@@ -208,7 +208,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         pt_own.value.node = Some(node_owner);
     }
 
-    if *(stray_mut.borrow(Tracked(&node_owner.as_node.meta_own.stray))) {
+    if *(stray_mut.borrow(Tracked(&node_owner.meta_own.stray))) {
         return None;
     }
     Some(pt_guard)

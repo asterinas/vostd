@@ -14,8 +14,8 @@ use core::ops::Range;
 
 verus! {
 
-impl<'rcu, C: PageTableConfig> PageTableOwner<'rcu, C> {
-    pub uninterp spec fn new_cursor_owner_spec(self) -> (Self, CursorOwner<'rcu, C>);
+impl<C: PageTableConfig> PageTableOwner<C> {
+    pub uninterp spec fn new_cursor_owner_spec<'rcu>(self) -> (Self, CursorOwner<'rcu, C>);
 }
 
 impl<C: PageTableConfig> CursorView<C> {

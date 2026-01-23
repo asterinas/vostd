@@ -82,15 +82,14 @@ impl<'rcu, C: PageTableConfig> EntryState<'rcu, C> {
 }
 */
 
-impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'rcu, C> {
+impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
+            path: TreePath::new(Seq::empty()),
             node: None,
             frame: None,
             locked: None,
             absent: true,
-            guard_addr: 0,
-            path: TreePath(Seq::empty()),
         }
     }
 
@@ -118,7 +117,7 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
     }
 }
 
-impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeView<L> for EntryOwner<'rcu, C> {
+impl<C: PageTableConfig, const L: usize> TreeNodeView<L> for EntryOwner<C> {
     open spec fn view_rec_step(self, rec: Seq<EntryView<C>>) -> Seq<EntryView<C>> {
         if self.is_node() {
             rec
@@ -141,8 +140,8 @@ pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
 ///                        tree level 2 ==> level 2 page table, or frame mapped by level 3 table
 ///                        tree level 3 ==> level 1 page table, or frame mapped by level 2 table
 ///                        tree level 4 ==> frame mapped by level 1 table
-pub type OwnerSubtree<'rcu, C> = Node<EntryOwner<'rcu, C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>;
+pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>;
 
-pub struct PageTableOwner<'rcu, C: PageTableConfig>(OwnerSubtree<'rcu, C>);
+pub struct PageTableOwner<C: PageTableConfig>(OwnerSubtree<C>);
 
 } // verus!

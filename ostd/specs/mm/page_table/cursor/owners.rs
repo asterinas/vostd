@@ -19,19 +19,19 @@ use crate::specs::mm::page_table::node::GuardPerm;
 verus! {
 
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
-    pub entry_own: EntryOwner<'rcu, C>,
+    pub entry_own: EntryOwner<C>,
     pub idx: usize,
     pub base_va: Vaddr,
     pub bound_va: Vaddr,
     pub level: nat,
     pub tree_level: nat,
-    pub children: Seq<Option<OwnerSubtree<'rcu, C>>>,
+    pub children: Seq<Option<OwnerSubtree<C>>>,
     pub guard_perm: GuardPerm<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
-    pub open spec fn take_child_spec(self) -> (OwnerSubtree<'rcu, C>, Self) {
+    pub open spec fn take_child_spec(self) -> (OwnerSubtree<C>, Self) {
         let child = self.children[self.idx as int].unwrap();
         let cont = Self {
             children: self.children.remove(self.idx as int).insert(self.idx as int, None),
@@ -41,7 +41,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     #[verifier::returns(proof)]
-    pub proof fn take_child(tracked &mut self) -> (res: OwnerSubtree<'rcu, C>)
+    pub proof fn take_child(tracked &mut self) -> (res: OwnerSubtree<C>)
         requires
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is Some,
@@ -54,7 +54,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         child
     }
 
-    pub open spec fn put_child_spec(self, child: OwnerSubtree<'rcu, C>) -> Self {
+    pub open spec fn put_child_spec(self, child: OwnerSubtree<C>) -> Self {
         Self {
             children: self.children.remove(self.idx as int).insert(self.idx as int, Some(child)),
             ..self
@@ -62,7 +62,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     #[verifier::returns(proof)]
-    pub proof fn put_child(tracked &mut self, tracked child: OwnerSubtree<'rcu, C>)
+    pub proof fn put_child(tracked &mut self, tracked child: OwnerSubtree<C>)
         requires
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is None,
@@ -132,7 +132,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn prev_views(self) -> Seq<EntryView<C>> {
         self.children.take(self.idx as int).flat_map(
-            |child: Option<OwnerSubtree<'rcu, C>>|
+            |child: Option<OwnerSubtree<C>>|
                 match child {
                     Some(child) => child@,
                     None => Seq::empty(),
@@ -142,7 +142,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn next_views(self) -> Seq<EntryView<C>> {
         self.children.skip(self.idx as int).flat_map(
-            |child: Option<OwnerSubtree<'rcu, C>>|
+            |child: Option<OwnerSubtree<C>>|
                 match child {
                     Some(child) => child@,
                     None => Seq::empty(),
@@ -320,7 +320,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn cur_entry_owner(self) -> EntryOwner<'rcu, C> {
+    pub open spec fn cur_entry_owner(self) -> EntryOwner<C> {
         self.continuations[self.level - 1].children[self.index() as int].unwrap().value
     }
 

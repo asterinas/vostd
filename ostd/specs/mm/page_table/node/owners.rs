@@ -6,12 +6,15 @@ use vstd::simple_pptr::*;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::kspace::{FRAME_METADATA_RANGE, VMALLOC_BASE_VADDR, LINEAR_MAPPING_BASE_VADDR};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, CONST_NR_ENTRIES};
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::page_table::GuardPerm;
+
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
+use vstd_extra::array_ptr;
 
 verus! {
 
@@ -63,6 +66,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
+    pub children_perm: array_ptr::PointsTo<C::E, CONST_NR_ENTRIES>,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -76,6 +80,21 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_perm.wf()
         &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
         &&& self.meta_perm.addr() % META_SLOT_SIZE() == 0
+        &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
+        &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
+        &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()
+        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES()
+    }
+}
+
+impl<'rcu, C: PageTableConfig> NodeOwner<C> {
+    pub open spec fn relate_guard_perm(self, guard_perm: GuardPerm<'rcu, C>) -> bool {
+        &&& guard_perm.is_init()
+        &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.addr()
+        &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
+        &&& guard_perm.value().inner.inner@.wf(self)
+        &&& self.meta_perm.is_init()
+        &&& self.meta_perm.wf()
     }
 }
 

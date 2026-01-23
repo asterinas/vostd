@@ -81,14 +81,14 @@ impl<'a, C: PageTableConfig> Inv for ChildRef<'a, C> {
 }
 
 impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
-    type Owner = EntryOwner<'a, C>;
+    type Owner = EntryOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
                 &&& manually_drop_deref_spec(&node.inner.0).ptr.addr()
-                    == owner.node.unwrap().as_node.meta_perm.addr()
+                    == owner.node.unwrap().meta_perm.addr()
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -107,13 +107,13 @@ impl<'a, C: PageTableConfig> Inv for Child<C> {
 }
 
 impl<C: PageTableConfig> OwnerOf for Child<C> {
-    type Owner = EntryOwner<'static, C>;
+    type Owner = EntryOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& node.ptr.addr() == owner.node.unwrap().as_node.meta_perm.addr()
+                &&& node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -154,7 +154,7 @@ impl<C: PageTableConfig> Child<C> {
     {
         match self {
             Child::PageTable(node) => {
-                #[verus_spec(with Tracked(&owner.node.tracked_borrow().as_node.meta_perm.points_to))]
+                #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
                 let paddr = node.start_paddr();
 
                 assert(node.constructor_requires(*old(regions))) by { admit() };
@@ -207,7 +207,7 @@ impl<C: PageTableConfig> Child<C> {
 
             // SAFETY: The caller ensures that this node was created by
             // `into_pte`, so that restoring the forgotten reference is safe.
-            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().as_node.meta_perm))]
+            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
             let node = PageTableNode::from_raw(paddr);
             //            debug_assert_eq!(node.level(), level - 1);
             return Child::PageTable(  /*RcuDrop::new(*/ node  /*)*/ );
@@ -257,11 +257,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             // SAFETY: The caller ensures that the lifetime of the child is
             // contained by the residing node, and the physical address is
             // valid since the entry is present.
-            #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().as_node.meta_perm))]
+            #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
             assert(manually_drop_deref_spec(&node.inner.0).ptr.addr()
-                == entry_owner.node.unwrap().as_node.meta_perm.addr()) by { admit() };
+                == entry_owner.node.unwrap().meta_perm.addr()) by { admit() };
 
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);

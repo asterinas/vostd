@@ -111,7 +111,7 @@ pub tracked struct VmIoPermission<'a> {
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
 pub tracked struct VmSpaceOwner<'a> {
     /// The owner of the page table of this VM space.
-    pub page_table_owner: OwnerSubtree<'a, UserPtConfig>,
+    pub page_table_owner: OwnerSubtree<UserPtConfig>,
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
@@ -1307,7 +1307,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// This method will bring the cursor to the next slot after the modification.
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
+            Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
     )]
