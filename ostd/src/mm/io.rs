@@ -177,11 +177,7 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                        &&& #[trigger] mv.addr_transl(
-                            va,
-                        ) is Some
-                        // &&& mv.mappings_are_disjoint()
-
+                        &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
             // Case 2: Read (shared)
@@ -189,11 +185,7 @@ impl Inv for VmIoOwner<'_> {
                 &&& mv.mappings.finite()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
-                        &&& #[trigger] mv.addr_transl(
-                            va,
-                        ) is Some
-                        //    &&& mv.mappings_are_disjoint()
-
+                        &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
             // Case 3: Empty/Invalid; this means no memory is accessible,
@@ -378,8 +370,13 @@ impl VmIoOwner<'_> {
         &&& self.range@.start == reader.cursor.vaddr
         &&& self.range@.end == reader.end.vaddr
         &&& self.id == reader.id
-        // TODO: Add the mapped region checks.
-
+        &&& self.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
+            // Ensure that the mem view covers the entire range.
+            forall|va: usize|
+                self.range@.start <= va < self.range@.end ==> {
+                    &&& #[trigger] mv.addr_transl(va) is Some
+                }
+        }
     }
 
     pub open spec fn inv_with_writer(
@@ -390,8 +387,13 @@ impl VmIoOwner<'_> {
         &&& self.range@.start == writer.cursor.vaddr
         &&& self.range@.end == writer.end.vaddr
         &&& self.id == writer.id
-        // TODO: Add the mapped region checks.
-
+        &&& self.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
+            // Ensure that the mem view covers the entire range.
+            forall|va: usize|
+                self.range@.start <= va < self.range@.end ==> {
+                    &&& #[trigger] mv.addr_transl(va) is Some
+                }
+        }
     }
 }
 

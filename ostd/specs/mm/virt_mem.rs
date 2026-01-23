@@ -236,11 +236,11 @@ impl MemView {
 
     /// Merges two disjoint memory views back into one.
     #[verifier::external_body]
-    pub proof fn join(tracked self, tracked other: Self) -> (tracked r: Self)
+    pub proof fn join(tracked &mut self, tracked other: Self)
         requires
-            self.memory.dom().disjoint(other.memory.dom()),
+            old(self).mappings.disjoint(other.mappings),
         ensures
-            r == self.join_spec(other),
+            *self == old(self).join_spec(other),
     {
         unimplemented!()
     }
