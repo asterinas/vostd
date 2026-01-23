@@ -159,9 +159,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
                 &&& self.tree_level == INC_LEVELS() - self.level
-                &&& self.children[i].unwrap().value.relate_parent_guard_perm(
-                    self.entry_own.node.unwrap().guard_perm,
-                )
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
@@ -227,7 +224,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[2].inv()
             &&& self.continuations[2].level == 3
             &&& self.continuations[2].entry_own.is_node()
-            &&& self.continuations[2].entry_own.relate_parent_guard_perm(self.continuations[3].entry_own.node.unwrap().guard_perm)
             &&& self.va.index[2] == self.continuations[2].idx
         }
         &&& self.level <= 2 ==> {
@@ -235,7 +231,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[1].inv()
             &&& self.continuations[1].level == 2
             &&& self.continuations[1].entry_own.is_node()
-            &&& self.continuations[1].entry_own.relate_parent_guard_perm(self.continuations[2].entry_own.node.unwrap().guard_perm)
             &&& self.va.index[1] == self.continuations[1].idx
         }
         &&& self.level == 1 ==> {
@@ -243,7 +238,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.continuations[0].inv()
             &&& self.continuations[0].level == 1
             &&& self.continuations[0].entry_own.is_node()
-            &&& self.continuations[0].entry_own.relate_parent_guard_perm(self.continuations[1].entry_own.node.unwrap().guard_perm)
             &&& self.va.index[0] == self.continuations[0].idx
         }
     }
@@ -417,25 +411,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
         &&& self.level <= 4 ==> {
             &&& self.path[3] is Some
             &&& owner.continuations.contains_key(3)
-            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.pptr() == self.path[3].unwrap()
+            &&& owner.continuations[3].guard_perm.pptr() == self.path[3].unwrap()
         }
         &&& self.level <= 3 ==> {
             &&& self.path[2] is Some
             &&& owner.continuations.contains_key(2)
-            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.pptr() == self.path[2].unwrap()
-            &&& owner.continuations[3].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[2].entry_own.guard_addr
+            &&& owner.continuations[2].guard_perm.pptr() == self.path[2].unwrap()
         }
         &&& self.level <= 2 ==> {
             &&& self.path[1] is Some
             &&& owner.continuations.contains_key(1)
-            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.pptr() == self.path[1].unwrap()
-            &&& owner.continuations[2].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[1].entry_own.guard_addr
+            &&& owner.continuations[1].guard_perm.pptr() == self.path[1].unwrap()
         }
         &&& self.level == 1 ==> {
             &&& self.path[0] is Some
             &&& owner.continuations.contains_key(0)
-            &&& owner.continuations[0].entry_own.node.unwrap().guard_perm.pptr() == self.path[0].unwrap()
-            &&& owner.continuations[1].entry_own.node.unwrap().guard_perm.addr() == owner.continuations[0].entry_own.guard_addr
+            &&& owner.continuations[0].guard_perm.pptr() == self.path[0].unwrap()
         }
         &&& self.barrier_va.start == owner.locked_range().start
         &&& self.barrier_va.end == owner.locked_range().end

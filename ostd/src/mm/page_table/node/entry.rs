@@ -88,15 +88,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[verus_spec(
         with Tracked(owner): Tracked<EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&NodeEntryOwner<C>>,
+            Tracked(guard_perm): Tracked<&GuardPerm<'rcu, C>>
     )]
     pub fn is_node(&self) -> bool
         requires
             owner.inv(),
             self.wf(owner),
-            owner.relate_parent_guard_perm(parent_owner.guard_perm),
+            owner.relate_parent_guard_perm(*guard_perm),
             parent_owner.inv(),
     {
-        let guard = self.node.borrow(Tracked(&parent_owner.guard_perm));
+        let guard = self.node.borrow(Tracked(guard_perm));
 
         self.pte.is_present() && !self.pte.is_last(
             #[verus_spec(with Tracked(&parent_owner.as_node.meta_perm))]
@@ -110,13 +111,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         with Tracked(owner): Tracked<&EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&NodeEntryOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guard_perm): Tracked<&GuardPerm<'rcu, C>>
     )]
     pub fn to_ref(&self) -> (res: ChildRef<'rcu, C>)
         requires
             self.wf(*owner),
             owner.inv(),
             old(regions).inv(),
-            owner.relate_parent_guard_perm(parent_owner.guard_perm),
+            owner.relate_parent_guard_perm(*guard_perm),
             old(regions).dropped_slots.contains_key(frame_to_index(self.pte.paddr())),
             !old(regions).slots.contains_key(frame_to_index(self.pte.paddr())),
             parent_owner.inv(),
@@ -124,7 +126,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             regions.inv(),
             res.wf(*owner),
     {
-        let guard = self.node.borrow(Tracked(&parent_owner.guard_perm));
+        let guard = self.node.borrow(Tracked(guard_perm));
 
         assert(regions.slot_owners.contains_key(frame_to_index(self.pte.paddr())));
 
@@ -200,7 +202,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
             Tracked(owner): Tracked<&EntryOwner<'rcu, C>>,
             Tracked(new_owner): Tracked<&mut EntryOwner<'rcu, C>>,
-            Tracked(parent_owner): Tracked<&mut NodeEntryOwner<'rcu, C>>
+            Tracked(parent_owner): Tracked<&mut NodeEntryOwner<'rcu, C>>,
+            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>
     )]
     pub fn replace(&mut self, new_child: Child<C>) -> (res: Child<C>)
         requires
@@ -211,9 +214,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(regions).inv(),
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),
-            old(parent_owner).guard_perm.addr() == old(
-                self,
-            ).node.addr(),
+            old(guard_perm).addr() == old(self).node.addr(),
     //            old(new_owner).relate_parent_guard_perm(old(parent_owner).guard_perm),
 
         ensures
@@ -221,8 +222,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             regions.inv(),
             self.wf(*new_owner),
             res.wf(*owner),
-            new_owner == old(new_owner).replace_new_spec(parent_owner.guard_perm.addr()),
-            parent_owner.guard_perm.addr() == old(parent_owner).guard_perm.addr(),
+            new_owner == old(new_owner).replace_new_spec(guard_perm.addr()),
+            guard_perm.addr() == old(guard_perm).addr(),
     {
         /* match &new_child {
             Child::PageTable(node) => {
@@ -233,7 +234,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             }
             Child::None => {}
         }*/
-        let mut guard = self.node.take(Tracked(&mut parent_owner.guard_perm));
+        let mut guard = self.node.take(Tracked(guard_perm));
 
         // SAFETY:
         //  - The PTE is not referenced by other `ChildRef`s (since we have `&mut self`).
@@ -270,7 +271,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         #[verus_spec(with Tracked(&mut parent_owner.as_node))]
         guard.write_pte(self.idx, new_pte);
 
-        self.node.put(Tracked(&mut parent_owner.guard_perm), guard);
+        self.node.put(Tracked(guard_perm), guard);
 
         self.pte = new_pte;
 
@@ -306,7 +307,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(owner).value.is_absent() ==> {
                 &&& res is Some
                 &&& owner.value.is_node()
-                &&& owner.value.node.unwrap().guard_perm.addr() == res.unwrap().addr()
+                &&& guard_perm@ is Some
+                &&& guard_perm@.unwrap().addr() == res.unwrap().addr()
                 &&& owner.level == old(owner).level
                 &&& owner.value.guard_addr == old(owner).value.guard_addr
             },
@@ -370,24 +372,20 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(regions).inv(),
             old(owner).inv(),
             old(self).wf(old(owner).value),
-            old(self).node.addr() == old(parent_owner).guard_perm.addr(),
-            old(parent_owner).guard_perm.is_init(),
-            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(
-                parent_owner,
-            ).as_node.meta_perm.addr(),
-            old(parent_owner).guard_perm.value().inner.inner@.ptr.addr() == old(
-                parent_owner,
-            ).as_node.meta_perm.points_to.addr(),
-            old(parent_owner).guard_perm.value().inner.inner@.wf(old(parent_owner).as_node),
+            old(self).node.addr() == old(guard_perm).addr(),
+            old(guard_perm).is_init(),
+            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).as_node.meta_perm.addr(),
+            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).as_node.meta_perm.points_to.addr(),
+            old(guard_perm).value().inner.inner@.wf(old(parent_owner).as_node),
             old(parent_owner).as_node.meta_perm.is_init(),
             old(parent_owner).as_node.meta_perm.wf(),
         ensures
             old(owner).value.is_frame() ==> {
                 &&& res is Some
                 &&& owner.value.is_node()
-                &&& owner.value.node.unwrap().guard_perm.addr() == res.unwrap().addr()
                 &&& owner.level == old(owner).level
                 &&& owner.value.guard_addr == old(owner).value.guard_addr
+                &&& guard_perm.addr() == res.unwrap().addr()
             },
             !old(owner).value.is_frame() ==> {
                 &&& res is None
@@ -396,7 +394,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             regions.inv(),
             parent_owner.inv(),
-            owner.value.relate_parent_guard_perm(parent_owner.guard_perm),
     )]
     #[verifier::external_body]
     pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
@@ -457,7 +454,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         self.pte = Child::PageTable(new_page).into_pte();
 
-        let mut guard = self.node.take(Tracked(&mut parent_owner.guard_perm));
+        let mut guard = self.node.take(Tracked(&mut guard_perm));
 
         let tracked mut node_owner = owner.value.node.tracked_take();
 

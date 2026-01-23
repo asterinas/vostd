@@ -331,22 +331,27 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// Calling this function when a guard is already created is undefined behavior
     /// unless that guard was already forgotten.
     #[rustc_allow_incoherent_impl]
-    #[verus_spec(
-        with Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<C>>>
-    )]
-    #[verifier::external_body]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<
-        PageTableGuard<'rcu, C>,
-    >) where 'a: 'rcu
+    #[verus_spec(res =>
+        with Tracked(owner): Tracked<&NodeOwner<C>>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+            owner.inv(),
+            !old(guards).guards.contains_key(owner.meta_perm.addr())
         ensures
-            res == guard_perm.pptr(),
-            guard_perm == old(guard_perm),
+            guards.guards.contains_key(owner.meta_perm.addr()),
+            res.addr() == guards.guards[owner.meta_perm.addr()]@.addr(),
+            guards.guards[owner.meta_perm.addr()]@.is_init(),
+            guards.guards[owner.meta_perm.addr()]@.value().inner.inner@.ptr.addr() == owner.meta_perm.addr(),
+    )]
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu
     {
-        unimplemented!()/*        let guard = PageTableGuard { inner: self };
-        let ptr = PPtr::<PageTableGuard<C>>::from_addr(guard_perm.addr());
-        ptr.put(Tracked(guard_perm), guard);
-        ptr*/
+        let guard = PageTableGuard { inner: self };
+        let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
+        proof {
+            guards.guards.tracked_insert(owner.meta_perm.addr(), guard_perm);
+        }
 
+        ptr
     }
 }
 

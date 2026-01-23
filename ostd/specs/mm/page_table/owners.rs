@@ -107,7 +107,7 @@ impl<'rcu, C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<'
     open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
-            &&& child.unwrap().relate_parent_guard_perm(self.node.unwrap().guard_perm)
+//            &&& child.unwrap().relate_parent_guard_perm(self.node.unwrap().guard_perm)
         } else {
             &&& child is None
         }
