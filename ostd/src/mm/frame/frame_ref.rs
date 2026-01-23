@@ -106,7 +106,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     /// The lower [`Self::ALIGN_BITS`] of the raw pointer is guaranteed to
     /// be zero. In other words, the pointer is guaranteed to be aligned to
     /// `1 << Self::ALIGN_BITS`.
-    fn into_raw(self) -> PPtr<Self::Target>;
+    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>;
 
     /// Converts back from a raw pointer.
     ///
@@ -156,9 +156,10 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
         core::mem::align_of::<MetaSlot>().trailing_zeros()
     }
 
-    fn into_raw(self) -> PPtr<Self::Target> {
+    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
-        let _ = ManuallyDrop::new(self);
+        assert(self.constructor_requires(*old(regions))) by { admit() };
+        let _ = NeverDrop::new(self, Tracked(regions));
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
 

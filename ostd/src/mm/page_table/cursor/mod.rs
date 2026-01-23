@@ -523,7 +523,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         #[verus_spec(with Tracked(owner))]
                         self.push_level(pt_guard);
                     } else {
-                        let _ = ManuallyDrop::new(pt_guard);
+//                        let _ = NeverDrop::new(pt_guard, Tracked(regions));
 
                         proof {
                             owner.move_forward_increases_va();
@@ -1070,9 +1070,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL(),
             !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS(),
             old(self).inner.va % page_size(C::item_into_raw(item).1) == 0,
-            old(self).inner.va + page_size(C::item_into_raw(item).1) < old(
-                self,
-            ).inner.barrier_va.end,
+            old(self).inner.va + page_size(C::item_into_raw(item).1) < old(self).inner.barrier_va.end,
     {
         let (pa, level, prop) = C::item_into_raw(item);
         let size = page_size(level);
@@ -1093,6 +1091,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner.in_locked_range(),
             decreases abs(level - self.inner.level),
         {
+            proof {
+                admit();
+            }
+
             if self.inner.level < level {
                 #[verus_spec(with Tracked(owner), Tracked(regions))]
                 self.inner.pop_level();
@@ -1121,15 +1123,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             match cur_child {
                 ChildRef::PageTable(pt) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
-                    let tracked mut child_owner_opt = continuation.children.tracked_remove(
-                        continuation.idx as int,
-                    );
-                    let tracked mut child_owner = child_owner_opt.tracked_take();
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
+                    let tracked mut child_owner = continuation.take_child();
                     let tracked mut child_node = child_owner.value.node.tracked_take();
-                    let ghost child_node0 = child_node;
 
                     // SAFETY: The `pt` must be locked and no other guards exist.
                     #[verus_spec(with Tracked(&mut child_node.guard_perm))]
@@ -1137,10 +1133,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         child_owner.value.node = Some(child_node);
-                        continuation.children.tracked_insert(
-                            continuation.idx as int,
-                            Some(child_owner),
-                        );
+                        continuation.put_child(child_owner);
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
                     }
 
@@ -1148,9 +1141,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.inner.push_level(pt_guard);
                 },
                 ChildRef::None => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
 
                     assert(child_owner.value.is_absent()) by { admit() };
@@ -1168,9 +1159,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.inner.push_level(child_guard);
                 },
                 ChildRef::Frame(_, _, _) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 

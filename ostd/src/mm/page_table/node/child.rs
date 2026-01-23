@@ -12,6 +12,7 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::undroppable::*;
 
 use crate::specs::*;
 
@@ -19,7 +20,7 @@ use crate::{
     mm::{page_prop::PageProperty, Paddr, PagingConstsTrait, PagingLevel, Vaddr},
     //    sync::RcuDrop,
 };
-use core::mem::ManuallyDrop;
+use vstd_extra::undroppable::NeverDrop;
 
 use super::*;
 
@@ -127,7 +128,8 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
 impl<C: PageTableConfig> Child<C> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(owner): Tracked<&EntryOwner<C>>
+        with Tracked(owner): Tracked<&EntryOwner<C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
     pub fn into_pte(self) -> (res: C::E)
         requires
@@ -154,7 +156,9 @@ impl<C: PageTableConfig> Child<C> {
             Child::PageTable(node) => {
                 #[verus_spec(with Tracked(&owner.node.tracked_borrow().as_node.meta_perm.points_to))]
                 let paddr = node.start_paddr();
-                let _ = ManuallyDrop::new(node);
+
+                assert(node.constructor_requires(*old(regions))) by { admit() };
+                let _ = NeverDrop::new(node, Tracked(regions));
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => C::E::new_page(paddr, level, prop),

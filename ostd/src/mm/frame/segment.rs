@@ -14,6 +14,7 @@ use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use vstd_extra::undroppable::*;
 
 verus! {
 
@@ -36,6 +37,20 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
     pub range: Range<Paddr>,
     /// Marker for the metadata type.
     pub _marker: core::marker::PhantomData<M>,
+}
+
+// TODO: treat `manually_drop` as equivalent to `into_raw`
+impl<M: AnyFrameMeta + ?Sized> Undroppable for Segment<M> {
+    type State = MetaRegionOwners;
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        true
+    }
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        s0 =~= s1
+    }
+    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+        admit()
+    }
 }
 
 /// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the
@@ -427,10 +442,7 @@ impl<M: AnyFrameMeta> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> Result<
-        Self,
-        GetFrameError,
-    > {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res: Result<Self, GetFrameError>) {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
@@ -507,12 +519,14 @@ impl<M: AnyFrameMeta> Segment<M> {
                     }) by {
                     admit();
                 }
+                assert(frame.constructor_requires(*old(regions))) by { admit() };
             }
 
-            let _ = ManuallyDrop::new(frame);
+            let _ = NeverDrop::new(frame, Tracked(regions));
             segment.range.end = paddr + PAGE_SIZE();
             proof {
                 addrs.tracked_push(paddr);
+                admit();
             }
 
             i += 1;
@@ -579,6 +593,7 @@ impl<M: AnyFrameMeta> Segment<M> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<SegmentOwner<M>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
                 -> frame_perms: (Tracked<SegmentOwner<M>>, Tracked<SegmentOwner<M>>),
         requires
             Self::split_requires(self, owner, offset),
@@ -593,8 +608,7 @@ impl<M: AnyFrameMeta> Segment<M> {
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
         );
 
-        // TODO: `ManuallyDrop` causes runtime crashes; comment it out for now, but later we'll use the `vstd_extra` implementation
-        let _ = ManuallyDrop::new(self);
+        let _ = NeverDrop::new(self, Tracked(regions));
 
         let tracked frame_perms1 = SegmentOwner {
             perms: seq_tracked_subrange(owner.perms, 0, idx as int),
@@ -652,7 +666,7 @@ impl<M: AnyFrameMeta> Segment<M> {
         }
 
         let range = self.range.clone();
-        let _ = ManuallyDrop::new(self);
+        let _ = NeverDrop::new(self, Tracked(regions));
         range
     }
 

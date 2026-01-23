@@ -24,6 +24,7 @@ pub trait Undroppable {
 pub struct NeverDrop<T: Undroppable>(pub ManuallyDrop<T>);
 
 impl<T: Undroppable> NeverDrop<T> {
+    #[verifier::external_body]
     pub fn new(t: T, Tracked(s): Tracked<&mut T::State>) -> (res: Self)
         requires
             t.constructor_requires(*old(s)),

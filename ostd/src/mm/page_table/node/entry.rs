@@ -260,7 +260,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(regions.slot_owners[frame_to_index(self.pte.paddr())]@.inv()) by { admit() };
         assert(new_child.wf(*new_owner)) by { admit() };
 
-        #[verus_spec(with Tracked(new_owner))]
+        #[verus_spec(with Tracked(new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
 
         // SAFETY:
