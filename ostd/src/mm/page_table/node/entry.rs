@@ -363,9 +363,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
     )]
     #[verifier::external_body]
-    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
-        PPtr<PageTableGuard<'rcu, C>>,
-    >)
+    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>)
         requires
             old(regions).inv(),
             old(owner).inv(),
@@ -416,8 +414,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         PageTableNode::<C>::alloc(level - 1)  /*)*/
         ;
 
-        assert(new_page.ptr.addr() == parent_owner.as_node.meta_perm.points_to.addr()) by { admit()
-        };
+        assert(new_page.ptr.addr() == parent_owner.as_node.meta_perm.points_to.addr())
+            by { admit() };
         assert(FRAME_METADATA_RANGE().start <= new_page.ptr.addr() < FRAME_METADATA_RANGE().end)
             by { admit() };
         assert(new_page.ptr.addr() % META_SLOT_SIZE() == 0) by { admit() };

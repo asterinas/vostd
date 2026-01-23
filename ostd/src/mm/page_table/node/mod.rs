@@ -48,6 +48,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::kspace::VMALLOC_BASE_VADDR;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -228,6 +229,10 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
     /// Allocates a new empty page table node.
     #[verifier::external_body]
+    #[verus_spec(r =>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+        -> owner: NodeOwner<C>
+    )]
     pub(super) fn alloc(level: PagingLevel) -> Self {
         unimplemented!()/*
         let meta = PageTablePageMeta::new(level);

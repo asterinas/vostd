@@ -1091,9 +1091,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner.in_locked_range(),
             decreases abs(level - self.inner.level),
         {
-            proof {
-                admit();
-            }
 
             if self.inner.level < level {
                 #[verus_spec(with Tracked(owner), Tracked(regions))]
@@ -1134,6 +1131,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     proof {
                         child_owner.value.node = Some(child_node);
                         continuation.put_child(child_owner);
+                        assert(continuation.inv());
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
                     }
 
@@ -1152,6 +1150,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         continuation.put_child(child_owner);
+                        assert(continuation.inv());
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
                     }
 
@@ -1171,6 +1170,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     proof {
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
+                        assert(continuation.inv());
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
                     }
 
