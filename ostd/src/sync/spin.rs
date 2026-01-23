@@ -279,6 +279,31 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }.is_ok()
     }
 
+    /// An example to show the doc generation with `#[verus_spec]` ghost parameters.
+    /// It will be removed after the doc generation function is merged.
+    #[verus_spec(ret =>
+        with
+            ghost_in1: Tracked<int>,
+            ghost_in2: Tracked<int>,
+            ->
+            ghost_out: Ghost<(int,int)>,
+        requires
+            ghost_in1@ >= 0,
+        ensures
+            ghost_out@.0 == ghost_in1@,
+    )]
+    pub fn spec_with_example(&self) {
+        proof_decl!{
+            let ghost mut out: (int,int) = (0,0);
+        }
+        proof!{
+            out.0 = ghost_in1@;
+            out.1 = ghost_in2@;
+        }
+        proof_with!{|= Ghost(out)}
+        ()
+    }
+
     /*
     fn release_lock(&self) {
         self.inner.lock.store(false, Ordering::Release);
