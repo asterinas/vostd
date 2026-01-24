@@ -211,6 +211,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         requires
             old(self).wf(*owner),
             owner.inv(),
+            new_child.wf(*new_owner),
             new_owner.inv(),
             old(parent_owner).inv(),
             old(regions).inv(),
@@ -260,11 +261,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             assert(_tmp > 0) by { admit() };
             nr_children.put(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
         }
-        assert(regions.slot_owners[frame_to_index(self.pte.paddr())]@.inv()) by { admit() };
-        assert(new_child.wf(*new_owner)) by { admit() };
 
         #[verus_spec(with Tracked(&new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
+
+        assert(new_child.wf(*new_owner));
 
         // SAFETY:
         //  1. The index is within the bounds.
@@ -276,19 +277,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         self.node.put(Tracked(guard_perm), guard);
 
         self.pte = new_pte;
-
-        assert(regions.inv()) by { admit() };
-        assert(parent_owner.inv()) by { admit() };
-        assert(parent_owner.relate_guard_perm(*guard_perm)) by { admit() };
-        assert(guard_perm.pptr() == old(guard_perm).pptr()) by { admit() };
-        assert(self.wf(*new_owner)) by { admit() };
-        assert(new_owner.inv()) by { admit() };
-        assert(owner.inv()) by { admit() };
-        assert(old_child.wf(*owner)) by { admit() };
-
-        //        proof {
-        //           new_owner.base_addr = parent_owner.guard_perm.mem_contents().value().inner.inner.0.ptr.addr();
-        //       }
 
         old_child
     }
