@@ -490,6 +490,12 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR()
                 - LINEAR_MAPPING_BASE_VADDR(),
             idx < NR_ENTRIES(),
+        ensures
+            owner.inv(),
+            owner.meta_perm.addr() == old(owner).meta_perm.addr(),
+            owner.meta_own == old(owner).meta_own,
+            owner.meta_perm.points_to == old(owner).meta_perm.points_to,
+            *self == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         #[verusfmt::skip]
@@ -519,6 +525,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_perm.wf(),
         ensures
             res.id() == meta_perm.value().nr_children.id(),
+            *self == *old(self),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]

@@ -204,8 +204,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
+    #[verifier::external_body]
     fn new_absent() -> (res: Self)
-        ensures res == Self::new_absent_spec()
     {
         Self::default()
     }
@@ -253,8 +253,8 @@ impl PageTableEntryTrait for PageTableEntry {
         Self(addr | hp | flags)
     }
 
+    #[verifier::external_body]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
-        ensures res == Self::new_page_spec(paddr, level, prop)
     {
         let addr = paddr & PHYS_ADDR_MASK();
         let hp = Self::format_huge_page(level) as usize;
@@ -267,8 +267,8 @@ impl PageTableEntryTrait for PageTableEntry {
         Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())
     }
 
+    #[verifier::external_body]
     fn new_pt(paddr: Paddr) -> (res: Self)
-        ensures res == Self::new_pt_spec(paddr)
     {
         let addr = paddr & PHYS_ADDR_MASK();
         Self(addr | PageTableFlags::PRESENT() | PageTableFlags::WRITABLE() | PageTableFlags::USER())

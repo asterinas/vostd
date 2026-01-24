@@ -1314,7 +1314,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-            Tracked(level): Tracked<PagingLevel>
+            Tracked(level): Tracked<PagingLevel>,
+            Ghost(map_paddr): Ghost<Paddr>,
+            Ghost(map_prop): Ghost<PageProperty>
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
@@ -1322,6 +1324,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.wf(*old(cursor_owner)),
             old(regions).inv(),
             entry_owner.inv(),
+            entry_owner.is_frame(),
+            entry_owner.frame.unwrap().mapped_pa == map_paddr,
+            entry_owner.frame.unwrap().prop == map_prop,
+            map_paddr == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).0,
+            map_prop == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).2,
             old(self).pt_cursor.inner.inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(cursor_owner).in_locked_range(),

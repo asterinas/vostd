@@ -62,6 +62,8 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.node is None
             &&& self.locked is None
             &&& !self.absent
+            &&& self.frame.unwrap().mapped_pa % PAGE_SIZE() == 0
+            &&& self.frame.unwrap().mapped_pa < MAX_PADDR()
         }
         &&& self.locked is Some ==> {
             &&& self.frame is None

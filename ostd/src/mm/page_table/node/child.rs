@@ -134,9 +134,9 @@ impl<C: PageTableConfig> Child<C> {
     pub fn into_pte(self) -> (res: C::E)
         requires
             owner.inv(),
-            self.wf(
-                *owner,
-            ),/*            self is PageTable ==> {
+            old(regions).inv(),
+            self.wf(*owner),
+            /*            self is PageTable ==> {
                 &&& slot_own is Some
                 &&& slot_own.unwrap()@.inv()
                 &&& slot_perm is Some
@@ -147,15 +147,34 @@ impl<C: PageTableConfig> Child<C> {
                 &&& slot_perm.unwrap()@.addr() == slot_own.unwrap()@.self_addr
             }*/
 
-        ensures/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
+        ensures
+            regions.inv(),
+            res.paddr() % PAGE_SIZE() == 0,
+            res.paddr() < MAX_PADDR(),
+/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
             self is Frame ==> res == self.into_pte_frame_spec(self.get_frame_tuple().unwrap()),
             self is None ==> res == self.into_pte_none_spec(),*/
 
     {
         match self {
             Child::PageTable(node) => {
+                // From Child::PageTable::wf: owner.is_node() and node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
+                assert(owner.is_node());
+                let ghost node_owner = owner.node.unwrap();
+                assert(node_owner.inv());
+                assert(node.ptr.addr() == node_owner.meta_perm.addr());
+                // From NodeOwner::inv():
+                assert(meta_to_frame(node_owner.meta_perm.addr()) < MAX_PADDR());
+                assert(FRAME_METADATA_RANGE().start <= node_owner.meta_perm.addr() < FRAME_METADATA_RANGE().end);
+                assert(node_owner.meta_perm.addr() % META_SLOT_SIZE() == 0);
+
                 #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
                 let paddr = node.start_paddr();
+
+                // paddr == meta_to_frame(node.ptr.addr()) == meta_to_frame(node_owner.meta_perm.addr())
+                assert(paddr == meta_to_frame(node.ptr.addr()));
+                assert(paddr % PAGE_SIZE() == 0);
+                assert(paddr < MAX_PADDR());
 
                 assert(node.constructor_requires(*old(regions))) by { admit() };
                 let _ = NeverDrop::new(node, Tracked(regions));
@@ -173,7 +192,7 @@ impl<C: PageTableConfig> Child<C> {
     ///  - must not be referenced by a living [`ChildRef`].
     ///
     /// The level must match the original level of the child.
-    #[rustc_allow_incoherent_impl]
+    #[verifier::external_body]
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(entry_own): Tracked<&EntryOwner<C>>,
@@ -185,17 +204,14 @@ impl<C: PageTableConfig> Child<C> {
             old(regions).inv(),
             !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
+            entry_own.inv(),
+//            pte.wf(*entry_own),
         ensures
             regions.inv(),
+            res.wf(*entry_own),
             !pte.is_present() ==> res == Child::<C>::None,
-            pte.is_present() && pte.is_last(level) ==> res == Child::<C>::from_pte_frame_spec(
-                pte,
-                level,
-            ),
-            pte.is_present() && !pte.is_last(level) ==> res == Child::<C>::from_pte_pt_spec(
-                pte.paddr(),
-                *regions,
-            ),
+            pte.is_present() && pte.is_last(level) ==> res == Child::<C>::from_pte_frame_spec(pte, level),
+            pte.is_present() && !pte.is_last(level) ==> res == Child::<C>::from_pte_pt_spec(pte.paddr(), *regions),
     {
         if !pte.is_present() {
             return Child::None;
@@ -210,6 +226,7 @@ impl<C: PageTableConfig> Child<C> {
             #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
             let node = PageTableNode::from_raw(paddr);
             //            debug_assert_eq!(node.level(), level - 1);
+
             return Child::PageTable(  /*RcuDrop::new(*/ node  /*)*/ );
         }
         Child::Frame(paddr, level, pte.prop())

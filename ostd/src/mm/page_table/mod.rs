@@ -258,6 +258,8 @@ pub trait PageTableEntryTrait:
     fn new_absent() -> (res: Self)
         ensures
             res == Self::new_absent_spec(),
+            res.paddr() % PAGE_SIZE() == 0,
+            res.paddr() < MAX_PADDR(),
     ;
 
     /// If the flags are present with valid mappings.
@@ -274,8 +276,14 @@ pub trait PageTableEntryTrait:
 
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
+        requires
+            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR(),
         ensures
             res == Self::new_page_spec(paddr, level, prop),
+            res.paddr() == paddr,
+            res.paddr() % PAGE_SIZE() == 0,
+            res.paddr() < MAX_PADDR(),
     ;
 
     /// Create a new PTE that map to a child page table.
@@ -283,8 +291,14 @@ pub trait PageTableEntryTrait:
 
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
+        requires
+            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR(),
         ensures
             res == Self::new_pt_spec(paddr),
+            res.paddr() == paddr,
+            res.paddr() % PAGE_SIZE() == 0,
+            res.paddr() < MAX_PADDR(),
     ;
 
     /// Get the physical address from the PTE.
