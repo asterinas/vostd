@@ -1314,6 +1314,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(level): Tracked<PagingLevel>
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
@@ -1326,20 +1327,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(cursor_owner).in_locked_range(),
             UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1
                 <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-            old(self).pt_cursor.inner.va % page_size(
-                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
-            ) == 0,
-            old(self).pt_cursor.inner.va + page_size(
-                UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
-            ) < old(self).pt_cursor.inner.barrier_va.end,
+            level == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+            2 <= level <= NR_LEVELS(),
+            old(self).pt_cursor.inner.va % page_size(level) == 0,
+            old(self).pt_cursor.inner.va + page_size(level) < old(self).pt_cursor.inner.barrier_va.end,
             old(cursor_owner).children_not_locked(*old(guards)),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
-        let tracked lv = (5 - cursor_owner.level) as nat;
-
-        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, lv);
+        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, (6 - level) as nat);
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (

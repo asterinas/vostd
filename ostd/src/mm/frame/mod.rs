@@ -367,7 +367,7 @@ impl<M: AnyFrameMeta> Frame<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& paddr % PAGE_SIZE() == 0
-        &&& paddr < MAX_PADDR()
+//        &&& paddr < MAX_PADDR()
         &&& !regions.slots.contains_key(frame_to_index(paddr))
         &&& regions.dropped_slots.contains_key(frame_to_index(paddr))
         &&& regions.inv()

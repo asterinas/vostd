@@ -1101,6 +1101,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::item_into_raw(item).1 < old(self).inner.guard_level,
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
+            new_owner.level == INC_LEVELS() - C::item_into_raw(item).1 + 1,
             // Panic conditions as preconditions
             old(self).inner.va < old(self).inner.barrier_va.end,
             C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL(),
@@ -1119,6 +1120,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             invariant
                 owner.inv(),
                 new_owner.inv(),
+                new_owner.level == INC_LEVELS() - level + 1,
                 self.inner.wf(*owner),
                 regions.inv(),
                 self.inner.inv(),
@@ -1243,7 +1245,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
         }
 
-        assert(new_owner.level == INC_LEVELS() - owner.level + 1) by { admit() };
+        assert(owner.level == level);
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
@@ -1460,8 +1462,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 let tracked mut old_node_owner = old_child_owner.value.node.tracked_take();
 
-//                assert(pt.paddr() % PAGE_SIZE() == 0) by { admit() };
-                assert(pt.paddr() < MAX_PADDR()) by { admit() };
                 assert(!regions.slots.contains_key(pt.index())) by { admit() };
                 assert(regions.dropped_slots.contains_key(pt.index())) by { admit() };
 

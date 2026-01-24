@@ -7,7 +7,7 @@ use crate::mm::frame::meta::MetaSlot;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::{FRAME_METADATA_RANGE, VMALLOC_BASE_VADDR, LINEAR_MAPPING_BASE_VADDR};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, CONST_NR_ENTRIES};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, CONST_NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::page_table::GuardPerm;
@@ -82,6 +82,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
         &&& self.meta_perm.addr() % META_SLOT_SIZE() == 0
         &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
+        &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR()
         &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
         &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES()

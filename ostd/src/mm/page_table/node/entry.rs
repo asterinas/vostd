@@ -200,7 +200,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     ///
     /// The method panics if the level of the new child does not match the
     /// current node.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
             Tracked(owner): Tracked<&EntryOwner<C>>,
@@ -218,12 +217,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),
             old(guard_perm).addr() == old(self).node.addr(),
-            old(guard_perm).is_init(),
-            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).meta_perm.addr(),
-            old(guard_perm).value().inner.inner@.ptr.addr() == old(parent_owner).meta_perm.points_to.addr(),
-            old(guard_perm).value().inner.inner@.wf(*old(parent_owner)),
-            old(parent_owner).meta_perm.is_init(),
-            old(parent_owner).meta_perm.wf(),
+            old(parent_owner).relate_guard_perm(*old(guard_perm)),
         ensures
             parent_owner.inv(),
             parent_owner.relate_guard_perm(*guard_perm),
