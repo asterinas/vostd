@@ -470,25 +470,27 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bounds of the node.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&NodeOwner<C>>,
             Tracked(guard_perm): Tracked<&GuardPerm<'rcu, C>>
     )]
-    #[verifier::external_body]
     pub fn new_at(guard: PPtr<PageTableGuard<'rcu, C>>, idx: usize) -> (res: Self)
         requires
             owner.inv(),
+            parent_owner.inv(),
             guard_perm.addr() == guard.addr(),
             parent_owner.relate_guard_perm(*guard_perm),
+            idx < NR_ENTRIES(),
+            owner.match_pte(parent_owner.children_perm.value()[idx as int], parent_owner.level),
         ensures
             res.wf(*owner),
             res.node.addr() == guard_perm.addr(),
     {
         // SAFETY: The index is within the bound.
+        let guard_val = guard.borrow(Tracked(guard_perm));
         #[verus_spec(with Tracked(parent_owner))]
-        let pte = guard.borrow(Tracked(guard_perm)).read_pte(idx);
+        let pte = guard_val.read_pte(idx);
         Self { pte, idx, node: guard }
     }
 }

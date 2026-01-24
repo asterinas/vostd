@@ -48,6 +48,23 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn is_absent(self) -> bool {
         self.absent
     }
+
+    pub open spec fn match_pte(self, pte: C::E, level: PagingLevel) -> bool {
+        &&& pte.paddr() % PAGE_SIZE() == 0
+        &&& pte.paddr() < MAX_PADDR()
+        &&& !pte.is_present() ==> {
+            self.is_absent()
+        }
+        &&& pte.is_present() && !pte.is_last(level) ==> {
+            &&& self.is_node()
+            &&& meta_to_frame(self.node.unwrap().meta_perm.addr()) == pte.paddr()
+        }
+        &&& pte.is_present() && pte.is_last(level) ==> {
+            &&& self.is_frame()
+            &&& self.frame.unwrap().mapped_pa == pte.paddr()
+            &&& self.frame.unwrap().prop == pte.prop()
+        }
+    }
 }
 
 impl<C: PageTableConfig> Inv for EntryOwner<C> {

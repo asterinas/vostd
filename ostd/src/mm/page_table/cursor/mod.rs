@@ -908,7 +908,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         assert(regions.slot_owners.contains_key(index)) by { admit() };
 
-        assert(AbstractVaddr::from_vaddr(self.va).index[self.level-1] < NR_ENTRIES()) by { admit() };
+        let ghost ptei = AbstractVaddr::from_vaddr(self.va).index[owner.level-1];
+
+        assert(ptei < NR_ENTRIES()) by { admit() };
+        assert(child.value.match_pte(parent_own.children_perm.value()[ptei as int], parent_own.level)) by { admit() };
 
         #[verus_spec(with Tracked(&parent_own),
             Tracked(&child.value),

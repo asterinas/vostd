@@ -367,6 +367,7 @@ pub trait PageTableEntryTrait:
         //        unsafe { transmute_unchecked(pte_raw) }
 
     }
+
 }
 
 /// A handle to a page table.
@@ -807,11 +808,18 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 ///
 /// The safety preconditions are same as those of [`AtomicUsize::from_ptr`].
 #[verifier::external_body]
-pub fn load_pte<E: PageTableEntryTrait>(
-    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
-    ordering: Ordering,
-) -> E {
-    unimplemented!()/*    // SAFETY: The safety is upheld by the caller.
+#[verus_spec(
+    with Tracked(perm): Tracked<&vstd_extra::array_ptr::PointsTo<E, CONST_NR_ENTRIES>>
+)]
+pub fn load_pte<E: PageTableEntryTrait>(ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>, ordering: Ordering) -> (pte: E)
+    requires
+        perm.is_init(ptr.index as int),
+        perm.addr() == ptr.addr(),
+    ensures
+        pte == perm.value()[ptr.index as int],
+{
+    unimplemented!()
+    /*    // SAFETY: The safety is upheld by the caller.
     let atomic = unsafe { AtomicUsize::from_ptr(ptr.cast()) };
     let pte_raw = atomic.load(ordering);
     E::from_usize(pte_raw)*/

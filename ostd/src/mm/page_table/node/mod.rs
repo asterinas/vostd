@@ -377,6 +377,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES(), // NR_ENTRIES == nr_subpage_per_huge::<C>()
+            child_owner.match_pte(owner.children_perm.value()[idx as int], owner.level),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
@@ -441,7 +442,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(owner): Tracked<&NodeOwner<C>>
     )]
-    pub fn read_pte(&self, idx: usize) -> C::E
+    pub fn read_pte(&self, idx: usize) -> (pte: C::E)
         requires
             self.inner.inner@.ptr.addr() == owner.meta_perm.addr(),
             self.inner.inner@.ptr.addr() == owner.meta_perm.points_to.addr(),
@@ -451,19 +452,21 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             FRAME_METADATA_RANGE().start <= owner.meta_perm.addr < FRAME_METADATA_RANGE().end,
             owner.meta_perm.addr % META_SLOT_SIZE() == 0,
             idx < NR_ENTRIES(),
+            owner.children_perm.addr() == paddr_to_vaddr(meta_to_frame(owner.meta_perm.addr)),
+        ensures
+            pte == owner.children_perm.value()[idx as int],
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
-            #[verusfmt::skip]
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr()
-            ),
-        );
+            ));
 
         // SAFETY:
         // - The page table node is alive. The index is inside the bound, so the page table entry is valid.
         // - All page table entries are aligned and accessed with atomic operations only.
+        #[verus_spec(with Tracked(&owner.children_perm))]
         load_pte(ptr.add(idx), Ordering::Relaxed)
     }
 

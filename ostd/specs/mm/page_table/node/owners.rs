@@ -11,6 +11,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, CONST_NR_ENTRIES,
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::page_table::GuardPerm;
+use crate::mm::paddr_to_vaddr;
 
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
@@ -61,6 +62,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.nr_children.id() == owner.nr_children.id()
         &&& self.stray.id() == owner.stray.id()
+        &&& 0 <= owner.nr_children.value() <= NR_ENTRIES()
     }
 }
 
@@ -68,6 +70,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
     pub children_perm: array_ptr::PointsTo<C::E, CONST_NR_ENTRIES>,
+    pub level: PagingLevel,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -86,6 +89,9 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
         &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES()
+        &&& 1 <= self.level <= NR_LEVELS()
+        &&& self.children_perm.is_init_all()
+        &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
     }
 }
 
