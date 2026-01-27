@@ -124,6 +124,17 @@ impl MemView {
         )
     }
 
+    pub proof fn lemma_disjoint_filter_at_one(&self, va: usize)
+        requires
+            self.mappings_are_disjoint(),
+        ensures
+            self.mappings.filter(
+                |m: Mapping| m.va_range.start <= va < m.va_range.end,
+            ).len() <= 1,
+    {
+        admit();
+    }
+
     /// Borrows a memory view for a sub-range.
     #[verifier::external_body]
     pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
@@ -236,11 +247,11 @@ impl MemView {
 
     /// Merges two disjoint memory views back into one.
     #[verifier::external_body]
-    pub proof fn join(tracked self, tracked other: Self) -> (tracked r: Self)
+    pub proof fn join(tracked &mut self, tracked other: Self)
         requires
-            self.memory.dom().disjoint(other.memory.dom()),
+            old(self).mappings.disjoint(other.mappings),
         ensures
-            r == self.join_spec(other),
+            *self == old(self).join_spec(other),
     {
         unimplemented!()
     }
