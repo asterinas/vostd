@@ -207,11 +207,20 @@ impl<'a> VmSpaceOwner<'a> {
         // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
         &&& self.mem_view matches Some(remaining_view) ==> self.mv_range@ matches Some(total_view)
             ==> {
+            &&& remaining_view.mappings_are_disjoint()
+            &&& remaining_view.mappings.finite()
+            &&& total_view.mappings_are_disjoint()
+            &&& total_view.mappings.finite()
             // ======================
             // Remaining Consistency
             // ======================
             &&& remaining_view.mappings.subset_of(total_view.mappings)
-            &&& remaining_view.memory.dom().subset_of(total_view.memory.dom())
+            &&& remaining_view.memory.dom().subset_of(
+                total_view.memory.dom(),
+            )
+            // =====================
+            // Total View Consistency
+            // =====================
             &&& forall|va: usize|
                 #![trigger remaining_view.addr_transl(va)]
                 #![trigger total_view.addr_transl(va)]
@@ -232,10 +241,20 @@ impl<'a> VmSpaceOwner<'a> {
                             #![trigger total_view.addr_transl(va)]
                             #![trigger remaining_view.addr_transl(va)]
                             #![trigger remaining_view.memory.contains_key(va)]
-                            writer.range@.start <= va < writer.range@.end ==> {
+                            {
+                                // We do not enforce that the range must be the same as the
+                                // memory view it holds as the writer may not consume all the
+                                // memory in its range.
+                                //
+                                // So we cannot directly reason on `self.range` here; we need
+                                // to instead ensure that the memory view it holds is consistent
+                                // with the total view and remaining view.
+                                &&& writer_mv.mappings.finite()
                                 &&& writer_mv.addr_transl(va) == total_view.addr_transl(va)
-                                &&& remaining_view.addr_transl(va) is None
-                                &&& !remaining_view.memory.contains_key(va)
+                                &&& writer_mv.addr_transl(va) matches Some(_) ==> {
+                                    &&& remaining_view.addr_transl(va) is None
+                                    &&& !remaining_view.memory.contains_key(va)
+                                }
                             }
                         &&& writer_mv.mappings.disjoint(remaining_view.mappings)
                         &&& writer_mv.mappings.subset_of(total_view.mappings)
@@ -254,9 +273,10 @@ impl<'a> VmSpaceOwner<'a> {
                         forall|va: usize|
                             #![trigger reader_mv.addr_transl(va)]
                             #![trigger total_view.addr_transl(va)]
-                            reader.range@.start <= va < reader.range@.end ==> {
+                            {
                                 // For readers there is no need to check remaining_view
                                 // because it is borrowed from remaining_view directly.
+                                &&& reader_mv.mappings.finite()
                                 &&& reader_mv.addr_transl(va) == total_view.addr_transl(va)
                             }
                     }
@@ -366,10 +386,9 @@ impl<'a> VmSpaceOwner<'a> {
             ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
                 forall|va: usize|
                     #![auto]
-                    owner.range@.start <= va < owner.range@.end ==> {
+                    {
                         &&& total_view.addr_transl(va) == mv.addr_transl(va)
-                        &&& remaining.addr_transl(va) is None
-                        &&& !remaining.memory.contains_key(va)
+                        &&& mv.mappings.finite()
                     }
             },
             forall|i: int|
@@ -411,10 +430,12 @@ impl<'a> VmSpaceOwner<'a> {
             ) && old(self).mem_view matches Some(remaining) && mv.mappings.finite() && {
                 &&& forall|va: usize|
                     #![auto]
-                    owner.range@.start <= va < owner.range@.end ==> {
-                        &&& total_view.addr_transl(va) == mv.addr_transl(va)
-                        &&& remaining.addr_transl(va) is None
-                        &&& !remaining.memory.contains_key(va)
+                    {
+                        &&& mv.addr_transl(va) == total_view.addr_transl(va)
+                        &&& mv.addr_transl(va) matches Some(_) ==> {
+                            &&& remaining.addr_transl(va) is None
+                            &&& !remaining.memory.contains_key(va)
+                        }
                     }
                 &&& mv.mappings.disjoint(remaining.mappings)
                 &&& mv.mappings.subset_of(total_view.mappings)
@@ -459,8 +480,6 @@ impl<'a> VmSpaceOwner<'a> {
             self.active == old(self).active,
             self.shared_reader == old(self).shared_reader,
             self.writers == old(self).writers.remove(idx as int),
-    // ....
-
     {
         let tracked writer = self.writers.tracked_remove(idx as int);
 
@@ -482,9 +501,60 @@ impl<'a> VmSpaceOwner<'a> {
             assert(remaining.mappings =~= old_remaining.mappings.union(mv.mappings));
             assert(remaining.memory =~= old_remaining.memory.union_prefer_right(mv.memory));
             assert(self.mv_range == old(self).mv_range);
+            assert(self.mem_view == Some(remaining));
 
-            admit();
+            assert forall|va: usize|
+                #![auto]
+                { remaining.addr_transl(va) == total_view.addr_transl(va) } by {
+                let r_mappings = remaining.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
+                let t_mappings = total_view.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
+                let w_mappings = mv.mappings.filter(
+                    |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                );
 
+                assert(r_mappings.subset_of(t_mappings));
+                assert(w_mappings.subset_of(t_mappings));
+
+                if r_mappings.len() > 0 {
+                    assert(t_mappings.len() > 0) by {
+                        let r = r_mappings.choose();
+                        assert(r_mappings.contains(r)) by {
+                            vstd::set::axiom_set_choose_len(r_mappings);
+                        }
+                        assert(t_mappings.contains(r));
+                    }
+                }
+            }
+
+            assert forall|i: int|
+                #![trigger self.writers[i]]
+                0 <= i < self.writers.len() as int implies {
+                let other_writer = self.writers[i];
+
+                &&& other_writer.mem_view matches Some(VmIoMemView::WriteView(writer_mv))
+                    && writer_mv.mappings.disjoint(remaining.mappings)
+            } by {
+                let other_writer = self.writers[i];
+
+                assert(old(self).inv());
+                let writer_mv = match other_writer.mem_view {
+                    Some(VmIoMemView::WriteView(mv)) => mv,
+                    _ => { proof_from_false() },
+                };
+
+                assert(mv.mappings.disjoint(writer_mv.mappings)) by {
+                    assert(exists|i: int|
+                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                            == other_writer);
+                    assert(exists|i: int|
+                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                            == writer);
+                }
+            }
         }
     }
 }
@@ -708,13 +778,12 @@ impl<'a> VmSpace<'a> {
         };
 
         proof {
-            // owner.register_reader(reader, vm_reader_owner);
+            // owner.dispose_reader(tracked vm_reader_owner);
         }
 
         Ok(reader)
-    }
-
-    // ///
+    }  // /
+    //
     // /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
     // /// or the `vaddr` and `len` do not represent a user space memory range.
     // ///
@@ -826,17 +895,16 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    #[verus_spec(
+    #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
             old(self).0.inv(),
             old(regions).inv(),
-    {
+    )]
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions))]
             self.0.query()?,
@@ -855,12 +923,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// # Panics
     ///
     /// Panics if the length is longer than the remaining range of the cursor.
-    #[verus_spec(
+    #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, UserPtConfig>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
@@ -874,7 +940,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             owner.inv(),
             self.0.wf(*owner),
             regions.inv(),
-    {
+    )]
+    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
         #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.0.find_next(len)
     }
@@ -882,16 +949,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Jump to the virtual address.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<()>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(owner).inv(),
             old(self).0.wf(*old(owner)),
             old(self).0.level < old(self).0.guard_level,
             old(self).0.inv(),
             old(owner).in_locked_range(),
-    {
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions))]
         self.0.jump(va))?;
         Ok(())
@@ -968,12 +1034,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
-    )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
         requires
             old(owner).inv(),
             old(self).pt_cursor.inner.wf(*old(owner)),
@@ -987,7 +1051,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             owner.inv(),
             self.pt_cursor.inner.wf(*owner),
             regions.inv(),
-    {
+    )]
+    pub fn find_next(&mut self, len: usize) -> Option<Vaddr> {
         #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
         self.pt_cursor.find_next(len)
     }
@@ -1034,9 +1099,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-        ensures
-    )]
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
             old(cursor_owner).inv(),
             old(self).pt_cursor.inner.wf(*old(cursor_owner)),
@@ -1053,7 +1115,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va + page_size(
                 UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
             ) < old(self).pt_cursor.inner.barrier_va.end,
-    {
+        ensures
+    )]
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 

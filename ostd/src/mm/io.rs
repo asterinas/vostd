@@ -175,6 +175,7 @@ impl Inv for VmIoOwner<'_> {
             // Case 1: Write (exclusive)
             Some(VmIoMemView::WriteView(mv)) => {
                 &&& mv.mappings.finite()
+                &&& mv.mappings_are_disjoint()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
@@ -183,6 +184,7 @@ impl Inv for VmIoOwner<'_> {
             // Case 2: Read (shared)
             Some(VmIoMemView::ReadView(mv)) => {
                 &&& mv.mappings.finite()
+                &&& mv.mappings_are_disjoint()
                 &&& forall|va: usize|
                     self.range@.start <= va < self.range@.end ==> {
                         &&& #[trigger] mv.addr_transl(va) is Some
@@ -199,7 +201,7 @@ impl VmIoOwner<'_> {
     /// Checks whether this owner overlaps with another owner.
     #[verifier::inline]
     pub open spec fn overlaps(self, other: VmIoOwner<'_>) -> bool {
-        self.overlaps_with_range(other.range@)
+        !self.disjoint(other)
     }
 
     #[verifier::inline]
@@ -211,7 +213,24 @@ impl VmIoOwner<'_> {
     /// Checks whether this owner is disjoint with another owner.
     #[verifier::inline]
     pub open spec fn disjoint(self, other: VmIoOwner<'_>) -> bool {
-        !self.overlaps(other)
+        &&& !self.overlaps_with_range(other.range@)
+        &&& match (self.mem_view, other.mem_view) {
+            (Some(lhs), Some(rhs)) => match (lhs, rhs) {
+                (VmIoMemView::WriteView(lmv), VmIoMemView::WriteView(rmv)) => {
+                    lmv.mappings.disjoint(rmv.mappings)
+                },
+                (VmIoMemView::WriteView(lmv), VmIoMemView::ReadView(rmv)) => {
+                    lmv.mappings.disjoint(rmv.mappings)
+                },
+                (VmIoMemView::ReadView(lmv), VmIoMemView::WriteView(rmv)) => {
+                    lmv.mappings.disjoint(rmv.mappings)
+                },
+                (VmIoMemView::ReadView(lmv), VmIoMemView::ReadView(rmv)) => {
+                    lmv.mappings.disjoint(rmv.mappings)
+                },
+            },
+            _ => true,
+        }
     }
 
     #[verifier::inline]
