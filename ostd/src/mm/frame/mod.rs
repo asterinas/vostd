@@ -35,6 +35,7 @@ pub mod meta;
 pub mod segment;
 pub mod unique;
 pub mod untyped;
+pub mod allocator;
 
 mod frame_ref;
 

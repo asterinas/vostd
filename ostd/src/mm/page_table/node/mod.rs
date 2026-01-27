@@ -39,6 +39,7 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::ghost_tree::*;
 
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
@@ -49,6 +50,8 @@ use crate::specs::arch::kspace::VMALLOC_BASE_VADDR;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::node::owners::*;
+use crate::mm::frame::allocator::FrameAllocOptions;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -67,7 +70,6 @@ verus! {
 
 /// The metadata of any kinds of page table pages.
 /// Make sure the the generic parameters don't effect the memory layout.
-#[rustc_has_incoherent_inherent_impls]
 pub struct PageTablePageMeta<C: PageTableConfig> {
     /// The number of valid PTEs. It is mutable if the lock is held.
     pub nr_children: PCell<u16>,
@@ -97,6 +99,7 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
+
     #[verifier::external_body]
     pub fn get_stray(&self) -> PCell<bool>
         returns
@@ -154,9 +157,7 @@ impl StoredPageTablePageMeta {
     }
 }
 
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
-    PageTablePageMeta<C>,
->;
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
 
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
@@ -210,8 +211,8 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
+#[verus_verify]
 impl<C: PageTableConfig> PageTableNode<C> {
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(perm) : Tracked<&PointsTo<MetaSlot, PageTablePageMeta<C>>>
     )]
@@ -221,6 +222,8 @@ impl<C: PageTableConfig> PageTableNode<C> {
             self.ptr.addr() == perm.points_to.addr(),
             perm.is_init(),
             perm.wf(),
+        returns
+            perm.value().level
     {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
@@ -228,24 +231,36 @@ impl<C: PageTableConfig> PageTableNode<C> {
     }
 
     /// Allocates a new empty page table node.
-    #[verifier::external_body]
-    #[verus_spec(r =>
+    #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
-        -> owner: NodeOwner<C>
+        -> owner: Tracked<OwnerSubtree<C>>
+        requires
+            level <= NR_LEVELS(),
+            old(regions).inv()
+        ensures
+            regions.inv()
     )]
-    pub(super) fn alloc(level: PagingLevel) -> Self {
-        unimplemented!()/*
+    #[verifier::external_body]
+    pub fn alloc(level: PagingLevel) -> Self
+    {
+        let tracked entry_owner = EntryOwner::new_absent();
+
+        let tracked mut owner = Node::<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>::new_val_tracked(entry_owner, level as nat);
+
         let meta = PageTablePageMeta::new(level);
-        let frame = FrameAllocOptions::new()
-            .zeroed(true)
-            .alloc_frame_with(meta)
+        let mut frame = FrameAllocOptions::new();
+        frame.zeroed(true);
+        let allocated_frame = frame.alloc_frame_with(meta)
             .expect("Failed to allocate a page table node");
         // The allocated frame is zeroed. Make sure zero is absent PTE.
         //debug_assert_eq!(C::E::new_absent().as_usize(), 0);
 
-        frame*/
+        proof_with!(|= Tracked(owner));
 
-    }/*
+        allocated_frame
+    }
+    
+    /*
     /// Activates the page table assuming it is a root page table.
     ///
     /// Here we ensure not dropping an active page table by making a
@@ -537,7 +552,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 }
 
-} // verus!
 /*impl<C: PageTableConfig> Drop for PageTableGuard<'_, C> {
     fn drop(&mut self) {
         self.inner.meta().lock.store(0, Ordering::Release);
@@ -555,6 +569,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         }
     }
 }
+} // verus!
+
 
 /* TODO: Come back after VMReader
 // FIXME: The safe APIs in the `page_table/node` module allow `Child::Frame`s with

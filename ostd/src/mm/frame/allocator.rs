@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! The physical memory allocator.
+
+use vstd::prelude::*;
+
 use core::{alloc::Layout, ops::Range};
 
 use align_ext::AlignExt;
@@ -8,12 +11,13 @@ use super::{meta::AnyFrameMeta, segment::Segment, Frame};
 use crate::{
     boot::memory_region::MemoryRegionType,
     error::Error,
-    impl_frame_meta_for,
+//    impl_frame_meta_for,
     mm::{paddr_to_vaddr, Paddr, PAGE_SIZE},
     prelude::*,
-    util::ops::range_difference,
+//    util::ops::range_difference,
 };
 
+verus! {
 /// Options for allocating physical memory frames.
 pub struct FrameAllocOptions {
     zeroed: bool,
@@ -38,18 +42,20 @@ impl FrameAllocOptions {
     /// should clear them before sharing them with other components.
     ///
     /// By default, the frames are zero-initialized.
-    pub fn zeroed(&mut self, zeroed: bool) -> &mut Self {
-        self.zeroed = zeroed;
-        self
+    pub fn zeroed(&mut self, zeroed: bool) {
+        self.zeroed = zeroed
     }
 
-    /// Allocates a single untyped frame without metadata.
-    pub fn alloc_frame(&self) -> Result<Frame<()>> {
+/*    /// Allocates a single untyped frame without metadata.
+    pub fn alloc_frame(&self) -> Result<Frame<()>, Error> {
         self.alloc_frame_with(())
-    }
+    }*/
 
     /// Allocates a single frame with additional metadata.
-    pub fn alloc_frame_with<M: AnyFrameMeta>(&self, metadata: M) -> Result<Frame<M>> {
+    #[verifier::external_body]
+    pub fn alloc_frame_with<M: AnyFrameMeta>(&self, metadata: M) -> Result<Frame<M>, Error> {
+        unimplemented!()
+        /*
         let single_layout = Layout::from_size_align(PAGE_SIZE, PAGE_SIZE).unwrap();
         let frame = get_global_frame_allocator()
             .alloc(single_layout)
@@ -63,13 +69,16 @@ impl FrameAllocOptions {
         }
 
         Ok(frame)
+        */
     }
 
+    /*
     /// Allocates a contiguous range of untyped frames without metadata.
     pub fn alloc_segment(&self, nframes: usize) -> Result<Segment<()>> {
         self.alloc_segment_with(nframes, |_| ())
-    }
+    }*/
 
+    /*
     /// Allocates a contiguous range of frames with additional metadata.
     ///
     /// The returned [`Segment`] contains at least one frame. The method returns
@@ -100,9 +109,10 @@ impl FrameAllocOptions {
         }
 
         Ok(segment)
-    }
+    }*/
 }
-
+}
+/*
 #[cfg(ktest)]
 #[ktest]
 fn test_alloc_dealloc() {
@@ -357,3 +367,4 @@ pub(crate) unsafe fn init_early_allocator() {
     let mut early_allocator = EARLY_ALLOCATOR.lock();
     *early_allocator = Some(EarlyFrameAllocator::new());
 }
+*/

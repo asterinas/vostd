@@ -20,6 +20,7 @@ verus! {
 
 pub tracked struct FrameEntryOwner {
     pub mapped_pa: usize,
+    pub size: usize,
     pub prop: PageProperty,
 }
 
@@ -48,6 +49,45 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub open spec fn is_absent(self) -> bool {
         self.absent
     }
+
+    pub open spec fn new_absent_spec() -> Self {
+        EntryOwner {
+            node: None,
+            frame: None,
+            locked: None,
+            absent: true,
+            path: TreePath::new(Seq::empty()),
+        }
+    }
+
+    pub open spec fn new_frame_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
+        EntryOwner {
+            node: None,
+            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(level), prop }),
+            locked: None,
+            absent: false,
+            path: TreePath::new(Seq::empty()),
+        }
+    }
+
+    pub open spec fn new_node_spec(node: NodeOwner<C>) -> Self {
+        EntryOwner {
+            node: Some(node),
+            frame: None,
+            locked: None,
+            absent: false,
+            path: TreePath::new(Seq::empty()),
+        }
+    }
+
+    pub axiom fn new_absent() -> tracked Self
+        returns Self::new_absent_spec();
+
+    pub axiom fn new_frame(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> tracked Self
+        returns Self::new_frame_spec(paddr, level, prop);
+
+    pub axiom fn new_node(node: NodeOwner<C>) -> tracked Self
+        returns Self::new_node_spec(node);
 
     pub open spec fn match_pte(self, pte: C::E, level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE() == 0
