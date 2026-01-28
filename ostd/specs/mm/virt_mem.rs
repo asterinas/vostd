@@ -138,11 +138,6 @@ impl MemView {
     /// Borrows a memory view for a sub-range.
     #[verifier::external_body]
     pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
-        requires
-            forall|va: usize|
-                vaddr <= va < vaddr + len ==> {
-                    &&& #[trigger] self.addr_transl(va) is Some
-                },
         ensures
             r == self.borrow_at_spec(vaddr, len),
     {

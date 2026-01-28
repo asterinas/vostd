@@ -559,6 +559,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             owner@.inv(),
             owner@.inv_with_reader(r),
             owner@.range == ptr.range@,
+            owner@.mem_view is None,
             !owner@.is_kernel,
             !owner@.is_fallible,
     )]
@@ -1168,6 +1169,7 @@ impl<'a> VmWriter<'a> {
             owner@.inv(),
             owner@.inv_with_writer(r),
             owner@.range == ptr.range@,
+            owner@.mem_view is None,
             !owner@.is_kernel,
             !owner@.is_fallible,
     )]

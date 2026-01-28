@@ -656,41 +656,37 @@ impl<'a> VmSpace<'a> {
         vaddr: Vaddr,
         len: usize,
         r: Result<VmReader<'_>>,
+        r_owner: Option<VmIoOwner<'_>>,
     ) -> bool {
         &&& vm_owner_new.inv()
-        &&& r matches Ok(reader) && vm_owner_new.readers == vm_owner_old.readers.push(
-            VmIoOwner {
-                id: reader.id,
-                range: Ghost(vaddr..(vaddr + len) as usize),
-                phantom: PhantomData,
-                is_fallible: true,
-                is_kernel: false,
-                mem_view: arbitrary(),
-            },
-        )
+        &&& vm_owner_new.readers == vm_owner_old.readers
+        &&& vm_owner_new.writers == vm_owner_old.writers
+        &&& r matches Ok(reader) && r_owner matches Some(owner) ==> {
+            &&& reader.inv()
+            &&& owner.inv_with_reader(reader)
+            &&& owner.mem_view is None
+        }
     }
 
-    // pub open spec fn writer_ensures(
-    //     &self,
-    //     vm_owner_old: VmSpaceOwner<'a>,
-    //     vm_owner_new: VmSpaceOwner<'a>,
-    //     vaddr: Vaddr,
-    //     len: usize,
-    //     r: Result<VmWriter<'a>>,
-    // ) -> bool {
-    //     &&& vm_owner_new.inv()
-    //     &&& r matches Ok(writer) && vm_owner_new.writers == vm_owner_old.writers.insert(
-    //         writer.id@,
-    //         VmIoOwner {
-    //             id: writer.id,
-    //             range: Ghost(vaddr..(vaddr + len) as usize),
-    //             phantom: PhantomData,
-    //             is_fallible: false,
-    //             is_kernel: false,
-    //             mem_view: None,
-    //         },
-    //     )
-    // }
+    pub open spec fn writer_ensures(
+        &self,
+        vm_owner_old: VmSpaceOwner<'a>,
+        vm_owner_new: VmSpaceOwner<'a>,
+        vaddr: Vaddr,
+        len: usize,
+        r: Result<VmWriter<'a>>,
+        r_owner: Option<VmIoOwner<'a>>,
+    ) -> bool {
+        &&& vm_owner_new.inv()
+        &&& vm_owner_new.readers == vm_owner_old.readers
+        &&& vm_owner_new.writers == vm_owner_old.writers
+        &&& r matches Ok(writer) && r_owner matches Some(owner) ==> {
+            &&& writer.inv()
+            &&& owner.inv_with_writer(writer)
+            &&& owner.mem_view is None
+        }
+    }
+
     /// Creates a new VM address space.
     #[inline]
     #[verifier::external_body]
@@ -744,28 +740,104 @@ impl<'a> VmSpace<'a> {
         )
     }
 
+    /// Activates the given reader to read data from the user space of the current task.
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            Tracked(vm_space_owner): Tracked<&'a mut VmSpaceOwner<'a>>,
+            Tracked(owner_r): Tracked<&'a mut VmIoOwner<'a>>,
+        requires
+            old(self).inv(),
+            old(vm_space_owner).mem_view is Some,
+            old(vm_space_owner).inv_with(*old(self)),
+            old(vm_space_owner).inv(),
+            old(vm_space_owner).active,
+            old(owner_r).inv_with_reader(*reader),
+            old(owner_r).mem_view is None,
+            reader.inv(),
+        ensures
+            self.inv(),
+            self.shared_reader == old(self).shared_reader,
+            self.readers@ == old(self).readers@.push(reader),
+            owner_r.inv_with_reader(*reader),
+            // owner_r.mem_view is Some,
+    )]
+    pub fn activate_reader(&mut self, reader: &'a VmReader<'a>) {
+        self.readers.push(reader);
+
+        proof {
+            let tracked borrowed_mv = match vm_space_owner.mem_view {
+                Some(ref mv) => mv.borrow_at(
+                    owner_r.range@.start,
+                    (owner_r.range@.end - owner_r.range@.start) as usize,
+                ),
+                _ => { proof_from_false() },
+            };
+
+            // owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
+        }
+    }
+
+    /// Activates the given writer to write data to the user space of the current task.
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            Tracked(vm_space_owner): Tracked<&'a mut VmSpaceOwner<'a>>,
+            Tracked(owner_w): Tracked<&'a mut VmIoOwner<'a>>,
+        requires
+            old(self).inv(),
+            old(vm_space_owner).mem_view is Some,
+            old(vm_space_owner).inv_with(*old(self)),
+            old(vm_space_owner).inv(),
+            old(vm_space_owner).active,
+            old(owner_w).inv_with_writer(*writer),
+            old(owner_w).mem_view is None,
+            writer.inv(),
+        ensures
+            self.inv(),
+            self.shared_reader == old(self).shared_reader,
+            self.writers@ == old(self).writers@.push(writer),
+            owner_w.inv_with_writer(*writer),
+            // owner_w.mem_view is Some,
+    )]
+    pub fn activate_writer(
+        &mut self,
+        writer: &'a VmWriter<'a>,
+    ) {
+        self.writers.push(writer);
+
+        proof {
+            let tracked borrowed_mv = match vm_space_owner.mem_view {
+                Some(ref mv) => mv.take_at(
+                    owner_w.range@.start,
+                    (owner_w.range@.end - owner_w.range@.start) as usize,
+                ),
+                _ => { proof_from_false() },
+            };
+
+            // owner_w.mem_view = Some(VmIoMemView::WriteView(borrowed_mv));
+        }
+    }
+
     /// Creates a reader to read data from the user space of the current task.
     ///
-    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
     /// or the `vaddr` and `len` do not represent a user space memory range.
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created [`VmReader`]. This guarantees that the [`VmReader`] can operate
     /// correctly.
-    ///
-    /// Note that this function will not return the reader's owner explicitly and the caller should
-    /// always consult the [`VmSpaceOwner`] to ensure the validity of the created reader and "borrow"
-    /// the reader from the owner.
     #[inline]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
+                -> vm_reader_owner: Tracked<Option<VmIoOwner<'a>>>,
         requires
             self.reader_requires(*old(owner), vaddr, len),
-        // ensures
-        //     self.reader_ensures(*old(owner), *owner, vaddr, len, r),
+        ensures
+            self.reader_ensures(*old(owner), *owner, vaddr, len, r, vm_reader_owner@),
     )]
-    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
+    pub fn create_reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
         proof_decl! {
@@ -773,71 +845,50 @@ impl<'a> VmSpace<'a> {
         }
         // SAFETY: The memory range is in user space, as checked above.
         let reader = unsafe {
-            proof_with!(Ghost(id) => Tracked(mut vm_reader_owner));
+            proof_with!(Ghost(id) => Tracked(vm_reader_owner));
             VmReader::from_user_space(vptr)
         };
 
-        proof {
-            // owner.dispose_reader(tracked vm_reader_owner);
+        proof_with!(|= Tracked(Some(vm_reader_owner)));
+        Ok(reader)
+    }
+
+    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// or the `vaddr` and `len` do not represent a user space memory range.
+    ///
+    /// Users must ensure that no other page table is activated in the current task during the
+    /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
+    #[inline]
+    #[verifier::external_body]
+    #[verus_spec(r =>
+        with
+            Tracked(owner): Tracked<&mut VmSpaceOwner<'a>>,
+                -> new_owner: Tracked<Option<VmIoOwner<'a>>>,
+        requires
+            self.writer_requires(*old(owner), vaddr, len),
+        ensures
+            self.writer_ensures(*old(owner), *owner, vaddr, len, r, new_owner@),
+    )]
+    pub fn create_writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
+        let vptr = VirtPtr::from_vaddr(vaddr, len);
+        let ghost id = owner.new_vm_io_id();
+        proof_decl! {
+            let tracked mut vm_writer_owner;
         }
 
-        Ok(reader)
-    }  // /
-    //
-    // /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
-    // /// or the `vaddr` and `len` do not represent a user space memory range.
-    // ///
-    // /// Users must ensure that no other page table is activated in the current task during the
-    // /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
-    // #[inline]
-    // #[verifier::external_body]
-    // #[verus_spec(r =>
-    //     with
-    //         Tracked(owner): Tracked<VmSpaceOwner<'a>>,
-    //             -> new_owner: Tracked<VmSpaceOwner<'a>>,
-    //     requires
-    //         self.writer_requires(owner, vaddr, len),
-    //     ensures
-    //         self.writer_ensures(owner, new_owner@, vaddr, len, r),
-    // )]
-    // pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
-    //     let vptr = VirtPtr::from_vaddr(vaddr, len);
-    //     let ghost id = owner.new_vm_io_id();
-    //     let tracked mut vm_writer_owner;
-    //     let tracked VmSpaceOwner {
-    //         page_table_owner,
-    //         active,
-    //         readers,
-    //         writers,
-    //         mut mem_view,
-    //         shared_reader,
-    //     } = owner;
-    //     let tracked (writer_mem_view, remaining_mem_view) = mem_view.split(vaddr, len);
-    //     // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
-    //     // task. This ensures that the correct page table is activated during the usage period of
-    //     // the `VmWriter`.
-    //     //
-    //     // SAFETY: The memory range is in user space, as checked above.
-    //     let writer = unsafe {
-    //         proof_with!(Ghost(id) => Tracked(mut vm_writer_owner));
-    //         VmWriter::from_user_space(vptr)
-    //     };
-    //     proof {
-    //         vm_writer_owner.mem_view = Some(VmIoMemView::WriteView(writer_mem_view));
-    //         writers.tracked_insert(vm_writer_owner.id@, vm_writer_owner);
-    //     }
-    //     let tracked new_owner = VmSpaceOwner {
-    //         page_table_owner,
-    //         active,
-    //         readers,
-    //         writers,
-    //         mem_view: remaining_mem_view,
-    //         shared_reader,
-    //     };
-    //     proof_with!(|= Tracked(new_owner));
-    //     Ok(writer)
-    // }
+        // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
+        // task. This ensures that the correct page table is activated during the usage period of
+        // the `VmWriter`.
+        //
+        // SAFETY: The memory range is in user space, as checked above.
+        let writer = unsafe {
+            proof_with!(Ghost(id) => Tracked(vm_writer_owner));
+            VmWriter::from_user_space(vptr)
+        };
 
+        proof_with!(|= Tracked(Some(vm_writer_owner)));
+        Ok(writer)
+    }
 }
 
 /*
