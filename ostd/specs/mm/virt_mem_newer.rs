@@ -46,6 +46,7 @@ pub tracked struct MemView {
 pub tracked struct GlobalMemView {
     pub pt_mappings: Set<Mapping>,
     pub tlb_mappings: Set<Mapping>,
+    pub unmapped_pas: Set<Paddr>,
     pub memory: Map<Paddr, FrameContents>,
 }
 
@@ -61,41 +62,27 @@ impl MemView {
         }
     }
 
-    pub open spec fn read(self, va: usize) -> Option<raw_ptr::MemContents<u8>> {
-        if let Some ((pa, off)) = self.addr_transl(va) {
-            Some(self.memory[pa].contents[off as int])
-        } else {
-            None
-        }
+    pub open spec fn read(self, va: usize) -> raw_ptr::MemContents<u8> {
+        let (pa, off) = self.addr_transl(va).unwrap();
+        self.memory[pa].contents[off as int]
     }
 
-    pub open spec fn write(self, va: usize, x: u8) -> Option<Self> {
-        if let Some ((pa, off)) = self.addr_transl(va) {
-            Some(
-                MemView {
-                    memory: self.memory.insert(pa, FrameContents {
-                        contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
-                        size: self.memory[pa].size,
-                        range: self.memory[pa].range,
-                    }),
-                    ..self
-                },
-            )
-        } else {
-            None
+    pub open spec fn write(self, va: usize, x: u8) -> Self {
+        let (pa, off) = self.addr_transl(va).unwrap();
+        MemView {
+            memory: self.memory.insert(pa, FrameContents {
+                contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
+                size: self.memory[pa].size,
+                range: self.memory[pa].range,
+            }),
+            ..self
         }
     }
 
     pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        if let Some ((pa1, off1)) = self.addr_transl(va1) {
-            if let Some ((pa2, off2)) = self.addr_transl(va2) {
-                self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
-            } else {
-                false
-            }
-        } else {
-            false
-        }
+        let (pa1, off1) = self.addr_transl(va1).unwrap();
+        let (pa2, off2) = self.addr_transl(va2).unwrap();
+        self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
     }
 
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
@@ -327,7 +314,7 @@ impl VirtPtr {
             mem.memory[mem.addr_transl(self.vaddr).unwrap().0].contents[mem.addr_transl(self.vaddr).unwrap().1 as int] is Init,
             self.is_valid(),
         returns
-            mem.read(self.vaddr).unwrap().value(),
+            mem.read(self.vaddr).value(),
     {
         unimplemented!()
     }
@@ -338,7 +325,7 @@ impl VirtPtr {
             old(mem).addr_transl(self.vaddr) is Some,
             self.is_valid(),
         ensures
-            mem == old(mem).write(self.vaddr, x).unwrap(),
+            mem == old(mem).write(self.vaddr, x),
     {
         unimplemented!()
     }
@@ -366,7 +353,7 @@ impl VirtPtr {
     }
 
     pub open spec fn read_offset_spec(self, mem: MemView, n: usize) -> u8 {
-        mem.read((self.vaddr + n) as usize).unwrap().value()
+        mem.read((self.vaddr + n) as usize).value()
     }
 
     /// Unlike `add`, we just create a temporary pointer value and read that
@@ -386,7 +373,7 @@ impl VirtPtr {
     }
 
     pub open spec fn write_offset_spec(self, mem: MemView, n: usize, x: u8) -> MemView {
-        mem.write((self.vaddr + n) as usize, x).unwrap()
+        mem.write((self.vaddr + n) as usize, x)
     }
 
     pub fn write_offset(&self, Tracked(mem): Tracked<&mut MemView>, n: usize, x: u8)
@@ -523,6 +510,143 @@ impl VirtPtr {
         };
 
         (left, right)
+    }
+}
+
+impl GlobalMemView {
+    pub open spec fn is_mapped(self, pa: usize) -> bool {
+        exists|m: Mapping| self.tlb_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+    }
+
+    pub open spec fn all_pas_accounted_for(self) -> bool {
+        forall|pa: Paddr|
+            0 <= pa < MAX_PADDR() ==>
+            self.is_mapped(pa) || self.unmapped_pas.contains(pa)
+    }
+
+    pub open spec fn pas_uniquely_mapped(self) -> bool {
+        forall|m1: Mapping, m2: Mapping|
+            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2 ==>
+            m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
+    }
+
+    pub open spec fn unmapped_correct(self) -> bool {
+        forall|pa: Paddr|
+            self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
+    }
+
+    pub open spec fn take_view_spec(self, vaddr: usize, len: usize) -> (Self, MemView) {
+        let range_end = vaddr + len;
+
+        let leave_mappings = self.tlb_mappings.filter(
+            |m: Mapping| m.va_range.end <= vaddr || m.va_range.start > range_end
+        );
+
+        let take_mappings = self.tlb_mappings.filter(
+            |m: Mapping| m.va_range.start < range_end && m.va_range.end > vaddr
+        );
+
+        let leave_pas = Set::new(
+            |pa: usize|
+                exists|m: Mapping| leave_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+        );
+        let take_pas = Set::new(
+            |pa: usize|
+                exists|m: Mapping| take_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
+        );
+
+        (
+            GlobalMemView {
+                tlb_mappings: leave_mappings,
+                memory: self.memory.restrict(leave_pas),
+                ..self
+            },
+            MemView { mappings: take_mappings, memory: self.memory.restrict(take_pas) },
+        )
+    }
+
+    pub axiom fn take_view(&mut self, vaddr: usize, len: usize) -> (view: MemView)
+        ensures
+            self == old(self).take_view_spec(vaddr, len).0,
+            view == old(self).take_view_spec(vaddr, len).1;
+
+    pub open spec fn return_view_spec(self, view: MemView) -> Self {
+        GlobalMemView {
+            tlb_mappings: self.tlb_mappings.union(view.mappings),
+            memory: self.memory.union_prefer_right(view.memory),
+            ..self
+        }
+    }
+
+    pub axiom fn return_view(&mut self, view: MemView)
+        ensures
+            self == old(self).return_view_spec(view);
+
+    pub open spec fn tlb_flush_vaddr_spec(self, vaddr: Vaddr) -> Self {
+        let tlb_mappings = self.tlb_mappings.filter(
+            |m: Mapping| m.va_range.end <= vaddr || vaddr < m.va_range.start
+        );
+        GlobalMemView {
+            tlb_mappings,
+            ..self
+        }
+    }
+
+    pub axiom fn tlb_flush_vaddr(&mut self, vaddr: Vaddr)
+        requires
+            old(self).inv()
+        ensures
+            self == old(self).tlb_flush_vaddr_spec(vaddr),
+            self.inv();
+
+    pub open spec fn pt_map_spec(self, m: Mapping) -> Self {
+        let pt_mappings = self.pt_mappings.insert(m);
+        let unmapped_pas = self.unmapped_pas.difference(
+            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
+        );
+        GlobalMemView {
+            pt_mappings,
+            unmapped_pas,
+            ..self
+        }
+    }
+
+    pub axiom fn pt_map(&mut self, m: Mapping)
+        requires
+            forall|pa: Paddr|
+                m.pa_range.start <= pa < m.pa_range.end ==>
+                old(self).unmapped_pas.contains(pa),
+            old(self).inv()
+        ensures
+            self == old(self).pt_map_spec(m);
+
+    pub open spec fn pt_unmap_spec(self, m: Mapping) -> Self {
+        let pt_mappings = self.pt_mappings.remove(m);
+        let unmapped_pas = self.unmapped_pas.union(
+            Set::new(|pa: usize| m.pa_range.start <= pa < m.pa_range.end)
+        );
+        GlobalMemView {
+            pt_mappings,
+            unmapped_pas,
+            ..self
+        }
+    }
+
+    pub axiom fn pt_unmap(&mut self, m: Mapping)
+        requires
+            old(self).pt_mappings.contains(m),
+            old(self).inv()
+        ensures
+            self == old(self).pt_unmap_spec(m),
+            self.inv();
+}
+
+impl Inv for GlobalMemView {
+
+    open spec fn inv(self) -> bool {
+        &&& self.all_pas_accounted_for()
+        &&& self.pas_uniquely_mapped()
+        &&& self.unmapped_correct()
     }
 }
 
