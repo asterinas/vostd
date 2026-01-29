@@ -155,19 +155,25 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     #[verus_spec(
         with Tracked(owner) : Tracked<&mut EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
-            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>,
-            Tracked(slot_own) : Tracked<&MetaSlotOwner>
+            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>
     )]
     pub fn protect(&mut self, op: impl FnOnce(PageProperty) -> PageProperty)
         requires
             old(owner).inv(),
             old(self).wf(*old(owner)),
-            old(owner).is_node(),
             old(parent_owner).inv(),
             old(self).node.addr() == old(guard_perm).addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
             op.requires((old(self).pte.prop(),)),
+        ensures
+            owner.inv(),
+            self.wf(*owner),
+            parent_owner.inv(),
+            parent_owner.relate_guard_perm(*guard_perm),
+            guard_perm.addr() == old(guard_perm).addr(),
     {
+        let ghost pte0 = self.pte;
+
         if !self.pte.is_present() {
             return ;
         }
@@ -179,6 +185,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         }*/
 
         self.pte.set_prop(new_prop);
+
+        assert(self.pte.paddr() == pte0.paddr()) by { admit() };
 
         let mut guard = self.node.take(Tracked(guard_perm));
 

@@ -907,6 +907,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.inv(),
             old(regions).inv(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).in_locked_range(),
+            !old(owner).popped_too_high,
     {
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -940,6 +942,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.inv(),
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
+            !old(owner).popped_too_high,
             len % PAGE_SIZE() == 0,
             old(self).0.va + len <= old(self).0.barrier_va.end,
         ensures
@@ -1028,6 +1031,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(regions).inv(),
             old(self).pt_cursor.inner.inv(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).in_locked_range(),
+            !old(owner).popped_too_high,
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -1053,6 +1058,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.inv(),
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
+            !old(owner).popped_too_high,
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
@@ -1077,7 +1083,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.wf(*old(owner)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(self).pt_cursor.inner.inv(),
-
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -1133,6 +1138,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va % page_size(level) == 0,
             old(self).pt_cursor.inner.va + page_size(level) < old(self).pt_cursor.inner.barrier_va.end,
             old(cursor_owner).children_not_locked(*old(guards)),
+            !old(cursor_owner).popped_too_high,
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -1248,11 +1254,20 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Panics if the length is longer than the remaining range of the cursor.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
-            Tracked(guard_perm): Tracked<&mut vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>>,
-            Tracked(regions): Tracked<&MetaRegionOwners>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires
-            regions.inv(),
+            old(regions).inv(),
+            old(owner).inv(),
             !old(owner).cur_entry_owner().is_absent(),
+            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(self).pt_cursor.inner.inv(),
+            old(owner).in_locked_range(),
+            !old(owner).popped_too_high,
+            old(owner).children_not_locked(*old(guards)),
+            len % PAGE_SIZE() == 0,
+            old(self).pt_cursor.inner.level < NR_LEVELS(),
+            old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
     )]
     pub fn protect_next(
@@ -1262,7 +1277,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ) -> Option<Range<Vaddr>> {
         // SAFETY: It is safe to protect memory in the userspace.
         unsafe {
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pt_cursor.protect_next(len, op)
         }
     }

@@ -82,6 +82,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Self {
             continuations: new_continuations,
             level: new_level,
+            popped_too_high: false,
             ..self
         }
     }
@@ -127,6 +128,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         assert(self.continuations == self0.continuations.insert(self.level - 1, cont).insert(self.level - 2, child));
 
+        self.popped_too_high = false;
+
         self.level = (self.level - 1) as u8;
     }
 
@@ -138,9 +141,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let new_continuations = self.continuations.insert(self.level as int, new_cont);
         let new_continuations = new_continuations.remove(self.level - 1);
         let new_level = (self.level + 1) as u8;
+        let popped_too_high = if new_level >= self.guard_level { true } else { false };
         (Self {
             continuations: new_continuations,
             level: new_level,
+            popped_too_high: popped_too_high,
             ..self
         }, guard_perm)
     }
@@ -149,6 +154,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS(),
+            self.in_locked_range(),
         ensures
             self.pop_level_owner_spec().0.inv()
     { }
@@ -174,10 +180,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.level = (self.level + 1) as u8;
 
+        if self.level >= self.guard_level {
+            self.popped_too_high = true;
+        }
+
         guard_perm
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self
+        recommends
+            self.inv(),
+            self.level < NR_LEVELS(),
+            self.in_locked_range(),
         decreases NR_LEVELS() - self.level when self.level <= NR_LEVELS()
     {
         if self.index() + 1 < NR_ENTRIES() {
@@ -185,8 +199,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner_spec().0.move_forward_owner_spec()
         } else {
-            // We are at the last entry of the last level, so we stay at the same index
-            self
+            // Should never happen
+            Self {
+                popped_too_high: false,
+                ..self
+            }
         }
     }
 
@@ -205,6 +222,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner_spec().0.move_forward_increases_va();
         } else {
             admit();
+        }
+    }
+
+    pub proof fn move_forward_not_popped_too_high(self)
+        requires
+            self.inv(),
+            self.level <= NR_LEVELS(),
+            self.in_locked_range(),
+        ensures
+            !self.move_forward_owner_spec().popped_too_high,
+       decreases NR_LEVELS() - self.level,
+    {
+        if self.level < NR_LEVELS() {
+            self.pop_level_owner_spec().0.move_forward_not_popped_too_high();
         }
     }
 

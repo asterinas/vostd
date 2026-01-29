@@ -212,12 +212,18 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub va: AbstractVaddr,
     pub guard_level: PagingLevel,
     pub prefix: AbstractVaddr,
+    pub popped_too_high: bool,
 }
 
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.va.inv()
         &&& 1 <= self.level <= NR_LEVELS()
+        &&& self.guard_level <= NR_LEVELS()
+        // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
+        // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
+        &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
+        &&& !self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range()
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int| self.level <= i < NR_LEVELS() ==> {
             (#[trigger] self.continuations[i]).all_but_index_some()
@@ -256,6 +262,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
+
     pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
         forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> {
             self.continuations[i].children_not_locked(guards)
@@ -273,6 +280,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 offset: self.va.offset,
                 index: self.va.index.insert(self.level - 1, self.continuations[self.level - 1].inc_index().idx as int)
             },
+            popped_too_high: false,
             ..self
         }
     }
@@ -281,11 +289,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES(),
+            old(self).in_locked_range(),
         ensures
             self.inv(),
             self == old(self).inc_index(),
     {
+        self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
+        if self.level >= self.guard_level {
+            let ghost size = self.locked_range().end - self.locked_range().start;
+            let ghost new_va = AbstractVaddr {
+                offset: self.va.offset,
+                index: self.va.index.insert(self.level - 1, cont.idx + 1)
+            };
+            assert(new_va.to_vaddr() == self.va.to_vaddr() + size) by { admit() };
+        }
+
         cont.do_inc_index();
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
@@ -349,6 +368,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn in_locked_range(self) -> bool {
         self.locked_range().start <= self.va.to_vaddr() < self.locked_range().end
+    }
+
+    pub open spec fn above_locked_range(self) -> bool {
+        self.va.to_vaddr() >= self.locked_range().end
     }
 
     pub proof fn prefix_in_locked_range(self)
@@ -424,6 +447,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> OwnerOf for Cursor<'rcu, C, A> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& owner.va.reflect(self.va)
         &&& self.level == owner.level
+        &&& owner.guard_level == self.guard_level
 //        &&& owner.index() == self.va % page_size(self.level)
         &&& self.level <= 4 ==> {
             &&& self.path[3] is Some
