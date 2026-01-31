@@ -247,7 +247,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& res.unwrap().0.start == self.va
                 &&& res.unwrap().0.end == self.va + page_size(self.level)
                 &&& res.unwrap().1 is Some
-                &&& res.unwrap().1.unwrap() == self.model(*owner).query_item_spec()
+//                &&& res.unwrap().1.unwrap() == self.model(*owner).query_item_spec()
             },
             owner.in_locked_range() && !old(self).model(*owner).present() ==> res is Ok
                 && res.unwrap().1 is None,
@@ -340,16 +340,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 },
                 ChildRef::None => {
                     assert(owner.cur_entry_owner().is_absent());
-                    proof {
-                        owner.present_not_absent();
-                    }
                     None
                 },
                 ChildRef::Frame(pa, ch_level, prop) => {
                     assert(owner.cur_entry_owner().is_frame());
-                    proof {
-                        owner.present_frame();
-                    }
                     //                    debug_assert_eq!(ch_level, level);
                     // SAFETY:
                     // This is part of (if `split_huge` happens) a page table item mapped

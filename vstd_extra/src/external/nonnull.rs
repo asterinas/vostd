@@ -1,5 +1,5 @@
-use std::marker::PointeeSized;
-use std::ptr::NonNull;
+use core::marker::PointeeSized;
+use core::ptr::NonNull;
 use vstd::prelude::*;
 use vstd::raw_ptr::*;
 

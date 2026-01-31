@@ -1,3 +1,4 @@
+//! Extra properties of [`vstd::map::Map`](https://verus-lang.github.io/verus/verusdoc/vstd/map/struct.Map.html).
 use vstd::prelude::*;
 use vstd::{map::*, set::*};
 
@@ -156,7 +157,7 @@ pub proof fn lemma_insert_value_filter_true<K, V>(m: Map<K, V>, f: spec_fn(V) ->
 /// If the predicate function `f` is false for the newly inserted value `v`,
 /// then inserting `(k,v)` into the map `m` and then applying the value filter
 /// is equivalent to applying the value filter to the original map `m` and
-/// then removing `k` from the result (if 'k' exists in 'm') or leaving it unchanged
+/// then removing `k` from the result (if `k` exists in `m`) or leaving it unchanged
 /// (if it doesn't).
 pub proof fn lemma_insert_value_filter_false<K, V>(m: Map<K, V>, f: spec_fn(V) -> bool, k: K, v: V)
     requires
@@ -223,7 +224,7 @@ pub broadcast proof fn lemma_insert_value_filter_different_len_contains<K, V>(
         },
 {
     lemma_value_filter_finite(m, f);
-    if (f(v)) {
+    if f(v) {
         lemma_insert_value_filter_true(m, f, k, v);
         lemma_map_insert_len(m, k, v);
     } else {

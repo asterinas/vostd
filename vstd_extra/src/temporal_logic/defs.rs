@@ -111,12 +111,12 @@ impl<T> TempPred<T> {
     }
 
     // We specify all infix operators for temporal logic as TempPred methods to aid readability
-    // `/\` for temporal predicates in TLA+ (i.e., `&&` in Verus).
+    /// `/\` for temporal predicates in TLA+ (i.e., `&&` in Verus).
     pub open spec fn and(self, other: Self) -> Self {
         TempPred::new(|ex: Execution<T>| self.satisfied_by(ex) && other.satisfied_by(ex))
     }
 
-    // `\/` for temporal predicates in TLA+ (i.e., `||` in Verus).
+    /// `\/` for temporal predicates in TLA+ (i.e., `||` in Verus).
     pub open spec fn or(self, other: Self) -> Self {
         TempPred::new(|ex: Execution<T>| self.satisfied_by(ex) || other.satisfied_by(ex))
     }
@@ -136,7 +136,7 @@ impl<T> TempPred<T> {
         always(self.implies(eventually(other)))
     }
 
-    // `|=` for temporal predicates in TLA+.
+    /// `|=` for temporal predicates in TLA+.
     pub open spec fn entails(self, other: Self) -> bool {
         valid(self.implies(other))
     }
@@ -176,17 +176,17 @@ pub open spec fn later<T>(temp_pred: TempPred<T>) -> TempPred<T> {
     TempPred::new(|ex: Execution<T>| temp_pred.satisfied_by(ex.suffix(1)))
 }
 
-// `~` for temporal predicates in TLA+ (i.e., `!` in Verus).
+/// `~` for temporal predicates in TLA+ (i.e., `!` in Verus).
 pub open spec fn not<T>(temp_pred: TempPred<T>) -> TempPred<T> {
     TempPred::new(|ex: Execution<T>| !temp_pred.satisfied_by(ex))
 }
 
-// `\A` for temporal predicates in TLA+ (i.e., `forall` in Verus).
+/// `\A` for temporal predicates in TLA+ (i.e., `forall` in Verus).
 pub open spec fn tla_forall<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>) -> TempPred<T> {
     TempPred::new(|ex: Execution<T>| forall|a: A| #[trigger] a_to_temp_pred(a).satisfied_by(ex))
 }
 
-// `\E` for temporal predicates in TLA+ (i.e., `exists` in Verus).
+/// `\E` for temporal predicates in TLA+ (i.e., `exists` in Verus).
 pub open spec fn tla_exists<T, A>(a_to_temp_pred: spec_fn(A) -> TempPred<T>) -> TempPred<T> {
     TempPred::new(|ex: Execution<T>| exists|a: A| #[trigger] a_to_temp_pred(a).satisfied_by(ex))
 }

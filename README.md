@@ -64,6 +64,24 @@ cargo dv clean --targets aster_common
 
 You can also run `cargo dv clean` to clean all artifacts at once.
 
+#### Documentation
+
+We provide comprehensive API-level documentation that describes the verified APIs along with their auxiliary lemmas. To generate the documentation, run:
+
+```
+cargo dv doc --target ostd
+```
+
+The generated documentation can be found at `doc/index.html`.
+
+If you are interested in the precise Verus definitions, you can run:
+
+```
+cargo dv doc --target ostd --verus-conds
+```
+
+This will additionally include the Verus specifications and the pre- and post-conditions for each function.
+
 #### IDE Support
 
 For VSCode users, the [`verus-analyzer`](https://marketplace.visualstudio.com/items?itemName=verus-lang.verus-analyzer) extension is available in the Marketplace.

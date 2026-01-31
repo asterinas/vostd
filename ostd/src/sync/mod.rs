@@ -4,7 +4,7 @@ mod guard;
 //mod mutex;
 mod rcu;
 //mod rwarc;
-//mod rwlock;
+mod rwlock;
 //mod rwmutex;
 mod spin;
 mod wait;

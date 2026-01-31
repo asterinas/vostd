@@ -88,8 +88,20 @@ macro_rules! call_lemma_low_bits_mask_is_mod {
 macro_rules! impl_align_ext {
     ($( $uint_type:ty ),+,) => {
         $(
+                /// # Verified Properties
+                /// ## Safety
+                /// The implementation is written in safe Rust and there is no undefined behavior.
+                /// ## Functional correctness
+                /// The implementation meets the specification given in the trait `AlignExt`.
             #[verus_verify]
             impl AlignExt for $uint_type {
+                /// ## Preconditions
+                /// - `align` is a power of two.
+                /// - `align >= 2`.
+                /// - `self + (align - 1)` does not overflow.
+                /// ## Postconditions
+                /// - The function will not panic.
+                /// - The return value is the smallest number that is greater than or equal to `self` and is a multiple of `align`.
                 #[inline]
                 #[verus_spec(ret =>
                     requires
@@ -160,6 +172,13 @@ macro_rules! impl_align_ext {
                         ret == nat_align_down(self as nat, align as nat),
                         forall |n: nat|  !(n<=self && #[trigger] (n % align as nat) == 0) || (ret >= n),
                 )]
+                
+                /// ## Preconditions
+                /// - `align` is a power of two.
+                /// - `align >= 2`.
+                /// ## Postconditions
+                /// - The function will not panic.
+                /// - The return value is the greatest number that is smaller than or equal to `self` and is a multiple of `align`.
                 fn align_down(self, align: Self) -> Self {
                     //assert!(align.is_power_of_two() && align >= 2);
                     proof!{

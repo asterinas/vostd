@@ -1,22 +1,37 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
+use vstd::cell::{self, PCell};
+use vstd::tokens::frac::Frac;
+use vstd::prelude::*;
+use vstd_extra::prelude::*;
+use vstd_extra::resource::*;
+
 use alloc::sync::Arc;
+use core::char::MAX;
 use core::{
     cell::UnsafeCell,
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::atomic::{
+    /* sync::atomic::{
         AtomicUsize,
         Ordering::{AcqRel, Acquire, Relaxed, Release},
-    },
+    },*/
 };
 
 use super::{
-    guard::{GuardTransfer, SpinGuardian},
-    PreemptDisabled,
+    guard::{/*GuardTransfer,*/ SpinGuardian},
+    //PreemptDisabled,
 };
-use crate::task::atomic_mode::AsAtomicModeGuard;
+//use crate::task::atomic_mode::AsAtomicModeGuard;
 
+verus!{
+
+broadcast use group_deref_spec;
+type RwFrac<T> = Frac<cell::PointsTo<T>,MAX_READER_U64>;
+const MAX_READER_U64: u64 = MAX_READER as u64;
+
+struct_with_invariants! {
 /// Spin-based Read-write Lock
 ///
 /// # Overview
@@ -95,15 +110,31 @@ use crate::task::atomic_mode::AsAtomicModeGuard;
 /// ```
 ///
 /// [`SpinLock`]: super::SpinLock
-pub struct RwLock<T: ?Sized, Guard = PreemptDisabled> {
+pub struct RwLock<T/* : ?Sized*/, Guard /* = PreemptDisabled*/> {
     guard: PhantomData<Guard>,
     /// The internal representation of the lock state is as follows:
     /// - **Bit 63:** Writer lock.
     /// - **Bit 62:** Upgradeable reader lock.
     /// - **Bit 61:** Indicates if an upgradeable reader is being upgraded.
     /// - **Bits 60-0:** Reader lock count.
-    lock: AtomicUsize,
-    val: UnsafeCell<T>,
+    lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
+    val: PCell<T>,
+    //val: UnsafeCell<T>,
+}
+
+/// This invariant holds at any time, i.e. not violated during any method execution.
+closed spec fn wf(self) -> bool {
+    invariant on lock with (val,guard) is (v:usize, g:Option<RwFrac<T>>) {
+        match g {
+            None => v == WRITER,
+            Some(perm) => {
+                &&& perm.resource().id() == val.id()
+                &&& perm.resource().is_init()
+            }
+        }
+    }
+}
+
 }
 
 const READER: usize = 1;
@@ -111,7 +142,9 @@ const WRITER: usize = 1 << (usize::BITS - 1);
 const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 const MAX_READER: usize = 1 << (usize::BITS - 4);
+}
 
+/* 
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
     pub const fn new(val: T) -> Self {
@@ -383,16 +416,17 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
 unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
     for RwLockUpgradeableGuard_<T, R, G>
 {
-}
+}*/
 
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct RwLockReadGuard_<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
+pub struct RwLockReadGuard_<T/*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: R,
 }
 
+/* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
     for RwLockReadGuard_<T, R, G>
 {
@@ -400,6 +434,7 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtom
         self.guard.as_atomic_mode_guard()
     }
 }
+*/
 
 /// A guard that provides shared read access to the data protected by a [`RwLock`].
 pub type RwLockReadGuard<'a, T, G> = RwLockReadGuard_<T, &'a RwLock<T, G>, G>;
@@ -407,6 +442,7 @@ pub type RwLockReadGuard<'a, T, G> = RwLockReadGuard_<T, &'a RwLock<T, G>, G>;
 /// A guard that provides shared read access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockReadGuard<T, G> = RwLockReadGuard_<T, Arc<RwLock<T, G>>, G>;
 
+/*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockReadGuard_<T, R, G>
 {
@@ -431,27 +467,28 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
+}*/
 
 /// A guard that provides mutable data access.
-pub struct RwLockWriteGuard_<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
+pub struct RwLockWriteGuard_<T/*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> {
     guard: G::Guard,
     inner: R,
 }
-
+/* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
     for RwLockWriteGuard_<T, R, G>
 {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
-}
+}*/
 
 /// A guard that provides exclusive write access to the data protected by a [`RwLock`].
 pub type RwLockWriteGuard<'a, T, G> = RwLockWriteGuard_<T, &'a RwLock<T, G>, G>;
 /// A guard that provides exclusive write access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockWriteGuard<T, G> = RwLockWriteGuard_<T, Arc<RwLock<T, G>>, G>;
 
+/*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockWriteGuard_<T, R, G>
 {
@@ -462,6 +499,7 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     }
 }
 
+/* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     RwLockWriteGuard_<T, R, G>
 {
@@ -509,7 +547,6 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     fn drop(&mut self) {
         self.inner.lock.fetch_and(!WRITER, Release);
     }
-}
 
 impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
     for RwLockWriteGuard_<T, R, G>
@@ -518,31 +555,33 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
         fmt::Debug::fmt(&**self, f)
     }
 }
-
+*/
+*/
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 pub struct RwLockUpgradeableGuard_<
-    T: ?Sized,
+    T/*: ?Sized*/,
     R: Deref<Target = RwLock<T, G>> + Clone,
     G: SpinGuardian,
 > {
     guard: G::Guard,
     inner: R,
 }
-
+/* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
     for RwLockUpgradeableGuard_<T, R, G>
 {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
-}
+}*/
 
 /// A upgradable guard that provides read access to the data protected by a [`RwLock`].
 pub type RwLockUpgradeableGuard<'a, T, G> = RwLockUpgradeableGuard_<T, &'a RwLock<T, G>, G>;
 /// A upgradable guard that provides read access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockUpgradeableGuard<T, G> = RwLockUpgradeableGuard_<T, Arc<RwLock<T, G>>, G>;
-
+/*
+/* 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     RwLockUpgradeableGuard_<T, R, G>
 {
@@ -579,7 +618,7 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             Err(self)
         }
     }
-}
+}*/
 
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockUpgradeableGuard_<T, R, G>
@@ -606,3 +645,4 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
         fmt::Debug::fmt(&**self, f)
     }
 }
+*/

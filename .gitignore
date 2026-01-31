@@ -40,3 +40,6 @@ test-ledger
 *.log.json.gz
 *.txt
 *.log
+
+#doc
+doc

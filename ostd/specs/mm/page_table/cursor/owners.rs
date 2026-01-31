@@ -9,6 +9,7 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::page_prop::PageProperty;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::owners::*;
@@ -16,6 +17,7 @@ use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::Guards;
+use crate::specs::mm::page_table::Mapping;
 
 verus! {
 
@@ -384,46 +386,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
 pub tracked struct CursorView<C: PageTableConfig> {
     pub cur_va: Vaddr,
-    pub level: PagingLevel,
-    pub va_range: Range<Vaddr>,
-    pub fore_higher: Seq<EntryView<C>>,
-    pub fore_local: Seq<EntryView<C>>,
-    pub rear_local: Seq<EntryView<C>>,
-    pub rear_higher: Seq<EntryView<C>>,
-}
-
-impl<C: PageTableConfig> CursorView<C> {
-    pub open spec fn descendants(self) -> Seq<EntryView<C>> {
-        self.fore_local.add(self.rear_local)
-    }
+    pub mappings: Set<Mapping>,
+    pub phantom: PhantomData<C>,
 }
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& forall |view| #[trigger] self.descendants().contains(view) ==>
-            self.va_range.start <= view->leaf.map_va < self.va_range.end
-        &&& forall |view| #[trigger] self.fore_higher.contains(view) ==>
-            view->leaf.map_va < self.va_range.start
-        &&& forall |view| #[trigger] self.rear_higher.contains(view) ==>
-            self.va_range.end <= view->leaf.map_va
+        true
     }
 }
 
 impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
     type V = CursorView<C>;
 
-    open spec fn view(&self) -> Self::V {
+    uninterp spec fn view(&self) -> Self::V;
+    /* {
         CursorView {
             cur_va: self.cur_va(),
-            level: self.level,
-            va_range: Range { start: self.continuations[self.level - 1].base_va,
-                end: self.continuations[self.level - 1].bound_va },
-            fore_higher: self.prev_views_rec(NR_LEVELS() as int),
-            fore_local: self.continuations[self.level - 1].prev_views(),
-            rear_local: self.continuations[self.level - 1].next_views(),
-            rear_higher: self.next_views_rec(NR_LEVELS() as int),
+            mappings: self.mappings,
         }
-    }
+    }*/
 }
 
 

@@ -1,3 +1,4 @@
+//! Properties of pure mathematical spec functions ([`spec_fn`](https://verus-lang.github.io/verus/guide/spec_functions.html)).
 use vstd::prelude::*;
 use vstd::relations::*;
 

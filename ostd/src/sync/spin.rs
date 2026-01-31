@@ -35,7 +35,27 @@ verus! {
 /// The guard behavior can be temporarily upgraded from [`PreemptDisabled`] to
 /// [`LocalIrqDisabled`] using the [`disable_irq`] method.
 ///
+/// # Verified Properties
+/// ## Verification Design
+/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
+/// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data. 
+/// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
+/// 
+/// For curious readers, details of the permission can be found in [`vstd::cell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.PointsTo.html).
+/// 
 /// [`disable_irq`]: Self::disable_irq
+/// [`lock`]: Self::lock
+/// [`try_lock`]: Self::try_lock
+/// 
+/// ## Invariant
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`, 
+/// the permission is held by the spin lock and can be acquired by a user.
+/// 
+/// ## Safety
+/// There are no data races.
+/// 
+/// ## Functional Correctness
+/// - At most one user can hold the lock at the same time.
 #[repr(transparent)]
 #[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
@@ -47,9 +67,8 @@ pub struct SpinLock<T, G> {
 }
 
 verus! {
-struct_with_invariants! {
 
-#[verus_verify]
+struct_with_invariants! {
 struct SpinLockInner<T> {
     lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
     val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
@@ -66,9 +85,10 @@ closed spec fn wf(self) -> bool {
 }
 }
 
-impl<T> Inv for SpinLockInner<T>
+impl<T> SpinLockInner<T>
 {
-    closed spec fn inv(self) -> bool{
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool{
         self.wf()
     }
 }
@@ -76,8 +96,17 @@ impl<T> Inv for SpinLockInner<T>
 #[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
-    #[verus_verify]
-    pub const fn new(val: T) -> Self {
+    /// 
+    /// # Verified Properties
+    /// ## Safety
+    /// This function is written in safe Rust and there is no undefined behavior.
+    /// ## Preconditions
+    /// None.
+    /// ## Postconditions
+    /// - The function will not panic.
+    /// - The created spin lock satisfies the invariant.
+    pub const fn new(val: T) -> Self 
+    {
         let (val, Tracked(perm)) = PCell::new(val);
         let lock_inner = SpinLockInner {
             lock: AtomicBool::new(Ghost(val),false,Tracked(Some(perm))),
@@ -91,18 +120,16 @@ impl<T, G> SpinLock<T, G> {
     }
 }
 
-impl<T,G> Inv for SpinLock<T,G>
-{
-    closed spec fn inv(self) -> bool{
-        self.inner.inv()
-    }
-}
-
 verus!{}
 impl<T,G> SpinLock<T,G>
 {
     pub closed spec fn cell_id(self) -> cell::CellId {
         self.inner.val.id()
+    }
+
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool{
+        self.inner.type_inv()
     }
 }
 }
@@ -127,19 +154,15 @@ verus! {
 impl<T, G: SpinGuardian> SpinLock<T, G> {
 
     /// Acquires the spin lock.
-    #[verus_spec(ret =>
-        requires
-            self.inv(),
-        ensures
-            ret.inv()
-            )]
+    #[verus_spec]
     pub fn lock(&self) -> SpinLockGuard<T, G> {
         // Notice the guard must be created before acquiring the lock.
+        proof!{ use_type_invariant(self);}
         proof_decl!{
             let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
-        proof_with!{ => Tracked(perm)}
+        proof_with! {=> Tracked(perm)}
         self.acquire_lock();
         SpinLockGuard_ {
             lock: self,
@@ -154,18 +177,14 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// for compile-time checked lifetimes of the lock guard.
     ///
     /// [`lock`]: Self::lock
-    #[verus_spec(ret =>
-        requires
-            self.inv(),
-        ensures
-            //ret.inv() //TODO: This one is flaky, do not no why
-            )]
+    #[verus_spec]
     pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
+        proof!{ use_type_invariant(self);}
         proof_decl!{
             let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
-        proof_with!{ => Tracked(perm)}
+        proof_with! {=> Tracked(perm)}
         self.acquire_lock();
         proof!{
             assert(perm.id() == (*self.clone().deref_spec()).cell_id());
@@ -178,14 +197,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 
-    #[verus_spec(ret =>
-        requires
-            self.inv(),
-        ensures
-            ret is Some ==> {
-                ret->Some_0.inv()
-            }
-            )]
+    #[verus_spec]
     /// Tries acquiring the spin lock immedidately.
     pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
         let inner_guard = G::guard();
@@ -216,8 +228,6 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     #[verus_spec(ret =>
         with
             -> perm: Tracked<cell::PointsTo<T>>,
-        requires
-            self.inv(),
         ensures
             perm@.is_init() && perm@.id() == self.inner.val.id(),
             )]
@@ -226,8 +236,9 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         proof_decl!{
             let tracked mut perm: Option<cell::PointsTo<T>> = None;
         }
+        proof!{ use_type_invariant(self);}
         #[verus_spec(
-            invariant self.inv(),
+            invariant self.type_inv(),
         )]
         while !#[verus_spec(with => Tracked(perm))]self.try_acquire_lock() {
             core::hint::spin_loop();
@@ -244,8 +255,6 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     #[verus_spec(ret =>
         with
             -> perm: Tracked<Option<cell::PointsTo<T>>>,
-        requires
-            self.inv(),
         ensures
             ret && perm@ is Some && perm@ -> Some_0.is_init() && perm@ -> Some_0.id() == self.inner.val.id() || !ret && perm@ is None,
             )]
@@ -257,6 +266,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         proof_decl!{
             let tracked mut perm: Option<cell::PointsTo<T>> = None;
         }
+        proof!{ use_type_invariant(self);}
         proof_with!{ |= Tracked(perm)}
         atomic_with_ghost!  {
             self.inner.lock => compare_exchange(false, true);
@@ -267,6 +277,31 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
                 }
             }
         }.is_ok()
+    }
+
+    /// An example to show the doc generation with `#[verus_spec]` ghost parameters.
+    /// It will be removed after the doc generation function is merged.
+    #[verus_spec(ret =>
+        with
+            ghost_in1: Tracked<int>,
+            ghost_in2: Tracked<int>,
+            ->
+            ghost_out: Ghost<(int,int)>,
+        requires
+            ghost_in1@ >= 0,
+        ensures
+            ghost_out@.0 == ghost_in1@,
+    )]
+    pub fn spec_with_example(&self) {
+        proof_decl!{
+            let ghost mut out: (int,int) = (0,0);
+        }
+        proof!{
+            out.0 = ghost_in1@;
+            out.1 = ghost_in2@;
+        }
+        proof_with!{|= Ghost(out)}
+        ()
     }
 
     /*
@@ -299,17 +334,17 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-//pub struct SpinLockGuard_<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
-pub struct SpinLockGuard_<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+pub struct SpinLockGuard_<T/*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
     v_perm: Tracked<cell::PointsTo<T>>, //Ghost permission for verification
 }
 
 verus! {
-impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Inv for SpinLockGuard_<T, R, G>
+impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> SpinLockGuard_<T, R, G>
 {
-   closed spec fn inv(self) -> bool{
+    #[verifier::type_invariant]
+    spec fn type_inv(self) -> bool{
         self.lock.deref_spec().cell_id() == self.v_perm@.id() && self.v_perm@.is_init()
     }
 }
@@ -355,8 +390,9 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian>
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
+}*/
 
+/* 
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> !Send
     for SpinLockGuard_<T, R, G>
 {

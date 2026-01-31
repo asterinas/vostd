@@ -294,7 +294,7 @@ impl<'a, T> ArcRef<'a, T> {
 impl<T> Deref for ArcRef<'_, T> {
     type Target = Arc<T>;
 
-    #[verus_verify]
+    #[verus_spec]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }

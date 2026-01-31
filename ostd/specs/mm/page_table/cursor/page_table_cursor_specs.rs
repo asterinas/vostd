@@ -1,5 +1,7 @@
 use vstd::prelude::*;
 
+use vstd::set_lib::*;
+
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
 
@@ -9,6 +11,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
+use crate::mm::page_prop::PageProperty;
 
 use core::ops::Range;
 
@@ -30,149 +33,79 @@ impl<C: PageTableConfig> CursorView<C> {
        remove them in `step`-sized chunks.
     */
 
-    pub uninterp spec fn push_level_spec(self) -> Self;
-    /* {
-        Self {
-            cur_va: self.cur_va,
-            scope: Self::push_size(self.scope),
-            fore: self.fore,
-            rear: self.rear,
-        }
-    }*/
-
-    pub uninterp spec fn pop_level_spec(self) -> Self;
-    /* {
-        Self {
-            cur_va: self.cur_va,
-            va_range: self.va_range
-            scope: Self::pop_size(self.scope),
-            fore: self.fore,
-            rear: self.rear,
-        }
-    }*/
-
-    pub uninterp spec fn pop_to_alignment(va: usize, scope: usize) -> usize;
-
-    pub uninterp spec fn take_until(max_va: int, list: Seq<EntryView<C>>) -> (Seq<EntryView<C>>, Seq<EntryView<C>>);
-
-    pub uninterp spec fn move_forward_spec(self) -> Self;/* {
-        let new_va = self.cur_va + page_size(level);
-        let scope = Self::pop_to_alignment(self.cur_va, self.scope);
-        let (taken, rear) = Self::take_until(va, self.rear_local);
-        Self { cur_va: va as usize, scope: scope, fore_local: self.fore_local.add(taken), rear_local: rear }
-    }*/
-
     pub open spec fn present(self) -> bool {
-        let entry = self.rear_local[0]->leaf;
-        self.cur_va == entry.map_va
+        self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).len() > 0
     }
 
-    pub open spec fn query_item_spec(self) -> C::Item
+    pub open spec fn query_item_spec(self) -> Mapping
         recommends
             self.present(),
     {
-        let entry = self.rear_local[0]->leaf;
-        C::item_from_raw(entry.map_to_pa as usize, entry.level, entry.prop)
+        self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
     }
 
-    pub open spec fn find_next_spec(self, len: usize) -> Option<Vaddr> {
-        if self.rear_local.len() > 0 && self.rear_local[0]->leaf.va_end() < self.cur_va + len {
-            Some(self.rear_local[0]->leaf.map_va as usize)
+    pub open spec fn find_next_impl_spec(self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (Self, Option<Mapping>) {
+        let mappings_in_range = self.mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len);
+
+        if mappings_in_range.len() > 0 {
+            let mapping = mappings_in_range.find_unique_minimal(|m: Mapping, n: Mapping| m.va_range.start < n.va_range.start);
+            let view = CursorView {
+                cur_va: mapping.va_range.end,
+                ..self
+            };
+            (view, Some(mapping))
         } else {
-            None
+            let view = CursorView {
+                cur_va: (self.cur_va + len) as Vaddr,
+                ..self
+            };
+            (view, None)
         }
     }
 
-    pub uninterp spec fn jump(self, va: usize) -> Self;
-
-    /*    #[rustc_allow_incoherent_impl]
-    pub open spec fn cur_entry_spec(self) -> FrameView<C> {
-        let end_va = self.cur_va.
-        let (taken, rear) = Self::take_until(self.cur_va, self.rear[0]
-    }*/
-    pub open spec fn cur_va_range_spec(self) -> Range<Vaddr> {
-        self.cur_va..(self.cur_va + page_size(self.level)) as usize
+    pub open spec fn find_next_spec(self, len: usize) -> (Self, Option<Vaddr>) {
+        let (cursor, mapping) = self.find_next_impl_spec(len, false, false);
+        if mapping is Some {
+            (cursor, Some(mapping.unwrap().va_range.start))
+        } else {
+            (cursor, None)
+        }
     }
 
-    pub open spec fn replace_cur_entry_spec(self, replacement: EntryView<C>) -> (Seq<EntryView<C>>, Self) {
-        let va = self.cur_va + page_size(self.level);
-        let (taken, rear) = Self::take_until(va, self.rear_local);
-        let view = Self {
-            cur_va: va as usize,
-            level: self.level,
-            va_range: self.va_range,
-            fore_higher: self.fore_higher,
-            fore_local: self.fore_local,
-            rear_local: rear,
-            rear_higher: self.rear_higher,
-        };
-        (taken, view)
-    }
-
-    pub uninterp spec fn map_spec(
-        self,
-        item: C::Item,
-    ) -> Self;
-
-    /*
-    pub open spec fn pop_level_spec(self) -> Self {
-        let (tail, popped) = self.path.pop_tail();
-        Self {
-            path: popped,
+    pub open spec fn jump_spec(self, va: usize) -> Self {
+        CursorView {
+            cur_va: va as Vaddr,
             ..self
         }
     }
 
-    pub open spec fn inc_pop_aligned_rec(path: TreePath<CONST_NR_ENTRIES>) -> TreePath<CONST_NR_ENTRIES>
-        decreases path.len(),
-    {
-        if path.len() == 0 {
-            path
-        } else {
-            let n = path.len();
-            let val = path.0[n - 1];
-            let new_path = path.0.update(n - 1, (val + 1) as usize);
-
-            if new_path[n - 1] % NR_ENTRIES() == 0 {
-                let (tail, popped) = path.pop_tail();
-                Self::inc_pop_aligned_rec(popped)
-            } else {
-                path
-            }
-        }
-    }
-
-    pub open spec fn move_forward_spec(self) -> Self {
-        Self {
-            path: Self::inc_pop_aligned_rec(self.path),
+    pub open spec fn map_spec(self, item: Mapping) -> Self {
+        CursorView {
+            cur_va: item.va_range.end,
+            mappings: self.mappings.insert(item),
             ..self
         }
-    }*/
-
-}
-
-impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-
-    pub proof fn present_frame(self)
-        ensures
-            self.cur_entry_owner().is_frame() ==> {
-                &&& self@.present()
-                &&& self.cur_entry_owner().frame.unwrap().mapped_pa == self@.rear_local[0]->leaf.map_to_pa
-                &&& self.cur_entry_owner().frame.unwrap().prop == self@.rear_local[0]->leaf.prop
-                &&& self@.rear_local[0]->leaf.level == self.level
-            },
-    {
-        admit()
     }
 
-    #[rustc_allow_incoherent_impl]
-    pub proof fn present_not_absent(self)
-        ensures
-            self.cur_entry_owner().is_absent() ==> !self@.present(),
-    {
-        admit()
+    pub open spec fn unmap_spec(self, len: usize) -> (Self, usize) {
+        let taken = self.mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len);
+        let remaining = self.mappings.difference(taken);
+        (CursorView {
+            cur_va: (self.cur_va + len) as Vaddr,
+            mappings: remaining,
+            ..self
+        }, taken.len() as usize)
     }
 
+    pub open spec fn protect_spec(self, len: usize, op: impl Fn(PageProperty) -> PageProperty) -> (Self, Option<Range<Vaddr>>) {
+        let (cursor, next) = self.find_next_impl_spec(len, false, true);
+        if next is Some {
+            // TODO: Protect the page
+            (cursor, Some(next.unwrap().va_range))
+        } else {
+            (cursor, None)
+        }
+    }
 }
 
 } // verus!
