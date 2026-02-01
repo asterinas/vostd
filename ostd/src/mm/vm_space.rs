@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 
-use crate::specs::mm::virt_mem::{MemView, VirtPtr};
+use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
@@ -748,7 +748,12 @@ impl<'a> VmSpace<'a> {
             Tracked(owner_r): Tracked<&'a mut VmIoOwner<'a>>,
         requires
             old(self).inv(),
-            old(vm_space_owner).mem_view is Some,
+            old(vm_space_owner).mem_view matches Some(mv) &&
+                forall |va: usize|
+                #![auto]
+                    old(owner_r).range@.start <= va < old(owner_r).range@.end ==>
+                        mv.addr_transl(va) is Some
+            ,
             old(vm_space_owner).inv_with(*old(self)),
             old(vm_space_owner).inv(),
             old(vm_space_owner).active,
@@ -760,21 +765,54 @@ impl<'a> VmSpace<'a> {
             self.shared_reader == old(self).shared_reader,
             self.readers@ == old(self).readers@.push(reader),
             owner_r.inv_with_reader(*reader),
-            // owner_r.mem_view is Some,
+            owner_r.mem_view == Some(VmIoMemView::ReadView(&old(vm_space_owner).mem_view@.unwrap().borrow_at_spec(
+                old(owner_r).range@.start,
+                (old(owner_r).range@.end - old(owner_r).range@.start) as usize,
+            ))),
     )]
     pub fn activate_reader(&mut self, reader: &'a VmReader<'a>) {
         self.readers.push(reader);
 
         proof {
-            let tracked borrowed_mv = match vm_space_owner.mem_view {
-                Some(ref mv) => mv.borrow_at(
-                    owner_r.range@.start,
-                    (owner_r.range@.end - owner_r.range@.start) as usize,
-                ),
+            let tracked mv = match vm_space_owner.mem_view {
+                Some(ref mv) => mv,
                 _ => { proof_from_false() },
             };
+            let tracked borrowed_mv = mv.borrow_at(
+                owner_r.range@.start,
+                (owner_r.range@.end - owner_r.range@.start) as usize,
+            );
 
-            // owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
+            owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
+
+            assert forall|va: usize|
+                #![auto]
+                owner_r.range@.start <= va < owner_r.range@.end implies borrowed_mv.addr_transl(
+                va,
+            ) is Some by {
+                if owner_r.range@.start <= va && va < owner_r.range@.end {
+                    assert(borrowed_mv.mappings =~= mv.mappings.filter(
+                        |m: Mapping|
+                            m.va_range.start < (owner_r.range@.end) && m.va_range.end
+                                > owner_r.range@.start,
+                    ));
+                    let o_borrow_mv = borrowed_mv.mappings.filter(
+                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                    );
+                    let o_mv = mv.mappings.filter(
+                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                    );
+                    assert(mv.addr_transl(va) is Some);
+                    assert(o_mv.len() > 0);
+                    assert(o_borrow_mv.len() > 0) by {
+                        let m = o_mv.choose();
+                        assert(o_mv.contains(m)) by {
+                            vstd::set::axiom_set_choose_len(o_mv);
+                        }
+                        assert(o_borrow_mv.contains(m));
+                    }
+                }
+            }
         }
     }
 
@@ -800,21 +838,17 @@ impl<'a> VmSpace<'a> {
             owner_w.inv_with_writer(*writer),
             // owner_w.mem_view is Some,
     )]
-    pub fn activate_writer(
-        &mut self,
-        writer: &'a VmWriter<'a>,
-    ) {
+    pub fn activate_writer(&mut self, writer: &'a VmWriter<'a>) {
         self.writers.push(writer);
 
         proof {
-            let tracked borrowed_mv = match vm_space_owner.mem_view {
-                Some(ref mv) => mv.take_at(
-                    owner_w.range@.start,
-                    (owner_w.range@.end - owner_w.range@.start) as usize,
-                ),
-                _ => { proof_from_false() },
-            };
-
+            // let tracked borrowed_mv = match vm_space_owner.mem_view {
+            //     Some(ref mv) => mv.take_at(
+            //         owner_w.range@.start,
+            //         (owner_w.range@.end - owner_w.range@.start) as usize,
+            //     ),
+            //     _ => { proof_from_false() },
+            // };
             // owner_w.mem_view = Some(VmIoMemView::WriteView(borrowed_mv));
         }
     }
@@ -1032,7 +1066,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
+    pub pt_cursor: crate::mm::page_table::CursorMut<
+        'a,
+        UserPtConfig,
+        A,
+    >,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
@@ -1172,7 +1210,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             entry_owner.is_frame(),
             entry_owner.frame.unwrap().mapped_pa == map_paddr,
             entry_owner.frame.unwrap().prop == map_prop,
-            map_paddr == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).0,
+            map_paddr == UserPtConfig::item_into_raw_spec(
+                MappedItem { frame: frame, prop: prop },
+            ).0,
             map_prop == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).2,
             old(self).pt_cursor.inner.inv(),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
@@ -1182,7 +1222,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             level == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
             2 <= level <= NR_LEVELS(),
             old(self).pt_cursor.inner.va % page_size(level) == 0,
-            old(self).pt_cursor.inner.va + page_size(level) < old(self).pt_cursor.inner.barrier_va.end,
+            old(self).pt_cursor.inner.va + page_size(level) < old(
+                self,
+            ).pt_cursor.inner.barrier_va.end,
             old(cursor_owner).children_not_locked(*old(guards)),
     {
         let start_va = self.virt_addr();
