@@ -1145,7 +1145,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL(),
             !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS(),
             old(self).inner.va % page_size(C::item_into_raw(item).1) == 0,
-            old(self).inner.va + page_size(C::item_into_raw(item).1) < old(self).inner.barrier_va.end,
+            old(self).inner.va + page_size(C::item_into_raw(item).1) <= old(self).inner.barrier_va.end,
     {
         let (pa, level, prop) = C::item_into_raw(item);
         let size = page_size(level);

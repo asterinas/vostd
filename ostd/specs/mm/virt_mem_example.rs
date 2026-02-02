@@ -90,23 +90,10 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
         Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         Tracked(gm): Tracked<&mut GlobalMemView>
     requires
-        old(cursor_owner).inv(),
-        entry_owner.inv(),
-        old(regions).inv(),
-        old(gm).inv(),
-        old(cursor).pt_cursor.inner.wf(*old(cursor_owner)),
-        entry_owner.is_frame(),
-        entry_owner.frame.unwrap().mapped_pa == pa,
-        entry_owner.frame.unwrap().prop == prop,
-        pa == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).0,
-        1 == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
-        prop == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).2,
-        old(cursor).pt_cursor.inner.level < old(cursor).pt_cursor.inner.guard_level,
-        old(cursor).pt_cursor.inner.va % 4096 == 0,
-        old(cursor).pt_cursor.inner.va + 4096 < old(cursor).pt_cursor.inner.barrier_va.end,
-        old(cursor_owner).children_not_locked(*old(guards)),
-        !old(cursor_owner).popped_too_high,
-        old(cursor_owner).in_locked_range(),
+        old(cursor).map_cursor_requires(*old(cursor_owner)),
+        old(cursor).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
+        old(cursor).map_item_requires(frame, prop, entry_owner),
+        old(gm).inv()
 )]
 pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
                                         frame: UFrame, va: Vaddr, pa: Paddr, prop: PageProperty)
@@ -116,8 +103,7 @@ pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
     assert(cursor0.pt_cursor.inner.va == va) by { admit() };
     assert(page_size(1) == 4096) by { admit() };
 
-    #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner),
-    Tracked(regions), Tracked(guards), Tracked(1u8), Ghost(pa), Ghost(prop))]
+    #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
     cursor.map(frame, prop);
 
     let ghost mapping = Mapping {

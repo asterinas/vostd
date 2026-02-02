@@ -1194,6 +1194,57 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &mut self.flusher
     }
     */
+
+    pub open spec fn map_cursor_inv(self, cursor_owner: CursorOwner<'a, UserPtConfig>, guards: Guards<'a, UserPtConfig>, regions: MetaRegionOwners) -> bool {
+        &&& cursor_owner.inv()
+        &&& self.pt_cursor.inner.wf(cursor_owner)
+        &&& self.pt_cursor.inner.inv()
+        &&& cursor_owner.children_not_locked(guards)
+        &&& self.pt_cursor.inner.wf(cursor_owner)
+        &&& forall|level: PagingLevel| self.pt_cursor.inner.va % page_size(level) == 0
+        &&& !cursor_owner.popped_too_high
+        &&& regions.inv()
+    }
+
+    pub open spec fn map_cursor_requires(self, cursor_owner: CursorOwner<'a, UserPtConfig>) -> bool {
+        &&& cursor_owner.in_locked_range()
+        &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
+        &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
+    }
+
+    pub open spec fn map_item_requires(self, frame: UFrame, prop: PageProperty, entry_owner: EntryOwner<UserPtConfig>) -> bool {
+        let item = MappedItem { frame: frame, prop: prop };
+        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        &&& prop == prop0
+        &&& entry_owner.frame.unwrap().mapped_pa == paddr
+        &&& entry_owner.frame.unwrap().prop == prop
+        &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
+        &&& 1 <= level <= NR_LEVELS() // Should be property of item_into_raw
+        &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
+        &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
+        &&& entry_owner.inv()
+    }
+
+    pub open spec fn map_item_ensures(
+        self,
+        frame: UFrame,
+        prop: PageProperty,
+        old_cursor_owner: CursorOwner<'a, UserPtConfig>,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+        entry_owner: EntryOwner<UserPtConfig>
+    ) -> bool {
+        let item = MappedItem { frame: frame, prop: prop };
+        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        self.pt_cursor.inner.model(cursor_owner) == self.pt_cursor.inner.model(old_cursor_owner).map_spec(
+            Mapping {
+                va_range: self.pt_cursor.inner.va..(self.pt_cursor.inner.va + page_size(level)) as usize,
+                pa_range: paddr..(paddr + page_size(level)) as usize,
+                page_size: page_size(level),
+                property: prop,
+            }
+        )
+    }
+
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
@@ -1202,46 +1253,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-            Tracked(level): Tracked<PagingLevel>,
-            Ghost(map_paddr): Ghost<Paddr>,
-            Ghost(map_prop): Ghost<PageProperty>
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty)
         requires
-            old(cursor_owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(cursor_owner)),
-            old(regions).inv(),
-            entry_owner.inv(),
-            entry_owner.is_frame(),
-            entry_owner.frame.unwrap().mapped_pa == map_paddr,
-            entry_owner.frame.unwrap().prop == map_prop,
-            map_paddr == UserPtConfig::item_into_raw_spec(
-                MappedItem { frame: frame, prop: prop },
-            ).0,
-            map_prop == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).2,
-            old(self).pt_cursor.inner.inv(),
-            old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
-            old(cursor_owner).in_locked_range(),
-            UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1
-                <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
-            1 <= level <= NR_LEVELS(),
-            level == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
-            old(self).pt_cursor.inner.va % page_size(level) == 0,
-            old(self).pt_cursor.inner.va + page_size(level) < old(self).pt_cursor.inner.barrier_va.end,
-            old(cursor_owner).children_not_locked(*old(guards)),
-            !old(cursor_owner).popped_too_high,
+            old(self).map_cursor_requires(*old(cursor_owner)),
+            old(self).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
+            old(self).map_item_requires(frame, prop, entry_owner),
         ensures
-            cursor_owner.inv(),
-            self.pt_cursor.inner.wf(*cursor_owner),
-            self.pt_cursor.inner.inv(),
-            self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
-                Mapping {
-                    va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
-                    pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
-                    page_size: page_size(level),
-                    property: prop,
-                }
-            ),
+            self.map_cursor_inv(*cursor_owner, *guards, *regions),
+            self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -1250,31 +1270,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
-            assert(cursor_owner.inv()) by { admit() };
-            assert(self.pt_cursor.inner.inv()) by { admit() };
-            assert(self.pt_cursor.inner.wf(*cursor_owner)) by { admit() };
-            assert(self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
-                Mapping {
-                    va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
-                    pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
-                    page_size: page_size(level),
-                    property: prop,
-                }
-            )) by { admit() };
+            assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
+            assert(self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner)) by { admit() };
             return ;  // No mapping exists at the current address.
         };
 
-        assert(cursor_owner.inv()) by { admit() };
-        assert(self.pt_cursor.inner.inv()) by { admit() };
-        assert(self.pt_cursor.inner.wf(*cursor_owner)) by { admit() };
-        assert(self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
-            Mapping {
-                va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
-                pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
-                page_size: page_size(level),
-                property: prop,
-            }
-        )) by { admit() };
+        assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
+        assert(self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner)) by { admit() };
 
         /*        match frag {
             PageTableFrag::Mapped { va, item } => {
