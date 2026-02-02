@@ -14,7 +14,14 @@ use crate::prelude::Inv;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::arch::mm::MAX_PADDR;
 
+#[path = "virt_mem_example.rs"]
+mod virt_mem_example;
+
 verus! {
+
+/// This module implements a model of virtual memory that can be used to reason about the behavior
+/// of code that interacts with virtual memory. It interfaces with the [vm_space] module for mapping
+/// and unmapping frames.
 
 /// Concrete representation of a pointer
 pub struct VirtPtr {
@@ -297,6 +304,17 @@ impl Copy for VirtPtr {
 }
 
 impl VirtPtr {
+
+    pub open spec fn new_spec(vaddr: Vaddr, len: usize) -> Self {
+        Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
+    }
+
+    pub fn new(vaddr: Vaddr, len: usize) -> Self
+        returns Self::new_spec(vaddr, len),
+    {
+        Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
+    }
+
     pub open spec fn is_defined(self) -> bool {
         &&& self.vaddr != 0
         &&& self.range@.start <= self.vaddr <= self.range@.end
@@ -488,7 +506,7 @@ impl VirtPtr {
     #[verus_spec(r =>
         requires
             self.is_valid(),
-            0 <= n <= (self.range@.end - self.range@.start),
+            0 <= n <= self.range@.end - self.range@.start,
             self.vaddr == self.range@.start,
         ensures
             r.0.range@.start == self.range@.start,
@@ -565,10 +583,10 @@ impl GlobalMemView {
         )
     }
 
-    pub axiom fn take_view(&mut self, vaddr: usize, len: usize) -> (view: MemView)
+    pub axiom fn take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: Tracked<MemView>)
         ensures
             self == old(self).take_view_spec(vaddr, len).0,
-            view == old(self).take_view_spec(vaddr, len).1;
+            view@ == old(self).take_view_spec(vaddr, len).1;
 
     pub open spec fn return_view_spec(self, view: MemView) -> Self {
         GlobalMemView {
@@ -639,14 +657,42 @@ impl GlobalMemView {
         ensures
             self == old(self).pt_unmap_spec(m),
             self.inv();
+
+    pub proof fn lemma_va_mapping_unique(self, va: usize)
+        requires
+            self.inv(),
+        ensures
+            self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).is_singleton(),
+    {
+        admit()
+    }
 }
 
 impl Inv for GlobalMemView {
 
     open spec fn inv(self) -> bool {
+        &&& self.tlb_mappings.finite()
+        &&& self.pt_mappings.finite()
+        &&& self.memory.dom().finite()
         &&& self.all_pas_accounted_for()
         &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
+        &&& forall |m: Mapping| self.tlb_mappings.contains(m) ==> {
+            &&& m.inv()
+            &&& forall|pa: Paddr| m.pa_range.start <= pa < m.pa_range.end ==> {
+                &&& self.memory.dom().contains(pa)
+            }
+            &&& self.memory.contains_key(m.pa_range.start)
+            &&& self.memory[m.pa_range.start].size == m.page_size
+            &&& self.memory[m.pa_range.start].inv()
+        }
+        &&& forall |m: Mapping|
+            forall |n: Mapping|
+            self.tlb_mappings.contains(m) ==>
+            self.tlb_mappings.contains(n) ==>
+            m != n ==>
+            #[trigger]
+            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
     }
 }
 

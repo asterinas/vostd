@@ -808,10 +808,10 @@ impl<'a> VmSpace<'a> {
 
         proof {
             let tracked borrowed_mv = match vm_space_owner.mem_view {
-                Some(ref mv) => mv.take_at(
+                Some(ref mv) => admit() /*mv.take_at(
                     owner_w.range@.start,
                     (owner_w.range@.end - owner_w.range@.start) as usize,
-                ),
+                )*/,
                 _ => { proof_from_false() },
             };
 

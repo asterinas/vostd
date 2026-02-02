@@ -37,8 +37,8 @@ use vstd::prelude::*;
 
 use core::ops::Range;
 
-use log::info;
-use spin::Once;
+//use log::info;
+//use spin::Once;
 #[cfg(ktest)]
 mod test;
 

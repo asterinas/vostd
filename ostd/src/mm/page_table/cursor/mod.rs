@@ -340,10 +340,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 },
                 ChildRef::None => {
                     assert(owner.cur_entry_owner().is_absent());
+                    assert(!owner@.present()) by { admit() };
                     None
                 },
                 ChildRef::Frame(pa, ch_level, prop) => {
                     assert(owner.cur_entry_owner().is_frame());
+                    assert(owner@.present()) by { admit() };
+
                     //                    debug_assert_eq!(ch_level, level);
                     // SAFETY:
                     // This is part of (if `split_huge` happens) a page table item mapped
