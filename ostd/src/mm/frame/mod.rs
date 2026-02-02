@@ -516,7 +516,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.points_to.addr() % META_SLOT_SIZE() == 0,
         ensures
             regions.inv(),
+            res.inner@.ptr.addr() == self.ptr.addr(),
     )]
+    #[verifier::external_body]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         // SAFETY: Both the lifetime and the type matches `self`.

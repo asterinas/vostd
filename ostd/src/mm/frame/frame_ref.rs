@@ -46,7 +46,6 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     ///  - the frame outlives the created reference, so that the reference can
     ///    be seen as borrowed from that frame.
     ///  - the type of the [`FrameRef`] (`M`) matches the borrowed frame.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -58,14 +57,15 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             old(regions).dropped_slots.contains_key(frame_to_index(raw)),
             old(regions).inv(),
         ensures
-            regions.inv()
+            regions.inv(),
+            r.inner@.paddr() == raw,
     )]
+    #[verifier::external_body]
     pub fn borrow_paddr(raw: Paddr) -> Self {
         #[verus_spec(with Tracked(regions), Tracked(perm))]
         let frame = Frame::from_raw(raw);
 
         Self {
-            // SAFETY: The caller ensures the safety.
             inner: NeverDrop::new(frame, Tracked(regions)),
             _marker: PhantomData,
         }

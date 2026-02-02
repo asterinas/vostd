@@ -171,6 +171,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.inv(),
             parent_owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == old(guard_perm).addr(),
+
+            owner.is_node() == old(owner).is_node(),
+            owner.is_frame() == old(owner).is_frame(),
+            owner.is_absent() == old(owner).is_absent(),
+            owner.node == old(owner).node,
+            owner.frame == old(owner).frame,
     {
         let ghost pte0 = self.pte;
 

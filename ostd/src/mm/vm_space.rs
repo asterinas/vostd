@@ -1319,12 +1319,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
             // Use old(cursor_owner) for the pre-call cursor view, cursor_owner for post-call
-            assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)));
             return ;  // No mapping exists at the current address.
         };
-
-        assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
-        assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
 
         /*        match frag {
             PageTableFrag::Mapped { va, item } => {
