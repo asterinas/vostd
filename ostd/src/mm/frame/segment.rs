@@ -42,12 +42,15 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 // TODO: treat `manually_drop` as equivalent to `into_raw`
 impl<M: AnyFrameMeta + ?Sized> Undroppable for Segment<M> {
     type State = MetaRegionOwners;
+
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         true
     }
+
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         s0 =~= s1
     }
+
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
         admit()
     }
@@ -442,7 +445,8 @@ impl<M: AnyFrameMeta> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res: Result<Self, GetFrameError>) {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
+        Result<Self, GetFrameError>) {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();

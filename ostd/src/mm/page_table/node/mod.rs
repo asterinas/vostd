@@ -38,9 +38,10 @@ use vstd::simple_pptr::{self, PPtr};
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
 use vstd_extra::ghost_tree::*;
+use vstd_extra::ownership::*;
 
+use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
 use crate::mm::page_table::*;
@@ -51,7 +52,6 @@ use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
-use crate::mm::frame::allocator::FrameAllocOptions;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -99,7 +99,6 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-
     #[verifier::external_body]
     pub fn get_stray(&self) -> PCell<bool>
         returns
@@ -157,7 +156,9 @@ impl StoredPageTablePageMeta {
     }
 }
 
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
+    PageTablePageMeta<C>,
+>;
 
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
@@ -223,7 +224,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             perm.is_init(),
             perm.wf(),
         returns
-            perm.value().level
+            perm.value().level,
     {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
@@ -241,26 +242,28 @@ impl<C: PageTableConfig> PageTableNode<C> {
             regions.inv()
     )]
     #[verifier::external_body]
-    pub fn alloc(level: PagingLevel) -> Self
-    {
+    pub fn alloc(level: PagingLevel) -> Self {
         let tracked entry_owner = EntryOwner::new_absent();
 
-        let tracked mut owner = Node::<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>::new_val_tracked(entry_owner, level as nat);
+        let tracked mut owner = Node::<
+            EntryOwner<C>,
+            CONST_NR_ENTRIES,
+            CONST_INC_LEVELS,
+        >::new_val_tracked(entry_owner, level as nat);
 
         let meta = PageTablePageMeta::new(level);
         let mut frame = FrameAllocOptions::new();
         frame.zeroed(true);
-        let allocated_frame = frame.alloc_frame_with(meta)
-            .expect("Failed to allocate a page table node");
+        let allocated_frame = frame.alloc_frame_with(meta).expect(
+            "Failed to allocate a page table node",
+        );
         // The allocated frame is zeroed. Make sure zero is absent PTE.
         //debug_assert_eq!(C::E::new_absent().as_usize(), 0);
 
         proof_with!(|= Tracked(owner));
 
         allocated_frame
-    }
-    
-    /*
+    }/*
     /// Activates the page table assuming it is a root page table.
     ///
     /// Here we ensure not dropping an active page table by making a
@@ -359,8 +362,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guards.guards[owner.meta_perm.addr()].unwrap().addr(),
             owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu
-    {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<
+        PageTableGuard<'rcu, C>,
+    >) where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
         proof {
@@ -391,7 +395,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             child_owner.inv(),
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
-            idx < NR_ENTRIES(), // NR_ENTRIES == nr_subpage_per_huge::<C>()
+            idx < NR_ENTRIES(),  // NR_ENTRIES == nr_subpage_per_huge::<C>()
             child_owner.match_pte(owner.children_perm.value()[idx as int], owner.level),
         ensures
             res.wf(*child_owner),
@@ -475,8 +479,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
-                self.start_paddr()
-            ));
+                self.start_paddr(),
+            ),
+        );
 
         // SAFETY:
         // - The page table node is alive. The index is inside the bound, so the page table entry is valid.
@@ -557,6 +562,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         self.inner.meta().lock.store(0, Ordering::Release);
     }
 }*/
+
 impl<C: PageTableConfig> PageTablePageMeta<C> {
     #[rustc_allow_incoherent_impl]
     pub fn new(level: PagingLevel) -> Self {
@@ -569,9 +575,8 @@ impl<C: PageTableConfig> PageTablePageMeta<C> {
         }
     }
 }
+
 } // verus!
-
-
 /* TODO: Come back after VMReader
 // FIXME: The safe APIs in the `page_table/node` module allow `Child::Frame`s with
 // arbitrary addresses to be stored in the page table nodes. Therefore, they may not

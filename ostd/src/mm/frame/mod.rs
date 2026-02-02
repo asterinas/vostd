@@ -30,12 +30,12 @@
 //! as well, leaving the handle only a pointer to the metadata slot. Users
 //! can create custom metadata types by implementing the [`AnyFrameMeta`] trait.
 //pub mod allocator;
+pub mod allocator;
 pub mod linked_list;
 pub mod meta;
 pub mod segment;
 pub mod unique;
 pub mod untyped;
-pub mod allocator;
 
 mod frame_ref;
 
@@ -368,7 +368,7 @@ impl<M: AnyFrameMeta> Frame<M> {
     #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& paddr % PAGE_SIZE() == 0
-//        &&& paddr < MAX_PADDR()
+        //        &&& paddr < MAX_PADDR()
         &&& !regions.slots.contains_key(frame_to_index(paddr))
         &&& regions.dropped_slots.contains_key(frame_to_index(paddr))
         &&& regions.inv()
@@ -517,8 +517,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         ensures
             regions.inv(),
     )]
-    pub fn borrow(&self) -> FrameRef<'a, M>
-    {
+    pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         // SAFETY: Both the lifetime and the type matches `self`.
         #[verus_spec(with Tracked(&perm.points_to))]

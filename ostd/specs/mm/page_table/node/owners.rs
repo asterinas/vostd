@@ -4,18 +4,22 @@ use vstd::cell;
 use vstd::simple_pptr::*;
 
 use crate::mm::frame::meta::MetaSlot;
+use crate::mm::paddr_to_vaddr;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::kspace::{FRAME_METADATA_RANGE, VMALLOC_BASE_VADDR, LINEAR_MAPPING_BASE_VADDR};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE, CONST_NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR};
+use crate::specs::arch::kspace::{
+    FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
+};
+use crate::specs::arch::mm::{
+    CONST_NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
+};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::page_table::GuardPerm;
-use crate::mm::paddr_to_vaddr;
 
+use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
-use vstd_extra::array_ptr;
 
 verus! {
 

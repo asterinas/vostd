@@ -135,8 +135,9 @@ impl<C: PageTableConfig> Child<C> {
         requires
             owner.inv(),
             old(regions).inv(),
-            self.wf(*owner),
-            /*            self is PageTable ==> {
+            self.wf(
+                *owner,
+            ),/*            self is PageTable ==> {
                 &&& slot_own is Some
                 &&& slot_own.unwrap()@.inv()
                 &&& slot_perm is Some
@@ -150,8 +151,8 @@ impl<C: PageTableConfig> Child<C> {
         ensures
             regions.inv(),
             res.paddr() % PAGE_SIZE() == 0,
-            res.paddr() < MAX_PADDR(),
-/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
+            res.paddr()
+                < MAX_PADDR(),/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
             self is Frame ==> res == self.into_pte_frame_spec(self.get_frame_tuple().unwrap()),
             self is None ==> res == self.into_pte_none_spec(),*/
 
@@ -165,7 +166,8 @@ impl<C: PageTableConfig> Child<C> {
                 assert(node.ptr.addr() == node_owner.meta_perm.addr());
                 // From NodeOwner::inv():
                 assert(meta_to_frame(node_owner.meta_perm.addr()) < MAX_PADDR());
-                assert(FRAME_METADATA_RANGE().start <= node_owner.meta_perm.addr() < FRAME_METADATA_RANGE().end);
+                assert(FRAME_METADATA_RANGE().start <= node_owner.meta_perm.addr()
+                    < FRAME_METADATA_RANGE().end);
                 assert(node_owner.meta_perm.addr() % META_SLOT_SIZE() == 0);
 
                 #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
@@ -205,13 +207,20 @@ impl<C: PageTableConfig> Child<C> {
             !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             entry_own.inv(),
-//            pte.wf(*entry_own),
+    //            pte.wf(*entry_own),
+
         ensures
             regions.inv(),
             res.wf(*entry_own),
             !pte.is_present() ==> res == Child::<C>::None,
-            pte.is_present() && pte.is_last(level) ==> res == Child::<C>::from_pte_frame_spec(pte, level),
-            pte.is_present() && !pte.is_last(level) ==> res == Child::<C>::from_pte_pt_spec(pte.paddr(), *regions),
+            pte.is_present() && pte.is_last(level) ==> res == Child::<C>::from_pte_frame_spec(
+                pte,
+                level,
+            ),
+            pte.is_present() && !pte.is_last(level) ==> res == Child::<C>::from_pte_pt_spec(
+                pte.paddr(),
+                *regions,
+            ),
     {
         if !pte.is_present() {
             return Child::None;

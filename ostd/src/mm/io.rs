@@ -54,7 +54,7 @@ use crate::mm::pod::{Pod, PodOnce};
 use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::specs::arch::MAX_USERSPACE_VADDR_SPEC;
 use crate::specs::mm::page_table::Mapping;
-use crate::specs::mm::virt_mem::{MemView, VirtPtr};
+use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
 verus! {
 

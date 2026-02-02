@@ -11,8 +11,8 @@ use core::ops::Range;
 
 use crate::mm::{Paddr, Vaddr};
 use crate::prelude::Inv;
-use crate::specs::mm::page_table::Mapping;
 use crate::specs::arch::mm::MAX_PADDR;
+use crate::specs::mm::page_table::Mapping;
 
 #[path = "virt_mem_example.rs"]
 mod virt_mem_example;
@@ -45,11 +45,15 @@ impl Inv for FrameContents {
     }
 }
 
+
 pub tracked struct MemView {
     pub mappings: Set<Mapping>,
     pub memory: Map<Paddr, FrameContents>
 }
 
+/// A [`MemView`] can be created by taking a view from a [`GlobalMemView`]; it
+/// is structed similarly but with the extra global fields like TLB and page tables.
+/// It also tracks the physical addresses in the valid range that are unmapped.
 pub tracked struct GlobalMemView {
     pub pt_mappings: Set<Mapping>,
     pub tlb_mappings: Set<Mapping>,
@@ -147,16 +151,12 @@ impl MemView {
     /// Borrows a memory view for a sub-range.
     #[verifier::external_body]
     pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
-        requires
-            forall|va: usize|
-                vaddr <= va < vaddr + len ==> {
-                    &&& #[trigger] self.addr_transl(va) is Some
-                },
         ensures
             r == self.borrow_at_spec(vaddr, len),
     {
         unimplemented!()
     }
+
 
     /// Splits the memory view into two disjoint views.
     ///
@@ -256,11 +256,11 @@ impl MemView {
 
     /// Merges two disjoint memory views back into one.
     #[verifier::external_body]
-    pub proof fn join(tracked self, tracked other: Self) -> (tracked r: Self)
+    pub proof fn join(tracked &mut self, tracked other: Self)
         requires
-            self.memory.dom().disjoint(other.memory.dom()),
+            old(self).mappings.disjoint(other.mappings),
         ensures
-            r == self.join_spec(other),
+            *self == old(self).join_spec(other),
     {
         unimplemented!()
     }
@@ -480,8 +480,10 @@ impl VirtPtr {
         } else {
             Self::copy_offset(src, dst, Tracked(mem), n - 1);
             assert(forall|i: usize|
+                #![auto]
                 src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
             assert(forall|i: usize|
+                #![auto]
                 src.vaddr <= i < src.vaddr + n - 1 ==>
                 mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] ==
                 mem0.memory[mem0.addr_transl(i).unwrap().0].contents[mem0.addr_transl(i).unwrap().1 as int]) by { admit() };
@@ -539,24 +541,25 @@ impl GlobalMemView {
     pub open spec fn all_pas_accounted_for(self) -> bool {
         forall|pa: Paddr|
             0 <= pa < MAX_PADDR() ==>
-            self.is_mapped(pa) || self.unmapped_pas.contains(pa)
+            #[trigger] self.is_mapped(pa) || #[trigger] self.unmapped_pas.contains(pa)
     }
 
     pub open spec fn pas_uniquely_mapped(self) -> bool {
         forall|m1: Mapping, m2: Mapping|
-            self.tlb_mappings.contains(m1) && self.tlb_mappings.contains(m2) && m1 != m2 ==>
+             #[trigger] self.tlb_mappings.contains(m1) && #[trigger] self.tlb_mappings.contains(m2) && m1 != m2 ==>
             m1.pa_range.end <= m2.pa_range.start || m2.pa_range.end <= m1.pa_range.start
     }
 
     pub open spec fn unmapped_correct(self) -> bool {
         forall|pa: Paddr|
+            #![auto]
             self.is_mapped(pa) <==> !self.unmapped_pas.contains(pa)
     }
 
     pub open spec fn take_view_spec(self, vaddr: usize, len: usize) -> (Self, MemView) {
         let range_end = vaddr + len;
 
-        let leave_mappings = self.tlb_mappings.filter(
+        let leave_mappings: Set<Mapping> = self.tlb_mappings.filter(
             |m: Mapping| m.va_range.end <= vaddr || m.va_range.start > range_end
         );
 

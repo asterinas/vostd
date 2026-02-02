@@ -239,7 +239,8 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + /*Pod + PodOnce + SameSizeAs<usize> +*/ Sized + Send + Sync + 'static {
+    Clone + Copy + Debug +   /*Pod + PodOnce + SameSizeAs<usize> +*/
+Sized + Send + Sync + 'static {
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.
@@ -367,7 +368,6 @@ pub trait PageTableEntryTrait:
         //        unsafe { transmute_unchecked(pte_raw) }
 
     }
-
 }
 
 /// A handle to a page table.
@@ -446,26 +446,26 @@ pub fn largest_pages<C: PageTableConfig>(
     assert_eq!(len % C::BASE_PAGE_SIZE(), 0);
     assert!(is_valid_range::<C>(&(va..(va + len))));
 
-    core::iter::from_fn(move || {
-        if len == 0 {
-            return None;
-        }
+    core::iter::from_fn(
+        move ||
+            {
+                if len == 0 {
+                    return None;
+                }
+                let mut level = C::HIGHEST_TRANSLATION_LEVEL();
+                while page_size(level) > len || va % page_size(level) != 0 || pa % page_size(level)
+                    != 0 {
+                    level -= 1;
+                }
 
-        let mut level = C::HIGHEST_TRANSLATION_LEVEL();
-        while page_size(level) > len
-            || va % page_size(level) != 0
-            || pa % page_size(level) != 0
-        {
-            level -= 1;
-        }
+                let item_start = pa;
+                va += page_size(level);
+                pa += page_size(level);
+                len -= page_size(level);
 
-        let item_start = pa;
-        va += page_size(level);
-        pa += page_size(level);
-        len -= page_size(level);
-
-        Some((item_start, level))
-    })
+                Some((item_start, level))
+            },
+    )
 }
 
 /// Gets the managed virtual addresses range for the page table.
@@ -534,7 +534,7 @@ fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
 #[verifier::external_body]
 fn pte_index<C: PagingConstsTrait>(va: Vaddr, level: PagingLevel) -> (res: usize)
     ensures
-        res == AbstractVaddr::from_vaddr(va).index[level-1],
+        res == AbstractVaddr::from_vaddr(va).index[level - 1],
 {
     (va >> pte_index_bit_offset::<C>(level)) & (nr_subpage_per_huge::<C>() - 1)
 }
@@ -685,7 +685,7 @@ impl<C: PageTableConfig> PageTable<C> {
     pub fn root_paddr(&self) -> (r: Paddr)
         returns
             self.root_paddr_spec(),
-     {
+    {
         unimplemented!()
         //        self.root.start_paddr()
 
@@ -726,16 +726,13 @@ impl<C: PageTableConfig> PageTable<C> {
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
     )]
-    pub fn cursor<'rcu, G: InAtomicMode>(
-        &'rcu self,
-        guard: &'rcu G,
-        va: &Range<Vaddr>,
-    ) -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
+        (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),
+        PageTableError,
+    > {
         #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
         Cursor::new(self, guard, va)
-    }
-
-    /*
+    }/*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
     /// This is only useful for IOMMU page tables. Think twice before using it in other cases.
@@ -745,6 +742,7 @@ impl<C: PageTableConfig> PageTable<C> {
         }
     }
     */
+
 }
 
 /// A software emulation of the MMU address translation process.
@@ -770,13 +768,15 @@ impl<C: PageTableConfig> PageTable<C> {
 /// For the software page walk, we only need to disable preemption at the beginning
 /// since the page table nodes won't be recycled in the RCU critical section.
 #[cfg(ktest)]
-pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
+pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vaddr) -> Option<
+    (Paddr, PageProperty),
+> {
     use super::paddr_to_vaddr;
 
     let _rcu_guard = disable_preempt();
 
     let mut pt_addr = paddr_to_vaddr(root_paddr);
-    for cur_level in (1..=C::NR_LEVELS).rev() {
+    for cur_level in (1..= C::NR_LEVELS).rev() {
         let offset = pte_index::<C>(vaddr, cur_level);
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and
@@ -790,12 +790,10 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
         }
         if cur_pte.is_last(cur_level) {
             debug_assert!(cur_level <= C::HIGHEST_TRANSLATION_LEVEL);
-            return Some((
-                cur_pte.paddr() + (vaddr & (page_size::<C>(cur_level) - 1)),
-                cur_pte.prop(),
-            ));
+            return Some(
+                (cur_pte.paddr() + (vaddr & (page_size::<C>(cur_level) - 1)), cur_pte.prop()),
+            );
         }
-
         pt_addr = paddr_to_vaddr(cur_pte.paddr());
     }
 
@@ -811,15 +809,17 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 #[verus_spec(
     with Tracked(perm): Tracked<&vstd_extra::array_ptr::PointsTo<E, CONST_NR_ENTRIES>>
 )]
-pub fn load_pte<E: PageTableEntryTrait>(ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>, ordering: Ordering) -> (pte: E)
+pub fn load_pte<E: PageTableEntryTrait>(
+    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
+    ordering: Ordering,
+) -> (pte: E)
     requires
         perm.is_init(ptr.index as int),
         perm.addr() == ptr.addr(),
     ensures
         pte == perm.value()[ptr.index as int],
 {
-    unimplemented!()
-    /*    // SAFETY: The safety is upheld by the caller.
+    unimplemented!()/*    // SAFETY: The safety is upheld by the caller.
     let atomic = unsafe { AtomicUsize::from_ptr(ptr.cast()) };
     let pte_raw = atomic.load(ordering);
     E::from_usize(pte_raw)*/

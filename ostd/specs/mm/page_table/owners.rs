@@ -150,7 +150,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         if subtree.value.is_node() {
             &&& guards.unlocked(subtree.value.node.unwrap().meta_perm.addr())
-            &&& forall|child| subtree.children.contains(Some(child)) ==> Self::unlocked(child, guards)
+            &&& forall|child| #![auto] subtree.children.contains(Some(child)) ==> Self::unlocked(child, guards)
         } else {
             true
         }
