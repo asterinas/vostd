@@ -291,8 +291,9 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             ghost_in1@ >= 0,
         ensures
             ghost_out@.0 == ghost_in1@,
+            ret == 0,
     )]
-    pub fn spec_with_example(&self) {
+    pub fn spec_with_example(&self) -> u32 {
         proof_decl!{
             let ghost mut out: (int,int) = (0,0);
         }
@@ -301,7 +302,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             out.1 = ghost_in2@;
         }
         proof_with!{|= Ghost(out)}
-        ()
+        0
     }
 
     /*
