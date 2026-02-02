@@ -824,7 +824,12 @@ impl<'a> VmSpace<'a> {
             Tracked(owner_w): Tracked<&'a mut VmIoOwner<'a>>,
         requires
             old(self).inv(),
-            old(vm_space_owner).mem_view is Some,
+            old(vm_space_owner).mem_view matches Some(mv) &&
+                forall |va: usize|
+                #![auto]
+                    old(owner_w).range@.start <= va < old(owner_w).range@.end ==>
+                        mv.addr_transl(va) is Some
+            ,
             old(vm_space_owner).inv_with(*old(self)),
             old(vm_space_owner).inv(),
             old(vm_space_owner).active,
@@ -836,20 +841,48 @@ impl<'a> VmSpace<'a> {
             self.shared_reader == old(self).shared_reader,
             self.writers@ == old(self).writers@.push(writer),
             owner_w.inv_with_writer(*writer),
-            // owner_w.mem_view is Some,
+            owner_w.mem_view == Some(VmIoMemView::WriteView(old(vm_space_owner).mem_view@.unwrap().split_spec(
+                old(owner_w).range@.start,
+                (old(owner_w).range@.end - old(owner_w).range@.start) as usize,
+            ).0)),
     )]
     pub fn activate_writer(&mut self, writer: &'a VmWriter<'a>) {
         self.writers.push(writer);
 
         proof {
-            // let tracked borrowed_mv = match vm_space_owner.mem_view {
-            //     Some(ref mv) => mv.take_at(
-            //         owner_w.range@.start,
-            //         (owner_w.range@.end - owner_w.range@.start) as usize,
-            //     ),
-            //     _ => { proof_from_false() },
-            // };
-            // owner_w.mem_view = Some(VmIoMemView::WriteView(borrowed_mv));
+            let tracked mut mv = vm_space_owner.mem_view.tracked_take();
+            let ghost old_mv = mv;
+            let tracked (lhs, rhs) = mv.split(
+                owner_w.range@.start,
+                (owner_w.range@.end - owner_w.range@.start) as usize,
+            );
+
+            owner_w.mem_view = Some(VmIoMemView::WriteView(lhs));
+            vm_space_owner.mem_view = Some(rhs);
+
+            assert forall|va: usize|
+                #![auto]
+                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(va) is Some by {
+                if owner_w.range@.start <= va && va < owner_w.range@.end {
+                    assert(lhs.mappings =~= old_mv.mappings.filter(
+                        |m: Mapping|
+                            m.va_range.start < (owner_w.range@.end) && m.va_range.end
+                                > owner_w.range@.start,
+                    ));
+                    let o_lhs = lhs.mappings.filter(
+                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                    );
+                    let o_mv = old_mv.mappings.filter(
+                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
+                    );
+
+                    assert(old_mv.addr_transl(va) is Some);
+                    assert(o_mv.len() > 0);
+                    assert(o_lhs.len() > 0) by {
+                        admit();
+                    }
+                }
+            }
         }
     }
 
