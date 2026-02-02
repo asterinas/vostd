@@ -1203,7 +1203,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
         &&& self.pt_cursor.inner.wf(cursor_owner)
-        &&& forall|level: PagingLevel| self.pt_cursor.inner.va % page_size(level) == 0 // TODO: fold this into `inv()`
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -1231,6 +1230,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
+        &&& self.pt_cursor.inner.va % page_size(level) == 0
     }
 
     /// The result of a call to `map`. Constructs a `Mapping` from the frame being mapped and the cursor's current virtual address.
@@ -1276,7 +1276,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_requires(frame, prop, entry_owner),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
-            self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner)),
+            self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -1285,13 +1285,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
-            assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
-            assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
+            // Use old(cursor_owner) for the pre-call cursor view, cursor_owner for post-call
+            assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)));
             return ;  // No mapping exists at the current address.
         };
 
         assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
-        assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
+        assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
 
         /*        match frag {
             PageTableFrag::Mapped { va, item } => {

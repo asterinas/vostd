@@ -9,6 +9,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::GuardPerm;
+use crate::specs::mm::Guards;
 
 use core::ops::Range;
 
@@ -246,6 +247,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
+
+    pub proof fn move_forward_preserves_children_not_locked(self, guards: Guards<'rcu, C>)
+        requires
+            self.inv(),
+            self.level <= NR_LEVELS(),
+            self.in_locked_range(),
+            self.children_not_locked(guards),
+        ensures
+            self.move_forward_owner_spec().children_not_locked(guards),
+        decreases NR_LEVELS() - self.level,
+    {
+        if self.index() + 1 < NR_ENTRIES() {
+            assert(self.inc_index().children_not_locked(guards));
+        } else if self.level < NR_LEVELS() {
+            let popped = self.pop_level_owner_spec().0;
+            assume(popped.children_not_locked(guards)); // TODO: prove pop_level preserves children_not_locked
+            popped.move_forward_preserves_children_not_locked(guards);
+        }
+    }
 
 }
 
