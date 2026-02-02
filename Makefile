@@ -19,5 +19,9 @@ verify:
 fmt:
 	cargo dv fmt
 
+doc: verify
+	cargo dv doc --target ostd
+
 clean:
 	cargo clean
+	rm -rf doc

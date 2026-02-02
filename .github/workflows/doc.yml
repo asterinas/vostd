@@ -36,7 +36,7 @@ jobs:
         run: make
 
       - name: Build docs
-        run: cargo dv doc --target ostd --verus-conds
+        run: make doc
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
