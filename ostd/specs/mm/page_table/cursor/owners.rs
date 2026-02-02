@@ -165,7 +165,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             0 <= i < NR_ENTRIES() ==> self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
-                &&& self.tree_level == INC_LEVELS() - self.level
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()

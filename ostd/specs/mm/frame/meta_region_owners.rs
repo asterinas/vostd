@@ -24,8 +24,6 @@ verus! {
 pub struct MetaRegion;
 
 pub tracked struct MetaRegionOwners {
-    // since struct is itself tracked there is no need to wrap
-    // the fields in Tracked<_>.
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub dropped_slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,

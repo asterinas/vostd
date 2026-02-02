@@ -117,7 +117,7 @@ impl<C: PageTableConfig, A: InAtomicMode> Iterator for Cursor<'_, C, A> {
 }
 
 pub open spec fn page_size_spec(level: PagingLevel) -> usize {
-    PAGE_SIZE() << (nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1))
+    (PAGE_SIZE() * pow2((nr_subpage_per_huge::<PagingConsts>().ilog2() * (level - 1)) as nat)) as usize
 }
 
 /// The page size at a given level.
@@ -1120,7 +1120,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
-            Tracked(new_owner): Tracked<OwnerSubtree<C>>,
+            Tracked(entry_owner): Tracked<EntryOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
@@ -1129,26 +1129,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).inv(),
             old(self).inner.wf(*old(owner)),
             old(regions).inv(),
-            new_owner.inv(),
+            entry_owner.inv(),
             old(self).inner.inv(),
             C::item_into_raw(item).1 < old(self).inner.guard_level,
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
             !old(owner).popped_too_high,
-            new_owner.level == INC_LEVELS() - C::item_into_raw(item).1 + 1,
             Child::Frame(
                 C::item_into_raw(item).0,
                 C::item_into_raw(item).1,
                 C::item_into_raw(item).2,
-            ).wf(new_owner.value),
+            ).wf(entry_owner),
             // Panic conditions as preconditions
             old(self).inner.va < old(self).inner.barrier_va.end,
             C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL(),
             !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS(),
             old(self).inner.va % page_size(C::item_into_raw(item).1) == 0,
-            old(self).inner.va + page_size(C::item_into_raw(item).1) < old(
-                self,
-            ).inner.barrier_va.end,
+            old(self).inner.va + page_size(C::item_into_raw(item).1) < old(self).inner.barrier_va.end,
     {
         let (pa, level, prop) = C::item_into_raw(item);
         let size = page_size(level);
@@ -1160,8 +1157,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         while self.inner.level != level
             invariant
                 owner.inv(),
-                new_owner.inv(),
-                new_owner.level == INC_LEVELS() - level + 1,
                 self.inner.wf(*owner),
                 regions.inv(),
                 self.inner.inv(),
@@ -1202,9 +1197,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             match cur_child {
                 ChildRef::PageTable(pt) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
 
                     assert(continuation.children_not_locked(*guards));
 
@@ -1232,9 +1225,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert(owner.children_not_locked(*guards)) by { admit() };
                 },
                 ChildRef::None => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
 
                     assert(child_owner.value.is_absent()) by { admit() };
@@ -1262,9 +1253,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     assert(owner.children_not_locked(*guards)) by { admit() };
                 },
                 ChildRef::Frame(_, _, _) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
@@ -1286,9 +1275,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     assert(guards.locked(child_owner.value.node.unwrap().meta_perm.addr()));
                     assert(guards.guards[child_owner.value.node.unwrap().meta_perm.addr()] is Some);
-                    let tracked Tracked(child_guard_perm) = guards.take(
-                        child_owner.value.node.unwrap().meta_perm.addr(),
-                    );
+                    let tracked Tracked(child_guard_perm) = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
 
                     assert(child_owner.value.node.unwrap().relate_guard_perm(child_guard_perm));
                     assert(child_owner.value.node.unwrap().meta_perm.addr() == split_child.addr());
@@ -1299,6 +1286,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 },
             }
         }
+
+        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, owner.continuations.tracked_borrow(owner.level - 1).tree_level + 1);
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
@@ -1456,7 +1445,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(regions).inv(),
             !C::TOP_LEVEL_CAN_UNMAP_spec() ==> old(owner).level < C::NR_LEVELS(),
             old(owner).in_locked_range(),
-            new_owner.level == INC_LEVELS() - old(owner).level + 1,
+            new_owner.level == old(owner).continuations[old(owner).level - 1].tree_level + 1,
             new_child.wf(new_owner.value),
         ensures
             owner.inv(),

@@ -18,7 +18,14 @@ use crate::mm::page_table::{page_size, PageTableConfig};
 
 verus! {
 
-pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Paddr, mapping: Mapping)
+/// Example of reading from a virtual address.
+/// This code assumes that `va` is mapped to `pa` in a page that contains an array of size 16.
+/// The `GlobalMemView` object represents a global view of memory, including the page table and TLB;
+/// from this we take a `MemView` of size 16, which is the argument to `read`.
+/// Following this pattern we can prove that reading from the virtual address will return the value 42.
+/// It takes some work to prove that the existence of the mapping implies the correct address translation;
+/// in the future we will add more tooling to make this easier.
+pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Paddr, Ghost(mapping): Ghost<Mapping>)
     requires
         old(gm).inv(),
         old(gm).tlb_mappings.contains(mapping),
@@ -35,6 +42,7 @@ pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pad
     let tracked Tracked(mem_view) = gm.take_view(va, 16);
 
     let ghost valid_mappings = mem_view.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+    // Specifically, the verifier needs to be told that to look for the mapping, at which point it can prove the address translation.
     assert(valid_mappings.contains(mapping));
     assert(mem_view.addr_transl(va) == Some((pa, 0usize)));
 
@@ -42,7 +50,10 @@ pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pad
     assert(value == 42);
 }
 
-pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Paddr, mapping: Mapping)
+/// Slightly more complex example showing the relationship between reads and writes.
+/// In this case we only assume that the initial mapping exists, and the result of the read
+/// follows from the write to the same location.
+pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Paddr, Ghost(mapping): Ghost<Mapping>)
     requires
         old(gm).inv(),
         old(gm).tlb_mappings.contains(mapping),
@@ -69,12 +80,14 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
     assert(value == 42);
 }
 
+/// Example of mapping a page table entry (WIP). In this case there is more work to do connecting
+/// the specification of the page table cursor to the `GlobalMemView` object. The payoff is that
+/// we can prove the preconditions of examples 1 and 2.
 #[verus_spec(
     with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
         Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-        Tracked(level): Tracked<PagingLevel>,
         Tracked(gm): Tracked<&mut GlobalMemView>
     requires
         old(cursor_owner).inv(),
@@ -86,22 +99,47 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
         entry_owner.frame.unwrap().mapped_pa == pa,
         entry_owner.frame.unwrap().prop == prop,
         pa == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).0,
-        level == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
+        1 == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
         prop == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).2,
         old(cursor).pt_cursor.inner.level < old(cursor).pt_cursor.inner.guard_level,
-        old(cursor).pt_cursor.inner.va % page_size(level) == 0,
-        old(cursor).pt_cursor.inner.va + page_size(level) < old(cursor).pt_cursor.inner.barrier_va.end,
+        old(cursor).pt_cursor.inner.va % 4096 == 0,
+        old(cursor).pt_cursor.inner.va + 4096 < old(cursor).pt_cursor.inner.barrier_va.end,
         old(cursor_owner).children_not_locked(*old(guards)),
         !old(cursor_owner).popped_too_high,
         old(cursor_owner).in_locked_range(),
-        2 <= level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
 )]
 pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
                                         frame: UFrame, va: Vaddr, pa: Paddr, prop: PageProperty)
 {
+    let ghost cursor0 = *cursor;
+
+    assert(cursor0.pt_cursor.inner.va == va) by { admit() };
+    assert(page_size(1) == 4096) by { admit() };
+
     #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner),
-    Tracked(regions), Tracked(guards), Tracked(level), Ghost(pa), Ghost(prop))]
+    Tracked(regions), Tracked(guards), Tracked(1u8), Ghost(pa), Ghost(prop))]
     cursor.map(frame, prop);
+
+    let ghost mapping = Mapping {
+        va_range: cursor0.pt_cursor.inner.va..(cursor0.pt_cursor.inner.va + 4096) as usize,
+        pa_range: pa..(pa + 4096) as usize,
+        page_size: 4096,
+        property: prop,
+    };
+
+    assert(gm.pt_mappings.contains(mapping)) by { admit() };
+
+    proof {
+        if gm.addr_transl(va) is None {
+            gm.tlb_soft_fault(va);
+            assert(gm.tlb_mappings.contains(mapping)) by { admit() };
+        } else {
+            assert(gm.tlb_mappings.contains(mapping)) by { admit() };
+        }
+    }
+
+    write_example(Tracked(gm), va, pa, Ghost(mapping));
+
 }
 
 }

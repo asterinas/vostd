@@ -534,6 +534,18 @@ impl VirtPtr {
 }
 
 impl GlobalMemView {
+
+    pub open spec fn addr_transl(self, va: usize) -> Option<(usize, usize)> {
+        let mappings = self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
+        if 0 < mappings.len() {
+            let m = mappings.choose();  // In a well-formed TLB there will only be one, but if malformed this is non-deterministic!
+            let off = va - m.va_range.start;
+            Some((m.pa_range.start, off as usize))
+        } else {
+            None
+        }
+    }
+
     pub open spec fn is_mapped(self, pa: usize) -> bool {
         exists|m: Mapping| self.tlb_mappings.contains(m) && m.pa_range.start <= pa < m.pa_range.end
     }
@@ -618,6 +630,22 @@ impl GlobalMemView {
             old(self).inv()
         ensures
             self == old(self).tlb_flush_vaddr_spec(vaddr),
+            self.inv();
+
+    pub open spec fn tlb_soft_fault_spec(self, vaddr: Vaddr) -> Self {
+        let mapping = self.pt_mappings.filter(|m: Mapping| m.va_range.start <= vaddr < m.va_range.end).choose();
+        GlobalMemView {
+            tlb_mappings: self.tlb_mappings.insert(mapping),
+            ..self
+        }
+    }
+
+    pub axiom fn tlb_soft_fault(tracked &mut self, vaddr: Vaddr)
+        requires
+            old(self).inv(),
+            old(self).addr_transl(vaddr) is None,
+        ensures
+            self == old(self).tlb_soft_fault_spec(vaddr),
             self.inv();
 
     pub open spec fn pt_map_spec(self, m: Mapping) -> Self {

@@ -1224,26 +1224,57 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(cursor_owner).in_locked_range(),
             UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1
                 <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+            1 <= level <= NR_LEVELS(),
             level == UserPtConfig::item_into_raw_spec(MappedItem { frame: frame, prop: prop }).1,
-            2 <= level <= NR_LEVELS(),
             old(self).pt_cursor.inner.va % page_size(level) == 0,
-            old(self).pt_cursor.inner.va + page_size(level) < old(
-                self,
-            ).pt_cursor.inner.barrier_va.end,
+            old(self).pt_cursor.inner.va + page_size(level) < old(self).pt_cursor.inner.barrier_va.end,
             old(cursor_owner).children_not_locked(*old(guards)),
             !old(cursor_owner).popped_too_high,
+        ensures
+            cursor_owner.inv(),
+            self.pt_cursor.inner.wf(*cursor_owner),
+            self.pt_cursor.inner.inv(),
+            self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
+                Mapping {
+                    va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
+                    pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
+                    page_size: page_size(level),
+                    property: prop,
+                }
+            ),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
-        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner, (6 - level) as nat);
-
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
-        #[verus_spec(with Tracked(cursor_owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
+            assert(cursor_owner.inv()) by { admit() };
+            assert(self.pt_cursor.inner.inv()) by { admit() };
+            assert(self.pt_cursor.inner.wf(*cursor_owner)) by { admit() };
+            assert(self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
+                Mapping {
+                    va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
+                    pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
+                    page_size: page_size(level),
+                    property: prop,
+                }
+            )) by { admit() };
             return ;  // No mapping exists at the current address.
         };
+
+        assert(cursor_owner.inv()) by { admit() };
+        assert(self.pt_cursor.inner.inv()) by { admit() };
+        assert(self.pt_cursor.inner.wf(*cursor_owner)) by { admit() };
+        assert(self.pt_cursor.inner.model(*cursor_owner) == old(self).pt_cursor.inner.model(*old(cursor_owner)).map_spec(
+            Mapping {
+                va_range: old(self).pt_cursor.inner.va..(old(self).pt_cursor.inner.va + page_size(level)) as usize,
+                pa_range: map_paddr..(map_paddr + page_size(level)) as usize,
+                page_size: page_size(level),
+                property: prop,
+            }
+        )) by { admit() };
 
         /*        match frag {
             PageTableFrag::Mapped { va, item } => {
