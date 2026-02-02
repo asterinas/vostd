@@ -161,7 +161,7 @@ impl<T, G> RwLock<T, G> {
 }
 }
 
-
+/* 
 impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
     /* 
     /// Acquires a read lock and spin-wait until it can be acquired.
@@ -392,7 +392,7 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
         fmt::Debug::fmt(&self.val, f)
     }
 }
-
+*/
 /*
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
