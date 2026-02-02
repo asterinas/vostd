@@ -31,7 +31,7 @@ broadcast use group_deref_spec;
 type RwFrac<T> = Frac<cell::PointsTo<T>,MAX_READER_U64>;
 const MAX_READER_U64: u64 = MAX_READER as u64;
 
-struct_with_invariants! {
+//struct_with_invariants! {
 /// Spin-based Read-write Lock
 ///
 /// # Overview
@@ -117,25 +117,26 @@ pub struct RwLock<T/* : ?Sized*/, Guard /* = PreemptDisabled*/> {
     /// - **Bit 62:** Upgradeable reader lock.
     /// - **Bit 61:** Indicates if an upgradeable reader is being upgraded.
     /// - **Bits 60-0:** Reader lock count.
-    lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
+    //lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
     val: PCell<T>,
     //val: UnsafeCell<T>,
 }
 
 /// This invariant holds at any time, i.e. not violated during any method execution.
-closed spec fn wf(self) -> bool {
-    invariant on lock with (val,guard) is (v:usize, g:Option<RwFrac<T>>) {
-        match g {
+/* closed spec fn wf(self) -> bool {
+    invariant on lock with (val, guard) is (v:usize, g:Option<RwFrac<T>>) {
+        /* match g {
             None => v == WRITER,
             Some(perm) => {
                 &&& perm.resource().id() == val.id()
                 &&& perm.resource().is_init()
             }
-        }
-    }
-}
+        }*/
+        true
+    } 
+}*/
 
-}
+//}
 
 const READER: usize = 1;
 const WRITER: usize = 1 << (usize::BITS - 1);
@@ -144,19 +145,25 @@ const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 }
 
-/* 
+verus!{
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
     pub const fn new(val: T) -> Self {
+        let (val, Tracked(perm)) = PCell::new(val);
         Self {
             guard: PhantomData,
-            lock: AtomicUsize::new(0),
-            val: UnsafeCell::new(val),
+            //lock: AtomicUsize::new(0),
+            //lock:AtomicUsize::new((Ghost(val),Ghost(PhantomData)),0,None),
+            val: val,
+            //val: UnsafeCell::new(val),
         }
     }
 }
+}
+
 
 impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
+    /* 
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no writers or
@@ -377,7 +384,7 @@ impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
     /// is still safe.
     pub(super) fn as_ptr(&self) -> *mut T {
         self.val.get()
-    }
+    } */
 }
 
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
@@ -386,6 +393,7 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     }
 }
 
+/*
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
 unsafe impl<T: ?Sized + Send, G> Send for RwLock<T, G> {}
