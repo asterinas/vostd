@@ -1195,23 +1195,31 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
     */
 
+    /// Collects the invariants of the cursor, its owner, and associated tracked structures.
+    /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
     pub open spec fn map_cursor_inv(self, cursor_owner: CursorOwner<'a, UserPtConfig>, guards: Guards<'a, UserPtConfig>, regions: MetaRegionOwners) -> bool {
         &&& cursor_owner.inv()
         &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
         &&& self.pt_cursor.inner.wf(cursor_owner)
-        &&& forall|level: PagingLevel| self.pt_cursor.inner.va % page_size(level) == 0
+        &&& forall|level: PagingLevel| self.pt_cursor.inner.va % page_size(level) == 0 // TODO: fold this into `inv()`
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
 
+    /// These conditions must hold before the call to `map` but may not be maintained after the call.
+    /// The cursor must be within the locked range and below the guard level, but it may move outside the
+    /// range if the frame being mapped is exactly the length of the remaining range.
     pub open spec fn map_cursor_requires(self, cursor_owner: CursorOwner<'a, UserPtConfig>) -> bool {
         &&& cursor_owner.in_locked_range()
         &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
         &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
     }
 
+    /// Collects the conditions that must hold on the frame being mapped.
+    /// The frame must be well-formed with respect to the entry owner. When converted into a `MappedItem`,
+    /// its physical address must also match, and its level must be between 1 and the highest translation level.
     pub open spec fn map_item_requires(self, frame: UFrame, prop: PageProperty, entry_owner: EntryOwner<UserPtConfig>) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
@@ -1225,17 +1233,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& entry_owner.inv()
     }
 
+    /// The result of a call to `map`. Constructs a `Mapping` from the frame being mapped and the cursor's current virtual address.
+    /// The page table's cursor view will be updated with this mapping, replacing the previous mapping (if any).
     pub open spec fn map_item_ensures(
         self,
         frame: UFrame,
         prop: PageProperty,
-        old_cursor_owner: CursorOwner<'a, UserPtConfig>,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
-        entry_owner: EntryOwner<UserPtConfig>
+        old_cursor_view: CursorView<UserPtConfig>,
+        cursor_view: CursorView<UserPtConfig>,
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
-        self.pt_cursor.inner.model(cursor_owner) == self.pt_cursor.inner.model(old_cursor_owner).map_spec(
+        cursor_view == old_cursor_view.map_spec(
             Mapping {
                 va_range: self.pt_cursor.inner.va..(self.pt_cursor.inner.va + page_size(level)) as usize,
                 pa_range: paddr..(paddr + page_size(level)) as usize,
@@ -1248,6 +1257,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
+    /// ## Preconditions
+    /// The cursor must be within the locked range and below the guard level, and the frame must fit within the remaining range of the cursor.
+    /// The cursor must satisfy all invariants (`map_cursor_inv`), and the frame must be well-formed when converted into a `MappedItem` (`map_item_requires`).
+    /// ## Postconditions
+    /// After the call, the cursor will satisfy all invariants (`map_cursor_inv`), and will map the frame into the current slot (`map_item_ensures`).
+    /// After the call, the TLB will not contain any entries for the virtual address range being mapped (TODO).
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
@@ -1261,7 +1276,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_requires(frame, prop, entry_owner),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
-            self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner),
+            self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner)),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -1271,12 +1286,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
             assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
-            assert(self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner)) by { admit() };
+            assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
             return ;  // No mapping exists at the current address.
         };
 
         assert(self.map_cursor_inv(*cursor_owner, *guards, *regions)) by { admit() };
-        assert(self.map_item_ensures(frame, prop, *old(cursor_owner), *cursor_owner, entry_owner)) by { admit() };
+        assert(self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*cursor_owner), self.pt_cursor.inner.model(*cursor_owner))) by { admit() };
 
         /*        match frag {
             PageTableFrag::Mapped { va, item } => {
