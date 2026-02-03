@@ -2,10 +2,11 @@ use vstd::arithmetic::logarithm::*;
 use vstd::arithmetic::power::*;
 use vstd::arithmetic::power2::*;
 use vstd::bits::*;
-use vstd::layout::is_power_2;
 use vstd::prelude::*;
 
 verus! {
+
+broadcast use is_pow2_equiv;
 
 pub broadcast proof fn lemma_pow2_log2(e: nat)
     ensures
@@ -28,48 +29,13 @@ pub broadcast proof fn lemma_pow2_increases(e1: nat, e2: nat)
     }
 }
 
-pub broadcast proof fn lemma_pow2_is_power2(e: nat)
+pub broadcast proof fn lemma_pow2_is_pow2(e: nat)
     ensures
-        #[trigger] is_power_2(pow2(e) as int),
+        #[trigger] is_pow2(pow2(e) as int),
     decreases e,
 {
-    if e == 0 {
-        assert(pow2(e) == 1) by {
-            lemma2_to64();
-        };
-        assert(is_power_2(1));
-    } else {
-        lemma_pow2_is_power2((e - 1) as nat);
-        let p = pow2((e - 1) as nat) as int;
-        assert(is_power_2(p));
-        assert(pow2(e) == 2 * p) by {
-            lemma_pow2_unfold(e);
-        };
-        assert(pow2(e) % 2 == 0);
-        assert(is_power_2(2 * p / 2));
-        assert(is_power_2(p));
-    }
-}
-
-pub proof fn lemma_is_power2_exists_pow2(e: nat)
-    requires
-        is_power_2(e as int),
-    ensures
-        exists|n: nat| pow2(n) == e,
-    decreases e,
-{
-    if e == 0 {
-    } else if e == 1 {
-        assert(pow2(0) == 1) by {
-            lemma2_to64();
-        };
-    } else {
-        lemma_is_power2_exists_pow2(e / 2);
-        let n = choose|n: nat| pow2(n) == e / 2;
-        assert(pow2(n + 1) == e) by {
-            lemma_pow2_unfold(n + 1);
-        }
-    }
+    assert(pow(2,e) as nat == pow2(e) as int as nat);
+    assert(is_pow2_exists(pow2(e) as int));
 }
 
 pub proof fn lemma2_to64_hi32()
@@ -147,141 +113,141 @@ pub proof fn lemma2_to64_hi32()
     ) by (compute_only);
 }
 
-pub proof fn lemma_pow2_is_power2_to64()
+pub proof fn lemma_pow2_is_pow2_to64()
     ensures
-        is_power_2(0x1),
-        is_power_2(0x2),
-        is_power_2(0x4),
-        is_power_2(0x8),
-        is_power_2(0x10),
-        is_power_2(0x20),
-        is_power_2(0x40),
-        is_power_2(0x80),
-        is_power_2(0x100),
-        is_power_2(0x200),
-        is_power_2(0x400),
-        is_power_2(0x800),
-        is_power_2(0x1000),
-        is_power_2(0x2000),
-        is_power_2(0x4000),
-        is_power_2(0x8000),
-        is_power_2(0x10000),
-        is_power_2(0x20000),
-        is_power_2(0x40000),
-        is_power_2(0x80000),
-        is_power_2(0x100000),
-        is_power_2(0x200000),
-        is_power_2(0x400000),
-        is_power_2(0x800000),
-        is_power_2(0x1000000),
-        is_power_2(0x2000000),
-        is_power_2(0x4000000),
-        is_power_2(0x8000000),
-        is_power_2(0x10000000),
-        is_power_2(0x20000000),
-        is_power_2(0x40000000),
-        is_power_2(0x80000000),
-        is_power_2(0x100000000),
-        is_power_2(0x200000000),
-        is_power_2(0x400000000),
-        is_power_2(0x800000000),
-        is_power_2(0x1000000000),
-        is_power_2(0x2000000000),
-        is_power_2(0x4000000000),
-        is_power_2(0x8000000000),
-        is_power_2(0x10000000000),
-        is_power_2(0x20000000000),
-        is_power_2(0x40000000000),
-        is_power_2(0x80000000000),
-        is_power_2(0x100000000000),
-        is_power_2(0x200000000000),
-        is_power_2(0x400000000000),
-        is_power_2(0x800000000000),
-        is_power_2(0x1000000000000),
-        is_power_2(0x2000000000000),
-        is_power_2(0x4000000000000),
-        is_power_2(0x8000000000000),
-        is_power_2(0x10000000000000),
-        is_power_2(0x20000000000000),
-        is_power_2(0x40000000000000),
-        is_power_2(0x80000000000000),
-        is_power_2(0x100000000000000),
-        is_power_2(0x200000000000000),
-        is_power_2(0x400000000000000),
-        is_power_2(0x800000000000000),
-        is_power_2(0x1000000000000000),
-        is_power_2(0x2000000000000000),
-        is_power_2(0x4000000000000000),
-        is_power_2(0x8000000000000000),
-        is_power_2(0x10000000000000000),
+        is_pow2(0x1),
+        is_pow2(0x2),
+        is_pow2(0x4),
+        is_pow2(0x8),
+        is_pow2(0x10),
+        is_pow2(0x20),
+        is_pow2(0x40),
+        is_pow2(0x80),
+        is_pow2(0x100),
+        is_pow2(0x200),
+        is_pow2(0x400),
+        is_pow2(0x800),
+        is_pow2(0x1000),
+        is_pow2(0x2000),
+        is_pow2(0x4000),
+        is_pow2(0x8000),
+        is_pow2(0x10000),
+        is_pow2(0x20000),
+        is_pow2(0x40000),
+        is_pow2(0x80000),
+        is_pow2(0x100000),
+        is_pow2(0x200000),
+        is_pow2(0x400000),
+        is_pow2(0x800000),
+        is_pow2(0x1000000),
+        is_pow2(0x2000000),
+        is_pow2(0x4000000),
+        is_pow2(0x8000000),
+        is_pow2(0x10000000),
+        is_pow2(0x20000000),
+        is_pow2(0x40000000),
+        is_pow2(0x80000000),
+        is_pow2(0x100000000),
+        is_pow2(0x200000000),
+        is_pow2(0x400000000),
+        is_pow2(0x800000000),
+        is_pow2(0x1000000000),
+        is_pow2(0x2000000000),
+        is_pow2(0x4000000000),
+        is_pow2(0x8000000000),
+        is_pow2(0x10000000000),
+        is_pow2(0x20000000000),
+        is_pow2(0x40000000000),
+        is_pow2(0x80000000000),
+        is_pow2(0x100000000000),
+        is_pow2(0x200000000000),
+        is_pow2(0x400000000000),
+        is_pow2(0x800000000000),
+        is_pow2(0x1000000000000),
+        is_pow2(0x2000000000000),
+        is_pow2(0x4000000000000),
+        is_pow2(0x8000000000000),
+        is_pow2(0x10000000000000),
+        is_pow2(0x20000000000000),
+        is_pow2(0x40000000000000),
+        is_pow2(0x80000000000000),
+        is_pow2(0x100000000000000),
+        is_pow2(0x200000000000000),
+        is_pow2(0x400000000000000),
+        is_pow2(0x800000000000000),
+        is_pow2(0x1000000000000000),
+        is_pow2(0x2000000000000000),
+        is_pow2(0x4000000000000000),
+        is_pow2(0x8000000000000000),
+        is_pow2(0x10000000000000000),
 {
     lemma2_to64();
     lemma2_to64_hi32();
-    lemma_pow2_is_power2(0);
-    lemma_pow2_is_power2(1);
-    lemma_pow2_is_power2(2);
-    lemma_pow2_is_power2(3);
-    lemma_pow2_is_power2(4);
-    lemma_pow2_is_power2(5);
-    lemma_pow2_is_power2(6);
-    lemma_pow2_is_power2(7);
-    lemma_pow2_is_power2(8);
-    lemma_pow2_is_power2(9);
-    lemma_pow2_is_power2(10);
-    lemma_pow2_is_power2(11);
-    lemma_pow2_is_power2(12);
-    lemma_pow2_is_power2(13);
-    lemma_pow2_is_power2(14);
-    lemma_pow2_is_power2(15);
-    lemma_pow2_is_power2(16);
-    lemma_pow2_is_power2(17);
-    lemma_pow2_is_power2(18);
-    lemma_pow2_is_power2(19);
-    lemma_pow2_is_power2(20);
-    lemma_pow2_is_power2(21);
-    lemma_pow2_is_power2(22);
-    lemma_pow2_is_power2(23);
-    lemma_pow2_is_power2(24);
-    lemma_pow2_is_power2(25);
-    lemma_pow2_is_power2(26);
-    lemma_pow2_is_power2(27);
-    lemma_pow2_is_power2(28);
-    lemma_pow2_is_power2(29);
-    lemma_pow2_is_power2(30);
-    lemma_pow2_is_power2(31);
-    lemma_pow2_is_power2(32);
-    lemma_pow2_is_power2(33);
-    lemma_pow2_is_power2(34);
-    lemma_pow2_is_power2(35);
-    lemma_pow2_is_power2(36);
-    lemma_pow2_is_power2(37);
-    lemma_pow2_is_power2(38);
-    lemma_pow2_is_power2(39);
-    lemma_pow2_is_power2(40);
-    lemma_pow2_is_power2(41);
-    lemma_pow2_is_power2(42);
-    lemma_pow2_is_power2(43);
-    lemma_pow2_is_power2(44);
-    lemma_pow2_is_power2(45);
-    lemma_pow2_is_power2(46);
-    lemma_pow2_is_power2(47);
-    lemma_pow2_is_power2(48);
-    lemma_pow2_is_power2(49);
-    lemma_pow2_is_power2(50);
-    lemma_pow2_is_power2(51);
-    lemma_pow2_is_power2(52);
-    lemma_pow2_is_power2(53);
-    lemma_pow2_is_power2(54);
-    lemma_pow2_is_power2(55);
-    lemma_pow2_is_power2(56);
-    lemma_pow2_is_power2(57);
-    lemma_pow2_is_power2(58);
-    lemma_pow2_is_power2(59);
-    lemma_pow2_is_power2(60);
-    lemma_pow2_is_power2(61);
-    lemma_pow2_is_power2(62);
-    lemma_pow2_is_power2(63);
-    lemma_pow2_is_power2(64);
+    lemma_pow2_is_pow2(0);
+    lemma_pow2_is_pow2(1);
+    lemma_pow2_is_pow2(2);
+    lemma_pow2_is_pow2(3);
+    lemma_pow2_is_pow2(4);
+    lemma_pow2_is_pow2(5);
+    lemma_pow2_is_pow2(6);
+    lemma_pow2_is_pow2(7);
+    lemma_pow2_is_pow2(8);
+    lemma_pow2_is_pow2(9);
+    lemma_pow2_is_pow2(10);
+    lemma_pow2_is_pow2(11);
+    lemma_pow2_is_pow2(12);
+    lemma_pow2_is_pow2(13);
+    lemma_pow2_is_pow2(14);
+    lemma_pow2_is_pow2(15);
+    lemma_pow2_is_pow2(16);
+    lemma_pow2_is_pow2(17);
+    lemma_pow2_is_pow2(18);
+    lemma_pow2_is_pow2(19);
+    lemma_pow2_is_pow2(20);
+    lemma_pow2_is_pow2(21);
+    lemma_pow2_is_pow2(22);
+    lemma_pow2_is_pow2(23);
+    lemma_pow2_is_pow2(24);
+    lemma_pow2_is_pow2(25);
+    lemma_pow2_is_pow2(26);
+    lemma_pow2_is_pow2(27);
+    lemma_pow2_is_pow2(28);
+    lemma_pow2_is_pow2(29);
+    lemma_pow2_is_pow2(30);
+    lemma_pow2_is_pow2(31);
+    lemma_pow2_is_pow2(32);
+    lemma_pow2_is_pow2(33);
+    lemma_pow2_is_pow2(34);
+    lemma_pow2_is_pow2(35);
+    lemma_pow2_is_pow2(36);
+    lemma_pow2_is_pow2(37);
+    lemma_pow2_is_pow2(38);
+    lemma_pow2_is_pow2(39);
+    lemma_pow2_is_pow2(40);
+    lemma_pow2_is_pow2(41);
+    lemma_pow2_is_pow2(42);
+    lemma_pow2_is_pow2(43);
+    lemma_pow2_is_pow2(44);
+    lemma_pow2_is_pow2(45);
+    lemma_pow2_is_pow2(46);
+    lemma_pow2_is_pow2(47);
+    lemma_pow2_is_pow2(48);
+    lemma_pow2_is_pow2(49);
+    lemma_pow2_is_pow2(50);
+    lemma_pow2_is_pow2(51);
+    lemma_pow2_is_pow2(52);
+    lemma_pow2_is_pow2(53);
+    lemma_pow2_is_pow2(54);
+    lemma_pow2_is_pow2(55);
+    lemma_pow2_is_pow2(56);
+    lemma_pow2_is_pow2(57);
+    lemma_pow2_is_pow2(58);
+    lemma_pow2_is_pow2(59);
+    lemma_pow2_is_pow2(60);
+    lemma_pow2_is_pow2(61);
+    lemma_pow2_is_pow2(62);
+    lemma_pow2_is_pow2(63);
+    lemma_pow2_is_pow2(64);
 }
 
 pub proof fn lemma_log2_to64()
@@ -425,7 +391,7 @@ pub proof fn lemma_log2_to64()
 macro_rules! impl_external_ilog2 {
     ($uN: ty, $spec_name: ident,
     $pow2_lemma: ident, $pow2_ilog2_lemma: ident,
-    $log2_bounds_lemma: ident, $ilog2_ordered_lemma: ident, $is_power_2_is_ilog2_pow2_lemma: ident $(,)?) => {
+    $log2_bounds_lemma: ident, $ilog2_ordered_lemma: ident, $is_pow2_is_ilog2_pow2_lemma: ident $(,)?) => {
         verus! {
             #[verifier::inline]
             pub open spec fn $spec_name(x: $uN) -> u32
@@ -489,13 +455,12 @@ macro_rules! impl_external_ilog2 {
                 lemma_log_is_ordered(2, x as int, y as int);
             }
 
-            pub broadcast proof fn $is_power_2_is_ilog2_pow2_lemma(x: $uN)
+            pub broadcast proof fn $is_pow2_is_ilog2_pow2_lemma(x: $uN)
                 requires
-                    #[trigger] is_power_2(x as int),
+                    #[trigger] is_pow2(x as int),
                 ensures
                     x as nat == pow2(x.ilog2() as nat),
             {
-                lemma_is_power2_exists_pow2(x as nat);
                 let n = choose |n: nat| pow2(n) == x as nat;
                 assert(log(2, x as int) == n) by {
                     lemma_pow2_log2(n);
@@ -521,7 +486,7 @@ impl_external_ilog2!(
     lemma_u8_pow2_ilog2,
     lemma_u8_log2_bounds,
     lemma_u8_ilog2_ordered,
-    lemma_u8_is_power_2_is_ilog2_pow2,
+    lemma_u8_is_pow2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
@@ -531,7 +496,7 @@ impl_external_ilog2!(
     lemma_u16_pow2_ilog2,
     lemma_u16_log2_bounds,
     lemma_u16_ilog2_ordered,
-    lemma_u16_is_power_2_is_ilog2_pow2,
+    lemma_u16_is_pow2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
@@ -541,7 +506,7 @@ impl_external_ilog2!(
     lemma_u32_pow2_ilog2,
     lemma_u32_log2_bounds,
     lemma_u32_ilog2_ordered,
-    lemma_u32_is_power_2_is_ilog2_pow2,
+    lemma_u32_is_pow2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
@@ -551,7 +516,7 @@ impl_external_ilog2!(
     lemma_usize_pow2_ilog2,
     lemma_usize_log2_bounds,
     lemma_usize_ilog2_ordered,
-    lemma_usize_is_power_2_is_ilog2_pow2,
+    lemma_usize_is_pow2_is_ilog2_pow2,
 );
 
 impl_external_ilog2!(
@@ -561,7 +526,7 @@ impl_external_ilog2!(
     lemma_u64_pow2_ilog2,
     lemma_u64_log2_bounds,
     lemma_u64_ilog2_ordered,
-    lemma_u64_is_power_2_is_ilog2_pow2,
+    lemma_u64_is_pow2_is_ilog2_pow2,
 );
 
 verus! {
@@ -767,19 +732,18 @@ pub broadcast proof fn lemma_usize_shl_is_mul(x: usize, shift: usize)
 pub broadcast proof fn lemma_usize_pow2_shl_is_pow2(x: usize, shift: usize)
     requires
         0 <= shift < usize::BITS,
-        is_power_2(x as int),
+        is_pow2(x as int),
         x * pow2(shift as nat) <= usize::MAX,
     ensures
-        #[trigger] is_power_2((x << shift) as int),
+        #[trigger] is_pow2((x << shift) as int),
 {
-    lemma_is_power2_exists_pow2(x as nat);
     let n = choose|n: nat| pow2(n) == x as nat;
     lemma_usize_shl_is_mul(x, shift);
     assert(x << shift == x * pow2(shift as nat));
     lemma_pow2_adds(n, shift as nat);
     assert(x * pow2(shift as nat) == pow2(n + shift as nat));
-    lemma_pow2_is_power2(n + shift as nat);
-    assert(is_power_2((x << shift) as int));
+    lemma_pow2_is_pow2(n + shift as nat);
+    assert(is_pow2((x << shift) as int));
 }
 
 } // verus!
