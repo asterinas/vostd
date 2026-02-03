@@ -160,6 +160,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner_spec().0.inv()
     { }
 
+    pub proof fn pop_level_owner_preserves_guard_conditions(self, guards: Guards<'rcu, C>)
+        requires
+            self.inv(),
+            self.level < NR_LEVELS(),
+            self.children_not_locked(guards),
+            self.nodes_locked(guards),
+        ensures
+            self.pop_level_owner_spec().0.children_not_locked(guards),
+            self.pop_level_owner_spec().0.nodes_locked(guards),
+    { admit() }
+
     #[verifier::returns(proof)]
     pub proof fn pop_level_owner(tracked &mut self) -> (guard_perm: Tracked<GuardPerm<'rcu, C>>)
         requires

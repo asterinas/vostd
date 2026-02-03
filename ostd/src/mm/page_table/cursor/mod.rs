@@ -557,7 +557,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.move_forward_not_popped_too_high();
                         }
 
-                        #[verus_spec(with Tracked(owner), Tracked(regions))]
+                        assert(owner.children_not_locked(*guards)) by { admit() };
+                        assert(owner.nodes_locked(*guards)) by { admit() };                
+
+                        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                         self.move_forward();
 
                         proof {
@@ -574,7 +577,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.move_forward_not_popped_too_high();
                     }
 
-                    #[verus_spec(with Tracked(owner), Tracked(regions))]
+                    assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };            
+
+                    #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.move_forward();
 
                     proof {
@@ -679,7 +685,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.va = va;
                 return Ok(());
             }
-            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pop_level();
         }
     }
@@ -690,7 +696,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// moves itself up to the next page of the parent page.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
     fn move_forward(&mut self)
         requires
@@ -699,6 +706,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).inv(),
             old(regions).inv(),
             old(owner).in_locked_range(),
+            old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
     //            old(self).level < NR_LEVELS()
         ensures
     //            self.model(*owner) == old(self).model(*old(owner)).move_forward_spec(),
@@ -769,6 +778,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     self.level <= i < NR_LEVELS() ==> #[trigger] abs_va.index[i - 1]
                         == owner.continuations[i - 1].idx,
                 owner.in_locked_range(),
+                owner.children_not_locked(*guards),
+                owner.nodes_locked(*guards),
             decreases self.guard_level - self.level,
         {
             proof {
@@ -780,7 +791,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     == owner.pop_level_owner_spec().0.move_forward_owner_spec());
             }
 
-            #[verus_spec(with Tracked(owner), Tracked(regions))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pop_level();
         }
 
@@ -804,7 +815,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
     fn pop_level(&mut self)
         requires
@@ -814,41 +826,45 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(regions).inv(),
             old(self).wf(*old(owner)),
             old(owner).in_locked_range(),
+            old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
         ensures
-    //            self.model(*owner) == old(self).model(*old(owner)).pop_level_spec(),
-
             owner.inv(),
             self.wf(*owner),
             self.inv(),
             regions.inv(),
             self.guard_level == old(self).guard_level,
             *owner == old(owner).pop_level_owner_spec().0,
+            owner.children_not_locked(*guards),
+            owner.nodes_locked(*guards),
     {
-        let ghost owner0 = *owner;
-
-        let tracked cont = owner.continuations.tracked_remove(owner.level - 1);
-        let tracked node_owner = cont.entry_own.node.tracked_take();
-
-        //        let taken_val = taken.take(Tracked(&mut node_owner.guard_perm));
-        //        let _ = NeverDrop::new(taken_val, Tracked(regions));
-        //        taken.put(Tracked(&mut node_owner.guard_perm), taken_val);
-
-        proof {
-            cont.entry_own.node = Some(node_owner);
-            owner.continuations.tracked_insert(owner.level - 1, cont);
-            assert(owner.continuations == owner0.continuations);
-        }
-
-        self.level = self.level + 1;
-
         proof {
             let ghost child_cont = owner.continuations[owner.level - 1];
             assert(child_cont.all_some());
             assert(child_cont.inv());
-            owner.pop_level_owner();
-
-            assert(self.wf(*owner));
+            assert(self.path[self.level as usize - 1] is Some);
+            assert(self.path[self.level as usize - 1].unwrap().addr() == owner.continuations[owner.level - 1].guard_perm.addr());
+            assert(guards.lock_held(owner.continuations[owner.level - 1].guard_perm.value().inner.inner@.ptr.addr()));
+            owner.pop_level_owner_preserves_guard_conditions(*guards);
         }
+        let tracked Tracked(guard_perm) = owner.pop_level_owner();
+
+        let ghost owner0 = *owner;
+        let ghost guards0 = *guards;
+        let ghost guard = guard_perm.value();
+
+        let taken : Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(self.level as usize - 1).unwrap();
+        let _ = NeverDrop::new(taken.unwrap().take(Tracked(&mut guard_perm)), Tracked(guards));
+
+        proof {
+            owner0.never_drop_preserves_children_not_locked(guard, guards0, *guards);
+        }
+
+        self.level = self.level + 1;
+
+        assert(owner.nodes_locked(*guards)) by { admit() };
+
+        assert(self.wf(*owner));
     }
 
     /// Goes down a level to a child page table.
@@ -1122,6 +1138,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &&& self.inner.wf(owner)
         &&& self.inner.inv()
         &&& owner.children_not_locked(guards)
+        &&& owner.nodes_locked(guards)
         &&& !owner.popped_too_high
         &&& regions.inv()
     }
@@ -1226,14 +1243,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 level < guard_level,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
+                owner.nodes_locked(*guards),
                 !owner.popped_too_high,
             decreases abs(level - self.inner.level),
         {
             if self.inner.level < level {
-                #[verus_spec(with Tracked(owner), Tracked(regions))]
+
+                #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                 self.inner.pop_level();
-                assert(!owner.popped_too_high) by { admit() };
-                assert(owner.children_not_locked(*guards)) by { admit() };
+                
                 continue ;
             }
             // We are at a higher level, go down.
@@ -1285,6 +1303,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
                     self.inner.push_level(pt_guard);
                     assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };
                 },
                 ChildRef::None => {
                     let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
@@ -1309,6 +1328,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     #[verus_spec(with Tracked(owner), Tracked(guard_perm.tracked_unwrap()))]
                     self.inner.push_level(child_guard);
                     assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };
                 },
                 ChildRef::Frame(_, _, _) => {
                     let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
@@ -1339,6 +1359,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     #[verus_spec(with Tracked(owner), Tracked(child_guard_perm))]
                     self.inner.push_level(split_child);
                     assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };
                 },
             }
         }
@@ -1352,8 +1373,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.move_forward_preserves_children_not_locked(*guards);
         }
 
-        #[verus_spec(with Tracked(owner), Tracked(regions))]
+        assert(owner.nodes_locked(*guards)) by { admit() };
+
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
+
+        assert(owner.children_not_locked(*guards)) by { admit() };
+        assert(owner.nodes_locked(*guards)) by { admit() };
 
         assert(self.map_item_ensures(item, old(self).inner.model(*old(owner)), self.inner.model(*owner))) by { admit() };
 
@@ -1446,6 +1472,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
             old(self).inner.level < NR_LEVELS(),
@@ -1484,8 +1511,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let protected_va = self.inner.cur_va_range();
 
         assert(owner.in_locked_range()) by { admit() };
+        assert(owner.children_not_locked(*guards)) by { admit() };
+        assert(owner.nodes_locked(*guards)) by { admit() };
 
-        #[verus_spec(with Tracked(owner), Tracked(regions))]
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
 
         Some(protected_va)

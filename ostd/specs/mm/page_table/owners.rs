@@ -12,6 +12,7 @@ use vstd_extra::extern_const::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
+use vstd_extra::undroppable::*;
 
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
@@ -20,6 +21,7 @@ use crate::mm::{
 
 use crate::specs::arch::*;
 use crate::specs::mm::page_table::*;
+use crate::mm::page_table::PageTableGuard;
 
 use core::ops::Deref;
 
@@ -155,9 +157,47 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         if subtree.value.is_node() {
             &&& guards.unlocked(subtree.value.node.unwrap().meta_perm.addr())
-            &&& forall|child| #![auto] subtree.children.contains(Some(child)) ==> Self::unlocked(child, guards)
+            &&& forall|i:int| 0 <= i < subtree.children.len() ==>
+                #[trigger] subtree.children[i] is Some ==>
+                Self::unlocked(subtree.children[i].unwrap(), guards)
         } else {
             true
+        }
+    }
+
+    pub proof fn unlocked_unroll_once<'rcu>(subtree: OwnerSubtree<C>, child: OwnerSubtree<C>, guards: Guards<'rcu, C>)
+        requires
+            subtree.inv(),
+            subtree.value.is_node(),
+            subtree.children.contains(Some(child)),
+            Self::unlocked(subtree, guards),
+        ensures
+            Self::unlocked(child, guards),
+    { }
+
+    pub proof fn never_drop_preserves_unlocked<'rcu>(
+        subtree: OwnerSubtree<C>,
+        guard: PageTableGuard<'rcu, C>,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>
+    )
+        requires
+            subtree.inv(),
+            Self::unlocked(subtree, guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
+        ensures
+            Self::unlocked(subtree, guards1),
+        decreases INC_LEVELS() - subtree.level
+    {
+        if subtree.value.is_node() {
+            assert(guards1.unlocked(subtree.value.node.unwrap().meta_perm.addr()));
+
+            assert forall|i: int| 0 <= i < subtree.children.len() && subtree.children[i] is Some implies
+                Self::unlocked(subtree.children[i].unwrap(), guards1) by {
+                PageTableOwner::unlocked_unroll_once(subtree, subtree.children[i].unwrap(), guards0);
+                PageTableOwner::never_drop_preserves_unlocked(subtree.children[i].unwrap(), guard, guards0, guards1);
+            }
         }
     }
 

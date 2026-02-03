@@ -11,6 +11,8 @@ pub use page_table_node_specs::*;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
+use vstd_extra::undroppable::*;
+
 use crate::mm::page_table::{PageTableConfig, PageTableGuard};
 
 verus! {
@@ -56,6 +58,23 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
     {
         let _ = self.guards.tracked_remove(addr);
         self.guards.tracked_insert(addr, Some(guard.get()));
+    }
+}
+
+impl<'rcu, C: PageTableConfig> Undroppable for PageTableGuard<'rcu, C> {
+    type State = Guards<'rcu, C>;
+
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        s.lock_held(self.inner.inner@.ptr.addr())
+    }
+
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        s1.guards == s0.guards.remove(self.inner.inner@.ptr.addr())
+    }
+
+    proof fn constructor_spec(self, tracked s: &mut Self::State)
+    {
+        s.guards.tracked_remove(self.inner.inner@.ptr.addr());
     }
 }
 

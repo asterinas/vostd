@@ -1235,6 +1235,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
+        &&& cursor_owner.nodes_locked(guards)
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -1433,6 +1434,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.level < NR_LEVELS(),
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,

@@ -2,6 +2,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreePath;
+use vstd_extra::undroppable::*;
 
 use crate::mm::page_table::*;
 
@@ -129,7 +130,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             level: child.tree_level,
             children: child.children,
         };
-        (Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }, self.guard_perm)
+        (Self { children: self.children.update(self.idx as int, Some(child_node)), ..self }, child.guard_perm)
     }
 
     #[verifier::returns(proof)]
@@ -208,6 +209,29 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             PageTableOwner::unlocked(child, guards)
         }
     }
+
+    pub proof fn never_drop_preserves_children_not_locked(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>)
+        requires
+            self.inv(),
+            self.children_not_locked(guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
+        ensures
+            self.children_not_locked(guards1),
+    {
+        assert forall|child| self.children.contains(Some(child)) && PageTableOwner::unlocked(child, guards0) implies
+            PageTableOwner::unlocked(child, guards1) by {
+            PageTableOwner::never_drop_preserves_unlocked(child, guard, guards0, guards1);
+        }
+    }
+
+    pub open spec fn node_locked(self, guards: Guards<'rcu, C>) -> bool {
+        guards.lock_held(self.guard_perm.value().inner.inner@.ptr.addr())
+    }
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -273,6 +297,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS() ==> {
                 self.continuations[i].children_not_locked(guards)
+            }
+    }
+
+    pub proof fn never_drop_preserves_children_not_locked(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>)
+    requires
+        self.inv(),
+        self.children_not_locked(guards0),
+        <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
+        <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
+    ensures
+        self.children_not_locked(guards1),
+    {
+        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies self.continuations[i].children_not_locked(guards1) by {
+            self.continuations[i].never_drop_preserves_children_not_locked(guard, guards0, guards1);
+        }
+    }
+
+    pub open spec fn nodes_locked(self, guards: Guards<'rcu, C>) -> bool {
+        forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS() ==> {
+                self.continuations[i].node_locked(guards)
             }
     }
 
