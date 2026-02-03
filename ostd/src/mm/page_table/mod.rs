@@ -239,8 +239,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
 pub trait PageTableEntryTrait:
-    Clone + Copy + Debug +   /*Pod + PodOnce + SameSizeAs<usize> +*/
-Sized + Send + Sync + 'static {
+    Clone + Copy + Debug + Sized + Send + Sync + 'static {
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.
@@ -302,6 +301,21 @@ Sized + Send + Sync + 'static {
             res.paddr() < MAX_PADDR(),
     ;
 
+    proof fn new_properties()
+        ensures
+            !Self::new_absent_spec().is_present(),
+            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty| {
+                &&& Self::new_page_spec(paddr, level, prop).is_present()
+                &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
+                &&& Self::new_page_spec(paddr, level, prop).prop() == prop
+                &&& Self::new_page_spec(paddr, level, prop).is_last(level)
+            },
+            forall |paddr: Paddr| {
+                &&& Self::new_pt_spec(paddr).is_present()
+                &&& Self::new_pt_spec(paddr).paddr() == paddr
+                &&& forall |level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
+            };
+
     /// Get the physical address from the PTE.
     /// The physical address recorded in the PTE is either:
     /// - the physical address of the next level page table;
@@ -332,6 +346,13 @@ Sized + Send + Sync + 'static {
         ensures
             old(self).set_prop_spec(prop) == self,
     ;
+
+    proof fn set_prop_properties(self, prop: PageProperty)
+        ensures
+            self.set_prop_spec(prop).prop() == prop,
+            self.set_prop_spec(prop).paddr() == self.paddr(),
+            self.is_present() ==> self.set_prop_spec(prop).is_present(),
+            forall |level: PagingLevel| self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
 
     /// If the PTE maps a page rather than a child page table.
     ///

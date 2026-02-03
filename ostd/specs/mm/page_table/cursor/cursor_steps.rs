@@ -107,6 +107,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.va.index.contains_key(self.level - 2));
     }
 
+    pub proof fn push_level_owner_preserves_inv(self, guard_perm: GuardPerm<'rcu, C>)
+        requires
+            self.inv(),
+            self.level > 1,
+        ensures
+            self.push_level_owner_spec(guard_perm).inv(),
+    {
+        let cont = self.continuations[self.level - 1];
+        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+        admit();
+    }
+
     #[verifier::returns(proof)]
     pub proof fn push_level_owner(tracked &mut self, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>)
         requires
@@ -157,8 +169,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level < NR_LEVELS(),
             self.in_locked_range(),
         ensures
-            self.pop_level_owner_spec().0.inv()
-    { }
+            self.pop_level_owner_spec().0.inv(),
+    {
+        let child = self.continuations[self.level - 1];
+        let cont = self.continuations[self.level as int];
+        let (new_cont, _) = cont.restore_spec(child);
+        assert forall |i:int| 0 <= i < NR_ENTRIES() && new_cont.children[i] is Some implies
+            new_cont.children[i].unwrap().value.parent_level == new_cont.level() by {
+            if i == cont.idx {
+                assert(child.entry_own.parent_level == cont.level())
+            }
+        }
+        assert(new_cont.inv());
+    }
 
     pub proof fn pop_level_owner_preserves_guard_conditions(self, guards: Guards<'rcu, C>)
         requires
@@ -231,6 +254,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if self.index() + 1 < NR_ENTRIES() {
             self.inc_index_increases_va();
         } else if self.level < NR_LEVELS() {
+            self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_increases_va();
         } else {
             admit();
@@ -247,6 +271,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
        decreases NR_LEVELS() - self.level,
     {
         if self.level < NR_LEVELS() {
+            self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_not_popped_too_high();
         }
     }
@@ -259,22 +284,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
 
-    pub proof fn move_forward_preserves_children_not_locked(self, guards: Guards<'rcu, C>)
+    pub proof fn move_forward_preserves_guard_conditions(self, guards: Guards<'rcu, C>)
         requires
             self.inv(),
             self.level <= NR_LEVELS(),
             self.in_locked_range(),
             self.children_not_locked(guards),
+            self.nodes_locked(guards),
         ensures
             self.move_forward_owner_spec().children_not_locked(guards),
+            self.move_forward_owner_spec().nodes_locked(guards),
         decreases NR_LEVELS() - self.level,
     {
         if self.index() + 1 < NR_ENTRIES() {
             assert(self.inc_index().children_not_locked(guards));
         } else if self.level < NR_LEVELS() {
+            self.pop_level_owner_preserves_guard_conditions(guards);
+            self.pop_level_owner_preserves_inv();
             let popped = self.pop_level_owner_spec().0;
-            assume(popped.children_not_locked(guards)); // TODO: prove pop_level preserves children_not_locked
-            popped.move_forward_preserves_children_not_locked(guards);
+            popped.move_forward_preserves_guard_conditions(guards);
         }
     }
 

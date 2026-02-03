@@ -7,7 +7,7 @@ use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
 use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot};
 use crate::mm::frame::MetaPerm;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
@@ -21,7 +21,6 @@ use vstd::simple_pptr::PPtr;
 verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
-#[rustc_has_incoherent_inherent_impls]
 pub struct FrameRef<'a, M: AnyFrameMeta> {
     pub inner: NeverDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
@@ -58,7 +57,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             old(regions).inv(),
         ensures
             regions.inv(),
-            r.inner@.paddr() == raw,
+            manually_drop_deref_spec(&r.inner.0).ptr.addr() == frame_to_meta(raw),
     )]
     #[verifier::external_body]
     pub fn borrow_paddr(raw: Paddr) -> Self {
@@ -142,8 +141,7 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> PPtr<Self::Target>;
 }
 
-pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32
-;
+pub assume_specification[ usize::trailing_zeros ](_0: usize) -> u32;
 
 // SAFETY: `Frame` is essentially a `*const MetaSlot` that could be used as a non-null
 // `*const` pointer.

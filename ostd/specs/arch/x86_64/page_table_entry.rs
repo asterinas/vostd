@@ -310,6 +310,16 @@ impl PageTableEntryTrait for PageTableEntry {
         level == 1 || (self.0 & PageTableFlags::HUGE() != 0)
     }
 
+    proof fn set_prop_properties(self, prop: PageProperty)
+    {
+        admit();
+    }
+
+    proof fn new_properties()
+    {
+        admit();
+    }
+
 }
 
 }

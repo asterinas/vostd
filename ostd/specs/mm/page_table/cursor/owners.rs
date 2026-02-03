@@ -1,7 +1,7 @@
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
-use vstd_extra::prelude::TreePath;
+use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::undroppable::*;
 
 use crate::mm::page_table::*;
@@ -21,15 +21,13 @@ use crate::specs::mm::page_table::Guards;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
 
 pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub entry_own: EntryOwner<C>,
     pub idx: usize,
-    pub base_va: Vaddr,
-    pub bound_va: Vaddr,
-    pub level: nat,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
     pub guard_perm: GuardPerm<'rcu, C>,
@@ -97,10 +95,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn make_cont_spec(self, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> (Self, Self) {
         let child = Self {
-            base_va: (self.base_va + self.idx * page_size((self.level - 1) as u8)) as usize,
-            bound_va: (self.base_va + page_size(self.level as u8)) as usize,
             entry_own: self.children[self.idx as int].unwrap().value,
-            level: (self.level - 1) as nat,
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int].unwrap().children,
@@ -160,19 +155,25 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         )
     }
 
+    pub open spec fn level(self) -> PagingLevel {
+        self.entry_own.node.unwrap().level
+    }
+
     pub open spec fn inv(self) -> bool {
         &&& self.children.len() == NR_ENTRIES()
         &&& 0 <= self.idx < NR_ENTRIES()
         &&& forall|i: int|
             #![trigger self.children[i]]
-            0 <= i < NR_ENTRIES() ==> self.children[i] is Some ==> {
+            0 <= i < NR_ENTRIES() ==> 
+            self.children[i] is Some ==> {
+                &&& self.children[i].unwrap().value.parent_level == self.level()
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm)
-        &&& self.tree_level == INC_LEVELS() - self.level
+        &&& self.tree_level == INC_LEVELS() - self.level()
         &&& self.tree_level < INC_LEVELS() - 1
     }
 
@@ -262,30 +263,43 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.level <= 4 ==> {
             &&& self.continuations.contains_key(3)
             &&& self.continuations[3].inv()
-            &&& self.continuations[3].level == 4
-            &&& self.continuations[3].entry_own.is_node()
+            &&& self.continuations[3].level() == 4
+            // Obviously there is no level 5 pt, but that would be the level of the parent of the root pt.
+            &&& self.continuations[3].entry_own.parent_level == 5
             &&& self.va.index[3] == self.continuations[3].idx
         }
         &&& self.level <= 3 ==> {
             &&& self.continuations.contains_key(2)
             &&& self.continuations[2].inv()
-            &&& self.continuations[2].level == 3
-            &&& self.continuations[2].entry_own.is_node()
+            &&& self.continuations[2].level() == 3
+            &&& self.continuations[2].entry_own.parent_level == 4
             &&& self.va.index[2] == self.continuations[2].idx
+            &&& self.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
         }
         &&& self.level <= 2 ==> {
             &&& self.continuations.contains_key(1)
             &&& self.continuations[1].inv()
-            &&& self.continuations[1].level == 2
-            &&& self.continuations[1].entry_own.is_node()
+            &&& self.continuations[1].level() == 2
+            &&& self.continuations[1].entry_own.parent_level == 3
             &&& self.va.index[1] == self.continuations[1].idx
+            &&& self.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
+            &&& self.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
         }
         &&& self.level == 1 ==> {
             &&& self.continuations.contains_key(0)
             &&& self.continuations[0].inv()
-            &&& self.continuations[0].level == 1
-            &&& self.continuations[0].entry_own.is_node()
+            &&& self.continuations[0].level() == 1
+            &&& self.continuations[0].entry_own.parent_level == 2
             &&& self.va.index[0] == self.continuations[0].idx
+            &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
+            &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
+            &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
+                self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
         }
     }
 }
@@ -376,7 +390,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     { admit() }
 
     pub open spec fn cur_va(self) -> Vaddr {
-        (self.continuations[self.level - 1].base_va + self.index() * page_size(self.level as u8)) as usize
+        self.va.to_vaddr()
     }
 
     pub proof fn inv_continuation(self, i: int)
@@ -437,6 +451,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.in_locked_range(),
     { admit() }
+
+    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
+        decreases INC_LEVELS() - self.level when self.inv()
+    {
+        self.into_pt_owner_rec().relate_region(regions)
+    }
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {

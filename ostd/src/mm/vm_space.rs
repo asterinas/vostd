@@ -1241,6 +1241,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
         &&& cursor_owner.nodes_locked(guards)
+        &&& cursor_owner.relate_region(regions)
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -1314,7 +1315,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_requires(frame, prop, entry_owner),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
-            self.map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)),
+            old(self).map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };

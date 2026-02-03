@@ -275,6 +275,11 @@ impl PageTableEntryTrait for PageTableEntry {
         self.0 = (self.0 & Self::PHYS_ADDR_MASK) | flags;
     }
 
+    proof fn set_prop_properties(self, prop: PageProperty)
+    {
+        admit();
+    }
+
     fn is_last(&self, level: PagingLevel) -> bool {
         level == 1 || self.is_huge()
     }

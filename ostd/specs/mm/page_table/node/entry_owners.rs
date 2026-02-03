@@ -24,13 +24,13 @@ pub tracked struct FrameEntryOwner {
     pub prop: PageProperty,
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct EntryOwner<C: PageTableConfig> {
     pub node: Option<NodeOwner<C>>,
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
     pub absent: bool,
     pub path: TreePath<CONST_NR_ENTRIES>,
+    pub parent_level: PagingLevel,
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
@@ -50,23 +50,25 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.absent
     }
 
-    pub open spec fn new_absent_spec() -> Self {
+    pub open spec fn new_absent_spec(parent_level: PagingLevel) -> Self {
         EntryOwner {
             node: None,
             frame: None,
             locked: None,
             absent: true,
             path: TreePath::new(Seq::empty()),
+            parent_level,
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> Self {
         EntryOwner {
             node: None,
-            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(level), prop }),
+            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
             path: TreePath::new(Seq::empty()),
+            parent_level,
         }
     }
 
@@ -77,29 +79,30 @@ impl<C: PageTableConfig> EntryOwner<C> {
             locked: None,
             absent: false,
             path: TreePath::new(Seq::empty()),
+            parent_level: (node.level + 1) as PagingLevel,
         }
     }
 
-    pub axiom fn new_absent() -> tracked Self
-        returns Self::new_absent_spec();
+    pub axiom fn new_absent(parent_level: PagingLevel) -> tracked Self
+        returns Self::new_absent_spec(parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> tracked Self
-        returns Self::new_frame_spec(paddr, level, prop);
+    pub axiom fn new_frame(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
+        returns Self::new_frame_spec(paddr, parent_level, prop);
 
     pub axiom fn new_node(node: NodeOwner<C>) -> tracked Self
         returns Self::new_node_spec(node);
 
-    pub open spec fn match_pte(self, pte: C::E, level: PagingLevel) -> bool {
+    pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE() == 0
         &&& pte.paddr() < MAX_PADDR()
         &&& !pte.is_present() ==> {
             self.is_absent()
         }
-        &&& pte.is_present() && !pte.is_last(level) ==> {
+        &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
             &&& meta_to_frame(self.node.unwrap().meta_perm.addr()) == pte.paddr()
         }
-        &&& pte.is_present() && pte.is_last(level) ==> {
+        &&& pte.is_present() && pte.is_last(parent_level) ==> {
             &&& self.is_frame()
             &&& self.frame.unwrap().mapped_pa == pte.paddr()
             &&& self.frame.unwrap().prop == pte.prop()
@@ -177,6 +180,7 @@ impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.idx < NR_ENTRIES()
+        &&& owner.match_pte(self.pte, owner.parent_level)
         &&& self.pte.paddr() % PAGE_SIZE() == 0
         &&& self.pte.paddr() < MAX_PADDR()
     }

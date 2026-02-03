@@ -30,7 +30,7 @@ verus! {
 #[rustc_has_incoherent_inherent_impls]
 pub enum Child<C: PageTableConfig> {
     /// A child page table node.
-    pub PageTable(  /*RcuDrop<*/ PageTableNode<C>  /*>*/ ),
+    pub PageTable(PageTableNode<C>),
     /// Physical address of a mapped physical frame.
     ///
     /// It is associated with the virtual page property and the level of the
@@ -119,6 +119,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
                 &&& owner.is_frame()
                 &&& owner.frame.unwrap().mapped_pa == paddr
                 &&& owner.frame.unwrap().prop == prop
+                &&& level == owner.parent_level
             },
             Self::None => owner.is_absent(),
         }
@@ -135,48 +136,23 @@ impl<C: PageTableConfig> Child<C> {
         requires
             owner.inv(),
             old(regions).inv(),
-            self.wf(
-                *owner,
-            ),/*            self is PageTable ==> {
-                &&& slot_own is Some
-                &&& slot_own.unwrap()@.inv()
-                &&& slot_perm is Some
-                &&& slot_perm.unwrap()@.addr() == self.get_node().unwrap().ptr.addr()
-                &&& slot_perm.unwrap()@.points_to.addr() == self.get_node().unwrap().ptr.addr()
-                &&& slot_perm.unwrap()@.is_init()
-                &&& slot_perm.unwrap()@.points_to.value().wf(*slot_own.unwrap()@)
-                &&& slot_perm.unwrap()@.addr() == slot_own.unwrap()@.self_addr
-            }*/
-
+            self.wf(*owner),
         ensures
             regions.inv(),
             res.paddr() % PAGE_SIZE() == 0,
-            res.paddr()
-                < MAX_PADDR(),/*            self is PageTable ==> res == self.into_pte_pt_spec(*slot_own.unwrap()@),
-            self is Frame ==> res == self.into_pte_frame_spec(self.get_frame_tuple().unwrap()),
-            self is None ==> res == self.into_pte_none_spec(),*/
-
+            res.paddr() < MAX_PADDR(),
+            owner.match_pte(res, owner.parent_level),
     {
+        proof {
+            C::E::new_properties();
+        }
+
         match self {
             Child::PageTable(node) => {
-                // From Child::PageTable::wf: owner.is_node() and node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
-                assert(owner.is_node());
                 let ghost node_owner = owner.node.unwrap();
-                assert(node_owner.inv());
-                assert(node.ptr.addr() == node_owner.meta_perm.addr());
-                // From NodeOwner::inv():
-                assert(meta_to_frame(node_owner.meta_perm.addr()) < MAX_PADDR());
-                assert(FRAME_METADATA_RANGE().start <= node_owner.meta_perm.addr()
-                    < FRAME_METADATA_RANGE().end);
-                assert(node_owner.meta_perm.addr() % META_SLOT_SIZE() == 0);
 
                 #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
                 let paddr = node.start_paddr();
-
-                // paddr == meta_to_frame(node.ptr.addr()) == meta_to_frame(node_owner.meta_perm.addr())
-                assert(paddr == meta_to_frame(node.ptr.addr()));
-                assert(paddr % PAGE_SIZE() == 0);
-                assert(paddr < MAX_PADDR());
 
                 assert(node.constructor_requires(*old(regions))) by { admit() };
                 let _ = NeverDrop::new(node, Tracked(regions));
@@ -204,11 +180,8 @@ impl<C: PageTableConfig> Child<C> {
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
             old(regions).inv(),
-            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
-            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             entry_own.inv(),
-    //            pte.wf(*entry_own),
-
+            entry_own.is_node() ==> entry_own.node.unwrap().relate_region(*old(regions)),
         ensures
             regions.inv(),
             res.wf(*entry_own),
@@ -221,6 +194,7 @@ impl<C: PageTableConfig> Child<C> {
                 pte.paddr(),
                 *regions,
             ),
+            entry_own.is_node() ==> entry_own.node.unwrap().relate_region(*regions),
     {
         if !pte.is_present() {
             return Child::None;
@@ -228,7 +202,6 @@ impl<C: PageTableConfig> Child<C> {
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
-            assert(entry_own.is_node()) by { admit() };
 
             // SAFETY: The caller ensures that this node was created by
             // `into_pte`, so that restoring the forgotten reference is safe.
@@ -236,7 +209,7 @@ impl<C: PageTableConfig> Child<C> {
             let node = PageTableNode::from_raw(paddr);
             //            debug_assert_eq!(node.level(), level - 1);
 
-            return Child::PageTable(  /*RcuDrop::new(*/ node  /*)*/ );
+            return Child::PageTable(node);
         }
         Child::Frame(paddr, level, pte.prop())
     }
@@ -259,26 +232,24 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     )]
     pub fn from_pte(pte: &C::E, level: PagingLevel) -> (res: Self)
         requires
-    //            pte.wf(*entry_owner),
-
+            entry_owner.match_pte(*pte, level),
             entry_owner.inv(),
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
-            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
-            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
+//            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
+//            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).inv(),
+            entry_owner.is_node() ==> entry_owner.node.unwrap().relate_region(*old(regions)),
         ensures
             regions.inv(),
             res.wf(*entry_owner),
     {
         if !pte.is_present() {
-            assert(entry_owner.is_absent()) by { admit() };
             return ChildRef::None;
         }
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
-            assert(entry_owner.is_node()) by { admit() };
 
             // SAFETY: The caller ensures that the lifetime of the child is
             // contained by the residing node, and the physical address is
@@ -287,14 +258,11 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
             assert(manually_drop_deref_spec(&node.inner.0).ptr.addr()
-                == entry_owner.node.unwrap().meta_perm.addr()) by { admit() };
+                == entry_owner.node.unwrap().meta_perm.addr());
 
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
         }
-        assert(entry_owner.is_frame()) by { admit() };
-        assert(entry_owner.frame.unwrap().mapped_pa == paddr) by { admit() };
-        assert(entry_owner.frame.unwrap().prop == pte.prop()) by { admit() };
 
         ChildRef::Frame(paddr, level, pte.prop())
     }

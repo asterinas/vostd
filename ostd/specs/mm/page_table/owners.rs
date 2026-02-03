@@ -21,6 +21,7 @@ use crate::mm::{
 
 use crate::specs::arch::*;
 use crate::specs::mm::page_table::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::page_table::PageTableGuard;
 
 use core::ops::Deref;
@@ -93,6 +94,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
             path: TreePath::new(Seq::empty()),
+            parent_level: (INC_LEVELS() - lv + 1) as PagingLevel,
             node: None,
             frame: None,
             locked: None,
@@ -113,7 +115,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
-//            &&& child.unwrap().relate_parent_guard_perm(self.node.unwrap().guard_perm)
+            &&& child.unwrap().parent_level == self.node.unwrap().level
         } else {
             &&& child is None
         }
@@ -310,6 +312,30 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             }
         }
     }
+
+    pub open spec fn relate_region_rec(self, regions: MetaRegionOwners) -> bool
+        decreases INC_LEVELS() - self.0.level when self.0.inv()
+    {
+        if self.0.value.is_node() {
+            &&& self.0.value.node.unwrap().relate_region(regions)
+            &&& forall|i: int| 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
+                PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(regions)
+        } else {
+            true
+        }
+    }
+
+    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
+        decreases INC_LEVELS() - self.0.level when self.0.inv()
+    {
+        self.relate_region_rec(regions)
+    }
+}
+
+impl<C: PageTableConfig> Inv for PageTableOwner<C> {
+    open spec fn inv(self) -> bool {
+        &&& self.0.inv()
+    }
 }
 
 impl<C: PageTableConfig> View for PageTableOwner<C> {
@@ -339,7 +365,11 @@ impl<'a, C: PageTableConfig> CursorContinuation<'a, C> {
             self.all_some(),
         ensures
             self.into_subtree().inv(),
-    { }
+    {
+        assert forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some implies
+            self.children[i].unwrap().value.parent_level == self.entry_own.node.unwrap().level by {
+            }
+    }
 }
 
 impl<'a, C: PageTableConfig> CursorOwner<'a, C> {

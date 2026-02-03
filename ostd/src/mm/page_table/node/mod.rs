@@ -243,14 +243,9 @@ impl<C: PageTableConfig> PageTableNode<C> {
     )]
     #[verifier::external_body]
     pub fn alloc(level: PagingLevel) -> Self {
-        let tracked entry_owner = EntryOwner::new_absent();
+        let tracked entry_owner = EntryOwner::new_absent(level);
 
-        let tracked mut owner = Node::<
-            EntryOwner<C>,
-            CONST_NR_ENTRIES,
-            CONST_INC_LEVELS,
-        >::new_val_tracked(entry_owner, level as nat);
-
+        let tracked mut owner = OwnerSubtree::<C>::new_val_tracked(entry_owner, level as nat);
         let meta = PageTablePageMeta::new(level);
         let mut frame = FrameAllocOptions::new();
         frame.zeroed(true);
@@ -320,24 +315,14 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// An atomic mode guard is required to
     ///  1. prevent deadlocks;
     ///  2. provide a lifetime (`'rcu`) that the nodes are guaranteed to outlive.
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
-    #[verusfmt::skip]
+    #[verus_spec(
+        with Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        -> guard_perm: Tracked<GuardPerm<'rcu, C>>
+    )]
     pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>>
         where 'a: 'rcu {
         unimplemented!()
-        // TODO: axiomatize locks
-        /*        while self
-            .meta()
-            .lock
-            .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            core::hint::spin_loop();
-        }
-*/
-        //        PageTableGuard::<'rcu, C> { inner: self }
-
     }
 
     /// Creates a new [`PageTableGuard`] without checking if the page table lock is held.
@@ -362,9 +347,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guards.guards[owner.meta_perm.addr()].unwrap().addr(),
             owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> (res: PPtr<
-        PageTableGuard<'rcu, C>,
-    >) where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A)
+    -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
         proof {
@@ -396,7 +380,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES(),  // NR_ENTRIES == nr_subpage_per_huge::<C>()
-            child_owner.match_pte(owner.children_perm.value()[idx as int], owner.level),
+            child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
