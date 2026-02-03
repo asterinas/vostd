@@ -34,8 +34,13 @@ pub broadcast proof fn lemma_pow2_is_pow2(e: nat)
         #[trigger] is_pow2(pow2(e) as int),
     decreases e,
 {
-    assert(pow(2,e) as nat == pow2(e) as int as nat);
-    assert(is_pow2_exists(pow2(e) as int));
+    lemma_pow2(e);
+    assert(is_pow2_exists(pow2(e) as int)) by {
+        assert(pow(2, e) == pow2(e) as int);
+    }
+    assert(is_pow2(pow2(e) as int)) by {
+        is_pow2_equiv(pow2(e) as int);
+    }
 }
 
 pub proof fn lemma2_to64_hi32()
@@ -461,19 +466,24 @@ macro_rules! impl_external_ilog2 {
                 ensures
                     x as nat == pow2(x.ilog2() as nat),
             {
-                let n = choose |n: nat| pow2(n) == x as nat;
+                assert(is_pow2_exists(x as int)) by {
+                    is_pow2_equiv(x as int);
+                };
+                let n = choose |n: nat| pow(2, n) == x as int;
                 assert(log(2, x as int) == n) by {
-                    lemma_pow2_log2(n);
+                    lemma_log_pow(2, n);
+                    assert(pow(2, n) == x as int);
                 };
-                assert($uN::MAX as int + 1 == pow2($uN::BITS as nat) as int) by {
-                    lemma2_to64();
-                };
-                lemma_pow2(n);
-                lemma_pow2($uN::BITS as nat);
+                $log2_bounds_lemma(x);
+                assert(log(2, x as int) <= $uN::BITS);
                 assert(n <= $uN::BITS) by {
-                    lemma_pow_increases_converse(2, n, $uN::BITS as nat);
+                    assert(log(2, x as int) == n);
                 };
                 assert(x.ilog2() == n);
+                lemma_pow2(n);
+                assert(pow2(n) as int == x as int);
+                assert(x as int >= 0);
+                assert(x as nat == pow2(n));
             }
         }
     };
@@ -737,10 +747,17 @@ pub broadcast proof fn lemma_usize_pow2_shl_is_pow2(x: usize, shift: usize)
     ensures
         #[trigger] is_pow2((x << shift) as int),
 {
-    let n = choose|n: nat| pow2(n) == x as nat;
+    assert(is_pow2_exists(x as int)) by {
+        is_pow2_equiv(x as int);
+    }
+    let n = choose|n: nat| pow(2, n) == x as int;
+    lemma_pow2(n);
+    assert(pow2(n) as int == x as int);
+    assert(x as nat == pow2(n));
     lemma_usize_shl_is_mul(x, shift);
     assert(x << shift == x * pow2(shift as nat));
     lemma_pow2_adds(n, shift as nat);
+    assert(x * pow2(shift as nat) == pow2(n) * pow2(shift as nat));
     assert(x * pow2(shift as nat) == pow2(n + shift as nat));
     lemma_pow2_is_pow2(n + shift as nat);
     assert(is_pow2((x << shift) as int));

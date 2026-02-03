@@ -20,7 +20,7 @@ use vstd::prelude::*;
 
 use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::div_mod::lemma_div_non_zero;
-use vstd::layout::is_power_2;
+use vstd::arithmetic::power2::is_pow2;
 
 use vstd_extra::extern_const;
 
@@ -49,7 +49,7 @@ pub trait PagingConstsTrait: Debug + Sync {
     proof fn lemma_BASE_PAGE_SIZE_properties()
         ensures
             0 < Self::BASE_PAGE_SIZE_spec(),
-            is_power_2(Self::BASE_PAGE_SIZE_spec() as int),
+            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
     ;
 
     /// The smallest page size.
@@ -60,7 +60,7 @@ pub trait PagingConstsTrait: Debug + Sync {
         ensures
             res == Self::BASE_PAGE_SIZE_spec(),
             0 < res,
-            is_power_2(res as int),
+            is_pow2(res as int),
     ;
 
     spec fn NR_LEVELS_spec() -> PagingLevel;
@@ -98,14 +98,14 @@ pub trait PagingConstsTrait: Debug + Sync {
     fn PTE_SIZE() -> (res: usize)
         ensures
             res == Self::PTE_SIZE_spec(),
-            is_power_2(res as int),
+            is_pow2(res as int),
             0 < res <= Self::BASE_PAGE_SIZE(),
     ;
 
     proof fn lemma_PTE_SIZE_properties()
         ensures
             0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_power_2(Self::PTE_SIZE_spec() as int),
+            is_pow2(Self::PTE_SIZE_spec() as int),
     ;
 
     spec fn ADDRESS_WIDTH_spec() -> usize;

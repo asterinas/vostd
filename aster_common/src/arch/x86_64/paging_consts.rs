@@ -1,5 +1,4 @@
 use vstd::arithmetic::power2::*;
-use vstd::layout::is_power_2;
 use vstd::prelude::*;
 
 use vstd_extra::prelude::*;
@@ -30,7 +29,7 @@ impl PagingConstsTrait for PagingConsts {
     proof fn lemma_BASE_PAGE_SIZE_properties()
         ensures
             0 < Self::BASE_PAGE_SIZE_spec(),
-            is_power_2(Self::BASE_PAGE_SIZE_spec() as int),
+            is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
     {
         lemma_pow2_is_pow2_to64();
     }
@@ -107,7 +106,7 @@ impl PagingConstsTrait for PagingConsts {
     proof fn lemma_PTE_SIZE_properties()
         ensures
             0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
-            is_power_2(Self::PTE_SIZE_spec() as int),
+            is_pow2(Self::PTE_SIZE_spec() as int),
     {
         lemma_pow2_is_pow2_to64();
     }
