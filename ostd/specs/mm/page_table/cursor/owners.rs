@@ -233,6 +233,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn node_locked(self, guards: Guards<'rcu, C>) -> bool {
         guards.lock_held(self.guard_perm.value().inner.inner@.ptr.addr())
     }
+
+    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
+        &&& self.entry_own.node.unwrap().relate_region(regions)
+        &&& forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some ==>
+            PageTableOwner(self.children[i].unwrap()).relate_region(regions)
+    }
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -453,9 +459,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     { admit() }
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
-        decreases INC_LEVELS() - self.level when self.inv()
     {
-        self.into_pt_owner_rec().relate_region(regions)
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].relate_region(regions)
     }
 }
 
