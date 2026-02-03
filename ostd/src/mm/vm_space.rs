@@ -874,12 +874,17 @@ impl<'a> VmSpace<'a> {
                     );
                     let o_mv = old_mv.mappings.filter(
                         |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
+                    ); 
 
                     assert(old_mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
                     assert(o_lhs.len() > 0) by {
-                        admit();
+                        broadcast use vstd::set::axiom_set_choose_len;
+
+                        let m = o_mv.choose();
+                        assert(o_mv.contains(m));
+                        assert(m.va_range.start <= va < m.va_range.end);
+                        assert(o_lhs.contains(m));
                     }
                 }
             }
