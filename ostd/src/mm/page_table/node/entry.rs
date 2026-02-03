@@ -240,8 +240,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_owner.inv(),
             old(parent_owner).inv(),
             old(regions).inv(),
-            !old(regions).slots.contains_key(frame_to_index(old(self).pte.paddr())),
-            old(regions).dropped_slots.contains_key(frame_to_index(old(self).pte.paddr())),
+            owner.is_node() ==> owner.node.unwrap().relate_region(*old(regions)),
             old(guard_perm).addr() == old(self).node.addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
         ensures

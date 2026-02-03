@@ -154,6 +154,7 @@ pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVEL
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
+    
     pub open spec fn unlocked<'rcu>(subtree: OwnerSubtree<C>, guards: Guards<'rcu, C>) -> bool
         decreases INC_LEVELS() - subtree.level when subtree.inv()
     {
@@ -313,13 +314,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub open spec fn relate_region_rec(self, regions: MetaRegionOwners) -> bool
+    pub open spec fn relate_region_rec(self, path: TreePath<CONST_NR_ENTRIES>, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS() - self.0.level when self.0.inv()
     {
         if self.0.value.is_node() {
+            &&& self.0.value.node.unwrap().path == path
             &&& self.0.value.node.unwrap().relate_region(regions)
             &&& forall|i: int| 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
-                PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(regions)
+                PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(path.push_tail(i as usize), regions)
         } else {
             true
         }
@@ -328,7 +330,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS() - self.0.level when self.0.inv()
     {
-        self.relate_region_rec(regions)
+        self.relate_region_rec(TreePath::new(Seq::empty()), regions)
     }
 }
 

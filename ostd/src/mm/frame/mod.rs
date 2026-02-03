@@ -509,7 +509,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             self.paddr() % PAGE_SIZE() == 0,
             self.paddr() < MAX_PADDR(),
             !old(regions).slots.contains_key(self.index()),
-            old(regions).dropped_slots.contains_key(self.index()),
             perm.points_to.pptr() == self.ptr,
             perm.is_init(),
             FRAME_METADATA_RANGE().start <= perm.points_to.addr() < FRAME_METADATA_RANGE().end,

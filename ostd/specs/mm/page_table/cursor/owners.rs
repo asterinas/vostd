@@ -237,7 +237,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
         &&& self.entry_own.node.unwrap().relate_region(regions)
         &&& forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some ==>
-            PageTableOwner(self.children[i].unwrap()).relate_region(regions)
+            PageTableOwner(self.children[i].unwrap()).relate_region_rec(self.entry_own.node.unwrap().path.push_tail(i as usize), regions)
     }
 }
 

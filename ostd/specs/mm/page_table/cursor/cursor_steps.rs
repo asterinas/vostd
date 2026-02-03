@@ -119,6 +119,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         admit();
     }
 
+    pub proof fn push_level_owner_preserves_guard_conditions(self, guard_perm: GuardPerm<'rcu, C>, guards: Guards<'rcu, C>)
+        requires
+            self.inv(),
+            self.level > 1,
+            self.children_not_locked(guards),
+            self.nodes_locked(guards),
+            guards.lock_held(guard_perm.value().inner.inner@.ptr.addr()),
+            forall|i: int| 0 <= i < NR_LEVELS() ==> self.continuations[i].guard_perm.value().inner.inner@.ptr.addr() !=
+                guard_perm.value().inner.inner@.ptr.addr(),
+        ensures
+            self.push_level_owner_spec(guard_perm).children_not_locked(guards),
+            self.push_level_owner_spec(guard_perm).nodes_locked(guards),
+    { admit() }
+
     #[verifier::returns(proof)]
     pub proof fn push_level_owner(tracked &mut self, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>)
         requires

@@ -239,6 +239,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).wf(*old(owner)),
             old(regions).inv(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
         ensures
@@ -274,6 +276,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 regions.inv(),
                 self.va == initial_va,
                 owner.children_not_locked(*guards),
+                owner.relate_region(*regions),
                 owner.in_locked_range(),
                 !owner.popped_too_high,
             decreases self.level,
@@ -342,7 +345,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     self.push_level(guard);
 
                     assert(owner.children_not_locked(*guards)) by { admit() };
-
+                    assert(owner.relate_region(*regions)) by { admit() };
                     continue ;
                 },
                 ChildRef::None => {
@@ -410,6 +413,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).level < old(self).guard_level,
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).va + len <= old(self).barrier_va.end,
             !old(owner).popped_too_high,
@@ -449,6 +454,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             // Panic conditions as preconditions
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).va + len <= old(self).barrier_va.end,
@@ -477,6 +484,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.in_locked_range() || self.va >= end,
                 end <= self.barrier_va.end,
                 owner.children_not_locked(*guards),
+                owner.nodes_locked(*guards),
+                owner.relate_region(*regions),
                 !owner.popped_too_high,
             decreases owner.max_steps(),
         {
@@ -573,7 +582,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         }
                     }
 
-                    assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.children_not_locked(*guards)) by { admit() };  
+                    assert(owner.nodes_locked(*guards)) by { admit() };
+                    assert(owner.relate_region(*regions)) by { admit() };
                     continue ;
                 },
                 ChildRef::None => {
@@ -593,6 +604,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
 
                     assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };
+                    assert(owner.relate_region(*regions)) by { admit() };
                     continue ;
                 },
                 ChildRef::Frame(_, _, _) => {
@@ -639,6 +652,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     self.push_level(split_child);
 
                     assert(owner.children_not_locked(*guards)) by { admit() };
+                    assert(owner.nodes_locked(*guards)) by { admit() };
+                    assert(owner.relate_region(*regions)) by { admit() };
                     continue ;
                 },
             }
@@ -1058,6 +1073,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.level < old(self).inner.guard_level,
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
             !old(owner).popped_too_high,
@@ -1121,6 +1138,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.inv(),
             old(regions).inv(),
             old(owner).children_not_locked(*old(guards)),
+            old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             old(owner).in_locked_range(),
             !old(owner).popped_too_high,
     {
@@ -1180,11 +1199,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(forall|i: int| 0 <= i < NR_LEVELS() ==> owner.continuations[i].guard_perm.value().inner.inner@.ptr.addr() !=
             guard_perm.value().inner.inner@.ptr.addr()) by { admit() };
         
+        proof {
+            assert(owner.nodes_locked(*guards)) by { admit() };
+            assert(owner.children_not_locked(*guards)) by { admit() };
+
+            owner.push_level_owner_preserves_guard_conditions(guard_perm, *guards);
+        }
+
         #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
         self.inner.push_level(pt_guard);
 
-        assert(owner.nodes_locked(*guards)) by { admit() };
-        assert(owner.children_not_locked(*guards)) by { admit() };
         assert(owner.relate_region(*regions)) by { admit() };
     }
 
@@ -1621,6 +1645,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(owner).popped_too_high,
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
             old(self).inner.level < NR_LEVELS(),
@@ -1655,6 +1680,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             continuation.entry_own.node = Some(parent_owner);
             assert(continuation.inv()) by { admit() };
             owner.continuations.tracked_insert(owner.level - 1, continuation);
+            // This is going to require proving that all of the nodes in the tree are distinct.
+            // Can we do a lookup from `regions` instead of collecting all of them? E.g., node metadata
+            // carries the path to the node that it belongs to, and since we're dealing with nodes of different
+            // levels it will be clear that the nodes cannot be the same.
             assert(owner.inv()) by { admit() };
         }
 
@@ -1690,6 +1719,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
+            old(owner).relate_region(*old(regions)),
             !old(owner).popped_too_high,
             new_owner.level == old(owner).continuations[old(owner).level - 1].tree_level + 1,
             new_child.wf(new_owner.value),
@@ -1702,6 +1732,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.in_locked_range(),
             owner.children_not_locked(*guards),
             owner.nodes_locked(*guards),
+            owner.relate_region(*regions),
             !owner.popped_too_high,
     {
         let ghost guard_level = owner.guard_level;
@@ -1713,8 +1744,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         #[verus_spec(with Tracked(owner), Tracked(regions))]
         let mut cur_entry = self.inner.cur_entry();
 
-        assert(regions.dropped_slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by { admit() };
-//        assert(!regions.slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by { admit() };
+        assert(!regions.slots.contains_key(frame_to_index(cur_entry.pte.paddr()))) by { admit() };
 
         let tracked mut continuation = owner.continuations.tracked_remove((owner.level - 1) as int);
         let ghost cont0 = continuation;
@@ -1741,6 +1771,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert(owner.children_not_locked(*guards)) by { admit() };
         assert(owner.nodes_locked(*guards)) by { admit() };
+        assert(owner.relate_region(*regions)) by { admit() };
 
         let result = match old {
             Child::None => None,
@@ -1776,7 +1807,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let tracked mut old_node_owner = old_child_owner.value.node.tracked_take();
 
                 assert(!regions.slots.contains_key(pt.index())) by { admit() };
-                assert(regions.dropped_slots.contains_key(pt.index())) by { admit() };
 
                 #[verus_spec(with Tracked(regions), Tracked(&old_node_owner.meta_perm))]
                 let borrow_pt = pt.borrow();
@@ -1796,6 +1826,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 assert(owner.children_not_locked(*guards)) by { admit() };
                 assert(owner.nodes_locked(*guards)) by { admit() };
+                assert(owner.relate_region(*regions)) by { admit() };
 
                 Some(
                     PageTableFrag::StrayPageTable {

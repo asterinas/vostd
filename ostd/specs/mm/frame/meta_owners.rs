@@ -9,17 +9,18 @@ use vstd::simple_pptr::*;
 
 use vstd_extra::cast_ptr::{self, Repr};
 use vstd_extra::ownership::*;
+use vstd_extra::ghost_tree::TreePath;
 
 use super::*;
 use crate::mm::frame::meta::{MetaSlot, MetaSlotStorage};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::arch::mm::CONST_NR_ENTRIES;
 
 use core::marker::PhantomData;
 
 verus! {
 
-// TODO: this all feels a bit redundant, think about whether we can simplify it.
 #[allow(non_camel_case_types)]
 pub enum MetaSlotStatus {
     UNUSED,
@@ -103,6 +104,7 @@ pub tracked struct MetaSlotOwner {
     pub in_list: PermissionU64,
     pub self_addr: usize,
     pub usage: PageUsage,
+    pub path_if_in_pt: Option<TreePath<CONST_NR_ENTRIES>>,
 }
 
 impl Inv for MetaSlotOwner {
