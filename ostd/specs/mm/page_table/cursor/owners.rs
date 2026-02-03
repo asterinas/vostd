@@ -12,11 +12,13 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::mm::page_prop::PageProperty;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::*;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Guards;
 use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::task::InAtomicMode;
 
 verus! {
@@ -393,24 +395,29 @@ pub tracked struct CursorView<C: PageTableConfig> {
     pub phantom: PhantomData<C>,
 }
 
-impl<C: PageTableConfig> Inv for CursorView<C> {
-    open spec fn inv(self) -> bool {
-        true
-    }
-}
-
 impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
     type V = CursorView<C>;
 
-    uninterp spec fn view(&self) -> Self::V;
-    /* {
+    open spec fn view(&self) -> Self::V {
         CursorView {
             cur_va: self.cur_va(),
-            mappings: self.mappings,
+            mappings: self.into_pt_owner_rec().view().mappings,
+            phantom: PhantomData,
         }
-    }*/
+    }
 }
 
+impl<C: PageTableConfig> Inv for CursorView<C> {
+    open spec fn inv(self) -> bool {
+        &&& self.cur_va < MAX_USERSPACE_VADDR()
+        &&& forall|m: Mapping| self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping, n: Mapping|
+            self.mappings.contains(m) ==>
+            self.mappings.contains(n) ==>
+            m != n ==>
+            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+    }
+}
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {

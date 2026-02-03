@@ -1235,7 +1235,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
-        &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -1318,7 +1317,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.map(item)) else {
-            // Use old(cursor_owner) for the pre-call cursor view, cursor_owner for post-call
             return ;  // No mapping exists at the current address.
         };
 

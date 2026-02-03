@@ -13,8 +13,8 @@ use super::*;
 
 verus! {
 
-pub ghost struct PageTableView<C: PageTableConfig> {
-    pub leaves: Seq<FrameView<C>>
+pub ghost struct PageTableView {
+    pub mappings: Set<Mapping>
 }
 
 pub tracked struct Mapping {
@@ -35,6 +35,17 @@ impl Mapping {
         &&& self.va_range.end % self.page_size == 0
         &&& self.va_range.start + self.page_size == self.va_range.end
         &&& 0 < self.va_range.start <= self.va_range.end < MAX_USERSPACE_VADDR()
+    }
+}
+
+impl Inv for PageTableView {
+    open spec fn inv(self) -> bool {
+        &&& forall|m: Mapping| self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping, n:Mapping|
+            self.mappings.contains(m) ==>
+            self.mappings.contains(n) ==>
+            m != n ==>
+            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
     }
 }
 

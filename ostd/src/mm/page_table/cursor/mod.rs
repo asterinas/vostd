@@ -1099,15 +1099,68 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         self.inner.query()
     }
 
+    /// In order for the function to not panic, the current virtual address must be within the barrier range,
+    /// the level of the item to be mapped must be within the highest translation level,
+    /// the item must be aligned to the page size, at its level,
+    /// and the virtual address range to be mapped must not exceed the barrier range.
+    /// If the page table config doesn't allow the top level to be unmapped, then the item must also not be at the top level.
+    pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
+        &&& self.inner.va < self.inner.barrier_va.end
+        &&& C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL()
+        &&& !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS()
+        &&& self.inner.va % page_size(C::item_into_raw(item).1) == 0
+        &&& self.inner.va + page_size(C::item_into_raw(item).1) <= self.inner.barrier_va.end
+    }
+
+    pub open spec fn map_cursor_inv(
+        self,
+        owner: CursorOwner<'rcu, C>,
+        guards: Guards<'rcu, C>,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        &&& owner.inv()
+        &&& self.inner.wf(owner)
+        &&& self.inner.inv()
+        &&& owner.children_not_locked(guards)
+        &&& !owner.popped_too_high
+        &&& regions.inv()
+    }
+
+    pub open spec fn map_cursor_requires(
+        self,
+        owner: CursorOwner<'rcu, C>,
+        guards: Guards<'rcu, C>,
+    ) -> bool {
+        &&& owner.in_locked_range()
+        &&& self.inner.level < self.inner.guard_level
+        &&& self.inner.va < self.inner.barrier_va.end
+    }
+
+    pub open spec fn map_item_requires(
+        self,
+        item: C::Item,
+        entry_owner: EntryOwner<C>,
+    ) -> bool {
+        &&& entry_owner.inv()
+        &&& self.inner.va % page_size(C::item_into_raw(item).1) == 0
+        &&& self.inner.va + page_size(C::item_into_raw(item).1) <= self.inner.barrier_va.end
+        &&& C::item_into_raw(item).1 < self.inner.guard_level
+        &&& Child::Frame(
+            C::item_into_raw(item).0,
+            C::item_into_raw(item).1,
+            C::item_into_raw(item).2,
+        ).wf(entry_owner)
+    }
+
     pub open spec fn map_item_ensures(
         self,
         item: C::Item,
-        old_owner: CursorView<C>,
-        new_owner: CursorView<C>,
+        old_view: CursorView<C>,
+        new_view: CursorView<C>,
     ) -> bool {
         let (pa, level, prop) = C::item_into_raw(item);
         let size = page_size(level);
-        new_owner == old_owner.map_spec(
+        new_view == old_view.map_spec(
             Mapping {
                 va_range: self.inner.va..(self.inner.va + size) as usize,
                 pa_range: pa..(pa + size) as usize,
@@ -1148,33 +1201,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>)
         requires
-            old(owner).inv(),
-            old(self).inner.wf(*old(owner)),
-            old(regions).inv(),
-            entry_owner.inv(),
-            old(self).inner.inv(),
-            C::item_into_raw(item).1 < old(self).inner.guard_level,
-            old(owner).in_locked_range(),
-            old(owner).children_not_locked(*old(guards)),
-            !old(owner).popped_too_high,
-            Child::Frame(
-                C::item_into_raw(item).0,
-                C::item_into_raw(item).1,
-                C::item_into_raw(item).2,
-            ).wf(entry_owner),
-            // Panic conditions as preconditions
-            old(self).inner.va < old(self).inner.barrier_va.end,
-            C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL(),
-            !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < C::NR_LEVELS(),
-            old(self).inner.va % page_size(C::item_into_raw(item).1) == 0,
-            old(self).inner.va + page_size(C::item_into_raw(item).1) <= old(self).inner.barrier_va.end,
+            old(self).map_cursor_inv(*old(owner), *old(guards), *old(regions)),
+            old(self).map_cursor_requires(*old(owner), *old(guards)),
+            old(self).map_item_requires(item, entry_owner),
+            old(self).map_panic_conditions(item),
         ensures
-            owner.inv(),
-            self.inner.wf(*owner),
-            self.inner.inv(),
-            owner.children_not_locked(*guards),
-            !owner.popped_too_high,
-            regions.inv(),
+            self.map_cursor_inv(*owner, *guards, *regions),
             self.map_item_ensures(item, old(self).inner.model(*old(owner)), self.inner.model(*owner)),
     {
         let (pa, level, prop) = C::item_into_raw(item);
