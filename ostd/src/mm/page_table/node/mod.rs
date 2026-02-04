@@ -309,6 +309,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
 }
 
+#[verus_verify]
 impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// Locks the page table node.
     ///
@@ -333,29 +334,38 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     ///
     /// Calling this function when a guard is already created is undefined behavior
     /// unless that guard was already forgotten.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+            -> guard_perm: Tracked<GuardPerm<'rcu, C>>
         requires
             owner.inv(),
             self.inner@.wf(*owner),
             !old(guards).guards.contains_key(owner.meta_perm.addr()),
+            old(guards).unlocked(owner.meta_perm.addr()),
         ensures
-            guards.guards.contains_key(owner.meta_perm.addr()),
-            guards.guards[owner.meta_perm.addr()] is Some,
-            res.addr() == guards.guards[owner.meta_perm.addr()].unwrap().addr(),
-            owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()),
+            guards.lock_held(owner.meta_perm.addr()),
+            OwnerSubtree::implies(CursorOwner::node_unlocked(*old(guards)),
+                CursorOwner::node_unlocked_except(*guards, owner.meta_perm.addr())),
+            forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
+            res.addr() == guard_perm@.addr(),
+            owner.relate_guard_perm(guard_perm@),
     )]
     pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A)
-    -> (res: PPtr<PageTableGuard<'rcu, C>>) where 'a: 'rcu {
+    -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
+
         proof {
-            guards.guards.tracked_insert(owner.meta_perm.addr(), Some(guard_perm.get()));
-            assert(owner.relate_guard_perm(guards.guards[owner.meta_perm.addr()].unwrap()));
+            let ghost guards0 = *guards;
+            guards.guards.tracked_insert(owner.meta_perm.addr(), None);
+            assert(owner.relate_guard_perm(guard_perm@));
+
+            assert(forall|other: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
+                ==> #[trigger] CursorOwner::node_unlocked_except(*guards, owner.meta_perm.addr())(other, path));
         }
 
+        proof_with!{|= guard_perm}
         ptr
     }
 }
