@@ -34,7 +34,8 @@ impl<C: PageTableConfig> CursorView<C> {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).len() > 0
     }
 
-    /// This function specifies the behavior of the `query` method. It returns the mapping
+    /// This function specifies the behavior of the `query` method. It returns the mapping containing
+    /// the current virtual address.
     pub open spec fn query_item_spec(self) -> Mapping
         recommends
             self.present(),
@@ -42,6 +43,10 @@ impl<C: PageTableConfig> CursorView<C> {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
     }
 
+    /// The specification for the internal function, `find_next_impl`. It finds the next mapped virtual address
+    /// that is at most `len` bytes away from the current virtual address. TODO: add the specifications for
+    /// `find_unmap_subtree` and `split_huge`, which are used by other functions that call thie one.
+    /// This returns a mapping rather than the address because that is useful when it's called as a subroutine.
     pub open spec fn find_next_impl_spec(self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (Self, Option<Mapping>) {
         let mappings_in_range = self.mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len);
 
@@ -61,6 +66,9 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    /// Actual specification for `find_next`. The cursor finds the next mapped virtual address
+    /// that is at most `len` bytes away from the current virtual address, returns it, and then
+    /// moves the cursor forward to the next end of its range.
     pub open spec fn find_next_spec(self, len: usize) -> (Self, Option<Vaddr>) {
         let (cursor, mapping) = self.find_next_impl_spec(len, false, false);
         if mapping is Some {
@@ -70,6 +78,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    /// Jump just sets the current virtual address to the given address.
     pub open spec fn jump_spec(self, va: usize) -> Self {
         CursorView {
             cur_va: va as Vaddr,
@@ -77,20 +86,33 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    pub open spec fn map_spec(self, item: Mapping) -> Self {
+    /// Inserts a mapping into the cursor. If there were previously mappings there,
+    /// they are removed. Note that multiple mappings might be removed if they overlap with
+    /// a new large mapping.
+    pub open spec fn map_spec(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
+        let existing = self.mappings.filter(|m: Mapping|
+            m.va_range.start <= self.cur_va < m.va_range.end || m.va_range.start <= self.cur_va + size < m.va_range.end);
+        let new = Mapping {
+            va_range: self.cur_va..(self.cur_va + size) as usize,
+            pa_range: paddr..(paddr + size) as usize,
+            page_size: size,
+            property: prop,
+        };
         CursorView {
-            cur_va: item.va_range.end,
-            mappings: self.mappings.insert(item),
+            cur_va: (self.cur_va + size) as Vaddr,
+            mappings: self.mappings.difference(existing).insert(new),
             ..self
         }
     }
 
+    /// Unmaps a range of virtual addresses from the current address up to `len` bytes.
+    /// It returns the number of mappings that were removed.
     pub open spec fn unmap_spec(self, len: usize) -> (Self, usize) {
-        let taken = self.mappings.filter(|m: Mapping| self.cur_va <= m.va_range.start < self.cur_va + len);
-        let remaining = self.mappings.difference(taken);
+        let taken = self.mappings.filter(|m: Mapping|
+            self.cur_va <= m.va_range.start < self.cur_va + len);
         (CursorView {
             cur_va: (self.cur_va + len) as Vaddr,
-            mappings: remaining,
+            mappings: self.mappings.difference(taken),
             ..self
         }, taken.len() as usize)
     }
@@ -98,7 +120,7 @@ impl<C: PageTableConfig> CursorView<C> {
     pub open spec fn protect_spec(self, len: usize, op: impl Fn(PageProperty) -> PageProperty) -> (Self, Option<Range<Vaddr>>) {
         let (cursor, next) = self.find_next_impl_spec(len, false, true);
         if next is Some {
-            // TODO: Protect the page
+            // TODO: Model props in here
             (cursor, Some(next.unwrap().va_range))
         } else {
             (cursor, None)
