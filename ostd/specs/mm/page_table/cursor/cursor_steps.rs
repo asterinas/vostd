@@ -113,7 +113,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
             old(self).level > 1,
         ensures
-            self == old(self).push_level_owner_spec(guard_perm@),
+            *self == old(self).push_level_owner_spec(guard_perm@),
     {
         assert(self.va.index.contains_key(self.level - 2));
 
@@ -177,7 +177,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
             old(self).level < NR_LEVELS(),
         ensures
-            self == old(self).pop_level_owner_spec().0,
+            *self == old(self).pop_level_owner_spec().0,
             guard_perm@ == old(self).pop_level_owner_spec().1,
     {
         let ghost self0 = *self;

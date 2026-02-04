@@ -240,7 +240,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     fn set_prop(&mut self, prop: PageProperty)
-        ensures self == old(self).set_prop_spec(prop)
+        ensures *self == old(self).set_prop_spec(prop)
     {
         let flags = Self::format_flags(prop);
         self.prop_assign(flags)

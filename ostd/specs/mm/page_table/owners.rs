@@ -193,7 +193,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         if subtree.value.is_node() {
             assert(guards1.unlocked(subtree.value.node.unwrap().meta_perm.addr()));
 
-            assert forall|i: int| 0 <= i < subtree.children.len() && subtree.children[i] is Some implies
+            assert forall|i: int| #![auto] 0 <= i < subtree.children.len() && subtree.children[i] is Some implies
                 Self::unlocked(subtree.children[i].unwrap(), guards1) by {
                 PageTableOwner::unlocked_unroll_once(subtree, subtree.children[i].unwrap(), guards0);
                 PageTableOwner::never_drop_preserves_unlocked(subtree.children[i].unwrap(), guard, guards0, guards1);
@@ -220,7 +220,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS() - 1 {
             Set::new(
-                |m: Mapping| exists|i:int| 0 <= i < self.0.children.len() &&
+                |m: Mapping| exists|i:int| #![auto] 0 <= i < self.0.children.len() &&
                     self.0.children[i] is Some &&
                     PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
             )
@@ -237,7 +237,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.view_rec(path).contains(m),
             self.0.value.is_node()
         ensures
-            exists|i:int| 0 <= i < self.0.children.len() &&
+            exists|i:int| #![auto] 0 <= i < self.0.children.len() &&
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     { }
@@ -254,7 +254,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     {
-        choose|i:int| 0 <= i < self.0.children.len() &&
+        choose|i:int| #![auto] 0 <= i < self.0.children.len() &&
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     }

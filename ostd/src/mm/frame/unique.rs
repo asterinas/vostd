@@ -165,7 +165,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
         ensures
             res.addr() == self.ptr.addr(),
             res.ptr.addr() == self.ptr.addr(),
-            self == old(self),
+            *self == *old(self),
     {
         // SAFETY: The type is tracked by the type system.
         // And we have the exclusive access to the metadata.

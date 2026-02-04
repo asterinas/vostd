@@ -343,7 +343,7 @@ impl VirtPtr {
             old(mem).addr_transl(self.vaddr) is Some,
             self.is_valid(),
         ensures
-            mem == old(mem).write(self.vaddr, x),
+            *mem == old(mem).write(self.vaddr, x),
     {
         unimplemented!()
     }
@@ -360,7 +360,7 @@ impl VirtPtr {
 
             0 <= old(self).vaddr + n < usize::MAX,
         ensures
-            self == old(self).add_spec(
+            *self == old(self).add_spec(
                 n,
             ),
     // If we take option 1, we can also ensure:
@@ -421,7 +421,7 @@ impl VirtPtr {
             old(mem).memory.contains_key(old(mem).addr_transl((src.vaddr + n) as usize).unwrap().0),
             old(mem).memory[old(mem).addr_transl((src.vaddr + n) as usize).unwrap().0].contents[old(mem).addr_transl((src.vaddr + n) as usize).unwrap().1 as int] is Init,
         ensures
-            mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
+            *mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
     {
         let x = src.read_offset(Tracked(mem), n);
         proof { admit() }
@@ -470,7 +470,7 @@ impl VirtPtr {
                     &&& old(mem).addr_transl(i) is Some
                 },
         ensures
-            mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
+            *mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
         decreases n,
     {
         let ghost mem0 = *mem;
@@ -600,7 +600,7 @@ impl GlobalMemView {
 
     pub axiom fn take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: Tracked<MemView>)
         ensures
-            self == old(self).take_view_spec(vaddr, len).0,
+            *self == old(self).take_view_spec(vaddr, len).0,
             view@ == old(self).take_view_spec(vaddr, len).1;
 
     pub open spec fn return_view_spec(self, view: MemView) -> Self {
@@ -613,7 +613,7 @@ impl GlobalMemView {
 
     pub axiom fn return_view(&mut self, view: MemView)
         ensures
-            self == old(self).return_view_spec(view);
+            *self == old(self).return_view_spec(view);
 
     pub open spec fn tlb_flush_vaddr_spec(self, vaddr: Vaddr) -> Self {
         let tlb_mappings = self.tlb_mappings.filter(
@@ -629,7 +629,7 @@ impl GlobalMemView {
         requires
             old(self).inv()
         ensures
-            self == old(self).tlb_flush_vaddr_spec(vaddr),
+            *self == old(self).tlb_flush_vaddr_spec(vaddr),
             self.inv();
 
     pub open spec fn tlb_soft_fault_spec(self, vaddr: Vaddr) -> Self {
@@ -645,7 +645,7 @@ impl GlobalMemView {
             old(self).inv(),
             old(self).addr_transl(vaddr) is None,
         ensures
-            self == old(self).tlb_soft_fault_spec(vaddr),
+            *self == old(self).tlb_soft_fault_spec(vaddr),
             self.inv();
 
     pub open spec fn pt_map_spec(self, m: Mapping) -> Self {
@@ -667,7 +667,7 @@ impl GlobalMemView {
                 old(self).unmapped_pas.contains(pa),
             old(self).inv()
         ensures
-            self == old(self).pt_map_spec(m);
+            *self == old(self).pt_map_spec(m);
 
     pub open spec fn pt_unmap_spec(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
@@ -686,7 +686,7 @@ impl GlobalMemView {
             old(self).pt_mappings.contains(m),
             old(self).inv()
         ensures
-            self == old(self).pt_unmap_spec(m),
+            *self == old(self).pt_unmap_spec(m),
             self.inv();
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)
@@ -708,7 +708,7 @@ impl Inv for GlobalMemView {
         &&& self.all_pas_accounted_for()
         &&& self.pas_uniquely_mapped()
         &&& self.unmapped_correct()
-        &&& forall |m: Mapping| self.tlb_mappings.contains(m) ==> {
+        &&& forall |m: Mapping| #![auto] self.tlb_mappings.contains(m) ==> {
             &&& m.inv()
             &&& forall|pa: Paddr| m.pa_range.start <= pa < m.pa_range.end ==> {
                 &&& self.memory.dom().contains(pa)
@@ -718,7 +718,7 @@ impl Inv for GlobalMemView {
             &&& self.memory[m.pa_range.start].inv()
         }
         &&& forall |m: Mapping|
-            forall |n: Mapping|
+            forall |n: Mapping| #![auto]
             self.tlb_mappings.contains(m) ==>
             self.tlb_mappings.contains(n) ==>
             m != n ==>

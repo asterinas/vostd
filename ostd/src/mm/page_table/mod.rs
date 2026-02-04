@@ -330,7 +330,7 @@ Sized + Send + Sync + 'static {
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            old(self).set_prop_spec(prop) == self,
+            old(self).set_prop_spec(prop) == *self,
     ;
 
     /// If the PTE maps a page rather than a child page table.

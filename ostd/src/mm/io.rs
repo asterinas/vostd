@@ -1067,7 +1067,7 @@ impl VmReader<'_> {
                     &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    old(self) == self
+                    *old(self) == *self
                 },
             }
     )]
@@ -1127,7 +1127,7 @@ impl VmReader<'_> {
                     &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    old(self) == self
+                    *old(self) == *self
                 },
             }
     )]
@@ -1279,7 +1279,7 @@ impl<'a> VmWriter<'a> {
                     &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    old(self) == self
+                    *old(self) == *self
                 },
             }
     )]
@@ -1327,7 +1327,7 @@ impl<'a> VmWriter<'a> {
                     &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    old(self) == self
+                    *old(self) == *self
                 },
             }
     )]

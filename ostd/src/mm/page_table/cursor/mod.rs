@@ -716,7 +716,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.wf(*owner),
             self.inv(),
             regions.inv(),
-            owner == old(owner).move_forward_owner_spec(),
+            *owner == old(owner).move_forward_owner_spec(),
             owner.max_steps() < old(owner).max_steps(),
             self.barrier_va == old(self).barrier_va,
             self.guard_level == old(self).guard_level,
@@ -891,7 +891,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.level == old(self).level - 1,
             self.va == old(self).va,
             //            self.model(*owner) == old(self).model(*old(owner)).push_level_spec(),
-            owner == old(owner).push_level_owner_spec(guard_perm),
+            *owner == old(owner).push_level_owner_spec(guard_perm),
             owner.max_steps() < old(owner).max_steps(),
     {
         assert(owner.va.index.contains_key(owner.level - 2));
@@ -926,8 +926,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.inv(),
             self.wf(*owner),
             res.wf(owner.cur_entry_owner()),
-            self == old(self),
-            owner == old(owner),
+            *self == *old(self),
+            *owner == *old(owner),
             owner.continuations[owner.level - 1].guard_perm.addr() == res.node.addr(),
     {
         let ghost owner0 = *owner;
@@ -990,7 +990,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             old(owner).va.align_down(self.level as int).reflect(res.start),
             old(owner).va.align_up(self.level as int).reflect(res.end),
-            owner == old(owner),
+            *owner == *old(owner),
     {
         let page_size = page_size(self.level);
         let start = self.va.align_down(page_size);

@@ -335,7 +335,7 @@ impl VirtPtr {
 
             0 <= old(self).vaddr + n < usize::MAX,
         ensures
-            self == old(self).add_spec(
+            *self == old(self).add_spec(
                 n,
             ),
     // If we take option 1, we can also ensure:
@@ -396,7 +396,7 @@ impl VirtPtr {
             old(mem).memory.contains_key(old(mem).addr_transl((src.vaddr + n) as usize).unwrap()),
             old(mem).memory[old(mem).addr_transl((src.vaddr + n) as usize).unwrap()] is Init,
         ensures
-            mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
+            *mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
     {
         let x = src.read_offset(Tracked(mem), n);
         proof { admit() }
@@ -445,7 +445,7 @@ impl VirtPtr {
                     &&& old(mem).addr_transl(i) is Some
                 },
         ensures
-            mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
+            *mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
         decreases n,
     {
         let ghost mem0 = *mem;

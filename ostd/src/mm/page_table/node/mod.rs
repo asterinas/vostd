@@ -163,7 +163,7 @@ uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMe
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
     ensures
-        _page == drop_tree_spec::<C>(*old(_page)),
+        *_page == drop_tree_spec::<C>(*old(_page)),
 ;
 
 impl<C: PageTableConfig> Repr<MetaSlot> for PageTablePageMeta<C> {
@@ -418,7 +418,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner@.ptr.addr() == old(owner).meta_perm.points_to.addr(),
             old(owner).inv(),
         ensures
-            owner == old(owner),
+            *owner == *old(owner),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(&owner.meta_perm))]
