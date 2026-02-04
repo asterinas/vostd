@@ -7,6 +7,7 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::mm::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::Guards;
@@ -107,30 +108,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.va.index.contains_key(self.level - 2));
     }
 
-    pub proof fn push_level_owner_preserves_inv(self, guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn push_level_owner_preserves_invs(self, guard_perm: GuardPerm<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
+            self.only_current_locked(guards),
+            self.nodes_locked(guards),
+            self.relate_region(regions),
         ensures
             self.push_level_owner_spec(guard_perm).inv(),
-    {
-        let cont = self.continuations[self.level - 1];
-        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
-        admit();
-    }
-
-    pub proof fn push_level_owner_preserves_guard_conditions(self, guard_perm: GuardPerm<'rcu, C>, guards: Guards<'rcu, C>)
-        requires
-            self.inv(),
-            self.level > 1,
-            self.children_not_locked(guards),
-            self.nodes_locked(guards),
-            guards.lock_held(guard_perm.value().inner.inner@.ptr.addr()),
-            forall|i: int| 0 <= i < NR_LEVELS() ==> self.continuations[i].guard_perm.value().inner.inner@.ptr.addr() !=
-                guard_perm.value().inner.inner@.ptr.addr(),
-        ensures
             self.push_level_owner_spec(guard_perm).children_not_locked(guards),
             self.push_level_owner_spec(guard_perm).nodes_locked(guards),
+            self.push_level_owner_spec(guard_perm).relate_region(regions),
     { admit() }
 
     #[verifier::returns(proof)]
@@ -197,15 +186,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(new_cont.inv());
     }
 
-    pub proof fn pop_level_owner_preserves_guard_conditions(self, guards: Guards<'rcu, C>)
+    pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
         requires
             self.inv(),
             self.level < NR_LEVELS(),
             self.children_not_locked(guards),
             self.nodes_locked(guards),
+            self.relate_region(regions),
         ensures
+            self.pop_level_owner_spec().0.inv(),
             self.pop_level_owner_spec().0.children_not_locked(guards),
             self.pop_level_owner_spec().0.nodes_locked(guards),
+            self.pop_level_owner_spec().0.relate_region(regions),
     { admit() }
 
     #[verifier::returns(proof)]
@@ -298,25 +290,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
 
-    pub proof fn move_forward_preserves_guard_conditions(self, guards: Guards<'rcu, C>)
+    pub proof fn move_forward_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
         requires
             self.inv(),
             self.level <= NR_LEVELS(),
             self.in_locked_range(),
             self.children_not_locked(guards),
             self.nodes_locked(guards),
+            self.relate_region(regions),
         ensures
             self.move_forward_owner_spec().children_not_locked(guards),
             self.move_forward_owner_spec().nodes_locked(guards),
+            self.move_forward_owner_spec().relate_region(regions),
         decreases NR_LEVELS() - self.level,
     {
         if self.index() + 1 < NR_ENTRIES() {
-            assert(self.inc_index().children_not_locked(guards));
+            
         } else if self.level < NR_LEVELS() {
-            self.pop_level_owner_preserves_guard_conditions(guards);
-            self.pop_level_owner_preserves_inv();
+            self.pop_level_owner_preserves_invs(guards, regions);
             let popped = self.pop_level_owner_spec().0;
-            popped.move_forward_preserves_guard_conditions(guards);
+            popped.move_forward_preserves_invs(guards, regions);
         }
     }
 

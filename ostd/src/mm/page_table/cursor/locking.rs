@@ -264,7 +264,8 @@ fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// and all guards are forgotten.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
+        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
+        Tracked(guards): Tracked<&mut Guards<'rcu, C>>
 )]
 #[verifier::external_body]
 unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
@@ -285,6 +286,10 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         match child.to_ref() {
             ChildRef::PageTable(pt) => {
                 // SAFETY: The caller ensures that the node is locked and the new guard is unique.
+                proof_decl! {
+                    let tracked mut guard_perm: Tracked<GuardPerm<'rcu, C>>;
+                }
+                #[verus_spec(with Tracked(entry_own.node.tracked_borrow()), Tracked(guards) => Tracked(guard_perm))]
                 let child_node = pt.make_guard_unchecked(guard);
                 let child_node_va = cur_node_va + (end - i) * page_size(cur_level);
                 let child_node_va_end = child_node_va + page_size(cur_level);
@@ -329,6 +334,10 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         owner.level <= 3 ==> owner.continuations[2].guard_perm.pptr() == old(owner).continuations[2].guard_perm.pptr(),
         owner.level <= 2 ==> owner.continuations[1].guard_perm.pptr() == old(owner).continuations[1].guard_perm.pptr(),
         owner.level == 1 ==> owner.continuations[0].guard_perm.pptr() == old(owner).continuations[0].guard_perm.pptr(),
+        owner.continuations[owner.level - 1].children[owner.continuations[owner.level - 1].idx as int].unwrap().value.is_absent(),
+        forall |i: int| 0 <= i < NR_ENTRIES() ==>
+            #[trigger]
+            owner.continuations[owner.level - 1].children[i] == old(owner).continuations[owner.level - 1].children[i],
 )]
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(

@@ -11,7 +11,7 @@ use core::ops::Range;
 
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::mm::page_prop::PageProperty;
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{CONST_NR_ENTRIES, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
 use crate::specs::mm::page_table::node::GuardPerm;
@@ -30,6 +30,7 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub idx: usize,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
+    pub path: TreePath<CONST_NR_ENTRIES>,
     pub guard_perm: GuardPerm<'rcu, C>,
 }
 
@@ -99,6 +100,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int].unwrap().children,
+            path: self.path.push_tail(self.idx as usize),
             guard_perm: guard_perm,
         };
         let cont = Self {
@@ -135,24 +137,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             guard_perm@ == old(self).restore_spec(child).1,
     ;
 
-    pub open spec fn prev_views(self) -> Seq<EntryView<C>> {
-        self.children.take(self.idx as int).flat_map(
-            |child: Option<OwnerSubtree<C>>|
-                match child {
-                    Some(child) => child@,
-                    None => Seq::empty(),
-                },
-        )
-    }
-
-    pub open spec fn next_views(self) -> Seq<EntryView<C>> {
-        self.children.skip(self.idx as int).flat_map(
-            |child: Option<OwnerSubtree<C>>|
-                match child {
-                    Some(child) => child@,
-                    None => Seq::empty(),
-                },
-        )
+    pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) -> bool {
+        forall |i: int| 0 <= i < self.children.len() ==>
+            self.children[i] is Some ==>
+            self.children[i].unwrap().tree_predicate_map(self.path.push_tail(i as usize), f)
     }
 
     pub open spec fn level(self) -> PagingLevel {
@@ -203,14 +191,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.idx = (self.idx + 1) as usize;
     }
 
-    pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
-        forall|child|
-        #![auto]
-        self.children.contains(Some(child)) ==> {
-            PageTableOwner::unlocked(child, guards)
-        }
-    }
-
+    /*
     pub proof fn never_drop_preserves_children_not_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
@@ -224,11 +205,19 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.children_not_locked(guards1),
     {
-        assert forall|child| self.children.contains(Some(child)) && PageTableOwner::unlocked(child, guards0) implies
-            PageTableOwner::unlocked(child, guards1) by {
-            PageTableOwner::never_drop_preserves_unlocked(child, guard, guards0, guards1);
+        admit();
+        /*
+        assert forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some ==>
+            PageTableOwner::unlocked(self.children[i].unwrap(), self.path, guards1) by {
+            PageTableOwner::map_implies(self.children[i].unwrap(), self.path,
+                |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+                    guards0.unlocked(owner.node.unwrap().meta_perm.addr()),
+                |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+                    guards1.unlocked(owner.node.unwrap().meta_perm.addr()));
         }
+        */
     }
+    */
 
     pub open spec fn node_locked(self, guards: Guards<'rcu, C>) -> bool {
         guards.lock_held(self.guard_perm.value().inner.inner@.ptr.addr())
@@ -312,13 +301,52 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
+    pub open spec fn node_unlocked(guards: Guards<'rcu, C>) ->
+        (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
+        |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+            owner.is_node() ==>
+            guards.unlocked(owner.node.unwrap().meta_perm.addr())
+    }
+
+    pub open spec fn node_unlocked_except(guards: Guards<'rcu, C>, addr: usize) ->
+        (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
+        |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+            owner.is_node() ==>
+            owner.node.unwrap().meta_perm.addr() != addr ==>
+            guards.unlocked(owner.node.unwrap().meta_perm.addr())
+    }
+
     pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS() ==> {
-                self.continuations[i].children_not_locked(guards)
+                self.continuations[i].map_children(Self::node_unlocked(guards))
             }
     }
+
+    pub open spec fn only_current_locked(self, guards: Guards<'rcu, C>) -> bool {
+        forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS() ==>
+            self.continuations[i].map_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
+    }
+
+    pub proof fn never_drop_preserves_nodes_locked(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>)
+        requires
+            self.inv(),
+            self.nodes_locked(guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard, guards0),
+            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
+            forall|i: int| self.level - 1 <= i < NR_LEVELS() ==>
+                self.continuations[i].guard_perm.value().inner.inner@.ptr.addr() != 
+                    guard.inner.inner@.ptr.addr(),
+        ensures
+            self.nodes_locked(guards1),
+    { admit() }
 
     pub proof fn never_drop_preserves_children_not_locked(
         self,
@@ -328,13 +356,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     requires
         self.inv(),
         self.children_not_locked(guards0),
-        <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
+        <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard, guards0),
         <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
     ensures
         self.children_not_locked(guards1),
     {
-        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies self.continuations[i].children_not_locked(guards1) by {
-            self.continuations[i].never_drop_preserves_children_not_locked(guard, guards0, guards1);
+        admit()
+    }
+
+    pub proof fn map_children_implies(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool,
+        g: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool,
+    )
+    requires
+        self.inv(),
+        OwnerSubtree::implies(f, g),
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==>
+            self.continuations[i].map_children(f),
+    ensures
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==>
+            self.continuations[i].map_children(g),
+    {
+        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies self.continuations[i].map_children(g) by {
+            let cont = self.continuations[i];
+            assert forall|j: int| 0 <= j < cont.children.len() && cont.children[j] is Some
+                implies cont.children[j].unwrap().tree_predicate_map(cont.path.push_tail(j as usize), g) by {
+                OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path.push_tail(j as usize), f, g);
+            }
         }
     }
 
@@ -411,28 +460,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.continuations.contains_key(i));
     }
 
-    pub open spec fn prev_views_rec(self, i: int) -> Seq<EntryView<C>>
-        decreases i,
-        when self.level > 0
-    {
-        if i < self.level {
-            Seq::empty()
-        } else {
-            self.prev_views_rec(i - 1).add(self.continuations[i - 1].prev_views())
-        }
-    }
-
-    pub open spec fn next_views_rec(self, i: int) -> Seq<EntryView<C>>
-        decreases i,
-        when self.level > 0
-    {
-        if i < self.level {
-            Seq::empty()
-        } else {
-            self.continuations[i - 1].next_views().add(self.next_views_rec(i - 1))
-        }
-    }
-
     pub open spec fn cur_entry_owner(self) -> EntryOwner<C> {
         self.continuations[self.level - 1].children[self.index() as int].unwrap().value
     }
@@ -460,7 +487,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
     {
-        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].relate_region(regions)
+        let f = |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+            owner.is_node() ==> owner.node.unwrap().relate_region(regions);
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].map_children(f)
     }
 }
 

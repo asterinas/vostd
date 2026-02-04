@@ -371,64 +371,6 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
     ;
 }
 
-pub trait TreeNodeView<const L: usize>: TreeNodeValue<L> + View {
-    spec fn view_rec_step(self, rec: Seq<Self::V>) -> Seq<Self::V>;
-}
-
-impl<T: TreeNodeView<L>, const N: usize, const L: usize> Node<T, N, L> {
-    pub open spec fn view_rec(self) -> Seq<<T as View>::V>
-        decreases L - self.level,
-        when self.level < L && self.inv()
-    {
-        if self.level == L - 1 {
-            Seq::empty().push(self.value.view())
-        } else {
-            proof {
-                assert(self.inv_children());
-                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
-                    self.children.contains(child) ==> child.is_some() ==> child.unwrap().level < L);
-                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
-                    self.children.contains(child) ==> child.is_some() ==> L - child.unwrap().level
-                        < L - self.level);
-                assert(forall|child: Option<Node<T, N, L>>| #[trigger]
-                    self.children.contains(child) ==> child.is_some() ==> child.unwrap().inv());
-            }
-
-            self.value.view_rec_step(
-                Seq::flat_map(
-                    self.children,
-                    |child: Option<Node<T, N, L>>|
-                        match child {
-                            Some(child) => {
-                                proof {
-                                    assert(self.children.contains(Some(child))) by { admit() };
-                                }
-                                child.view_rec()
-                            },
-                            None => Seq::empty(),
-                        },
-                ),
-            )
-        }
-    }
-
-    pub open spec fn view_wrapper(self) -> Seq<<T as View>::V>
-        decreases L - self.level,
-        when self.level < L && self.inv()
-    {
-        self.view_rec()
-    }
-}
-
-impl<T: TreeNodeView<L>, const N: usize, const L: usize> View for Node<T, N, L> {
-    type V = Seq<<T as View>::V>;
-
-    open spec fn view(&self) -> Self::V
-        decreases L - self.level,
-    {
-        self.view_wrapper()
-    }
-}
 
 } // verus!
 verus! {
@@ -469,6 +411,71 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         ensures
             Self::max_depth() > 0,
     ;
+
+    pub open spec fn tree_predicate_map(
+        self,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool) -> bool
+        decreases L - self.level when self.inv()
+    {
+        if self.level < L - 1 {
+            &&& f(self.value, path)
+            &&& forall|i:int| 0 <= i < self.children.len() ==>
+                #[trigger] self.children[i] is Some ==>
+                self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f)
+        } else {
+            &&& f(self.value, path)
+        }
+    }
+
+    pub proof fn map_unroll_once(self,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool,
+        i: int,
+    )
+        requires
+            self.inv(),
+            self.level < L - 1,
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+            self.tree_predicate_map(path, f),
+        ensures
+            self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f),
+    { }
+
+    pub open spec fn implies(
+        f: spec_fn(T, TreePath<N>) -> bool,
+        g: spec_fn(T, TreePath<N>) -> bool,
+    ) -> bool {
+        forall|value: T, path: TreePath<N>|
+            value.inv() ==>
+            f(value, path) ==>
+            #[trigger]
+            g(value, path)
+    }
+
+    pub proof fn map_implies(
+        self,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool,
+        g: spec_fn(T, TreePath<N>) -> bool,
+    )
+        requires
+            self.inv(),
+            Self::implies(f, g),
+            Self::tree_predicate_map(self, path, f),
+        ensures
+            Self::tree_predicate_map(self, path, g),
+        decreases L - self.level
+    {
+        if self.level < L - 1 {
+            assert forall|i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
+                self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), g) by {
+                    assert(self.children[i].unwrap().inv());
+                    self.children[i].unwrap().map_implies(path.push_tail(i as usize), f, g);
+            }
+        }
+    }
 
     pub open spec fn inv_node(self) -> bool {
         &&& self.value.inv()

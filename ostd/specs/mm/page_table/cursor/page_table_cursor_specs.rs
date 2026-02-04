@@ -21,22 +21,20 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     pub uninterp spec fn new_cursor_owner_spec<'rcu>(self) -> (Self, CursorOwner<'rcu, C>);
 }
 
+/// A `CursorView` is not aware that the underlying structure of the page table is a tree.
+/// It treats the page table as an array of mappings of various sizes, and the cursor itself as the
+/// current virtual address, moving from low to high addresses. These functions specify its behavior
+/// and provide a simple interface for reasoning about its behavior.
 impl<C: PageTableConfig> CursorView<C> {
-    /* A `CursorView` is not aware that the underlying structure of the page table is a tree.
-       It is concerned with the elements that can be reached by moving forward (the `rear` of the structure)
-       and, to a lesser degree, those that have already been traversed (the `fore`).
 
-       It also tracks a `cur_va` and a `step`. Even in an "empty" view (one in which none of the subtree is mapped)
-       `move_forward` can update `cur_va` by adding `step` to it. `push_level` and `pop_level` decrease and increase
-       `step`, respectively. If the new virtual address would be aligned to `step`, `move_forward` additionally increases
-       `step` until it is no longer aligned, if possible. Functions that remove entries from the page table entirely
-       remove them in `step`-sized chunks.
-    */
-
+    /// This function checks if the current virtual address is mapped. It does not correspond
+    /// to a cursor method itself, but defines what it means for an entry to present:
+    /// there is a mapping whose virtual address range contains the current virtual address.
     pub open spec fn present(self) -> bool {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).len() > 0
     }
 
+    /// This function specifies the behavior of the `query` method. It returns the mapping
     pub open spec fn query_item_spec(self) -> Mapping
         recommends
             self.present(),

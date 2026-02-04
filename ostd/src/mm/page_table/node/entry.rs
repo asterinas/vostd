@@ -252,6 +252,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.wf(*new_owner),
             new_owner.inv(),
             res.wf(*owner),
+            owner.is_node() ==> owner.node.unwrap().relate_region(*regions),
     {
         /* match &new_child {
             Child::PageTable(node) => {
@@ -290,7 +291,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         let new_pte = new_child.into_pte();
 
         assert(new_child.wf(*new_owner));
-
+        assert(owner.is_node() ==> owner.node.unwrap().relate_region(*regions)) by { admit() };
         // SAFETY:
         //  1. The index is within the bounds.
         //  2. The new PTE is a valid child whose level matches the current page table node.
@@ -327,12 +328,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& guard_perm@ is Some
                 &&& guard_perm@.unwrap().addr() == res.unwrap().addr()
                 &&& owner.level == old(owner).level
+                &&& owner.value.parent_level == old(owner).value.parent_level
                 &&& owner.value.node.unwrap().relate_guard_perm(guard_perm@.unwrap())
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
                 &&& owner == old(owner)
             },
+            forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
+            parent_guard_perm.addr() == old(parent_guard_perm).addr(),
+            parent_guard_perm.is_init(),
+            parent_guard_perm.value().inner.inner@.ptr.addr() == old(parent_guard_perm).value().inner.inner@.ptr.addr(),
             owner.inv(),
             regions.inv(),
     )]

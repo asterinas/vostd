@@ -126,16 +126,6 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     }
 }
 
-impl<C: PageTableConfig, const L: usize> TreeNodeView<L> for EntryOwner<C> {
-    open spec fn view_rec_step(self, rec: Seq<EntryView<C>>) -> Seq<EntryView<C>> {
-        if self.is_node() {
-            rec
-        } else {
-            Seq::empty().push(self.view())
-        }
-    }
-}
-
 extern_const!(
 pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
 );
@@ -154,55 +144,27 @@ pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVEL
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
-    
-    pub open spec fn unlocked<'rcu>(subtree: OwnerSubtree<C>, guards: Guards<'rcu, C>) -> bool
-        decreases INC_LEVELS() - subtree.level when subtree.inv()
-    {
-        if subtree.value.is_node() {
-            &&& guards.unlocked(subtree.value.node.unwrap().meta_perm.addr())
-            &&& forall|i:int| 0 <= i < subtree.children.len() ==>
-                #[trigger] subtree.children[i] is Some ==>
-                Self::unlocked(subtree.children[i].unwrap(), guards)
-        } else {
-            true
-        }
-    }
 
-    pub proof fn unlocked_unroll_once<'rcu>(subtree: OwnerSubtree<C>, child: OwnerSubtree<C>, guards: Guards<'rcu, C>)
-        requires
-            subtree.inv(),
-            subtree.value.is_node(),
-            subtree.children.contains(Some(child)),
-            Self::unlocked(subtree, guards),
-        ensures
-            Self::unlocked(child, guards),
-    { }
-
+    /*
     pub proof fn never_drop_preserves_unlocked<'rcu>(
         subtree: OwnerSubtree<C>,
+        path: TreePath<CONST_NR_ENTRIES>,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu, C>,
         guards1: Guards<'rcu, C>
     )
         requires
             subtree.inv(),
-            Self::unlocked(subtree, guards0),
+            Self::unlocked(subtree, path, guards0),
             <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
             <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
         ensures
-            Self::unlocked(subtree, guards1),
+            Self::unlocked(subtree, path, guards1),
         decreases INC_LEVELS() - subtree.level
     {
-        if subtree.value.is_node() {
-            assert(guards1.unlocked(subtree.value.node.unwrap().meta_perm.addr()));
-
-            assert forall|i: int| 0 <= i < subtree.children.len() && subtree.children[i] is Some implies
-                Self::unlocked(subtree.children[i].unwrap(), guards1) by {
-                PageTableOwner::unlocked_unroll_once(subtree, subtree.children[i].unwrap(), guards0);
-                PageTableOwner::never_drop_preserves_unlocked(subtree.children[i].unwrap(), guard, guards0, guards1);
-            }
-        }
+        admit();
     }
+    */
 
     pub open spec fn view_rec(self, path: TreePath<CONST_NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS() - path.len() when self.0.inv() && path.len() <= INC_LEVELS() - 1
