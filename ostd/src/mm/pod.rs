@@ -1,8 +1,5 @@
 use vstd::prelude::*;
-use vstd_extra::{
-    array_ptr::{self, PointsToArray},
-    prelude::ArrayPtr,
-};
+use vstd_extra::array_ptr::{self, ArrayPtr, PointsToArray};
 
 use core::mem::MaybeUninit;
 
