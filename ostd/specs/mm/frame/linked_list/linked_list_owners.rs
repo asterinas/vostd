@@ -306,7 +306,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorOwner<M> {
             cursor.list_own.perms[old(cursor).index] == perm,
             cursor.index == old(cursor).index + 1,
             cursor.list_perm == old(cursor).list_perm,
-            link == old(link),
+            *link == *old(link),
     {
         unimplemented!()
     }

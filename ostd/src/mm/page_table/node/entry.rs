@@ -421,7 +421,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             },
             !old(owner).value.is_frame() ==> {
                 &&& res is None
-                &&& owner == old(owner)
+                &&& *owner == *old(owner)
             },
             owner.inv(),
             regions.inv(),

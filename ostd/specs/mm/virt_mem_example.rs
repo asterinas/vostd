@@ -39,7 +39,7 @@ pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pad
 
     assert(mapping.inv());
 
-    let tracked Tracked(mem_view) = gm.take_view(va, 16);
+    let tracked mem_view = gm.take_view(va, 16);
 
     let ghost valid_mappings = mem_view.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
     // Specifically, the verifier needs to be told that to look for the mapping, at which point it can prove the address translation.
@@ -65,7 +65,7 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
 
     assert(mapping.inv());
 
-    let tracked Tracked(mem_view) = gm.take_view(va, 16);
+    let tracked mem_view = gm.take_view(va, 16);
 
     let ghost valid_mappings = mem_view.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
 

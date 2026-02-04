@@ -518,8 +518,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         (C::TOP_LEVEL_CAN_UNMAP() || self.level != C::NR_LEVELS()) {
                         return Some(cur_va);
                     }
+                    assert(owner.children_not_locked(*guards));
 
-                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
+                    let tracked mut continuation = owner.continuations.tracked_remove(
+                        owner.level - 1,
+                    );
                     let ghost cont0 = continuation;
                     let tracked mut child_owner = continuation.take_child();
 
@@ -612,7 +615,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     assert(guards.locked(child_owner.value.node.unwrap().meta_perm.addr()));
                     assert(guards.guards[child_owner.value.node.unwrap().meta_perm.addr()] is Some);
-                    let tracked Tracked(guard_perm) = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
+                    let tracked guard_perm = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
 
                     proof {
                         continuation.put_child(child_owner);
@@ -717,7 +720,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.wf(*owner),
             self.inv(),
             regions.inv(),
-            owner == old(owner).move_forward_owner_spec(),
+            *owner == old(owner).move_forward_owner_spec(),
             owner.max_steps() < old(owner).max_steps(),
             self.barrier_va == old(self).barrier_va,
             self.guard_level == old(self).guard_level,
@@ -1006,7 +1009,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             old(owner).va.align_down(self.level as int).reflect(res.start),
             old(owner).va.align_up(self.level as int).reflect(res.end),
-            owner == old(owner),
+            *owner == *old(owner),
     {
         let page_size = page_size(self.level);
         let start = self.va.align_down(page_size);
@@ -1300,7 +1303,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert(guards.locked(child_owner.value.node.unwrap().meta_perm.addr()));
         assert(guards.guards[child_owner.value.node.unwrap().meta_perm.addr()] is Some);
-        let tracked Tracked(child_guard_perm) = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
+        let tracked child_guard_perm = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
 
         assert(child_owner.value.node.unwrap().relate_guard_perm(child_guard_perm));
         assert(child_owner.value.node.unwrap().meta_perm.addr() == split_child.addr());
@@ -1462,6 +1465,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                 self.inner.pop_level();
+                
                 continue ;
             }
             // We are at a higher level, go down.

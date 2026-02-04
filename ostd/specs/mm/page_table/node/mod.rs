@@ -36,7 +36,7 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
         self.guards.contains_key(addr) && self.guards[addr] is None
     }
 
-    pub proof fn take(tracked &mut self, addr: usize) -> (tracked guard: Tracked<GuardPerm<'rcu, C>>)
+    pub proof fn take(tracked &mut self, addr: usize) -> (tracked guard: GuardPerm<'rcu, C>)
         requires
             old(self).locked(addr),
             old(self).guards[addr] is Some,
@@ -46,18 +46,18 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
     {
         let tracked guard = self.guards.tracked_remove(addr).tracked_unwrap();
         self.guards.tracked_insert(addr, None);
-        Tracked(guard)
+        guard
     }
 
-    pub proof fn put(tracked &mut self, addr: usize, tracked guard: Tracked<GuardPerm<'rcu, C>>)
+    pub proof fn put(tracked &mut self, addr: usize, tracked guard: GuardPerm<'rcu, C>)
         requires
             old(self).lock_held(addr),
         ensures
             self.locked(addr),
-            self.guards[addr] == Some(guard@),
+            self.guards[addr] == Some(guard),
     {
         let _ = self.guards.tracked_remove(addr);
-        self.guards.tracked_insert(addr, Some(guard.get()));
+        self.guards.tracked_insert(addr, Some(guard));
     }
 }
 

@@ -478,7 +478,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     )]
     fn lazy_get_id(ptr: PPtr<Self>) -> (id: u64)
         ensures
-            old(owner).list_id != 0 ==> id == old(owner).list_id && owner == old(owner),
+            old(owner).list_id != 0 ==> id == old(owner).list_id && *owner == *old(owner),
     {
         unimplemented!()/*        // FIXME: Self-incrementing IDs may overflow, while `core::pin::Pin`
         // is not compatible with locks. Think about a better solution.

@@ -202,7 +202,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.view_rec(path).contains(m),
             self.0.value.is_node()
         ensures
-            exists|i:int| 0 <= i < self.0.children.len() &&
+            exists|i:int| #![auto] 0 <= i < self.0.children.len() &&
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     { }
@@ -219,7 +219,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     {
-        choose|i:int| 0 <= i < self.0.children.len() &&
+        choose|i:int| #![auto] 0 <= i < self.0.children.len() &&
             self.0.children[i] is Some &&
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     }

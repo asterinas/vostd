@@ -40,8 +40,8 @@ impl Mapping {
 
 impl Inv for PageTableView {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| self.mappings.contains(m) ==> m.inv()
-        &&& forall|m: Mapping, n:Mapping|
+        &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping, n:Mapping| #![auto]
             self.mappings.contains(m) ==>
             self.mappings.contains(n) ==>
             m != n ==>

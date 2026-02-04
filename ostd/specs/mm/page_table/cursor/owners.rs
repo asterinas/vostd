@@ -56,7 +56,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).children[old(self).idx as int] is Some,
         ensures
             res == old(self).take_child_spec().0,
-            self == old(self).take_child_spec().1,
+            *self == old(self).take_child_spec().1,
     {
         let tracked child = self.children.tracked_remove(old(self).idx as int).tracked_unwrap();
         self.children.tracked_insert(old(self).idx as int, None);
@@ -76,7 +76,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is None,
         ensures
-            self == old(self).put_child_spec(child)
+            *self == old(self).put_child_spec(child)
     {
         let _ = self.children.tracked_remove(old(self).idx as int);
         self.children.tracked_insert(old(self).idx as int, Some(child));
@@ -118,7 +118,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             idx < NR_ENTRIES(),
         ensures
             res == old(self).make_cont_spec(idx, guard_perm@).0,
-            self == old(self).make_cont_spec(idx, guard_perm@).1,
+            *self == old(self).make_cont_spec(idx, guard_perm@).1,
     ;
 
     pub open spec fn restore_spec(self, child: Self) -> (Self, GuardPerm<'rcu, C>) {
@@ -186,7 +186,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         requires
             old(self).idx + 1 < NR_ENTRIES(),
         ensures
-            self == old(self).inc_index(),
+            *self == old(self).inc_index(),
     {
         self.idx = (self.idx + 1) as usize;
     }
@@ -418,7 +418,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).in_locked_range(),
         ensures
             self.inv(),
-            self == old(self).inc_index(),
+            *self == old(self).inc_index(),
     {
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
@@ -514,8 +514,8 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         &&& self.cur_va < MAX_USERSPACE_VADDR()
-        &&& forall|m: Mapping| self.mappings.contains(m) ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping|
+        &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping, n: Mapping| #![auto]
             self.mappings.contains(m) ==>
             self.mappings.contains(n) ==>
             m != n ==>

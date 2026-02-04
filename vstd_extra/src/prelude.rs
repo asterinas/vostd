@@ -1,6 +1,6 @@
 pub use super::arithmetic::*;
 
-pub use super::array_ptr::*;
+// pub use super::array_ptr::*;
 
 pub use super::auxiliary::*;
 

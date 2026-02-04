@@ -245,6 +245,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             res.wf(*entry_owner),
     {
         if !pte.is_present() {
+            assert(entry_owner.is_absent()) by { admit() };
             return ChildRef::None;
         }
         let paddr = pte.paddr();
