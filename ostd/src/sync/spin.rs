@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, PCell};
+use vstd::cell::{self,pcell::*};
 use vstd::modes::*;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
@@ -41,7 +41,7 @@ verus! {
 /// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data. 
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
 /// 
-/// For curious readers, details of the permission can be found in [`vstd::cell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.PointsTo.html).
+/// For curious readers, details of the permission can be found in [`vstd::cell::pcell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html).
 /// 
 /// [`disable_irq`]: Self::disable_irq
 /// [`lock`]: Self::lock
@@ -70,16 +70,16 @@ verus! {
 
 struct_with_invariants! {
 struct SpinLockInner<T> {
-    lock: AtomicBool<_,Option<cell::PointsTo<T>>,_>,
+    lock: AtomicBool<_,Option<PointsTo<T>>,_>,
     val: PCell<T>, //TODO: Waiting the new PCell that supports ?Sized
     //val: UnsafeCell<T>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val) is (v:bool, g:Option<cell::PointsTo<T>>) {
+    invariant on lock with (val) is (v:bool, g:Option<PointsTo<T>>) {
         match g {
             None => v == true,
-            Some(perm) => perm.id() == val.id() && perm.is_init() && !v
+            Some(perm) => perm.id() == val.id() && !v
         }
     }
 }
@@ -159,7 +159,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         // Notice the guard must be created before acquiring the lock.
         proof!{ use_type_invariant(self);}
         proof_decl!{
-            let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
+            let tracked mut perm: PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
         proof_with! {=> Tracked(perm)}
@@ -181,14 +181,13 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
         proof!{ use_type_invariant(self);}
         proof_decl!{
-            let tracked mut perm: cell::PointsTo<T> = arbitrary_cell_pointsto();
+            let tracked mut perm: PointsTo<T> = arbitrary_cell_pointsto();
         }
         let inner_guard = G::guard();
         proof_with! {=> Tracked(perm)}
         self.acquire_lock();
         proof!{
             assert(perm.id() == (*self.clone().deref_spec()).cell_id());
-            assert(perm.is_init());
         }
         SpinLockGuard_ {
             lock: self.clone(),
@@ -202,7 +201,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
-            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+            let tracked mut perm: Option<PointsTo<T>> = None;
         }
         if #[verus_spec(with => Tracked(perm))] self.try_acquire_lock() {
             let lock_guard = SpinLockGuard_ {
@@ -227,14 +226,14 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// Acquires the spin lock, otherwise busy waiting
     #[verus_spec(ret =>
         with
-            -> perm: Tracked<cell::PointsTo<T>>,
+            -> perm: Tracked<PointsTo<T>>,
         ensures
-            perm@.is_init() && perm@.id() == self.inner.val.id(),
+            perm@.id() == self.inner.val.id(),
             )]
     #[verifier::exec_allows_no_decreases_clause]
     fn acquire_lock(&self) {
         proof_decl!{
-            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+            let tracked mut perm: Option<PointsTo<T>> = None;
         }
         proof!{ use_type_invariant(self);}
         #[verus_spec(
@@ -254,9 +253,9 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
 
     #[verus_spec(ret =>
         with
-            -> perm: Tracked<Option<cell::PointsTo<T>>>,
+            -> perm: Tracked<Option<PointsTo<T>>>,
         ensures
-            ret && perm@ is Some && perm@ -> Some_0.is_init() && perm@ -> Some_0.id() == self.inner.val.id() || !ret && perm@ is None,
+            ret && perm@ is Some && perm@ -> Some_0.id() == self.inner.val.id() || !ret && perm@ is None,
             )]
     fn try_acquire_lock(&self) -> bool {
         /*self.inner
@@ -264,7 +263,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()*/
         proof_decl!{
-            let tracked mut perm: Option<cell::PointsTo<T>> = None;
+            let tracked mut perm: Option<PointsTo<T>> = None;
         }
         proof!{ use_type_invariant(self);}
         proof_with!{ |= Tracked(perm)}
@@ -338,7 +337,7 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 pub struct SpinLockGuard_<T/*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
-    v_perm: Tracked<cell::PointsTo<T>>, //Ghost permission for verification
+    v_perm: Tracked<PointsTo<T>>, //Ghost permission for verification
 }
 
 verus! {
@@ -346,7 +345,7 @@ impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> SpinLockGuard_<T, R,
 {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool{
-        self.lock.deref_spec().cell_id() == self.v_perm@.id() && self.v_perm@.is_init()
+        self.lock.deref_spec().cell_id() == self.v_perm@.id()
     }
 }
 }
