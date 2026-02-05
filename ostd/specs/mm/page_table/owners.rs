@@ -185,7 +185,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS() - 1 {
             Set::new(
-                |m: Mapping| exists|i:int| 0 <= i < self.0.children.len() &&
+                |m: Mapping| exists|i:int| #![auto] 0 <= i < self.0.children.len() &&
                     self.0.children[i] is Some &&
                     PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
             )
@@ -282,7 +282,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         if self.0.value.is_node() {
             &&& self.0.value.node.unwrap().path == path
             &&& self.0.value.node.unwrap().relate_region(regions)
-            &&& forall|i: int| 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
+            &&& forall|i: int| #![auto] 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
                 PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(path.push_tail(i as usize), regions)
         } else {
             true
@@ -330,7 +330,7 @@ impl<'a, C: PageTableConfig> CursorContinuation<'a, C> {
         ensures
             self.into_subtree().inv(),
     {
-        assert forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some implies
+        assert forall|i: int| #![auto] 0 <= i < self.children.len() && self.children[i] is Some implies
             self.children[i].unwrap().value.parent_level == self.entry_own.node.unwrap().level by {
             }
     }

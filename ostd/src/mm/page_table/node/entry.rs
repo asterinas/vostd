@@ -333,7 +333,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
-                &&& owner == old(owner)
+                &&& *owner == *old(owner)
             },
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
             parent_guard_perm.addr() == old(parent_guard_perm).addr(),

@@ -855,7 +855,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             assert(guards.lock_held(owner.continuations[owner.level - 1].guard_perm.value().inner.inner@.ptr.addr()));
             owner.pop_level_owner_preserves_invs(*guards, *regions);
         }
-        let tracked Tracked(guard_perm) = owner.pop_level_owner();
+        let tracked guard_perm = owner.pop_level_owner();
 
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
@@ -905,7 +905,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.guard_level == old(self).guard_level,
             self.level == old(self).level - 1,
             self.va == old(self).va,
-            owner == old(owner).push_level_owner_spec(guard_perm),
+            *owner == old(owner).push_level_owner_spec(guard_perm),
             owner.max_steps() < old(owner).max_steps(),
     {
         assert(owner.va.index.contains_key(owner.level - 2));
@@ -942,8 +942,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.inv(),
             self.wf(*owner),
             res.wf(owner.cur_entry_owner()),
-            self == old(self),
-            owner == old(owner),
+            *self == *old(self),
+            *owner == *old(owner),
             owner.continuations[owner.level - 1].guard_perm.addr() == res.node.addr(),
             owner.relate_region(*regions),
     {

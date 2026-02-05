@@ -304,16 +304,16 @@ pub trait PageTableEntryTrait:
     proof fn new_properties()
         ensures
             !Self::new_absent_spec().is_present(),
-            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty| {
+            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty| #![auto] {
                 &&& Self::new_page_spec(paddr, level, prop).is_present()
                 &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
                 &&& Self::new_page_spec(paddr, level, prop).prop() == prop
                 &&& Self::new_page_spec(paddr, level, prop).is_last(level)
             },
-            forall |paddr: Paddr| {
+            forall |paddr: Paddr| #![auto] {
                 &&& Self::new_pt_spec(paddr).is_present()
                 &&& Self::new_pt_spec(paddr).paddr() == paddr
-                &&& forall |level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
+                &&& forall |level: PagingLevel| #![auto] !Self::new_pt_spec(paddr).is_last(level)
             };
 
     /// Get the physical address from the PTE.
@@ -344,7 +344,7 @@ pub trait PageTableEntryTrait:
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            old(self).set_prop_spec(prop) == self,
+            old(self).set_prop_spec(prop) == *self,
     ;
 
     proof fn set_prop_properties(self, prop: PageProperty)
@@ -352,7 +352,7 @@ pub trait PageTableEntryTrait:
             self.set_prop_spec(prop).prop() == prop,
             self.set_prop_spec(prop).paddr() == self.paddr(),
             self.is_present() ==> self.set_prop_spec(prop).is_present(),
-            forall |level: PagingLevel| self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
+            forall |level: PagingLevel| #![auto] self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
 
     /// If the PTE maps a page rather than a child page table.
     ///

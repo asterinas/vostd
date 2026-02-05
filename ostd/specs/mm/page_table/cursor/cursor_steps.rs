@@ -128,7 +128,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
             old(self).level > 1,
         ensures
-            self == old(self).push_level_owner_spec(guard_perm@),
+            *self == old(self).push_level_owner_spec(guard_perm@),
     {
         assert(self.va.index.contains_key(self.level - 2));
 
@@ -177,7 +177,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
         let (new_cont, _) = cont.restore_spec(child);
-        assert forall |i:int| 0 <= i < NR_ENTRIES() && new_cont.children[i] is Some implies
+        assert forall |i:int| #![auto] 0 <= i < NR_ENTRIES() && new_cont.children[i] is Some implies
             new_cont.children[i].unwrap().value.parent_level == new_cont.level() by {
             if i == cont.idx {
                 assert(child.entry_own.parent_level == cont.level())
@@ -201,7 +201,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     { admit() }
 
     #[verifier::returns(proof)]
-    pub proof fn pop_level_owner(tracked &mut self) -> (guard_perm: Tracked<GuardPerm<'rcu, C>>)
+    pub proof fn pop_level_owner(tracked &mut self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
         requires
             old(self).inv(),
             old(self).level < NR_LEVELS(),
