@@ -93,7 +93,7 @@ impl<'rcu, C: PageTableConfig> EntryState<'rcu, C> {
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
-            path: TreePath::new(Seq::empty()),
+            parent_path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS() - lv + 1) as PagingLevel,
             node: None,
             frame: None,
@@ -116,6 +116,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
         if self.is_node() {
             &&& child is Some
             &&& child.unwrap().parent_level == self.node.unwrap().level
+            &&& child.unwrap().parent_path == self.node.unwrap().path
         } else {
             &&& child is None
         }
@@ -299,6 +300,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
+        &&& self.0.value.parent_path.len() <= INC_LEVELS() - 1
     }
 }
 
@@ -306,7 +308,7 @@ impl<C: PageTableConfig> View for PageTableOwner<C> {
     type V = PageTableView;
 
     open spec fn view(&self) -> <Self as View>::V {
-        let mappings = self.view_rec(TreePath::new(Seq::empty()));
+        let mappings = self.view_rec(self.0.value.parent_path);
         PageTableView {
             mappings
         }

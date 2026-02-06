@@ -241,11 +241,14 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(parent_owner).inv(),
             old(regions).inv(),
             owner.is_node() ==> owner.node.unwrap().relate_region(*old(regions)),
+            new_owner.parent_path == owner.parent_path,
             old(guard_perm).addr() == old(self).node.addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
         ensures
             parent_owner.inv(),
             parent_owner.relate_guard_perm(*guard_perm),
+            parent_owner.path == old(parent_owner).path,
+            parent_owner.level == old(parent_owner).level,
             guard_perm.pptr() == old(guard_perm).pptr(),
             guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
             regions.inv(),
@@ -507,6 +510,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
             let tracked child_owner = EntryOwner::new_frame(
                 small_pa,
+                parent_owner.path,
                 (level - 1) as PagingLevel,
                 prop,
             );

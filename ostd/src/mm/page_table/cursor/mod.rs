@@ -712,7 +712,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).relate_region(*old(regions)),
         ensures
     //            self.model(*owner) == old(self).model(*old(owner)).move_forward_spec(),
-
             owner.inv(),
             self.wf(*owner),
             self.inv(),
@@ -725,6 +724,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.children_not_locked(*guards),
             owner.nodes_locked(*guards),
             owner.relate_region(*regions),
+            owner.va == old(owner).va.align_up(old(self).level as int),
     {
         let ghost owner0 = *owner;
         proof {
@@ -737,29 +737,27 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost barrier_va = self.barrier_va;
         let ghost va = self.va;
 
-        let next_va = (#[verus_spec(with Tracked(owner))]
-        self.cur_va_range()).end;
-
-        let ghost abs_va = AbstractVaddr::from_vaddr(va);
-        let ghost abs_va_down = abs_va.align_down((start_level - 1) as int);
+        let next_va = (#[verus_spec(with Tracked(owner))] self.cur_va_range()).end;
+        
+        let ghost abs_va_down = owner0.va.align_down((start_level - 1) as int);
         let ghost abs_next_va = AbstractVaddr::from_vaddr(next_va);
 
         proof {
-            AbstractVaddr::reflect_from_vaddr(va);
             AbstractVaddr::reflect_from_vaddr(next_va);
-            abs_va.reflect_prop(va);
+            owner0.va.reflect_prop(va);
+            owner0.va.align_down_inv((start_level - 1) as int);
+            owner0.va.align_down_concrete(start_level - 1);
+            owner0.va.align_down(start_level - 1).reflect_prop(nat_align_down(va as nat, page_size((start_level-1) as PagingLevel) as nat) as Vaddr);
             abs_next_va.reflect_prop(next_va);
+            assert(abs_next_va == owner0.va.align_up(start_level as int)) by { admit() };
+            owner0.va.align_up_concrete(start_level as int);
+            owner0.va.align_up(start_level as int).reflect_prop(nat_align_up(va as nat, page_size(start_level) as nat) as Vaddr);
 
-            assert(abs_next_va == abs_va.align_up(start_level as int)) by { admit() };
-            assert(abs_next_va == abs_va_down.next_index(start_level as int)) by { admit() };
+            assert(abs_next_va == owner0.va.align_down((start_level - 1) as int).next_index(start_level as int)) by { admit() };
 
             AbstractVaddr::from_vaddr_wf(self.va);
-            abs_va.align_down_inv((start_level - 1) as int);
             abs_va_down.next_index_wrap_condition(start_level as int);
         }
-
-        assert(forall|i: int| start_level <= i < NR_LEVELS() ==>
-                #[trigger] abs_va.index[i - 1] == owner.continuations[i - 1].idx) by { admit() };
 
         while self.level < self.guard_level && pte_index::<C>(next_va, self.level) == 0
             invariant
@@ -769,17 +767,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 regions.inv(),
                 self.guard_level == guard_level,
                 self.barrier_va == barrier_va,
-                abs_va == AbstractVaddr::from_vaddr(va),
+                owner0.va.reflect(va),
                 abs_next_va == AbstractVaddr::from_vaddr(next_va),
                 owner.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
                 abs_va_down.next_index(start_level as int) == abs_next_va,
                 abs_va_down.wrapped(start_level as int, self.level as int),
                 1 <= start_level <= self.level <= self.guard_level <= NR_LEVELS(),
                 forall|i: int|
-                    start_level <= i < NR_LEVELS() ==> #[trigger] abs_va.index[i - 1]
+                    start_level <= i < NR_LEVELS() ==> #[trigger] owner0.va.index[i - 1]
                         == abs_va_down.index[i - 1],
                 forall|i: int|
-                    self.level <= i < NR_LEVELS() ==> #[trigger] abs_va.index[i - 1]
+                    self.level <= i < NR_LEVELS() ==> #[trigger] owner0.va.index[i - 1]
                         == owner.continuations[i - 1].idx,
                 owner.in_locked_range(),
                 owner.children_not_locked(*guards),
@@ -791,7 +789,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 assert(abs_next_va.index[self.level - 1] == 0);
                 abs_va_down.wrapped_unwrap(start_level as int, self.level as int);
                 abs_va_down.use_wrapped(start_level as int, self.level as int);
-                assert(abs_va.index[self.level - 1] + 1 == NR_ENTRIES());
+                assert(owner0.va.index[self.level - 1] + 1 == NR_ENTRIES());
                 assert(owner.move_forward_owner_spec()
                     == owner.pop_level_owner_spec().0.move_forward_owner_spec());
                 owner.pop_level_owner_preserves_invs(*guards, *regions);
@@ -805,14 +803,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         assert(self.level >= self.guard_level || index != 0);
         assert(self.level < self.guard_level) by { admit() };
 
-        assert(abs_va.index[self.level - 1] + 1 < NR_ENTRIES());
+        assert(owner0.va.index[self.level - 1] + 1 < NR_ENTRIES());
         assert(owner.move_forward_owner_spec() == owner0.move_forward_owner_spec());
-        assert(owner.move_forward_owner_spec() == owner.inc_index());
+        assert(owner.move_forward_owner_spec() == owner.inc_index().zero_below_level());
         
         self.va = next_va;
 
         proof {
             owner.do_inc_index();
+            owner.zero_preserves_all_but_va();
+            owner.do_zero_below_level();
+            assert(abs_next_va == owner0.va.align_up(start_level as int));
             assert(owner.va == abs_next_va) by { admit() };
         }
     }
@@ -1153,6 +1154,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ChildRef::PageTable(pt).wf(old(owner).cur_entry_owner())
         ensures
             owner.inv(),
+            owner.va == old(owner).va,
             self.inner.wf(*owner),
             regions.inv(),
             self.inner.inv(),
@@ -1211,6 +1213,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ChildRef::None.wf(old(owner).cur_entry_owner())
     ensures
         owner.inv(),
+        owner.va == old(owner).va,
         self.inner.wf(*owner),
         regions.inv(),
         self.inner.inv(),
@@ -1242,6 +1245,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         assert(owner.only_current_locked(*guards)) by { admit() };
         assert(owner.relate_region(*regions)) by { admit() };
+        assert(owner.inv()) by { admit() };
 
         #[verus_spec(with Tracked(owner), Tracked(guard_perm.tracked_unwrap()), Tracked(regions), Tracked(guards))]
         self.inner.push_level(child_guard);
@@ -1267,6 +1271,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         old(cur_entry).node.addr() == old(owner).continuations[old(owner).level - 1].guard_perm.addr()
     ensures
         owner.inv(),
+        owner.va == old(owner).va,
         self.inner.wf(*owner),
         regions.inv(),
         self.inner.inv(),
@@ -1436,6 +1441,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let (pa, level, prop) = C::item_into_raw(item);
         let size = page_size(level);
+
         let rcu_guard = self.inner.rcu_guard;
 
         let ghost guard_level = self.inner.guard_level;
@@ -1444,6 +1450,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         while self.inner.level != level
             invariant
                 owner.inv(),
+                owner.va == owner0.va,
                 self.inner.wf(*owner),
                 regions.inv(),
                 self.inner.inv(),
@@ -1507,25 +1514,38 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
         }
 
-        let tracked mut new_owner = OwnerSubtree::new_val_tracked(entry_owner,
-            owner.continuations.tracked_borrow(owner.level - 1).tree_level + 1);
+        assert(owner.va == owner0.va);
+        assert(self.inner.level == level);
+
+        proof_decl! {
+            let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop);
+        }
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
+
+        let ghost owner1 = *owner;
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
 
         let ghost mapping = self0.map_item_mapping(item);
+        let ghost target_va = owner0@.map_spec(mapping.pa_range.start, mapping.page_size, mapping.property).cur_va;
+
+        proof {    
+            owner.va.reflect_prop(self.inner.va);
+            owner1.va.align_up_concrete(level as int);
+            owner.va.reflect_prop(nat_align_up(owner1.va.to_vaddr() as nat, page_size(level) as nat) as Vaddr);
+        }
 
         // The view of `new_owner` should consist of a single mapping from `va` to `pa`,
-        // and this is now embedded in `owner` at the current index.
-//        assert(owner@.mappings.contains(mapping)) by { admit() };
+        // and this is now embedded in `owner` at the previous index.
+        assert(owner@.mappings.contains(mapping)) by { admit() };
 
-//        assert(self.inner.model(*owner).cur_va == self0.inner.model(owner0).map_spec(mapping).cur_va) by { admit() };
-//        assert(self.inner.model(*owner).mappings == self0.inner.model(owner0).map_spec(mapping).mappings) by { admit() };
+        assert(self.inner.model(*owner).mappings ==
+            self0.inner.model(owner0).map_spec(mapping.pa_range.start, mapping.page_size, mapping.property).mappings) by { admit() };
 
-        assert(self0.map_item_ensures(item, self0.inner.model(owner0), self.inner.model(*owner))) by { admit() };
+        assert(self0.map_item_ensures(item, self0.inner.model(owner0), self.inner.model(*owner)));
 
         if let Some(frag) = frag {
             Err(frag)
@@ -1688,11 +1708,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).relate_region(*old(regions)),
             !old(owner).popped_too_high,
             new_owner.level == old(owner).continuations[old(owner).level - 1].tree_level + 1,
+            new_owner.value.parent_level == old(owner).continuations[old(owner).level - 1].child().value.parent_level,
+            new_owner.value.parent_path == old(owner).continuations[old(owner).level - 1].path(),
             new_child.wf(new_owner.value),
         ensures
+            owner@.mappings == old(owner)@.mappings -
+                               old(owner).continuations[old(owner).level - 1].view_mappings_take_child_spec() +
+                               PageTableOwner(new_owner)@.mappings,
             owner.inv(),
+            owner.va == old(owner).va,
             self.inner.inv(),
             self.inner.wf(*owner),
+            self.inner.level == old(self).inner.level,
             regions.inv(),
             owner.guard_level == old(owner).guard_level,
             owner.in_locked_range(),
@@ -1701,6 +1728,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.relate_region(*regions),
             !owner.popped_too_high,
     {
+        let ghost owner0 = *owner;
         let ghost guard_level = owner.guard_level;
         let rcu_guard = self.inner.rcu_guard;
 
@@ -1712,8 +1740,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let tracked mut continuation = owner.continuations.tracked_remove((owner.level - 1) as int);
         let ghost cont0 = continuation;
-        let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
         let tracked old_child_owner = continuation.take_child();
+
+        let ghost cont1 = continuation;
+        assert(cont1.view_mappings() == cont0.view_mappings() - cont0.view_mappings_take_child_spec()) by {
+            cont0.view_mappings_take_child();
+            assert(cont1 == cont0.take_child_spec().1);
+        }
+        assert(owner.continuations == owner0.continuations.remove(owner.level -1));
+
+        let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
         #[verus_spec(with Tracked(regions),
             Tracked(&old_child_owner.value),
@@ -1724,15 +1760,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let old = cur_entry.replace(new_child);
 
         proof {
-            assert(continuation.guard_perm.pptr() == cont0.guard_perm.pptr());
-
             continuation.entry_own.node = Some(parent_owner);
             continuation.put_child(new_owner);
-            assert(continuation.inv()) by { admit() };
+            cont1.view_mappings_put_child(new_owner);
             owner.continuations.tracked_insert((owner.level - 1) as int, continuation);
-            assert(owner.inv());
+
+            assert(owner@.mappings == owner0@.mappings - cont0.view_mappings_take_child_spec() + PageTableOwner(new_owner)@.mappings) by { admit() };
         }
-    
+
         assert(owner.children_not_locked(*guards)) by { admit() };
         assert(owner.relate_region(*regions)) by { admit() };
 
@@ -1782,8 +1817,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let locked_pt = borrow_pt.make_guard_unchecked(rcu_guard);
 
                 proof {
+                    assert(owner.inv()) by { admit() };
                     owner.map_children_implies(CursorOwner::node_unlocked(guards0),
                         CursorOwner::node_unlocked_except(*guards, old_node_owner.meta_perm.addr()));
+                    assert(owner.inv()) by { admit() };
                 }
 
                 // SAFETY:
@@ -1806,6 +1843,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 )
             },
         };
+        assert(owner@.mappings == owner0@.mappings -
+            owner0.continuations[owner0.level - 1].view_mappings_take_child_spec() +
+            PageTableOwner(new_owner)@.mappings) by { admit() };
+
         result
     }
 }

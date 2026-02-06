@@ -86,6 +86,11 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+
+    pub open spec fn align_up_spec(self, size: usize) -> Vaddr {
+        nat_align_up(self.cur_va as nat, size as nat) as Vaddr
+    }
+
     /// Inserts a mapping into the cursor. If there were previously mappings there,
     /// they are removed. Note that multiple mappings might be removed if they overlap with
     /// a new large mapping.
@@ -99,7 +104,7 @@ impl<C: PageTableConfig> CursorView<C> {
             property: prop,
         };
         CursorView {
-            cur_va: (self.cur_va + size) as Vaddr,
+            cur_va: self.align_up_spec(size),
             mappings: self.mappings.difference(existing).insert(new),
             ..self
         }

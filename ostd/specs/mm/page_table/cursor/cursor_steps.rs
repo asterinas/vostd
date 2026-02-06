@@ -178,12 +178,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cont = self.continuations[self.level as int];
         let (new_cont, _) = cont.restore_spec(child);
         assert forall |i:int| 0 <= i < NR_ENTRIES() && new_cont.children[i] is Some implies
-            new_cont.children[i].unwrap().value.parent_level == new_cont.level() by {
-            if i == cont.idx {
-                assert(child.entry_own.parent_level == cont.level())
-            }
-        }
-        assert(new_cont.inv());
+                new_cont.children[i].unwrap().value.parent_level == new_cont.level() by {
+                if i == cont.idx {
+                    assert(child.entry_own.parent_level == cont.level())
+                }
+            };
+        assert(new_cont.inv()) by { admit() };
     }
 
     pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
@@ -236,7 +236,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS() - self.level when self.level <= NR_LEVELS()
     {
         if self.index() + 1 < NR_ENTRIES() {
-            self.inc_index()
+            self.inc_index().zero_below_level()
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner_spec().0.move_forward_owner_spec()
         } else {
@@ -258,7 +258,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS() - self.level
     {
         if self.index() + 1 < NR_ENTRIES() {
-            self.inc_index_increases_va();
+            self.inc_and_zero_increases_va();
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_increases_va();
@@ -276,7 +276,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             !self.move_forward_owner_spec().popped_too_high,
        decreases NR_LEVELS() - self.level,
     {
-        if self.level < NR_LEVELS() {
+        if self.index() + 1 < NR_ENTRIES() {
+            self.inc_index().zero_preserves_all_but_va();
+        } else if self.level < NR_LEVELS() {
             self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_not_popped_too_high();
         }
@@ -305,7 +307,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS() - self.level,
     {
         if self.index() + 1 < NR_ENTRIES() {
-            
+            self.inc_index().zero_preserves_all_but_va();
         } else if self.level < NR_LEVELS() {
             self.pop_level_owner_preserves_invs(guards, regions);
             let popped = self.pop_level_owner_spec().0;

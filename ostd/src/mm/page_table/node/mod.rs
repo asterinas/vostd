@@ -243,7 +243,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
     )]
     #[verifier::external_body]
     pub fn alloc(level: PagingLevel) -> Self {
-        let tracked entry_owner = EntryOwner::new_absent(level);
+        let tracked entry_owner = EntryOwner::new_absent(TreePath::new(Seq::empty()), level);
 
         let tracked mut owner = OwnerSubtree::<C>::new_val_tracked(entry_owner, level as nat);
         let meta = PageTablePageMeta::new(level);
@@ -510,6 +510,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             owner.inv(),
             owner.meta_perm.addr() == old(owner).meta_perm.addr(),
+            owner.path == old(owner).path,
+            owner.level == old(owner).level,
             owner.meta_own == old(owner).meta_own,
             owner.meta_perm.points_to == old(owner).meta_perm.points_to,
             *self == *old(self),

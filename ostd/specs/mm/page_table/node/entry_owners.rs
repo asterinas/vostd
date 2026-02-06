@@ -29,7 +29,7 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
     pub absent: bool,
-    pub path: TreePath<CONST_NR_ENTRIES>,
+    pub parent_path: TreePath<CONST_NR_ENTRIES>,
     pub parent_level: PagingLevel,
 }
 
@@ -50,47 +50,47 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.absent
     }
 
-    pub open spec fn new_absent_spec(parent_level: PagingLevel) -> Self {
+    pub open spec fn new_absent_spec(parent_path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> Self {
         EntryOwner {
             node: None,
             frame: None,
             locked: None,
             absent: true,
-            path: TreePath::new(Seq::empty()),
+            parent_path,
             parent_level,
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, parent_path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
         EntryOwner {
             node: None,
             frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
-            path: TreePath::new(Seq::empty()),
+            parent_path,
             parent_level,
         }
     }
 
-    pub open spec fn new_node_spec(node: NodeOwner<C>) -> Self {
+    pub open spec fn new_node_spec(node: NodeOwner<C>, parent_path: TreePath<CONST_NR_ENTRIES>) -> Self {
         EntryOwner {
             node: Some(node),
             frame: None,
             locked: None,
             absent: false,
-            path: TreePath::new(Seq::empty()),
+            parent_path,
             parent_level: (node.level + 1) as PagingLevel,
         }
     }
 
-    pub axiom fn new_absent(parent_level: PagingLevel) -> tracked Self
-        returns Self::new_absent_spec(parent_level);
+    pub axiom fn new_absent(parent_path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
+        returns Self::new_absent_spec(parent_path, parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
-        returns Self::new_frame_spec(paddr, parent_level, prop);
+    pub axiom fn new_frame(paddr: Paddr, parent_path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
+        returns Self::new_frame_spec(paddr, parent_path, parent_level, prop);
 
-    pub axiom fn new_node(node: NodeOwner<C>) -> tracked Self
-        returns Self::new_node_spec(node);
+    pub axiom fn new_node(node: NodeOwner<C>, parent_path: TreePath<CONST_NR_ENTRIES>) -> tracked Self
+        returns Self::new_node_spec(node, parent_path);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE() == 0
@@ -141,11 +141,11 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
         if let Some(frame) = self.frame {
             EntryView::Leaf {
                 leaf: LeafPageTableEntryView {
-                    map_va: vaddr(self.path) as int,
+                    map_va: vaddr(self.parent_path) as int,
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
                     map_to_pa: frame.mapped_pa as int,
-                    level: (self.path.len() + 1) as u8,
+                    level: (self.parent_path.len() + 1) as u8,
                     prop: frame.prop,
                     phantom: PhantomData,
                 },
@@ -153,11 +153,11 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
         } else if let Some(node) = self.node {
             EntryView::Intermediate {
                 node: IntermediatePageTableEntryView {
-                    map_va: vaddr(self.path) as int,
+                    map_va: vaddr(self.parent_path) as int,
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
                     map_to_pa: meta_to_frame(node.meta_perm.addr()) as int,
-                    level: (self.path.len() + 1) as u8,
+                    level: (self.parent_path.len() + 1) as u8,
                     phantom: PhantomData,
                 },
             }
