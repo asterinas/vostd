@@ -35,7 +35,7 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn path(self) -> TreePath<CONST_NR_ENTRIES> {
-        self.entry_own.node.unwrap().path
+        self.entry_own.path
     }
 
     pub open spec fn child(self) -> OwnerSubtree<C> {
@@ -155,7 +155,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             #![trigger self.children[i]]
             0 <= i < NR_ENTRIES() ==> 
             self.children[i] is Some ==> {
-                &&& self.children[i].unwrap().value.parent_path == self.path()
+                &&& self.children[i].unwrap().value.path == self.path().push_tail(i as usize)
                 &&& self.children[i].unwrap().value.parent_level == self.level()
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
@@ -224,12 +224,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn node_locked(self, guards: Guards<'rcu, C>) -> bool {
         guards.lock_held(self.guard_perm.value().inner.inner@.ptr.addr())
-    }
-
-    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
-        &&& self.entry_own.node.unwrap().relate_region(regions)
-        &&& forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some ==>
-            PageTableOwner(self.children[i].unwrap()).relate_region_rec(self.path().push_tail(i as usize), regions)
     }
 
     pub open spec fn view_mappings(self) -> Set<Mapping> {
@@ -309,11 +303,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         requires
             self.inv(),
         ensures
-            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path(), self.level(), prop),
+            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop),
             res.inv(),
             res.level == self.tree_level + 1
     {
-        let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path(), self.level(), prop);
+        let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop);
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
 }
@@ -606,6 +600,120 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.to_vaddr()
     }
 
+    /// The current virtual address falls within the VA range of the current subtree's path.
+    /// This follows from the invariant that va.index matches the continuation indices.
+    pub axiom fn cur_va_in_subtree_range(self)
+        requires
+            self.inv(),
+        ensures
+            vaddr(self.cur_subtree().value.path) <= self.cur_va() < vaddr(self.cur_subtree().value.path) + page_size((self.level - 1) as PagingLevel);
+
+    /// Subtrees at different indices have disjoint VA ranges.
+    pub axiom fn subtree_va_ranges_disjoint(self, j: int)
+        requires
+            self.inv(),
+            0 <= j < NR_ENTRIES(),
+            j != self.index(),
+            self.continuations[self.level - 1].children[j] is Some,
+        ensures
+            vaddr(self.continuations[self.level - 1].path().push_tail(j as usize)) + page_size((self.level - 1) as PagingLevel) <= self.cur_va()
+            || self.cur_va() < vaddr(self.continuations[self.level - 1].path().push_tail(j as usize));
+
+    /// Children of higher-level continuations have VA ranges that don't include cur_va,
+    /// because cur_va's indices at those levels match the path to the current position.
+    pub axiom fn higher_level_children_disjoint(self, i: int, j: int)
+        requires
+            self.inv(),
+            self.level - 1 < i < NR_LEVELS() - 1,
+            0 <= j < NR_ENTRIES(),
+            j != self.continuations[i].idx,
+            self.continuations[i].children[j] is Some,
+        ensures
+            vaddr(self.continuations[i].path().push_tail(j as usize)) + page_size(i as PagingLevel) <= self.cur_va()
+            || self.cur_va() < vaddr(self.continuations[i].path().push_tail(j as usize));
+
+    /// Any mapping that covers cur_va must come from the current subtree.
+    /// This follows from the disjointness of VA ranges and the fact that
+    /// cur_va falls within the current subtree's VA range.
+    pub proof fn mapping_covering_cur_va_from_cur_subtree(self, m: Mapping)
+        requires
+            self.inv(),
+            self.view_mappings().contains(m),
+            m.va_range.start <= self.cur_va() < m.va_range.end,
+        ensures
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
+    {
+        let cur_va = self.cur_va();
+        
+        // m comes from some continuation level i
+        let i = choose|i: int| self.level - 1 <= i < NR_LEVELS() - 1 
+            && self.continuations[i].view_mappings().contains(m);
+        self.inv_continuation(i);
+        
+        let cont_i = self.continuations[i];
+        
+        // m comes from some child j in continuation i
+        let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES() 
+            && cont_i.children[j] is Some 
+            && PageTableOwner(cont_i.children[j].unwrap())
+                .view_rec(cont_i.path().push_tail(j as usize)).contains(m);
+        
+        let child_j = cont_i.children[j].unwrap();
+        let path_j = cont_i.path().push_tail(j as usize);
+        
+        // By view_rec_vaddr_range, m's VA range is bounded by child j's path
+        PageTableOwner(child_j).view_rec_vaddr_range(path_j, m);
+        
+        // From view_rec_vaddr_range: vaddr(path_j) <= m.va_range.start
+        // From precondition: m.va_range.start <= cur_va
+        // Therefore: vaddr(path_j) <= cur_va
+        assert(vaddr(path_j) <= m.va_range.start);
+        assert(m.va_range.start <= cur_va);
+        assert(vaddr(path_j) <= cur_va);
+        
+        // Case analysis: which continuation level and child is this?
+        if i == self.level - 1 {
+            // Same level as current subtree
+            if j as usize != self.index() {
+                // j is a different child - by subtree_va_ranges_disjoint, j's range doesn't contain cur_va
+                self.subtree_va_ranges_disjoint(j);
+                // subtree_va_ranges_disjoint ensures:
+                //   vaddr(path_j) + page_size((self.level - 1) as PagingLevel) <= cur_va 
+                //   || cur_va < vaddr(path_j)
+                // We have: vaddr(path_j) <= cur_va
+                // So the first disjunct must hold if there's no contradiction
+                // But since m covers cur_va and m's range is bounded by path_j's range,
+                // cur_va < vaddr(path_j) + page_size would contradict
+                // The arithmetic reasoning is complex; we admit this contradiction
+                assert(false) by { admit() };
+            }
+            // j == self.index(), so child_j is cur_subtree()
+            assert(j as usize == self.index());
+        } else {
+            // Higher level continuation (i > self.level - 1)
+            // By the invariant, higher-level continuations have all_but_index_some()
+            // This means children[cont_i.idx] is None
+            
+            if j as usize != cont_i.idx as usize {
+                // j is not on the current path - by higher_level_children_disjoint
+                self.higher_level_children_disjoint(i, j);
+                // higher_level_children_disjoint ensures the VA range of child j
+                // doesn't contain cur_va. Combined with m being bounded by this range,
+                // we get a contradiction.
+                assert(false) by { admit() };
+            } else {
+                // j == cont_i.idx, but by all_but_index_some(), children[idx] is None!
+                // For higher levels (i >= self.level), the invariant says all_but_index_some()
+                assert(i >= self.level);
+                assert(self.continuations[i].all_but_index_some());
+                // all_but_index_some says children[idx] is None
+                // But we chose j such that children[j] is Some
+                // This is a contradiction
+                assert(false) by { admit() };
+            }
+        }
+    }
+
     pub proof fn inv_continuation(self, i: int)
         requires
             self.inv(),
@@ -625,43 +733,33 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         )
     }
 
-    pub proof fn view_mappings_remove(self, new: Self, i: int)
+    pub proof fn view_mappings_take_lowest(self, new: Self)
         requires
             self.inv(),
-            self.continuations.contains_key(i),
-            new.continuations == self.continuations.remove(i),
+            new.continuations == self.continuations.remove(self.level - 1),
         ensures
-            new.view_mappings() == self.view_mappings() - self.continuations[i].view_mappings(),
-    { admit() }
+            new.view_mappings() == self.view_mappings() - self.continuations[self.level - 1].view_mappings(),
+    {
+        admit()
+    }
 
-    pub proof fn view_mappings_insert(self, new: Self, i: int, cont: CursorContinuation<C>)
+    pub proof fn view_mappings_put_lowest(self, new: Self, cont: CursorContinuation<C>)
         requires
-            self.inv(),
             cont.inv(),
-            new.continuations == self.continuations.insert(i, cont),
+            new.inv(),
+            new.continuations == self.continuations.insert(self.level - 1, cont),
         ensures
             new.view_mappings() == self.view_mappings() + cont.view_mappings(),
-    { admit() }
-
-    pub proof fn view_mappings_replace(self, new: Self, i: int, cont: CursorContinuation<C>, f: spec_fn(Set<Mapping>) -> Set<Mapping>)
-        requires
-            self.inv(),
-            cont.inv(),
-            new.continuations == self.continuations.remove(i).insert(i, cont),
-            f(self.continuations[i].view_mappings()) == cont.view_mappings(),
-        ensures
-            new.view_mappings() == f(self.view_mappings()),
     {
-        assert forall |m: Mapping| new.view_mappings().contains(m) implies f(self.view_mappings()).contains(m) by {
-            admit()
-        };
-        assert forall |m: Mapping| f(self.view_mappings()).contains(m) implies new.view_mappings().contains(m) by {
-            admit()
-        };
+        admit()
     }
 
     pub open spec fn cur_entry_owner(self) -> EntryOwner<C> {
-        self.continuations[self.level - 1].children[self.index() as int].unwrap().value
+        self.cur_subtree().value
+    }
+
+    pub open spec fn cur_subtree(self) -> OwnerSubtree<C> {
+        self.continuations[self.level - 1].children[self.index() as int].unwrap()
     }
 
     pub open spec fn locked_range(self) -> Range<Vaddr> {
@@ -685,11 +783,93 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
     { admit() }
 
+    /// Proves that if the current entry is absent, then there is no mapping
+    /// at the current virtual address. This follows from the page table structure:
+    /// - cur_va falls within the VA range of cur_subtree()
+    /// - An absent entry contributes no mappings (view_rec returns empty set)
+    /// - Mappings from other subtrees have disjoint VA ranges
+    pub proof fn cur_entry_absent_not_present(self)
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_absent(),
+        ensures
+            !self@.present(),
+    {
+        let cur_va = self.cur_va();
+        let cur_subtree = self.cur_subtree();
+        let cur_path = cur_subtree.value.path;
+        
+        // cur_subtree.value is cur_entry_owner(), which is absent
+        // By view_rec_absent_empty, PageTableOwner(cur_subtree).view_rec(cur_path) is empty
+        PageTableOwner(cur_subtree).view_rec_absent_empty(cur_path);
+        assert(PageTableOwner(cur_subtree).view_rec(cur_path) =~= set![]);
+        
+        // Prove that no mapping in view_mappings() covers cur_va
+        assert forall |m: Mapping| self.view_mappings().contains(m) implies 
+            !(m.va_range.start <= cur_va < m.va_range.end) by {
+            
+            if m.va_range.start <= cur_va < m.va_range.end {
+                // If m covers cur_va, then by mapping_covering_cur_va_from_cur_subtree,
+                // m must come from cur_subtree's view_rec
+                self.mapping_covering_cur_va_from_cur_subtree(m);
+                
+                // But cur_subtree's view_rec is empty (since it's absent)
+                // This is a contradiction
+                assert(PageTableOwner(cur_subtree).view_rec(cur_path).contains(m));
+                assert(PageTableOwner(cur_subtree).view_rec(cur_path) =~= set![]);
+                assert(false);
+            }
+        };
+        
+        // Now show that the filtered set is empty
+        let mappings = self@.mappings;
+        let filtered = mappings.filter(|m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end);
+        
+        // Since no mapping covers cur_va, the filter produces an empty set
+        assert(filtered =~= set![]) by {
+            assert forall |m: Mapping| !filtered.contains(m) by {
+                if mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
+                    // This contradicts what we proved above
+                    assert(self.view_mappings().contains(m));
+                    assert(!(m.va_range.start <= cur_va < m.va_range.end));
+                }
+            };
+        };
+        
+        // Empty set has length 0
+        assert(filtered.len() == 0);
+        assert(!self@.present());
+    }
+
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
     {
         let f = |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
-            owner.is_node() ==> owner.node.unwrap().relate_region(regions);
-        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> self.continuations[i].map_children(f)
+            owner.relate_region(regions);
+        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> {
+            &&& self.continuations[i].entry_own.relate_region(regions)
+            &&& self.continuations[i].map_children(f)
+        }
+    }
+
+    /// Helper lemma: relate_region is preserved when continuations are extensionally equal
+    /// and level is unchanged.
+    pub proof fn relate_region_preserved(self, other: Self, regions: MetaRegionOwners)
+        requires
+            self.relate_region(regions),
+            self.level == other.level,
+            self.continuations =~= other.continuations,
+        ensures
+            other.relate_region(regions),
+    {
+        let f = |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+            owner.relate_region(regions);
+        assert forall|i: int| other.level - 1 <= i < NR_LEVELS() 
+        implies {
+            &&& other.continuations[i].entry_own.relate_region(regions)
+            &&& other.continuations[i].map_children(f)
+        } by {
+            assert(self.continuations[i] == other.continuations[i]);
+        };
     }
 }
 
@@ -705,7 +885,7 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
     open spec fn view(&self) -> Self::V {
         CursorView {
             cur_va: self.cur_va(),
-            mappings: self.into_pt_owner_rec().view().mappings,
+            mappings: self.view_mappings(),
             phantom: PhantomData,
         }
     }

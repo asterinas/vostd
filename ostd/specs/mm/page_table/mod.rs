@@ -12,12 +12,13 @@ pub use view::*;
 
 use vstd::prelude::*;
 use vstd_extra::arithmetic::*;
+use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::page_size;
 use crate::mm::page_table::PageTableConfig;
 use crate::mm::{PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{CONST_NR_ENTRIES, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 
 use align_ext::AlignExt;
 
@@ -201,6 +202,194 @@ impl AbstractVaddr {
         ensures
             self.wrapped(level, level)
     { admit() }
+
+    //
+    // === Connection to TreePath and concrete Vaddr ===
+    //
+
+    /// Computes the concrete vaddr from the abstract representation.
+    /// This matches the structure: 
+    ///   index[NR_LEVELS-1] * 2^39 + index[NR_LEVELS-2] * 2^30 + ... + index[0] * 2^12 + offset
+    pub open spec fn compute_vaddr(self) -> Vaddr {
+        self.rec_compute_vaddr(0)
+    }
+
+    /// Helper for computing vaddr recursively from level i upward.
+    pub open spec fn rec_compute_vaddr(self, i: int) -> Vaddr
+        decreases NR_LEVELS() - i when 0 <= i <= NR_LEVELS()
+    {
+        if i >= NR_LEVELS() {
+            self.offset as Vaddr
+        } else {
+            let shift = page_size((i + 1) as PagingLevel);
+            (self.index[i] * shift + self.rec_compute_vaddr(i + 1)) as Vaddr
+        }
+    }
+
+    /// Extracts a TreePath from this abstract vaddr, from the root down to the given level.
+    /// The path has length (NR_LEVELS - level), containing indices for paging levels NR_LEVELS..level+1.
+    /// - level=0: full path of length NR_LEVELS with indices for all levels
+    /// - level=3: path of length 1 with just the root index
+    /// 
+    /// Path index mapping:
+    /// - path.index(0) = self.index[NR_LEVELS - 1]  (root level)
+    /// - path.index(i) = self.index[NR_LEVELS - 1 - i]
+    /// - path.index(NR_LEVELS - level - 1) = self.index[level]  (last entry)
+    pub open spec fn to_path(self, level: int) -> TreePath<CONST_NR_ENTRIES>
+        recommends 0 <= level < NR_LEVELS()
+    {
+        TreePath(self.rec_to_path(NR_LEVELS() - 1, level))
+    }
+
+    /// Builds the path sequence from abstract_level down to bottom_level (both inclusive).
+    /// abstract_level and bottom_level refer to the index keys in self.index (0 = lowest level, NR_LEVELS-1 = root).
+    /// Returns indices in order from highest level (first in seq) to lowest level (last in seq).
+    pub open spec fn rec_to_path(self, abstract_level: int, bottom_level: int) -> Seq<usize>
+        decreases abstract_level - bottom_level when bottom_level <= abstract_level
+    {
+        if abstract_level < bottom_level {
+            seq![]
+        } else if abstract_level == bottom_level {
+            // Base case: just this one level
+            seq![self.index[abstract_level] as usize]
+        } else {
+            // Recursive case: get higher levels first, then push this level's index
+            self.rec_to_path(abstract_level - 1, bottom_level).push(self.index[abstract_level] as usize)
+        }
+    }
+
+    /// The vaddr of the path from this abstract vaddr equals the aligned vaddr at that level.
+    pub proof fn to_path_vaddr(self, level: int)
+        requires
+            self.inv(),
+            0 <= level < NR_LEVELS(),
+        ensures
+            vaddr(self.to_path(level)) == self.align_down(level + 1).compute_vaddr(),
+    {
+        admit() // Structural induction on the recursive definitions
+    }
+
+    /// The concrete to_vaddr() equals the computed vaddr.
+    pub axiom fn to_vaddr_is_compute_vaddr(self)
+        requires
+            self.inv(),
+        ensures
+            self.to_vaddr() == self.compute_vaddr();
+
+    /// Path extracted from abstract vaddr has correct length.
+    pub proof fn to_path_len(self, level: int)
+        requires
+            0 <= level < NR_LEVELS(),
+        ensures
+            self.to_path(level).len() == NR_LEVELS() - level,
+    {
+        self.rec_to_path_len(NR_LEVELS() - 1, level);
+    }
+
+    proof fn rec_to_path_len(self, abstract_level: int, bottom_level: int)
+        requires
+            bottom_level <= abstract_level,
+        ensures
+            self.rec_to_path(abstract_level, bottom_level).len() == abstract_level - bottom_level + 1,
+        decreases abstract_level - bottom_level,
+    {
+        // The recursive structure:
+        // - rec_to_path(a, b) = rec_to_path(a-1, b).push(index[a]) when a >= b
+        // - rec_to_path(a, b) = seq![] when a < b
+        // So rec_to_path(a, b).len() = rec_to_path(a-1, b).len() + 1 = ... = a - b + 1
+        if abstract_level > bottom_level {
+            self.rec_to_path_len(abstract_level - 1, bottom_level);
+        }
+        // Structural reasoning about recursive definition
+        admit()
+    }
+
+    /// Path extracted from abstract vaddr has valid indices.
+    pub proof fn to_path_inv(self, level: int)
+        requires
+            self.inv(),
+            0 <= level < NR_LEVELS(),
+        ensures
+            self.to_path(level).inv(),
+    {
+        self.to_path_len(level);
+        assert forall|i: int| 0 <= i < self.to_path(level).len()
+        implies TreePath::<CONST_NR_ENTRIES>::elem_inv(#[trigger] self.to_path(level).index(i)) by {
+            // Each path index comes from self.index which is bounded by NR_ENTRIES
+            admit()
+        };
+    }
+}
+
+/// Connection between TreePath's vaddr and AbstractVaddr
+impl AbstractVaddr {
+    /// If a TreePath matches this abstract vaddr's indices at all levels covered by the path,
+    /// then vaddr(path) equals the aligned compute_vaddr at the corresponding level.
+    pub proof fn path_matches_vaddr(self, path: TreePath<CONST_NR_ENTRIES>)
+        requires
+            self.inv(),
+            path.inv(),
+            path.len() <= NR_LEVELS(),
+            forall|i: int| 0 <= i < path.len() ==>
+                path.index(i) == self.index[NR_LEVELS() - 1 - i],
+        ensures
+            vaddr(path) == self.align_down((NR_LEVELS() - path.len() + 1) as int).compute_vaddr() 
+                - self.align_down((NR_LEVELS() - path.len() + 1) as int).offset,
+    {
+        admit() // Induction on path.len()
+    }
+
+    /// The path index at position i corresponds to the abstract vaddr index at level (NR_LEVELS - 1 - i).
+    /// This is the key mapping between TreePath ordering and AbstractVaddr index ordering.
+    pub proof fn to_path_index(self, level: int, i: int)
+        requires
+            self.inv(),
+            0 <= level < NR_LEVELS(),
+            0 <= i < NR_LEVELS() - level,
+        ensures
+            self.to_path(level).index(i) == self.index[NR_LEVELS() - 1 - i],
+    {
+        self.to_path_len(level);
+        // The path is built by rec_to_path(NR_LEVELS - 1, level)
+        // which produces indices from level NR_LEVELS-1 down to level
+        // in order: index[NR_LEVELS-1], index[NR_LEVELS-2], ..., index[level]
+        // So path.index(i) = index[NR_LEVELS - 1 - i]
+        admit()
+    }
+
+    /// Direct connection: vaddr(to_path(level)) equals the aligned concrete vaddr.
+    /// This combines to_path_vaddr with to_vaddr_is_compute_vaddr.
+    pub proof fn to_path_vaddr_concrete(self, level: int)
+        requires
+            self.inv(),
+            0 <= level < NR_LEVELS(),
+        ensures
+            vaddr(self.to_path(level)) == nat_align_down(self.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize,
+    {
+        self.to_path_vaddr(level);
+        self.to_vaddr_is_compute_vaddr();
+        self.align_down_concrete(level + 1);
+        // to_path_vaddr gives: vaddr(to_path(level)) == align_down(level+1).compute_vaddr()
+        // to_vaddr_is_compute_vaddr gives: to_vaddr() == compute_vaddr()
+        // align_down_concrete gives: align_down(level+1).reflect(nat_align_down(to_vaddr(), page_size(level+1)))
+        // We need to connect align_down(level+1).compute_vaddr() to nat_align_down(to_vaddr(), page_size(level+1))
+        admit()
+    }
+
+    /// Key property: if we have a path that matches cur_va's indices, then
+    /// vaddr(path) + page_size(level) bounds the range containing cur_va.
+    pub proof fn vaddr_range_from_path(self, level: int)
+        requires
+            self.inv(),
+            0 <= level < NR_LEVELS(),
+        ensures
+            vaddr(self.to_path(level)) <= self.to_vaddr() 
+                < vaddr(self.to_path(level)) + page_size((level + 1) as PagingLevel),
+    {
+        self.to_path_vaddr_concrete(level);
+        // nat_align_down(x, n) <= x < nat_align_down(x, n) + n
+        admit()
+    }
 }
 
 }

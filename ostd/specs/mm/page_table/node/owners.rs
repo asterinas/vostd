@@ -77,7 +77,6 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
     pub children_perm: array_ptr::PointsTo<C::E, CONST_NR_ENTRIES>,
     pub level: PagingLevel,
-    pub path: TreePath<CONST_NR_ENTRIES>,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -110,12 +109,6 @@ impl<'rcu, C: PageTableConfig> NodeOwner<C> {
         &&& guard_perm.value().inner.inner@.wf(self)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
-    }
-
-    /// All nodes' metadata is forgotten for the duration of their lifetime.
-    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
-        &&& !regions.slots.contains_key(frame_to_index(meta_to_frame(self.meta_perm.addr())))
-        &&& regions.slot_owners[frame_to_index(meta_to_frame(self.meta_perm.addr()))].path_if_in_pt == Some(self.path)
     }
 }
 

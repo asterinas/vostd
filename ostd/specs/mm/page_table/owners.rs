@@ -93,7 +93,7 @@ impl<'rcu, C: PageTableConfig> EntryState<'rcu, C> {
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
-            parent_path: TreePath::new(Seq::empty()),
+            path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS() - lv + 1) as PagingLevel,
             node: None,
             frame: None,
@@ -115,8 +115,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
-            &&& child.unwrap().parent_level == self.node.unwrap().level
-            &&& child.unwrap().parent_path == self.node.unwrap().path
+            &&& child.unwrap().path.len() == self.node.unwrap().level
         } else {
             &&& child is None
         }
@@ -277,30 +276,30 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub open spec fn relate_region_rec(self, path: TreePath<CONST_NR_ENTRIES>, regions: MetaRegionOwners) -> bool
-        decreases INC_LEVELS() - self.0.level when self.0.inv()
-    {
-        if self.0.value.is_node() {
-            &&& self.0.value.node.unwrap().path == path
-            &&& self.0.value.node.unwrap().relate_region(regions)
-            &&& forall|i: int| 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
-                PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(path.push_tail(i as usize), regions)
-        } else {
-            true
-        }
-    }
-
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS() - self.0.level when self.0.inv()
     {
-        self.relate_region_rec(TreePath::new(Seq::empty()), regions)
+        self.0.tree_predicate_map(self.0.value.path, |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions))
+    }
+
+    /// An absent entry contributes no mappings - view_rec returns the empty set.
+    pub proof fn view_rec_absent_empty(self, path: TreePath<CONST_NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value.is_absent(),
+            path.len() <= INC_LEVELS() - 1,
+        ensures
+            self.view_rec(path) =~= set![],
+    {
+        // is_absent() implies !is_frame() and !is_node() by the EntryOwner invariant
+        // Therefore view_rec falls through to the else branch returning set![]
     }
 }
 
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
-        &&& self.0.value.parent_path.len() <= INC_LEVELS() - 1
+        &&& self.0.value.path.len() <= INC_LEVELS() - 1
     }
 }
 
@@ -308,44 +307,9 @@ impl<C: PageTableConfig> View for PageTableOwner<C> {
     type V = PageTableView;
 
     open spec fn view(&self) -> <Self as View>::V {
-        let mappings = self.view_rec(self.0.value.parent_path);
+        let mappings = self.view_rec(self.0.value.path);
         PageTableView {
             mappings
-        }
-    }
-}
-
-impl<'a, C: PageTableConfig> CursorContinuation<'a, C> {
-    pub open spec fn into_subtree(self) -> OwnerSubtree<C>
-    {
-        Node {
-            value: self.entry_own,
-            children: self.children,
-            level: self.tree_level,
-        }
-    }
-
-    pub proof fn into_subtree_inv(self)
-        requires
-            self.inv(),
-            self.all_some(),
-        ensures
-            self.into_subtree().inv(),
-    {
-        assert forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some implies
-            self.children[i].unwrap().value.parent_level == self.entry_own.node.unwrap().level by {
-            }
-    }
-}
-
-impl<'a, C: PageTableConfig> CursorOwner<'a, C> {
-    pub open spec fn into_pt_owner_rec(self) -> PageTableOwner<C>
-        decreases NR_LEVELS() - self.level when self.inv()
-    {
-        if self.level == NR_LEVELS() {
-            PageTableOwner(self.continuations[self.level-1].into_subtree())
-        } else {
-            self.pop_level_owner_spec().0.into_pt_owner_rec()
         }
     }
 }

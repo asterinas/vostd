@@ -510,7 +510,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             owner.inv(),
             owner.meta_perm.addr() == old(owner).meta_perm.addr(),
-            owner.path == old(owner).path,
             owner.level == old(owner).level,
             owner.meta_own == old(owner).meta_own,
             owner.meta_perm.points_to == old(owner).meta_perm.points_to,

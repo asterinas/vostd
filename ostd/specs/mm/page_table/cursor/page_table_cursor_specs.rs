@@ -96,7 +96,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// a new large mapping.
     pub open spec fn map_spec(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let existing = self.mappings.filter(|m: Mapping|
-            m.va_range.start <= self.cur_va < m.va_range.end || m.va_range.start <= self.cur_va + size < m.va_range.end);
+            self.cur_va <= m.va_range.start < m.va_range.end <= self.cur_va + size);
         let new = Mapping {
             va_range: self.cur_va..(self.cur_va + size) as usize,
             pa_range: paddr..(paddr + size) as usize,
@@ -105,7 +105,7 @@ impl<C: PageTableConfig> CursorView<C> {
         };
         CursorView {
             cur_va: self.align_up_spec(size),
-            mappings: self.mappings.difference(existing).insert(new),
+            mappings: self.mappings - existing + set![new],
             ..self
         }
     }
