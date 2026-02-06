@@ -202,7 +202,6 @@ impl<C: PageTableConfig> Child<C> {
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
-
             // SAFETY: The caller ensures that this node was created by
             // `into_pte`, so that restoring the forgotten reference is safe.
             #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
@@ -236,8 +235,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             entry_owner.inv(),
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
-//            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
-//            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
+            //            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
+            //            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).inv(),
             entry_owner.relate_region(*old(regions)),
         ensures
@@ -276,7 +275,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
         }
-
         ChildRef::Frame(paddr, level, pte.prop())
     }
 }

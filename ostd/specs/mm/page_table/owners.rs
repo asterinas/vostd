@@ -16,13 +16,13 @@ use vstd_extra::undroppable::*;
 
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
-    MAX_NR_LEVELS, Paddr, Vaddr,
+    Paddr, Vaddr, MAX_NR_LEVELS,
 };
 
-use crate::specs::arch::*;
-use crate::specs::mm::page_table::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::page_table::PageTableGuard;
+use crate::specs::arch::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::*;
 
 use core::ops::Deref;
 
@@ -173,7 +173,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let vaddr = vaddr(path);
             let pt_level = INC_LEVELS() - path.len();
             let page_size = page_size(pt_level as PagingLevel);
-    
+
             set![Mapping {
                 va_range: Range { start: vaddr, end: (vaddr + page_size) as Vaddr },
                 pa_range: Range {
@@ -185,7 +185,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS() - 1 {
             Set::new(
-                |m: Mapping| exists|i:int| 0 <= i < self.0.children.len() &&
+                |m: Mapping| exists|i:int|
+                #![trigger self.0.children[i]]
+                0 <= i < self.0.children.len() &&
                     self.0.children[i] is Some &&
                     PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
             )

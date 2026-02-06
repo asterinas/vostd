@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self,pcell::*};
+use vstd::cell::{self, pcell::*};
 use vstd::modes::*;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
@@ -38,22 +38,22 @@ verus! {
 /// # Verified Properties
 /// ## Verification Design
 /// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
-/// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data. 
+/// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data.
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
-/// 
+///
 /// For curious readers, details of the permission can be found in [`vstd::cell::pcell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html).
-/// 
+///
 /// [`disable_irq`]: Self::disable_irq
 /// [`lock`]: Self::lock
 /// [`try_lock`]: Self::try_lock
-/// 
+///
 /// ## Invariant
-/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`, 
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`,
 /// the permission is held by the spin lock and can be acquired by a user.
-/// 
+///
 /// ## Safety
 /// There are no data races.
-/// 
+///
 /// ## Functional Correctness
 /// - At most one user can hold the lock at the same time.
 #[repr(transparent)]
@@ -96,7 +96,7 @@ impl<T> SpinLockInner<T>
 #[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Safety
     /// This function is written in safe Rust and there is no undefined behavior.
@@ -105,7 +105,7 @@ impl<T, G> SpinLock<T, G> {
     /// ## Postconditions
     /// - The function will not panic.
     /// - The created spin lock satisfies the invariant.
-    pub const fn new(val: T) -> Self 
+    pub const fn new(val: T) -> Self
     {
         let (val, Tracked(perm)) = PCell::new(val);
         let lock_inner = SpinLockInner {
@@ -334,7 +334,7 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct SpinLockGuard_<T/*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+pub struct SpinLockGuard_<T /*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
     v_perm: Tracked<PointsTo<T>>, //Ghost permission for verification
@@ -392,7 +392,7 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian>
     }
 }*/
 
-/* 
+/*
 impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> !Send
     for SpinLockGuard_<T, R, G>
 {
