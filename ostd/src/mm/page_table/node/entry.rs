@@ -177,7 +177,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.relate_guard_perm(*guard_perm),
             parent_owner.level == old(parent_owner).level,
             guard_perm.addr() == old(guard_perm).addr(),
-            guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
+            guard_perm.value().inner.inner@.ptr.addr() == old(
+                guard_perm,
+            ).value().inner.inner@.ptr.addr(),
             owner.is_frame(),
             owner.parent_level == old(owner).parent_level,
             owner.path == old(owner).path,

@@ -208,7 +208,7 @@ impl AbstractVaddr {
     //
 
     /// Computes the concrete vaddr from the abstract representation.
-    /// This matches the structure: 
+    /// This matches the structure:
     ///   index[NR_LEVELS-1] * 2^39 + index[NR_LEVELS-2] * 2^30 + ... + index[0] * 2^12 + offset
     pub open spec fn compute_vaddr(self) -> Vaddr {
         self.rec_compute_vaddr(0)
@@ -230,7 +230,7 @@ impl AbstractVaddr {
     /// The path has length (NR_LEVELS - level), containing indices for paging levels NR_LEVELS..level+1.
     /// - level=0: full path of length NR_LEVELS with indices for all levels
     /// - level=3: path of length 1 with just the root index
-    /// 
+    ///
     /// Path index mapping:
     /// - path.index(0) = self.index[NR_LEVELS - 1]  (root level)
     /// - path.index(i) = self.index[NR_LEVELS - 1 - i]
@@ -333,7 +333,7 @@ impl AbstractVaddr {
             forall|i: int| 0 <= i < path.len() ==>
                 path.index(i) == self.index[NR_LEVELS() - 1 - i],
         ensures
-            vaddr(path) == self.align_down((NR_LEVELS() - path.len() + 1) as int).compute_vaddr() 
+            vaddr(path) == self.align_down((NR_LEVELS() - path.len() + 1) as int).compute_vaddr()
                 - self.align_down((NR_LEVELS() - path.len() + 1) as int).offset,
     {
         admit() // Induction on path.len()
@@ -383,7 +383,7 @@ impl AbstractVaddr {
             self.inv(),
             0 <= level < NR_LEVELS(),
         ensures
-            vaddr(self.to_path(level)) <= self.to_vaddr() 
+            vaddr(self.to_path(level)) <= self.to_vaddr()
                 < vaddr(self.to_path(level)) + page_size((level + 1) as PagingLevel),
     {
         self.to_path_vaddr_concrete(level);
