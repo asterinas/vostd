@@ -1,20 +1,20 @@
 use vstd::prelude::*;
 
-use vstd::set::*;
-use vstd::seq::*;
 use vstd::map_lib;
+use vstd::seq::*;
+use vstd::set::*;
 
 use vstd_extra::ownership::*;
 
 use super::*;
-use crate::mm::{PagingLevel, PagingConstsTrait};
-use crate::mm::vm_space::*;
-use crate::specs::mm::page_table::{CursorOwner, Guards, EntryOwner};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::task::InAtomicMode;
-use crate::mm::page_prop::PageProperty;
 use crate::mm::frame::untyped::UFrame;
+use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::{page_size, PageTableConfig};
+use crate::mm::vm_space::*;
+use crate::mm::{PagingConstsTrait, PagingLevel};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::{CursorOwner, EntryOwner, Guards};
+use crate::specs::task::InAtomicMode;
 
 verus! {
 

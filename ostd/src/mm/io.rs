@@ -788,7 +788,6 @@ impl<'a> TryFromSpecImpl<&'a [u8]> for VmWriter<'a> {
                 },
             )
         }
-
     }
 }
 
@@ -975,11 +974,25 @@ impl VmReader<'_> {
         self.cursor.vaddr = self.cursor.vaddr + len;
     }
 
-    /// Reads all data into the writer until one of the two conditions is met:
-    /// 1. The reader has no remaining data.
-    /// 2. The writer has no available space.
+    /// Reads data from `self` and writes it into the provided `writer`.
     ///
-    /// Returns the number of bytes read.
+    /// This function acts as the source side of a transfer. It copies data from
+    /// the current instance (`self`) into the destination `writer`, up to the limit
+    /// of available data in `self` or available space in `writer` (whichever is smaller).
+    ///
+    /// # Logic
+    ///
+    /// 1. Calculates the copy length: `min(self.remaining_data, writer.available_space)`.
+    /// 2. Copies bytes from `self`'s internal buffer to `writer`'s buffer.
+    /// 3. Advances the cursors of both `self` and `writer`.
+    ///
+    /// # Arguments
+    ///
+    /// * `writer` - The destination `VmWriter` where the data will be copied to.
+    ///
+    /// # Returns
+    ///
+    /// The number of bytes actually transferred.
     #[verus_spec(r =>
         with
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
@@ -991,11 +1004,18 @@ impl VmReader<'_> {
             old(owner_w).inv(),
             old(owner_r).inv_with_reader(*old(self)),
             old(owner_w).inv_with_writer(*old(writer)),
-            old(owner_r).mem_view is Some,
             old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
             // Non-overlapping requirements.
             old(writer).cursor.range@.start >= old(self).cursor.range@.end
-                || old(self).cursor.range@.start >= old(writer).cursor.range@.end,
+            || old(self).cursor.range@.start >= old(writer).cursor.range@.end,
+            old(owner_r).mem_view matches Some(VmIoMemView::ReadView(mem_src)) &&
+            forall|i: usize|
+                #![trigger mem_src.addr_transl(i)]
+                    old(self).cursor.vaddr <= i < old(self).cursor.vaddr + old(self).remain_spec() ==> {
+                        &&& mem_src.addr_transl(i) is Some
+                        &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
+                        &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    },
         ensures
             self.inv(),
             writer.inv(),
@@ -1019,22 +1039,44 @@ impl VmReader<'_> {
         if copy_len == 0 {
             return 0;
         }
+        let tracked mv_r = match owner_r.mem_view.tracked_take() {
+            VmIoMemView::ReadView(mv) => mv,
+            _ => { proof_from_false() },
+        };
+        let tracked mut mv_w = match owner_w.mem_view.tracked_take() {
+            VmIoMemView::WriteView(mv) => mv,
+            _ => { proof_from_false() },
+        };
+        let ghost mv_w_pre = mv_w;
+
         // Now `memcpy` becomes a `safe` APIs since now we have the tracked permissions
         // for both reader and writer to guarantee that the memory accesses are valid.
         //
         // This is equivalent to: memcpy(writer.cursor.vaddr, self.cursor.vaddr, copy_len);
-        // TODO: Still wait for VirtPtr to finish their implementation.
-
-        let tracked mut mv = match owner_w.mem_view.tracked_take() {
-            VmIoMemView::WriteView(mv) => mv,
-            _ => { proof_from_false() },
-        };
+        VirtPtr::copy_nonoverlapping(
+            &self.cursor,
+            &writer.cursor,
+            Tracked(mv_r),
+            Tracked(&mut mv_w),
+            copy_len,
+        );
 
         self.advance(copy_len);
         writer.advance(copy_len);
 
         proof {
-            owner_w.mem_view = Some(VmIoMemView::WriteView(mv));
+            let ghost mv_w0 = mv_w;
+            owner_w.mem_view = Some(VmIoMemView::WriteView(mv_w));
+            owner_r.mem_view = Some(VmIoMemView::ReadView(mv_r));
+
+            assert forall|va|
+                owner_w.range@.start <= va < owner_w.range@.end implies mv_w.addr_transl(
+                va,
+            ) is Some by {
+                assert(mv_w.mappings == mv_w_pre.mappings);
+                assert(mv_w.addr_transl(va) == mv_w_pre.addr_transl(va));
+            }
+
             owner_w.advance(copy_len);
             owner_r.advance(copy_len);
         }
@@ -1213,11 +1255,18 @@ impl<'a> VmWriter<'a> {
         self.cursor.vaddr = self.cursor.vaddr + len;
     }
 
-    /// Writes all data from the reader until one of the two conditions is met:
-    /// 1. The reader has no remaining data.
-    /// 2. The writer has no available space.
+    /// Writes data into `self` by reading from the provided `reader`.
     ///
-    /// Returns the number of bytes written.
+    /// This function treats `self` as the destination buffer. It pulls data *from*
+    /// the source `reader` and writes it into the current instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `reader` - The source `VmReader` to read data from.
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes written to `self` (which is equal to the number of bytes read from `reader`).
     #[inline]
     #[verus_spec(r =>
         with
@@ -1230,11 +1279,18 @@ impl<'a> VmWriter<'a> {
             old(owner_r).inv(),
             old(owner_w).inv_with_writer(*old(self)),
             old(owner_r).inv_with_reader(*old(reader)),
-            old(owner_r).mem_view is Some,
             old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
             // Non-overlapping requirements.
             old(self).cursor.range@.start >= old(reader).cursor.range@.end
                 || old(reader).cursor.range@.start >= old(self).cursor.range@.end,
+            old(owner_r).mem_view matches Some(VmIoMemView::ReadView(mem_src)) &&
+            forall|i: usize|
+                #![trigger mem_src.addr_transl(i)]
+                    old(reader).cursor.vaddr <= i < old(reader).cursor.vaddr + old(reader).remain_spec() ==> {
+                        &&& mem_src.addr_transl(i) is Some
+                        &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
+                        &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    },
         ensures
             self.inv(),
             reader.inv(),

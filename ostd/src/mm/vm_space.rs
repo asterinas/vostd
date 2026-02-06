@@ -18,6 +18,7 @@ use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
+use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
@@ -25,7 +26,6 @@ use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
-use crate::specs::mm::frame::mapping::meta_to_frame;
 
 use crate::{
     //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
@@ -863,7 +863,9 @@ impl<'a> VmSpace<'a> {
 
             assert forall|va: usize|
                 #![auto]
-                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(va) is Some by {
+                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(
+                va,
+            ) is Some by {
                 if owner_w.range@.start <= va && va < owner_w.range@.end {
                     assert(lhs.mappings =~= old_mv.mappings.filter(
                         |m: Mapping|
@@ -875,7 +877,7 @@ impl<'a> VmSpace<'a> {
                     );
                     let o_mv = old_mv.mappings.filter(
                         |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    ); 
+                    );
 
                     assert(old_mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
@@ -991,7 +993,6 @@ impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    
     pub open spec fn invariants(
         self,
         owner: CursorOwner<'rcu, UserPtConfig>,
@@ -1016,7 +1017,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         self,
         view: CursorView<UserPtConfig>,
         range: Range<Vaddr>,
-        item: Option<MappedItem>
+        item: Option<MappedItem>,
     ) -> bool {
         if view.present() {
             let found_item = view.query_item_spec();
@@ -1053,9 +1054,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& self.query_success_ensures(self.0.model(*owner), r.unwrap().0, r.unwrap().1)
             }
     )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
-    {
-        proof { admit() };
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
+        proof { admit() }
+        ;
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.0.query()?,
@@ -1264,10 +1265,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &mut self.flusher
     }
     */
-
     /// Collects the invariants of the cursor, its owner, and associated tracked structures.
     /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
-    pub open spec fn map_cursor_inv(self, cursor_owner: CursorOwner<'a, UserPtConfig>, guards: Guards<'a, UserPtConfig>, regions: MetaRegionOwners) -> bool {
+    pub open spec fn map_cursor_inv(
+        self,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+        guards: Guards<'a, UserPtConfig>,
+        regions: MetaRegionOwners,
+    ) -> bool {
         &&& cursor_owner.inv()
         &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& self.pt_cursor.inner.inv()
@@ -1281,7 +1286,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// These conditions must hold before the call to `map` but may not be maintained after the call.
     /// The cursor must be within the locked range and below the guard level, but it may move outside the
     /// range if the frame being mapped is exactly the length of the remaining range.
-    pub open spec fn map_cursor_requires(self, cursor_owner: CursorOwner<'a, UserPtConfig>) -> bool {
+    pub open spec fn map_cursor_requires(
+        self,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+    ) -> bool {
         &&& cursor_owner.in_locked_range()
         &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
         &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
@@ -1290,14 +1298,19 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Collects the conditions that must hold on the frame being mapped.
     /// The frame must be well-formed with respect to the entry owner. When converted into a `MappedItem`,
     /// its physical address must also match, and its level must be between 1 and the highest translation level.
-    pub open spec fn map_item_requires(self, frame: UFrame, prop: PageProperty, entry_owner: EntryOwner<UserPtConfig>) -> bool {
+    pub open spec fn map_item_requires(
+        self,
+        frame: UFrame,
+        prop: PageProperty,
+        entry_owner: EntryOwner<UserPtConfig>,
+    ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
         &&& prop == prop0
         &&& entry_owner.frame.unwrap().mapped_pa == paddr
         &&& entry_owner.frame.unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
-        &&& 1 <= level <= NR_LEVELS() // Should be property of item_into_raw
+        &&& 1 <= level <= NR_LEVELS()  // Should be property of item_into_raw
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
@@ -1340,7 +1353,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_requires(frame, prop, entry_owner),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
-            old(self).map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)),
+            old(self).map_item_ensures(
+                frame,
+                prop,
+                old(self).pt_cursor.inner.model(*old(cursor_owner)),
+                self.pt_cursor.inner.model(*cursor_owner),
+            ),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
