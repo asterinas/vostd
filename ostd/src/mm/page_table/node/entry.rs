@@ -172,7 +172,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(self).node.addr() == old(guard_perm).addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
             op.requires((old(self).pte.prop(),)),
-            old(owner).is_frame()
+            old(owner).is_frame(),
         ensures
             owner.inv(),
             self.wf(*owner),
@@ -180,7 +180,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.relate_guard_perm(*guard_perm),
             parent_owner.level == old(parent_owner).level,
             guard_perm.addr() == old(guard_perm).addr(),
-            guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
+            guard_perm.value().inner.inner@.ptr.addr() == old(
+                guard_perm,
+            ).value().inner.inner@.ptr.addr(),
             owner.is_frame(),
             owner.parent_level == old(owner).parent_level,
             owner.path == old(owner).path,
@@ -257,7 +259,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.relate_guard_perm(*guard_perm),
             parent_owner.level == old(parent_owner).level,
             guard_perm.pptr() == old(guard_perm).pptr(),
-            guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
+            guard_perm.value().inner.inner@.ptr.addr() == old(
+                guard_perm,
+            ).value().inner.inner@.ptr.addr(),
             regions.inv(),
             self.wf(*new_owner),
             new_owner.inv(),
@@ -361,7 +365,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
-                &&& owner == old(owner)
+                &&& *owner == *old(owner)
             },
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
             forall |i: usize| old(guards).unlocked(i) && i != owner.value.node.unwrap().meta_perm.addr() ==> guards.unlocked(i),
@@ -371,46 +375,48 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             regions.inv(),
     )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A)
-    -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >) {
         let mut parent_guard = self.node.take(Tracked(parent_guard_perm));
 
         if !(self.is_none() && parent_guard.level() > 1) {
             proof_with!{|= Tracked(None)}
             None
         } else {
+            let level = parent_guard.level();
+            let new_page =   /*RcuDrop::new(*/
+            PageTableNode::<C>::alloc(level - 1)  /*)*/
+            ;
 
-        let level = parent_guard.level();
-        let new_page = /*RcuDrop::new(*/PageTableNode::<C>::alloc(level - 1)/*)*/;
+            let paddr = new_page.start_paddr();
+            // SAFETY: The page table won't be dropped before the RCU grace period
+            // ends, so it outlives `'rcu`.
+            let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };
 
-        let paddr = new_page.start_paddr();
-        // SAFETY: The page table won't be dropped before the RCU grace period
-        // ends, so it outlives `'rcu`.
-        let pt_ref = unsafe { PageTableNodeRef::borrow_paddr(paddr) };
-
-        proof_decl! {
+            proof_decl! {
             let tracked mut guard_perm: Tracked<GuardPerm<'rcu, C>>;
         }
 
-        // Lock before writing the PTE, so no one else can operate on it.
-        #[verus_spec(with Tracked(guards) => Tracked(guard_perm))]
-        let pt_lock_guard = pt_ref.lock(guard);
+            // Lock before writing the PTE, so no one else can operate on it.
+            #[verus_spec(with Tracked(guards) => Tracked(guard_perm))]
+            let pt_lock_guard = pt_ref.lock(guard);
 
-        self.pte = Child::PageTable(new_page).into_pte();
+            self.pte = Child::PageTable(new_page).into_pte();
 
-        // SAFETY:
-        //  1. The index is within the bounds.
-        //  2. The new PTE is a child in `C` and at the correct paging level.
-        //  3. The ownership of the child is passed to the page table node.
-        unsafe { parent_guard.write_pte(self.idx, self.pte) };
+            // SAFETY:
+            //  1. The index is within the bounds.
+            //  2. The new PTE is a child in `C` and at the correct paging level.
+            //  3. The ownership of the child is passed to the page table node.
+            unsafe { parent_guard.write_pte(self.idx, self.pte) };
 
-        let nr_children = parent_guard.nr_children_mut();
-        //nr_children += 1;
+            let nr_children = parent_guard.nr_children_mut();
+            //nr_children += 1;
 
-        self.node.put(Tracked(parent_guard_perm), parent_guard);
+            self.node.put(Tracked(parent_guard_perm), parent_guard);
 
-        proof_with!{|= Tracked(Some(guard_perm))}
-        Some(pt_lock_guard)
+            proof_with!{|= Tracked(Some(guard_perm))}
+            Some(pt_lock_guard)
         }
     }
 
@@ -473,7 +479,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             forall |i: usize| old(guards).unlocked(i) ==> guards.unlocked(i),
     )]
     #[verifier::external_body]
-    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {
+    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >) {
         let mut node_guard = self.node.take(Tracked(guard_perm));
 
         assert(parent_owner.meta_perm.value().level <= NR_LEVELS()) by { admit() };

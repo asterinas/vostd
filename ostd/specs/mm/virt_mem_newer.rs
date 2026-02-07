@@ -403,38 +403,43 @@ impl VirtPtr {
         tmp.write(Tracked(mem), x)
     }
 
-    pub open spec fn copy_offset_spec(src: Self, dst: Self, mem: MemView, n: usize) -> MemView {
-        let x = src.read_offset_spec(mem, n);
-        dst.write_offset_spec(mem, n, x)
+    pub open spec fn copy_offset_spec(src: Self, dst: Self, mem_src: MemView, mem_dst: MemView, n: usize) -> MemView {
+        let x = src.read_offset_spec(mem_src, n);
+        dst.write_offset_spec(mem_dst, n, x)
     }
 
-    pub fn copy_offset(src: &Self, dst: &Self, Tracked(mem): Tracked<&mut MemView>, n: usize)
+    pub fn copy_offset(src: &Self, dst: &Self, Tracked(mem_src): Tracked<&MemView>, Tracked(mem_dst): Tracked<&mut MemView>, n: usize)
         requires
             src.inv(),
             dst.inv(),
             src.range@.start <= src.vaddr + n < src.range@.end,
+            mem_src.addr_transl((src.vaddr + n) as usize) is Some,
+            mem_src.memory.contains_key(mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0),
+            mem_src.memory[mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0].contents[mem_src.addr_transl((src.vaddr + n) as usize).unwrap().1 as int] is Init,
+
             dst.range@.start <= dst.vaddr + n < dst.range@.end,
-            old(mem).addr_transl((src.vaddr + n) as usize) is Some,
-            old(mem).addr_transl((dst.vaddr + n) as usize) is Some,
-            old(mem).memory.contains_key(old(mem).addr_transl((src.vaddr + n) as usize).unwrap().0),
-            old(mem).memory[old(mem).addr_transl((src.vaddr + n) as usize).unwrap().0].contents[old(mem).addr_transl((src.vaddr + n) as usize).unwrap().1 as int] is Init,
+            old(mem_dst).addr_transl((dst.vaddr + n) as usize) is Some,
         ensures
-            *mem == Self::copy_offset_spec(*src, *dst, *old(mem), n),
+            *mem_dst == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n),
+            mem_dst.mappings == old(mem_dst).mappings,
+            mem_dst.memory.dom() == old(mem_dst).memory.dom(),
+
     {
-        let x = src.read_offset(Tracked(mem), n);
+        let x = src.read_offset(Tracked(mem_src), n);
         proof { admit() }
         ;
-        dst.write_offset(Tracked(mem), n, x)
+        dst.write_offset(Tracked(mem_dst), n, x)
     }
 
-    pub open spec fn memcpy_spec(src: Self, dst: Self, mem: MemView, n: usize) -> MemView
+    pub open spec fn memcpy_spec(src: Self, dst: Self, mem_src: MemView, mem_dst: MemView, n: usize) -> MemView
         decreases n,
     {
         if n == 0 {
-            mem
+            mem_dst
         } else {
-            let mem = Self::copy_offset_spec(src, dst, mem, (n - 1) as usize);
-            Self::memcpy_spec(src, dst, mem, (n - 1) as usize)
+            let mem_dst_1 = Self::copy_offset_spec(src, dst, mem_src, mem_dst, (n - 1) as usize);
+
+            Self::memcpy_spec(src, dst, mem_src, mem_dst_1, (n - 1) as usize)
         }
     }
 
@@ -443,49 +448,60 @@ impl VirtPtr {
     /// The source and destination must *not* overlap.
     /// `copy_nonoverlapping` is semantically equivalent to C’s `memcpy`,
     /// but with the source and destination arguments swapped.
+    ///
+    /// `mem` points to `src`'s owned memory regions.
     pub fn copy_nonoverlapping(
         src: &Self,
         dst: &Self,
-        Tracked(mem): Tracked<&mut MemView>,
+        Tracked(mem_src): Tracked<&MemView>,
+        Tracked(mem_dst): Tracked<&mut MemView>,
         n: usize,
     )
         requires
             src.inv(),
             dst.inv(),
+            src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
             src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
-            dst.range@.start <= dst.vaddr,
-            dst.vaddr + n < dst.range@.end,
-            src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
             forall|i: usize|
+                #![trigger mem_src.addr_transl(i)]
                 src.vaddr <= i < src.vaddr + n ==> {
-                    &&& #[trigger] old(mem).addr_transl(i) is Some
-                    &&& old(mem).memory.contains_key(old(mem).addr_transl(i).unwrap().0)
-                    &&& old(mem).memory[old(mem).addr_transl(i).unwrap().0].contents[old(mem).addr_transl(i).unwrap().1 as int] is Init
+                    &&& mem_src.addr_transl(i) is Some
+                    &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
+                    &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
                 },
+            dst.range@.start <= dst.vaddr,
+            dst.vaddr + n <= dst.range@.end,
             forall|i: usize|
                 dst.vaddr <= i < dst.vaddr + n ==> {
-                    &&& old(mem).addr_transl(i) is Some
+                    &&& old(mem_dst).addr_transl(i) is Some
                 },
         ensures
-            *mem == Self::memcpy_spec(*src, *dst, *old(mem), n),
+            *mem_dst == Self::memcpy_spec(*src, *dst, *mem_src, *old(mem_dst), n),
+            mem_dst.mappings == old(mem_dst).mappings,
+            mem_dst.memory.dom() == old(mem_dst).memory.dom(),
+            forall|i: usize|
+                #![trigger mem_dst.addr_transl(i)]
+                dst.vaddr <= i < dst.vaddr + n ==> {
+                    &&& mem_dst.addr_transl(i) is Some
+            },
         decreases n,
     {
-        let ghost mem0 = *mem;
-
         if n == 0 {
             return ;
         } else {
-            Self::copy_offset(src, dst, Tracked(mem), n - 1);
-            assert(forall|i: usize|
-                #![auto]
-                src.vaddr <= i < src.vaddr + n - 1 ==> mem.addr_transl(i) == mem0.addr_transl(i));
-            assert(forall|i: usize|
-                #![auto]
-                src.vaddr <= i < src.vaddr + n - 1 ==>
-                mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] ==
-                mem0.memory[mem0.addr_transl(i).unwrap().0].contents[mem0.addr_transl(i).unwrap().1 as int]) by { admit() };
-            Self::copy_nonoverlapping(src, dst, Tracked(mem), n - 1);
+            let ghost mem0 = *mem_dst;
+
+            Self::copy_offset(src, dst, Tracked(mem_src), Tracked(mem_dst), n - 1);
+
+            proof {
+                assert(forall|i: usize|
+                    dst.vaddr <= i < dst.vaddr + n - 1 ==>
+                    mem_dst.addr_transl(i) == mem0.addr_transl(i)
+                );
+            }
+
+            Self::copy_nonoverlapping(src, dst, Tracked(mem_src), Tracked(mem_dst), n - 1);
         }
     }
 

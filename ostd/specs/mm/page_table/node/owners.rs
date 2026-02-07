@@ -14,14 +14,14 @@ use crate::specs::arch::mm::{
     CONST_NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
 };
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::specs::mm::frame::mapping::{meta_to_frame, frame_to_index, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::GuardPerm;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
-use vstd_extra::ownership::*;
 use vstd_extra::ghost_tree::TreePath;
+use vstd_extra::ownership::*;
 
 verus! {
 

@@ -371,7 +371,6 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
     ;
 }
 
-
 } // verus!
 verus! {
 
@@ -415,20 +414,23 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     pub open spec fn tree_predicate_map(
         self,
         path: TreePath<N>,
-        f: spec_fn(T, TreePath<N>) -> bool) -> bool
-        decreases L - self.level when self.inv()
+        f: spec_fn(T, TreePath<N>) -> bool,
+    ) -> bool
+        decreases L - self.level,
+        when self.inv()
     {
         if self.level < L - 1 {
             &&& f(self.value, path)
-            &&& forall|i:int| 0 <= i < self.children.len() ==>
-                #[trigger] self.children[i] is Some ==>
-                self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f)
+            &&& forall|i: int|
+                0 <= i < self.children.len() ==> #[trigger] self.children[i] is Some
+                    ==> self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f)
         } else {
             &&& f(self.value, path)
         }
     }
 
-    pub proof fn map_unroll_once(self,
+    pub proof fn map_unroll_once(
+        self,
         path: TreePath<N>,
         f: spec_fn(T, TreePath<N>) -> bool,
         i: int,
@@ -441,17 +443,15 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.tree_predicate_map(path, f),
         ensures
             self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f),
-    { }
+    {
+    }
 
     pub open spec fn implies(
         f: spec_fn(T, TreePath<N>) -> bool,
         g: spec_fn(T, TreePath<N>) -> bool,
     ) -> bool {
         forall|value: T, path: TreePath<N>|
-            value.inv() ==>
-            f(value, path) ==>
-            #[trigger]
-            g(value, path)
+            value.inv() ==> f(value, path) ==> #[trigger] g(value, path)
     }
 
     pub proof fn map_implies(
@@ -466,13 +466,15 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             Self::tree_predicate_map(self, path, f),
         ensures
             Self::tree_predicate_map(self, path, g),
-        decreases L - self.level
+        decreases L - self.level,
     {
         if self.level < L - 1 {
-            assert forall|i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
-                self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), g) by {
-                    assert(self.children[i].unwrap().inv());
-                    self.children[i].unwrap().map_implies(path.push_tail(i as usize), f, g);
+            assert forall|i: int|
+                0 <= i < self.children.len()
+                    && self.children[i] is Some implies self.children[i].unwrap().tree_predicate_map(
+            path.push_tail(i as usize), g) by {
+                assert(self.children[i].unwrap().inv());
+                self.children[i].unwrap().map_implies(path.push_tail(i as usize), f, g);
             }
         }
     }
