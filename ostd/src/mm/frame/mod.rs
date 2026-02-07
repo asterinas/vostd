@@ -500,7 +500,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     }
 
     /// Borrows a reference from the given frame.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
@@ -516,6 +515,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         ensures
             regions.inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
+            regions.slots =~= old(regions).slots,
+            regions.slot_owners =~= old(regions).slot_owners,
+            regions.dropped_slots =~= old(regions).dropped_slots,
     )]
     #[verifier::external_body]
     pub fn borrow(&self) -> FrameRef<'a, M> {

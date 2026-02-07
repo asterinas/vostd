@@ -114,6 +114,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
             Self::PageTable(node) => {
                 &&& owner.is_node()
                 &&& node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
+                &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -236,8 +237,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             entry_owner.inv(),
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
-//            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
-//            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).inv(),
             entry_owner.relate_region(*old(regions)),
         ensures

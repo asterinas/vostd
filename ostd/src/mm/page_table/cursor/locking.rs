@@ -16,6 +16,10 @@ use vstd_extra::array_ptr::*;
 
 use crate::mm::page_table::*;
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::page_table::Guards;
+use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
+use vstd_extra::ghost_tree::TreePath;
+use crate::specs::arch::mm::CONST_NR_ENTRIES;
 
 use core::ops::IndexMut;
 
@@ -320,24 +324,41 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 /// This function must not be called upon a shared node, e.g., the second-
 /// top level nodes that the kernel space and user space share.
 #[verus_spec(res =>
-    with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>
+    with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>,
+        Tracked(guards): Tracked<&mut Guards<'a, C>>,
+        Ghost(locked_addr): Ghost<usize>
     requires
         old(owner).inv(),
+        // The locked_addr must be the address that was locked (held in guards)
+        old(guards).lock_held(locked_addr),
     ensures
         owner.inv(),
         owner.guard_level == old(owner).guard_level,
         owner.level == old(owner).level,
         owner.va == old(owner).va,
         owner.prefix == old(owner).prefix,
-        // Preserve the guard_perm.pptr() for each continuation level
-        owner.level <= 4 ==> owner.continuations[3].guard_perm.pptr() == old(owner).continuations[3].guard_perm.pptr(),
-        owner.level <= 3 ==> owner.continuations[2].guard_perm.pptr() == old(owner).continuations[2].guard_perm.pptr(),
-        owner.level <= 2 ==> owner.continuations[1].guard_perm.pptr() == old(owner).continuations[1].guard_perm.pptr(),
-        owner.level == 1 ==> owner.continuations[0].guard_perm.pptr() == old(owner).continuations[0].guard_perm.pptr(),
+        // Preserve the guard_perm for each continuation level
+        owner.level <= 4 ==> owner.continuations[3].guard_perm == old(owner).continuations[3].guard_perm,
+        owner.level <= 3 ==> owner.continuations[2].guard_perm == old(owner).continuations[2].guard_perm,
+        owner.level <= 2 ==> owner.continuations[1].guard_perm == old(owner).continuations[1].guard_perm,
+        owner.level == 1 ==> owner.continuations[0].guard_perm == old(owner).continuations[0].guard_perm,
         owner.continuations[owner.level - 1].children[owner.continuations[owner.level - 1].idx as int].unwrap().value.is_absent(),
+        // entry_own at current level is preserved
+        owner.continuations[owner.level - 1].entry_own == old(owner).continuations[owner.level - 1].entry_own,
+        // Children at current level are preserved
         forall |i: int| 0 <= i < NR_ENTRIES() ==>
             #[trigger]
             owner.continuations[owner.level - 1].children[i] == old(owner).continuations[owner.level - 1].children[i],
+        // Continuations at higher levels are completely preserved
+        forall |lvl: int| #![trigger owner.continuations[lvl]]
+            owner.level <= lvl < NR_LEVELS() ==> owner.continuations[lvl] == old(owner).continuations[lvl],
+        // Guards postconditions:
+        // 1. Everything that was unlocked before is still unlocked (no new locks added)
+        forall |addr: usize| old(guards).unlocked(addr) ==> guards.unlocked(addr),
+        // 2. The locked address is now unlocked
+        guards.unlocked(locked_addr),
+        // 3. Other locked addresses remain locked
+        forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> guards.lock_held(addr),
 )]
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(

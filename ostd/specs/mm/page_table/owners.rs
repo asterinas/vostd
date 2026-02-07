@@ -276,10 +276,15 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
+    pub open spec fn relate_region_pred(regions: MetaRegionOwners)
+        -> (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
+        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions)
+    }
+
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS() - self.0.level when self.0.inv()
     {
-        self.0.tree_predicate_map(self.0.value.path, |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions))
+        self.0.tree_predicate_map(self.0.value.path, Self::relate_region_pred(regions))
     }
 
     /// An absent entry contributes no mappings - view_rec returns the empty set.

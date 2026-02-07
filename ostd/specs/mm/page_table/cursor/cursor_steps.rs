@@ -292,6 +292,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec().max_steps() < self.max_steps()
     { admit() }
 
+    pub proof fn move_forward_va_is_align_up(self)
+        requires
+            self.inv(),
+            self.level <= NR_LEVELS(),
+            self.in_locked_range(),
+        ensures
+            self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
+        decreases NR_LEVELS() - self.level
+    {
+        admit()
+    }
+
     pub proof fn move_forward_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
         requires
             self.inv(),

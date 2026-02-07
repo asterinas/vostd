@@ -136,6 +136,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             res.wf(*owner),
             owner.relate_region(*regions),
             *regions =~= *old(regions),
+            OwnerSubtree::implies(
+                |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*old(regions)),
+                |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*regions)),
     {
         let guard = self.node.borrow(Tracked(guard_perm));
 
@@ -181,6 +184,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.is_frame(),
             owner.parent_level == old(owner).parent_level,
             owner.path == old(owner).path,
+            owner.frame.unwrap().mapped_pa == old(owner).frame.unwrap().mapped_pa,
     {
         let ghost pte0 = self.pte;
 
@@ -258,7 +262,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.wf(*new_owner),
             new_owner.inv(),
             res.wf(*owner),
-            owner.relate_region(*regions),
+            OwnerSubtree::implies(
+                |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*old(regions)),
+                |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*regions)),
     {
         /* match &new_child {
             Child::PageTable(node) => {
@@ -308,7 +314,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         self.pte = new_pte;
 
-        assert(owner.relate_region(*regions)) by { admit() };
+
+        assert(OwnerSubtree::implies(
+            |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*old(regions)),
+            |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*regions))) by { admit() };
 
         old_child
     }
@@ -337,12 +346,25 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& owner.level == old(owner).level
                 &&& owner.value.parent_level == old(owner).value.parent_level
                 &&& owner.value.node.unwrap().relate_guard_perm(guard_perm@.unwrap())
+                &&& guards.lock_held(owner.value.node.unwrap().meta_perm.addr())
+                &&& owner.value.path == old(owner).value.path
+                &&& owner.value.relate_region(*regions)
+                &&& OwnerSubtree::implies(
+                    CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
+                    CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
+                &&& OwnerSubtree::implies(
+                    PageTableOwner::<C>::relate_region_pred(*old(regions)),
+                    PageTableOwner::<C>::relate_region_pred(*regions))
+                &&& owner.tree_predicate_map(owner.value.path, 
+                    CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
+                &&& owner.tree_predicate_map(owner.value.path, PageTableOwner::<C>::relate_region_pred(*regions))
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
                 &&& owner == old(owner)
             },
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
+            forall |i: usize| old(guards).unlocked(i) && i != owner.value.node.unwrap().meta_perm.addr() ==> guards.unlocked(i),
             parent_guard_perm.addr() == old(parent_guard_perm).addr(),
             parent_guard_perm.is_init(),
             parent_guard_perm.value().inner.inner@.ptr.addr() == old(parent_guard_perm).value().inner.inner@.ptr.addr(),
@@ -425,6 +447,18 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& guards.guards[res.unwrap().addr()].unwrap().pptr() == res.unwrap()
                 &&& owner.value.node.unwrap().relate_guard_perm(guards.guards[res.unwrap().addr()].unwrap())
                 &&& owner.value.node.unwrap().meta_perm.addr() == res.unwrap().addr()
+                &&& owner.value.path == old(owner).value.path
+                &&& owner.value.relate_region(*regions)
+                &&& OwnerSubtree::implies(
+                    CursorOwner::<'rcu, C>::node_unlocked(*old(guards)),
+                    CursorOwner::<'rcu, C>::node_unlocked(*guards))
+                &&& OwnerSubtree::implies(
+                    PageTableOwner::<C>::relate_region_pred(*old(regions)),
+                    PageTableOwner::<C>::relate_region_pred(*regions))
+                &&& owner.tree_predicate_map(owner.value.path, 
+                    CursorOwner::<'rcu, C>::node_unlocked(*guards))
+                &&& owner.tree_predicate_map(owner.value.path, 
+                    PageTableOwner::<C>::relate_region_pred(*regions))
             },
             !old(owner).value.is_frame() ==> {
                 &&& res is None
@@ -435,6 +469,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.inv(),
             guard_perm.pptr() == old(guard_perm).pptr(),
             guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
+            forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
+            forall |i: usize| old(guards).unlocked(i) ==> guards.unlocked(i),
     )]
     #[verifier::external_body]
     pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {

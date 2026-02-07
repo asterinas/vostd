@@ -122,6 +122,36 @@ impl<C: PageTableConfig> EntryOwner<C> {
             true
         }
     }
+
+    /// Two nodes satisfying relate_region with the same regions have different addresses
+    /// if and only if they have different paths.
+    pub proof fn nodes_different_paths_different_addrs(
+        self,
+        other: Self,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.is_node(),
+            other.is_node(),
+            self.relate_region(regions),
+            other.relate_region(regions),
+            self.path != other.path,
+        ensures
+            self.node.unwrap().meta_perm.addr() != other.node.unwrap().meta_perm.addr(),
+    {
+        let self_addr = self.node.unwrap().meta_perm.addr();
+        let other_addr = other.node.unwrap().meta_perm.addr();
+        let self_idx = frame_to_index(meta_to_frame(self_addr));
+        let other_idx = frame_to_index(meta_to_frame(other_addr));
+        
+        if self_addr == other_addr {
+            assert(regions.slot_owners[self_idx].path_if_in_pt == Some(self.path));
+            assert(regions.slot_owners[other_idx].path_if_in_pt == Some(other.path));
+//            assert(Some(self.path) == Some(other.path));
+            assert(self.path == other.path);
+            assert(false); // Contradiction
+        }
+    }
 }
 
 impl<C: PageTableConfig> Inv for EntryOwner<C> {
