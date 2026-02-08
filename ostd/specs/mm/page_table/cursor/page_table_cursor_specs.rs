@@ -86,27 +86,77 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-
     pub open spec fn align_up_spec(self, size: usize) -> Vaddr {
         nat_align_up(self.cur_va as nat, size as nat) as Vaddr
+    }
+
+    pub open spec fn split_index(m: Mapping, new_size: usize, n: usize) -> Mapping {
+        Mapping {
+            va_range: (m.va_range.start + n * new_size) as usize..(m.va_range.start + (n + 1) * new_size) as usize,
+            pa_range: (m.pa_range.start + n * new_size) as usize..(m.pa_range.start + (n + 1) * new_size) as usize,
+            page_size: new_size,
+            property: m.property,
+        }
+    }
+
+    pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
+        let m = self.query_item_spec();
+        let size = m.page_size;
+        let new_mappings = Set::<int>::new(|n:int| 0 <= n < size / new_size).map(|n:int| Self::split_index(m, new_size, n as usize));
+        CursorView {
+            cur_va: self.cur_va,
+            mappings: self.mappings - set![m] + new_mappings,
+            ..self
+        }
+    }
+
+    pub open spec fn split_while_huge(self, m: Mapping, size: usize) -> Self
+        decreases self.query_item_spec().page_size
+    {
+        if self.present() {
+            let m = self.query_item_spec();
+            if m.page_size > size {
+                let new_size = m.page_size.ilog2() as usize;
+                let new_self = self.split_if_mapped_huge_spec(new_size);
+                proof {
+                    assert(new_self.present()) by { admit() };
+                    assert(new_self.query_item_spec().page_size < m.page_size) by { admit() };
+                }
+                new_self.split_while_huge(new_self.query_item_spec(), size)
+            } else {
+                self
+            }
+        } else {
+            self
+        }
+    }
+
+    pub open spec fn remove_subtree(self, size: usize) -> Self {
+        let subtree = self.mappings.filter(|m: Mapping|
+            self.cur_va <= m.va_range.start < self.cur_va + size);
+        CursorView {
+            cur_va: self.cur_va,
+            mappings: self.mappings - subtree,
+            ..self
+        }
     }
 
     /// Inserts a mapping into the cursor. If there were previously mappings there,
     /// they are removed. Note that multiple mappings might be removed if they overlap with
     /// a new large mapping.
     pub open spec fn map_spec(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
-        let existing = self.mappings.filter(|m: Mapping|
-            self.cur_va <= m.va_range.start < m.va_range.end <= self.cur_va + size);
         let new = Mapping {
             va_range: self.cur_va..(self.cur_va + size) as usize,
             pa_range: paddr..(paddr + size) as usize,
             page_size: size,
             property: prop,
         };
+        let split_self = self.split_while_huge(new, size);
+        let remove_subtree = split_self.remove_subtree(size);
         CursorView {
-            cur_va: self.align_up_spec(size),
-            mappings: self.mappings - existing + set![new],
-            ..self
+            cur_va: remove_subtree.align_up_spec(size),
+            mappings: remove_subtree.mappings + set![new],
+            ..remove_subtree
         }
     }
 

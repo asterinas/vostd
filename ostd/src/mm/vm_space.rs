@@ -612,6 +612,8 @@ unsafe impl PageTableConfig for UserPtConfig {
     fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         unimplemented!()
     }
+
+    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 }
 
 type Result<A> = core::result::Result<A, Error>;

@@ -17,6 +17,7 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::GuardPerm;
+use crate::specs::mm::page_table::owners::INC_LEVELS;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
@@ -77,6 +78,7 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
     pub children_perm: array_ptr::PointsTo<C::E, CONST_NR_ENTRIES>,
     pub level: PagingLevel,
+    pub tree_level: int,
 }
 
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
@@ -98,6 +100,8 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& 1 <= self.level <= NR_LEVELS()
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
+        &&& self.level == self.meta_perm.value().level
+        &&& self.tree_level == INC_LEVELS() - self.level
     }
 }
 

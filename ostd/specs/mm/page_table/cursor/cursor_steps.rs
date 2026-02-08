@@ -1,14 +1,15 @@
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
-use vstd_extra::prelude::TreePath;
+use vstd_extra::ghost_tree::*;
 
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{CONST_NR_LEVELS, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::GuardPerm;
+use crate::specs::mm::page_table::owners::{OwnerSubtree, INC_LEVELS};
 use crate::specs::mm::Guards;
 use crate::specs::mm::MetaRegionOwners;
 
@@ -175,32 +176,51 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner_spec().0.inv(),
     {
         let child = self.continuations[self.level - 1];
+        assert(child.inv());
+        assert(forall |i: int| #![trigger child.children[i]]
+            0 <= i < NR_ENTRIES() && child.children[i] is Some ==>
+            child.children[i].unwrap().inv());
         let cont = self.continuations[self.level as int];
+        assert(cont.inv());
         let (new_cont, _) = cont.restore_spec(child);
+        
+        let child_node = OwnerSubtree {
+            value: child.entry_own,
+            level: child.tree_level,
+            children: child.children,
+        };
+
+        assert(new_cont.children[new_cont.idx as int].unwrap() == child_node);
+        
         assert forall |i:int|
-            #![trigger new_cont.children[i]]
+        #![trigger new_cont.children[i]]
             0 <= i < NR_ENTRIES() && new_cont.children[i] is Some implies
-                new_cont.children[i].unwrap().value.parent_level == new_cont.level() by {
-                    if i == cont.idx {
-                    assert(child.entry_own.parent_level == cont.level())
-                }
-        }
-        assert(new_cont.inv()) by { admit() };
+            new_cont.children[i].unwrap().value.path == new_cont.path().push_tail(i as usize) by {
+                assume(child_node.value.path == new_cont.path().push_tail(i as usize));
+            };
     }
 
     pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
         requires
             self.inv(),
             self.level < NR_LEVELS(),
+            self.in_locked_range(),
             self.children_not_locked(guards),
             self.nodes_locked(guards),
             self.relate_region(regions),
         ensures
+            self.pop_level_owner_spec().0.in_locked_range(),
             self.pop_level_owner_spec().0.inv(),
-            self.pop_level_owner_spec().0.children_not_locked(guards),
+            self.pop_level_owner_spec().0.only_current_locked(guards),
             self.pop_level_owner_spec().0.nodes_locked(guards),
             self.pop_level_owner_spec().0.relate_region(regions),
-    { admit() }
+    {
+        let new_owner = self.pop_level_owner_spec().0;
+        
+        self.pop_level_owner_preserves_inv();
+        
+        assert(new_owner.only_current_locked(guards)) by { admit() };
+    }
 
     #[verifier::returns(proof)]
     pub proof fn pop_level_owner(tracked &mut self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
@@ -305,30 +325,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         admit()
     }
-
-    pub proof fn move_forward_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)
-        requires
-            self.inv(),
-            self.level <= NR_LEVELS(),
-            self.in_locked_range(),
-            self.children_not_locked(guards),
-            self.nodes_locked(guards),
-            self.relate_region(regions),
-        ensures
-            self.move_forward_owner_spec().children_not_locked(guards),
-            self.move_forward_owner_spec().nodes_locked(guards),
-            self.move_forward_owner_spec().relate_region(regions),
-        decreases NR_LEVELS() - self.level,
-    {
-        if self.index() + 1 < NR_ENTRIES() {
-            self.inc_index().zero_preserves_all_but_va();
-        } else if self.level < NR_LEVELS() {
-            self.pop_level_owner_preserves_invs(guards, regions);
-            let popped = self.pop_level_owner_spec().0;
-            popped.move_forward_preserves_invs(guards, regions);
-        }
-    }
-
 }
 
 }

@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use vstd_extra::ghost_tree::TreePath;
+use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
@@ -12,7 +12,7 @@ use core::ops::Range;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
-use crate::specs::arch::mm::{CONST_NR_ENTRIES, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{CONST_NR_ENTRIES, CONST_NR_LEVELS, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::GuardPerm;
@@ -21,6 +21,7 @@ use crate::specs::mm::page_table::view::PageTableView;
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::page_table::Guards;
 use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::page_table::{nat_align_down, nat_align_up};
 use crate::specs::task::InAtomicMode;
 
 verus! {
@@ -161,6 +162,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& self.children[i].unwrap().value.parent_level == self.level()
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
+                &&& <EntryOwner<C> as TreeNodeValue<CONST_NR_LEVELS>>::rel_children(self.entry_own, Some(self.children[i].unwrap().value))
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
@@ -195,34 +197,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     {
         self.idx = (self.idx + 1) as usize;
     }
-
-    /*
-    pub proof fn never_drop_preserves_children_not_locked(
-        self,
-        guard: PageTableGuard<'rcu, C>,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>)
-        requires
-            self.inv(),
-            self.children_not_locked(guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
-        ensures
-            self.children_not_locked(guards1),
-    {
-        admit();
-        /*
-        assert forall|i: int| 0 <= i < self.children.len() && self.children[i] is Some ==>
-            PageTableOwner::unlocked(self.children[i].unwrap(), self.path, guards1) by {
-            PageTableOwner::map_implies(self.children[i].unwrap(), self.path,
-                |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
-                    guards0.unlocked(owner.node.unwrap().meta_perm.addr()),
-                |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
-                    guards1.unlocked(owner.node.unwrap().meta_perm.addr()));
-        }
-        */
-    }
-    */
 
     pub open spec fn node_locked(self, guards: Guards<'rcu, C>) -> bool {
         guards.lock_held(self.guard_perm.value().inner.inner@.ptr.addr())
@@ -274,9 +248,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
                 let size = page_size(self.path().push_tail(self.idx as usize).len() as PagingLevel);
 
-                // TODO: arithmetic property of vaddr()
+                // Sibling paths have disjoint VA ranges
+                sibling_paths_disjoint(self.path(), self.idx, i as usize, size);
                 assert(vaddr(self.path().push_tail(self.idx as usize)) + size <= vaddr(left.path().push_tail(i as usize)) ||
-                    vaddr(left.path().push_tail(i as usize)) + size <= vaddr(self.path().push_tail(self.idx as usize))) by { admit() };
+                    vaddr(left.path().push_tail(i as usize)) + size <= vaddr(self.path().push_tail(self.idx as usize)));
 
             }
         };
@@ -316,6 +291,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop);
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
+
 }
 
 #[rustc_has_incoherent_inherent_impls]
@@ -419,35 +395,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].map_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
     }
 
-    pub proof fn never_drop_preserves_nodes_locked(
-        self,
-        guard: PageTableGuard<'rcu, C>,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>)
-        requires
-            self.inv(),
-            self.nodes_locked(guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard, guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
-            forall|i: int|
-                #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS() ==>
-                    self.continuations[i].guard_perm.value().inner.inner@.ptr.addr() !=
-                        guard.inner.inner@.ptr.addr(),
-        ensures
-            self.nodes_locked(guards1),
-    {
-        admit()
-    }
-
-    pub proof fn never_drop_preserves_children_not_locked(
+    pub proof fn never_drop_restores_children_not_locked(
         self,
         guard: PageTableGuard<'rcu, C>,
         guards0: Guards<'rcu, C>,
         guards1: Guards<'rcu, C>)
     requires
         self.inv(),
-        self.children_not_locked(guards0),
+        self.only_current_locked(guards0),
         <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard, guards0),
         <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
     ensures
@@ -916,9 +871,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         &&& forall |j: int| #![trigger other.continuations[self.level - 1].children[j]]
             0 <= j < NR_ENTRIES() && j != other.continuations[self.level - 1].idx as int ==>
             other.continuations[self.level - 1].children[j] == self.continuations[self.level - 1].children[j]
-        // entry_own: only require the fields needed for relate_region
-        // - path must be equal
-        // - node.meta_perm.addr() must be equal (for relate_region computation)
         &&& other.continuations[self.level - 1].entry_own.path == self.continuations[self.level - 1].entry_own.path
         &&& other.continuations[self.level - 1].entry_own.is_node() == self.continuations[self.level - 1].entry_own.is_node()
         &&& other.continuations[self.level - 1].entry_own.is_node() ==>

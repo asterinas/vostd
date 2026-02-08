@@ -153,11 +153,6 @@ pub enum PageTableFrag<C: PageTableConfig> {
     },
 }
 
-/*pub assume_specification<C: PageTableConfig>[ C::Item::clone ](item: &C::Item) -> (res: C::Item)
-    ensures
-        res == *item,
-;*/
-
 impl<C: PageTableConfig> PageTableFrag<C> {
     #[cfg(ktest)]
     #[rustc_allow_incoherent_impl]
@@ -626,11 +621,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     if cur_entry_fits_range || !split_huge {
                         return Some(cur_va);
                     }
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
+
+                    proof {
+                        assert(parent_owner.level == child_owner.value.parent_level);
+                        assert(child_owner.value.is_frame());
+                        assert(parent_owner.level > 1);
+                    }
 
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
@@ -638,6 +637,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     cur_entry.split_if_mapped_huge(rcu_guard)).expect(
                         "The entry must be a huge page",
                     );
+
+                    proof {
+                        assert(guards.guards.contains_key(split_child.addr()));
+                        assert(guards.locked(split_child.addr()));
+                        assert(child_owner.value.node.unwrap().meta_perm.addr() == split_child.addr());
+                    }
 
                     let tracked guard_perm = guards.take(child_owner.value.node.unwrap().meta_perm.addr());
 
@@ -894,13 +899,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost guards0 = *guards;
         let ghost guard = guard_perm.value();
 
-        let taken: Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(
-            self.level as usize - 1,
-        ).unwrap();
+        let taken: Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(self.level as usize - 1).unwrap();
         let _ = NeverDrop::new(taken.unwrap().take(Tracked(&mut guard_perm)), Tracked(guards));
 
         proof {
-            owner.never_drop_preserves_children_not_locked(guard, guards0, *guards);
+            owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
         }
 
         self.level = self.level + 1;
@@ -1358,7 +1361,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(owner).popped_too_high,
             old(cur_entry).wf(old(owner).cur_entry_owner()),
             old(owner).cur_entry_owner().is_frame(),
-            old(cur_entry).node.addr() == old(owner).continuations[old(owner).level - 1].guard_perm.addr()
+            old(cur_entry).node.addr() == old(owner).continuations[old(owner).level - 1].guard_perm.addr(),
+            // Required for splitting huge pages - frames at level 1 are not huge
+            old(owner).level > 1,
         ensures
             owner.inv(),
             owner.va == old(owner).va,
@@ -1378,12 +1383,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut child_owner = continuation.take_child();
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
+        proof {
+            assert(parent_owner.level == child_owner.value.parent_level);
+            assert(child_owner.value.is_frame());
+            assert(parent_owner.level > 1);
+        }
+
         let split_child = (
         #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
                 Tracked(guards), Tracked(&mut continuation.guard_perm))]
         cur_entry.split_if_mapped_huge(rcu_guard)).unwrap();
 
         proof {
+            assert(guards.guards.contains_key(split_child.addr()));
+            assert(guards.locked(split_child.addr()));
+            assert(child_owner.value.node.unwrap().meta_perm.addr() == split_child.addr());
+            
             continuation.put_child(child_owner);
             continuation.entry_own.node = Some(parent_owner);
             owner.continuations.tracked_insert(owner.level - 1, continuation);
@@ -1588,6 +1603,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     continue ;
                 },
                 ChildRef::Frame(_, _, _) => {
+                    assert(owner.level > 1);
+                    
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.map_branch_frame(&mut cur_entry, rcu_guard);
 

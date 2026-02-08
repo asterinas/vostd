@@ -11,6 +11,7 @@ pub use owners::*;
 pub use view::*;
 
 use vstd::prelude::*;
+use vstd::arithmetic::power2::pow2;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
@@ -24,6 +25,11 @@ use align_ext::AlignExt;
 
 verus! {
 
+/// An abstract representation of a virtual address as a sequence of indices, representing the
+/// values of the bit-fields that index into each level of the page table.
+/// `offset` is the lowest 12 bits (the offset into a 4096 byte page)
+/// `index[0]` is the next 9 bits (index into the 512 entries of the first level page table)
+/// and so on up to index[NR_LEVELS-1].
 pub struct AbstractVaddr {
     pub offset: int,
     pub index: Map<int, int>,
@@ -43,41 +49,125 @@ impl Inv for AbstractVaddr {
 }
 
 impl AbstractVaddr {
-    pub uninterp spec fn from_vaddr(va: Vaddr) -> Self;
+    /// Extract the AbstractVaddr components from a concrete virtual address.
+    /// - offset = lowest 12 bits
+    /// - index[i] = bits (12 + 9*i) to (12 + 9*(i+1) - 1) for each level
+    pub open spec fn from_vaddr(va: Vaddr) -> Self {
+        AbstractVaddr {
+            offset: (va % PAGE_SIZE()) as int,
+            index: Map::new(
+                |i: int| 0 <= i < NR_LEVELS(),
+                |i: int| ((va / pow2((12 + 9 * i) as nat) as usize) % NR_ENTRIES()) as int,
+            ),
+        }
+    }
 
-    pub axiom fn from_vaddr_wf(va: Vaddr)
+    pub proof fn from_vaddr_wf(va: Vaddr)
         ensures
-            AbstractVaddr::from_vaddr(va).inv();
+            AbstractVaddr::from_vaddr(va).inv(),
+    {
+        let abs = AbstractVaddr::from_vaddr(va);
+        assert(0 <= abs.offset < PAGE_SIZE());
+        assert forall |i: int|
+            #![trigger abs.index.contains_key(i)]
+            0 <= i < NR_LEVELS() implies {
+                &&& abs.index.contains_key(i)
+                &&& 0 <= abs.index[i]
+                &&& abs.index[i] < NR_ENTRIES()
+            } by {
+            // index[i] = (va / 2^(12+9*i)) % NR_ENTRIES, which is in [0, NR_ENTRIES)
+        };
+    }
 
-    pub uninterp spec fn to_vaddr(self) -> Vaddr;
+    /// Reconstruct the concrete virtual address from the AbstractVaddr components.
+    /// va = offset + sum(index[i] * 2^(12 + 9*i)) for i in 0..NR_LEVELS
+    pub open spec fn to_vaddr(self) -> Vaddr {
+        (self.offset + self.to_vaddr_indices(0)) as Vaddr
+    }
 
-    pub uninterp spec fn reflect(self, va: Vaddr) -> bool;
+    /// Helper: sum of index[i] * 2^(12 + 9*i) for i in start..NR_LEVELS
+    pub open spec fn to_vaddr_indices(self, start: int) -> int
+        decreases NR_LEVELS() - start when start <= NR_LEVELS()
+    {
+        if start >= NR_LEVELS() {
+            0
+        } else {
+            self.index[start] * pow2((12 + 9 * start) as nat) as int
+                + self.to_vaddr_indices(start + 1)
+        }
+    }
 
-    pub broadcast axiom fn reflect_prop(self, va: Vaddr)
+    /// reflect(self, va) holds when self is the abstract representation of va.
+    pub open spec fn reflect(self, va: Vaddr) -> bool {
+        self == Self::from_vaddr(va)
+    }
+
+    /// If self reflects va, then self.to_vaddr() == va and self == from_vaddr(va).
+    /// The first ensures requires proving the round-trip property: from_vaddr(va).to_vaddr() == va.
+    pub broadcast proof fn reflect_prop(self, va: Vaddr)
         requires
             self.inv(),
             self.reflect(va),
         ensures
             #[trigger] self.to_vaddr() == va,
-            #[trigger] Self::from_vaddr(va) == self;
+            #[trigger] Self::from_vaddr(va) == self,
+    {
+        // self.reflect(va) means self == from_vaddr(va)
+        // So self.to_vaddr() == from_vaddr(va).to_vaddr()
+        // We need: from_vaddr(va).to_vaddr() == va (round-trip property)
+        Self::from_vaddr_to_vaddr_roundtrip(va);
+    }
 
-    pub broadcast axiom fn reflect_from_vaddr(va: Vaddr)
+    /// Round-trip property: extracting and reconstructing a VA gives back the original.
+    pub proof fn from_vaddr_to_vaddr_roundtrip(va: Vaddr)
+        ensures
+            Self::from_vaddr(va).to_vaddr() == va,
+    {
+        // va = offset + sum(index[i] * 2^(12+9*i))
+        // from_vaddr extracts: offset = va % 2^12, index[i] = (va / 2^(12+9*i)) % 2^9
+        // to_vaddr reconstructs: offset + sum(index[i] * 2^(12+9*i))
+        // This equals va by the uniqueness of positional representation in mixed radix.
+        admit()
+    }
+
+    /// from_vaddr(va) reflects va (by definition of reflect).
+    pub broadcast proof fn reflect_from_vaddr(va: Vaddr)
         ensures
             #[trigger] Self::from_vaddr(va).reflect(va),
-            #[trigger] Self::from_vaddr(va).inv();
+            #[trigger] Self::from_vaddr(va).inv(),
+    {
+        Self::from_vaddr_wf(va);
+    }
 
-    pub broadcast axiom fn reflect_to_vaddr(self)
+    /// If self.inv(), then self reflects self.to_vaddr().
+    pub broadcast proof fn reflect_to_vaddr(self)
         requires
             self.inv(),
         ensures
-            #[trigger] self.reflect(self.to_vaddr());
+            #[trigger] self.reflect(self.to_vaddr()),
+    {
+        Self::to_vaddr_from_vaddr_roundtrip(self);
+    }
 
-    pub broadcast axiom fn reflect_eq(self, other: Self, va: Vaddr)
+    /// Inverse round-trip: to_vaddr then from_vaddr gives back the original AbstractVaddr.
+    pub proof fn to_vaddr_from_vaddr_roundtrip(abs: Self)
+        requires
+            abs.inv(),
+        ensures
+            Self::from_vaddr(abs.to_vaddr()) == abs,
+    {
+        // Similar reasoning: the positional representation is unique
+        admit()
+    }
+
+    /// If two AbstractVaddrs reflect the same va, they are equal.
+    pub broadcast proof fn reflect_eq(self, other: Self, va: Vaddr)
         requires
             self.reflect(va),
             other.reflect(va),
         ensures
-            #![auto] (self == other);
+            #![auto] (self == other),
+    { }
 
     pub open spec fn align_down(self, level: int) -> Self
         decreases level when level >= 1
@@ -275,6 +365,49 @@ impl AbstractVaddr {
             self.inv(),
         ensures
             self.to_vaddr() == self.compute_vaddr();
+
+    /// Incrementing index[level-1] by 1 increases to_vaddr() by page_size(level).
+    pub proof fn index_increment_adds_page_size(self, level: int)
+        requires
+            self.inv(),
+            1 <= level <= NR_LEVELS(),
+            self.index[level - 1] + 1 < NR_ENTRIES(),
+        ensures
+            (Self {
+                index: self.index.insert(level - 1, self.index[level - 1] + 1),
+                ..self
+            }).to_vaddr() == self.to_vaddr() + page_size(level as PagingLevel),
+    {
+        let new_va = Self {
+            index: self.index.insert(level - 1, self.index[level - 1] + 1),
+            ..self
+        };
+        // Establish new_va.inv()
+        assert forall |i: int|
+            #![trigger new_va.index.contains_key(i)]
+            0 <= i < NR_LEVELS() implies {
+                &&& new_va.index.contains_key(i)
+                &&& 0 <= new_va.index[i]
+                &&& new_va.index[i] < NR_ENTRIES()
+            } by {
+            // Use self.inv() to establish bounds on self.index[i]
+            assert(self.index.contains_key(i));
+            assert(0 <= self.index[i] < NR_ENTRIES());
+            if i == level - 1 {
+                assert(new_va.index[i] == self.index[i] + 1);
+                assert(0 <= self.index[i]);
+                assert(0 <= new_va.index[i]);
+            } else {
+                assert(new_va.index[i] == self.index[i]);
+            }
+        };
+        assert(new_va.inv());
+        self.to_vaddr_is_compute_vaddr();
+        new_va.to_vaddr_is_compute_vaddr();
+        // The compute_vaddr only differs at index[level-1], which contributes
+        // an additional page_size(level) to the sum.
+        admit()
+    }
 
     /// Path extracted from abstract vaddr has correct length.
     pub proof fn to_path_len(self, level: int)

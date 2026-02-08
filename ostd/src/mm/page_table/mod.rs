@@ -106,6 +106,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The paging constants.
     type C: PagingConstsTrait;
 
+    proof fn axiom_nr_subpage_per_huge_eq_nr_entries()
+        ensures
+            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES(),
+    ;
+
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
     ///

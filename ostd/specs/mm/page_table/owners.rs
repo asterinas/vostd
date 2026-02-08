@@ -79,16 +79,26 @@ pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
-/*
-impl<'rcu, C: PageTableConfig> EntryState<'rcu, C> {
-    open spec fn get_entry(self) -> Option<EntryOwner<'rcu, C>> {
-        match self {
-            Self::Present(owner) => Some(owner),
-            _ => None,
-        }
-    }
+/// Sibling paths (same prefix, different last index) have disjoint VA ranges.
+/// This is a fundamental property of page table virtual address layout:
+/// each entry at a given level covers a distinct, non-overlapping range.
+pub proof fn sibling_paths_disjoint(
+    prefix: TreePath<CONST_NR_ENTRIES>,
+    j: usize,
+    k: usize,
+    size: usize,
+)
+    requires
+        j < NR_ENTRIES(),
+        k < NR_ENTRIES(),
+        j != k,
+        size == page_size((prefix.len() + 1) as PagingLevel),
+    ensures
+        vaddr(prefix.push_tail(j)) + size <= vaddr(prefix.push_tail(k))
+        || vaddr(prefix.push_tail(k)) + size <= vaddr(prefix.push_tail(j)),
+{
+    admit()
 }
-*/
 
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
@@ -115,7 +125,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
-            &&& child.unwrap().path.len() == self.node.unwrap().level
+            &&& child.unwrap().path.len() == self.node.unwrap().tree_level + 1
         } else {
             &&& child is None
         }
@@ -144,27 +154,6 @@ pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVEL
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
-
-    /*
-    pub proof fn never_drop_preserves_unlocked<'rcu>(
-        subtree: OwnerSubtree<C>,
-        path: TreePath<CONST_NR_ENTRIES>,
-        guard: PageTableGuard<'rcu, C>,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>
-    )
-        requires
-            subtree.inv(),
-            Self::unlocked(subtree, path, guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
-        ensures
-            Self::unlocked(subtree, path, guards1),
-        decreases INC_LEVELS() - subtree.level
-    {
-        admit();
-    }
-    */
 
     pub open spec fn view_rec(self, path: TreePath<CONST_NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS() - path.len() when self.0.inv() && path.len() <= INC_LEVELS() - 1

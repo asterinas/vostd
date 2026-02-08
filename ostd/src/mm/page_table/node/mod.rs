@@ -43,7 +43,7 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::{AnyFrameMeta, Frame, StoredPageTablePageMeta};
+use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame, StoredPageTablePageMeta};
 use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -236,10 +236,32 @@ impl<C: PageTableConfig> PageTableNode<C> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         -> owner: Tracked<OwnerSubtree<C>>
         requires
-            level <= NR_LEVELS(),
+            1 <= level < NR_LEVELS(),
             old(regions).inv()
         ensures
-            regions.inv()
+            regions.inv(),
+            owner@.inv(),
+            owner@.value.is_node(),
+            owner@.value.path == TreePath::<CONST_NR_ENTRIES>::new(Seq::empty()),
+            owner@.value.parent_level == level,
+            owner@.value.node.unwrap().level == level - 1,
+            owner@.value.node.unwrap().inv(),
+            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+                !owner@.value.node.unwrap().children_perm.value()[i].is_present(),
+            forall |i: int| 0 <= i < NR_ENTRIES() ==> {
+                &&& owner@.children[i] is Some
+                &&& owner@.children[i].unwrap().value.is_absent()
+                &&& owner@.children[i].unwrap().value.inv()
+                &&& owner@.children[i].unwrap().value.path == owner@.value.path.push_tail(i as usize)
+            },
+            forall |i: int| 0 <= i < NR_ENTRIES() ==> 
+                owner@.children[i].unwrap().value.match_pte(
+                    owner@.value.node.unwrap().children_perm.value()[i],
+                    owner@.children[i].unwrap().value.parent_level,
+                ),
+            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+                owner@.children[i].unwrap().value.parent_level == owner@.value.node.unwrap().level,
+            res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
     )]
     #[verifier::external_body]
     pub fn alloc(level: PagingLevel) -> Self {
