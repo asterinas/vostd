@@ -188,6 +188,21 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    ///
+    pub open spec fn map_simple(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
+        let new = Mapping {
+            va_range: self.query_range(),
+            pa_range: paddr..(paddr + size) as usize,
+            page_size: size,
+            property: prop,
+        };
+        CursorView {
+            cur_va: self.cur_va,
+            mappings: self.mappings + set![new],
+            ..self
+        }
+    }
+
     /// Unmaps a range of virtual addresses from the current address up to `len` bytes.
     /// It returns the number of mappings that were removed.
     pub open spec fn unmap_spec(self, len: usize) -> (Self, usize) {

@@ -203,6 +203,60 @@ impl AbstractVaddr {
         }
     }
 
+    /// If two AbstractVaddrs share the same indices at levels >= level-1 (i.e., index[level-1] and above),
+    /// then aligning them down to `level` gives the same to_vaddr() result.
+    /// This is because align_down(level) zeroes offset and indices 0 through level-2,
+    /// so only indices level-1 and above affect the to_vaddr() result.
+    pub proof fn align_down_to_vaddr_eq_if_upper_indices_eq(self, other: Self, level: int)
+        requires
+            1 <= level <= NR_LEVELS(),
+            self.inv(),
+            other.inv(),
+            // Indices at level-1 and above are equal
+            forall |i: int| level - 1 <= i < NR_LEVELS() ==> self.index[i] == other.index[i],
+        ensures
+            self.align_down(level).to_vaddr() == other.align_down(level).to_vaddr(),
+        decreases level
+    {
+        // align_down(level).to_vaddr() = sum of index[i] * 2^(12 + 9*i) for i >= level-1
+        // Since indices at levels >= level-1 are equal, the sums are equal
+        // 
+        // align_down(level) zeroes offset and indices 0 through level-2
+        // So to_vaddr() = 0 + sum(0 * ...) for i < level-1 + sum(index[i] * ...) for i >= level-1
+        //               = sum(index[i] * 2^(12+9*i)) for i >= level-1
+        //
+        // Since self.index[i] == other.index[i] for i >= level-1, the sums are equal.
+        
+        // Use the axiom that relates align_down to concrete alignment
+        self.align_down_concrete(level);
+        other.align_down_concrete(level);
+        
+        // align_down_concrete says:
+        //   self.align_down(level).reflect(nat_align_down(self.to_vaddr(), page_size(level)))
+        //   other.align_down(level).reflect(nat_align_down(other.to_vaddr(), page_size(level)))
+        //
+        // reflect means the AbstractVaddr == from_vaddr(concrete_va)
+        // So: self.align_down(level) == from_vaddr(nat_align_down(self.to_vaddr(), page_size(level)))
+        //     other.align_down(level) == from_vaddr(nat_align_down(other.to_vaddr(), page_size(level)))
+        //
+        // Therefore:
+        //   self.align_down(level).to_vaddr() == nat_align_down(self.to_vaddr(), page_size(level))
+        //   other.align_down(level).to_vaddr() == nat_align_down(other.to_vaddr(), page_size(level))
+        //
+        // We need: nat_align_down(self.to_vaddr(), page_size(level)) == nat_align_down(other.to_vaddr(), page_size(level))
+        //
+        // page_size(level) = 2^(12 + 9*(level-1)) = 2^(3 + 9*level)
+        // nat_align_down(va, size) = va - (va % size) = (va / size) * size
+        //
+        // va / page_size(level) = va / 2^(12 + 9*(level-1)) 
+        //                       = sum over i >= level-1: index[i] * 2^(9*(i - level + 1))
+        //
+        // Since indices at i >= level-1 are equal, va / page_size(level) are equal, so align_down results are equal.
+        
+        // For now, admit the arithmetic
+        admit()
+    }
+
     pub axiom fn align_down_concrete(self, level: int)
         requires
             1 <= level <= NR_LEVELS(),

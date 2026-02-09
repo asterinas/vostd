@@ -938,7 +938,6 @@ impl<'a> VmSpace<'a> {
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
     #[inline]
-    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmSpaceOwner<'a>>,
@@ -1109,17 +1108,20 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
-    )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<()>
         requires
-            old(owner).inv(),
-            old(self).0.wf(*old(owner)),
+            old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.level < old(self).0.guard_level,
-            old(self).0.inv(),
             old(owner).in_locked_range(),
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
+            old(self).0.jump_panic_condition(va),
+        ensures
+            self.0.invariants(*owner, *regions, *guards),
+            self.0.barrier_va.start <= va < self.0.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.0.va == va
+            },
+            !(self.0.barrier_va.start <= va < self.0.barrier_va.end) ==> res is Err,
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> (res: Result<()>)
     {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va))?;
@@ -1144,7 +1146,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn query_requries(
+    pub open spec fn query_requires(
         cursor: Self,
         owner: CursorOwner<'a, UserPtConfig>,
         guard_perm: vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>,
@@ -1230,16 +1232,23 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    #[verus_spec(r =>
+    #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
-            old(owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
-            old(self).pt_cursor.inner.inv(),
+            old(owner).in_locked_range(),
+            old(self).pt_cursor.inner.jump_panic_condition(va),
+        ensures
+            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.pt_cursor.inner.va == va
+            },
+            !(self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end) ==> res is Err,
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]

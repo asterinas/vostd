@@ -11,6 +11,7 @@ use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::node::EntryOwner;
 use crate::specs::mm::page_table::owners::{OwnerSubtree, INC_LEVELS, PageTableOwner};
+use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::Guards;
 use crate::specs::mm::MetaRegionOwners;
 
@@ -472,6 +473,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.pop_level_owner_preserves_inv();
         
         assert(new_owner.only_current_locked(guards)) by { admit() };
+    }
+
+    /// Update va to a new value that shares the same indices at levels >= self.level.
+    /// This preserves invariants because:
+    /// 1. The new va satisfies va.inv()
+    /// 2. The indices at levels >= level match the continuation indices
+    /// 3. in_locked_range/above_locked_range depend on va but the preconditions ensure consistency
+    pub proof fn set_va_preserves_inv(self, new_va: AbstractVaddr)
+        requires
+            self.inv(),
+            new_va.inv(),
+            forall |i: int| self.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.va.index[i],
+            forall |i: int| self.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.prefix.index[i],
+        ensures
+            self.set_va_spec(new_va).inv(),
+    {
+        admit()
     }
 
     #[verifier::returns(proof)]

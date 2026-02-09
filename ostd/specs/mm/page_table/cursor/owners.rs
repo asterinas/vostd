@@ -833,6 +833,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
     { admit() }
 
+    /// If in_locked_range() and level < guard_level, then:
+    /// - va.align_down(page_size(level+1)) >= locked_range().start
+    /// - va.align_down(page_size(level+1)) + page_size(level+1) <= locked_range().end
+    ///
+    /// This follows from the fact that locked_range().start is aligned to page_size(guard_level),
+    /// and page_size(guard_level) >= page_size(level+1) when guard_level > level.
+    /// Therefore locked_range().start is also aligned to page_size(level+1).
+    pub proof fn node_within_locked_range(self, level: PagingLevel)
+        requires
+            self.in_locked_range(),
+            1 <= level < self.guard_level,
+            self.va.inv(),
+        ensures
+            self.locked_range().start <= nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize,
+            nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end,
+    {
+        admit()
+    }
+
     /// Proves that if the current entry is absent, then there is no mapping
     /// at the current virtual address. This follows from the page table structure:
     /// - cur_va falls within the VA range of cur_subtree()
@@ -1018,6 +1037,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
     }
+
+    pub open spec fn set_va_spec(self, new_va: AbstractVaddr) -> Self {
+        Self {
+            va: new_va,
+            ..self
+        }
+    }
+
+    pub axiom fn set_va(tracked &mut self, new_va: AbstractVaddr)
+        requires
+            forall |i: int| old(self).level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).va.index[i],
+            forall |i: int| old(self).guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).prefix.index[i],
+        ensures
+            self == old(self).set_va_spec(new_va);
 
 }
 

@@ -357,7 +357,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.cur_entry_frame_present();
                     }
                     assert(owner@.query(pa, page_size(level), prop));
-                    
+
                     // debug_assert_eq!(ch_level, level);
                     // SAFETY:
                     // This is part of (if `split_huge` happens) a page table item mapped
@@ -444,8 +444,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
-    fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (res:
-        Option<Vaddr>)
+    fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (res: Option<Vaddr>)
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
@@ -660,7 +659,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub open spec fn jump_panic_condition(self, va: Vaddr) -> bool {
         va % PAGE_SIZE() == 0
     }
-    
+
     /// Jumps to the given virtual address.
     /// If the target address is out of the range, this method will return `Err`.
     ///
@@ -672,40 +671,80 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
+    pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
-            old(owner).inv(),
-            old(self).wf(*old(owner)),
-            old(self).inv(),
+            old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(self).level < old(self).guard_level,
+            old(owner).in_locked_range(),
+            old(self).jump_panic_condition(va),
+        ensures
+            self.invariants(*owner, *regions, *guards),
+            self.barrier_va.start <= va < self.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.va == va
+            },
+            !(self.barrier_va.start <= va < self.barrier_va.end) ==> res is Err,
     {
         if !self.barrier_va.contains(&va) {
             return Err(PageTableError::InvalidVaddr(va));
         }
         loop
             invariant
-                owner.inv(),
-                self.wf(*owner),
-                self.inv(),
+                self.invariants(*owner, *regions, *guards),
                 self.level <= self.guard_level,
                 self.barrier_va.start <= va < self.barrier_va.end,
+                owner.in_locked_range(),
             decreases self.guard_level - self.level,
         {
             let node_size = page_size(self.level + 1);
             let node_start = self.va.align_down(node_size);
 
-            // If we're at `guard_level` already, then `node_start == self.barrier_va.start`
-            // and `node_start + node_size == self.barrier_va.end`
-            assert(node_start == self.barrier_va.start) by { admit() };
-            assert(node_start + node_size == self.barrier_va.end) by { admit() };
+            proof {
+                assert(self.barrier_va.start == owner.locked_range().start);
+                assert(self.barrier_va.end == owner.locked_range().end);
+                AbstractVaddr::reflect_prop(owner.va, self.va);
+                assert(owner.va.to_vaddr() == self.va);
+                let aligned_va = nat_align_down(self.va as nat, node_size as nat) as usize;
+                assert(node_start == aligned_va);
+                
+                if self.level < self.guard_level {
+                    owner.node_within_locked_range(self.level);
+                    let expected_aligned = nat_align_down(owner.va.to_vaddr() as nat, page_size((self.level + 1) as PagingLevel) as nat) as usize;
+                    assert(node_start == expected_aligned);
+                    assert(owner.locked_range().start <= expected_aligned);
+                    assert(expected_aligned + page_size((self.level + 1) as PagingLevel) <= owner.locked_range().end);
+                }
+            }
+            assert(self.barrier_va.start <= node_start);
+            assert(node_start + node_size <= self.barrier_va.end);
 
             // If the address is within the current node, we can jump directly.
             if node_start <= va && va < node_start + node_size {
+                let ghost owner0 = *owner;
+                let ghost new_va = AbstractVaddr::from_vaddr(va);
                 self.va = va;
+                proof {
+                    AbstractVaddr::from_vaddr_wf(va);
+                    
+                    assume(forall |i: int| owner0.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.va.index[i]);
+                    assume(forall |i: int| owner0.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.prefix.index[i]);
+                    
+                    owner.set_va_preserves_inv(new_va);
+                    owner.set_va(new_va);
+                }
+
+                assert(self.invariants(*owner, *regions, *guards));
+
                 return Ok(());
             }
+            assert(self.level < self.guard_level - 1) by { admit() };
+            
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pop_level();
+            
+            proof {
+                assert(!owner.popped_too_high);
+            }
         }
     }
 
@@ -756,7 +795,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let next_va = (#[verus_spec(with Tracked(owner))]
         self.cur_va_range()).end;
-
+        
         let ghost abs_va_down = owner0.va.align_down((start_level - 1) as int);
         let ghost abs_next_va = AbstractVaddr::from_vaddr(next_va);
 
@@ -830,7 +869,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         assert(owner0.va.index[self.level - 1] + 1 < NR_ENTRIES());
         assert(owner.move_forward_owner_spec() == owner0.move_forward_owner_spec());
         assert(owner.move_forward_owner_spec() == owner.inc_index().zero_below_level());
-
+        
         self.va = next_va;
 
         proof {
@@ -842,7 +881,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     /// Goes up a level.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -863,6 +901,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.inv(),
             self.wf(*owner),
             regions.inv(),
+            owner.inv(),
             owner.in_locked_range(),
             owner.children_not_locked(*guards),
             owner.nodes_locked(*guards),
@@ -1069,7 +1108,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// depending on the access method.
     #[verifier::external_body]
     pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
-    -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
         Cursor::new(pt, guard, va).map(|inner| (Self { inner: inner.0 }, inner.1))
     }
 
@@ -1108,12 +1147,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
-    pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
+    pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
-            old(owner).inv(),
-            old(self).inner.wf(*old(owner)),
-            old(self).inner.inv(),
+            old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).inner.level < old(self).inner.guard_level,
+            old(owner).in_locked_range(),
+            old(self).inner.jump_panic_condition(va),
+        ensures
+            self.inner.invariants(*owner, *regions, *guards),
+            self.inner.barrier_va.start <= va < self.inner.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.inner.va == va
+            },
+            !(self.inner.barrier_va.start <= va < self.inner.barrier_va.end) ==> res is Err,
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.jump(va)
@@ -1515,14 +1561,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// The caller should ensure that
     ///  - the range being mapped does not affect kernel's memory safety;
     ///  - the physical address to be mapped is valid and safe to use;
-    #[rustc_allow_incoherent_impl]
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(entry_owner): Tracked<EntryOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
-    )]
-    pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>)
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).map_cursor_requires(*old(owner), *old(guards)),
@@ -1536,6 +1579,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(self).inner.model(*old(owner)),
                 self.inner.model(*owner),
             ),
+    )]
+    pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>)
     {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
