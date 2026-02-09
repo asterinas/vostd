@@ -30,7 +30,7 @@ impl<T: Undroppable> NeverDrop<T> {
             t.constructor_requires(*old(s)),
         ensures
             t.constructor_ensures(*old(s), *s),
-            res.0@ == t
+            res.0@ == t,
     {
         proof {
             t.constructor_spec(s);

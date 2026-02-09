@@ -11,6 +11,7 @@ verus! {
 /// Path from the current node to the leaf of the tree
 /// `N` is the maximum number of children of a tree node
 /// `TreePath.index(i)` returns the `i`-th element of the path
+#[verifier::ext_equal]
 pub tracked struct TreePath<const N: usize>(pub Seq<usize>);
 
 impl<const N: usize> TreePath<N> {
@@ -800,30 +801,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    /// Check whether the inserted node satisfies rel_children at the insertion point
-    pub open spec fn insert_rel_children(self, path: TreePath<N>, node: Self) -> bool
-        recommends
-            self.inv(),
-            path.inv(),
-            node.inv(),
-            path.len() < L - self.level,
-            node.level == self.level + path.len() as nat,
-        decreases path.len(),
-    {
-        if path.is_empty() {
-            true
-        } else if path.len() == 1 {
-            self.value.rel_children(Some(node.value))
-        } else {
-            let (hd, tl) = path.pop_head();
-            let child = match self.child(hd) {
-                Some(child) => child,
-                None => Node::new(self.level + 1),
-            };
-            child.insert_rel_children(tl, node)
-        }
-    }
-
     pub broadcast proof fn lemma_recursive_insert_path_empty_identical(
         self,
         path: TreePath<N>,
@@ -962,7 +939,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             path.len() < L - self.level,
             node.level == self.level + path.len() as nat,
-            self.insert_rel_children(path, node),
+            self.recursive_seek(path.pop_tail().1) is Some ==> self.recursive_trace(
+                path.pop_tail().1,
+            ).last().rel_children(Some(node.value)),
+            self.recursive_seek(path.pop_tail().1) is None ==> T::default(
+                (node.level - 1) as nat,
+            ).rel_children(Some(node.value)),
             forall|lv: nat| lv < L ==> #[trigger] T::default(lv).rel_children(None),
         ensures
             #[trigger] self.recursive_insert(path, node).inv(),
@@ -983,7 +965,14 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             if self.child(hd).is_some() {
                 let c = self.child(hd).unwrap();
                 self.child_some_properties(hd);
-                assert(c.insert_rel_children(tl, node));
+                assert(path.pop_tail().1.pop_head().1 == path.pop_head().1.pop_tail().1);
+                assert(self.recursive_trace(path.pop_tail().1) == seq![self.value].add(
+                    c.recursive_trace(tl.pop_tail().1),
+                ));
+                assert(self.recursive_seek(path.pop_tail().1) == c.recursive_seek(tl.pop_tail().1));
+                assert(c.recursive_trace(tl.pop_tail().1).last() == self.recursive_trace(
+                    path.pop_tail().1,
+                ).last());
                 c.lemma_recursive_insert_preserves_inv(tl, node);
                 c.lemma_recursive_insert_preserves_level(tl, node);
                 c.lemma_recursive_insert_preserves_value(tl, node);
@@ -994,7 +983,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 let c = Node::new(self.level + 1);
                 Self::new_preserves_inv(self.level + 1);
                 self.value.default_preserves_rel_children(self.level);
-                assert(c.insert_rel_children(tl, node));
+                assert(path.pop_tail().1.pop_head().1 == path.pop_head().1.pop_tail().1);
+                assert(self.recursive_seek(path.pop_tail().1) == None::<Self>);
                 c.lemma_recursive_insert_preserves_inv(tl, node);
                 c.lemma_recursive_insert_preserves_level(tl, node);
                 c.lemma_recursive_insert_preserves_value(tl, node);
@@ -1836,7 +1826,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             node.inv(),
             path.len() < L,
             node.level == path.len() as nat,
-            self.root.insert_rel_children(path, node),
+            self.seek(path.pop_tail().1) is Some ==> self.trace(
+                path.pop_tail().1,
+            ).last().rel_children(Some(node.value)),
+            self.seek(path.pop_tail().1) is None ==> T::default(
+                (path.len() - 1) as nat,
+            ).rel_children(Some(node.value)),
             forall|lv: nat| lv < L ==> #[trigger] T::default(lv).rel_children(None),
         ensures
             #[trigger] self.insert(path, node).inv(),
@@ -1977,7 +1972,7 @@ pub broadcast group group_ghost_tree {
     path_between_properties,
     Tree::new_preserves_inv,
     Tree::visit_is_recursive_visit,
-    Tree::insert_preserves_inv,
+    //Tree::insert_preserves_inv,
     Tree::remove_preserves_inv,
     Tree::visited_nodes_inv,
     Tree::on_tree_property,
