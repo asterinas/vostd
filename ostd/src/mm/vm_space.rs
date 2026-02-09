@@ -1104,7 +1104,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Jump to the virtual address.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
@@ -1121,7 +1121,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             },
             !(self.0.barrier_va.start <= va < self.0.barrier_va.end) ==> res is Err,
     )]
-    pub fn jump(&mut self, va: Vaddr) -> (res: Result<()>)
+    pub fn jump(&mut self, va: Vaddr) -> Result<()>
     {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va))?;
