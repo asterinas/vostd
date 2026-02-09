@@ -226,7 +226,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     ///
     /// The provided level must be the same with the level of the page table
     /// node that contains this PTE.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(entry_owner): Tracked<&EntryOwner<C>>

@@ -31,6 +31,7 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub idx: usize,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
+    pub path: TreePath<CONST_NR_ENTRIES>,
     pub guard_perm: GuardPerm<'rcu, C>,
 }
 
@@ -103,6 +104,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             tree_level: (self.tree_level + 1) as nat,
             idx: idx,
             children: self.children[self.idx as int].unwrap().children,
+            path: self.path.push_tail(self.idx as usize),
             guard_perm: guard_perm,
         };
         let cont = Self {

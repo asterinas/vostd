@@ -343,9 +343,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
         with Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         -> guard_perm: Tracked<GuardPerm<'rcu, C>>
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>>
+        where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -374,9 +373,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A)
+    -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -385,12 +383,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             guards.guards.tracked_insert(owner.meta_perm.addr(), None);
             assert(owner.relate_guard_perm(guard_perm@));
 
-            assert(forall|other: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
-                owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
-                    ==> #[trigger] CursorOwner::node_unlocked_except(
-                    *guards,
-                    owner.meta_perm.addr(),
-                )(other, path));
+            assert(forall|other: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
+                ==> #[trigger] CursorOwner::node_unlocked_except(*guards, owner.meta_perm.addr())(other, path));
         }
 
         proof_with!{|= guard_perm}
@@ -418,10 +412,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES(),  // NR_ENTRIES == nr_subpage_per_huge::<C>()
-            child_owner.match_pte(
-                owner.children_perm.value()[idx as int],
-                child_owner.parent_level,
-            ),
+            child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),

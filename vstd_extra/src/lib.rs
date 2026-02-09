@@ -17,8 +17,8 @@ pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
-pub mod resource;
 pub mod undroppable;
+pub mod resource;
 
 #[macro_use]
 pub mod ptr_extra;

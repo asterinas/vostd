@@ -881,7 +881,7 @@ impl<'a> VmSpace<'a> {
                     );
                     let o_mv = old_mv.mappings.filter(
                         |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
+                    ); 
 
                     assert(old_mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);

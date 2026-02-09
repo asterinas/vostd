@@ -371,9 +371,6 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
     ;
 }
 
-} // verus!
-verus! {
-
 /// A ghost tree node with maximum `N` children,
 /// the maximum depth of the tree is `L`
 /// Each tree node has a value of type `T` and a sequence of children

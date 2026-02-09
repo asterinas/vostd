@@ -508,7 +508,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
             forall |i: usize| old(guards).unlocked(i) ==> guards.unlocked(i),
     )]
-
+    #[verifier::external_body]
     pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {
         let mut node_guard = self.node.take(Tracked(guard_perm));
 
@@ -610,7 +610,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 (level - 1) as PagingLevel,
                 prop,
             );
-
             assert(new_owner.children[i as int].unwrap().value.match_pte(
                 new_owner_node.children_perm.value()[i as int],
                 new_owner.children[i as int].unwrap().value.parent_level,
@@ -662,7 +661,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             admit();
         }
 
-        self.node.put(Tracked(guard_perm), node_guard);
+        self.node.put(Tracked(&mut guard_perm), node_guard);
 
         Some(pt_lock_guard)
     }

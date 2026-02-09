@@ -7,13 +7,13 @@ use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{CONST_NR_ENTRIES, CONST_NR_LEVELS, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
+use crate::specs::mm::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::node::EntryOwner;
 use crate::specs::mm::page_table::owners::{OwnerSubtree, INC_LEVELS, PageTableOwner};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::Guards;
-use crate::specs::mm::MetaRegionOwners;
 
 use core::ops::Range;
 
