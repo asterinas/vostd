@@ -788,28 +788,15 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if path.is_empty() {
             self
         } else if path.len() == 1 {
-            if self.value.rel_children(Some(node.value)) {
-                self.insert(path.index(0), node)
-            } else {
-                self
-            }
+            self.insert(path.index(0), node)
         } else {
             let (hd, tl) = path.pop_head();
-            match self.child(hd) {
-                Some(child) => {
-                    let updated_child = child.recursive_insert(tl, node);
-                    self.insert(hd, updated_child)
-                },
-                None => {
-                    let child = Node::new(self.level + 1);
-                    if self.value.rel_children(Some(child.value)) {
-                        let updated_child = child.recursive_insert(tl, node);
-                        self.insert(hd, updated_child)
-                    } else {
-                        self
-                    }
-                },
-            }
+            let child = match self.child(hd) {
+                Some(child) => child,
+                None => Node::new(self.level + 1),
+            };
+            let updated_child = child.recursive_insert(tl, node);
+            self.insert(hd, updated_child)
         }
     }
 
@@ -837,14 +824,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             1 < L - self.level,
             node.level == self.level + 1,
         ensures
-            self.value.rel_children(Some(node.value)) ==> #[trigger] self.recursive_insert(
-                path,
-                node,
-            ) == self.insert(path.index(0), node),
-            !self.value.rel_children(Some(node.value)) ==> #[trigger] self.recursive_insert(
-                path,
-                node,
-            ) == self,
+            #[trigger] self.recursive_insert(path, node) == self.insert(path.index(0), node),
     {
     }
 
@@ -862,15 +842,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 path.index(0),
                 self.child(path.index(0)).unwrap().recursive_insert(path.pop_head().1, node),
             ),
-            self.child(path.index(0)).is_none() && self.value.rel_children(
-                Some(Node::<T, N, L>::new(self.level + 1).value),
-            ) ==> #[trigger] self.recursive_insert(path, node) == self.insert(
-                path.index(0),
-                Node::<T, N, L>::new(self.level + 1).recursive_insert(path.pop_head().1, node),
-            ),
-            self.child(path.index(0)).is_none() && !self.value.rel_children(
-                Some(Node::<T, N, L>::new(self.level + 1).value),
-            ) ==> #[trigger] self.recursive_insert(path, node) == self,
+            self.child(path.index(0)).is_none() ==> #[trigger] self.recursive_insert(path, node)
+                == self.insert(path.index(0),
+                Node::new(self.level + 1).recursive_insert(path.pop_head().1, node),),
     {
     }
 
@@ -1464,11 +1438,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if path.is_empty() {
             self
         } else if path.len() == 1 {
-            if self.children[path.index(0) as int].is_none() || self.value.rel_children(None) {
-                self.remove(path.index(0))
-            } else {
-                self
-            }
+            self.remove(path.index(0))
         } else {
             let (hd, tl) = path.pop_head();
             if self.child(hd).is_none() {
