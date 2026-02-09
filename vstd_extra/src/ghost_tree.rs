@@ -1515,27 +1515,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    /// Check whether remove satisfies rel_children at the removal point
-    pub open spec fn remove_rel_children(self, path: TreePath<N>) -> bool
-        recommends
-            self.inv(),
-            path.inv(),
-            path.len() < L - self.level,
-        decreases path.len(),
-    {
-        if path.is_empty() {
-            true
-        } else if path.len() == 1 {
-            self.children[path.index(0) as int].is_none() || self.value.rel_children(None)
-        } else {
-            let (hd, tl) = path.pop_head();
-            match self.child(hd) {
-                Some(child) => child.remove_rel_children(tl),
-                None => true,
-            }
-        }
-    }
-
     pub broadcast proof fn lemma_recursive_remove_preserves_level(self, path: TreePath<N>)
         requires
             self.inv(),
@@ -1589,7 +1568,12 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             self.inv(),
             path.inv(),
             path.len() < L - self.level,
-            self.remove_rel_children(path),
+            path.len() > 0 ==> self.recursive_seek(path.pop_tail().1) is Some
+                ==> self.recursive_seek(
+                path.pop_tail().1,
+            ).unwrap().children[path.pop_tail().0 as int].is_none() || self.recursive_seek(
+                path.pop_tail().1,
+            ).unwrap().value.rel_children(None),
         ensures
             #[trigger] self.recursive_remove(path).inv(),
         decreases path.len(),
@@ -1597,6 +1581,14 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if path.is_empty() {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
+            assert(path.len() > 0);
+            assert(self.recursive_seek(path.pop_tail().1) is Some);
+            assert(path.pop_tail().0 == path.index(0));
+            assert(self.recursive_seek(
+                path.pop_tail().1,
+            ).unwrap().children[path.pop_tail().0 as int].is_none() || self.recursive_seek(
+                path.pop_tail().1,
+            ).unwrap().value.rel_children(None));
             assert(self.children[path.index(0) as int].is_none() || self.value.rel_children(None));
             self.remove_preserves_inv(path.index(0));
         } else {
@@ -1606,7 +1598,31 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             if self.child(hd).is_some() {
                 let c = self.child(hd).unwrap();
                 self.child_some_properties(hd);
-                assert(c.remove_rel_children(tl));
+                assert(path.pop_tail().1.pop_head().1 == path.pop_head().1.pop_tail().1);
+                assert(path.pop_tail().0 == tl.pop_tail().0);
+                assert(self.recursive_seek(path.pop_tail().1) == c.recursive_seek(tl.pop_tail().1));
+                assert(self.recursive_trace(path.pop_tail().1) == seq![self.value].add(
+                    c.recursive_trace(tl.pop_tail().1),
+                ));
+                assert(c.recursive_seek(tl.pop_tail().1) is Some ==> c.recursive_seek(
+                    tl.pop_tail().1,
+                ).unwrap().children[tl.pop_tail().0 as int].is_none() || c.recursive_seek(
+                    tl.pop_tail().1,
+                ).unwrap().value.rel_children(None)) by {
+                    if c.recursive_seek(tl.pop_tail().1) is Some {
+                        assert(self.recursive_seek(path.pop_tail().1) is Some);
+                        assert(self.recursive_seek(
+                            path.pop_tail().1,
+                        ).unwrap().children[path.pop_tail().0 as int].is_none()
+                            || self.recursive_seek(path.pop_tail().1).unwrap().value.rel_children(
+                            None,
+                        ));
+                        assert(c.recursive_seek(tl.pop_tail().1).unwrap() == self.recursive_seek(
+                            path.pop_tail().1,
+                        ).unwrap());
+                        assert(path.pop_tail().0 == tl.pop_tail().0);
+                    }
+                }
                 c.lemma_recursive_remove_preserves_inv(tl);
                 c.lemma_recursive_remove_preserves_level(tl);
                 c.lemma_recursive_remove_preserves_value(tl);
@@ -1844,7 +1860,11 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             self.inv(),
             path.inv(),
             path.len() < L,
-            self.root.remove_rel_children(path),
+            path.len() > 0 ==> self.seek(path.pop_tail().1) is Some ==> self.seek(
+                path.pop_tail().1,
+            ).unwrap().children[path.pop_tail().0 as int].is_none() || self.seek(
+                path.pop_tail().1,
+            ).unwrap().value.rel_children(None),
         ensures
             #[trigger] self.remove(path).inv(),
     {
