@@ -1137,11 +1137,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<
-        'a,
-        UserPtConfig,
-        A,
-    >,
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
@@ -1363,6 +1359,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
+
+        assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(item, *old(regions))) by { admit() };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (

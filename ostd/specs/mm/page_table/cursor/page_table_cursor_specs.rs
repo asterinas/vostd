@@ -143,7 +143,7 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    pub open spec fn split_while_huge(self, m: Mapping, size: usize) -> Self
+    pub open spec fn split_while_huge(self, size: usize) -> Self
         decreases self.query_mapping().page_size
     {
         if self.present() {
@@ -155,7 +155,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     assert(new_self.present()) by { admit() };
                     assert(new_self.query_mapping().page_size < m.page_size) by { admit() };
                 }
-                new_self.split_while_huge(new_self.query_mapping(), size)
+                new_self.split_while_huge(size)
             } else {
                 self
             }
@@ -164,14 +164,10 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    pub open spec fn remove_subtree(self, size: usize) -> Self {
+    pub open spec fn remove_subtree(self, size: usize) -> Set<Mapping> {
         let subtree = self.mappings.filter(|m: Mapping|
             self.cur_va <= m.va_range.start < self.cur_va + size);
-        CursorView {
-            cur_va: self.cur_va,
-            mappings: self.mappings - subtree,
-            ..self
-        }
+        self.mappings - subtree
     }
 
     /// Inserts a mapping into the cursor. If there were previously mappings there,
@@ -179,17 +175,16 @@ impl<C: PageTableConfig> CursorView<C> {
     /// a new large mapping.
     pub open spec fn map_spec(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let new = Mapping {
-            va_range: self.cur_va..(self.cur_va + size) as usize,
+            va_range: self.query_range(),
             pa_range: paddr..(paddr + size) as usize,
             page_size: size,
             property: prop,
         };
-        let split_self = self.split_while_huge(new, size);
-        let remove_subtree = split_self.remove_subtree(size);
+        let split_self = self.split_while_huge(size);
         CursorView {
-            cur_va: remove_subtree.align_up_spec(size),
-            mappings: remove_subtree.mappings + set![new],
-            ..remove_subtree
+            cur_va: split_self.align_up_spec(size),
+            mappings: split_self.remove_subtree(size) + set![new],
+            ..split_self
         }
     }
 
