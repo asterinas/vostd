@@ -800,6 +800,30 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
+    /// Check whether the inserted node satisfies rel_children at the insertion point
+    pub open spec fn insert_rel_children(self, path: TreePath<N>, node: Self) -> bool
+        recommends
+            self.inv(),
+            path.inv(),
+            node.inv(),
+            path.len() < L - self.level,
+            node.level == self.level + path.len() as nat,
+        decreases path.len(),
+    {
+        if path.is_empty() {
+            true
+        } else if path.len() == 1 {
+            self.value.rel_children(Some(node.value))
+        } else {
+            let (hd, tl) = path.pop_head();
+            let child = match self.child(hd) {
+                Some(child) => child,
+                None => Node::new(self.level + 1),
+            };
+            child.insert_rel_children(tl, node)
+        }
+    }
+
     pub broadcast proof fn lemma_recursive_insert_path_empty_identical(
         self,
         path: TreePath<N>,
@@ -843,8 +867,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 self.child(path.index(0)).unwrap().recursive_insert(path.pop_head().1, node),
             ),
             self.child(path.index(0)).is_none() ==> #[trigger] self.recursive_insert(path, node)
-                == self.insert(path.index(0),
-                Node::new(self.level + 1).recursive_insert(path.pop_head().1, node),),
+                == self.insert(
+                path.index(0),
+                Node::new(self.level + 1).recursive_insert(path.pop_head().1, node),
+            ),
     {
     }
 
@@ -887,6 +913,48 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
+    pub broadcast proof fn lemma_recursive_insert_preserves_value(
+        self,
+        path: TreePath<N>,
+        node: Self,
+    )
+        requires
+            self.inv(),
+            path.inv(),
+            node.inv(),
+            path.len() < L - self.level,
+            node.level == self.level + path.len() as nat,
+            forall|lv: nat| lv < L ==> #[trigger] T::default(lv).rel_children(None),
+        ensures
+            #[trigger] self.recursive_insert(path, node).value == self.value,
+        decreases path.len(),
+    {
+        if path.is_empty() {
+            self.lemma_recursive_insert_path_empty_identical(path, node);
+        } else if path.len() == 1 {
+            path.index_satisfies_elem_inv(0);
+            self.lemma_recursive_insert_path_len_1(path, node);
+        } else {
+            self.lemma_recursive_insert_path_len_step(path, node);
+            let (hd, tl) = path.pop_head();
+            path.pop_head_preserves_inv();
+            assert(0 <= hd < Self::size());
+            if self.child(hd).is_some() {
+                let c = self.child(hd).unwrap();
+                self.child_some_properties(hd);
+                c.lemma_recursive_insert_preserves_value(tl, node);
+                let updated_child = c.recursive_insert(tl, node);
+                assert(updated_child.value == c.value);
+            } else {
+                let c = Node::new(self.level + 1);
+                Self::new_preserves_inv(self.level + 1);
+                c.lemma_recursive_insert_preserves_value(tl, node);
+                let updated_child = c.recursive_insert(tl, node);
+                assert(updated_child.value == c.value);
+            }
+        }
+    }
+
     pub broadcast proof fn lemma_recursive_insert_preserves_inv(self, path: TreePath<N>, node: Self)
         requires
             self.inv(),
@@ -894,6 +962,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             path.len() < L - self.level,
             node.level == self.level + path.len() as nat,
+            self.insert_rel_children(path, node),
             forall|lv: nat| lv < L ==> #[trigger] T::default(lv).rel_children(None),
         ensures
             #[trigger] self.recursive_insert(path, node).inv(),
@@ -904,29 +973,34 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
             self.lemma_recursive_insert_path_len_1(path, node);
-            if self.value.rel_children(Some(node.value)) {
-                self.insert_preserves_inv(path.index(0), node);
-            }
+            assert(self.value.rel_children(Some(node.value)));
+            self.insert_preserves_inv(path.index(0), node);
         } else {
             self.lemma_recursive_insert_path_len_step(path, node);
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
+            assert(0 <= hd < Self::size());
             if self.child(hd).is_some() {
                 let c = self.child(hd).unwrap();
                 self.child_some_properties(hd);
+                assert(c.insert_rel_children(tl, node));
                 c.lemma_recursive_insert_preserves_inv(tl, node);
                 c.lemma_recursive_insert_preserves_level(tl, node);
+                c.lemma_recursive_insert_preserves_value(tl, node);
                 let updated_child = c.recursive_insert(tl, node);
+                assert(updated_child.value == c.value);
                 self.insert_preserves_inv(hd, updated_child);
             } else {
                 let c = Node::new(self.level + 1);
                 Self::new_preserves_inv(self.level + 1);
-                if self.value.rel_children(Some(c.value)) {
-                    c.lemma_recursive_insert_preserves_inv(tl, node);
-                    c.lemma_recursive_insert_preserves_level(tl, node);
-                    let updated_child = c.recursive_insert(tl, node);
-                    self.insert_preserves_inv(hd, updated_child);
-                }
+                self.value.default_preserves_rel_children(self.level);
+                assert(c.insert_rel_children(tl, node));
+                c.lemma_recursive_insert_preserves_inv(tl, node);
+                c.lemma_recursive_insert_preserves_level(tl, node);
+                c.lemma_recursive_insert_preserves_value(tl, node);
+                let updated_child = c.recursive_insert(tl, node);
+                assert(updated_child.value == c.value);
+                self.insert_preserves_inv(hd, updated_child);
             }
         }
     }
@@ -1451,11 +1525,81 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
+    /// Check whether remove satisfies rel_children at the removal point
+    pub open spec fn remove_rel_children(self, path: TreePath<N>) -> bool
+        recommends
+            self.inv(),
+            path.inv(),
+            path.len() < L - self.level,
+        decreases path.len(),
+    {
+        if path.is_empty() {
+            true
+        } else if path.len() == 1 {
+            self.children[path.index(0) as int].is_none() || self.value.rel_children(None)
+        } else {
+            let (hd, tl) = path.pop_head();
+            match self.child(hd) {
+                Some(child) => child.remove_rel_children(tl),
+                None => true,
+            }
+        }
+    }
+
+    pub broadcast proof fn lemma_recursive_remove_preserves_level(self, path: TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
+            path.len() < L - self.level,
+        ensures
+            #[trigger] self.recursive_remove(path).level == self.level,
+        decreases path.len(),
+    {
+        if path.is_empty() {
+        } else if path.len() == 1 {
+            path.index_satisfies_elem_inv(0);
+        } else {
+            let (hd, tl) = path.pop_head();
+            path.pop_head_preserves_inv();
+            assert(0 <= hd < Self::size());
+            if self.child(hd).is_some() {
+                let c = self.child(hd).unwrap();
+                self.child_some_properties(hd);
+                c.lemma_recursive_remove_preserves_level(tl);
+            }
+        }
+    }
+
+    pub broadcast proof fn lemma_recursive_remove_preserves_value(self, path: TreePath<N>)
+        requires
+            self.inv(),
+            path.inv(),
+            path.len() < L - self.level,
+        ensures
+            #[trigger] self.recursive_remove(path).value == self.value,
+        decreases path.len(),
+    {
+        if path.is_empty() {
+        } else if path.len() == 1 {
+            path.index_satisfies_elem_inv(0);
+        } else {
+            let (hd, tl) = path.pop_head();
+            path.pop_head_preserves_inv();
+            assert(0 <= hd < Self::size());
+            if self.child(hd).is_some() {
+                let c = self.child(hd).unwrap();
+                self.child_some_properties(hd);
+                c.lemma_recursive_remove_preserves_value(tl);
+            }
+        }
+    }
+
     pub broadcast proof fn lemma_recursive_remove_preserves_inv(self, path: TreePath<N>)
         requires
             self.inv(),
             path.inv(),
             path.len() < L - self.level,
+            self.remove_rel_children(path),
         ensures
             #[trigger] self.recursive_remove(path).inv(),
         decreases path.len(),
@@ -1463,15 +1607,23 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if path.is_empty() {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
-            if self.children[path.index(0) as int].is_none() || self.value.rel_children(None) {
-                self.remove_preserves_inv(path.index(0));
-            }
+            assert(self.children[path.index(0) as int].is_none() || self.value.rel_children(None));
+            self.remove_preserves_inv(path.index(0));
         } else {
             let (hd, tl) = path.pop_head();
             path.pop_head_preserves_inv();
+            assert(0 <= hd < Self::size());
             if self.child(hd).is_some() {
                 let c = self.child(hd).unwrap();
+                self.child_some_properties(hd);
+                assert(c.remove_rel_children(tl));
                 c.lemma_recursive_remove_preserves_inv(tl);
+                c.lemma_recursive_remove_preserves_level(tl);
+                c.lemma_recursive_remove_preserves_value(tl);
+                let updated_child = c.recursive_remove(tl);
+                assert(updated_child.level == c.level);
+                assert(updated_child.value == c.value);
+                self.insert_preserves_inv(hd, updated_child);
             }
         }
     }
@@ -1684,6 +1836,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             node.inv(),
             path.len() < L,
             node.level == path.len() as nat,
+            self.root.insert_rel_children(path, node),
             forall|lv: nat| lv < L ==> #[trigger] T::default(lv).rel_children(None),
         ensures
             #[trigger] self.insert(path, node).inv(),
@@ -1696,6 +1849,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
             self.inv(),
             path.inv(),
             path.len() < L,
+            self.root.remove_rel_children(path),
         ensures
             #[trigger] self.remove(path).inv(),
     {
