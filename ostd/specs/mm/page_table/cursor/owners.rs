@@ -579,6 +579,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Range { start, end }
     }
 
+    pub proof fn cur_va_range_reflects_view(self)
+        requires
+            self.inv(),
+        ensures
+            self.cur_va_range().start.reflect(self@.query_range().start),
+            self.cur_va_range().end.reflect(self@.query_range().end),
+    {
+        admit()
+    }
+
     /// The current virtual address falls within the VA range of the current subtree's path.
     /// This follows from the invariant that va.index matches the continuation indices.
     pub axiom fn cur_va_in_subtree_range(self)
@@ -823,6 +833,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_frame(),
         ensures
             self@.present(),
+            self@.query(self.cur_entry_owner().frame.unwrap().mapped_pa,
+                self.cur_entry_owner().frame.unwrap().size,
+                self.cur_entry_owner().frame.unwrap().prop),
     {
         admit()
     }

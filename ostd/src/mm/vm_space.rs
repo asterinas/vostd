@@ -614,6 +614,8 @@ unsafe impl PageTableConfig for UserPtConfig {
     }
 
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+
+    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
 
 type Result<A> = core::result::Result<A, Error>;
@@ -1022,11 +1024,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         item: Option<MappedItem>,
     ) -> bool {
         if view.present() {
-            let found_item = view.query_item_spec();
-            &&& range.start == found_item.va_range.start
-            &&& range.end == found_item.va_range.end
             &&& item is Some
-            &&& meta_to_frame(item.unwrap().frame.ptr.addr()) == found_item.pa_range.start
+            &&& view.query_item_spec(item.unwrap()) == Some(range)
         } else {
             &&& range.start == self.0.va
             &&& item is None

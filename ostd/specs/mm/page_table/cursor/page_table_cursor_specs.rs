@@ -27,6 +27,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 /// and provide a simple interface for reasoning about its behavior.
 impl<C: PageTableConfig> CursorView<C> {
 
+    pub open spec fn item_into_mapping(va: Vaddr, item: C::Item) -> Mapping {
+        let (paddr, level, prop) = C::item_into_raw_spec(item);
+        let size = page_size(level);
+        Mapping {
+            va_range: va..(va + size) as usize,
+            pa_range: paddr..(paddr + size) as Paddr,
+            page_size: size,
+            property: prop,
+        }
+    }
+
     /// This function checks if the current virtual address is mapped. It does not correspond
     /// to a cursor method itself, but defines what it means for an entry to present:
     /// there is a mapping whose virtual address range contains the current virtual address.
@@ -34,13 +45,35 @@ impl<C: PageTableConfig> CursorView<C> {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).len() > 0
     }
 
-    /// This function specifies the behavior of the `query` method. It returns the mapping containing
-    /// the current virtual address.
-    pub open spec fn query_item_spec(self) -> Mapping
+    pub open spec fn query_mapping(self) -> Mapping
         recommends
             self.present(),
     {
         self.mappings.filter(|m: Mapping| m.va_range.start <= self.cur_va < m.va_range.end).choose()
+    }
+
+    pub open spec fn query(self, paddr: Paddr, size: usize, prop: PageProperty) -> bool {
+        let m = self.query_mapping();
+        m.pa_range.start == paddr && m.page_size == size && m.property == prop
+    }
+
+    pub open spec fn query_range(self) -> Range<Vaddr> {
+        self.query_mapping().va_range
+    }
+
+    /// This predicate specifies the behavior of the `query` method. It states that the current item
+    /// in the page table matches the given item, mapped at the resulting virtual address range.
+    pub open spec fn query_item_spec(self, item: C::Item) -> Option<Range<Vaddr>>
+        recommends
+            self.present(),
+    {
+        let (paddr, level, prop) = C::item_into_raw_spec(item);
+        let size = page_size(level);
+        if self.query(paddr, size, prop) {
+            Some(self.query_range())
+        } else {
+            None
+        }
     }
 
     /// The specification for the internal function, `find_next_impl`. It finds the next mapped virtual address
@@ -100,7 +133,7 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
-        let m = self.query_item_spec();
+        let m = self.query_mapping();
         let size = m.page_size;
         let new_mappings = Set::<int>::new(|n:int| 0 <= n < size / new_size).map(|n:int| Self::split_index(m, new_size, n as usize));
         CursorView {
@@ -111,18 +144,18 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     pub open spec fn split_while_huge(self, m: Mapping, size: usize) -> Self
-        decreases self.query_item_spec().page_size
+        decreases self.query_mapping().page_size
     {
         if self.present() {
-            let m = self.query_item_spec();
+            let m = self.query_mapping();
             if m.page_size > size {
                 let new_size = m.page_size.ilog2() as usize;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 proof {
                     assert(new_self.present()) by { admit() };
-                    assert(new_self.query_item_spec().page_size < m.page_size) by { admit() };
+                    assert(new_self.query_mapping().page_size < m.page_size) by { admit() };
                 }
-                new_self.split_while_huge(new_self.query_item_spec(), size)
+                new_self.split_while_huge(new_self.query_mapping(), size)
             } else {
                 self
             }

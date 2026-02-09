@@ -170,6 +170,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         returns
             Self::item_from_raw_spec(paddr, level, prop),
     ;
+
+    proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
+        ensures
+            Self::item_into_raw_spec(item) == (paddr, level, prop) <==>
+            Self::item_from_raw_spec(paddr, level, prop) == item;
 }
 
 // Implement it so that we can comfortably use low level functions
