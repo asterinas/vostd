@@ -37,20 +37,47 @@ verus! {
 ///
 /// # Verified Properties
 /// ## Verification Design
-/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
+/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust). Only the owner of this permission can access the protected data in the cell.
 /// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data.
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
-///
-/// For curious readers, details of the permission can be found in [`vstd::cell::pcell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html).
 ///
 /// [`disable_irq`]: Self::disable_irq
 /// [`lock`]: Self::lock
 /// [`try_lock`]: Self::try_lock
 ///
 /// ## Invariant
-/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`,
-/// the permission is held by the spin lock and can be acquired by a user.
+/// The `SpinLock` is internally represented by a struct `SpinLockInner` that contains an `AtomicBool` and a `PCell` to hold the protected data. 
+/// We present its formally verified version and invariant below. 
+/// 
+/// The `lock` field is extended with a [`PointsTo<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html)
+/// ghost permission to track the ownership of the protected data. This ghost permission is also checked by Rust's ownnership and borrowing rules and cannot be duplicated, 
+/// thereby ensuring exclusive access to the protected data.
+/// The `val` field is a [`PCell<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PCell.html), which behaves like [`UnsafeCell<T>`](https://doc.rust-lang.org/std/cell/struct.UnsafeCell.html) used in the Asterinas mainline, but
+/// only allows verified access through the ghost permission.
+/// 
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to a `SpinLockGuard` and no one else can acquire the lock. 
+/// When it is `false`, the permission to access the `PCell<T>` is stored in the lock, and it must match the `val`'s id.
+/// ```rust
+/// struct_with_invariants! {
+/// struct SpinLockInner<T> {
+///    lock: AtomicBool<_,Option<PointsTo<T>>,_>,
+///    val: PCell<T>,
+/// }
 ///
+/// closed spec fn wf(self) -> bool {
+///    invariant on lock with (val) is (v:bool, g:Option<PointsTo<T>>) {
+///        match g {
+///            None => v == true,
+///            Some(perm) => perm.id() == val.id() && !v
+///        }
+///    }
+/// }
+/// }
+/// ```
+/// 
+/// *Note*: The invariant is implemented using Verus's [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism. 
+/// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
+/// 
 /// ## Safety
 /// There are no data races.
 ///
@@ -278,8 +305,8 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }.is_ok()
     }
 
-    /// An example to show the doc generation with `#[verus_spec]` ghost parameters.
-    /// It will be removed after the doc generation function is merged.
+    /// *Note*: This is **NOT** an OSTD API. It is only an example to show the doc generation output with the `#[verus_spec]` macro.
+    /// It will be removed after [our PR](https://github.com/verus-lang/verus/pull/2132) about `#[verus_spec]` doc generation is merged into Verus mainline.
     #[verus_spec(ret =>
         with
             ghost_in1: Tracked<int>,
