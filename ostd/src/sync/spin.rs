@@ -75,7 +75,7 @@ verus! {
 /// }
 /// ```
 /// 
-/// *Note*: The invariant is implemented using Verus's [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism. 
+/// *Note*: The invariant is encapsulated in [`SpinLock::type_inv`] using the [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism. 
 /// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
 /// 
 /// ## Safety
@@ -150,10 +150,12 @@ impl<T, G> SpinLock<T, G> {
 verus!{}
 impl<T,G> SpinLock<T,G>
 {
+    /// Returns the [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the protected cell.
     pub closed spec fn cell_id(self) -> cell::CellId {
         self.inner.val.id()
     }
 
+    /// Encapsulates the invariant described in the *Invariant* section of [`SpinLock`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool{
         self.inner.type_inv()
