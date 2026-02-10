@@ -16,13 +16,13 @@ use vstd_extra::undroppable::*;
 
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
-    MAX_NR_LEVELS, Paddr, Vaddr,
+    Paddr, Vaddr, MAX_NR_LEVELS,
 };
 
-use crate::specs::arch::*;
-use crate::specs::mm::page_table::*;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::mm::page_table::PageTableGuard;
+use crate::specs::arch::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::page_table::*;
 
 use core::ops::Deref;
 
@@ -79,16 +79,26 @@ pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
-/*
-impl<'rcu, C: PageTableConfig> EntryState<'rcu, C> {
-    open spec fn get_entry(self) -> Option<EntryOwner<'rcu, C>> {
-        match self {
-            Self::Present(owner) => Some(owner),
-            _ => None,
-        }
-    }
+/// Sibling paths (same prefix, different last index) have disjoint VA ranges.
+/// This is a fundamental property of page table virtual address layout:
+/// each entry at a given level covers a distinct, non-overlapping range.
+pub proof fn sibling_paths_disjoint(
+    prefix: TreePath<CONST_NR_ENTRIES>,
+    j: usize,
+    k: usize,
+    size: usize,
+)
+    requires
+        j < NR_ENTRIES(),
+        k < NR_ENTRIES(),
+        j != k,
+        size == page_size((prefix.len() + 1) as PagingLevel),
+    ensures
+        vaddr(prefix.push_tail(j)) + size <= vaddr(prefix.push_tail(k))
+        || vaddr(prefix.push_tail(k)) + size <= vaddr(prefix.push_tail(j)),
+{
+    admit()
 }
-*/
 
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
@@ -115,7 +125,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn rel_children(self, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
-            &&& child.unwrap().parent_level == self.node.unwrap().level
+            &&& child.unwrap().path.len() == self.node.unwrap().tree_level + 1
         } else {
             &&& child is None
         }
@@ -145,27 +155,6 @@ pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
 
-    /*
-    pub proof fn never_drop_preserves_unlocked<'rcu>(
-        subtree: OwnerSubtree<C>,
-        path: TreePath<CONST_NR_ENTRIES>,
-        guard: PageTableGuard<'rcu, C>,
-        guards0: Guards<'rcu, C>,
-        guards1: Guards<'rcu, C>
-    )
-        requires
-            subtree.inv(),
-            Self::unlocked(subtree, path, guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard,guards0),
-            <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
-        ensures
-            Self::unlocked(subtree, path, guards1),
-        decreases INC_LEVELS() - subtree.level
-    {
-        admit();
-    }
-    */
-
     pub open spec fn view_rec(self, path: TreePath<CONST_NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS() - path.len() when self.0.inv() && path.len() <= INC_LEVELS() - 1
     {
@@ -173,7 +162,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let vaddr = vaddr(path);
             let pt_level = INC_LEVELS() - path.len();
             let page_size = page_size(pt_level as PagingLevel);
-    
+
             set![Mapping {
                 va_range: Range { start: vaddr, end: (vaddr + page_size) as Vaddr },
                 pa_range: Range {
@@ -185,7 +174,9 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             }]
         } else if self.0.value.is_node() && path.len() < INC_LEVELS() - 1 {
             Set::new(
-                |m: Mapping| exists|i:int| #![auto] 0 <= i < self.0.children.len() &&
+                |m: Mapping| exists|i:int|
+                #![trigger self.0.children[i]]
+                0 <= i < self.0.children.len() &&
                     self.0.children[i] is Some &&
                     PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
             )
@@ -276,29 +267,35 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub open spec fn relate_region_rec(self, path: TreePath<CONST_NR_ENTRIES>, regions: MetaRegionOwners) -> bool
-        decreases INC_LEVELS() - self.0.level when self.0.inv()
-    {
-        if self.0.value.is_node() {
-            &&& self.0.value.node.unwrap().path == path
-            &&& self.0.value.node.unwrap().relate_region(regions)
-            &&& forall|i: int| #![auto] 0 <= i < self.0.children.len() && self.0.children[i] is Some ==>
-                PageTableOwner(self.0.children[i].unwrap()).relate_region_rec(path.push_tail(i as usize), regions)
-        } else {
-            true
-        }
+    pub open spec fn relate_region_pred(regions: MetaRegionOwners)
+        -> (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
+        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions)
     }
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS() - self.0.level when self.0.inv()
     {
-        self.relate_region_rec(TreePath::new(Seq::empty()), regions)
+        self.0.tree_predicate_map(self.0.value.path, Self::relate_region_pred(regions))
+    }
+
+    /// An absent entry contributes no mappings - view_rec returns the empty set.
+    pub proof fn view_rec_absent_empty(self, path: TreePath<CONST_NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value.is_absent(),
+            path.len() <= INC_LEVELS() - 1,
+        ensures
+            self.view_rec(path) =~= set![],
+    {
+        // is_absent() implies !is_frame() and !is_node() by the EntryOwner invariant
+        // Therefore view_rec falls through to the else branch returning set![]
     }
 }
 
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
+        &&& self.0.value.path.len() <= INC_LEVELS() - 1
     }
 }
 
@@ -306,44 +303,9 @@ impl<C: PageTableConfig> View for PageTableOwner<C> {
     type V = PageTableView;
 
     open spec fn view(&self) -> <Self as View>::V {
-        let mappings = self.view_rec(TreePath::new(Seq::empty()));
+        let mappings = self.view_rec(self.0.value.path);
         PageTableView {
             mappings
-        }
-    }
-}
-
-impl<'a, C: PageTableConfig> CursorContinuation<'a, C> {
-    pub open spec fn into_subtree(self) -> OwnerSubtree<C>
-    {
-        Node {
-            value: self.entry_own,
-            children: self.children,
-            level: self.tree_level,
-        }
-    }
-
-    pub proof fn into_subtree_inv(self)
-        requires
-            self.inv(),
-            self.all_some(),
-        ensures
-            self.into_subtree().inv(),
-    {
-        assert forall|i: int| #![auto] 0 <= i < self.children.len() && self.children[i] is Some implies
-            self.children[i].unwrap().value.parent_level == self.entry_own.node.unwrap().level by {
-            }
-    }
-}
-
-impl<'a, C: PageTableConfig> CursorOwner<'a, C> {
-    pub open spec fn into_pt_owner_rec(self) -> PageTableOwner<C>
-        decreases NR_LEVELS() - self.level when self.inv()
-    {
-        if self.level == NR_LEVELS() {
-            PageTableOwner(self.continuations[self.level-1].into_subtree())
-        } else {
-            self.pop_level_owner_spec().0.into_pt_owner_rec()
         }
     }
 }

@@ -6,13 +6,14 @@ use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::meta_to_frame;
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::owners::*;
 use core::marker::PhantomData;
 
@@ -50,47 +51,47 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.absent
     }
 
-    pub open spec fn new_absent_spec(parent_level: PagingLevel) -> Self {
+    pub open spec fn new_absent_spec(path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> Self {
         EntryOwner {
             node: None,
             frame: None,
             locked: None,
             absent: true,
-            path: TreePath::new(Seq::empty()),
+            path,
             parent_level,
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
         EntryOwner {
             node: None,
             frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
-            path: TreePath::new(Seq::empty()),
+            path,
             parent_level,
         }
     }
 
-    pub open spec fn new_node_spec(node: NodeOwner<C>) -> Self {
+    pub open spec fn new_node_spec(node: NodeOwner<C>, path: TreePath<CONST_NR_ENTRIES>) -> Self {
         EntryOwner {
             node: Some(node),
             frame: None,
             locked: None,
             absent: false,
-            path: TreePath::new(Seq::empty()),
+            path,
             parent_level: (node.level + 1) as PagingLevel,
         }
     }
 
-    pub axiom fn new_absent(parent_level: PagingLevel) -> tracked Self
-        returns Self::new_absent_spec(parent_level);
+    pub axiom fn new_absent(path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
+        returns Self::new_absent_spec(path, parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
-        returns Self::new_frame_spec(paddr, parent_level, prop);
+    pub axiom fn new_frame(paddr: Paddr, path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
+        returns Self::new_frame_spec(paddr, path, parent_level, prop);
 
-    pub axiom fn new_node(node: NodeOwner<C>) -> tracked Self
-        returns Self::new_node_spec(node);
+    pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<CONST_NR_ENTRIES>) -> tracked Self
+        returns Self::new_node_spec(node, path);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE() == 0
@@ -106,6 +107,66 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.is_frame()
             &&& self.frame.unwrap().mapped_pa == pte.paddr()
             &&& self.frame.unwrap().prop == pte.prop()
+        }
+    }
+
+    /// All nodes have their metadata forgotten for the duration of their lifetime.
+    /// If they are in the page table, their path is consistent.
+    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
+        if self.is_node() {
+            &&& !regions.slots.contains_key(frame_to_index(self.meta_slot_paddr()))
+            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some ==>
+                regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt.unwrap() == self.path
+        } else if self.is_frame() {
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some ==>
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt.unwrap() == self.path
+        } else {
+            true
+        }
+    }
+
+    pub axiom fn get_path(self) -> tracked TreePath<CONST_NR_ENTRIES>
+        returns self.path;
+
+    pub open spec fn meta_slot_paddr(self) -> Paddr {
+        if self.is_node() {
+            meta_to_frame(self.node.unwrap().meta_perm.addr())
+        } else if self.is_frame() {
+            self.frame.unwrap().mapped_pa
+        } else {
+            0
+        }
+    }
+
+    /// Two nodes satisfying relate_region with the same regions have different addresses
+    /// if and only if they have different paths.
+    pub proof fn nodes_different_paths_different_addrs(
+        self,
+        other: Self,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.is_node(),
+            other.is_node(),
+            self.relate_region(regions),
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some,
+            regions.slot_owners[frame_to_index(other.meta_slot_paddr())].path_if_in_pt is Some,
+            other.relate_region(regions),
+            self.path != other.path,
+        ensures
+            self.node.unwrap().meta_perm.addr() != other.node.unwrap().meta_perm.addr(),
+    {
+        let self_addr = self.node.unwrap().meta_perm.addr();
+        let other_addr = other.node.unwrap().meta_perm.addr();
+        let self_idx = frame_to_index(meta_to_frame(self_addr));
+        let other_idx = frame_to_index(meta_to_frame(other_addr));
+        
+        if self_addr == other_addr {
+            assert(regions.slot_owners[self_idx].path_if_in_pt == Some(self.path));
+            assert(regions.slot_owners[other_idx].path_if_in_pt == Some(other.path));
+//            assert(Some(self.path) == Some(other.path));
+            assert(self.path == other.path);
+            assert(false); // Contradiction
         }
     }
 }
@@ -124,6 +185,7 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& !self.absent
             &&& self.frame.unwrap().mapped_pa % PAGE_SIZE() == 0
             &&& self.frame.unwrap().mapped_pa < MAX_PADDR()
+            &&& self.frame.unwrap().size == page_size(self.parent_level)
         }
         &&& self.locked is Some ==> {
             &&& self.frame is None
@@ -145,7 +207,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
                     map_to_pa: frame.mapped_pa as int,
-                    level: (self.path.len() + 1) as u8,
+                    level: self.path.len() as u8,
                     prop: frame.prop,
                     phantom: PhantomData,
                 },
@@ -157,7 +219,7 @@ impl<C: PageTableConfig> View for EntryOwner<C> {
                     //                    frame_pa: self.base_addr as int,
                     //                    in_frame_index: self.index as int,
                     map_to_pa: meta_to_frame(node.meta_perm.addr()) as int,
-                    level: (self.path.len() + 1) as u8,
+                    level: self.path.len() as u8,
                     phantom: PhantomData,
                 },
             }

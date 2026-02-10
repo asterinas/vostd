@@ -57,16 +57,16 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
         ensures
             regions.inv(),
             manually_drop_deref_spec(&r.inner.0).ptr.addr() == frame_to_meta(raw),
+            regions.slots =~= old(regions).slots,
+            regions.slot_owners =~= old(regions).slot_owners,
+            regions.dropped_slots =~= old(regions).dropped_slots,
     )]
     #[verifier::external_body]
     pub fn borrow_paddr(raw: Paddr) -> Self {
         #[verus_spec(with Tracked(regions), Tracked(perm))]
         let frame = Frame::from_raw(raw);
 
-        Self {
-            inner: NeverDrop::new(frame, Tracked(regions)),
-            _marker: PhantomData,
-        }
+        Self { inner: NeverDrop::new(frame, Tracked(regions)), _marker: PhantomData }
     }
 }
 

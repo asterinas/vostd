@@ -359,9 +359,6 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
     ;
 }
 
-} // verus!
-verus! {
-
 /// A ghost tree node with maximum `N` children,
 /// the maximum depth of the tree is `L`
 /// Each tree node has a value of type `T` and a sequence of children
@@ -411,7 +408,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             &&& f(self.value, path)
             &&& forall|i: int|
                 0 <= i < self.children.len() ==> #[trigger] self.children[i] is Some
-                    ==> self.children[i]->Some_0.tree_predicate_map(path.push_tail(i as usize), f)
+                    ==> self.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), f)
         } else {
             &&& f(self.value, path)
         }

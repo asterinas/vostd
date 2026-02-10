@@ -5,6 +5,7 @@ use vstd::simple_pptr::{self, *};
 
 use core::ops::Range;
 
+use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use super::meta_owners::{MetaSlotModel, MetaSlotOwner};
@@ -15,7 +16,7 @@ use crate::mm::frame::meta::{
 };
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::mm::{CONST_NR_ENTRIES, MAX_PADDR, PAGE_SIZE};
 
 verus! {
 
@@ -124,6 +125,17 @@ impl MetaRegionOwners {
             #![trigger frame_to_index_spec(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
                 ==> self.slots.contains_key(frame_to_index_spec(paddr))
+    }
+
+    pub open spec fn paddr_range_not_mapped(self, range: Range<Paddr>) -> bool
+        recommends
+            self.inv(),
+            range.start < range.end < MAX_PADDR(),
+    {
+        forall|paddr: Paddr|
+            #![trigger frame_to_index_spec(paddr)]
+            (range.start <= paddr < range.end && paddr % PAGE_SIZE() == 0)
+                ==> self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None
     }
 
     pub open spec fn paddr_range_in_dropped_region(self, range: Range<Paddr>) -> bool

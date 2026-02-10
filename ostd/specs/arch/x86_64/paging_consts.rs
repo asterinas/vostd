@@ -125,4 +125,12 @@ impl PagingConstsTrait for PagingConsts {
     }
 }
 
+pub proof fn lemma_nr_subpage_per_huge_eq_nr_entries()
+    ensures
+        crate::mm::nr_subpage_per_huge::<PagingConsts>() == NR_ENTRIES(),
+{
+    assert(crate::mm::nr_subpage_per_huge::<PagingConsts>() == 4096usize / 8usize);
+    assert(NR_ENTRIES() == 512usize);
+}
+
 } // verus!

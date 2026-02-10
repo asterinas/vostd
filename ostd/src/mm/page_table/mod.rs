@@ -106,6 +106,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// The paging constants.
     type C: PagingConstsTrait;
 
+    proof fn axiom_nr_subpage_per_huge_eq_nr_entries()
+        ensures
+            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES(),
+    ;
+
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
     ///
@@ -165,6 +170,11 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         returns
             Self::item_from_raw_spec(paddr, level, prop),
     ;
+
+    proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
+        ensures
+            Self::item_into_raw_spec(item) == (paddr, level, prop) <==>
+            Self::item_from_raw_spec(paddr, level, prop) == item;
 }
 
 // Implement it so that we can comfortably use low level functions
@@ -304,16 +314,20 @@ pub trait PageTableEntryTrait:
     proof fn new_properties()
         ensures
             !Self::new_absent_spec().is_present(),
-            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty| #![auto] {
+            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty|
+            #![trigger Self::new_page_spec(paddr, level, prop)]
+            {
                 &&& Self::new_page_spec(paddr, level, prop).is_present()
                 &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
                 &&& Self::new_page_spec(paddr, level, prop).prop() == prop
                 &&& Self::new_page_spec(paddr, level, prop).is_last(level)
             },
-            forall |paddr: Paddr| #![auto] {
+            forall |paddr: Paddr|
+            #![trigger Self::new_pt_spec(paddr)]
+            {
                 &&& Self::new_pt_spec(paddr).is_present()
                 &&& Self::new_pt_spec(paddr).paddr() == paddr
-                &&& forall |level: PagingLevel| #![auto] !Self::new_pt_spec(paddr).is_last(level)
+                &&& forall |level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
             };
 
     /// Get the physical address from the PTE.
@@ -352,7 +366,9 @@ pub trait PageTableEntryTrait:
             self.set_prop_spec(prop).prop() == prop,
             self.set_prop_spec(prop).paddr() == self.paddr(),
             self.is_present() ==> self.set_prop_spec(prop).is_present(),
-            forall |level: PagingLevel| #![auto] self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
+            forall |level: PagingLevel|
+                #![trigger self.is_last(level)]
+                self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
 
     /// If the PTE maps a page rather than a child page table.
     ///

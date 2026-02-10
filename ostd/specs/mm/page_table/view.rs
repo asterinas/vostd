@@ -13,15 +13,21 @@ use super::*;
 
 verus! {
 
-pub ghost struct PageTableView {
-    pub mappings: Set<Mapping>
-}
-
+/// A `Mapping` maps a virtual address range to a physical address range.
+/// Its size, `page_size`, is fixed and must be one of 4096, 2097152, 1073741824.
+/// The `va_range` and `pa_range` must of size `page_size` and aligned on a page boundary.
+/// The `property` is a bitfield of flags that describe the properties of the mapping.
 pub tracked struct Mapping {
     pub va_range: Range<Vaddr>,
     pub pa_range: Range<Paddr>,
     pub page_size: usize,
     pub property: PageProperty,
+}
+    
+/// A view of the page table is simply the set of mappings that it contains.
+/// Its [invariant](PageTableView::inv) is a crucial property for memory correctness.
+pub ghost struct PageTableView {
+    pub mappings: Set<Mapping>
 }
 
 impl Mapping {
@@ -38,14 +44,20 @@ impl Mapping {
     }
 }
 
+/// In addition to requiring that individual mappings be well-formed, a valid `PageTableView` must
+/// not have any overlapping mappings, in the physical or virtual address space.
+/// The virtual ranges not overlapping is a consequence of the structure of the page table.
+/// The physical ranges not overlapping must be maintained by the page table implementation.
 impl Inv for PageTableView {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
         &&& forall|m: Mapping, n:Mapping| #![auto]
-            self.mappings.contains(m) ==>
-            self.mappings.contains(n) ==>
-            m != n ==>
-            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+            self.mappings has m ==>
+            self.mappings has n ==>
+            m != n ==> {
+                &&& m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+                &&& m.pa_range.end <= n.pa_range.start || n.pa_range.end <= m.pa_range.start
+            }
     }
 }
 

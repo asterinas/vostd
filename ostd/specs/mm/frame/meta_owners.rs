@@ -8,14 +8,14 @@ use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
 use vstd_extra::cast_ptr::{self, Repr};
-use vstd_extra::ownership::*;
 use vstd_extra::ghost_tree::TreePath;
+use vstd_extra::ownership::*;
 
 use super::*;
 use crate::mm::frame::meta::{MetaSlot, MetaSlotStorage};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 use crate::specs::arch::mm::CONST_NR_ENTRIES;
+use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
 use core::marker::PhantomData;
 

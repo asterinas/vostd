@@ -114,6 +114,7 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
             Self::PageTable(node) => {
                 &&& owner.is_node()
                 &&& node.ptr.addr() == owner.node.unwrap().meta_perm.addr()
+                &&& node.index() == frame_to_index(meta_to_frame(node.ptr.addr()))
             },
             Self::Frame(paddr, level, prop) => {
                 &&& owner.is_frame()
@@ -127,7 +128,6 @@ impl<C: PageTableConfig> OwnerOf for Child<C> {
 }
 
 impl<C: PageTableConfig> Child<C> {
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&EntryOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
@@ -137,11 +137,13 @@ impl<C: PageTableConfig> Child<C> {
             owner.inv(),
             old(regions).inv(),
             self.wf(*owner),
+            owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(owner.meta_slot_paddr())),
         ensures
             regions.inv(),
             res.paddr() % PAGE_SIZE() == 0,
             res.paddr() < MAX_PADDR(),
             owner.match_pte(res, owner.parent_level),
+            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr())),
     {
         proof {
             C::E::new_properties();
@@ -181,7 +183,7 @@ impl<C: PageTableConfig> Child<C> {
             pte.paddr() < MAX_PADDR(),
             old(regions).inv(),
             entry_own.inv(),
-            entry_own.is_node() ==> entry_own.node.unwrap().relate_region(*old(regions)),
+            entry_own.relate_region(*old(regions)),
         ensures
             regions.inv(),
             res.wf(*entry_own),
@@ -194,7 +196,7 @@ impl<C: PageTableConfig> Child<C> {
                 pte.paddr(),
                 *regions,
             ),
-            entry_own.is_node() ==> entry_own.node.unwrap().relate_region(*regions),
+            entry_own.relate_region(*regions),
     {
         if !pte.is_present() {
             return Child::None;
@@ -202,7 +204,6 @@ impl<C: PageTableConfig> Child<C> {
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
-
             // SAFETY: The caller ensures that this node was created by
             // `into_pte`, so that restoring the forgotten reference is safe.
             #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
@@ -225,7 +226,6 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
     ///
     /// The provided level must be the same with the level of the page table
     /// node that contains this PTE.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(entry_owner): Tracked<&EntryOwner<C>>
@@ -236,21 +236,22 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             entry_owner.inv(),
             pte.paddr() % PAGE_SIZE() == 0,
             pte.paddr() < MAX_PADDR(),
-//            !old(regions).slots.contains_key(frame_to_index(pte.paddr())),
-//            old(regions).dropped_slots.contains_key(frame_to_index(pte.paddr())),
             old(regions).inv(),
-            entry_owner.is_node() ==> entry_owner.node.unwrap().relate_region(*old(regions)),
+            entry_owner.relate_region(*old(regions)),
         ensures
             regions.inv(),
             res.wf(*entry_owner),
+            entry_owner.relate_region(*regions),
+            *regions =~= *old(regions),
     {
         if !pte.is_present() {
-            assert(entry_owner.is_absent()) by { admit() };
+            assert(entry_owner.is_absent());
             return ChildRef::None;
         }
         let paddr = pte.paddr();
 
         if !pte.is_last(level) {
+            let ghost regions0 = *regions;
 
             // SAFETY: The caller ensures that the lifetime of the child is
             // contained by the residing node, and the physical address is
@@ -261,10 +262,18 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             assert(manually_drop_deref_spec(&node.inner.0).ptr.addr()
                 == entry_owner.node.unwrap().meta_perm.addr());
 
+            proof {
+                // borrow_paddr preserves slots, slot_owners, and dropped_slots
+                assert(regions.slots =~= regions0.slots);
+                assert(regions.slot_owners =~= regions0.slot_owners);
+                assert(regions.dropped_slots =~= regions0.dropped_slots);
+
+                // Since regions is unchanged, relate_region is trivially preserved
+                assert(*regions =~= regions0);
+            }
             // debug_assert_eq!(node.level(), level - 1);
             return ChildRef::PageTable(node);
         }
-
         ChildRef::Frame(paddr, level, pte.prop())
     }
 }

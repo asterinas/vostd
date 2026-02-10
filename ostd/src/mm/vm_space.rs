@@ -18,6 +18,7 @@ use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
 use crate::specs::arch::*;
+use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
@@ -25,7 +26,6 @@ use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
-use crate::specs::mm::frame::mapping::meta_to_frame;
 
 use crate::{
     //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
@@ -612,6 +612,10 @@ unsafe impl PageTableConfig for UserPtConfig {
     fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
         unimplemented!()
     }
+
+    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+
+    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
 
 type Result<A> = core::result::Result<A, Error>;
@@ -863,7 +867,9 @@ impl<'a> VmSpace<'a> {
 
             assert forall|va: usize|
                 #![auto]
-                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(va) is Some by {
+                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(
+                va,
+            ) is Some by {
                 if owner_w.range@.start <= va && va < owner_w.range@.end {
                     assert(lhs.mappings =~= old_mv.mappings.filter(
                         |m: Mapping|
@@ -932,7 +938,6 @@ impl<'a> VmSpace<'a> {
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
     #[inline]
-    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmSpaceOwner<'a>>,
@@ -991,7 +996,6 @@ impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    
     pub open spec fn invariants(
         self,
         owner: CursorOwner<'rcu, UserPtConfig>,
@@ -1016,14 +1020,11 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         self,
         view: CursorView<UserPtConfig>,
         range: Range<Vaddr>,
-        item: Option<MappedItem>
+        item: Option<MappedItem>,
     ) -> bool {
         if view.present() {
-            let found_item = view.query_item_spec();
-            &&& range.start == found_item.va_range.start
-            &&& range.end == found_item.va_range.end
             &&& item is Some
-            &&& meta_to_frame(item.unwrap().frame.ptr.addr()) == found_item.pa_range.start
+            &&& view.query_item_spec(item.unwrap()) == Some(range)
         } else {
             &&& range.start == self.0.va
             &&& item is None
@@ -1053,9 +1054,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& self.query_success_ensures(self.0.model(*owner), r.unwrap().0, r.unwrap().1)
             }
     )]
-    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)>
-    {
-        proof { admit() };
+    pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
+        proof { admit() }
+        ;
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.0.query()?,
@@ -1103,21 +1104,24 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Jump to the virtual address.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
+        requires
+            old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
+            old(self).0.level < old(self).0.guard_level,
+            old(owner).in_locked_range(),
+            old(self).0.jump_panic_condition(va),
+        ensures
+            self.0.invariants(*owner, *regions, *guards),
+            self.0.barrier_va.start <= va < self.0.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.0.va == va
+            },
+            !(self.0.barrier_va.start <= va < self.0.barrier_va.end) ==> res is Err,
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()>
-        requires
-            old(owner).inv(),
-            old(self).0.wf(*old(owner)),
-            old(self).0.level < old(self).0.guard_level,
-            old(self).0.inv(),
-            old(owner).in_locked_range(),
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
     {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.jump(va))?;
@@ -1135,18 +1139,14 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
 /// It exclusively owns a sub-tree of the page table, preventing others from
 /// reading or modifying the same sub-tree.
 pub struct CursorMut<'a, A: InAtomicMode> {
-    pub pt_cursor: crate::mm::page_table::CursorMut<
-        'a,
-        UserPtConfig,
-        A,
-    >,
+    pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
     //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn query_requries(
+    pub open spec fn query_requires(
         cursor: Self,
         owner: CursorOwner<'a, UserPtConfig>,
         guard_perm: vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>,
@@ -1232,16 +1232,23 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
-    #[verus_spec(r =>
+    #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
-            old(owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
+            old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
-            old(self).pt_cursor.inner.inv(),
+            old(owner).in_locked_range(),
+            old(self).pt_cursor.inner.jump_panic_condition(va),
+        ensures
+            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end ==> {
+                &&& res is Ok
+                &&& self.pt_cursor.inner.va == va
+            },
+            !(self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end) ==> res is Err,
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -1264,10 +1271,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &mut self.flusher
     }
     */
-
     /// Collects the invariants of the cursor, its owner, and associated tracked structures.
     /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
-    pub open spec fn map_cursor_inv(self, cursor_owner: CursorOwner<'a, UserPtConfig>, guards: Guards<'a, UserPtConfig>, regions: MetaRegionOwners) -> bool {
+    pub open spec fn map_cursor_inv(
+        self,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+        guards: Guards<'a, UserPtConfig>,
+        regions: MetaRegionOwners,
+    ) -> bool {
         &&& cursor_owner.inv()
         &&& self.pt_cursor.inner.wf(cursor_owner)
         &&& self.pt_cursor.inner.inv()
@@ -1281,7 +1292,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// These conditions must hold before the call to `map` but may not be maintained after the call.
     /// The cursor must be within the locked range and below the guard level, but it may move outside the
     /// range if the frame being mapped is exactly the length of the remaining range.
-    pub open spec fn map_cursor_requires(self, cursor_owner: CursorOwner<'a, UserPtConfig>) -> bool {
+    pub open spec fn map_cursor_requires(
+        self,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+    ) -> bool {
         &&& cursor_owner.in_locked_range()
         &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
         &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
@@ -1290,14 +1304,19 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Collects the conditions that must hold on the frame being mapped.
     /// The frame must be well-formed with respect to the entry owner. When converted into a `MappedItem`,
     /// its physical address must also match, and its level must be between 1 and the highest translation level.
-    pub open spec fn map_item_requires(self, frame: UFrame, prop: PageProperty, entry_owner: EntryOwner<UserPtConfig>) -> bool {
+    pub open spec fn map_item_requires(
+        self,
+        frame: UFrame,
+        prop: PageProperty,
+        entry_owner: EntryOwner<UserPtConfig>,
+    ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
         &&& prop == prop0
         &&& entry_owner.frame.unwrap().mapped_pa == paddr
         &&& entry_owner.frame.unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
-        &&& 1 <= level <= NR_LEVELS() // Should be property of item_into_raw
+        &&& 1 <= level <= NR_LEVELS()  // Should be property of item_into_raw
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
@@ -1340,10 +1359,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).map_item_requires(frame, prop, entry_owner),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
-            old(self).map_item_ensures(frame, prop, old(self).pt_cursor.inner.model(*old(cursor_owner)), self.pt_cursor.inner.model(*cursor_owner)),
+            old(self).map_item_ensures(
+                frame,
+                prop,
+                old(self).pt_cursor.inner.model(*old(cursor_owner)),
+                self.pt_cursor.inner.model(*cursor_owner),
+            ),
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
+
+        assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(item, *old(regions))) by { admit() };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
