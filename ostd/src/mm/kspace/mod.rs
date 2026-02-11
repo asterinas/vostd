@@ -57,7 +57,6 @@ use crate::{
     specs::arch::{PageTableEntry, PagingConsts},
     //task::disable_preempt,
 };
-use vstd_extra::extern_const::*;
 
 verus! {
 
@@ -96,22 +95,13 @@ pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SH
 #[cfg(target_arch = "loongarch64")]
 pub const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub FRAME_METADATA_CAP_VADDR [FRAME_METADATA_CAP_VADDR_SPEC, CONST_FRAME_METADATA_CAP_VADDR]:
-        Vaddr = 0xffff_fff0_8000_0000 << ADDR_WIDTH_SHIFT
-);
+pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_fff0_8000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub FRAME_METADATA_BASE_VADDR [FRAME_METADATA_BASE_VADDR_SPEC, CONST_FRAME_METADATA_BASE_VADDR]:
-        Vaddr = 0xffff_fff0_0000_0000 << ADDR_WIDTH_SHIFT
-);
+pub const FRAME_METADATA_BASE_VADDR: Vaddr = 0xffff_fff0_0000_0000 << ADDR_WIDTH_SHIFT;
 
 pub const VMALLOC_BASE_VADDR: Vaddr = 0xffff_c000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub VMALLOC_VADDR_RANGE [VMALLOC_VADDR_RANGE_SPEC, CONST_VMALLOC_VADDR_RANGE]:
-        Range<Vaddr> = VMALLOC_BASE_VADDR..CONST_FRAME_METADATA_BASE_VADDR
-);
+pub const VMALLOC_VADDR_RANGE: Range<Vaddr> = VMALLOC_BASE_VADDR..FRAME_METADATA_BASE_VADDR;
 
 /// The base address of the linear mapping of all physical
 /// memory in the kernel address space.
