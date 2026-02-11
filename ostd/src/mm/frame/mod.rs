@@ -204,9 +204,9 @@ impl<M: AnyFrameMeta> cast_ptr::Repr<MetaSlot> for Frame<M> {
 
 impl<M: AnyFrameMeta> Inv for Frame<M> {
     open spec fn inv(self) -> bool {
-        &&& self.ptr.addr() % META_SLOT_SIZE() == 0
+        &&& self.ptr.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE().start <= self.ptr.addr() < FRAME_METADATA_RANGE().start
-            + MAX_NR_PAGES() * META_SLOT_SIZE()
+            + MAX_NR_PAGES() * META_SLOT_SIZE
         &&& self.ptr.addr() < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
     }
 }
@@ -434,7 +434,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.addr() == self.ptr.addr(),
             perm.is_init(),
             FRAME_METADATA_RANGE().start <= perm.addr() < FRAME_METADATA_RANGE().end,
-            perm.addr() % META_SLOT_SIZE() == 0,
+            perm.addr() % META_SLOT_SIZE == 0,
         returns
             meta_to_frame(self.ptr.addr()),
     {
@@ -511,7 +511,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.points_to.pptr() == self.ptr,
             perm.is_init(),
             FRAME_METADATA_RANGE().start <= perm.points_to.addr() < FRAME_METADATA_RANGE().end,
-            perm.points_to.addr() % META_SLOT_SIZE() == 0,
+            perm.points_to.addr() % META_SLOT_SIZE == 0,
         ensures
             regions.inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),

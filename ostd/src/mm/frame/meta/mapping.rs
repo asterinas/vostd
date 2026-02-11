@@ -12,20 +12,18 @@ use core::ops::Range;
 
 verus! {
 
-extern_const!(
 /// Metaslot size.
-pub META_SLOT_SIZE [META_SLOT_SIZE_SPEC, CONST_META_SLOT_SIZE]: usize = 64
-);
+pub const META_SLOT_SIZE: usize = 64;
 
 pub open spec fn max_meta_slots() -> int {
-    (FRAME_METADATA_RANGE().end - FRAME_METADATA_RANGE().start) / META_SLOT_SIZE() as int
+    (FRAME_METADATA_RANGE().end - FRAME_METADATA_RANGE().start) / META_SLOT_SIZE as int
 }
 
 pub open spec fn meta_addr(i: usize) -> (res: usize)
     recommends
         0 <= i < max_meta_slots() as usize,
 {
-    (FRAME_METADATA_RANGE().start + i * META_SLOT_SIZE()) as usize
+    (FRAME_METADATA_RANGE().start + i * META_SLOT_SIZE) as usize
 }
 
 #[allow(non_snake_case)]
@@ -40,7 +38,7 @@ pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_page_aligned()
 pub broadcast proof fn lemma_FRAME_METADATA_RANGE_is_large_enough()
     ensures
         #[trigger] FRAME_METADATA_RANGE().end >= FRAME_METADATA_RANGE().start + MAX_NR_PAGES()
-            * META_SLOT_SIZE(),
+            * META_SLOT_SIZE,
 {
 }
 
@@ -53,7 +51,7 @@ pub open spec fn frame_to_meta_spec(paddr: Paddr) -> (res: Vaddr)
         paddr % PAGE_SIZE() == 0,
         paddr < MAX_PADDR(),
 {
-    (FRAME_METADATA_RANGE().start + (paddr / PAGE_SIZE()) * META_SLOT_SIZE()) as usize
+    (FRAME_METADATA_RANGE().start + (paddr / PAGE_SIZE()) * META_SLOT_SIZE) as usize
 }
 
 #[verifier::inline]
@@ -62,7 +60,7 @@ pub open spec fn meta_to_frame_spec(vaddr: Vaddr) -> Paddr
         vaddr % size_of::<super::MetaSlot>() == 0,
         FRAME_METADATA_RANGE().start <= vaddr < FRAME_METADATA_RANGE().end,
 {
-    ((vaddr - FRAME_METADATA_RANGE().start) / META_SLOT_SIZE() as int * PAGE_SIZE()) as usize
+    ((vaddr - FRAME_METADATA_RANGE().start) / META_SLOT_SIZE as int * PAGE_SIZE()) as usize
 }
 
 #[verifier::inline]
@@ -106,11 +104,11 @@ pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
         paddr < MAX_PADDR(),
     ensures
         res == frame_to_meta_spec(paddr),
-        res % META_SLOT_SIZE() == 0,
+        res % META_SLOT_SIZE == 0,
 {
     let base = FRAME_METADATA_RANGE().start;
     let offset = paddr / PAGE_SIZE();
-    base + offset * META_SLOT_SIZE()
+    base + offset * META_SLOT_SIZE
 }
 
 #[inline(always)]
@@ -118,13 +116,13 @@ pub fn frame_to_meta(paddr: Paddr) -> (res: Vaddr)
 pub fn meta_to_frame(vaddr: Vaddr) -> (res: Paddr)
     requires
         FRAME_METADATA_RANGE().start <= vaddr && vaddr < FRAME_METADATA_RANGE().end,
-        vaddr % META_SLOT_SIZE() == 0,
+        vaddr % META_SLOT_SIZE == 0,
     ensures
         res == meta_to_frame_spec(vaddr),
         res % PAGE_SIZE() == 0,
 {
     let base = FRAME_METADATA_RANGE().start;
-    let offset = (vaddr - base) / META_SLOT_SIZE();
+    let offset = (vaddr - base) / META_SLOT_SIZE;
     offset * PAGE_SIZE()
 }
 
@@ -140,7 +138,7 @@ pub broadcast proof fn lemma_paddr_to_meta_biinjective(paddr: Paddr)
 pub broadcast proof fn lemma_meta_to_paddr_biinjective(vaddr: Vaddr)
     requires
         FRAME_METADATA_RANGE().start <= vaddr && vaddr < FRAME_METADATA_RANGE().end,
-        vaddr % META_SLOT_SIZE() == 0,
+        vaddr % META_SLOT_SIZE == 0,
     ensures
         #[trigger] frame_to_meta(meta_to_frame(vaddr)) == vaddr,
 {
@@ -148,9 +146,9 @@ pub broadcast proof fn lemma_meta_to_paddr_biinjective(vaddr: Vaddr)
 
 pub broadcast proof fn lemma_meta_to_frame_soundness(meta: Vaddr)
     requires
-        meta % META_SLOT_SIZE() == 0,
+        meta % META_SLOT_SIZE == 0,
         FRAME_METADATA_RANGE().start <= meta && meta < FRAME_METADATA_RANGE().start + MAX_NR_PAGES()
-            * META_SLOT_SIZE(),
+            * META_SLOT_SIZE,
     ensures
         #[trigger] meta_to_frame(meta) % PAGE_SIZE() == 0,
         meta_to_frame(meta) < MAX_PADDR(),
@@ -162,17 +160,17 @@ pub broadcast proof fn lemma_frame_to_meta_soundness(page: Paddr)
         page % PAGE_SIZE() == 0,
         page < MAX_PADDR(),
     ensures
-        #[trigger] frame_to_meta(page) % META_SLOT_SIZE() == 0,
+        #[trigger] frame_to_meta(page) % META_SLOT_SIZE == 0,
         FRAME_METADATA_RANGE().start <= frame_to_meta(page) && frame_to_meta(page)
-            < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE(),
+            < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE,
 {
 }
 
 pub broadcast proof fn lemma_meta_to_frame_alignment(meta: Vaddr)
     requires
-        meta % META_SLOT_SIZE() == 0,
+        meta % META_SLOT_SIZE == 0,
         FRAME_METADATA_RANGE().start <= meta && meta < FRAME_METADATA_RANGE().start + MAX_NR_PAGES()
-            * META_SLOT_SIZE(),
+            * META_SLOT_SIZE,
     ensures
         #[trigger] meta_to_frame(meta) % PAGE_SIZE() == 0,
         meta_to_frame(meta) < MAX_PADDR(),

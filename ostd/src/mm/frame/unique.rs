@@ -45,8 +45,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Inv for UniqueFrameOwner<M> {
         &&& self.meta_perm.wf()
         &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm.addr()))
         &&& self.slot_index < max_meta_slots()
-        &&& (self.slot_index - FRAME_METADATA_RANGE().start) as usize % META_SLOT_SIZE() == 0
-        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE()
+        &&& (self.slot_index - FRAME_METADATA_RANGE().start) as usize % META_SLOT_SIZE == 0
+        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE
     }
 }
 

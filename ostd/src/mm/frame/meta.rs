@@ -64,12 +64,12 @@ use crate::{
 };
 
 /// The maximum number of bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE()
+pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
     - size_of::<AtomicU64>()
 //    - size_of::<FrameMetaVtablePtr>()
     - size_of::<AtomicU64>();
 /// The maximum alignment in bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE();
+pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
 
 //const META_SLOT_SIZE: usize = 64;
 
@@ -300,7 +300,7 @@ pub struct MetaSlot {
 //global layout MetaSlot is size == 64, align == 8;
 pub broadcast proof fn lemma_meta_slot_size()
     ensures
-        #[trigger] size_of::<MetaSlot>() == META_SLOT_SIZE(),
+        #[trigger] size_of::<MetaSlot>() == META_SLOT_SIZE,
 {
     admit()
 }
@@ -582,7 +582,7 @@ impl MetaSlot {
         requires
             perm.value() == self,
             FRAME_METADATA_RANGE().start <= perm.addr() < FRAME_METADATA_RANGE().end,
-            perm.addr() % META_SLOT_SIZE() == 0,
+            perm.addr() % META_SLOT_SIZE == 0,
         returns
             meta_to_frame(perm.addr()),
     {
