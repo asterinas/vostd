@@ -482,10 +482,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner@.ptr.addr() == owner.meta_perm.addr(),
             self.inner.inner@.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
-            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR()
-                - LINEAR_MAPPING_BASE_VADDR(),
+            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR
+                - LINEAR_MAPPING_BASE_VADDR,
             FRAME_METADATA_RANGE().start <= owner.meta_perm.addr < FRAME_METADATA_RANGE().end,
-            owner.meta_perm.addr % META_SLOT_SIZE() == 0,
+            owner.meta_perm.addr % META_SLOT_SIZE == 0,
             idx < NR_ENTRIES(),
             owner.children_perm.addr() == paddr_to_vaddr(meta_to_frame(owner.meta_perm.addr)),
         ensures
@@ -526,8 +526,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(owner).inv(),
-            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR()
-                - LINEAR_MAPPING_BASE_VADDR(),
+            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR
+                - LINEAR_MAPPING_BASE_VADDR,
             idx < NR_ENTRIES(),
         ensures
             owner.inv(),

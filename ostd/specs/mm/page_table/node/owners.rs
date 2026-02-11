@@ -91,8 +91,8 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
         &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
-        &&& self.meta_perm.addr() % META_SLOT_SIZE() == 0
-        &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
+        &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
+        &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR()
         &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
         &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()

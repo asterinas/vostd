@@ -207,7 +207,7 @@ impl<M: AnyFrameMeta> Inv for Frame<M> {
         &&& self.ptr.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE().start <= self.ptr.addr() < FRAME_METADATA_RANGE().start
             + MAX_NR_PAGES() * META_SLOT_SIZE
-        &&& self.ptr.addr() < VMALLOC_BASE_VADDR() - LINEAR_MAPPING_BASE_VADDR()
+        &&& self.ptr.addr() < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
     }
 }
 

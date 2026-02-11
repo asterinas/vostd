@@ -125,7 +125,7 @@ impl Inv for MetaSlotOwner {
             &&& self.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE().start <= self.self_addr < FRAME_METADATA_RANGE().end
-        &&& self.self_addr % META_SLOT_SIZE() == 0
+        &&& self.self_addr % META_SLOT_SIZE == 0
     }
 }
 

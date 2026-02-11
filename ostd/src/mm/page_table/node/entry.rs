@@ -540,7 +540,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(new_page.ptr.addr() == parent_owner.meta_perm.points_to.addr()) by { admit() };
         assert(FRAME_METADATA_RANGE().start <= new_page.ptr.addr() < FRAME_METADATA_RANGE().end)
             by { admit() };
-        assert(new_page.ptr.addr() % META_SLOT_SIZE() == 0) by { admit() };
+        assert(new_page.ptr.addr() % META_SLOT_SIZE == 0) by { admit() };
 
         #[verus_spec(with Tracked(&mut parent_owner.meta_perm.points_to))]
         let paddr = new_page.start_paddr();
