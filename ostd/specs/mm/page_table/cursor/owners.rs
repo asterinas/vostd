@@ -164,7 +164,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& self.children[i].unwrap().value.parent_level == self.level()
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
-                &&& <EntryOwner<C> as TreeNodeValue<CONST_NR_LEVELS>>::rel_children(self.entry_own, Some(self.children[i].unwrap().value))
+                &&& <EntryOwner<C> as TreeNodeValue<CONST_NR_LEVELS>>::rel_children(self.entry_own, i as int, Some(self.children[i].unwrap().value))
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
@@ -212,6 +212,40 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.children[i] is Some &&
                 PageTableOwner(self.children[i].unwrap()).view_rec(self.path().push_tail(i as usize)).contains(m)
         )
+    }
+
+    pub open spec fn as_subtree(self) -> OwnerSubtree<C> {
+        OwnerSubtree {
+            value: self.entry_own,
+            level: self.tree_level,
+            children: self.children,
+        }
+    }
+
+    pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
+        PageTableOwner(self.as_subtree())
+    }
+
+    pub proof fn as_page_table_owner_preserves_view_mappings(self)
+        requires
+            self.inv(),
+            self.all_some(),
+        ensures
+            self.as_page_table_owner().view_rec(self.path()) == self.view_mappings(),
+    { }
+
+    pub proof fn as_subtree_restore(self, child: Self)
+        requires
+            self.inv(),
+            child.inv(),
+            self.all_but_index_some(),
+            child.all_some(),
+        ensures
+            self.restore_spec(child).0.as_subtree() ==
+            self.put_child_spec(child.as_subtree()).as_subtree(),
+    {
+        assert(self.put_child_spec(child.as_subtree()).children ==
+        self.children.update(self.idx as int, Some(child.as_subtree())));
     }
 
     pub open spec fn view_mappings_take_child_spec(self) -> Set<Mapping> {
@@ -382,19 +416,28 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             guards.unlocked(owner.node.unwrap().meta_perm.addr())
     }
 
-    pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
+    pub open spec fn map_full_tree(self, f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS() ==> {
-                self.continuations[i].map_children(Self::node_unlocked(guards))
+            &&& f(self.continuations[i].entry_own, self.continuations[i].path())
+            &&& self.continuations[i].map_children(f)
             }
     }
 
-    pub open spec fn only_current_locked(self, guards: Guards<'rcu, C>) -> bool {
+    pub open spec fn map_only_children(self, f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS() ==>
-            self.continuations[i].map_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
+            self.continuations[i].map_children(f)
+    }
+
+    pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
+        self.map_only_children(Self::node_unlocked(guards))
+    }
+
+    pub open spec fn only_current_locked(self, guards: Guards<'rcu, C>) -> bool {
+        self.map_only_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
     }
 
     pub proof fn never_drop_restores_children_not_locked(
@@ -806,6 +849,37 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         admit()
     }
 
+    pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
+        if self.level == 1 {
+            let l1 = self.continuations[0];
+            let l2 = self.continuations[1].restore_spec(l1).0;
+            let l3 = self.continuations[2].restore_spec(l2).0;
+            let l4 = self.continuations[3].restore_spec(l3).0;
+            l4.as_page_table_owner()
+        } else if self.level == 2 {
+            let l2 = self.continuations[1];
+            let l3 = self.continuations[2].restore_spec(l2).0;
+            let l4 = self.continuations[3].restore_spec(l3).0;
+            l4.as_page_table_owner()
+        } else if self.level == 3 {
+            let l3 = self.continuations[2];
+            let l4 = self.continuations[3].restore_spec(l3).0;
+            l4.as_page_table_owner()
+        } else {
+            let l4 = self.continuations[3];
+            l4.as_page_table_owner()
+        }
+    }
+
+    pub proof fn as_page_table_owner_preserves_view_mappings(self)
+        requires
+            self.inv(),
+        ensures
+            self.as_page_table_owner().view_rec(self.continuations[3].path()) == self.view_mappings(),
+    {
+        admit()
+    }
+
     pub open spec fn cur_entry_owner(self) -> EntryOwner<C> {
         self.cur_subtree().value
     }
@@ -921,11 +995,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
     {
-        let f = PageTableOwner::<C>::relate_region_pred(regions);
-        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> {
-            &&& f(self.continuations[i].entry_own, self.continuations[i].path())
-            &&& self.continuations[i].map_children(f)
-        }
+        &&& self.map_full_tree(|entry_owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+            entry_owner.relate_region(regions))
+        &&& self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions))
     }
 
     pub proof fn relate_region_preserved(self, other: Self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
@@ -937,106 +1009,34 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             OwnerSubtree::implies(
                 PageTableOwner::<C>::relate_region_pred(regions0),
                 PageTableOwner::<C>::relate_region_pred(regions1)),
+            OwnerSubtree::implies(
+                PageTableOwner::<C>::path_tracked_pred(regions0),
+                PageTableOwner::<C>::path_tracked_pred(regions1)),
         ensures
             other.relate_region(regions1),
     {
+        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
         let f = PageTableOwner::relate_region_pred(regions0);
         let g = PageTableOwner::relate_region_pred(regions1);
-        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies other.continuations[i].map_children(g) by {
+        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
+
+        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies {
+            &&& other.continuations[i].map_children(g)
+            &&& other.continuations[i].map_children(h)
+        } by {
             let cont = self.continuations[i];
             assert(cont.inv());
             assert(cont.map_children(f));
+            assert(cont.map_children(e));
             assert(cont == other.continuations[i]);
             assert forall |j: int| 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
             };
-        };
-    }
-
-    pub open spec fn replace_current_rel(self, other: Self, new_child: OwnerSubtree<C>) -> bool
-    {
-        &&& self.level == other.level
-        &&& forall |i: int| #![trigger self.continuations[i], other.continuations[i]]
-            self.level <= i < NR_LEVELS() ==> self.continuations[i] == other.continuations[i]
-        &&& other.continuations[self.level - 1].children[other.continuations[self.level - 1].idx as int] == Some(new_child)
-        &&& forall |j: int| #![trigger other.continuations[self.level - 1].children[j]]
-            0 <= j < NR_ENTRIES() && j != other.continuations[self.level - 1].idx as int ==>
-            other.continuations[self.level - 1].children[j] == self.continuations[self.level - 1].children[j]
-        &&& other.continuations[self.level - 1].entry_own.path == self.continuations[self.level - 1].entry_own.path
-        &&& other.continuations[self.level - 1].entry_own.is_node() == self.continuations[self.level - 1].entry_own.is_node()
-        &&& other.continuations[self.level - 1].entry_own.is_node() ==>
-            other.continuations[self.level - 1].entry_own.node.unwrap().meta_perm.addr() ==
-            self.continuations[self.level - 1].entry_own.node.unwrap().meta_perm.addr()
-        &&& other.continuations[self.level - 1].idx == self.continuations[self.level - 1].idx
-        &&& other.continuations[self.level - 1].children.len() == NR_ENTRIES()
-    }
-
-    pub proof fn relate_region_preserved_after_replace(
-        self,
-        other: Self,
-        regions0: MetaRegionOwners,
-        regions1: MetaRegionOwners,
-        new_owner: OwnerSubtree<C>,
-    ) requires
-        self.inv(),
-        new_owner.inv(),
-        self.relate_region(regions0),
-        self.replace_current_rel(other, new_owner),
-        new_owner.tree_predicate_map(
-            new_owner.value.path,
-            PageTableOwner::<C>::relate_region_pred(regions0)),
-        new_owner.value.path == self.continuations[self.level - 1].path().push_tail(self.continuations[self.level - 1].idx as usize),
-        OwnerSubtree::implies(
-            PageTableOwner::<C>::relate_region_pred(regions0),
-            PageTableOwner::<C>::relate_region_pred(regions1)),
-    ensures
-        other.relate_region(regions1),
-    {
-        let f = PageTableOwner::<C>::relate_region_pred(regions0);
-        let g = PageTableOwner::<C>::relate_region_pred(regions1);
-        let level = self.level;
-        
-        assert forall|i: int| other.level - 1 <= i < NR_LEVELS() implies {
-            &&& g(other.continuations[i].entry_own, other.continuations[i].path())
-            &&& other.continuations[i].map_children(g)
-        } by {
-            if i >= level {
-                assert(self.continuations[i] == other.continuations[i]);
-                assert(f(self.continuations[i].entry_own, self.continuations[i].path()));
-                let cont = self.continuations[i];
-                assert forall|j: int| 0 <= j < cont.children.len() && cont.children[j] is Some
-                implies cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
-                    OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path().push_tail(j as usize), f, g);
-                };
-            } else {
-                let self_cont = self.continuations[self.level - 1];
-                let other_cont = other.continuations[self.level - 1];
-                let idx = other_cont.idx as int;
-                
-                assert(self_cont.children.len() == NR_ENTRIES());
-                                
-                assert(f(self_cont.entry_own, self_cont.path()));
-                assert(g(self_cont.entry_own, self_cont.path()));
-                assert(g(other_cont.entry_own, other_cont.path()));
-                
-                assert forall|j: int| 0 <= j < NR_ENTRIES() && other_cont.children[j] is Some
-                implies other_cont.children[j].unwrap().tree_predicate_map(other_cont.path().push_tail(j as usize), g) by {
-                    if j == idx {
-                        assert(other_cont.children[j] == Some(new_owner));
-                        OwnerSubtree::map_implies(new_owner, new_owner.value.path, f, g);
-                    } else {
-                        assert(other.continuations[self.level - 1].children[j] == self.continuations[self.level - 1].children[j]);
-                        if self.continuations[self.level - 1].children[j] is Some {
-                            OwnerSubtree::map_implies(
-                                self.continuations[self.level - 1].children[j].unwrap(), 
-                                self.continuations[self.level - 1].path().push_tail(j as usize), 
-                                f, g);
-                        }
-                    }
-                };
-                assert(other.continuations[self.level - 1].children.len() == NR_ENTRIES());
-            }
+            assert forall |j: int| 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
+                cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), h) by {
+                    cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), e, h);
+            };
         };
     }
 
@@ -1088,7 +1088,7 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
 
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
-        assert(self@.inv()) by { admit() };
+        assert(self@.inv());
     }
 }
 

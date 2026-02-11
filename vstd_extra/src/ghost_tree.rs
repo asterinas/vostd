@@ -360,14 +360,14 @@ pub trait TreeNodeValue<const L: usize>: Sized + Inv {
             forall|lv: nat| #[trigger] Self::default(lv).la_inv(lv),
     ;
 
-    spec fn rel_children(self, child: Option<Self>) -> bool;
+    spec fn rel_children(self, index: int, child: Option<Self>) -> bool;
 
-    proof fn default_preserves_rel_children(self, lv: nat)
+    proof fn default_preserves_rel_children(self, i: int, lv: nat)
         requires
             self.inv(),
             self.la_inv(lv),
         ensures
-            #[trigger] self.rel_children(Some(Self::default(lv + 1))),
+            #[trigger] self.rel_children(i, Some(Self::default(lv + 1))),
     ;
 }
 
@@ -491,9 +491,9 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 0 <= i < Self::size() ==> match #[trigger] self.children[i] {
                     Some(child) => {
                         &&& child.level == self.level + 1
-                        &&& self.value.rel_children(Some(child.value))
+                        &&& self.value.rel_children(i, Some(child.value))
                     },
-                    None => self.value.rel_children(None),
+                    None => self.value.rel_children(i, None),
                 }
         }
     }
@@ -570,7 +570,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             self.level < L - 1,
             node.level == self.level + 1,
-            self.value.rel_children(Some(node.value)),
+            self.value.rel_children(key as int, Some(node.value)),
         ensures
             #[trigger] self.insert(key, node).inv(),
     {
@@ -750,6 +750,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             value.la_inv(self.level),
             forall|i: int|
                 0 <= i < N ==> #[trigger] self.children[i] is Some ==> value.rel_children(
+                    i,
                     Some(self.children[i].unwrap().value),
                 ),
         ensures
@@ -1359,7 +1360,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             node.inv(),
             self.level < L - 1,
             node.level == self.level + 1,
-            self.value.rel_children(Some(node.value)),
+            self.value.rel_children(key as int, Some(node.value)),
         ensures
             #[trigger] self.insert(key, node).on_subtree(node),
     {

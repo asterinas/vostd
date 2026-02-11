@@ -535,6 +535,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.level == old(owner).level,
             owner.meta_own == old(owner).meta_own,
             owner.meta_perm.points_to == old(owner).meta_perm.points_to,
+            owner.children_perm.value() == old(owner).children_perm.value().update(idx as int, pte),
             *self == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());

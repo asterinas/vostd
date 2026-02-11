@@ -23,6 +23,7 @@ use crate::mm::page_table::PageTableGuard;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;
+use crate::mm::frame::frame_to_index;
 
 use core::ops::Deref;
 
@@ -122,16 +123,18 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     proof fn default_preserves_la_inv() {
     }
 
-    open spec fn rel_children(self, child: Option<Self>) -> bool {
+    open spec fn rel_children(self, i: int, child: Option<Self>) -> bool {
         if self.is_node() {
             &&& child is Some
             &&& child.unwrap().path.len() == self.node.unwrap().tree_level + 1
+            &&& child.unwrap().match_pte(self.node.unwrap().children_perm.value()[i], self.node.unwrap().level)
+            &&& child.unwrap().path == self.path.push_tail(i as usize)
         } else {
             &&& child is None
         }
     }
 
-    proof fn default_preserves_rel_children(self, lv: nat) {
+    proof fn default_preserves_rel_children(self, i: int, lv: nat) {
         admit()
     }
 }
@@ -267,6 +270,16 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
+    /// An absent entry contributes no mappings - view_rec returns the empty set.
+    pub proof fn view_rec_absent_empty(self, path: TreePath<CONST_NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value.is_absent(),
+            path.len() <= INC_LEVELS() - 1,
+        ensures
+            self.view_rec(path) =~= set![],
+    { }
+
     pub open spec fn relate_region_pred(regions: MetaRegionOwners)
         -> (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
         |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions)
@@ -278,18 +291,325 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         self.0.tree_predicate_map(self.0.value.path, Self::relate_region_pred(regions))
     }
 
-    /// An absent entry contributes no mappings - view_rec returns the empty set.
-    pub proof fn view_rec_absent_empty(self, path: TreePath<CONST_NR_ENTRIES>)
+    /// Predicate: all nodes in the tree have their paths tracked in regions
+    pub open spec fn path_tracked_pred(regions: MetaRegionOwners)
+        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    {   
+        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+            &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()))
+            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt is Some
+        }
+    }
+
+    pub open spec fn relate_region_tracked_pred(regions: MetaRegionOwners)
+        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    {
+        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+            &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()))
+            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt is Some
+            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt.unwrap() == path
+        }
+    }
+
+    pub open spec fn path_correct_pred(regions: MetaRegionOwners)
+        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    {
+        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+            entry.path == path
+        }
+    }
+/*
+    pub proof fn view_rec_inversion(self, path: TreePath<CONST_NR_ENTRIES>, regions: MetaRegionOwners, m: Mapping)
+    -> (res: (EntryOwner<C>, spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool))
         requires
             self.0.inv(),
-            self.0.value.is_absent(),
             path.len() <= INC_LEVELS() - 1,
+            path.len() == self.0.level,
+            self.view_rec(path).contains(m),
+            self.0.tree_predicate_map(path, Self::path_tracked_pred(regions)),
         ensures
-            self.view_rec(path) =~= set![],
+            OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), res.1)
+        decreases INC_LEVELS() - path.len()
     {
-        // is_absent() implies !is_frame() and !is_node() by the EntryOwner invariant
-        // Therefore view_rec falls through to the else branch returning set![]
+        if self.0.value.is_frame() {
+            let f = |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+                owner.is_frame() ==>
+                owner.frame.unwrap().mapped_pa == m.pa_range.start ==>
+                owner == self.0.value };
+            assert(OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), f));
+            (self.0.value, f)
+        } else if self.0.value.is_node() {
+            self.view_rec_contains(path, m);
+            let i = self.view_rec_contains_choose(path, m);
+            let (res, f) = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
+            assume(OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), f));
+            (res, f)
+        } else {
+            proof_from_false()
+        }
+    }*/
+
+    /// Spec function: path1 is a prefix of path2
+    pub open spec fn is_prefix_of<const N: usize>(
+        prefix: TreePath<N>,
+        path: TreePath<N>,
+    ) -> bool {
+        &&& prefix.len() <= path.len()
+        &&& forall |i: int| 0 <= i < prefix.len() ==> prefix.index(i) == path.index(i)
     }
+
+    /// Transitivity of is_prefix_of
+    pub proof fn prefix_transitive<const N: usize>(
+        p1: TreePath<N>,
+        p2: TreePath<N>,
+        p3: TreePath<N>,
+    )
+        requires
+            Self::is_prefix_of(p1, p2),
+            Self::is_prefix_of(p2, p3),
+        ensures
+            Self::is_prefix_of(p1, p3),
+    {
+        assert(p1.len() <= p3.len());
+        assert forall |i: int| 0 <= i < p1.len() implies p1.index(i) == p3.index(i) by {
+            assert(p1.index(i) == p2.index(i));
+            assert(p2.index(i) == p3.index(i));
+        };
+    }
+
+    pub proof fn prefix_push_different_indices(
+        prefix: TreePath<CONST_NR_ENTRIES>,
+        path: TreePath<CONST_NR_ENTRIES>,
+        i: usize,
+        j: usize,
+    )
+        requires
+            prefix.inv(),
+            path.inv(),
+            i != j,
+            Self::is_prefix_of(prefix.push_tail(i), path),
+        ensures
+            !Self::is_prefix_of(prefix.push_tail(j), path),
+    {
+        assert(path.index(prefix.len() as int) == i);
+    }
+
+    pub open spec fn is_at_pred(entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>)
+        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    {
+        |entry0: EntryOwner<C>, path0: TreePath<CONST_NR_ENTRIES>| {
+            path0 == path ==> entry0 == entry
+        }
+    }
+
+    pub open spec fn path_in_tree_pred(path: TreePath<CONST_NR_ENTRIES>)
+        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    {
+        |entry: EntryOwner<C>, path0: TreePath<CONST_NR_ENTRIES>|
+            Self::is_prefix_of(path0, path) ==>
+            !entry.is_node() ==>
+            path == path0
+    }
+
+    pub proof fn is_at_pred_eq(path: TreePath<CONST_NR_ENTRIES>, entry1: EntryOwner<C>, entry2: EntryOwner<C>)
+        requires
+            entry1.inv(),
+            OwnerSubtree::implies(Self::is_at_pred(entry1, path), Self::is_at_pred(entry2, path)),
+        ensures
+            entry1 == entry2,
+    {
+        assert(Self::is_at_pred(entry1, path)(entry1, path) ==>
+               Self::is_at_pred(entry2, path)(entry1, path));
+    }
+
+    pub proof fn is_at_holds_when_on_wrong_path(
+        subtree: OwnerSubtree<C>,
+        root_path: TreePath<CONST_NR_ENTRIES>,
+        dest_path: TreePath<CONST_NR_ENTRIES>,
+        entry: EntryOwner<C>,
+    )
+        requires
+            subtree.inv(),
+            dest_path.inv(),
+            !Self::is_prefix_of(root_path, dest_path),
+            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() == subtree.level,
+        ensures
+            subtree.tree_predicate_map(root_path, Self::is_at_pred(entry, dest_path)),
+        decreases INC_LEVELS() - root_path.len()
+    {
+        if subtree.value.is_node() {
+            assert forall |i: int| 0 <= i < NR_ENTRIES() implies
+                subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::is_at_pred(entry, dest_path)) by {
+                    Self::is_at_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
+                        root_path.push_tail(i as usize), dest_path, entry);
+                };
+        }
+    }
+
+    /// Counterintuitive: the predicate is vacuously true when the path is not a prefix of the target path,
+    /// because it is actually a liveness property: if we keep following the path, we will eventually reach it.
+    /// This covers when we are not following it.
+    pub proof fn path_in_tree_holds_when_on_wrong_path(
+        subtree: OwnerSubtree<C>,
+        root_path: TreePath<CONST_NR_ENTRIES>,
+        dest_path: TreePath<CONST_NR_ENTRIES>,
+    )
+        requires
+            subtree.inv(),
+            dest_path.inv(),
+            !Self::is_prefix_of(root_path, dest_path),
+            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() == subtree.level,
+        ensures
+            subtree.tree_predicate_map(root_path, Self::path_in_tree_pred(dest_path)),
+        decreases INC_LEVELS() - root_path.len()
+    {
+        if subtree.value.is_node() {
+            assert forall |i: int| 0 <= i < NR_ENTRIES() implies
+                subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::path_in_tree_pred(dest_path)) by {
+                    Self::path_in_tree_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
+                        root_path.push_tail(i as usize), dest_path);
+                };
+        }
+    }
+
+
+    pub proof fn is_at_eq_rec(
+        subtree: OwnerSubtree<C>,
+        root_path: TreePath<CONST_NR_ENTRIES>,
+        dest_path: TreePath<CONST_NR_ENTRIES>,
+        entry1: EntryOwner<C>,
+        entry2: EntryOwner<C>
+    )
+        requires
+            subtree.inv(),
+            dest_path.inv(),
+            root_path.inv(),
+            Self::is_prefix_of(root_path, dest_path),
+            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() == subtree.level,
+            subtree.tree_predicate_map(root_path, Self::path_in_tree_pred(dest_path)),
+            subtree.tree_predicate_map(root_path, Self::is_at_pred(entry1, dest_path)),
+            subtree.tree_predicate_map(root_path, Self::is_at_pred(entry2, dest_path)),
+        ensures
+            entry1 == entry2,
+        decreases INC_LEVELS() - root_path.len()
+    {
+        if root_path == dest_path {
+            assert(subtree.value == entry1);
+            assert(subtree.value == entry2);
+            assert(entry1 == entry2);
+        } else if subtree.level == INC_LEVELS() - 1 || !subtree.value.is_node() {
+            proof_from_false()
+        } else {
+            assert(root_path.len() < dest_path.len()) by { admit() };
+            let i = dest_path.index(root_path.len() as int);
+            assert(0 <= i < NR_ENTRIES());
+            assert(subtree.children[i as int] is Some);
+            assert(Self::is_prefix_of(root_path.push_tail(i), dest_path));
+            Self::is_at_eq_rec(subtree.children[i as int].unwrap(), root_path.push_tail(i as usize),
+                dest_path, entry1, entry2);
+        }
+    }
+
+    pub proof fn view_rec_inversion(self,
+        path: TreePath<CONST_NR_ENTRIES>,
+        regions: MetaRegionOwners,
+        m: Mapping,
+    ) -> (entry: EntryOwner<C>)
+        requires
+            self.0.inv(),
+            path.len() == self.0.level,
+            self.view_rec(path).contains(m),
+            self.0.tree_predicate_map(path, Self::path_correct_pred(regions)),
+            self.0.tree_predicate_map(path, Self::relate_region_tracked_pred(regions)),
+        ensures
+            Self::is_prefix_of(path, entry.path),
+            regions.slot_owners[frame_to_index(m.pa_range.start)].path_if_in_pt == Some(entry.path),
+            m.va_range.start == vaddr(entry.path),
+            m.page_size == page_size((INC_LEVELS() - entry.path.len()) as PagingLevel),
+            entry.is_frame(),
+            m.property == entry.frame.unwrap().prop,
+            self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path)),
+            self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path)),
+            entry.inv(),
+        decreases INC_LEVELS() - path.len()
+    {
+        if self.0.value.is_frame() {
+            assert(Self::is_prefix_of(path, self.0.value.path));
+            assert(self.0.tree_predicate_map(path, Self::is_at_pred(self.0.value, self.0.value.path)));
+            assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(self.0.value.path)));
+            self.0.value
+        } else if self.0.value.is_node() {
+            self.view_rec_contains(path, m);
+            let i = self.view_rec_contains_choose(path, m);
+            let entry = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
+            Self::prefix_transitive(path, path.push_tail(i as usize), entry.path);
+            assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path))) by {
+                assert forall |j: int| 0 <= j < NR_ENTRIES() && self.0.children[j] is Some implies 
+                    self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
+                        Self::is_at_pred(entry, entry.path))
+                by {
+                    if j != i {
+                        assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path)) by {
+                            Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
+                        }
+                        Self::is_at_holds_when_on_wrong_path(self.0.children[j].unwrap(),
+                            path.push_tail(j as usize), entry.path, entry);
+                    }
+                };
+            };
+            assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path))) by {
+                assert forall |j: int| 0 <= j < NR_ENTRIES() && self.0.children[j] is Some implies 
+                    self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
+                        Self::path_in_tree_pred(entry.path))
+                by {
+                    if j != i {
+                        assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path)) by {
+                            Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
+                        }
+                        Self::path_in_tree_holds_when_on_wrong_path(self.0.children[j].unwrap(),
+                            path.push_tail(j as usize), entry.path);
+                    }
+                };
+            };
+            entry
+        } else {
+            proof_from_false()
+        }
+    }
+
+    pub proof fn view_rec_inversion_unique(self,
+        path: TreePath<CONST_NR_ENTRIES>,
+        regions: MetaRegionOwners,
+        m1: Mapping,
+        m2: Mapping,
+    )
+        requires
+            self.0.inv(),
+            path.len() <= INC_LEVELS() - 1,
+            path.len() == self.0.level,
+            self.view_rec(path).contains(m1),
+            self.view_rec(path).contains(m2),
+            m1.pa_range.start == m2.pa_range.start,
+            m1.inv(),
+            m2.inv(),
+            self.0.tree_predicate_map(path, Self::path_tracked_pred(regions)),
+            self.0.tree_predicate_map(path, Self::path_correct_pred(regions)),
+            self.0.tree_predicate_map(path, Self::relate_region_tracked_pred(regions)),
+        ensures
+            m1 == m2,
+    {
+        let entry1 = self.view_rec_inversion(path, regions, m1);
+        let entry2 = self.view_rec_inversion(path, regions, m2);
+
+        assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry1, entry1.path)));
+        assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry2, entry2.path)));
+
+        Self::is_at_eq_rec(self.0, path, entry1.path, entry1, entry2);
+    }
+
 }
 
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {

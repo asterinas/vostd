@@ -451,6 +451,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_cont.children[i].unwrap().value.path == new_cont.path().push_tail(i as usize) by {
                 assume(child_node.value.path == new_cont.path().push_tail(i as usize));
             };
+
+        admit();
     }
 
     pub proof fn pop_level_owner_preserves_invs(self, guards: Guards<'rcu, C>, regions: MetaRegionOwners)

@@ -227,6 +227,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         self.node.put(Tracked(guard_perm), guard);
     }
 
+
+    pub open spec fn replace_panic_condition(parent_owner: NodeOwner<C>, new_owner: EntryOwner<C>) -> bool {
+        if new_owner.is_node() {
+            parent_owner.level - 1 == new_owner.node.unwrap().level
+        } else if new_owner.is_frame() {
+            parent_owner.level == new_owner.parent_level
+        } else {
+            true
+        }
+    }
+
     /// Replaces the entry with a new child.
     ///
     /// The old child is returned.
@@ -256,6 +267,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(new_owner.meta_slot_paddr())),
             old(guard_perm).addr() == old(self).node.addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
+            old(parent_owner).level == new_owner.parent_level,
+            Self::replace_panic_condition(*old(parent_owner), *new_owner),
         ensures
             parent_owner.inv(),
             parent_owner.relate_guard_perm(*guard_perm),
@@ -271,6 +284,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             OwnerSubtree::implies(
                 |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.meta_slot_paddr() != owner.meta_slot_paddr() && entry.relate_region(*old(regions)),
                 |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(*regions)),
+            new_owner.match_pte(parent_owner.children_perm.value()[self.idx as int], parent_owner.level),
+            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+                i != self.idx ==>
+                parent_owner.children_perm.value()[i] == old(parent_owner).children_perm.value()[i],
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr());
         let ghost old_idx = frame_to_index(owner.meta_slot_paddr());
@@ -322,7 +339,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             assert(owner.relate_region(*regions)) by { admit() };
         }
 
-        assert(new_child.wf(*new_owner));
         // SAFETY:
         //  1. The index is within the bounds.
         //  2. The new PTE is a valid child whose level matches the current page table node.

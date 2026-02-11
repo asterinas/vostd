@@ -192,6 +192,7 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.node is None
             &&& !self.absent
         }
+        &&& self.path.inv()
     }
 }
 
