@@ -6,7 +6,6 @@ use vstd::arithmetic::div_mod::group_div_basics;
 use vstd::arithmetic::div_mod::lemma_div_non_zero;
 use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
-use vstd_extra::extern_const;
 
 /// Virtual addresses.
 pub type Vaddr = usize;
@@ -45,7 +44,6 @@ pub use kspace::paddr_to_vaddr;
 
 // Re-export largest_pages from page_table
 pub use page_table::largest_pages;
-extern_const!(
     /// The maximum virtual address of user space (non inclusive).
     ///
     /// Typical 64-bit systems have at least 48-bit virtual address space.
@@ -57,8 +55,7 @@ extern_const!(
     /// <https://github.com/torvalds/linux/blob/480e035fc4c714fb5536e64ab9db04fedc89e910/arch/x86/include/asm/page_64.h#L68-L78>
     /// for the rationale.
     /// Page size.
-pub MAX_USERSPACE_VADDR [MAX_USERSPACE_VADDR_SPEC, CONST_MAX_USERSPACE_VADDR]: usize =
-    0x0000_8000_0000_0000 - CONST_PAGE_SIZE);
+pub const MAX_USERSPACE_VADDR: usize = 0x0000_8000_0000_0000 - CONST_PAGE_SIZE;
 
 /// The kernel address space.
 ///
