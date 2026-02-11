@@ -1,5 +1,4 @@
 use vstd::prelude::*;
-use vstd_extra::extern_const::*;
 
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::Paddr;
