@@ -725,8 +725,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 proof {
                     AbstractVaddr::from_vaddr_wf(va);
                     
-                    assume(forall |i: int| owner0.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.va.index[i]);
-                    assume(forall |i: int| owner0.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.prefix.index[i]);
+                    assume(forall |i: int| #![auto] owner0.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.va.index[i]);
+                    assume(forall |i: int| #![auto] owner0.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == owner0.prefix.index[i]);
                     
                     owner.set_va_preserves_inv(new_va);
                     owner.set_va(new_va);
@@ -1293,10 +1293,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let f_region = PageTableOwner::<C>::relate_region_pred(*old(regions));
             let g_region = PageTableOwner::<C>::relate_region_pred(*regions);
             
-            assert forall |i: int| owner.level <= i < NR_LEVELS() implies
+            assert forall |i: int| #![auto] owner.level <= i < NR_LEVELS() implies
                 owner.continuations[i].map_children(g_unlocked) by {
                 let cont = owner0.continuations[i];
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
+                assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
                     cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g_unlocked) by {
                     OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path().push_tail(j as usize), f_unlocked, g_unlocked);
                 };
@@ -1306,7 +1306,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let cont_final = owner.continuations[owner.level - 1];
             
             assert(cont_final.map_children(g_unlocked)) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && cont_final.children[j] is Some implies
+                assert forall |j: int| #![auto]0 <= j < NR_ENTRIES() && cont_final.children[j] is Some implies
                     cont_final.children[j].unwrap().tree_predicate_map(cont_final.path().push_tail(j as usize), g_unlocked) by {
                     if j != idx && cont0.children[j] is Some {
                             OwnerSubtree::map_implies(cont0.children[j].unwrap(), cont0.path().push_tail(j as usize), f_unlocked, g_unlocked);
@@ -1314,18 +1314,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
             };
             
-            assert forall |i: int| owner.level <= i < NR_LEVELS() implies
+            assert forall |i: int| #![auto] owner.level <= i < NR_LEVELS() implies
                 owner.continuations[i].map_children(g_region) by {
                 assert(owner.continuations[i] == owner0.continuations[i]);
                 let cont = owner0.continuations[i];
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
+                assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
                     cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g_region) by {
                     OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path().push_tail(j as usize), f_region, g_region);
                 };
             };
             
             assert(cont_final.map_children(g_region)) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && cont_final.children[j] is Some implies
+                assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES() && cont_final.children[j] is Some implies
                     cont_final.children[j].unwrap().tree_predicate_map(cont_final.path().push_tail(j as usize), g_region) by {
                     if j != idx && cont0.children[j] is Some {
                         OwnerSubtree::map_implies(cont0.children[j].unwrap(), cont0.path().push_tail(j as usize), f_region, g_region);
@@ -1993,7 +1993,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     
                     let f = PageTableOwner::<C>::relate_region_pred(*regions);
                     
-                    assert forall |i: int| owner.level - 1 <= i < NR_LEVELS() implies {
+                    assert forall |i: int| #![auto] owner.level - 1 <= i < NR_LEVELS() implies {
                         &&& f(owner.continuations[i].entry_own, owner.continuations[i].path())
                         &&& owner.continuations[i].map_children(f)
                     } by {
@@ -2004,7 +2004,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         }
                     };
                     
-                    assert forall |i: int| owner.level - 1 <= i < NR_LEVELS() - 1 implies
+                    assert forall |i: int| #![auto] owner.level - 1 <= i < NR_LEVELS() - 1 implies
                         owner.continuations[i].view_mappings() == owner_before_dfs.continuations[i].view_mappings() by {
                         if i >= owner.level as int {
                             assert(owner.continuations[i] == owner_before_dfs.continuations[i]);

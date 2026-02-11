@@ -246,20 +246,20 @@ impl<C: PageTableConfig> PageTableNode<C> {
             owner@.value.parent_level == level,
             owner@.value.node.unwrap().level == level - 1,
             owner@.value.node.unwrap().inv(),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES() ==>
                 !owner@.value.node.unwrap().children_perm.value()[i].is_present(),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==> {
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES() ==> {
                 &&& owner@.children[i] is Some
                 &&& owner@.children[i].unwrap().value.is_absent()
                 &&& owner@.children[i].unwrap().value.inv()
                 &&& owner@.children[i].unwrap().value.path == owner@.value.path.push_tail(i as usize)
             },
-            forall |i: int| 0 <= i < NR_ENTRIES() ==> 
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES() ==> 
                 owner@.children[i].unwrap().value.match_pte(
                     owner@.value.node.unwrap().children_perm.value()[i],
                     owner@.children[i].unwrap().value.parent_level,
                 ),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES() ==>
                 owner@.children[i].unwrap().value.parent_level == owner@.value.node.unwrap().level,
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
     )]

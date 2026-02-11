@@ -922,7 +922,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
     {
         let f = PageTableOwner::<C>::relate_region_pred(regions);
-        forall|i: int| self.level - 1 <= i < NR_LEVELS() ==> {
+        forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS() ==> {
             &&& f(self.continuations[i].entry_own, self.continuations[i].path())
             &&& self.continuations[i].map_children(f)
         }
@@ -942,12 +942,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let f = PageTableOwner::relate_region_pred(regions0);
         let g = PageTableOwner::relate_region_pred(regions1);
-        assert forall|i: int| self.level - 1 <= i < NR_LEVELS() implies other.continuations[i].map_children(g) by {
+        assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS() implies other.continuations[i].map_children(g) by {
             let cont = self.continuations[i];
             assert(cont.inv());
             assert(cont.map_children(f));
             assert(cont == other.continuations[i]);
-            assert forall |j: int| 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
+            assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
             };
@@ -997,7 +997,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let g = PageTableOwner::<C>::relate_region_pred(regions1);
         let level = self.level;
         
-        assert forall|i: int| other.level - 1 <= i < NR_LEVELS() implies {
+        assert forall|i: int| #![auto] other.level - 1 <= i < NR_LEVELS() implies {
             &&& g(other.continuations[i].entry_own, other.continuations[i].path())
             &&& other.continuations[i].map_children(g)
         } by {
@@ -1005,7 +1005,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(self.continuations[i] == other.continuations[i]);
                 assert(f(self.continuations[i].entry_own, self.continuations[i].path()));
                 let cont = self.continuations[i];
-                assert forall|j: int| 0 <= j < cont.children.len() && cont.children[j] is Some
+                assert forall|j: int| #![auto] 0 <= j < cont.children.len() && cont.children[j] is Some
                 implies cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     OwnerSubtree::map_implies(cont.children[j].unwrap(), cont.path().push_tail(j as usize), f, g);
                 };
@@ -1020,7 +1020,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(g(self_cont.entry_own, self_cont.path()));
                 assert(g(other_cont.entry_own, other_cont.path()));
                 
-                assert forall|j: int| 0 <= j < NR_ENTRIES() && other_cont.children[j] is Some
+                assert forall|j: int| #![auto] 0 <= j < NR_ENTRIES() && other_cont.children[j] is Some
                 implies other_cont.children[j].unwrap().tree_predicate_map(other_cont.path().push_tail(j as usize), g) by {
                     if j == idx {
                         assert(other_cont.children[j] == Some(new_owner));
@@ -1049,10 +1049,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub axiom fn set_va(tracked &mut self, new_va: AbstractVaddr)
         requires
-            forall |i: int| old(self).level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).va.index[i],
-            forall |i: int| old(self).guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).prefix.index[i],
+            forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).va.index[i],
+            forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
-            self == old(self).set_va_spec(new_va);
+            *self == old(self).set_va_spec(new_va);
 
 }
 

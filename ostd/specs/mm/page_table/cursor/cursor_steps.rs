@@ -325,7 +325,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // forall i: self.level - 1 <= i < NR_LEVELS() ==> 
             //   f(self.continuations[i].entry_own, path) && self.continuations[i].map_children(f)
             
-            assert forall |i: int|
+            assert forall |i: int| #![auto]
                 new_owner.level - 1 <= i < NR_LEVELS() implies {
                     &&& f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
                     &&& new_owner.continuations[i].map_children(f)
@@ -484,8 +484,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             new_va.inv(),
-            forall |i: int| self.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.va.index[i],
-            forall |i: int| self.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.prefix.index[i],
+            forall |i: int| #![auto] self.level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.va.index[i],
+            forall |i: int| #![auto] self.guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == self.prefix.index[i],
         ensures
             self.set_va_spec(new_va).inv(),
     {
