@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 #![allow(unused_macros)]
 #![cfg_attr(not(test), no_std)]
+
+#![allow(non_snake_case)]
+#![allow(unused_parens)]
+#![allow(unused_braces)]
+#![allow(rustdoc::invalid_rust_codeblocks)]
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
+
 use vstd::arithmetic::div_mod::*;
 use vstd::arithmetic::mul::*;
 use vstd::arithmetic::power2::pow2;

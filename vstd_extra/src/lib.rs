@@ -1,9 +1,14 @@
 //! The "extra standard library" for [Verus](https://github.com/verus-lang/verus).
 //! Contains various utilities and general datatypes for proofs useful in Asterinas verification,
 //! as well as extending [Verus standard library(vstd)](https://verus-lang.github.io/verus/verusdoc/vstd) with additional functionality.
-#![allow(non_snake_case)]
 #![feature(sized_hierarchy)]
 #![feature(proc_macro_hygiene)]
+#![allow(non_snake_case)]
+#![allow(unused_parens)]
+#![allow(unused_braces)]
+#![allow(rustdoc::invalid_rust_codeblocks)]
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
 
 extern crate alloc;
 
@@ -17,8 +22,8 @@ pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
-pub mod undroppable;
 pub mod resource;
+pub mod undroppable;
 
 #[macro_use]
 pub mod ptr_extra;
