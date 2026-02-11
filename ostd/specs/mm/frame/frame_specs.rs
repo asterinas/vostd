@@ -18,8 +18,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel)
         -> (Self, MetaRegionModel)
         recommends
-            paddr % PAGE_SIZE() == 0,
-            paddr < MAX_PADDR(),
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
             pre.inv(),
             pre.slots[frame_to_index(paddr)].ref_count == REF_COUNT_UNUSED,
     {
@@ -30,7 +30,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     pub proof fn from_unused_properties(paddr: Paddr, metadata: M, pre: MetaRegionModel)
         requires
             paddr % 4096 == 0,
-            paddr < MAX_PADDR(),
+            paddr < MAX_PADDR,
             pre.inv(),
             pre.slots[paddr / 4096].ref_count == REF_COUNT_UNUSED,
         ensures

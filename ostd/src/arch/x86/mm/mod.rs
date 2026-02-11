@@ -16,7 +16,6 @@ use crate::{
         PagingConstsTrait,
         PagingLevel,
         /*PodOnce,*/ Vaddr,
-        PAGE_SIZE,
     },
     //    Pod,
 };

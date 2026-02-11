@@ -12,7 +12,7 @@ use core::ops::Range;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
-use crate::specs::arch::mm::{CONST_NR_ENTRIES, CONST_NR_LEVELS, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::GuardPerm;
@@ -31,12 +31,12 @@ pub tracked struct CursorContinuation<'rcu, C: PageTableConfig> {
     pub idx: usize,
     pub tree_level: nat,
     pub children: Seq<Option<OwnerSubtree<C>>>,
-    pub path: TreePath<CONST_NR_ENTRIES>,
+    pub path: TreePath<NR_ENTRIES>,
     pub guard_perm: GuardPerm<'rcu, C>,
 }
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
-    pub open spec fn path(self) -> TreePath<CONST_NR_ENTRIES> {
+    pub open spec fn path(self) -> TreePath<NR_ENTRIES> {
         self.entry_own.path
     }
 
@@ -118,8 +118,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub axiom fn make_cont(tracked &mut self, idx: usize, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>) -> (res: Self)
         requires
             old(self).all_some(),
-            old(self).idx < NR_ENTRIES(),
-            idx < NR_ENTRIES(),
+            old(self).idx < NR_ENTRIES,
+            idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont_spec(idx, guard_perm@).0,
             *self == old(self).make_cont_spec(idx, guard_perm@).1,
@@ -141,7 +141,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             guard_perm == old(self).restore_spec(child).1,
     ;
 
-    pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) -> bool {
+    pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
             #![trigger self.children[i]]
             0 <= i < self.children.len() ==>
@@ -154,17 +154,17 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn inv(self) -> bool {
-        &&& self.children.len() == NR_ENTRIES()
-        &&& 0 <= self.idx < NR_ENTRIES()
+        &&& self.children.len() == NR_ENTRIES
+        &&& 0 <= self.idx < NR_ENTRIES
         &&& forall|i: int|
             #![trigger self.children[i]]
-            0 <= i < NR_ENTRIES() ==>
+            0 <= i < NR_ENTRIES ==>
             self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().value.path == self.path().push_tail(i as usize)
                 &&& self.children[i].unwrap().value.parent_level == self.level()
                 &&& self.children[i].unwrap().inv()
                 &&& self.children[i].unwrap().level == self.tree_level + 1
-                &&& <EntryOwner<C> as TreeNodeValue<CONST_NR_LEVELS>>::rel_children(self.entry_own, Some(self.children[i].unwrap().value))
+                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, Some(self.children[i].unwrap().value))
             }
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
@@ -175,12 +175,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn all_some(self) -> bool {
-        forall|i: int| 0 <= i < NR_ENTRIES() ==> self.children[i] is Some
+        forall|i: int| 0 <= i < NR_ENTRIES ==> self.children[i] is Some
     }
 
     pub open spec fn all_but_index_some(self) -> bool {
         &&& forall|i: int| 0 <= i < self.idx ==> self.children[i] is Some
-        &&& forall|i: int| self.idx < i < NR_ENTRIES() ==> self.children[i] is Some
+        &&& forall|i: int| self.idx < i < NR_ENTRIES ==> self.children[i] is Some
         &&& self.children[self.idx as int] is None
     }
 
@@ -193,7 +193,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub proof fn do_inc_index(tracked &mut self)
         requires
-            old(self).idx + 1 < NR_ENTRIES(),
+            old(self).idx + 1 < NR_ENTRIES,
         ensures
             *self == old(self).inc_index(),
     {
@@ -309,14 +309,14 @@ pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
 impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
     open spec fn inv(self) -> bool {
         &&& self.va.inv()
-        &&& 1 <= self.level <= NR_LEVELS()
-        &&& self.guard_level <= NR_LEVELS()
+        &&& 1 <= self.level <= NR_LEVELS
+        &&& self.guard_level <= NR_LEVELS
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
         // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
         &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
         &&& !self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range()
         &&& self.continuations[self.level - 1].all_some()
-        &&& forall|i: int| self.level <= i < NR_LEVELS() ==> {
+        &&& forall|i: int| self.level <= i < NR_LEVELS ==> {
             (#[trigger] self.continuations[i]).all_but_index_some()
         }
         &&& self.prefix.inv()
@@ -368,15 +368,15 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub open spec fn node_unlocked(guards: Guards<'rcu, C>) ->
-        (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
-        |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+        (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
+        |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             owner.is_node() ==>
             guards.unlocked(owner.node.unwrap().meta_perm.addr())
     }
 
     pub open spec fn node_unlocked_except(guards: Guards<'rcu, C>, addr: usize) ->
-        (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
-        |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>|
+        (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
+        |owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
             owner.is_node() ==>
             owner.node.unwrap().meta_perm.addr() != addr ==>
             guards.unlocked(owner.node.unwrap().meta_perm.addr())
@@ -385,7 +385,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn children_not_locked(self, guards: Guards<'rcu, C>) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() ==> {
+            self.level - 1 <= i < NR_LEVELS ==> {
                 self.continuations[i].map_children(Self::node_unlocked(guards))
             }
     }
@@ -393,7 +393,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn only_current_locked(self, guards: Guards<'rcu, C>) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() ==>
+            self.level - 1 <= i < NR_LEVELS ==>
             self.continuations[i].map_children(Self::node_unlocked_except(guards, self.cur_entry_owner().node.unwrap().meta_perm.addr()))
     }
 
@@ -415,25 +415,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub proof fn map_children_implies(
         self,
-        f: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool,
-        g: spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
     )
     requires
         self.inv(),
         OwnerSubtree::implies(f, g),
         forall|i: int|
             #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS() ==>
+                self.level - 1 <= i < NR_LEVELS ==>
                     self.continuations[i].map_children(f),
     ensures
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() ==>
+            self.level - 1 <= i < NR_LEVELS ==>
                 self.continuations[i].map_children(g),
     {
         assert forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() implies self.continuations[i].map_children(g) by {
+            self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
                 let cont = self.continuations[i];
                 assert forall|j: int|
                     #![trigger cont.children[j]]
@@ -447,7 +447,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn nodes_locked(self, guards: Guards<'rcu, C>) -> bool {
         forall|i: int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() ==> {
+            self.level - 1 <= i < NR_LEVELS ==> {
                 self.continuations[i].node_locked(guards)
             }
     }
@@ -514,7 +514,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn do_inc_index(tracked &mut self)
         requires
             old(self).inv(),
-            old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES(),
+            old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).in_locked_range(),
         ensures
             self.inv(),
@@ -637,12 +637,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assume(self.view_mappings().contains(m));
             
             // Find which continuation/child m comes from
-            let i = choose|i: int| self.level - 1 <= i < NR_LEVELS() - 1
+            let i = choose|i: int| self.level - 1 <= i < NR_LEVELS - 1
                 && #[trigger] self.continuations[i].view_mappings().contains(m);
             self.inv_continuation(i);
             
             let cont_i = self.continuations[i];
-            let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES()
+            let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES
                 && cont_i.children[j] is Some
                 && PageTableOwner(cont_i.children[j].unwrap())
                     .view_rec(cont_i.path().push_tail(j as usize)).contains(m);
@@ -661,7 +661,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub axiom fn subtree_va_ranges_disjoint(self, j: int)
         requires
             self.inv(),
-            0 <= j < NR_ENTRIES(),
+            0 <= j < NR_ENTRIES,
             j != self.index(),
             self.continuations[self.level - 1].children[j] is Some,
         ensures
@@ -673,8 +673,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub axiom fn higher_level_children_disjoint(self, i: int, j: int)
         requires
             self.inv(),
-            self.level - 1 < i < NR_LEVELS() - 1,
-            0 <= j < NR_ENTRIES(),
+            self.level - 1 < i < NR_LEVELS - 1,
+            0 <= j < NR_ENTRIES,
             j != self.continuations[i].idx,
             self.continuations[i].children[j] is Some,
         ensures
@@ -695,14 +695,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
-        let i = choose|i: int| self.level - 1 <= i < NR_LEVELS() - 1
+        let i = choose|i: int| self.level - 1 <= i < NR_LEVELS - 1
             && #[trigger] self.continuations[i].view_mappings().contains(m);
         self.inv_continuation(i);
 
         let cont_i = self.continuations[i];
 
         // m comes from some child j in continuation i
-        let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES()
+        let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES
             && cont_i.children[j] is Some
             && PageTableOwner(cont_i.children[j].unwrap())
                 .view_rec(cont_i.path().push_tail(j as usize)).contains(m);
@@ -766,11 +766,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn inv_continuation(self, i: int)
         requires
             self.inv(),
-            self.level - 1 <= i <= NR_LEVELS() - 1,
+            self.level - 1 <= i <= NR_LEVELS - 1,
         ensures
             self.continuations.contains_key(i),
             self.continuations[i].inv(),
-            self.continuations[i].children.len() == NR_ENTRIES(),
+            self.continuations[i].children.len() == NR_ENTRIES,
     {
         assert(self.continuations.contains_key(i));
     }
@@ -781,7 +781,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m: Mapping|
             exists|i:int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS() - 1 && self.continuations[i].view_mappings().contains(m)
+            self.level - 1 <= i < NR_LEVELS - 1 && self.continuations[i].view_mappings().contains(m)
         )
     }
 
@@ -922,7 +922,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
     {
         let f = PageTableOwner::<C>::relate_region_pred(regions);
-        forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS() ==> {
+        forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS ==> {
             &&& f(self.continuations[i].entry_own, self.continuations[i].path())
             &&& self.continuations[i].map_children(f)
         }
@@ -942,12 +942,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let f = PageTableOwner::relate_region_pred(regions0);
         let g = PageTableOwner::relate_region_pred(regions1);
-        assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS() implies other.continuations[i].map_children(g) by {
+        assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies other.continuations[i].map_children(g) by {
             let cont = self.continuations[i];
             assert(cont.inv());
             assert(cont.map_children(f));
             assert(cont == other.continuations[i]);
-            assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES() && cont.children[j] is Some implies
+            assert forall |j: int| #![auto] 0 <= j < NR_ENTRIES && cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
             };
@@ -958,10 +958,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         &&& self.level == other.level
         &&& forall |i: int| #![trigger self.continuations[i], other.continuations[i]]
-            self.level <= i < NR_LEVELS() ==> self.continuations[i] == other.continuations[i]
+            self.level <= i < NR_LEVELS ==> self.continuations[i] == other.continuations[i]
         &&& other.continuations[self.level - 1].children[other.continuations[self.level - 1].idx as int] == Some(new_child)
         &&& forall |j: int| #![trigger other.continuations[self.level - 1].children[j]]
-            0 <= j < NR_ENTRIES() && j != other.continuations[self.level - 1].idx as int ==>
+            0 <= j < NR_ENTRIES && j != other.continuations[self.level - 1].idx as int ==>
             other.continuations[self.level - 1].children[j] == self.continuations[self.level - 1].children[j]
         &&& other.continuations[self.level - 1].entry_own.path == self.continuations[self.level - 1].entry_own.path
         &&& other.continuations[self.level - 1].entry_own.is_node() == self.continuations[self.level - 1].entry_own.is_node()
@@ -969,7 +969,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].entry_own.node.unwrap().meta_perm.addr() ==
             self.continuations[self.level - 1].entry_own.node.unwrap().meta_perm.addr()
         &&& other.continuations[self.level - 1].idx == self.continuations[self.level - 1].idx
-        &&& other.continuations[self.level - 1].children.len() == NR_ENTRIES()
+        &&& other.continuations[self.level - 1].children.len() == NR_ENTRIES
     }
 
     pub proof fn relate_region_preserved_after_replace(
@@ -997,7 +997,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let g = PageTableOwner::<C>::relate_region_pred(regions1);
         let level = self.level;
         
-        assert forall|i: int| #![auto] other.level - 1 <= i < NR_LEVELS() implies {
+        assert forall|i: int| #![auto] other.level - 1 <= i < NR_LEVELS implies {
             &&& g(other.continuations[i].entry_own, other.continuations[i].path())
             &&& other.continuations[i].map_children(g)
         } by {
@@ -1014,13 +1014,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let other_cont = other.continuations[self.level - 1];
                 let idx = other_cont.idx as int;
                 
-                assert(self_cont.children.len() == NR_ENTRIES());
+                assert(self_cont.children.len() == NR_ENTRIES);
                                 
                 assert(f(self_cont.entry_own, self_cont.path()));
                 assert(g(self_cont.entry_own, self_cont.path()));
                 assert(g(other_cont.entry_own, other_cont.path()));
                 
-                assert forall|j: int| #![auto] 0 <= j < NR_ENTRIES() && other_cont.children[j] is Some
+                assert forall|j: int| #![auto] 0 <= j < NR_ENTRIES && other_cont.children[j] is Some
                 implies other_cont.children[j].unwrap().tree_predicate_map(other_cont.path().push_tail(j as usize), g) by {
                     if j == idx {
                         assert(other_cont.children[j] == Some(new_owner));
@@ -1035,7 +1035,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         }
                     }
                 };
-                assert(other.continuations[self.level - 1].children.len() == NR_ENTRIES());
+                assert(other.continuations[self.level - 1].children.len() == NR_ENTRIES);
             }
         };
     }
@@ -1049,8 +1049,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub axiom fn set_va(tracked &mut self, new_va: AbstractVaddr)
         requires
-            forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).va.index[i],
-            forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS() ==> new_va.index[i] == old(self).prefix.index[i],
+            forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
+            forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
             *self == old(self).set_va_spec(new_va);
 
@@ -1076,7 +1076,7 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
-        &&& self.cur_va < MAX_USERSPACE_VADDR()
+        &&& self.cur_va < MAX_USERSPACE_VADDR
         &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
         &&& forall|m: Mapping, n: Mapping| #![auto]
             self.mappings.contains(m) ==>
@@ -1094,8 +1094,8 @@ impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
     open spec fn inv(self) -> bool {
-        &&& 1 <= self.level <= NR_LEVELS()
-        &&& self.level <= self.guard_level <= NR_LEVELS()
+        &&& 1 <= self.level <= NR_LEVELS
+        &&& self.level <= self.guard_level <= NR_LEVELS
 //        &&& forall|i: int| 0 <= i < self.guard_level - self.level ==> self.path[i] is Some
     }
 }

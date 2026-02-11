@@ -178,7 +178,7 @@ pub enum GetFrameError {
 pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
     recommends
         paddr % 4096 == 0,
-        paddr < MAX_PADDR(),
+        paddr < MAX_PADDR,
 {
     let slot = frame_to_meta(paddr);
     PPtr(slot, PhantomData::<MetaSlot>)
@@ -336,10 +336,10 @@ pub fn get_slot(paddr: Paddr, Tracked(owner): Tracked<&MetaSlotOwner>) -> (res: 
     ensures
         res.is_ok() ==> res.unwrap().addr() == frame_to_meta(paddr),
 {
-    if paddr % PAGE_SIZE() != 0 {
+    if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
     }
-    if paddr >= MAX_PADDR() {
+    if paddr >= MAX_PADDR {
         return Err(GetFrameError::OutOfBound);
     }
     let vaddr = frame_to_meta(paddr);
@@ -403,8 +403,8 @@ impl MetaSlot {
         as_unique_ptr: bool,
     ) -> (res: Result<PPtr<Self>, GetFrameError>)
         requires
-            paddr < MAX_PADDR(),
-            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR,
+            paddr % PAGE_SIZE == 0,
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
@@ -581,7 +581,7 @@ impl MetaSlot {
     pub fn frame_paddr(&self) -> (pa: Paddr)
         requires
             perm.value() == self,
-            FRAME_METADATA_RANGE().start <= perm.addr() < FRAME_METADATA_RANGE().end,
+            FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
             perm.addr() % META_SLOT_SIZE == 0,
         returns
             meta_to_frame(perm.addr()),

@@ -11,7 +11,7 @@ use crate::specs::arch::kspace::{
     FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
 };
 use crate::specs::arch::mm::{
-    CONST_NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE,
+    NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR, NR_LEVELS, PAGE_SIZE,
 };
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_SIZE};
@@ -34,7 +34,7 @@ pub tracked struct PageMetaOwner {
 impl Inv for PageMetaOwner {
     open spec fn inv(self) -> bool {
         &&& self.nr_children.is_init()
-        &&& 0 <= self.nr_children.value() <= NR_ENTRIES()
+        &&& 0 <= self.nr_children.value() <= NR_ENTRIES
         &&& self.stray.is_init()
     }
 }
@@ -69,14 +69,14 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.nr_children.id() == owner.nr_children.id()
         &&& self.stray.id() == owner.stray.id()
-        &&& 0 <= owner.nr_children.value() <= NR_ENTRIES()
+        &&& 0 <= owner.nr_children.value() <= NR_ENTRIES
     }
 }
 
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
     pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
-    pub children_perm: array_ptr::PointsTo<C::E, CONST_NR_ENTRIES>,
+    pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub level: PagingLevel,
     pub tree_level: int,
 }
@@ -90,14 +90,14 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_perm.value().wf(self.meta_own)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
-        &&& FRAME_METADATA_RANGE().start <= self.meta_perm.addr() < FRAME_METADATA_RANGE().end
+        &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
         &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
         &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
-        &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR()
+        &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR
         &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
         &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()
-        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES()
-        &&& 1 <= self.level <= NR_LEVELS()
+        &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
+        &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
         &&& self.level == self.meta_perm.value().level

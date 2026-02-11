@@ -223,7 +223,7 @@ fn do_remote_flush() {
 }
 
 /// If a TLB flushing request exceeds this threshold, we flush all.
-const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE();
+const FLUSH_ALL_RANGE_THRESHOLD: usize = 32 * PAGE_SIZE;
 
 /// If the number of pending requests exceeds this threshold, we flush all the
 /// TLB entries instead of flushing them one by one.

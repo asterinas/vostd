@@ -41,7 +41,7 @@ impl Inv for FrameContents {
         &&& self.size@ == self.range@.end - self.range@.start
         &&& self.range@.start % self.size@ == 0
         &&& self.range@.end % self.size@ == 0
-        &&& self.range@.start <= self.range@.end < MAX_PADDR()
+        &&& self.range@.start <= self.range@.end < MAX_PADDR
     }
 }
 
@@ -566,7 +566,7 @@ impl GlobalMemView {
 
     pub open spec fn all_pas_accounted_for(self) -> bool {
         forall|pa: Paddr|
-            0 <= pa < MAX_PADDR() ==>
+            0 <= pa < MAX_PADDR ==>
             #[trigger] self.is_mapped(pa) || #[trigger] self.unmapped_pas.contains(pa)
     }
 

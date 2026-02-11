@@ -113,7 +113,7 @@ pub(crate) fn tlb_flush_all_including_global() {
 /// Changing the level 4 page table is unsafe, because it's possible to violate memory safety by
 /// changing the page mapping.
 pub unsafe fn activate_page_table(root_paddr: Paddr, _root_pt_cache: CachePolicy) {
-    assert!(root_paddr % PagingConsts::BASE_PAGE_SIZE == 0);
+    assert!(root_paddr % PagingConsts::BASE_PAGE_SIZE() == 0);
     loongArch64::register::pgdl::set_base(root_paddr);
     loongArch64::register::pgdh::set_base(root_paddr);
 }

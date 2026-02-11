@@ -73,7 +73,7 @@ pub enum PageTableError {
 ///    `item_into_raw`, `item_from_raw` restores the exact item that was
 ///    consumed by `item_into_raw`.
 pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
-    /// The index range at the top level (`C::NR_LEVELS`) page table.
+    /// The index range at the top level (`C::NR_LEVELS()`) page table.
     ///
     /// When configured with this value, the [`PageTable`] instance will only
     /// be allowed to manage the virtual address range that is covered by
@@ -108,7 +108,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     proof fn axiom_nr_subpage_per_huge_eq_nr_entries()
         ensures
-            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES(),
+            Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
     ;
 
     /// The item that can be mapped into the virtual memory space using the
@@ -135,7 +135,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     #[verifier::when_used_as_spec(item_into_raw_spec)]
     fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
         ensures
-            1 <= res.1 <= NR_LEVELS(),
+            1 <= res.1 <= NR_LEVELS,
             res == Self::item_into_raw_spec(item),
     ;
 
@@ -268,8 +268,8 @@ pub trait PageTableEntryTrait:
     fn new_absent() -> (res: Self)
         ensures
             res == Self::new_absent_spec(),
-            res.paddr() % PAGE_SIZE() == 0,
-            res.paddr() < MAX_PADDR(),
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
     ;
 
     /// If the flags are present with valid mappings.
@@ -287,13 +287,13 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_page_spec)]
     fn new_page(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self)
         requires
-            paddr % PAGE_SIZE() == 0,
-            paddr < MAX_PADDR(),
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
         ensures
             res == Self::new_page_spec(paddr, level, prop),
             res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE() == 0,
-            res.paddr() < MAX_PADDR(),
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
     ;
 
     /// Create a new PTE that map to a child page table.
@@ -302,13 +302,13 @@ pub trait PageTableEntryTrait:
     #[verifier::when_used_as_spec(new_pt_spec)]
     fn new_pt(paddr: Paddr) -> (res: Self)
         requires
-            paddr % PAGE_SIZE() == 0,
-            paddr < MAX_PADDR(),
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
         ensures
             res == Self::new_pt_spec(paddr),
             res.paddr() == paddr,
-            res.paddr() % PAGE_SIZE() == 0,
-            res.paddr() < MAX_PADDR(),
+            res.paddr() % PAGE_SIZE == 0,
+            res.paddr() < MAX_PADDR,
     ;
 
     proof fn new_properties()
@@ -813,7 +813,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
     let _rcu_guard = disable_preempt();
 
     let mut pt_addr = paddr_to_vaddr(root_paddr);
-    for cur_level in (1..= C::NR_LEVELS).rev() {
+    for cur_level in (1..= C::NR_LEVELS()).rev() {
         let offset = pte_index::<C>(vaddr, cur_level);
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and
@@ -844,10 +844,10 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 /// The safety preconditions are same as those of [`AtomicUsize::from_ptr`].
 #[verifier::external_body]
 #[verus_spec(
-    with Tracked(perm): Tracked<&vstd_extra::array_ptr::PointsTo<E, CONST_NR_ENTRIES>>
+    with Tracked(perm): Tracked<&vstd_extra::array_ptr::PointsTo<E, NR_ENTRIES>>
 )]
 pub fn load_pte<E: PageTableEntryTrait>(
-    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
+    ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     ordering: Ordering,
 ) -> (pte: E)
     requires
@@ -870,7 +870,7 @@ pub fn load_pte<E: PageTableEntryTrait>(
 /// The safety preconditions are same as those of [`AtomicUsize::from_ptr`].
 #[verifier::external_body]
 pub fn store_pte<E: PageTableEntryTrait>(
-    ptr: vstd_extra::array_ptr::ArrayPtr<E, CONST_NR_ENTRIES>,
+    ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     new_val: E,
     ordering: Ordering,
 ) {
