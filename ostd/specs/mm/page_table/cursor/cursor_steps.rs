@@ -277,8 +277,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     // i > self.level - 1: continuation unchanged
                     assert(new_owner.continuations[i] == self.continuations[i]);
                     
-                    // Children at level i have paths of length INC_LEVELS() - i - 1
-                    // cur_entry_path has length INC_LEVELS() - (self.level - 1) - 1 = INC_LEVELS() - self.level
+                    // Children at level i have paths of length INC_LEVELS - i - 1
+                    // cur_entry_path has length INC_LEVELS - (self.level - 1) - 1 = INC_LEVELS - self.level
                     // Since i > self.level - 1, children have shorter paths than cur_entry_path
                     // Different length implies different paths
                     // By nodes_different_paths_different_addrs, addrs != cur_entry_addr

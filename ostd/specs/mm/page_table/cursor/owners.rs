@@ -169,8 +169,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm)
-        &&& self.tree_level == INC_LEVELS() - self.level()
-        &&& self.tree_level < INC_LEVELS() - 1
+        &&& self.tree_level == INC_LEVELS - self.level()
+        &&& self.tree_level < INC_LEVELS - 1
         &&& self.path().len() == self.tree_level
     }
 
