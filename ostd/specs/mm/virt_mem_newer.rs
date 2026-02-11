@@ -54,12 +54,7 @@ pub tracked struct MemView {
 /// A [`MemView`] can be created by taking a view from a [`GlobalMemView`]; it
 /// is structed similarly but with the extra global fields like TLB and page tables.
 /// It also tracks the physical addresses in the valid range that are unmapped.
-pub tracked struct GlobalMemView {
-    pub pt_mappings: Set<Mapping>,
-    pub tlb_mappings: Set<Mapping>,
-    pub unmapped_pas: Set<Paddr>,
-    pub memory: Map<Paddr, FrameContents>,
-}
+
 
 impl MemView {
     pub open spec fn addr_transl(self, va: usize) -> Option<(usize, usize)> {
@@ -547,6 +542,43 @@ impl VirtPtr {
     }
 }
 
+/// A [`GlobalMemView`] is a more abstract view of memory that elides most of the details. The API specifications
+/// of higher-level objects like [`VmSpaceOwner`](crate::specs::mm::vm_space::VmSpaceOwner) use this view.
+pub tracked struct GlobalMemView {
+    pub pt_mappings: Set<Mapping>,
+    pub tlb_mappings: Set<Mapping>,
+    pub unmapped_pas: Set<Paddr>,
+    pub memory: Map<Paddr, FrameContents>,
+}
+
+impl Inv for GlobalMemView {
+
+    open spec fn inv(self) -> bool {
+        &&& forall |m: Mapping| #![auto] self.tlb_mappings.contains(m) ==> {
+            &&& m.inv()
+            &&& forall|pa: Paddr| m.pa_range.start <= pa < m.pa_range.end ==> {
+                &&& self.memory.dom().contains(pa)
+            }
+            &&& self.memory.contains_key(m.pa_range.start)
+            &&& self.memory[m.pa_range.start].size == m.page_size
+            &&& self.memory[m.pa_range.start].inv()
+        }
+        &&& forall |m: Mapping|
+            forall |n: Mapping| #![auto]
+            self.tlb_mappings.contains(m) ==>
+            self.tlb_mappings.contains(n) ==>
+            m != n ==>
+            #[trigger]
+            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+        &&& self.tlb_mappings.finite()
+        &&& self.pt_mappings.finite()
+        &&& self.memory.dom().finite()
+        &&& self.all_pas_accounted_for()
+        &&& self.pas_uniquely_mapped()
+        &&& self.unmapped_correct()
+    }
+}
+
 impl GlobalMemView {
 
     pub open spec fn addr_transl(self, va: usize) -> Option<(usize, usize)> {
@@ -710,34 +742,6 @@ impl GlobalMemView {
             self.tlb_mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).is_singleton(),
     {
         admit()
-    }
-}
-
-impl Inv for GlobalMemView {
-
-    open spec fn inv(self) -> bool {
-        &&& self.tlb_mappings.finite()
-        &&& self.pt_mappings.finite()
-        &&& self.memory.dom().finite()
-        &&& self.all_pas_accounted_for()
-        &&& self.pas_uniquely_mapped()
-        &&& self.unmapped_correct()
-        &&& forall |m: Mapping| #![auto] self.tlb_mappings.contains(m) ==> {
-            &&& m.inv()
-            &&& forall|pa: Paddr| m.pa_range.start <= pa < m.pa_range.end ==> {
-                &&& self.memory.dom().contains(pa)
-            }
-            &&& self.memory.contains_key(m.pa_range.start)
-            &&& self.memory[m.pa_range.start].size == m.page_size
-            &&& self.memory[m.pa_range.start].inv()
-        }
-        &&& forall |m: Mapping|
-            forall |n: Mapping| #![auto]
-            self.tlb_mappings.contains(m) ==>
-            self.tlb_mappings.contains(n) ==>
-            m != n ==>
-            #[trigger]
-            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
     }
 }
 

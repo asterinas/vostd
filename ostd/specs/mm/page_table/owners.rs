@@ -311,7 +311,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub open spec fn path_correct_pred(regions: MetaRegionOwners)
+    pub open spec fn path_correct_pred()
         -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
@@ -474,7 +474,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-
     pub proof fn is_at_eq_rec(
         subtree: OwnerSubtree<C>,
         root_path: TreePath<CONST_NR_ENTRIES>,
@@ -522,7 +521,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.inv(),
             path.len() == self.0.level,
             self.view_rec(path).contains(m),
-            self.0.tree_predicate_map(path, Self::path_correct_pred(regions)),
+            self.0.tree_predicate_map(path, Self::path_correct_pred()),
             self.0.tree_predicate_map(path, Self::relate_region_tracked_pred(regions)),
         ensures
             Self::is_prefix_of(path, entry.path),
@@ -596,7 +595,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             m1.inv(),
             m2.inv(),
             self.0.tree_predicate_map(path, Self::path_tracked_pred(regions)),
-            self.0.tree_predicate_map(path, Self::path_correct_pred(regions)),
+            self.0.tree_predicate_map(path, Self::path_correct_pred()),
             self.0.tree_predicate_map(path, Self::relate_region_tracked_pred(regions)),
         ensures
             m1 == m2,
@@ -616,6 +615,9 @@ impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
         &&& self.0.value.path.len() <= INC_LEVELS() - 1
+        &&& self.0.value.path.inv()
+        &&& self.0.value.path.len() == self.0.level
+        &&& self.0.tree_predicate_map(self.0.value.path, Self::path_correct_pred())
     }
 }
 
