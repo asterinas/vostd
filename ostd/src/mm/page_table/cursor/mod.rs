@@ -74,7 +74,6 @@ pub type PagesState<C> = (Range<Vaddr>, Option<<C as PageTableConfig>::Item>);
 ///
 /// A cursor is able to move to the next slot, to read page properties,
 /// and even to jump to a virtual address directly.
-#[rustc_has_incoherent_inherent_impls]
 pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     /// The current path of the cursor.
     ///

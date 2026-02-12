@@ -93,7 +93,7 @@ impl Inv for LinkedListModel {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
+
 pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list: Seq<LinkOwner>,
     pub perms: Map<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>>,
@@ -200,7 +200,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> ModelOf for LinkedList<M> {
 
 }
 
-#[rustc_has_incoherent_inherent_impls]
+
 pub ghost struct CursorModel {
     pub ghost fore: Seq<LinkModel>,
     pub ghost rear: Seq<LinkModel>,
@@ -213,7 +213,7 @@ impl Inv for CursorModel {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
+
 pub tracked struct CursorOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list_own: LinkedListOwner<M>,
     pub list_perm: PointsTo<LinkedList<M>>,

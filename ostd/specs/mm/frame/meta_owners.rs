@@ -38,7 +38,7 @@ pub enum PageState {
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
-#[rustc_has_incoherent_inherent_impls]
+
 pub enum PageUsage {
     // The zero variant is reserved for the unused type. Only an unused page
     // can be designated for one of the other purposes.

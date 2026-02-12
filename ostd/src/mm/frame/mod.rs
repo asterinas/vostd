@@ -96,7 +96,7 @@ pub type MetaPerm<M> = cast_ptr::PointsTo<MetaSlot, M>;
 /// determines the kind of the frame. If `M` implements [`AnyUFrameMeta`], the
 /// frame is a untyped frame. Otherwise, it is a typed frame.
 #[repr(transparent)]
-#[rustc_has_incoherent_inherent_impls]
+
 pub struct Frame<M: AnyFrameMeta> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,

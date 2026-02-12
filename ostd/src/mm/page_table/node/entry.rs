@@ -36,7 +36,6 @@ verus! {
 pub type PageTableNodeRef<'a, C> = FrameRef<'a, PageTablePageMeta<C>>;
 
 /// A guard that holds the lock of a page table node.
-#[rustc_has_incoherent_inherent_impls]
 pub struct PageTableGuard<'rcu, C: PageTableConfig> {
     pub inner: PageTableNodeRef<'rcu, C>,
 }
@@ -50,7 +49,6 @@ impl<'rcu, C: PageTableConfig> core::ops::Deref for PageTableGuard<'rcu, C> {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub struct Entry<'rcu, C: PageTableConfig> {
     /// The page table entry.
     ///
