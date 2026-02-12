@@ -8,7 +8,6 @@ use vstd::seq_lib::*;
 use vstd::set_lib::*;
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
-use vstd_extra::extern_const::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
@@ -58,11 +57,11 @@ pub open spec fn vaddr_make<const L: usize>(idx: int, offset: usize) -> usize
 }
 
 pub open spec fn rec_vaddr(
-    path: TreePath<CONST_NR_ENTRIES>,
+    path: TreePath<NR_ENTRIES>,
     idx: int,
 ) -> usize/*        recommends
-        0 < NR_LEVELS(),
-        path.len() <= NR_LEVELS(),
+        0 < NR_LEVELS,
+        path.len() <= NR_LEVELS,
         0 <= idx <= path.len(),*/
 
     decreases path.len() - idx,
@@ -72,11 +71,11 @@ pub open spec fn rec_vaddr(
         0
     } else {
         let offset: usize = path.index(idx);
-        (vaddr_make::<CONST_NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
+        (vaddr_make::<NR_LEVELS>(idx, offset) + rec_vaddr(path, idx + 1)) as usize
     }
 }
 
-pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
+pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
@@ -84,14 +83,14 @@ pub open spec fn vaddr(path: TreePath<CONST_NR_ENTRIES>) -> usize {
 /// This is a fundamental property of page table virtual address layout:
 /// each entry at a given level covers a distinct, non-overlapping range.
 pub proof fn sibling_paths_disjoint(
-    prefix: TreePath<CONST_NR_ENTRIES>,
+    prefix: TreePath<NR_ENTRIES>,
     j: usize,
     k: usize,
     size: usize,
 )
     requires
-        j < NR_ENTRIES(),
-        k < NR_ENTRIES(),
+        j < NR_ENTRIES,
+        k < NR_ENTRIES,
         j != k,
         size == page_size((prefix.len() + 1) as PagingLevel),
     ensures
@@ -105,7 +104,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
             path: TreePath::new(Seq::empty()),
-            parent_level: (INC_LEVELS() - lv + 1) as PagingLevel,
+            parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
             node: None,
             frame: None,
             locked: None,
@@ -134,14 +133,12 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
         }
     }
 
-    proof fn default_preserves_rel_children(self, i: int, lv: nat) {
+    proof fn default_preserves_rel_children(self, lv: nat) {
         admit()
     }
 }
 
-extern_const!(
-pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
-);
+pub const INC_LEVELS: usize = NR_LEVELS + 1;
 
 /// `OwnerSubtree` is a tree `Node` (from `vstd_extra::ghost_tree`) containing `EntryOwner`s.
 /// It lives in a tree of maximum depth 5. Page table nodes can be at levels 0-3, and their entries are their children at the next
@@ -152,18 +149,18 @@ pub INC_LEVELS [INC_LEVELS_SPEC, CONST_INC_LEVELS]: usize = CONST_NR_LEVELS + 1
 ///                        tree level 2 ==> path length 2 ==> level 2 page table or frame mapped by level 3 table
 ///                        tree level 3 ==> path length 3 ==> level 1 page table or frame mapped by level 2 table
 ///                        tree level 4 ==> path length 4 ==> frame mapped by level 1 table
-pub type OwnerSubtree<C> = Node<EntryOwner<C>, CONST_NR_ENTRIES, CONST_INC_LEVELS>;
+pub type OwnerSubtree<C> = Node<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
 
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
 
-    pub open spec fn view_rec(self, path: TreePath<CONST_NR_ENTRIES>) -> Set<Mapping>
-        decreases INC_LEVELS() - path.len() when self.0.inv() && path.len() <= INC_LEVELS() - 1
+    pub open spec fn view_rec(self, path: TreePath<NR_ENTRIES>) -> Set<Mapping>
+        decreases INC_LEVELS - path.len() when self.0.inv() && path.len() <= INC_LEVELS - 1
     {
         if self.0.value.is_frame() {
             let vaddr = vaddr(path);
-            let pt_level = INC_LEVELS() - path.len();
+            let pt_level = INC_LEVELS - path.len();
             let page_size = page_size(pt_level as PagingLevel);
 
             set![Mapping {
@@ -175,7 +172,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 page_size: page_size,
                 property: self.0.value.frame.unwrap().prop,
             }]
-        } else if self.0.value.is_node() && path.len() < INC_LEVELS() - 1 {
+        } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
             Set::new(
                 |m: Mapping| exists|i:int|
                 #![trigger self.0.children[i]]
@@ -188,10 +185,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-    pub proof fn view_rec_contains(self, path: TreePath<CONST_NR_ENTRIES>, m: Mapping)
+    pub proof fn view_rec_contains(self, path: TreePath<NR_ENTRIES>, m: Mapping)
         requires
             self.0.inv(),
-            path.len() < INC_LEVELS() - 1,
+            path.len() < INC_LEVELS - 1,
             path.len() == self.0.level,
             self.view_rec(path).contains(m),
             self.0.value.is_node()
@@ -201,10 +198,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     { }
 
-    pub proof fn view_rec_contains_choose(self, path: TreePath<CONST_NR_ENTRIES>, m: Mapping) -> (i: int)
+    pub proof fn view_rec_contains_choose(self, path: TreePath<NR_ENTRIES>, m: Mapping) -> (i: int)
         requires
             self.0.inv(),
-            path.len() < INC_LEVELS() - 1,
+            path.len() < INC_LEVELS - 1,
             path.len() == self.0.level,
             self.view_rec(path).contains(m),
             self.0.value.is_node(),
@@ -218,10 +215,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             PageTableOwner(self.0.children[i].unwrap()).view_rec(path.push_tail(i as usize)).contains(m)
     }
 
-    pub proof fn view_rec_vaddr_range(self, path: TreePath<CONST_NR_ENTRIES>, m: Mapping)
+    pub proof fn view_rec_vaddr_range(self, path: TreePath<NR_ENTRIES>, m: Mapping)
         requires
             self.0.inv(),
-            path.len() <= INC_LEVELS() - 1,
+            path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
             self.view_rec(path).contains(m),
         ensures
@@ -230,17 +227,17 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         admit();
     }
 
-    pub proof fn view_rec_disjoint_vaddrs(self, path: TreePath<CONST_NR_ENTRIES>, m1: Mapping, m2: Mapping)
+    pub proof fn view_rec_disjoint_vaddrs(self, path: TreePath<NR_ENTRIES>, m1: Mapping, m2: Mapping)
         requires
             self.0.inv(),
-            path.len() <= INC_LEVELS() - 1,
+            path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
             self.view_rec(path).contains(m1),
             self.view_rec(path).contains(m2),
             m1 != m2,
         ensures
             m1.va_range.end <= m2.va_range.start || m2.va_range.end <= m1.va_range.start
-        decreases INC_LEVELS() - path.len()
+        decreases INC_LEVELS - path.len()
     {
         broadcast use group_set_properties;
 
@@ -271,40 +268,40 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// An absent entry contributes no mappings - view_rec returns the empty set.
-    pub proof fn view_rec_absent_empty(self, path: TreePath<CONST_NR_ENTRIES>)
+    pub proof fn view_rec_absent_empty(self, path: TreePath<NR_ENTRIES>)
         requires
             self.0.inv(),
             self.0.value.is_absent(),
-            path.len() <= INC_LEVELS() - 1,
+            path.len() <= INC_LEVELS - 1,
         ensures
             self.view_rec(path) =~= set![],
     { }
 
     pub open spec fn relate_region_pred(regions: MetaRegionOwners)
-        -> (spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool) {
-        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| entry.relate_region(regions)
+        -> (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions)
     }
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
-        decreases INC_LEVELS() - self.0.level when self.0.inv()
+        decreases INC_LEVELS - self.0.level when self.0.inv()
     {
         self.0.tree_predicate_map(self.0.value.path, Self::relate_region_pred(regions))
     }
 
     /// Predicate: all nodes in the tree have their paths tracked in regions
     pub open spec fn path_tracked_pred(regions: MetaRegionOwners)
-        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {   
-        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()))
             &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt is Some
         }
     }
 
     pub open spec fn relate_region_tracked_pred(regions: MetaRegionOwners)
-        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
-        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr()))
             &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt is Some
             &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr())].path_if_in_pt.unwrap() == path
@@ -312,42 +309,12 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     pub open spec fn path_correct_pred()
-        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
-        |entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             entry.path == path
         }
     }
-/*
-    pub proof fn view_rec_inversion(self, path: TreePath<CONST_NR_ENTRIES>, regions: MetaRegionOwners, m: Mapping)
-    -> (res: (EntryOwner<C>, spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool))
-        requires
-            self.0.inv(),
-            path.len() <= INC_LEVELS() - 1,
-            path.len() == self.0.level,
-            self.view_rec(path).contains(m),
-            self.0.tree_predicate_map(path, Self::path_tracked_pred(regions)),
-        ensures
-            OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), res.1)
-        decreases INC_LEVELS() - path.len()
-    {
-        if self.0.value.is_frame() {
-            let f = |owner: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| {
-                owner.is_frame() ==>
-                owner.frame.unwrap().mapped_pa == m.pa_range.start ==>
-                owner == self.0.value };
-            assert(OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), f));
-            (self.0.value, f)
-        } else if self.0.value.is_node() {
-            self.view_rec_contains(path, m);
-            let i = self.view_rec_contains_choose(path, m);
-            let (res, f) = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
-            assume(OwnerSubtree::implies(Self::relate_region_tracked_pred(regions), f));
-            (res, f)
-        } else {
-            proof_from_false()
-        }
-    }*/
 
     /// Spec function: path1 is a prefix of path2
     pub open spec fn is_prefix_of<const N: usize>(
@@ -378,8 +345,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     pub proof fn prefix_push_different_indices(
-        prefix: TreePath<CONST_NR_ENTRIES>,
-        path: TreePath<CONST_NR_ENTRIES>,
+        prefix: TreePath<NR_ENTRIES>,
+        path: TreePath<NR_ENTRIES>,
         i: usize,
         j: usize,
     )
@@ -394,24 +361,24 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         assert(path.index(prefix.len() as int) == i);
     }
 
-    pub open spec fn is_at_pred(entry: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>)
-        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    pub open spec fn is_at_pred(entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>)
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
-        |entry0: EntryOwner<C>, path0: TreePath<CONST_NR_ENTRIES>| {
+        |entry0: EntryOwner<C>, path0: TreePath<NR_ENTRIES>| {
             path0 == path ==> entry0 == entry
         }
     }
 
-    pub open spec fn path_in_tree_pred(path: TreePath<CONST_NR_ENTRIES>)
-        -> spec_fn(EntryOwner<C>, TreePath<CONST_NR_ENTRIES>) -> bool
+    pub open spec fn path_in_tree_pred(path: TreePath<NR_ENTRIES>)
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
-        |entry: EntryOwner<C>, path0: TreePath<CONST_NR_ENTRIES>|
+        |entry: EntryOwner<C>, path0: TreePath<NR_ENTRIES>|
             Self::is_prefix_of(path0, path) ==>
             !entry.is_node() ==>
             path == path0
     }
 
-    pub proof fn is_at_pred_eq(path: TreePath<CONST_NR_ENTRIES>, entry1: EntryOwner<C>, entry2: EntryOwner<C>)
+    pub proof fn is_at_pred_eq(path: TreePath<NR_ENTRIES>, entry1: EntryOwner<C>, entry2: EntryOwner<C>)
         requires
             entry1.inv(),
             OwnerSubtree::implies(Self::is_at_pred(entry1, path), Self::is_at_pred(entry2, path)),
@@ -424,22 +391,22 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     pub proof fn is_at_holds_when_on_wrong_path(
         subtree: OwnerSubtree<C>,
-        root_path: TreePath<CONST_NR_ENTRIES>,
-        dest_path: TreePath<CONST_NR_ENTRIES>,
+        root_path: TreePath<NR_ENTRIES>,
+        dest_path: TreePath<NR_ENTRIES>,
         entry: EntryOwner<C>,
     )
         requires
             subtree.inv(),
             dest_path.inv(),
             !Self::is_prefix_of(root_path, dest_path),
-            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() <= INC_LEVELS - 1,
             root_path.len() == subtree.level,
         ensures
             subtree.tree_predicate_map(root_path, Self::is_at_pred(entry, dest_path)),
-        decreases INC_LEVELS() - root_path.len()
+        decreases INC_LEVELS - root_path.len()
     {
         if subtree.value.is_node() {
-            assert forall |i: int| 0 <= i < NR_ENTRIES() implies
+            assert forall |i: int| 0 <= i < NR_ENTRIES implies
                 subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::is_at_pred(entry, dest_path)) by {
                     Self::is_at_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
                         root_path.push_tail(i as usize), dest_path, entry);
@@ -452,21 +419,21 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// This covers when we are not following it.
     pub proof fn path_in_tree_holds_when_on_wrong_path(
         subtree: OwnerSubtree<C>,
-        root_path: TreePath<CONST_NR_ENTRIES>,
-        dest_path: TreePath<CONST_NR_ENTRIES>,
+        root_path: TreePath<NR_ENTRIES>,
+        dest_path: TreePath<NR_ENTRIES>,
     )
         requires
             subtree.inv(),
             dest_path.inv(),
             !Self::is_prefix_of(root_path, dest_path),
-            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() <= INC_LEVELS - 1,
             root_path.len() == subtree.level,
         ensures
             subtree.tree_predicate_map(root_path, Self::path_in_tree_pred(dest_path)),
-        decreases INC_LEVELS() - root_path.len()
+        decreases INC_LEVELS - root_path.len()
     {
         if subtree.value.is_node() {
-            assert forall |i: int| 0 <= i < NR_ENTRIES() implies
+            assert forall |i: int| 0 <= i < NR_ENTRIES implies
                 subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::path_in_tree_pred(dest_path)) by {
                     Self::path_in_tree_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
                         root_path.push_tail(i as usize), dest_path);
@@ -476,8 +443,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
     pub proof fn is_at_eq_rec(
         subtree: OwnerSubtree<C>,
-        root_path: TreePath<CONST_NR_ENTRIES>,
-        dest_path: TreePath<CONST_NR_ENTRIES>,
+        root_path: TreePath<NR_ENTRIES>,
+        dest_path: TreePath<NR_ENTRIES>,
         entry1: EntryOwner<C>,
         entry2: EntryOwner<C>
     )
@@ -486,25 +453,25 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             dest_path.inv(),
             root_path.inv(),
             Self::is_prefix_of(root_path, dest_path),
-            root_path.len() <= INC_LEVELS() - 1,
+            root_path.len() <= INC_LEVELS - 1,
             root_path.len() == subtree.level,
             subtree.tree_predicate_map(root_path, Self::path_in_tree_pred(dest_path)),
             subtree.tree_predicate_map(root_path, Self::is_at_pred(entry1, dest_path)),
             subtree.tree_predicate_map(root_path, Self::is_at_pred(entry2, dest_path)),
         ensures
             entry1 == entry2,
-        decreases INC_LEVELS() - root_path.len()
+        decreases INC_LEVELS - root_path.len()
     {
         if root_path == dest_path {
             assert(subtree.value == entry1);
             assert(subtree.value == entry2);
             assert(entry1 == entry2);
-        } else if subtree.level == INC_LEVELS() - 1 || !subtree.value.is_node() {
+        } else if subtree.level == INC_LEVELS - 1 || !subtree.value.is_node() {
             proof_from_false()
         } else {
             assert(root_path.len() < dest_path.len()) by { admit() };
             let i = dest_path.index(root_path.len() as int);
-            assert(0 <= i < NR_ENTRIES());
+            assert(0 <= i < NR_ENTRIES);
             assert(subtree.children[i as int] is Some);
             assert(Self::is_prefix_of(root_path.push_tail(i), dest_path));
             Self::is_at_eq_rec(subtree.children[i as int].unwrap(), root_path.push_tail(i as usize),
@@ -513,7 +480,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     pub proof fn view_rec_inversion(self,
-        path: TreePath<CONST_NR_ENTRIES>,
+        path: TreePath<NR_ENTRIES>,
         regions: MetaRegionOwners,
         m: Mapping,
     ) -> (entry: EntryOwner<C>)
@@ -527,13 +494,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Self::is_prefix_of(path, entry.path),
             regions.slot_owners[frame_to_index(m.pa_range.start)].path_if_in_pt == Some(entry.path),
             m.va_range.start == vaddr(entry.path),
-            m.page_size == page_size((INC_LEVELS() - entry.path.len()) as PagingLevel),
+            m.page_size == page_size((INC_LEVELS - entry.path.len()) as PagingLevel),
             entry.is_frame(),
             m.property == entry.frame.unwrap().prop,
             self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path)),
             self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path)),
             entry.inv(),
-        decreases INC_LEVELS() - path.len()
+        decreases INC_LEVELS - path.len()
     {
         if self.0.value.is_frame() {
             assert(Self::is_prefix_of(path, self.0.value.path));
@@ -546,7 +513,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let entry = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
             Self::prefix_transitive(path, path.push_tail(i as usize), entry.path);
             assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && self.0.children[j] is Some implies 
+                assert forall |j: int| 0 <= j < NR_ENTRIES && self.0.children[j] is Some implies 
                     self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
                         Self::is_at_pred(entry, entry.path))
                 by {
@@ -560,7 +527,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 };
             };
             assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES() && self.0.children[j] is Some implies 
+                assert forall |j: int| 0 <= j < NR_ENTRIES && self.0.children[j] is Some implies 
                     self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
                         Self::path_in_tree_pred(entry.path))
                 by {
@@ -580,14 +547,14 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     pub proof fn view_rec_inversion_unique(self,
-        path: TreePath<CONST_NR_ENTRIES>,
+        path: TreePath<NR_ENTRIES>,
         regions: MetaRegionOwners,
         m1: Mapping,
         m2: Mapping,
     )
         requires
             self.0.inv(),
-            path.len() <= INC_LEVELS() - 1,
+            path.len() <= INC_LEVELS - 1,
             path.len() == self.0.level,
             self.view_rec(path).contains(m1),
             self.view_rec(path).contains(m2),
@@ -614,7 +581,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
-        &&& self.0.value.path.len() <= INC_LEVELS() - 1
+        &&& self.0.value.path.len() <= INC_LEVELS - 1
         &&& self.0.value.path.inv()
         &&& self.0.value.path.len() == self.0.level
         &&& self.0.tree_predicate_map(self.0.value.path, Self::path_correct_pred())

@@ -236,30 +236,30 @@ impl<C: PageTableConfig> PageTableNode<C> {
         with Tracked(regions): Tracked<&mut MetaRegionOwners>
         -> owner: Tracked<OwnerSubtree<C>>
         requires
-            1 <= level < NR_LEVELS(),
+            1 <= level < NR_LEVELS,
             old(regions).inv()
         ensures
             regions.inv(),
             owner@.inv(),
             owner@.value.is_node(),
-            owner@.value.path == TreePath::<CONST_NR_ENTRIES>::new(Seq::empty()),
+            owner@.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty()),
             owner@.value.parent_level == level,
             owner@.value.node.unwrap().level == level - 1,
             owner@.value.node.unwrap().inv(),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
                 !owner@.value.node.unwrap().children_perm.value()[i].is_present(),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==> {
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> {
                 &&& owner@.children[i] is Some
                 &&& owner@.children[i].unwrap().value.is_absent()
                 &&& owner@.children[i].unwrap().value.inv()
                 &&& owner@.children[i].unwrap().value.path == owner@.value.path.push_tail(i as usize)
             },
-            forall |i: int| 0 <= i < NR_ENTRIES() ==> 
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> 
                 owner@.children[i].unwrap().value.match_pte(
                     owner@.value.node.unwrap().children_perm.value()[i],
                     owner@.children[i].unwrap().value.parent_level,
                 ),
-            forall |i: int| 0 <= i < NR_ENTRIES() ==>
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
                 owner@.children[i].unwrap().value.parent_level == owner@.value.node.unwrap().level,
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
     )]
@@ -303,7 +303,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             mm::page_prop::CachePolicy,
         };
 
-        assert_eq!(self.level(), C::NR_LEVELS);
+        assert_eq!(self.level(), C::NR_LEVELS());
 
         let last_activated_paddr = current_page_table_paddr();
         if last_activated_paddr == self.start_paddr() {
@@ -383,7 +383,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             guards.guards.tracked_insert(owner.meta_perm.addr(), None);
             assert(owner.relate_guard_perm(guard_perm@));
 
-            assert(forall|other: EntryOwner<C>, path: TreePath<CONST_NR_ENTRIES>| owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
+            assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>| owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
                 ==> #[trigger] CursorOwner::node_unlocked_except(*guards, owner.meta_perm.addr())(other, path));
         }
 
@@ -411,7 +411,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             child_owner.inv(),
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
-            idx < NR_ENTRIES(),  // NR_ENTRIES == nr_subpage_per_huge::<C>()
+            idx < NR_ENTRIES,  // NR_ENTRIES == nr_subpage_per_huge::<C>()
             child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
         ensures
             res.wf(*child_owner),
@@ -482,17 +482,17 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner@.ptr.addr() == owner.meta_perm.addr(),
             self.inner.inner@.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
-            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR()
-                - LINEAR_MAPPING_BASE_VADDR(),
-            FRAME_METADATA_RANGE().start <= owner.meta_perm.addr < FRAME_METADATA_RANGE().end,
-            owner.meta_perm.addr % META_SLOT_SIZE() == 0,
-            idx < NR_ENTRIES(),
+            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR
+                - LINEAR_MAPPING_BASE_VADDR,
+            FRAME_METADATA_RANGE.start <= owner.meta_perm.addr < FRAME_METADATA_RANGE.end,
+            owner.meta_perm.addr % META_SLOT_SIZE == 0,
+            idx < NR_ENTRIES,
             owner.children_perm.addr() == paddr_to_vaddr(meta_to_frame(owner.meta_perm.addr)),
         ensures
             pte == owner.children_perm.value()[idx as int],
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
-        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
+        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr(),
@@ -526,9 +526,9 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(owner).inv(),
-            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR()
-                - LINEAR_MAPPING_BASE_VADDR(),
-            idx < NR_ENTRIES(),
+            meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR
+                - LINEAR_MAPPING_BASE_VADDR,
+            idx < NR_ENTRIES,
         ensures
             owner.inv(),
             owner.meta_perm.addr() == old(owner).meta_perm.addr(),
@@ -540,7 +540,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         #[verusfmt::skip]
-        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(
+        let ptr = vstd_extra::array_ptr::ArrayPtr::<C::E, NR_ENTRIES>::from_addr(
             paddr_to_vaddr(
                 #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
                 self.start_paddr()
@@ -608,7 +608,7 @@ unsafe impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
         }
 
         let level = self.level;
-        let range = if level == C::NR_LEVELS {
+        let range = if level == C::NR_LEVELS() {
             C::TOP_LEVEL_INDEX_RANGE.clone()
         } else {
             0..nr_subpage_per_huge::<C>()

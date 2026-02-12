@@ -37,25 +37,54 @@ verus! {
 ///
 /// # Verified Properties
 /// ## Verification Design
-/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust), and only the owner of the permission can access the protected data in the cell.
+/// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust). Only the owner of this permission can access the protected data in the cell.
 /// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data.
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
-///
-/// For curious readers, details of the permission can be found in [`vstd::cell::pcell::PointsTo`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html).
 ///
 /// [`disable_irq`]: Self::disable_irq
 /// [`lock`]: Self::lock
 /// [`try_lock`]: Self::try_lock
 ///
 /// ## Invariant
-/// When the internal `AtomicBool` is `true`, the permission has been transferred to some lock guard and nobody else can acquire the lock; when it is `false`,
-/// the permission is held by the spin lock and can be acquired by a user.
+/// The `SpinLock` is internally represented by a struct `SpinLockInner` that contains an `AtomicBool` and a `PCell` to hold the protected data. 
+/// We present its formally verified version and invariant below. 
+/// 
+/// The `lock` field is extended with a [`PointsTo<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html)
+/// ghost permission to track the ownership of the protected data. This ghost permission is also checked by Rust's ownnership and borrowing rules and cannot be duplicated, 
+/// thereby ensuring exclusive access to the protected data.
+/// The `val` field is a [`PCell<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PCell.html), which behaves like [`UnsafeCell<T>`](https://doc.rust-lang.org/std/cell/struct.UnsafeCell.html) used in the Asterinas mainline, but
+/// only allows verified access through the ghost permission.
+/// 
+/// When the internal `AtomicBool` is `true`, the permission has been transferred to a `SpinLockGuard` and no one else can acquire the lock. 
+/// When it is `false`, the permission to access the `PCell<T>` is stored in the lock, and it must match the `val`'s id.
+/// ```rust
+/// struct_with_invariants! {
+/// struct SpinLockInner<T> {
+///    lock: AtomicBool<_,Option<PointsTo<T>>,_>,
+///    val: PCell<T>,
+/// }
 ///
+/// closed spec fn wf(self) -> bool {
+///    invariant on lock with (val) is (v:bool, g:Option<PointsTo<T>>) {
+///        match g {
+///            None => v == true,
+///            Some(perm) => perm.id() == val.id() && !v
+///        }
+///    }
+/// }
+/// }
+/// ```
+/// 
+/// *Note*: The invariant is encapsulated in [`type_inv`] using the [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism. 
+/// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
+/// 
 /// ## Safety
 /// There are no data races.
 ///
 /// ## Functional Correctness
 /// - At most one user can hold the lock at the same time.
+/// 
+/// [`type_inv`]: Self::type_inv
 #[repr(transparent)]
 #[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
@@ -123,10 +152,12 @@ impl<T, G> SpinLock<T, G> {
 verus!{}
 impl<T,G> SpinLock<T,G>
 {
+    /// Returns the unique [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the internal `PCell<T>`.
     pub closed spec fn cell_id(self) -> cell::CellId {
         self.inner.val.id()
     }
 
+    /// Encapsulates the invariant described in the *Invariant* section of [`SpinLock`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool{
         self.inner.type_inv()
@@ -154,6 +185,31 @@ verus! {
 impl<T, G: SpinGuardian> SpinLock<T, G> {
 
     /// Acquires the spin lock.
+    ///
+    /// # Verified Properties
+    /// ## Safety
+    /// There are no data races. The lock ensures exclusive access to the protected data.
+    /// ## Preconditions
+    /// None. (The invariant of `SpinLock` always holds internally.)
+    /// ## Postconditions
+    /// The returned `SpinLockGuard` satisfies its type invariant:
+    /// - An exclusive permission to access the protected data is held by the guard.
+    /// - The guard's permission matches the lock's internal cell ID.
+    /// ## Key Verification Step
+    /// When the internal atomic compare-and-exchange operation in `acquire_lock` succeeds,
+    /// the ghost permission is simultaneously extracted from the lock.
+    /// ```rust
+    /// atomic_with_ghost!  {
+    ///    self.inner.lock => compare_exchange(false, true);
+    ///    returning res;
+    ///    ghost cell_perm => {
+    ///     // Extract the ghost permission when the lock is successfully acquired   
+    ///     if res is Ok {
+    ///            tracked_swap(&mut perm, &mut cell_perm);
+    ///        }
+    ///    }
+    ///}.is_ok()
+    /// ```
     #[verus_spec]
     pub fn lock(&self) -> SpinLockGuard<T, G> {
         // Notice the guard must be created before acquiring the lock.
@@ -177,6 +233,9 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// for compile-time checked lifetimes of the lock guard.
     ///
     /// [`lock`]: Self::lock
+    ///
+    /// # Verified Properties
+    /// Same as [`lock`].
     #[verus_spec]
     pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
         proof!{ use_type_invariant(self);}
@@ -196,8 +255,18 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 
+    /// Tries acquiring the spin lock immediately.
+    ///
+    /// # Verified Properties
+    /// ## Safety
+    /// There are no data races. The lock ensures exclusive access to the protected data.
+    /// ## Preconditions
+    /// None. (The invariant of `SpinLock` always holds internally.)
+    /// ## Postconditions
+    /// If `Some(guard)` is returned, it satisfies its type invariant:
+    /// - An exclusive permission to access the protected data is held by the guard.
+    /// - The guard's permission matches the lock's internal cell ID.
     #[verus_spec]
-    /// Tries acquiring the spin lock immedidately.
     pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
@@ -278,8 +347,8 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }.is_ok()
     }
 
-    /// An example to show the doc generation with `#[verus_spec]` ghost parameters.
-    /// It will be removed after the doc generation function is merged.
+    /// *Note*: This is **NOT** an OSTD API. It is only an example to show the doc generation output with the `#[verus_spec]` macro.
+    /// It will be removed after [our PR](https://github.com/verus-lang/verus/pull/2132) about `#[verus_spec]` doc generation is merged into Verus mainline.
     #[verus_spec(ret =>
         with
             ghost_in1: Tracked<int>,
@@ -324,6 +393,28 @@ unsafe impl<T: ?Sized + Send, G> Send for SpinLock<T, G> {}
 unsafe impl<T: ?Sized + Send, G> Sync for SpinLock<T, G> {}
 */
 /// A guard that provides exclusive access to the data protected by a [`SpinLock`].
+///
+/// # Verified Properties
+/// ## Verification Design
+/// The guard is extended with a ghost permission field `v_perm` that
+/// holds the ghost permission ([`PointsTo<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html))
+/// This permission grants exclusive ownership of the protected data and enables verified access to the `PCell<T>`.
+///
+/// 
+/// ## Invariant
+/// The guard maintains a type invariant ensuring that its ghost permission's ID matches
+/// the lock's internal cell ID. This guarantees that the permission corresponds to the
+/// correct protected data.
+/// 
+/// ```rust
+/// #[verifier::type_invariant]
+///    spec fn type_inv(self) -> bool{
+///        self.lock.deref_spec().cell_id() == self.v_perm@.id()
+///    }
+/// ```
+/// 
+/// *Note*: The invariant is encapsulated using the [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism. 
+/// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
 pub type SpinLockGuard<'a, T, G> = SpinLockGuard_<T, &'a SpinLock<T, G>, G>;
 /// A guard that provides exclusive access to the data protected by a `Arc<SpinLock>`.
 pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;

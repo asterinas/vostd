@@ -19,7 +19,6 @@ use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use vstd_extra::ghost_tree::TreePath;
-use crate::specs::arch::mm::CONST_NR_ENTRIES;
 
 use core::ops::IndexMut;
 
@@ -136,7 +135,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         if !level_too_high {
             break ;
         }
-        let cur_pt_ptr = ArrayPtr::<C::E, CONST_NR_ENTRIES>::from_addr(paddr_to_vaddr(cur_pt_addr));
+        let cur_pt_ptr = ArrayPtr::<C::E, NR_ENTRIES>::from_addr(paddr_to_vaddr(cur_pt_addr));
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and
         //    (2) all child nodes cannot be recycled because we're in the RCU critical section.
@@ -346,12 +345,12 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         // entry_own at current level is preserved
         owner.continuations[owner.level - 1].entry_own == old(owner).continuations[owner.level - 1].entry_own,
         // Children at current level are preserved
-        forall |i: int| 0 <= i < NR_ENTRIES() ==>
+        forall |i: int| 0 <= i < NR_ENTRIES ==>
             #[trigger]
             owner.continuations[owner.level - 1].children[i] == old(owner).continuations[owner.level - 1].children[i],
         // Continuations at higher levels are completely preserved
         forall |lvl: int| #![trigger owner.continuations[lvl]]
-            owner.level <= lvl < NR_LEVELS() ==> owner.continuations[lvl] == old(owner).continuations[lvl],
+            owner.level <= lvl < NR_LEVELS ==> owner.continuations[lvl] == old(owner).continuations[lvl],
         // Guards postconditions:
         // 1. Everything that was unlocked before is still unlocked (no new locks added)
         forall |addr: usize| old(guards).unlocked(addr) ==> guards.unlocked(addr),

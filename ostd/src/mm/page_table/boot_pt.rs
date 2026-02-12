@@ -280,7 +280,7 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
             frame.into_raw()
         } else {
             allocator::early_alloc(
-                Layout::from_size_align(C::BASE_PAGE_SIZE, C::BASE_PAGE_SIZE).unwrap(),
+                Layout::from_size_align(C::BASE_PAGE_SIZE(), C::BASE_PAGE_SIZE()).unwrap(),
             )
             .unwrap()
         };

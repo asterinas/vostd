@@ -50,8 +50,8 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
-            raw % PAGE_SIZE() == 0,
-            raw < MAX_PADDR(),
+            raw % PAGE_SIZE == 0,
+            raw < MAX_PADDR,
             !old(regions).slots.contains_key(frame_to_index(raw)),
             old(regions).inv(),
         ensures

@@ -631,7 +631,7 @@ impl<'a> VmSpace<'a> {
         &&& vm_owner.inv()
         &&& vm_owner.active
         &&& vm_owner.can_create_reader(vaddr, len)
-        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR_SPEC()
+        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
@@ -646,7 +646,7 @@ impl<'a> VmSpace<'a> {
         &&& vm_owner.inv()
         &&& vm_owner.active
         &&& vm_owner.can_create_writer(vaddr, len)
-        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR_SPEC()
+        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
@@ -1065,7 +1065,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.level < old(self).0.guard_level,
             old(owner).in_locked_range(),
-            len % PAGE_SIZE() == 0,
+            len % PAGE_SIZE == 0,
             old(self).0.va + len <= old(self).0.barrier_va.end,
         ensures
             self.0.invariants(*owner, *regions, *guards),
@@ -1192,7 +1192,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
             old(owner).in_locked_range(),
-            len % PAGE_SIZE() == 0,
+            len % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
@@ -1293,7 +1293,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& entry_owner.frame.unwrap().mapped_pa == paddr
         &&& entry_owner.frame.unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
-        &&& 1 <= level <= NR_LEVELS()  // Should be property of item_into_raw
+        &&& 1 <= level <= NR_LEVELS  // Should be property of item_into_raw
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
@@ -1390,9 +1390,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///  - the length is not page-aligned.
     #[verus_spec(r =>
         requires
-            len % PAGE_SIZE() == 0,
-            old(self).pt_cursor.inner.va % PAGE_SIZE() == 0,
-            old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE().end as int,
+            len % PAGE_SIZE == 0,
+            old(self).pt_cursor.inner.va % PAGE_SIZE == 0,
+            old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE.end as int,
         ensures
     )]
     #[verifier::external_body]
@@ -1401,14 +1401,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let mut num_unmapped: usize = 0;
 
         proof {
-            assert((self.pt_cursor.inner.va + len) % PAGE_SIZE() as int == 0) by (compute);
+            assert((self.pt_cursor.inner.va + len) % PAGE_SIZE as int == 0) by (compute);
         }
 
         #[verus_spec(
             invariant
                 self.pt_cursor.inner.va <= end_va,
-                self.pt_cursor.inner.va % PAGE_SIZE() == 0,
-                end_va % PAGE_SIZE() == 0,
+                self.pt_cursor.inner.va % PAGE_SIZE == 0,
+                end_va % PAGE_SIZE == 0,
             decreases end_va - self.pt_cursor.inner.va
         )]
         loop {
@@ -1474,8 +1474,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).relate_region(*old(regions)),
-            len % PAGE_SIZE() == 0,
-            old(self).pt_cursor.inner.level < NR_LEVELS(),
+            len % PAGE_SIZE == 0,
+            old(self).pt_cursor.inner.level < NR_LEVELS,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
     )]

@@ -870,7 +870,7 @@ mod boot_pt {
         let root_frame = FrameAllocOptions::new().alloc_frame().unwrap();
         let root_paddr = root_frame.start_paddr();
         let mut boot_pt = BootPageTable::<PageTableEntry, PagingConsts>::new(
-            root_paddr / PagingConsts::BASE_PAGE_SIZE,
+            root_paddr / PagingConsts::BASE_PAGE_SIZE(),
         );
 
         let from_virt = 0x1000;
@@ -895,7 +895,7 @@ mod boot_pt {
         let root_frame = FrameAllocOptions::new().alloc_frame().unwrap();
         let root_paddr = root_frame.start_paddr();
         let mut boot_pt = BootPageTable::<PageTableEntry, PagingConsts>::new(
-            root_paddr / PagingConsts::BASE_PAGE_SIZE,
+            root_paddr / PagingConsts::BASE_PAGE_SIZE(),
         );
 
         let from_virt = 0x1000;
@@ -915,7 +915,7 @@ mod boot_pt {
         let root_frame = FrameAllocOptions::new().alloc_frame().unwrap();
         let root_paddr = root_frame.start_paddr();
         let mut boot_pt = BootPageTable::<PageTableEntry, PagingConsts>::new(
-            root_paddr / PagingConsts::BASE_PAGE_SIZE,
+            root_paddr / PagingConsts::BASE_PAGE_SIZE(),
         );
 
         let virt_addr = 0x2000;
@@ -930,7 +930,7 @@ mod boot_pt {
         let root_frame = FrameAllocOptions::new().alloc_frame().unwrap();
         let root_paddr = root_frame.start_paddr();
         let mut boot_pt = BootPageTable::<PageTableEntry, PagingConsts>::new(
-            root_paddr / PagingConsts::BASE_PAGE_SIZE,
+            root_paddr / PagingConsts::BASE_PAGE_SIZE(),
         );
 
         let root_paddr = boot_pt.root_address();

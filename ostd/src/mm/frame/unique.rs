@@ -45,8 +45,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Inv for UniqueFrameOwner<M> {
         &&& self.meta_perm.wf()
         &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm.addr()))
         &&& self.slot_index < max_meta_slots()
-        &&& (self.slot_index - FRAME_METADATA_RANGE().start) as usize % META_SLOT_SIZE() == 0
-        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE().start + MAX_NR_PAGES() * META_SLOT_SIZE()
+        &&& (self.slot_index - FRAME_METADATA_RANGE.start) as usize % META_SLOT_SIZE == 0
+        &&& self.meta_perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
     }
 }
 
@@ -116,8 +116,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
         requires
-            paddr < MAX_PADDR(),
-            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR,
+            paddr % PAGE_SIZE == 0,
             old(regions).slots.contains_key(frame_to_meta(paddr)),
             old(regions).inv(),
     {
@@ -208,7 +208,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     /// Gets the size of this page in bytes.
     #[rustc_allow_incoherent_impl]
     pub const fn size(&self) -> usize {
-        PAGE_SIZE()
+        PAGE_SIZE
     }
 
     /*    /// Gets the dynamically-typed metadata of this frame.
@@ -274,8 +274,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     #[verifier::external_body]
     pub fn from_raw(paddr: Paddr) -> (res: (Self, Tracked<UniqueFrameOwner<M>>))
         requires
-            paddr < MAX_PADDR(),
-            paddr % PAGE_SIZE() == 0,
+            paddr < MAX_PADDR,
+            paddr % PAGE_SIZE == 0,
             old(regions).dropped_slots.contains_key(frame_to_index(paddr)),
         ensures
             res.0.ptr.addr() == frame_to_meta(paddr),

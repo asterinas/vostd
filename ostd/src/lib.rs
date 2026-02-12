@@ -24,13 +24,18 @@
 #![warn(missing_docs)]
 #![feature(proc_macro_hygiene)]
 
+#![allow(unused_parens)]
+#![allow(unused_braces)]
+#![allow(rustdoc::invalid_rust_codeblocks)]
+#![allow(rustdoc::invalid_html_tags)]
+#![allow(rustdoc::broken_intra_doc_links)]
+
 extern crate alloc;
 
 use vstd_extra::prelude;
 
 //#[cfg(target_arch = "x86_64")]
 #[path = "arch/x86/mod.rs"]
-#[allow(rustdoc::invalid_rust_codeblocks)]
 pub mod arch;
 //#[cfg(target_arch = "riscv64")]
 //#[path = "arch/riscv/mod.rs"]
@@ -42,18 +47,11 @@ pub mod cpu;*/
 pub mod error;
 /*pub mod io;
 pub mod logger;*/
-#[allow(unused_parens)]
-#[allow(unused_braces)]
-#[allow(rustdoc::invalid_rust_codeblocks)]
-#[allow(rustdoc::invalid_html_tags)]
-#[allow(rustdoc::broken_intra_doc_links)]
-#[allow(rustdoc::missing_docs)]
+#[allow(missing_docs)]
 pub mod mm;
 /*pub mod panic;
 pub mod prelude;
 pub mod smp;*/
-#[allow(rustdoc::invalid_rust_codeblocks)]
-#[allow(rustdoc::broken_intra_doc_links)]
 pub mod sync;
 pub mod task;
 /* pub mod timer;

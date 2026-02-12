@@ -57,7 +57,6 @@ use crate::{
     specs::arch::{PageTableEntry, PagingConsts},
     //task::disable_preempt,
 };
-use vstd_extra::extern_const::*;
 
 verus! {
 
@@ -96,37 +95,19 @@ pub const KERNEL_CODE_BASE_VADDR: usize = 0xffff_ffff_0000_0000 << ADDR_WIDTH_SH
 #[cfg(target_arch = "loongarch64")]
 pub const KERNEL_CODE_BASE_VADDR: usize = 0x9000_0000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub FRAME_METADATA_CAP_VADDR [FRAME_METADATA_CAP_VADDR_SPEC, CONST_FRAME_METADATA_CAP_VADDR]:
-        Vaddr = 0xffff_fff0_8000_0000 << ADDR_WIDTH_SHIFT
-);
+pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_fff0_8000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub FRAME_METADATA_BASE_VADDR [FRAME_METADATA_BASE_VADDR_SPEC, CONST_FRAME_METADATA_BASE_VADDR]:
-        Vaddr = 0xffff_fff0_0000_0000 << ADDR_WIDTH_SHIFT
-);
+pub const FRAME_METADATA_BASE_VADDR: Vaddr = 0xffff_fff0_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub VMALLOC_BASE_VADDR [VMALLOC_BASE_VADDR_SPEC, CONST_VMALLOC_BASE_VADDR]:
-        Vaddr = 0xffff_c000_0000_0000 << ADDR_WIDTH_SHIFT
-);
+pub const VMALLOC_BASE_VADDR: Vaddr = 0xffff_c000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub VMALLOC_VADDR_RANGE [VMALLOC_VADDR_RANGE_SPEC, CONST_VMALLOC_VADDR_RANGE]:
-        Range<Vaddr> = CONST_VMALLOC_BASE_VADDR..CONST_FRAME_METADATA_BASE_VADDR
-);
+pub const VMALLOC_VADDR_RANGE: Range<Vaddr> = VMALLOC_BASE_VADDR..FRAME_METADATA_BASE_VADDR;
 
-extern_const!(
-    /// The base address of the linear mapping of all physical
-    /// memory in the kernel address space.
-    pub LINEAR_MAPPING_BASE_VADDR [LINEAR_MAPPING_BASE_VADDR_SPEC, CONST_LINEAR_MAPPING_BASE_VADDR]:
-        Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT
-);
+/// The base address of the linear mapping of all physical
+/// memory in the kernel address space.
+pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000 << ADDR_WIDTH_SHIFT;
 
-extern_const!(
-    pub LINEAR_MAPPING_VADDR_RANGE [LINEAR_MAPPING_VADDR_RANGE_SPEC, CONST_LINEAR_MAPPING_VADDR_RANGE]:
-        Range<Vaddr> = CONST_LINEAR_MAPPING_BASE_VADDR..CONST_VMALLOC_BASE_VADDR
-);
+pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..VMALLOC_BASE_VADDR;
 
 /*
 #[cfg(not(target_arch = "loongarch64"))]
@@ -138,18 +119,18 @@ pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..
 
 /// Convert physical address to virtual address using offset, only available inside `ostd`
 pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize {
-    (pa + LINEAR_MAPPING_BASE_VADDR()) as usize
+    (pa + LINEAR_MAPPING_BASE_VADDR) as usize
 }
 
 #[verifier::when_used_as_spec(paddr_to_vaddr_spec)]
 pub fn paddr_to_vaddr(pa: Paddr) -> usize
     requires
-        pa + LINEAR_MAPPING_BASE_VADDR() < usize::MAX,
+        pa + LINEAR_MAPPING_BASE_VADDR < usize::MAX,
     returns
         paddr_to_vaddr_spec(pa),
 {
     //debug_assert!(pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR);
-    pa + LINEAR_MAPPING_BASE_VADDR()
+    pa + LINEAR_MAPPING_BASE_VADDR
 }
 
 /*

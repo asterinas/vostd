@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::mm::{CONST_MAX_PADDR, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::memory_region_specs::{MemRegionModel, MemoryRegionArrayModel};
 
 use core::ops::Deref;
@@ -68,7 +68,7 @@ impl MemoryRegionType {
 
 impl Inv for MemoryRegion {
     closed spec fn inv(self) -> bool {
-        self.base + self.len <= CONST_MAX_PADDR
+        self.base + self.len <= MAX_PADDR
     }
 }
 
@@ -91,7 +91,7 @@ impl MemoryRegion {
     /// Constructs a valid memory region.
     #[verus_spec(ret =>
         requires
-            base + len <= MAX_PADDR(),
+            base + len <= MAX_PADDR,
         ensures
             ret.inv(),
             ret@ == (MemRegionModel {

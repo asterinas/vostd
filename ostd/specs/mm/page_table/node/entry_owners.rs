@@ -30,7 +30,7 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
     pub absent: bool,
-    pub path: TreePath<CONST_NR_ENTRIES>,
+    pub path: TreePath<NR_ENTRIES>,
     pub parent_level: PagingLevel,
 }
 
@@ -51,7 +51,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.absent
     }
 
-    pub open spec fn new_absent_spec(path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> Self {
+    pub open spec fn new_absent_spec(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> Self {
         EntryOwner {
             node: None,
             frame: None,
@@ -62,7 +62,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
         EntryOwner {
             node: None,
             frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
@@ -73,7 +73,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn new_node_spec(node: NodeOwner<C>, path: TreePath<CONST_NR_ENTRIES>) -> Self {
+    pub open spec fn new_node_spec(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> Self {
         EntryOwner {
             node: Some(node),
             frame: None,
@@ -84,18 +84,18 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub axiom fn new_absent(path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
+    pub axiom fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
         returns Self::new_absent_spec(path, parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, path: TreePath<CONST_NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
+    pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
         returns Self::new_frame_spec(paddr, path, parent_level, prop);
 
-    pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<CONST_NR_ENTRIES>) -> tracked Self
+    pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
         returns Self::new_node_spec(node, path);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
-        &&& pte.paddr() % PAGE_SIZE() == 0
-        &&& pte.paddr() < MAX_PADDR()
+        &&& pte.paddr() % PAGE_SIZE == 0
+        &&& pte.paddr() < MAX_PADDR
         &&& !pte.is_present() ==> {
             self.is_absent()
         }
@@ -125,7 +125,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub axiom fn get_path(self) -> tracked TreePath<CONST_NR_ENTRIES>
+    pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
         returns self.path;
 
     pub open spec fn meta_slot_paddr(self) -> Paddr {
@@ -183,8 +183,8 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.node is None
             &&& self.locked is None
             &&& !self.absent
-            &&& self.frame.unwrap().mapped_pa % PAGE_SIZE() == 0
-            &&& self.frame.unwrap().mapped_pa < MAX_PADDR()
+            &&& self.frame.unwrap().mapped_pa % PAGE_SIZE == 0
+            &&& self.frame.unwrap().mapped_pa < MAX_PADDR
             &&& self.frame.unwrap().size == page_size(self.parent_level)
         }
         &&& self.locked is Some ==> {
@@ -242,10 +242,10 @@ impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
     type Owner = EntryOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.idx < NR_ENTRIES()
+        &&& self.idx < NR_ENTRIES
         &&& owner.match_pte(self.pte, owner.parent_level)
-        &&& self.pte.paddr() % PAGE_SIZE() == 0
-        &&& self.pte.paddr() < MAX_PADDR()
+        &&& self.pte.paddr() % PAGE_SIZE == 0
+        &&& self.pte.paddr() < MAX_PADDR
     }
 }
 

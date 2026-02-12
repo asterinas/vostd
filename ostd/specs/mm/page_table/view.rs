@@ -23,7 +23,7 @@ pub tracked struct Mapping {
     pub page_size: usize,
     pub property: PageProperty,
 }
-
+    
 /// A view of the page table is simply the set of mappings that it contains.
 /// Its [invariant](PageTableView::inv) is a crucial property for memory correctness.
 pub ghost struct PageTableView {
@@ -44,11 +44,11 @@ impl Mapping {
         &&& self.pa_range.start % self.page_size == 0
         &&& self.pa_range.end % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
-        &&& self.pa_range.start <= self.pa_range.end < MAX_PADDR()
+        &&& self.pa_range.start <= self.pa_range.end < MAX_PADDR
         &&& self.va_range.start % self.page_size == 0
         &&& self.va_range.end % self.page_size == 0
         &&& self.va_range.start + self.page_size == self.va_range.end
-        &&& 0 < self.va_range.start <= self.va_range.end < MAX_USERSPACE_VADDR()
+        &&& 0 < self.va_range.start <= self.va_range.end < MAX_USERSPACE_VADDR
     }
 }
 
