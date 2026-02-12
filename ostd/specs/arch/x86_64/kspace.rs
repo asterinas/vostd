@@ -5,8 +5,12 @@ use super::*;
 use crate::mm::{
     frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
     frame::*,
+    kspace::{
+        ADDR_WIDTH_SHIFT, FRAME_METADATA_BASE_VADDR, FRAME_METADATA_CAP_VADDR, KERNEL_BASE_VADDR,
+        KERNEL_END_VADDR, LINEAR_MAPPING_BASE_VADDR, LINEAR_MAPPING_VADDR_RANGE,
+        VMALLOC_BASE_VADDR,
+    },
     Paddr, PagingConsts, Vaddr,
-    kspace::{LINEAR_MAPPING_VADDR_RANGE, ADDR_WIDTH_SHIFT, FRAME_METADATA_CAP_VADDR, FRAME_METADATA_BASE_VADDR, VMALLOC_BASE_VADDR, LINEAR_MAPPING_BASE_VADDR, KERNEL_BASE_VADDR, KERNEL_END_VADDR}
 };
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
@@ -112,13 +116,9 @@ pub broadcast proof fn lemma_meta_frame_vaddr_properties(meta: Vaddr)
 {
     let pa = meta_to_frame(meta);
     lemma_meta_to_frame_soundness(meta);
-    assert(pa < MAX_PADDR);
-    assert(pa % PAGE_SIZE == 0);
     lemma_max_paddr_range();
-    assert(pa < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR);
     let va = paddr_to_vaddr(pa);
     lemma_linear_mapping_base_vaddr_properties();
-    assert(LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0);
     assert(va % PAGE_SIZE == 0) by {
         lemma_mod_0_add(pa as int, LINEAR_MAPPING_BASE_VADDR as int, PAGE_SIZE as int);
     };
