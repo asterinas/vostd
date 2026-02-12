@@ -101,7 +101,6 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
 /// page table corresponding to the address range. A virtual address range
 /// in a page table can only be accessed by one cursor, regardless of the
 /// mutability of the cursor.
-#[rustc_has_incoherent_inherent_impls]
 pub struct CursorMut<'rcu, C: PageTableConfig, A: InAtomicMode> {
     pub inner: Cursor<'rcu, C, A>,
 }

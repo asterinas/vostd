@@ -38,7 +38,6 @@ pub enum PageState {
 
 #[repr(u8)]
 #[derive(Debug, PartialEq, Clone, Copy)]
-
 pub enum PageUsage {
     // The zero variant is reserved for the unused type. Only an unused page
     // can be designated for one of the other purposes.

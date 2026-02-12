@@ -86,7 +86,6 @@ verus! {
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
-
 pub struct VmSpace<'a> {
     pub pt: PageTable<UserPtConfig>,
     /// Whether we allow shared reading.

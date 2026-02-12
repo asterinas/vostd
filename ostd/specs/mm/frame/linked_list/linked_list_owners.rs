@@ -93,7 +93,6 @@ impl Inv for LinkedListModel {
     }
 }
 
-
 pub tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list: Seq<LinkOwner>,
     pub perms: Map<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>>,
@@ -200,7 +199,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> ModelOf for LinkedList<M> {
 
 }
 
-
 pub ghost struct CursorModel {
     pub ghost fore: Seq<LinkModel>,
     pub ghost rear: Seq<LinkModel>,
@@ -212,7 +210,6 @@ impl Inv for CursorModel {
         self.list_model.inv()
     }
 }
-
 
 pub tracked struct CursorOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list_own: LinkedListOwner<M>,

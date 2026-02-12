@@ -23,7 +23,6 @@ use crate::specs::arch::paging_consts::PagingConsts;
 
 verus! {
 
-
 pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,

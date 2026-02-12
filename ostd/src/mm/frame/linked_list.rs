@@ -35,7 +35,6 @@ use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot};
 
 verus! {
 
-
 pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub next: Option<ReprPtr<MetaSlot, Link<M>>>,
     pub prev: Option<ReprPtr<MetaSlot, Link<M>>>,
@@ -54,7 +53,6 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///     [`from_in_use`] a frame that is inside a linked list.
 ///  3. We also allow creating cursors at a specific frame, allowing $O(1)$
 ///     removal without iterating through the list at a cost of some checks.
-
 pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub front: Option<ReprPtr<MetaSlot, Link<M>>>,
     pub back: Option<ReprPtr<MetaSlot, Link<M>>>,
@@ -69,7 +67,6 @@ pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///
 /// The cursor points to either a frame or the "ghost" non-element. It points
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
-
 pub struct CursorMut<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list: PPtr<LinkedList<M>>,
     pub current: Option<ReprPtr<MetaSlot, Link<M>>>,

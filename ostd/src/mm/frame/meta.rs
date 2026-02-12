@@ -289,7 +289,6 @@ impl Repr<MetaSlot> for MetaSlotStorage {
     }
 }
 
-
 pub struct MetaSlot {
     pub storage: PPtr<MetaSlotStorage>,
     pub ref_count: PAtomicU64,
