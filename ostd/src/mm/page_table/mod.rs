@@ -409,7 +409,6 @@ pub trait PageTableEntryTrait:
 
 /// A handle to a page table.
 /// A page table can track the lifetime of the mapped physical pages.
-
 pub struct PageTable<C: PageTableConfig> {
     pub root: PageTableNode<C>,
 }
