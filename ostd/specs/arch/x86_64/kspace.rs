@@ -6,7 +6,7 @@ use crate::mm::{
     frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
     frame::*,
     Paddr, PagingConsts, Vaddr,
-    kspace::{LINEAR_MAPPING_VADDR_RANGE, ADDR_WIDTH_SHIFT, FRAME_METADATA_CAP_VADDR, FRAME_METADATA_BASE_VADDR}
+    kspace::{LINEAR_MAPPING_VADDR_RANGE, ADDR_WIDTH_SHIFT, FRAME_METADATA_CAP_VADDR, FRAME_METADATA_BASE_VADDR, VMALLOC_BASE_VADDR, LINEAR_MAPPING_BASE_VADDR, KERNEL_BASE_VADDR, KERNEL_END_VADDR}
 };
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
@@ -14,19 +14,8 @@ use core::ops::Range;
 
 verus! {
 
-/// Start of the kernel address space.
-/// This is the _lowest_ address of the x86-64's _high_ canonical addresses.
-pub const KERNEL_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000_usize << ADDR_WIDTH_SHIFT;
-
-/// End of the kernel address space (non inclusive).
-pub const KERNEL_END_VADDR: Vaddr = 0xffff_ffff_ffff_0000_usize << ADDR_WIDTH_SHIFT;
-
 /// Kernel virtual address range for storing the page frame metadata.
 pub const FRAME_METADATA_RANGE: Range<Vaddr> = 0xffff_fff0_0000_0000..0xffff_fff0_8000_0000;
-
-pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000_usize << ADDR_WIDTH_SHIFT;
-
-pub const VMALLOC_BASE_VADDR: Vaddr = 0xffff_fd00_0000_0000_usize << ADDR_WIDTH_SHIFT;
 
 #[verifier::inline]
 pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize
@@ -52,8 +41,8 @@ pub proof fn lemma_linear_mapping_base_vaddr_properties()
         LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0,
         LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR,
 {
-    assert(LINEAR_MAPPING_BASE_VADDR == 0xffff_8000_0000_0000) by (compute_only);
-    assert(VMALLOC_BASE_VADDR == 0xffff_fd00_0000_0000) by (compute_only);
+    assert(LINEAR_MAPPING_BASE_VADDR % PAGE_SIZE == 0) by (compute_only);
+    assert(LINEAR_MAPPING_BASE_VADDR < VMALLOC_BASE_VADDR) by (compute_only);
 }
 
 #[verifier::inline]
@@ -97,10 +86,7 @@ pub proof fn lemma_max_paddr_range()
     ensures
         MAX_PADDR <= VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
 {
-    assert(VMALLOC_BASE_VADDR == 0xffff_fd00_0000_0000) by (compute_only);
-    assert(LINEAR_MAPPING_BASE_VADDR == 0xffff_8000_0000_0000) by (compute_only);
-    assert(VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR == 0x7d00_0000_0000);
-    assert(MAX_PADDR == 0x8000_0000);
+    assert(MAX_PADDR <= VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR) by (compute_only);
 }
 
 pub proof fn lemma_mod_0_add(a: int, b: int, m: int)

@@ -51,7 +51,7 @@ use vstd_extra::ownership::Inv;
 
 use crate::error::*;
 use crate::mm::pod::{Pod, PodOnce};
-use crate::specs::arch::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
+use crate::mm::kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR};
 use crate::specs::arch::MAX_USERSPACE_VADDR;
 use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};

@@ -47,7 +47,7 @@ use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame, StoredPageTablePageM
 use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::kspace::VMALLOC_BASE_VADDR;
+use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

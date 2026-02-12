@@ -7,9 +7,8 @@ use crate::mm::frame::meta::MetaSlot;
 use crate::mm::paddr_to_vaddr;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::kspace::{
-    FRAME_METADATA_RANGE, LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR,
-};
+use crate::mm::kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR};
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{
     NR_ENTRIES, MAX_NR_PAGES, MAX_PADDR, NR_LEVELS, PAGE_SIZE,
 };
