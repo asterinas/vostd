@@ -6,17 +6,13 @@ use crate::mm::{
     frame::meta::mapping::{lemma_meta_to_frame_soundness, meta_to_frame},
     frame::*,
     Paddr, PagingConsts, Vaddr,
+    kspace::{LINEAR_MAPPING_VADDR_RANGE, ADDR_WIDTH_SHIFT, FRAME_METADATA_CAP_VADDR, FRAME_METADATA_BASE_VADDR}
 };
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
 use core::ops::Range;
 
 verus! {
-
-/// The shortest supported address width is 39 bits. And the literal
-/// values are written for 48 bits address width. Adjust the values
-/// by arithmetic left shift.
-pub const ADDR_WIDTH_SHIFT:isize = /* PagingConsts::ADDRESS_WIDTH() */ 48 - 48;
 
 /// Start of the kernel address space.
 /// This is the _lowest_ address of the x86-64's _high_ canonical addresses.
@@ -28,16 +24,9 @@ pub const KERNEL_END_VADDR: Vaddr = 0xffff_ffff_ffff_0000_usize << ADDR_WIDTH_SH
 /// Kernel virtual address range for storing the page frame metadata.
 pub const FRAME_METADATA_RANGE: Range<Vaddr> = 0xffff_fff0_0000_0000..0xffff_fff0_8000_0000;
 
-pub const FRAME_METADATA_CAP_VADDR: Vaddr = 0xffff_fff0_8000_0000_usize << ADDR_WIDTH_SHIFT;
-
-pub const FRAME_METADATA_BASE_VADDR: Vaddr = 0xffff_fff0_0000_0000_usize << ADDR_WIDTH_SHIFT;
-
 pub const LINEAR_MAPPING_BASE_VADDR: Vaddr = 0xffff_8000_0000_0000_usize << ADDR_WIDTH_SHIFT;
 
 pub const VMALLOC_BASE_VADDR: Vaddr = 0xffff_fd00_0000_0000_usize << ADDR_WIDTH_SHIFT;
-
-pub const LINEAR_MAPPING_VADDR_RANGE: Range<Vaddr> = LINEAR_MAPPING_BASE_VADDR..VMALLOC_BASE_VADDR;
-
 
 #[verifier::inline]
 pub open spec fn paddr_to_vaddr_spec(pa: Paddr) -> usize
