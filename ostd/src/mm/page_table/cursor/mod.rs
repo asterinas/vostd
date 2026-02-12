@@ -230,17 +230,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self.model(owner).present()
     }
 
-    pub open spec fn query_some_ensures(self, owner: CursorOwner<'rcu, C>, res: Result<PagesState<C>, PageTableError>) -> bool {
-        &&& res is Ok
-        &&& owner.cur_va_range().start.reflect(res.unwrap().0.start)
-        &&& owner.cur_va_range().end.reflect(res.unwrap().0.end)
-        &&& res.unwrap().1 is Some
-        &&& owner@.query_item_spec(res.unwrap().1.unwrap()) == Some(owner@.query_range())
+    pub open spec fn query_some_ensures(self, owner: CursorOwner<'rcu, C>, res: PagesState<C>) -> bool {
+        &&& owner.cur_va_range().start.reflect(res.0.start)
+        &&& owner.cur_va_range().end.reflect(res.0.end)
+        &&& res.1 is Some
+        &&& owner@.query_item_spec(res.1.unwrap()) == Some(owner@.query_range())
     }
 
-    pub open spec fn query_none_ensures(self, owner: CursorOwner<'rcu, C>, res: Result<PagesState<C>, PageTableError>) -> bool {
-        &&& res is Ok
-        &&& res.unwrap().1 is None
+    pub open spec fn query_none_ensures(self, owner: CursorOwner<'rcu, C>, res: PagesState<C>) -> bool {
+        &&& res.1 is None
     }
 
     /// Queries the mapping at the current virtual address.
@@ -255,10 +253,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
         ensures
-            self.query_some_condition(*owner) ==>
-                self.query_some_ensures(*owner, res),
-            !self.query_some_condition(*owner) ==>
-                self.query_none_ensures(*owner, res),
+            self.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.query_some_ensures(*owner, res.unwrap())
+            },
+            !self.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.query_none_ensures(*owner, res.unwrap())
+            },
             self.invariants(*owner, *regions, *guards),
             owner.in_locked_range(), 
             old(owner)@.mappings == owner@.mappings,
@@ -417,6 +419,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).va + len <= old(self).barrier_va.end,
         ensures
             self.invariants(*owner, *regions, *guards),
+            res is Some ==> {
+                &&& res.unwrap() == self.va
+                &&& owner.level < owner.guard_level
+                &&& owner.in_locked_range()
+            },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.find_next_impl(len, false, false)
@@ -434,7 +441,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///
     /// `split_huge` specifies whether the cursor should split huge pages when
     /// it finds a huge page that is mapped over the required range (`len`).
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1130,6 +1136,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
         ensures
             self.inner.invariants(*owner, *regions, *guards),
+            res is Some ==> {
+                &&& res.unwrap() == self.inner.va
+                &&& owner.level < owner.guard_level
+                &&& owner.in_locked_range()
+            },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.find_next(len)
@@ -1182,18 +1193,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
-    )]
-    pub fn query(&mut self) -> (res: Result<PagesState<C>, PageTableError>)
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
         ensures
-            self.inner.query_some_condition(*owner) ==>
-                self.inner.query_some_ensures(*owner, res),
-            !self.inner.query_some_condition(*owner) ==>
-                self.inner.query_none_ensures(*owner, res),
             self.inner.invariants(*owner, *regions, *guards),
+            self.inner.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.inner.query_some_ensures(*owner, res.unwrap())
+            },
+            !self.inner.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.inner.query_none_ensures(*owner, res.unwrap())
+            },
             owner.in_locked_range(),
+    )]
+    pub fn query(&mut self) -> (res: Result<PagesState<C>, PageTableError>)
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.query()
@@ -1685,11 +1700,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
-    pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>)
+    #[verus_spec(res =>
+        with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+            old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
+            old(owner).in_locked_range(),
+            len % C::BASE_PAGE_SIZE() == 0,
+            old(self).inner.va + len <= old(self).inner.barrier_va.end,
         ensures
-            self.inner.va == old(self).inner.va + PAGE_SIZE(),
+            self.inner.invariants(*owner, *regions, *guards),
+            res is Some ==> self.inner.va == old(self).inner.va + res.unwrap()->len,
+            res is None ==> self.inner.va == old(self).inner.va + len,
+    )]
+    pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>)
     {
         self.inner.find_next_impl(len, true, true)?;
 

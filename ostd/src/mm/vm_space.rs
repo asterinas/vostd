@@ -126,7 +126,6 @@ pub tracked struct VmSpaceOwner<'a> {
     /// Whether this VM space is currently active.
     pub active: bool,
     /// Active readers for this VM space.
-    // pub readers: Map<nat, VmIoOwner<'a>>,
     pub readers: Seq<VmIoOwner<'a>>,
     /// Active writers for this VM space.
     pub writers: Seq<VmIoOwner<'a>>,
@@ -342,14 +341,11 @@ impl<'a> VmSpaceOwner<'a> {
     // /// This assumes that we always generate a fresh ID that is not used by any existing
     // /// readers or writers. This should be safe as the ID space is unbounded and only used
     // /// to reason about different VM IO owners in verification.
-    #[verifier::external_body]
     #[verus_spec(r =>
         requires
             self.inv(),
     )]
-    pub proof fn new_vm_io_id(&self) -> nat {
-        unimplemented!()
-    }
+    pub axiom fn new_vm_io_id(&self) -> nat;
 
     /// Removes the given reader from the active readers list.
     pub proof fn remove_reader(tracked &mut self, idx: int)
@@ -714,9 +710,7 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        Cursor<'a, G>,
-    > {
+    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -730,9 +724,7 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -996,21 +988,6 @@ impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    pub open spec fn invariants(
-        self,
-        owner: CursorOwner<'rcu, UserPtConfig>,
-        regions: MetaRegionOwners,
-        guards: Guards<'rcu, UserPtConfig>,
-    ) -> bool {
-        &&& self.0.inv()
-        &&& self.0.wf(owner)
-        &&& owner.inv()
-        &&& regions.inv()
-        &&& owner.children_not_locked(guards)
-        &&& owner.nodes_locked(guards)
-        &&& owner.relate_region(regions)
-        &&& !owner.popped_too_high
-    }
 
     pub open spec fn query_success_requires(self) -> bool {
         self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
@@ -1046,17 +1023,20 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
-            old(self).invariants(*old(owner), *old(regions), *old(guards))
+            old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
+            old(owner).in_locked_range(),
         ensures
-            self.invariants(*owner, *regions, *guards),
-            self.query_success_requires() ==> {
+            self.0.invariants(*owner, *regions, *guards),
+            self.0.query_some_condition(*owner) ==> {
                 &&& r is Ok
-                &&& self.query_success_ensures(self.0.model(*owner), r.unwrap().0, r.unwrap().1)
-            }
+                &&& self.0.query_some_ensures(*owner, r.unwrap())
+            },
+            !self.0.query_some_condition(*owner) ==> {
+                &&& r is Ok
+                &&& self.0.query_none_ensures(*owner, r.unwrap())
+            },
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
-        proof { admit() }
-        ;
         Ok(
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.0.query()?,
@@ -1082,22 +1062,18 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
-            old(owner).inv(),
-            old(self).0.wf(*old(owner)),
-            old(regions).inv(),
+            old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.level < old(self).0.guard_level,
-            old(self).0.inv(),
             old(owner).in_locked_range(),
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
-            !old(owner).popped_too_high,
             len % PAGE_SIZE() == 0,
             old(self).0.va + len <= old(self).0.barrier_va.end,
         ensures
-            owner.inv(),
-            self.0.wf(*owner),
-            regions.inv(),
+            self.0.invariants(*owner, *regions, *guards),
+            res is Some ==> {
+                &&& res.unwrap() == self.0.va
+                &&& owner.level < owner.guard_level
+                &&& owner.in_locked_range()
+            },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
@@ -1129,7 +1105,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Get the virtual address of the current slot.
-    pub fn virt_addr(&self) -> Vaddr {
+    pub fn virt_addr(&self) -> Vaddr
+        returns self.0.va,
+    {
         self.0.virt_addr()
     }
 }
@@ -1176,20 +1154,23 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
-            old(owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
-            old(regions).inv(),
-            old(self).pt_cursor.inner.inv(),
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
+            old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            !old(owner).popped_too_high,
+        ensures
+            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            old(self).pt_cursor.inner.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.pt_cursor.inner.query_some_ensures(*owner, res.unwrap())
+            },
+            !old(self).pt_cursor.inner.query_some_condition(*owner) ==> {
+                &&& res is Ok
+                &&& self.pt_cursor.inner.query_none_ensures(*owner, res.unwrap())
+            },
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -1208,22 +1189,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
-            old(owner).inv(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
-            old(regions).inv(),
+            old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
-            old(self).pt_cursor.inner.inv(),
             old(owner).in_locked_range(),
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
-            !old(owner).popped_too_high,
             len % PAGE_SIZE() == 0,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
         ensures
-            owner.inv(),
-            self.pt_cursor.inner.wf(*owner),
-            regions.inv(),
+            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            res is Some ==> {
+                &&& res.unwrap() == self.pt_cursor.inner.va
+                &&& owner.level < owner.guard_level
+                &&& owner.in_locked_range()
+            },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.pt_cursor.find_next(len)
@@ -1428,9 +1405,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         }
 
         #[verus_spec(
-            invariant_except_break
+            invariant
+                self.pt_cursor.inner.va <= end_va,
                 self.pt_cursor.inner.va % PAGE_SIZE() == 0,
                 end_va % PAGE_SIZE() == 0,
+            decreases end_va - self.pt_cursor.inner.va
         )]
         loop {
             // SAFETY: It is safe to un-map memory in the userspace.
@@ -1441,11 +1420,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             match frag {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
+                    assume(num_unmapped < usize::MAX);
                     num_unmapped += 1;
                     //                    self.flusher
                     //                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
+                    assume(num_unmapped + num_frames < usize::MAX);
                     num_unmapped += num_frames;
                     //                    self.flusher
                     //                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
