@@ -574,17 +574,16 @@ impl MetaSlot {
     }
 
     /// Gets the corresponding frame's physical address.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
-    )]
-    pub fn frame_paddr(&self) -> (pa: Paddr)
+        with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
         requires
             perm.value() == self,
             FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
             perm.addr() % META_SLOT_SIZE == 0,
         returns
             meta_to_frame(perm.addr()),
+    )]
+    pub fn frame_paddr(&self) -> (pa: Paddr)
     {
         let addr = self.addr_of(Tracked(perm));
         meta_to_frame(addr)

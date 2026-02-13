@@ -23,7 +23,7 @@ pub tracked struct Mapping {
     pub page_size: usize,
     pub property: PageProperty,
 }
-    
+
 /// A view of the page table is simply the set of mappings that it contains.
 /// Its [invariant](PageTableView::inv) is a crucial property for memory correctness.
 pub ghost struct PageTableView {

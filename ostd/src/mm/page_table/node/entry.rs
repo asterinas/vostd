@@ -263,8 +263,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(regions).inv(),
             owner.relate_region(*old(regions)),
             new_owner.path == owner.path,
-            new_owner.meta_slot_paddr() != owner.meta_slot_paddr(),
-            new_owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(new_owner.meta_slot_paddr())),
+            new_owner.meta_slot_paddr_neq(*owner),
+            new_owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())),
             old(guard_perm).addr() == old(self).node.addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
             old(parent_owner).level == new_owner.parent_level,
@@ -282,15 +282,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_owner.inv(),
             res.wf(*owner),
             OwnerSubtree::implies(
-                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr() != owner.meta_slot_paddr() && entry.relate_region(*old(regions)),
+                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr_neq(*owner) && entry.relate_region(*old(regions)),
                 |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions)),
             new_owner.match_pte(parent_owner.children_perm.value()[self.idx as int], parent_owner.level),
             forall |i: int| 0 <= i < NR_ENTRIES ==>
                 i != self.idx ==>
                 parent_owner.children_perm.value()[i] == old(parent_owner).children_perm.value()[i],
     {
-        let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr());
-        let ghost old_idx = frame_to_index(owner.meta_slot_paddr());
+        let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
+        let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
 
         /* match &new_child {
             Child::PageTable(node) => {
@@ -312,7 +312,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         #[verus_spec(with Tracked(regions), Tracked(&owner))]
         let old_child = Child::from_pte(self.pte, level);
 
-        assert(new_owner.is_node() ==> regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr()))) by { admit() };
+        assert(new_owner.is_node() ==> regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap()))) by { admit() };
+        assert(new_owner.is_frame() ==> regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap()))) by { admit() };
 
         if old_child.is_none() && !new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -335,7 +336,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         let new_pte = new_child.into_pte();
         
         proof {
-            assert(new_owner.is_node() ==> !regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr())));
+            assert(new_owner.is_node() ==> !regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())));
             assert(owner.relate_region(*regions)) by { admit() };
         }
 
@@ -351,22 +352,23 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         self.pte = new_pte;
 
         proof {
-            assert(regions.slot_owners.contains_key(new_idx)) by { admit() };
-            assert(regions.slot_owners.contains_key(old_idx)) by { admit() };
-                        
-            let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
-            let tracked mut old_meta_slot = regions.slot_owners.tracked_remove(old_idx);
-            
-            new_meta_slot.path_if_in_pt = Some(new_owner.get_path());
-            
-            regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
-            regions.slot_owners.tracked_insert(old_idx, old_meta_slot);
-            
-            assert(new_owner.relate_region(*regions));
+            if new_owner.is_node() || new_owner.is_frame() {
+                assert(new_owner.meta_slot_paddr() is Some) by { admit() };
+                assert(owner.meta_slot_paddr() is Some) by { admit() };
+                assert(regions.slot_owners.contains_key(new_idx)) by { admit() };
+                assert(regions.slot_owners.contains_key(old_idx)) by { admit() };
+                
+                let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);
+                let tracked mut old_meta_slot = regions.slot_owners.tracked_remove(old_idx);
+                
+                new_meta_slot.path_if_in_pt = Some(new_owner.get_path());
+                regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
+                regions.slot_owners.tracked_insert(old_idx, old_meta_slot);
+            }
         }
 
         assert(OwnerSubtree::implies(
-            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr() != owner.meta_slot_paddr() && entry.relate_region(*old(regions)),
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr_neq(*owner) && entry.relate_region(*old(regions)),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions))) by { admit() };
         assert(regions.inv()) by { admit() };
 
@@ -641,8 +643,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             
             assert(child_owner.path == new_owner.children[i as int].unwrap().value.path);
 
-            assert(child_owner.meta_slot_paddr() != new_owner.value.meta_slot_paddr()) by { admit() };
-            assert(!regions.slots.contains_key(frame_to_index(child_owner.meta_slot_paddr()))) by { admit() };
+            assert(child_owner.meta_slot_paddr_neq(new_owner.value)) by { admit() };
+            assert(!regions.slots.contains_key(frame_to_index(child_owner.meta_slot_paddr().unwrap()))) by { admit() };
 
             #[verus_spec(with Tracked(regions), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&child_owner),
                 Tracked(&mut new_owner_node), Tracked(&mut new_guard_perm))]
@@ -652,7 +654,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             }
         }
 
-        assert(regions.slots.contains_key(frame_to_index(new_owner.value.meta_slot_paddr()))) by { admit() };
+        assert(regions.slots.contains_key(frame_to_index(new_owner.value.meta_slot_paddr().unwrap()))) by { admit() };
 
         self.pte = (#[verus_spec(with Tracked(&new_owner.value), Tracked(regions))]
         Child::PageTable(new_page).into_pte());

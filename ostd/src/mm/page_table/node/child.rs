@@ -137,13 +137,13 @@ impl<C: PageTableConfig> Child<C> {
             owner.inv(),
             old(regions).inv(),
             self.wf(*owner),
-            owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(owner.meta_slot_paddr())),
+            owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
         ensures
             regions.inv(),
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             owner.match_pte(res, owner.parent_level),
-            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr())),
+            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
     {
         proof {
             C::E::new_properties();

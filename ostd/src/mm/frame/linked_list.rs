@@ -35,7 +35,7 @@ use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot};
 
 verus! {
 
-#[rustc_has_incoherent_inherent_impls]
+/// A link in the linked list.
 pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub next: Option<ReprPtr<MetaSlot, Link<M>>>,
     pub prev: Option<ReprPtr<MetaSlot, Link<M>>>,
@@ -54,7 +54,19 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///     [`from_in_use`] a frame that is inside a linked list.
 ///  3. We also allow creating cursors at a specific frame, allowing $O(1)$
 ///     removal without iterating through the list at a cost of some checks.
-#[rustc_has_incoherent_inherent_impls]
+/// # Verified Properties
+/// ## Verification Design
+/// The linked list is abstractly represented by a
+/// [`LinkedListOwner`](crate::specs::mm::frame::linked_list::linked_list_owners::LinkedListOwner)
+/// which is a sequence of [`LinkOwner`](crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner)
+/// objects. Each [`LinkOwner`] uniquely owns the frame metadata of a link.
+/// ## Invariant
+/// The linked list uniquely owns the raw frames that it contains, so they cannot be used by other
+/// data structures. The frame metadata field `in_list` is equal to `list_id` for all links in the list.
+/// ## Safety
+/// A given linked list can only have one cursor at a time, so there are no data races.
+/// The `prev` and `next` fields of the metadata for each link always points to valid
+/// links in the list, so the structure is memory safe (will not read or write invalid memory).
 pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub front: Option<ReprPtr<MetaSlot, Link<M>>>,
     pub back: Option<ReprPtr<MetaSlot, Link<M>>>,
@@ -69,7 +81,6 @@ pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///
 /// The cursor points to either a frame or the "ghost" non-element. It points
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
-#[rustc_has_incoherent_inherent_impls]
 pub struct CursorMut<M: AnyFrameMeta + Repr<MetaSlot>> {
     pub list: PPtr<LinkedList<M>>,
     pub current: Option<ReprPtr<MetaSlot, Link<M>>>,
@@ -88,6 +99,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> Default for LinkedList<M> {
     }
 }
 
+/// Representation of a link as stored in the metadata slot.
 pub struct StoredLink {
     pub next: Option<Paddr>,
     pub prev: Option<Paddr>,
@@ -156,7 +168,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> AnyFrameMeta for Link<M> {
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// Gets the number of frames in the linked list.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(s =>
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -175,7 +186,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 
     /// Tells if the linked list is empty.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(b =>
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -193,42 +203,68 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 
     /// Pushes a frame to the front of the linked list.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The new frame must be active, so that it is
+    /// valid to call `into_raw` on it inside of `insert_before`.
+    /// ## Postconditions
+    /// The new frame is inserted at the front of the list, and the cursor is moved to the new frame.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// See [`insert_before`] for the safety guarantees.
     #[verus_spec(
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<LinkedListOwner<M>>,
+            Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
             Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<LinkedList<M>>>,
             Tracked(frame_own): Tracked<&mut UniqueFrameOwner<Link<M>>>,
         requires
             perm.pptr() == ptr,
             perm.is_init(),
-            perm.mem_contents().value().wf(owner),
-            owner.inv(),
-            owner.list_id != 0,
+            perm.mem_contents().value().wf(*old(owner)),
+            old(owner).inv(),
+            old(owner).list_id != 0,
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(),
-            owner.list.len() < usize::MAX,
+            old(owner).list.len() < usize::MAX,
             old(regions).inv(),
             old(regions).slots.contains_key(old(frame_own).slot_index),
             old(regions).slot_owners[old(frame_own).slot_index].in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
+        ensures
+            owner.inv(),
+            owner.list == old(owner).list.insert(0, old(frame_own).meta_own),
+            owner.list_id == old(owner).list_id,
     )]
     pub fn push_front(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
-        proof_with!(Tracked(owner), Tracked(perm) => Tracked(cursor_own));
-        let cursor = Self::cursor_front_mut(ptr);
-        let mut cursor = cursor;
-        let tracked mut cursor_own = cursor_own;
+        let ll = ptr.borrow(Tracked(&perm));
+        let current = ll.front;
+        let tracked mut cursor_own = CursorOwner::front_owner(*owner, perm);
+        let mut cursor = CursorMut { list: ptr, current };
 
         #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
+
+        proof {
+            *owner = cursor_own.list_own;
+        }
     }
 
     /// Pops a frame from the front of the linked list.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list must be non-empty, so that the
+    /// current frame is valid.
+    /// ## Postconditions
+    /// The front frame is removed from the list, and the cursor is moved to the next frame.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// See [`take_current`] for the safety guarantees.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -242,8 +278,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             perm.value().wf(owner),
             owner.inv(),
             old(regions).slots.contains_key(frame_to_index(owner.list[0].paddr)),
+        ensures
+            owner.list.len() == 0 ==> r.is_none(),
+            r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[0]@,
+            r.is_some() ==> r.unwrap().1@.frame_link_inv(),
     )]
-    #[verusfmt::skip]
     pub fn pop_front(ptr: PPtr<Self>) -> Option<(UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>)> {
         assert(owner.list.len() > 0 ==> owner.inv_at(0));
 
@@ -257,42 +296,71 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 
     /// Pushes a frame to the back of the linked list.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The new frame must be active, so that it is
+    /// valid to call `into_raw` on it inside of `insert_before`.
+    /// ## Postconditions
+    /// The new frame is inserted at the back of the list, and the cursor is moved to the new frame.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// See [`insert_before`] for the safety guarantees.
     #[verus_spec(
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<LinkedListOwner<M>>,
+            Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
             Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<LinkedList<M>>>,
             Tracked(frame_own): Tracked<&mut UniqueFrameOwner<Link<M>>>,
         requires
             perm.pptr() == ptr,
             perm.is_init(),
-            perm.mem_contents().value().wf(owner),
-            owner.inv(),
-            owner.list_id != 0,
+            perm.mem_contents().value().wf(*old(owner)),
+            old(owner).inv(),
+            old(owner).list_id != 0,
             old(frame_own).inv(),
             old(frame_own).global_inv(*old(regions)),
             frame.wf(*old(frame_own)),
             old(frame_own).frame_link_inv(),
-            owner.list.len() < usize::MAX,
+            old(owner).list.len() < usize::MAX,
             old(regions).inv(),
             old(regions).slots.contains_key(old(frame_own).slot_index),
             old(regions).slot_owners[old(frame_own).slot_index].in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
+        ensures
+            owner.inv(),
+            old(owner).list.len() > 0 ==> owner.list == old(owner).list.insert(
+                old(owner).list.len() as int - 1, old(frame_own).meta_own),
+            old(owner).list.len() == 0 ==> owner.list == old(owner).list.insert(
+                0, old(frame_own).meta_own),
+            owner.list_id == old(owner).list_id,
     )]
     pub fn push_back(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
-        #[verus_spec(with Tracked(owner), Tracked(perm))]
-        let (cursor, cursor_own) = Self::cursor_back_mut(ptr);
-        let mut cursor = cursor;
-        let mut cursor_own = cursor_own;
+        let ll = ptr.borrow(Tracked(&perm));
+        let current = ll.back;
+        let tracked mut cursor_own = CursorOwner::back_owner(*owner, perm);
+        let mut cursor = CursorMut { list: ptr, current };
 
-        #[verus_spec(with Tracked(regions), Tracked(cursor_own.borrow_mut()), Tracked(frame_own))]
+        #[verus_spec(with Tracked(regions), Tracked(&mut cursor_own), Tracked(frame_own))]
         cursor.insert_before(frame);
+
+        proof {
+            *owner = cursor_own.list_own;
+        }
     }
 
     /// Pops a frame from the back of the linked list.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list must be non-empty, so that the
+    /// current frame is valid.
+    /// ## Postconditions
+    /// The back frame is removed from the list, and the cursor is moved to the "ghost" non-element.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// See [`take_current`] for the safety guarantees.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -306,7 +374,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             perm.mem_contents().value().wf(owner),
             owner.inv(),
             old(regions).slots.contains_key(frame_to_index(owner.list[owner.list.len() - 1].paddr)),
-
+        ensures
+            owner.list.len() == 0 ==> r.is_none(),
+            r.is_some() ==> r.unwrap().0.model(r.unwrap().1@).meta == owner.list[owner.list.len() - 1]@,
+            r.is_some() ==> r.unwrap().1@.frame_link_inv(),
     )]
     pub fn pop_back(ptr: PPtr<Self>) -> Option<(UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>)> {
         assert(owner.list.len() > 0 ==> owner.inv_at(owner.list.len() - 1));
@@ -321,7 +392,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 
     /// Tells if a frame is in the list.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The frame must be a valid, active frame.
+    /// ## Postconditions
+    /// The function returns `true` if the frame is in the list, `false` otherwise.
+    /// ## Safety
+    /// `lazy_get_id` uses atomic memory accesses, so there are no data races. We
+    /// assume that the ID allocator has an available ID if the list previously didn't have one,
+    /// but the consequence if that is not the case is a panic.
+    /// Everything else conforms to the safe interface.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -337,6 +418,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             old(regions).slot_owners[frame_to_index(frame)].in_list.is_for(
                 old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
             ),
+        ensures
+            old(owner).list_id != 0 ==> *owner == *old(owner),
     )]
     pub fn contains(ptr: PPtr<Self>, frame: Paddr) -> bool {
         let Ok(slot_ptr) = get_slot(frame, Tracked(slot_own)) else {
@@ -361,8 +444,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
 
     /// Gets a cursor at the specified frame if the frame is in the list.
     ///
-    /// This method fail if [`Self::contains`] returns `false`.
-    #[rustc_allow_incoherent_impl]
+    /// This method fails if the frame is not in the list.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The frame must be a valid, active frame.
+    /// ## Postconditions
+    /// The cursor is well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list invariants are preserved.
+    /// ## Safety
+    /// `lazy_get_id` uses atomic memory accesses, so there are no data races. We
+    /// assume that the ID allocator has an available ID if the list previously didn't have one,
+    /// but the consequence if that is not the case is a panic.
+    /// Everything else conforms to the safe interface.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -377,6 +471,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             old(regions).slot_owners[frame_to_index(frame)].in_list.is_for(
                 old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
             ),
+        ensures
+            old(owner).list_id != 0 ==> *owner == *old(owner),
     )]
     pub fn cursor_mut_at(ptr: PPtr<Self>, frame: Paddr) -> Option<CursorMut<M>>
     {
@@ -412,7 +508,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// Gets a cursor at the front that can mutate the linked list links.
     ///
     /// If the list is empty, the cursor points to the "ghost" non-element.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects.
+    /// ## Postconditions
+    /// The cursor is well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list invariants are preserved.
+    /// See [`CursorOwner::front_owner_spec`] for the precise specification.
+    /// ## Safety
+    /// This function only uses the list permission, so there are no illegal memory accesses.
+    /// No data races are possible.
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -439,7 +545,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// Gets a cursor at the back that can mutate the linked list links.
     ///
     /// If the list is empty, the cursor points to the "ghost" non-element.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects.
+    /// ## Postconditions
+    /// The cursor is well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list invariants are preserved.
+    /// See [`CursorOwner::back_owner_spec`] for the precise specification.
+    /// ## Safety
+    /// This function only uses the list permission, so there are no illegal memory accesses.
+    /// No data races are possible.
     #[verus_spec(
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -463,7 +579,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 
     /// Gets a cursor at the "ghost" non-element that can mutate the linked list links.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut LinkedListOwner<M>>
     )]
@@ -471,8 +586,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
         CursorMut { list: ptr, current: None }
     }
 
+    /// # Verification Assumption
+    /// We assume that there is an available ID for `lazy_get_id` to return.
+    /// This is safe because it will panic if the ID allocator is exhausted.
     #[verifier::external_body]
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut LinkedListOwner<M>>
     )]
@@ -508,7 +625,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
     /// move it to the first element of the [`LinkedList`]. If it is pointing
     /// to the last element of the LinkedList then this will move it to the
     /// "ghost" non-element.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<CursorOwner<M>>
     )]
@@ -552,7 +668,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
     /// move it to the last element of the [`LinkedList`]. If it is pointing
     /// to the first element of the LinkedList then this will move it to the
     /// "ghost" non-element.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<CursorOwner<M>>
     )]
@@ -622,24 +737,34 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         })
     }
     */
+
     /// Takes the current pointing frame out of the linked list.
     ///
     /// If successful, the frame is returned and the cursor is moved to the
     /// next frame. If the cursor is pointing to the back of the list then it
     /// is moved to the "ghost" non-element.
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The list must be non-empty, so that the
+    /// current frame is valid.
+    /// ## Postconditions
+    /// The current frame is removed from the list, and the cursor is moved to the next frame.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// This function calls `from_raw` on the frame, but we guarantee that the frame is forgotten
+    /// if it is in the list. So, double-free will not occur. All loads and stores are through track
+    /// tracked permissions, so there are no illegal memory accesses. No data races are possible.
     #[verus_spec(
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
             Tracked(owner) : Tracked<&mut CursorOwner<M>>
     )]
-    pub fn take_current(&mut self) -> (res: Option<
-        (UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>),
-    >)
+    pub fn take_current(&mut self) -> (res: Option<(UniqueFrame<Link<M>>, Tracked<UniqueFrameOwner<Link<M>>>)>)
         requires
             old(self).wf(*old(owner)),
             old(owner).inv(),
             old(regions).inv(),
-            old(owner).length() > 0 ==> old(regions).slots.contains_key(
+            old(owner).length() > 0 ==> old(regions).slot_owners.contains_key(
                 frame_to_index(old(self).current.unwrap().addr()),
             ),
         ensures
@@ -682,7 +807,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             update_field!(prev => next <- next_ptr; owner.list_own.perms, owner.index-1);
 
             assert(owner.index > 0);
-            //            assume(owner.list_own.list == LinkedListOwner::update_next(owner0.list_own.list, owner.index-1, owner0.list_own.list[owner.index].next)); /*** KVerus: Help me prove ***/
         } else {
             update_field!(self.list => front <- next_ptr; owner.list_perm);
         }
@@ -711,8 +835,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         update_field!(frame_meta => next <- None; frame_own.meta_perm);
         update_field!(frame_meta => prev <- None; frame_own.meta_perm);
 
-        //        frame.slot().in_list.store(0, Ordering::Relaxed);
-        //        frame.slot().in_list_store(0);
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
+
+        frame.slot().in_list.store(Tracked(&mut slot_own.in_list), 0);
+
+        proof {
+            regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+        }
 
         update_field!(self.list => size -= 1; owner.list_perm);
 
@@ -726,7 +855,19 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
     ///
     /// If the cursor is pointing at the "ghost" non-element then the new
     /// element is inserted at the back of the [`LinkedList`].
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects. The new frame must be active, so that it is
+    /// valid to call `into_raw` on it.
+    /// ## Postconditions
+    /// The new frame is inserted into the list, immediately before the current index.
+    /// The list invariants are preserved.
+    /// ## Safety
+    /// This function calls `into_raw` on the frame, so the caller must ensure that the frame is active and
+    /// has not been forgotten already to avoid a memory leak. If the caller attempts to insert a forgotten frame,
+    /// the invariant around `into_raw` and `from_raw` will be violated. But, it is the safe failure case in that
+    /// it will not cause a double-free.
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(owner): Tracked<&mut CursorOwner<M>>,
@@ -753,6 +894,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             self.model(*owner) == old(self).model(*old(owner)).insert(frame_own.meta_own@),
             self.wf(*owner),
             owner.inv(),
+            owner.list_own.list == old(owner).list_own.list.insert(old(owner).index, old(frame_own).meta_own),
+            owner.list_own.list_id == old(owner).list_own.list_id,
     {
         let ghost owner0 = *owner;
         // The frame can't possibly be in any linked lists since the list will
@@ -837,8 +980,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             )
         }
 
+        assert(regions.inv()) by { admit() };
+
         // Forget the frame to transfer the ownership to the list.
-        //        let _ = frame.into_raw();
+        #[verus_spec(with Tracked(regions))]
+        let _ = frame.into_raw();
 
         update_field!(self.list => size += 1; owner.list_perm);
 

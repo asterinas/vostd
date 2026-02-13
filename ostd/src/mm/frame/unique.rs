@@ -8,6 +8,7 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::undroppable::*;
 
 use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 
@@ -18,6 +19,7 @@ use super::meta::mapping::{
 };
 use super::meta::REF_COUNT_UNIQUE;
 use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::mm::frame::MetaPerm;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::paging_consts::PagingConsts;
 
@@ -180,16 +182,52 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     }
 }
 
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Undroppable for UniqueFrame<M> {
+    type State = MetaRegionOwners;
+
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        &&& s.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& !s.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.inv()
+    }
+
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        &&& !s1.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.inv()
+        &&& s1.slots == s0.slots.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.dropped_slots == s0.dropped_slots.insert(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+            s0.slots[frame_to_index(meta_to_frame(self.ptr.addr()))],
+        )
+        &&& s1.slot_owners == s0.slot_owners
+    }
+
+    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+        let index = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let tracked perm = s.slots.tracked_remove(index);
+        s.dropped_slots.tracked_insert(index, perm);
+    }
+}
+
 impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     /// Gets the physical address of the start of the frame.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(regions) : Tracked<& MetaRegionOwners>
+        with Tracked(perm): Tracked<& vstd::simple_pptr::PointsTo<MetaSlot>>,
+        requires
+            FRAME_METADATA_RANGE.start <= perm.addr() < FRAME_METADATA_RANGE.end,
+            perm.addr() % META_SLOT_SIZE == 0,
+            perm.pptr() == self.ptr,
+            perm.is_init(),
+        returns
+            meta_to_frame(perm.addr()),
     )]
-    #[verifier::external_body]
     pub fn start_paddr(&self) -> Paddr {
-        //        #[verus_spec(with Tracked(&regions))]
+        
+        #[verus_spec(with Tracked(perm))]
         let slot = self.slot();
+
+        #[verus_spec(with Tracked(perm))]
         slot.frame_paddr()
     }
 
@@ -231,6 +269,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
         // access to the frame.
         unsafe { &mut *self.slot().dyn_meta_ptr() }
     }*/
+
+    pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
+        &&& regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& !regions.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& regions.inv()
+    }
+
+    pub open spec fn into_raw_ensures(
+        self,
+        old_regions: MetaRegionOwners,
+        regions: MetaRegionOwners,
+        r: Paddr,
+    ) -> bool {
+        &&& r == meta_to_frame(self.ptr.addr())
+        &&& regions.inv()
+        &&& regions.slots == old_regions.slots.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& regions.dropped_slots == old_regions.dropped_slots.insert(frame_to_index(meta_to_frame(self.ptr.addr())),
+            old_regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))])
+    }
+
     /*
     /// Resets the frame to unused without up-calling the allocator.
     ///
@@ -252,11 +310,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
         unsafe { this.slot().drop_last_in_place() };
     }*/
     /// Converts this frame into a raw physical address.
-    #[rustc_allow_incoherent_impl]
-    #[verifier::external_body]
-    pub(crate) fn into_raw(self) -> Paddr {
-        let this = ManuallyDrop::new(self);
-        this.start_paddr()
+
+    #[verus_spec(r =>
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+        requires
+            Self::into_raw_requires(self, *old(regions)),
+        ensures
+            Self::into_raw_ensures(self, *old(regions), *regions, r),
+    )]
+    pub(crate) fn into_raw(self) -> Paddr
+    {
+        assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr() == self.ptr.addr()) by { admit() };
+        #[verus_spec(with Tracked(regions.slots.tracked_borrow(frame_to_index(meta_to_frame(self.ptr.addr())))))]
+        let paddr = self.start_paddr();
+
+        let _ = NeverDrop::new(self, Tracked(regions));
+
+        paddr
     }
 
     /// Restores a raw physical address back into a unique frame.

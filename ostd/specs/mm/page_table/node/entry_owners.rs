@@ -114,12 +114,12 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// If they are in the page table, their path is consistent.
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
-            &&& !regions.slots.contains_key(frame_to_index(self.meta_slot_paddr()))
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some ==>
-                regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt.unwrap() == self.path
+            &&& !regions.slots.contains_key(frame_to_index(self.meta_slot_paddr().unwrap()))
+            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
+                regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path
         } else if self.is_frame() {
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some ==>
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt.unwrap() == self.path
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
+            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path
         } else {
             true
         }
@@ -128,14 +128,20 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
         returns self.path;
 
-    pub open spec fn meta_slot_paddr(self) -> Paddr {
+    pub open spec fn meta_slot_paddr(self) -> Option<Paddr> {
         if self.is_node() {
-            meta_to_frame(self.node.unwrap().meta_perm.addr())
+            Some(meta_to_frame(self.node.unwrap().meta_perm.addr()))
         } else if self.is_frame() {
-            self.frame.unwrap().mapped_pa
+            Some(self.frame.unwrap().mapped_pa)
         } else {
-            0
+            None
         }
+    }
+
+    pub open spec fn meta_slot_paddr_neq(self, other: Self) -> bool {
+        self.meta_slot_paddr() is Some ==>
+        other.meta_slot_paddr() is Some ==>
+        self.meta_slot_paddr().unwrap() != other.meta_slot_paddr().unwrap()
     }
 
     /// Two nodes satisfying relate_region with the same regions have different addresses
@@ -149,8 +155,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             self.is_node(),
             other.is_node(),
             self.relate_region(regions),
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr())].path_if_in_pt is Some,
-            regions.slot_owners[frame_to_index(other.meta_slot_paddr())].path_if_in_pt is Some,
+            self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some,
+            other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(other.meta_slot_paddr().unwrap())].path_if_in_pt is Some,
             other.relate_region(regions),
             self.path != other.path,
         ensures

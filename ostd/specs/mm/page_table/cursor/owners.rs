@@ -999,6 +999,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         &&& self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions))
     }
 
+    pub open spec fn not_in_tree(self, owner: EntryOwner<C>) -> bool {
+        self.map_full_tree(|owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            owner0.meta_slot_paddr_neq(owner))
+    }
+
+    pub proof fn absent_not_in_tree(self, owner: EntryOwner<C>)
+        requires
+            self.inv(),
+            owner.is_absent(),
+        ensures
+            self.not_in_tree(owner),
+    {
+        admit()
+    }
+
     pub proof fn relate_region_preserved(self, other: Self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
         requires
             self.inv(),

@@ -399,14 +399,12 @@ impl<M: AnyFrameMeta> Frame<M> {
         &&& r.paddr() == paddr
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
         &&& regions.slots.contains_key(self.index())
         &&& !regions.dropped_slots.contains_key(self.index())
         &&& regions.inv()
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn into_raw_ensures(
         self,
         regions: MetaRegionOwners,
@@ -428,7 +426,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    #[rustc_allow_incoherent_impl]
     pub fn start_paddr(&self) -> Paddr
         requires
             perm.addr() == self.ptr.addr(),
@@ -546,7 +543,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         ensures
             Self::into_raw_ensures(self, *regions, r, frame_perm@),
     )]
-    #[rustc_allow_incoherent_impl]
     pub fn into_raw(self) -> Paddr {
         assert(regions.slots[self.index()].addr() == self.paddr()) by { admit() };
 
@@ -558,8 +554,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
 
         let tracked meta_perm = PointsTo::<MetaSlot, M>::new(Ghost(self.ptr.addr()), perm);
 
-        // TODO: implement ManuallyDrop
-        // let this = ManuallyDrop::new(self);
+        let this = NeverDrop::new(self, Tracked(regions));
 
         proof_with!(|= Tracked(meta_perm));
         paddr
