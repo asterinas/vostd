@@ -14,6 +14,50 @@ use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 
 verus! {
 
+impl<M: AnyFrameMeta + Repr<MetaSlot>> Repr<MetaSlot> for Link<M> {
+    uninterp spec fn wf(r: MetaSlot) -> bool;
+
+    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+
+    #[verifier::external_body]
+    fn to_repr(self) -> MetaSlot {
+        unimplemented!()
+    }
+
+    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
+
+    #[verifier::external_body]
+    fn from_repr(r: MetaSlot) -> Self {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
+        unimplemented!()
+    }
+
+    proof fn from_to_repr(self)
+        ensures
+            Self::from_repr(self.to_repr()) == self,
+    {
+        admit();
+    }
+
+    proof fn to_from_repr(r: MetaSlot)
+        ensures
+            Self::from_repr(r).to_repr() == r,
+    {
+        admit();
+    }
+
+    proof fn to_repr_wf(self)
+        ensures
+            <Self as Repr<MetaSlot>>::wf(self.to_repr()),
+    {
+        admit();
+    }
+}
+
 pub ghost struct LinkModel {
     pub paddr: Paddr,
 }
@@ -221,25 +265,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> InvView for LinkedListOwner<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedListOwner<M> {
-    /*    pub open spec fn update_prev(links: Seq<LinkOwner<M>>, i: int, prev: Option<PPtr<Link<M>>>) -> Seq<LinkOwner<M>> {
-        let link = links[i];
-        let new_link = LinkOwner::<M> { prev: prev, ..link };
-        links.update(i, new_link)
-    }
-
-    pub open spec fn update_next(
-        links: Seq<LinkOwner<M>>,
-        i: int,
-        next: Option<PPtr<Link<M>>>,
-    ) -> Seq<LinkOwner<M>> {
-        let link = links[i];
-        let new_link = LinkOwner::<M> { next: next, ..link };
-        links.update(i, new_link)
-    }*/
-
-}
-
 impl<M: AnyFrameMeta + Repr<MetaSlot>> OwnerOf for LinkedList<M> {
     type Owner = LinkedListOwner<M>;
 
@@ -345,14 +370,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorOwner<M> {
         }
     }
 
-    #[verifier::external_body]
-    pub fn list_insert(
-        Tracked(cursor): Tracked<&mut Self>,
-        Tracked(link): Tracked<&mut LinkOwner>,
-        Tracked(perm): Tracked<&vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>>,
+    pub axiom fn list_insert(
+        tracked cursor: &mut Self,
+        tracked link: &mut LinkOwner,
+        tracked perm: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>,
     )
         ensures
-            cursor.list_own.list == old(cursor).list_own.list.insert(old(cursor).index, *old(link)),
+            link.paddr == old(link).paddr,
+            link.in_list == cursor.list_own.list_id,
+            cursor.list_own.list == old(cursor).list_own.list.insert(old(cursor).index, *link),
             cursor.list_own.list_id == old(cursor).list_own.list_id,
             forall|idx: int| 0 <= idx < cursor.length() ==> cursor.list_own.perms.contains_key(idx),
             forall|idx: int|
@@ -364,11 +390,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorOwner<M> {
                     == old(cursor).list_own.perms[idx - 1],
             cursor.list_own.perms[old(cursor).index] == perm,
             cursor.index == old(cursor).index + 1,
-            cursor.list_perm == old(cursor).list_perm,
-            *link == *old(link),
-    {
-        unimplemented!()
-    }
+            cursor.list_perm == old(cursor).list_perm;
 
     pub open spec fn front_owner_spec(
         list_own: LinkedListOwner<M>,

@@ -15,9 +15,9 @@ use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot};
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
 use super::meta::mapping::{
-    frame_to_index, frame_to_meta, max_meta_slots, meta_to_frame, META_SLOT_SIZE,
+    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
 };
-use super::meta::REF_COUNT_UNIQUE;
+use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
 use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::mm::frame::MetaPerm;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -49,6 +49,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Inv for UniqueFrameOwner<M> {
         &&& self.slot_index < max_meta_slots()
         &&& (self.slot_index - FRAME_METADATA_RANGE.start) as usize % META_SLOT_SIZE == 0
         &&& self.meta_perm.addr() < FRAME_METADATA_RANGE.start + MAX_NR_PAGES * META_SLOT_SIZE
+        &&& self.meta_perm.addr() == meta_addr(self.slot_index)
     }
 }
 
@@ -97,6 +98,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.dropped_slots.contains_key(self.slot_index) ==> self.perm_inv(
             regions.dropped_slots[self.slot_index],
         )
+        &&& regions.slot_owners.contains_key(self.slot_index) ==> {
+            &&& regions.slot_owners[self.slot_index].ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[self.slot_index].ref_count.value() != 0
+        }
     }
 
     pub proof fn from_raw_owner(

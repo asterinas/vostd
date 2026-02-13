@@ -14,6 +14,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::ptr_extra::*;
 
 use crate::mm::frame::meta::mapping::frame_to_meta;
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::{UniqueFrame, UniqueFrameOwner};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -106,50 +107,6 @@ pub struct StoredLink {
     pub slot: MetaSlot,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> Repr<MetaSlot> for Link<M> {
-    uninterp spec fn wf(r: MetaSlot) -> bool;
-
-    uninterp spec fn to_repr_spec(self) -> MetaSlot;
-
-    #[verifier::external_body]
-    fn to_repr(self) -> MetaSlot {
-        unimplemented!()
-    }
-
-    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlot) -> Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self)
-        ensures
-            Self::from_repr(self.to_repr()) == self,
-    {
-        admit();
-    }
-
-    proof fn to_from_repr(r: MetaSlot)
-        ensures
-            Self::from_repr(r).to_repr() == r,
-    {
-        admit();
-    }
-
-    proof fn to_repr_wf(self)
-        ensures
-            <Self as Repr<MetaSlot>>::wf(self.to_repr()),
-    {
-        admit();
-    }
-}
-
 impl<M: AnyFrameMeta + Repr<MetaSlot>> AnyFrameMeta for Link<M> {
     fn on_drop(&mut self) {
     }
@@ -237,8 +194,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             ),
         ensures
             owner.inv(),
-            owner.list == old(owner).list.insert(0, old(frame_own).meta_own),
+            owner.list == old(owner).list.insert(0, frame_own.meta_own),
             owner.list_id == old(owner).list_id,
+            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
+            frame_own.meta_own.in_list == old(owner).list_id,
     )]
     pub fn push_front(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
         let ll = ptr.borrow(Tracked(&perm));
@@ -331,10 +290,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
         ensures
             owner.inv(),
             old(owner).list.len() > 0 ==> owner.list == old(owner).list.insert(
-                old(owner).list.len() as int - 1, old(frame_own).meta_own),
+                old(owner).list.len() as int - 1, frame_own.meta_own),
             old(owner).list.len() == 0 ==> owner.list == old(owner).list.insert(
-                0, old(frame_own).meta_own),
+                0, frame_own.meta_own),
             owner.list_id == old(owner).list_id,
+            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
+            frame_own.meta_own.in_list == old(owner).list_id,
     )]
     pub fn push_back(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
         let ll = ptr.borrow(Tracked(&perm));
@@ -894,14 +855,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             self.model(*owner) == old(self).model(*old(owner)).insert(frame_own.meta_own@),
             self.wf(*owner),
             owner.inv(),
-            owner.list_own.list == old(owner).list_own.list.insert(old(owner).index, old(frame_own).meta_own),
+            owner.list_own.list == old(owner).list_own.list.insert(old(owner).index, frame_own.meta_own),
             owner.list_own.list_id == old(owner).list_own.list_id,
+            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
+            frame_own.meta_own.in_list == old(owner).list_own.list_id,
     {
         let ghost owner0 = *owner;
-        // The frame can't possibly be in any linked lists since the list will
-        // own the frame so there can't be any unique pointers to it.
-        assert(meta_addr(frame_own.slot_index) == frame.ptr.addr()) by { admit() };
 
+        assert(meta_addr(frame_own.slot_index) == frame.ptr.addr());
         assert(regions.slot_owners.contains_key(frame_own.slot_index));
         let tracked slot_own = regions.slot_owners.tracked_borrow(frame_own.slot_index);
 
@@ -974,13 +935,30 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         );
 
         proof {
+            // The store only changed in_list.value(); ref_count is unchanged.
+            // From global_inv: ref_count != REF_COUNT_UNUSED && ref_count != 0.
+            // So slot_own.inv() holds after the store.
+            assert(frame_own.slot_index == frame_to_index(meta_to_frame(frame.ptr.addr())));
+            assert(slot_own.ref_count.value() != REF_COUNT_UNUSED);
+            assert(slot_own.ref_count.value() != 0);
+            assert(slot_own.inv());
+
             regions.slot_owners.tracked_insert(
                 frame_to_index(meta_to_frame(frame.ptr.addr())),
                 slot_own
             )
         }
 
-        assert(regions.inv()) by { admit() };
+        assert(regions.inv()) by {
+            // slot_owners only changed at frame_own.slot_index.
+            // For all other keys, the invariant is preserved from old(regions).inv().
+            // For the modified key, we proved slot_own.inv() above.
+            assert(forall|i: usize| #[trigger]
+                regions.slot_owners.contains_key(i) ==> regions.slot_owners[i].inv());
+            assert(forall|i: usize| #[trigger]
+                regions.slots.contains_key(i) ==>
+                    regions.slots[i].value().wf(regions.slot_owners[i]));
+        };
 
         // Forget the frame to transfer the ownership to the list.
         #[verus_spec(with Tracked(regions))]
@@ -988,14 +966,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         update_field!(self.list => size += 1; owner.list_perm);
 
-        // TODO: these broke, figure out why (it's related to meta-frame conversions)
-        assert(forall|i: int| 0 <= i < owner.index - 1 ==> owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by {};
-        assert(forall|i: int| owner.index <= i < owner.length() ==> owner0.list_own.inv_at(i - 1) == owner.list_own.inv_at(i)) by { admit() };
-
         proof {
-            // TODO: likewise
-            assert(owner.list_own.list == owner0.list_own.list.insert(owner0.index, frame_own.meta_own)) by { admit() };
-            owner0.insert_owner_spec_implies_model_spec(frame_own.meta_own, *owner);
+        // Perform the ghost insertion of the new link into the tracked sequence.
+        CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own, &frame_own.meta_perm);
+
+        assert(forall|i: int| 0 <= i < owner.index - 1 ==> owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by {};
+        assert(forall|i: int| owner.index <= i < owner.length() ==> owner0.list_own.inv_at(i - 1) == owner.list_own.inv_at(i)) by {};
+        assert(owner.list_own.inv_at(owner0.index as int));
+
+        assert(owner.list_own.list == owner0.list_own.list.insert(owner0.index, frame_own.meta_own));
+        owner0.insert_owner_spec_implies_model_spec(frame_own.meta_own, *owner);
         }
     }
 

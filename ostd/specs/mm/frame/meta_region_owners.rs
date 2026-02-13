@@ -24,6 +24,24 @@ verus! {
 /// Cell<MetaSlot> at a fixed address range.
 pub struct MetaRegion;
 
+/// Represents the ownership of the meta-frame memory region.
+/// # Verification Strategy
+/// ## Slot owners
+/// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
+/// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
+/// in use.
+/// ## Slot permissions
+/// Active slots, meaning slots that have not been forgotten, have their permission tracked in `slots`.
+/// Forgotten slots may have their permission tracked in `dropped_slots`, although other code is allowed to
+/// take those permissions and thus take ownership of the slot (and the frame that it represents).
+/// ## Safety
+/// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
+/// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
+/// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
+/// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
+/// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
+/// To avoid the case where `ManuallyDrop::drop` is used instead of `into_raw`, we have a custom wrapper
+/// `NeverDrop` that does not expose the `drop` method.
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub dropped_slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
