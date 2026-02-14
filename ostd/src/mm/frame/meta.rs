@@ -289,7 +289,6 @@ impl Repr<MetaSlot> for MetaSlotStorage {
     }
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub struct MetaSlot {
     pub storage: PPtr<MetaSlotStorage>,
     pub ref_count: PAtomicU64,

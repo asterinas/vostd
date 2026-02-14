@@ -74,11 +74,8 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, Paddr, PagingLevel, Vaddr, MAX_PADDR};
-use crate::specs::arch::{
-    kspace::VMALLOC_BASE_VADDR,
-    mm::{MAX_NR_PAGES, PAGE_SIZE},
-};
+use crate::mm::{kspace::{LINEAR_MAPPING_BASE_VADDR,VMALLOC_BASE_VADDR}, Paddr, PagingLevel, Vaddr, MAX_PADDR};
+use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -99,7 +96,6 @@ pub type MetaPerm<M> = cast_ptr::PointsTo<MetaSlot, M>;
 /// determines the kind of the frame. If `M` implements [`AnyUFrameMeta`], the
 /// frame is a untyped frame. Otherwise, it is a typed frame.
 #[repr(transparent)]
-#[rustc_has_incoherent_inherent_impls]
 pub struct Frame<M: AnyFrameMeta> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,

@@ -291,7 +291,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// Predicate: all nodes in the tree have their paths tracked in regions
     pub open spec fn path_tracked_pred(regions: MetaRegionOwners)
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
-    {   
+    {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             &&& entry.meta_slot_paddr() is Some
             &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))

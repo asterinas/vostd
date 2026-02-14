@@ -4,7 +4,6 @@ verus! {
 
 #[verifier::ext_equal]
 #[derive(Clone, Copy, PartialEq, Eq)]
-#[rustc_has_incoherent_inherent_impls]
 pub struct PageProperty {
     /// The flags associated with the page,
     pub flags: PageFlags,

@@ -31,7 +31,6 @@ verus! {
 /// All the metadata of the frames are homogeneous, i.e., they are of the same
 /// type.
 #[repr(transparent)]
-#[rustc_has_incoherent_inherent_impls]
 pub struct Segment<M: AnyFrameMeta + ?Sized> {
     /// The physical address range of the segment.
     pub range: Range<Paddr>,

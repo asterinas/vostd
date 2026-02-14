@@ -25,7 +25,6 @@ use crate::specs::arch::paging_consts::PagingConsts;
 
 verus! {
 
-#[rustc_has_incoherent_inherent_impls]
 pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,

@@ -74,7 +74,6 @@ pub type PagesState<C> = (Range<Vaddr>, Option<<C as PageTableConfig>::Item>);
 ///
 /// A cursor is able to move to the next slot, to read page properties,
 /// and even to jump to a virtual address directly.
-#[rustc_has_incoherent_inherent_impls]
 pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
     /// The current path of the cursor.
     ///
@@ -102,7 +101,6 @@ pub struct Cursor<'rcu, C: PageTableConfig, A: InAtomicMode> {
 /// page table corresponding to the address range. A virtual address range
 /// in a page table can only be accessed by one cursor, regardless of the
 /// mutability of the cursor.
-#[rustc_has_incoherent_inherent_impls]
 pub struct CursorMut<'rcu, C: PageTableConfig, A: InAtomicMode> {
     pub inner: Cursor<'rcu, C, A>,
 }
@@ -1636,6 +1634,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.tree_predicate_map(new_owner.value.path, 
                 CursorOwner::<'rcu, C>::node_unlocked(*guards)));
+
+            // This will follow from the region property
+            assert(owner.map_full_tree(|entry_owner: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry_owner.meta_slot_paddr() != new_owner.value.meta_slot_paddr())) by { admit() };
         }
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]

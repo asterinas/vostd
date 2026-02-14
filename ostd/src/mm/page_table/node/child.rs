@@ -27,7 +27,6 @@ use super::*;
 verus! {
 
 /// A page table entry that owns the child of a page table node if present.
-#[rustc_has_incoherent_inherent_impls]
 pub enum Child<C: PageTableConfig> {
     /// A child page table node.
     pub PageTable(PageTableNode<C>),
@@ -62,7 +61,6 @@ impl<C: PageTableConfig> Child<C> {
 }
 
 /// A reference to the child of a page table node.
-#[rustc_has_incoherent_inherent_impls]
 pub enum ChildRef<'a, C: PageTableConfig> {
     /// A child page table node.
     PageTable(PageTableNodeRef<'a, C>),

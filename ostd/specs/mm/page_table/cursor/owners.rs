@@ -330,7 +330,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
 }
 
-#[rustc_has_incoherent_inherent_impls]
 pub tracked struct CursorOwner<'rcu, C: PageTableConfig> {
     pub level: PagingLevel,
     pub continuations: Map<int, CursorContinuation<'rcu, C>>,
