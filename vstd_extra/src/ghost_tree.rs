@@ -466,6 +466,42 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
+    /// Proves `tree_predicate_map(self, path, g)` from two source predicates `f1`, `f2`,
+    /// and the implication `forall |v, p| v.inv() && f1(v, p) && f2(v, p) ==> g(v, p)`.
+    pub proof fn map_implies_and(
+        self,
+        path: TreePath<N>,
+        f1: spec_fn(T, TreePath<N>) -> bool,
+        f2: spec_fn(T, TreePath<N>) -> bool,
+        g: spec_fn(T, TreePath<N>) -> bool,
+    )
+        requires
+            self.inv(),
+            Self::implies(|v: T, p: TreePath<N>| f1(v, p) && f2(v, p), g),
+            Self::tree_predicate_map(self, path, f1),
+            Self::tree_predicate_map(self, path, f2),
+        ensures
+            Self::tree_predicate_map(self, path, g),
+        decreases L - self.level,
+    {
+        if self.level < L - 1 {
+            assert forall|i: int|
+                #![trigger self.children[i]->Some_0]
+                0 <= i < self.children.len()
+                    && self.children[i] is Some implies self.children[i]->Some_0.tree_predicate_map(
+                path.push_tail(i as usize),
+                g,
+            ) by {
+                self.children[i]->Some_0.map_implies_and(
+                    path.push_tail(i as usize),
+                    f1,
+                    f2,
+                    g,
+                );
+            }
+        }
+    }
+
     pub open spec fn inv_node(self) -> bool {
         &&& self.value.inv()
         &&& self.value.la_inv(self.level)

@@ -120,11 +120,11 @@ impl<M: AnyFrameMeta> Undroppable for Frame<M> {
         &&& !s1.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s1.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s0.slot_owners == s1.slot_owners
-        &&& forall|i: usize|
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s0.dropped_slots[i]
-                == s1.dropped_slots[i] && s0.slots[i] == s1.slots[i]
-        &&& s1.dropped_slots[frame_to_index(meta_to_frame(self.ptr.addr()))]
-            == s0.slots[frame_to_index(meta_to_frame(self.ptr.addr()))]
+        &&& s1.slots == s0.slots.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s1.dropped_slots == s0.dropped_slots.insert(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+            s0.slots[frame_to_index(meta_to_frame(self.ptr.addr()))],
+        )
         &&& s1.inv()
     }
 

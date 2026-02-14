@@ -142,6 +142,10 @@ impl<C: PageTableConfig> Child<C> {
             res.paddr() < MAX_PADDR,
             owner.match_pte(res, owner.parent_level),
             owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
+            regions.slot_owners =~= old(regions).slot_owners,
+            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(
+                frame_to_index(owner.meta_slot_paddr().unwrap())),
+            !owner.is_node() ==> *regions =~= *old(regions),
     {
         proof {
             C::E::new_properties();
@@ -195,6 +199,11 @@ impl<C: PageTableConfig> Child<C> {
                 *regions,
             ),
             entry_own.relate_region(*regions),
+            regions.slot_owners =~= old(regions).slot_owners,
+            !entry_own.is_node() ==> *regions =~= *old(regions),
+            entry_own.is_node() ==> forall|i: usize|
+                i != frame_to_index(entry_own.meta_slot_paddr().unwrap()) ==>
+                (regions.slots.contains_key(i) == old(regions).slots.contains_key(i)),
     {
         if !pte.is_present() {
             return Child::None;
