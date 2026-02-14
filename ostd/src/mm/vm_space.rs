@@ -1018,6 +1018,9 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// ## Postconditions
     /// If the cursor is valid, the result of the lookup is given by [`query_success_ensures`](Self::query_success_ensures).
     /// The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
+    /// ## Safety
+    /// This function preserves all memory invariants.
+    /// The locking mechanism prevents data races.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1052,9 +1055,21 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Otherwise, it will return `None`. And the cursor may stop at any
     /// address after `len` bytes.
     ///
-    /// # Panics
-    ///
-    /// Panics if the length is longer than the remaining range of the cursor.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be within the locked range and below the guard level.
+    /// The length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// ## Postconditions
+    /// If the cursor is valid, it will move the cursor to the next mapped address and return it.
+    /// If the cursor is not valid, it will return `None`. The cursor may stop at any
+    /// address after `len` bytes, but it will not move past the barrier address.
+    /// ## Panics
+    /// This method panics if the length is longer than the remaining range of the cursor.
+    /// ## Safety
+    /// This function preserves all memory invariants.
+    /// Because it panics rather than move the cursor to an invalid address,
+    /// it ensures that the cursor is safe to use after the call.
+    /// The locking mechanism prevents data races.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1080,6 +1095,22 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     }
 
     /// Jump to the virtual address.
+    ///
+    /// This function will move the cursor to the given virtual address.
+    /// If the target address is not in the locked range, it will return an error.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be within the locked range and below the guard level.
+    /// ## Postconditions
+    /// If the target address is in the locked range, it will move the cursor to the given address.
+    /// If the target address is not in the locked range, it will return an error.
+    /// ## Panics
+    /// This method panics if the target address is not aligned to the page size.
+    /// ## Safety
+    /// This function preserves all memory invariants.
+    /// Because it throws an error rather than move the cursor to an invalid address,
+    /// it ensures that the cursor is safe to use after the call.
+    /// The locking mechanism prevents data races.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1317,12 +1348,20 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
+    /// # Verified Properties
     /// ## Preconditions
-    /// The cursor must be within the locked range and below the guard level, and the frame must fit within the remaining range of the cursor.
+    /// The cursor must be within the locked range and below the guard level,
+    /// and the frame must fit within the remaining range of the cursor.
     /// The cursor must satisfy all invariants, and the frame must be well-formed when converted into a `MappedItem` ([`map_item_requires`](Self::map_item_requires)).
     /// ## Postconditions
     /// After the call, the cursor will satisfy all invariants, and will map the frame into the current slot according to [`map_spec`](CursorView::map_spec).
     /// After the call, the TLB will not contain any entries for the virtual address range being mapped (TODO).
+    /// ## Safety
+    /// The preconditions of this function require that the frame to be mapped is disjoint from any other mapped frames.
+    /// If this is not the case, the global memory invariants will be violated. If the allocator implementation is correct,
+    /// the user shouldn't be able to create such a frame object in the first place, but currently a proof of that is
+    /// outside of the verification boundary.
+    /// Because this function flushes the TLB if it unmaps a page, it preserves TLB consistency.
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
