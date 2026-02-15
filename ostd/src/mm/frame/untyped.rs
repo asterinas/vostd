@@ -9,6 +9,7 @@ use vstd::prelude::*;
 
 use super::*;
 use crate::mm::io::{VmReader, VmWriter};
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 
 verus! {
 

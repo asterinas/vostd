@@ -21,7 +21,7 @@ pub trait Undroppable {
     ;
 }
 
-pub struct NeverDrop<T: Undroppable>(pub ManuallyDrop<T>);
+pub struct NeverDrop<T: Undroppable>(pub T);
 
 impl<T: Undroppable> NeverDrop<T> {
     #[verifier::external_body]
@@ -30,12 +30,12 @@ impl<T: Undroppable> NeverDrop<T> {
             t.constructor_requires(*old(s)),
         ensures
             t.constructor_ensures(*old(s), *s),
-            res.0@ == t,
+            res.0 == t,
     {
         proof {
             t.constructor_spec(s);
         }
-        Self(ManuallyDrop::new(t))
+        Self(t)
     }
 }
 
@@ -45,7 +45,7 @@ impl<T: Undroppable> Deref for NeverDrop<T> {
     #[verifier::external_body]
     fn deref(&self) -> (res: &Self::Target)
         ensures
-            res == manually_drop_deref_spec(&self.0),
+            res == &self.0,
     {
         &self.0
     }
@@ -55,7 +55,7 @@ impl<T: Undroppable> View for NeverDrop<T> {
     type V = T;
 
     open spec fn view(&self) -> (res: Self::V) {
-        *manually_drop_deref_spec(&self.0)
+        self.0
     }
 }
 

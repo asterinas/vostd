@@ -397,18 +397,26 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorOwner<M> {
         CursorOwner::<M> { list_own: list_own, list_perm: list_perm, index: 0 }
     }
 
+    pub open spec fn cursor_mut_at_owner_spec(
+        list_own: LinkedListOwner<M>,
+        list_perm: PointsTo<LinkedList<M>>,
+        index: int,
+    ) -> Self {
+        CursorOwner::<M> { list_own: list_own, list_perm: list_perm, index: index }
+    }
+
     #[verifier::returns(proof)]
-    #[verifier::external_body]
-    pub proof fn front_owner(
+    pub axiom fn cursor_mut_at_owner(list_own: LinkedListOwner<M>, list_perm: PointsTo<LinkedList<M>>, index: int) -> Self
+        returns Self::cursor_mut_at_owner_spec(list_own, list_perm, index);
+
+    #[verifier::returns(proof)]
+    pub axiom fn front_owner(
         list_own: LinkedListOwner<M>,
         list_perm: PointsTo<LinkedList<M>>,
     ) -> (res: Self)
         ensures
-            res == Self::front_owner_spec(list_own, list_perm),
-    {
-        CursorOwner::<M> { list_own: list_own, list_perm: list_perm, index: 0 }
-    }
-
+            res == Self::front_owner_spec(list_own, list_perm);
+    
     pub open spec fn back_owner_spec(
         list_own: LinkedListOwner<M>,
         list_perm: PointsTo<LinkedList<M>>,

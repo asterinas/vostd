@@ -25,7 +25,7 @@ verus! {
 pub struct MetaRegion;
 
 /// Represents the ownership of the meta-frame memory region.
-/// # Verification Strategy
+/// # Verification Design
 /// ## Slot owners
 /// Every metadata slot has its owner ([`MetaSlotOwner`]) tracked by the `slot_owners` map at all times.
 /// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is

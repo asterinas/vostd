@@ -85,7 +85,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
         match self {
             Self::PageTable(node) => {
                 &&& owner.is_node()
-                &&& manually_drop_deref_spec(&node.inner.0).ptr.addr()
+                &&& node.inner.0.ptr.addr()
                     == owner.node.unwrap().meta_perm.addr()
             },
             Self::Frame(paddr, level, prop) => {
@@ -266,7 +266,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
 
-            assert(manually_drop_deref_spec(&node.inner.0).ptr.addr()
+            assert(node.inner.0.ptr.addr()
                 == entry_owner.node.unwrap().meta_perm.addr());
 
             proof {

@@ -8,7 +8,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
-use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, has_safe_slot};
 use crate::mm::frame::MetaPerm;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
@@ -29,7 +29,7 @@ pub struct FrameRef<'a, M: AnyFrameMeta> {
 impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
     type Target = Frame<M>;
 
-    #[verus_spec(ensures returns manually_drop_deref_spec(&self.inner.0))]
+    #[verus_spec(ensures returns &self.inner.0)]
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
@@ -39,33 +39,44 @@ impl<M: AnyFrameMeta> Deref for FrameRef<'_, M> {
 impl<M: AnyFrameMeta> FrameRef<'_, M> {
     /// Borrows the [`Frame`] at the physical address as a [`FrameRef`].
     ///
-    /// # Safety
-    ///
-    /// The caller must ensure that:
-    ///  - the frame outlives the created reference, so that the reference can
-    ///    be seen as borrowed from that frame.
-    ///  - the type of the [`FrameRef`] (`M`) matches the borrowed frame.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The raw frame address must be well-formed (`has_safe_slot(raw)`).
+    /// ## Postconditions
+    /// The result points to the frame at the physical address, and the metadata region is unchanged.
+    /// ## Safety
+    /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame 
+    /// has that type and that the `FrameRef` will be useless if it outlives the frame.
+    /// This is an internal function, so it is fine to depend on `has_safe_slot(raw)`.
+    /// ## Verification Issues
+    /// Currently we cannot provide the underlying `PointsTo<MetaSlot>` permission needed by
+    /// `Frame::from_raw` without breaking Verus' ability to reason about its lifetime.
+    /// But we immediately take that permission back, so it must be fine. The solution is to overhaul
+    /// `MetaPerm` to allow us to take and restore the underlying permission.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<&MetaPerm<M>>,
+            Tracked(perm): Tracked<&MetaPerm<M>>
         requires
-            raw % PAGE_SIZE == 0,
-            raw < MAX_PADDR,
+            has_safe_slot(raw),
             !old(regions).slots.contains_key(frame_to_index(raw)),
             old(regions).inv(),
         ensures
             regions.inv(),
-            manually_drop_deref_spec(&r.inner.0).ptr.addr() == frame_to_meta(raw),
+            r.inner.0.ptr.addr() == frame_to_meta(raw),
             regions.slots =~= old(regions).slots,
             regions.slot_owners =~= old(regions).slot_owners,
             regions.dropped_slots =~= old(regions).dropped_slots,
     )]
     #[verifier::external_body]
-    pub fn borrow_paddr(raw: Paddr) -> Self {
+    pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
         #[verus_spec(with Tracked(regions), Tracked(perm))]
         let frame = Frame::from_raw(raw);
 
+        proof {
+            Frame::lemma_from_raw_neverdrop_inverse(raw, frame, *old(regions), *regions);
+        }
+        
         Self { inner: NeverDrop::new(frame, Tracked(regions)), _marker: PhantomData }
     }
 }

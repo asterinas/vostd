@@ -19,6 +19,7 @@ use crate::mm::frame::{UniqueFrame, UniqueFrameOwner};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
+use crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -32,7 +33,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
-use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot, has_safe_slot};
 
 verus! {
 
@@ -371,7 +372,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
         requires
             slot_own.inv(),
-            slot_own.self_addr == frame_to_meta(frame),
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(frame)),
             old(regions).slots[frame_to_index(frame)].is_init(),
@@ -383,7 +383,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
             old(owner).list_id != 0 ==> *owner == *old(owner),
     )]
     pub fn contains(ptr: PPtr<Self>, frame: Paddr) -> bool {
-        let Ok(slot_ptr) = get_slot(frame, Tracked(slot_own)) else {
+        let Ok(slot_ptr) = get_slot(frame) else {
             return false;
         };
 
@@ -409,10 +409,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// # Verified Properties
     /// ## Preconditions
     /// The list must be well-formed, with the pointers to its links' metadata slots
-    /// matching the tracked permission objects. The frame must be a valid, active frame.
+    /// matching the tracked permission objects.
+    /// The frame should be raw (because it is owned by the list)
     /// ## Postconditions
-    /// The cursor is well-formed, with the pointers to its links' metadata slots
-    /// matching the tracked permission objects. The list invariants are preserved.
+    /// This functions post-conditions are incomplete due to refactoring of the permission model.
+    /// When complete, it will guarantee that the cursor is well-formed and points to the matching
+    /// element in the list.
     /// ## Safety
     /// `lazy_get_id` uses atomic memory accesses, so there are no data races. We
     /// assume that the ID allocator has an available ID if the list previously didn't have one,
@@ -421,49 +423,58 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(owner): Tracked<&mut LinkedListOwner<M>>,
+            Tracked(owner): Tracked<LinkedListOwner<M>>,
+            Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<LinkedList<M>>>,
+            -> cursor_owner: Tracked<Option<CursorOwner<M>>>,
         requires
             old(regions).inv(),
-            frame < MAX_PADDR,
-            frame % PAGE_SIZE == 0,
-            old(regions).slots.contains_key(frame_to_index(frame)),
-            old(regions).slots[frame_to_index(frame)].is_init(),
-            old(regions).slot_owners.contains_key(frame_to_index(frame)),
+            old(regions).dropped_slots.contains_key(frame_to_index(frame)),
+            old(regions).dropped_slots[frame_to_index(frame)].is_init(),
             old(regions).slot_owners[frame_to_index(frame)].in_list.is_for(
-                old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
+                old(regions).dropped_slots[frame_to_index(frame)].mem_contents().value().in_list,
             ),
         ensures
-            old(owner).list_id != 0 ==> *owner == *old(owner),
+//            has_safe_slot(frame) && owner.list_id != 0 ==> r is Some,
+            !has_safe_slot(frame) ==> r is None,
     )]
     pub fn cursor_mut_at(ptr: PPtr<Self>, frame: Paddr) -> Option<CursorMut<M>>
     {
-        let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(frame));
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(frame));
 
-        let Ok(slot_ptr) = get_slot(frame, Tracked(&slot_own)) else {
-            return None;
-        };
+        if let Ok(slot_ptr) = get_slot(frame) {
+            let slot = slot_ptr.borrow(Tracked(&regions.dropped_slots.tracked_borrow(frame_to_index(frame))));
+            let in_list = slot.in_list.load(Tracked(&mut slot_own.in_list));
 
-        let slot = slot_ptr.borrow(Tracked(&slot_perm));
-        let in_list = slot.in_list.load(Tracked(&mut slot_own.in_list));
-        let contains = in_list == #[verus_spec(with Tracked(owner))]
-        Self::lazy_get_id(ptr);
+            let contains = in_list == #[verus_spec(with Tracked(&owner))]
+            Self::lazy_get_id(ptr);
 
-        #[verus_spec(with Tracked(&slot_perm))]
-        let meta_ptr = slot.as_meta_ptr::<Link<M>>();
+            #[verus_spec(with Tracked(&regions.dropped_slots.tracked_borrow(frame_to_index(frame))))]
+            let meta_ptr = slot.as_meta_ptr::<Link<M>>();
 
-        let res = if contains {
-            Some(CursorMut { list: ptr, current: Some(meta_ptr) })
+            if contains {
+                proof {
+                    regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
+                }
+
+                let ghost link = owner.list.filter(|link: LinkOwner| link.paddr == frame).first();
+                let ghost index = owner.list.index_of(link);
+                let tracked cursor_owner = CursorOwner::cursor_mut_at_owner(owner, perm, index);
+
+                proof_with!(|= Tracked(Some(cursor_owner)));
+                Some(CursorMut { list: ptr, current: Some(meta_ptr) })
+            } else {
+                proof {
+                    regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
+                }
+
+                proof_with!(|= Tracked(None));
+                None    
+            }
         } else {
+            assert(!has_safe_slot(frame));
+            proof_with!(|= Tracked(None));
             None
-        };
-
-        proof {
-            regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
-            regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
         }
-
-        res
     }
 
     /// Gets a cursor at the front that can mutate the linked list links.
@@ -552,11 +563,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// This is safe because it will panic if the ID allocator is exhausted.
     #[verifier::external_body]
     #[verus_spec(
-        with Tracked(owner): Tracked<&mut LinkedListOwner<M>>
+        with Tracked(owner): Tracked<& LinkedListOwner<M>>
     )]
     fn lazy_get_id(ptr: PPtr<Self>) -> (id: u64)
         ensures
-            old(owner).list_id != 0 ==> id == old(owner).list_id && *owner == *old(owner),
+            owner.list_id != 0 ==> id == owner.list_id,
     {
         unimplemented!()/*        // FIXME: Self-incrementing IDs may overflow, while `core::pin::Pin`
         // is not compatible with locks. Think about a better solution.

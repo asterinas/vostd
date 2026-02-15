@@ -43,13 +43,13 @@ use vstd_extra::ownership::*;
 
 use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame, StoredPageTablePageMeta};
+use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame};
 use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, StoredPageTablePageMeta};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
@@ -434,7 +434,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             child_owner.inv(),
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
-            idx < NR_ENTRIES,  // NR_ENTRIES == nr_subpage_per_huge::<C>()
+            idx < NR_ENTRIES,
             child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
         ensures
             res.wf(*child_owner),
