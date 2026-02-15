@@ -3,6 +3,7 @@ use vstd::prelude::*;
 use crate::specs::mm::cpu::*;
 use crate::specs::mm::page_table::*;
 use crate::mm::{Vaddr, Paddr};
+use crate::mm::tlb::TlbFlushOp;
 
 use vstd::set;
 use vstd_extra::ownership::*;
@@ -10,6 +11,7 @@ use vstd_extra::ownership::*;
 verus! {
 
 pub struct TlbModel {
+    pub pending: Seq<TlbFlushOp>,
     pub mappings: Set<Mapping>
 }
 
@@ -34,6 +36,7 @@ impl TlbModel {
     {
         let m = pt.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end).choose();
         TlbModel {
+            pending: self.pending,
             mappings: self.mappings.insert(m),
         }
     }
@@ -50,6 +53,7 @@ impl TlbModel {
     {
         let m = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         TlbModel {
+            pending: self.pending,
             mappings: self.mappings - m,
         }
     }
@@ -102,6 +106,38 @@ impl TlbModel {
         ensures
             self.inv()
     { }
+
+    pub open spec fn issue_tlb_flush_spec(self, op: TlbFlushOp) -> Self
+    {
+        TlbModel {
+            pending: self.pending.push(op),
+            mappings: self.mappings,
+        }
+    }
+
+    pub proof fn issue_tlb_flush(tracked &mut self, tracked op: TlbFlushOp)
+        requires
+            old(self).inv(),
+        ensures
+            *self == old(self).issue_tlb_flush_spec(op),
+            self.inv()
+        {
+            self.pending.tracked_push(op);
+        }
+
+    pub open spec fn dispatch_tlb_flush_spec(self) -> Self
+    {
+        let op = self.pending.last();
+        let popped = TlbModel {
+            pending: self.pending.take(self.pending.len() - 1),
+            mappings: self.mappings,
+        };
+        match op {
+            TlbFlushOp::All => popped,
+            TlbFlushOp::Address(va) => popped.flush_spec(va),
+            TlbFlushOp::Range(range) => popped.flush_spec(range.start),
+        }
+    }
 
 }
 

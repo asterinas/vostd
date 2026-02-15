@@ -22,10 +22,14 @@ use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
+use crate::specs::mm::tlb::TlbModel;
 use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
+
+use crate::mm::tlb::*;
+use crate::specs::mm::cpu::AtomicCpuSet;
 
 use crate::{
     //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
@@ -94,7 +98,7 @@ pub struct VmSpace<'a> {
     pub readers: Vec<&'a VmReader<'a>>,
     /// All writers belonging to this VM space.
     pub writers: Vec<&'a VmWriter<'a>>,
-    //    cpus: AtomicCpuSet,
+    pub cpus: AtomicCpuSet,
     pub marker: PhantomData<&'a ()>,
 }
 
@@ -730,7 +734,7 @@ impl<'a> VmSpace<'a> {
                     CursorMut {
                         pt_cursor:
                             pt_cursor.0,
-                        //            flusher: TlbFlusher::new(&self.cpus, disable_preempt()),
+                        flusher: TlbFlusher::new(&self.cpus/*, disable_preempt()*/),
                     },
             )?,
         )
@@ -1150,7 +1154,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
-    //    flusher: TlbFlusher<'a, DisabledPreemptGuard>,
+    pub flusher: TlbFlusher<'a/*, DisabledPreemptGuard*/>,
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
@@ -1272,12 +1276,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         self.pt_cursor.virt_addr()
     }
 
-    /* TODO: come back after TLB
     /// Get the dedicated TLB flusher for this cursor.
-    pub fn flusher(&mut self) -> &mut TlbFlusher<'a, DisabledPreemptGuard> {
-        &mut self.flusher
+    pub fn flusher(&self) -> &TlbFlusher<'a> {
+        &self.flusher
     }
-    */
+    
     /// Collects the invariants of the cursor, its owner, and associated tracked structures.
     /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
     pub open spec fn map_cursor_inv(
@@ -1366,9 +1369,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
-    )]
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
+            Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
+            old(tlb_model).inv(),
             old(self).map_cursor_requires(*old(cursor_owner)),
             old(self).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
             old(self).map_item_requires(frame, prop, entry_owner),
@@ -1380,6 +1383,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 old(self).pt_cursor.inner.model(*old(cursor_owner)),
                 self.pt_cursor.inner.model(*cursor_owner),
             ),
+    )]
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
     {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
@@ -1393,19 +1398,22 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             return ;  // No mapping exists at the current address.
         };
 
-        /*        match frag {
+        match frag {
             PageTableFrag::Mapped { va, item } => {
-                debug_assert_eq!(va, start_va);
+                //debug_assert_eq!(va, start_va);
                 let old_frame = item.frame;
+
+                #[verus_spec(with Tracked(tlb_model))]
                 self.flusher
                     .issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
+                #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.dispatch_tlb_flush();
             }
             PageTableFrag::StrayPageTable { .. } => {
-                panic!("`UFrame` is base page sized but re-mapping out a child PT");
+                assert(false) by { admit() };
+                //panic!("`UFrame` is base page sized but re-mapping out a child PT");
             }
         }
-*/
     }
 
     /// Clears the mapping starting from the current slot,
@@ -1427,19 +1435,45 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
     #[verus_spec(r =>
+        with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+            Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
+            len > 0,
             len % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.va % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE.end as int,
+            old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
+            old(cursor_owner).in_locked_range(),
+            old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
+            old(tlb_model).inv(),
         ensures
+            self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
+            old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, self.pt_cursor.inner.model(*cursor_owner), r),
+            tlb_model.inv(),
     )]
-    #[verifier::external_body]
     pub fn unmap(&mut self, len: usize) -> usize {
+        proof {
+            assert(cursor_owner.va.reflect(self.pt_cursor.inner.va));
+            assert(cursor_owner.inv());
+            cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
+        }
+
         let end_va = self.virt_addr() + len;
         let mut num_unmapped: usize = 0;
 
+        let ghost start_mappings: Set<Mapping> = cursor_owner@.mappings;
+        let ghost start_va: Vaddr = cursor_owner@.cur_va;
+
         proof {
             assert((self.pt_cursor.inner.va + len) % PAGE_SIZE as int == 0) by (compute);
+
+            assert(end_va as int == start_va + len);
+            assert(start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < start_va)
+                =~= Set::<Mapping>::empty());
+            assert(start_mappings.difference(Set::<Mapping>::empty()) =~= start_mappings);
+            assume(start_mappings.finite());
         }
 
         #[verus_spec(
@@ -1447,32 +1481,205 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.inner.va <= end_va,
                 self.pt_cursor.inner.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
+                self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
+                cursor_owner.in_locked_range(),
+                end_va <= self.pt_cursor.inner.barrier_va.end,
+                tlb_model.inv(),
+                start_va <= cursor_owner@.cur_va,
+                cursor_owner@.mappings =~= start_mappings.difference(
+                    start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)),
+                num_unmapped as nat == start_mappings.filter(
+                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va).len(),
+                start_mappings =~= old(cursor_owner)@.mappings,
+                start_va == old(cursor_owner)@.cur_va,
+                start_mappings.finite(),
+            invariant_except_break
+                self.pt_cursor.inner.va < end_va,
+            ensures
+                self.pt_cursor.inner.va >= end_va,
             decreases end_va - self.pt_cursor.inner.va
         )]
         loop {
+            let ghost prev_va: Vaddr = cursor_owner@.cur_va;
+            let ghost prev_mappings: Set<Mapping> = cursor_owner@.mappings;
+            let ghost num_unmapped_before: nat = num_unmapped as nat;
+
+            proof {
+                assert(self.pt_cursor.inner.wf(*cursor_owner));
+                assert(cursor_owner.inv());
+                cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
+                assert(prev_va == self.pt_cursor.inner.va);
+            }
+
             // SAFETY: It is safe to un-map memory in the userspace.
-            let Some(frag) = (unsafe { self.pt_cursor.take_next(end_va - self.virt_addr()) }) else {
-                break ;  // No more mappings in the range.
+            let Some(frag) = (unsafe {
+                #[verus_spec(with Tracked(cursor_owner), Tracked(regions), Tracked(guards))]
+                self.pt_cursor.take_next(end_va - self.virt_addr())
+            }) else {
+                proof {
+                    assert(self.pt_cursor.inner.wf(*cursor_owner));
+                    assert(cursor_owner.inv());
+                    cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
+
+                    assert(cursor_owner@.cur_va == end_va);
+                    assert(cursor_owner@.cur_va >= end_va);
+                    assert(self.pt_cursor.inner.va == end_va);
+
+                    assert(start_mappings.filter(
+                        |m: Mapping| prev_va <= m.va_range.start < end_va)
+                        =~= Set::<Mapping>::empty()) by {
+                        assert forall |m: Mapping| #![auto]
+                            start_mappings.contains(m)
+                            && prev_va <= m.va_range.start
+                            && m.va_range.start < end_va
+                        implies false
+                        by {
+                            assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
+                            assert(prev_mappings.contains(m));
+                            assert(prev_mappings.filter(
+                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
+                        };
+                    };
+
+                    assert forall |m: Mapping|
+                        start_mappings.contains(m)
+                        && prev_va <= m.va_range.start
+                    implies
+                        m.va_range.start >= end_va
+                    by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < end_va {
+                            assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
+                            assert(prev_mappings.contains(m));
+                            assert(prev_mappings.filter(
+                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
+                        }
+                    };
+
+                    // filter([start_va, end_va)) == filter([start_va, prev_va))
+                    assert(start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < end_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+
+                    // filter([start_va, cursor_va)) == filter([start_va, end_va))
+                    assert(start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+                    // Since cursor_owner@.cur_va == end_va, the filter predicates are identical
+                    assert(start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < end_va));
+                    assert(start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+                }
+                break ;
             };
 
+            let ghost step_removed_len: nat = prev_mappings.filter(
+                |m: Mapping| prev_va <= m.va_range.start < cursor_owner@.cur_va).len();
+
+            proof {
+                // Re-establish reflect for post-call state
+                assert(self.pt_cursor.inner.wf(*cursor_owner));
+                assert(cursor_owner.inv());
+                cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
+
+                let new_va = cursor_owner@.cur_va;
+
+                assert(cursor_owner@.mappings =~= start_mappings.difference(
+                    start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < new_va))) by {
+                    assert forall |m: Mapping| #![auto]
+                        cursor_owner@.mappings.contains(m) <==>
+                        (start_mappings.contains(m) &&
+                         !(start_va <= m.va_range.start && m.va_range.start < new_va))
+                    by {
+                        // LHS: m in prev_mappings AND NOT in step_removed
+                        // RHS: m in start_mappings AND NOT in [start_va, new_va)
+                        if start_mappings.contains(m) {
+                            if start_va <= m.va_range.start && m.va_range.start < prev_va {
+                                // m in removed_before => not in prev_mappings => not in LHS
+                                assert(!prev_mappings.contains(m));
+                                assert(!cursor_owner@.mappings.contains(m));
+                            } else if prev_va <= m.va_range.start && m.va_range.start < new_va {
+                                // m not in removed_before => in prev_mappings
+                                // m in step_removed => not in LHS
+                                assert(prev_mappings.contains(m));
+                                assert(!cursor_owner@.mappings.contains(m));
+                            } else {
+                                // m not in removed_before => in prev_mappings
+                                // m not in step_removed => in LHS
+                                assert(prev_mappings.contains(m));
+                                assert(cursor_owner@.mappings.contains(m));
+                            }
+                        }
+                    };
+                };
+
+                let f_prev = start_mappings.filter(
+                    |m: Mapping| start_va <= m.va_range.start < prev_va);
+                let f_step = start_mappings.filter(
+                    |m: Mapping| prev_va <= m.va_range.start < new_va);
+                let f_all = start_mappings.filter(
+                    |m: Mapping| start_va <= m.va_range.start < new_va);
+
+                assert(f_step =~= prev_mappings.filter(
+                    |m: Mapping| prev_va <= m.va_range.start < new_va)) by {
+                    assert forall |m: Mapping| #![auto]
+                        f_step.contains(m) <==> prev_mappings.filter(
+                            |m: Mapping| prev_va <= m.va_range.start < new_va).contains(m)
+                    by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < new_va {
+                            assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
+                            assert(prev_mappings.contains(m));
+                        }
+                    };
+                };
+
+                assert(f_all =~= f_prev + f_step);
+                // Disjoint finite sets: |A + B| = |A| + |B|
+                vstd::set_lib::lemma_set_disjoint_lens(f_prev, f_step);
+            }
+
+            let ghost mut step_delta: nat = 0;
             match frag {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
                     assume(num_unmapped < usize::MAX);
                     num_unmapped += 1;
-                    //                    self.flusher
-                    //                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+                    proof { step_delta = 1; }
+                    #[verus_spec(with Tracked(tlb_model))]
+                    self.flusher
+                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
                     assume(num_unmapped + num_frames < usize::MAX);
                     num_unmapped += num_frames;
-                    //                    self.flusher
-                    //                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+                    proof { step_delta = num_frames as nat; }
+                    assume(va + len <= usize::MAX);
+                    #[verus_spec(with Tracked(tlb_model))]
+                    self.flusher
+                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 },
+            }
+
+            proof {
+                assert(num_unmapped as nat == start_mappings.filter(
+                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va).len());
+                assert(self.pt_cursor.inner.va < end_va) by { admit() };
             }
         }
 
-        //        self.flusher.dispatch_tlb_flush();
+        proof {
+            cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
+        }
+
+        #[verus_spec(with Tracked(tlb_model))]
+        self.flusher.dispatch_tlb_flush();
 
         num_unmapped
     }
@@ -1515,6 +1722,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             len % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.level < NR_LEVELS,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
+            op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
         ensures
     )]
     pub fn protect_next(

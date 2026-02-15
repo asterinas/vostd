@@ -205,14 +205,12 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// Unmaps a range of virtual addresses from the current address up to `len` bytes.
     /// It returns the number of mappings that were removed.
-    pub open spec fn unmap_spec(self, len: usize) -> (Self, usize) {
+    pub open spec fn unmap_spec(self, len: usize, new_view: Self, num_unmapped: usize) -> bool {
         let taken = self.mappings.filter(|m: Mapping|
             self.cur_va <= m.va_range.start < self.cur_va + len);
-        (CursorView {
-            cur_va: (self.cur_va + len) as Vaddr,
-            mappings: self.mappings.difference(taken),
-            ..self
-        }, taken.len() as usize)
+            &&& new_view.cur_va >= (self.cur_va + len) as Vaddr
+            &&& new_view.mappings == self.mappings - taken
+            &&& num_unmapped == taken.len() as usize
     }
 
     pub open spec fn protect_spec(self, len: usize, op: impl Fn(PageProperty) -> PageProperty) -> (Self, Option<Range<Vaddr>>) {

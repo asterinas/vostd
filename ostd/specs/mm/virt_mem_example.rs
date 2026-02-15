@@ -15,6 +15,7 @@ use crate::mm::{PagingConstsTrait, PagingLevel};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{CursorOwner, EntryOwner, Guards};
 use crate::specs::task::InAtomicMode;
+use crate::specs::mm::tlb::TlbModel;
 
 verus! {
 
@@ -88,12 +89,14 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
         Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
+        Tracked(tlb_model): Tracked<&mut TlbModel>,
         Tracked(gm): Tracked<&mut GlobalMemView>
     requires
         old(cursor).map_cursor_requires(*old(cursor_owner)),
         old(cursor).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
         old(cursor).map_item_requires(frame, prop, entry_owner),
-        old(gm).inv()
+        old(gm).inv(),
+        old(tlb_model).inv(),
 )]
 pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
                                         frame: UFrame, va: Vaddr, pa: Paddr, prop: PageProperty)
@@ -103,7 +106,7 @@ pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
     assert(cursor0.pt_cursor.inner.va == va) by { admit() };
     assert(page_size(1) == 4096) by { admit() };
 
-    #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
+    #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards), Tracked(tlb_model))]
     cursor.map(frame, prop);
 
     let ghost mapping = Mapping {

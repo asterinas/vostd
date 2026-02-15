@@ -351,17 +351,25 @@ impl<M: AnyFrameMeta> Frame<M> {
     /// If the provided frame is not in use at the moment, it will return an error.
     ///
     /// The returned frame will have an extra reference count to the frame.
-    #[verus_spec(
+    #[verus_spec(res =>
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>
+        requires
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(paddr))),
+            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(paddr))),
+            old(regions).slots[frame_to_index(meta_to_frame(paddr))].addr() == frame_to_meta(paddr),
+            old(regions).inv(),
+        ensures
+            res is Ok ==>
+                regions.slot_owners[frame_to_index(meta_to_frame(paddr))].ref_count.value() ==
+                old(regions).slot_owners[frame_to_index(meta_to_frame(paddr))].ref_count.value() + 1,
+            regions.inv(),
     )]
-    #[rustc_allow_incoherent_impl]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_in_use = MetaSlot::get_from_in_use(paddr);
         Ok(Self { ptr: from_in_use?, _marker: PhantomData })
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& paddr % PAGE_SIZE == 0
         //        &&& paddr < MAX_PADDR

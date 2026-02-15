@@ -115,10 +115,10 @@ impl Inv for MetaSlotOwner {
         &&& self.ref_count.value() == REF_COUNT_UNIQUE ==> {
             &&& self.vtable_ptr.is_init()
         }
-        &&& 0 < self.ref_count.value() < REF_COUNT_MAX ==> {
+        &&& 0 < self.ref_count.value() <= REF_COUNT_MAX ==> {
             &&& self.vtable_ptr.is_init()
         }
-        &&& REF_COUNT_MAX <= self.ref_count.value() < REF_COUNT_UNUSED ==> { false }
+        &&& REF_COUNT_MAX < self.ref_count.value() < REF_COUNT_UNUSED ==> { false }
         &&& self.ref_count.value() == 0 ==> {
             &&& self.vtable_ptr.is_uninit()
             &&& self.in_list.value() == 0
@@ -150,7 +150,7 @@ impl Inv for MetaSlotModel {
                 &&& self.vtable_ptr.is_uninit()
                 &&& self.in_list == 0
             },
-            _ if self.ref_count < REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
+            _ if self.ref_count <= REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },
             _ => { false },
         }
     }
@@ -170,7 +170,7 @@ impl View for MetaSlotOwner {
             REF_COUNT_UNUSED => MetaSlotStatus::UNUSED,
             REF_COUNT_UNIQUE => MetaSlotStatus::UNIQUE,
             0 => MetaSlotStatus::UNDER_CONSTRUCTION,
-            _ if ref_count < REF_COUNT_MAX => MetaSlotStatus::SHARED,
+            _ if ref_count <= REF_COUNT_MAX => MetaSlotStatus::SHARED,
             _ => MetaSlotStatus::OVERFLOW,
         };
         MetaSlotModel { status, storage, ref_count, vtable_ptr, in_list, self_addr, usage }
