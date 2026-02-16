@@ -1,6 +1,7 @@
+use pcm::frac;
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, PCell};
+use vstd::cell::{self, pcell::*};
 use vstd::prelude::*;
 use vstd::tokens::frac::Frac;
 use vstd_extra::prelude::*;
@@ -29,11 +30,11 @@ verus! {
 
 broadcast use group_deref_spec;
 
-type RwFrac<T> = Frac<cell::PointsTo<T>, MAX_READER_U64>;
+type RwFrac<T> = Frac<PointsTo<T>, MAX_READER_U64>;
 
 const MAX_READER_U64: u64 = MAX_READER as u64;
 
-//struct_with_invariants! {
+struct_with_invariants! {
 /// Spin-based Read-write Lock
 ///
 /// # Overview
@@ -119,25 +120,40 @@ pub struct RwLock<T  /* : ?Sized*/ , Guard  /* = PreemptDisabled*/ > {
     /// - **Bit 62:** Upgradeable reader lock.
     /// - **Bit 61:** Indicates if an upgradeable reader is being upgraded.
     /// - **Bits 60-0:** Reader lock count.
-    //lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
+    lock: AtomicUsize<_, Option<RwFrac<T>>,_>,
     val: PCell<T>,
-    //val: UnsafeCell<T>,
+    // val: UnsafeCell<T>,
 }
 
 /// This invariant holds at any time, i.e. not violated during any method execution.
-/* closed spec fn wf(self) -> bool {
+closed spec fn wf(self) -> bool {
     invariant on lock with (val, guard) is (v:usize, g:Option<RwFrac<T>>) {
-        /* match g {
-            None => v == WRITER,
-            Some(perm) => {
-                &&& perm.resource().id() == val.id()
-                &&& perm.resource().is_init()
+        let base_readers: usize = v & READER_MASK;
+        let has_max_reader: bool = (v & MAX_READER) != 0usize;
+        let reader_count: usize = if has_max_reader { MAX_READER } else { base_readers };
+        let upread_count: usize = if (v & UPGRADEABLE_READER) != 0usize { 1usize } else { 0usize };
+        let total_readers: int = (reader_count + upread_count) as int;
+
+        &&& (!has_max_reader ==> base_readers == reader_count)
+        &&& (has_max_reader ==> base_readers == 0)
+        &&& ((v & BEING_UPGRADED) != 0usize ==> (v & UPGRADEABLE_READER) != 0usize)
+        &&& match g {
+            None => {
+                &&& (v & WRITER) != 0usize
+                &&& reader_count == 0
+                &&& (v & BEING_UPGRADED) == 0usize
             }
-        }*/
-        true
-    }
-}*/
-//}
+            Some(perm) => {
+                &&& (v & WRITER) == 0usize
+                &&& perm.resource().id() == val.id()
+                &&& perm.frac() >= (MAX_READER_U64 as int) - total_readers
+            }
+        }
+    } 
+}
+
+}
+
 const READER: usize = 1;
 
 const WRITER: usize = 1 << (usize::BITS - 1);
@@ -148,26 +164,49 @@ const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 
-} // verus!
-verus! {
+const READER_MASK: usize = (!0usize) >> 4;
 
+impl<T,G> RwLock<T,G>
+{
+    /// Returns the unique [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the internal `PCell<T>`.
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.val.id()
+    }
+    
+    /// Encapsulates the invariant described in the *Invariant* section of [`RwLock`].
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool{
+        self.wf()
+    }
+}
+
+
+#[verus_verify]
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
+    #[verus_verify]
     pub const fn new(val: T) -> Self {
         let (val, Tracked(perm)) = PCell::new(val);
+        
+        // Proof code
+        let tracked frac_perm = RwFrac::<T>::new(perm);
+        proof { 
+            lemma_consts_properties();
+        }
+
         Self {
             guard: PhantomData,
             //lock: AtomicUsize::new(0),
-            //lock:AtomicUsize::new((Ghost(val),Ghost(PhantomData)),0,None),
+            lock:AtomicUsize::new(Ghost((val,PhantomData)),0,Tracked(Some(frac_perm))),
             val: val,
             //val: UnsafeCell::new(val),
         }
     }
 }
+}
 
-} // verus!
-/*
-impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
+#[verus_verify]
+impl<T/*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /*
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
@@ -268,7 +307,8 @@ impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
             }
         }
     }
-
+    */
+    /*
     /// Attempts to acquire a read lock.
     ///
     /// This function will never spin-wait and will return immediately.
@@ -281,8 +321,8 @@ impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
             self.lock.fetch_sub(READER, Release);
             None
         }
-    }
-
+    }*/
+    /*
     /// Attempts to acquire an read lock through an [`Arc`].
     ///
     /// The method is similar to [`try_read`], but it doesn't have the requirement
@@ -373,14 +413,22 @@ impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
             self.lock.fetch_sub(UPGRADEABLE_READER, Release);
         }
         None
-    }
+    } */
+}
 
+impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
     /// already statically guaranteed that access to the data is exclusive.
     pub fn get_mut(&mut self) -> &mut T {
-        self.val.get_mut()
+        // self.val.get_mut()
+        // `PCell<T>` is implemented using an `UnsafeCell<T>` internally; we do an unchecked
+        // cast here since `PCell` doesn't expose `UnsafeCell`-style accessors.
+        unsafe {
+            let ucell: *mut UnsafeCell<T> = (&mut self.val as *mut PCell<T>).cast();
+            &mut *(*ucell).get()
+        }
     }
 
     /// Returns a raw pointer to the underlying data.
@@ -388,17 +436,21 @@ impl<T: ?Sized, G: SpinGuardian> RwLock<T, G> {
     /// This method is safe, but it's up to the caller to ensure that access to the data behind it
     /// is still safe.
     pub(super) fn as_ptr(&self) -> *mut T {
-        self.val.get()
-    } */
+        // self.val.get()
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.val as *const PCell<T>).cast();
+            (*ucell).get()
+        }
+    }
 }
 
+/*
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
 }
-*/
-/*
+
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
 unsafe impl<T: ?Sized + Send, G> Send for RwLock<T, G> {}
@@ -433,6 +485,9 @@ unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G:
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
+#[verifier::reject_recursive_types(T)]
+#[verifier::reject_recursive_types(G)]
+#[verus_verify]
 pub struct RwLockReadGuard_<
     T, /*: ?Sized*/
     R: Deref<Target = RwLock<T, G>> + Clone,
@@ -440,6 +495,7 @@ pub struct RwLockReadGuard_<
 > {
     guard: G::ReadGuard,
     inner: R,
+    v_perm: Tracked<RwFrac<T>>,
 }
 
 /*
@@ -457,6 +513,17 @@ pub type RwLockReadGuard<'a, T, G> = RwLockReadGuard_<T, &'a RwLock<T, G>, G>;
 
 /// A guard that provides shared read access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockReadGuard<T, G> = RwLockReadGuard_<T, Arc<RwLock<T, G>>, G>;
+
+verus!{
+impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockReadGuard_<T, R, G>
+{
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        &&& self.inner.deref_spec().cell_id() == self.v_perm@.resource().id()
+        &&& self.v_perm@.frac() == 1
+    }
+}
+}
 
 /*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
@@ -486,6 +553,9 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
 }*/
 
 /// A guard that provides mutable data access.
+#[verifier::reject_recursive_types(T)]
+#[verifier::reject_recursive_types(G)]
+#[verus_verify]
 pub struct RwLockWriteGuard_<
     T, /*: ?Sized*/
     R: Deref<Target = RwLock<T, G>> + Clone,
@@ -579,6 +649,9 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
 */
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
+#[verifier::reject_recursive_types(T)]
+#[verifier::reject_recursive_types(G)]
+#[verus_verify]
 pub struct RwLockUpgradeableGuard_<
     T, /*: ?Sized*/
     R: Deref<Target = RwLock<T, G>> + Clone,
@@ -666,3 +739,34 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
     }
 }
 */
+
+verus!{
+
+proof fn lemma_consts_properties()
+ensures
+    0 & WRITER == 0,
+    0 & UPGRADEABLE_READER == 0,
+    0 & BEING_UPGRADED == 0,
+    0 & READER_MASK == 0,
+    0 & MAX_READER == 0,
+    0 & READER == 0,
+    WRITER == 0x8000_0000_0000_0000,
+    UPGRADEABLE_READER == 0x4000_0000_0000_0000,
+    BEING_UPGRADED == 0x2000_0000_0000_0000,
+    READER_MASK == 0x0FFF_FFFF_FFFF_FFFF,
+    MAX_READER == 0x1000_0000_0000_0000,
+{
+    assert(0 & WRITER == 0) by (compute_only);
+    assert(0 & UPGRADEABLE_READER == 0) by (compute_only);
+    assert(0 & BEING_UPGRADED == 0) by (compute_only);
+    assert(0 & READER_MASK == 0) by (compute_only);
+    assert(0 & MAX_READER == 0) by (compute_only);
+    assert(0 & READER == 0) by (compute_only);
+    assert(WRITER == 0x8000_0000_0000_0000) by (compute_only);
+    assert(UPGRADEABLE_READER == 0x4000_0000_0000_0000) by (compute_only);
+    assert(BEING_UPGRADED == 0x2000_0000_0000_0000) by (compute_only);
+    assert(READER_MASK == 0x0FFF_FFFF_FFFF_FFFF) by (compute_only);
+    assert(MAX_READER == 0x1000_0000_0000_0000) by (compute_only);
+}
+
+}
