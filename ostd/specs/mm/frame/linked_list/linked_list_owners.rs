@@ -6,11 +6,12 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ownership::*;
 
 use super::*;
-use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot, UniqueFrameOwner};
+use crate::mm::frame::{AnyFrameMeta, CursorMut, Link, LinkedList, MetaSlot};
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 

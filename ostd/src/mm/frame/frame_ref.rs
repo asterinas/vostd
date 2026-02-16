@@ -47,12 +47,11 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     /// ## Safety
     /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame 
     /// has that type and that the `FrameRef` will be useless if it outlives the frame.
-    /// This is an internal function, so it is fine to depend on `has_safe_slot(raw)`.
     /// ## Verification Issues
     /// Currently we cannot provide the underlying `PointsTo<MetaSlot>` permission needed by
     /// `Frame::from_raw` without breaking Verus' ability to reason about its lifetime.
-    /// But we immediately take that permission back, so it must be fine. The solution is to overhaul
-    /// `MetaPerm` to allow us to take and restore the underlying permission.
+    /// But we immediately take that permission back, so it should not actually be a problem to do so.
+    /// The solution is to overhaul `MetaPerm` to allow us to take and restore the underlying permission.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,

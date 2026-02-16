@@ -146,10 +146,6 @@ impl MetaSlotStorage {
     }
 }
 
-
-} // verus!
-verus! {
-
 pub tracked struct MetaSlotOwner {
     pub storage: PointsTo<MetaSlotStorage>,
     pub ref_count: PermissionU64,

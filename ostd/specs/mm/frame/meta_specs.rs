@@ -43,7 +43,6 @@ impl MetaSlot {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn get_from_unused_spec<M: AnyFrameMeta>(
         paddr: Paddr,
         metadata: M,
@@ -70,7 +69,6 @@ impl MetaSlot {
     }
 
     /// All other slots remain unchanged.
-    #[rustc_allow_incoherent_impl]
     pub open spec fn update_index_tracked(
         idx: usize,
         pre: MetaRegionOwners,
@@ -92,7 +90,6 @@ impl MetaSlot {
                 == post.slot_owners[i]
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn get_from_unused_tracked<M: AnyFrameMeta>(
         paddr: Paddr,
         metadata: M,
@@ -115,7 +112,6 @@ impl MetaSlot {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn get_from_in_use_spec(paddr: Paddr, pre: MetaRegionModel) -> (
         PPtr<MetaSlot>,
         MetaRegionModel,
@@ -138,7 +134,6 @@ impl MetaSlot {
         (ptr, post)
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn get_from_in_use_tracked(
         paddr: Paddr,
         // -- ghost parameters --
@@ -158,7 +153,6 @@ impl MetaSlot {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn inc_ref_count_spec(&self, pre: MetaSlotModel) -> (MetaSlotModel)
         recommends
             pre.inv(),
@@ -169,7 +163,6 @@ impl MetaSlot {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
-    #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_spec(paddr: Paddr) -> Self {
         Frame::<M> {
             ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),

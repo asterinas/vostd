@@ -1,5 +1,3 @@
-//! This module contains lemmas and theorems about the frame<->raw lifecycle.
-
 use vstd::prelude::*;
 
 use crate::mm::frame::Frame;

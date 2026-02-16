@@ -66,7 +66,7 @@ pub use meta::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
 };
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
-pub use unique::{UniqueFrame, UniqueFrameOwner};
+pub use unique::UniqueFrame;
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
@@ -261,7 +261,7 @@ impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 */
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta> Frame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
     pub open spec fn from_unused_requires(
         regions: MetaRegionOwners,
         paddr: Paddr,

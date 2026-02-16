@@ -15,13 +15,14 @@ use vstd_extra::ptr_extra::*;
 
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;
-use crate::mm::frame::{UniqueFrame, UniqueFrameOwner};
+use crate::mm::frame::UniqueFrame;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
 use crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -468,7 +469,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
                 }
 
                 proof_with!(|= Tracked(None));
-                None    
+                None
             }
         } else {
             assert(!has_safe_slot(frame));
@@ -768,7 +769,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         let next_ptr = frame.meta().next;
 
-        #[verus_spec(with Tracked(&regions.slots.tracked_borrow(frame_to_index(paddr))))]
+        #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
 
         let opt_prev = borrow_field!(frame_meta => prev, &frame_own.meta_perm);
@@ -785,7 +786,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         let prev_ptr = frame.meta().prev;
 
-        #[verus_spec(with Tracked(&regions.slots.tracked_borrow(frame_to_index(paddr))))]
+        #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
         let opt_next = frame_meta.borrow(Tracked(&frame_own.meta_perm)).next;
 
@@ -801,7 +802,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             self.current = None;
         }
 
-        #[verus_spec(with Tracked(&regions.slots.tracked_borrow(frame_to_index(paddr))))]
+        #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
 
         update_field!(frame_meta => next <- None; frame_own.meta_perm);
@@ -877,7 +878,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         assert(regions.slot_owners.contains_key(frame_own.slot_index));
         let tracked slot_own = regions.slot_owners.tracked_borrow(frame_own.slot_index);
 
-        #[verus_spec(with Tracked(&regions.slots.tracked_borrow(frame_own.slot_index)))]
+        #[verus_spec(with Tracked(frame_own))]
         let frame_ptr = frame.meta_mut();
         assert(frame_ptr.addr() == frame.ptr.addr());
 
@@ -930,7 +931,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             }
         }
 
-        #[verus_spec(with Tracked(&regions.slots.tracked_borrow(frame_own.slot_index)))]
+        #[verus_spec(with Tracked(&frame_own.meta_perm.points_to))]
         let slot = frame.slot();
 
         assert(regions.slot_owners.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))));
@@ -938,7 +939,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             frame_to_index(meta_to_frame(frame.ptr.addr())),
         );
 
-        #[verusfmt::skip]
+        assert(slot_own.in_list.id() == slot.in_list.id()) by { admit() };
+
         slot.in_list.store(
             Tracked(&mut slot_own.in_list),
             #[verus_spec(with Tracked(&mut owner.list_own))]
@@ -972,7 +974,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         };
 
         // Forget the frame to transfer the ownership to the list.
-        #[verus_spec(with Tracked(regions))]
+        #[verus_spec(with Tracked(frame_own), Tracked(regions))]
         let _ = frame.into_raw();
 
         update_field!(self.list => size += 1; owner.list_perm);

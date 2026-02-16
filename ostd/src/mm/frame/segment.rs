@@ -8,6 +8,7 @@ use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
 
 use vstd_extra::ownership::*;
+use vstd_extra::cast_ptr::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, meta_addr, meta_to_frame_spec};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
@@ -151,7 +152,7 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 //     }
 // }
 #[verus_verify]
-impl<M: AnyFrameMeta> Segment<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Segment<M> {
     #[rustc_allow_incoherent_impl]
     #[verifier::inline]
     pub open spec fn start_paddr_spec(&self) -> Paddr

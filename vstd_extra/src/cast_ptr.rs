@@ -75,6 +75,19 @@ impl<R, T: Repr<R>> Copy for ReprPtr<R, T> {
 }
 
 impl<R, T: Repr<R>> ReprPtr<R, T> {
+
+    pub open spec fn new_spec(ptr: PPtr<R>) -> Self {
+        Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
+    }
+
+    #[verifier::external_body]
+    pub fn new_borrowed<'a>(ptr: &'a PPtr<R>) -> (res: &'a Self)
+        ensures
+            *res == Self::new_spec(*ptr),
+    {
+        unimplemented!()
+    }
+
     pub open spec fn addr_spec(self) -> usize {
         self.addr
     }
@@ -139,6 +152,10 @@ pub tracked struct PointsTo<R, T: Repr<R>> {
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
+    pub open spec fn new_spec(addr: usize, points_to: simple_pptr::PointsTo<R>) -> Self {
+        Self { addr: addr@, points_to: points_to, _T: PhantomData }
+    }
+
     pub proof fn new(
         addr: Ghost<usize>,
         tracked points_to: simple_pptr::PointsTo<R>,
