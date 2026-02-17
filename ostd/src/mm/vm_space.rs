@@ -23,7 +23,6 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::vm_space::VmSpaceOwner;
 use crate::specs::task::InAtomicMode;
 use core::marker::PhantomData;
 use core::{ops::Range, sync::atomic::Ordering};
@@ -33,14 +32,14 @@ use crate::mm::tlb::*;
 use crate::specs::mm::cpu::AtomicCpuSet;
 
 use crate::{
-    //    cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    //    cpu_local_cell,
+    // cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
+    // cpu_local_cell,
     mm::{
         io::{VmIoOwner, VmReader, VmWriter},
-        //        io::Fallible,
+        // io::Fallible,
         // kspace::KERNEL_PAGE_TABLE,
         // page_table,
-        //        tlb::{TlbFlushOp, TlbFlusher},
+        // tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
         Paddr,
         PagingConstsTrait,
@@ -53,6 +52,10 @@ use crate::{
 };
 
 use alloc::sync::Arc;
+
+#[path = "../../specs/mm/vm_space.rs"]
+mod vm_space;
+use vm_space::*;
 
 verus! {
 
@@ -91,6 +94,49 @@ verus! {
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
+/// # Verification Design
+///
+/// A `VmSpace` has a corresponding [`VmSpaceOwner`] object that is used to track its state,
+/// and against which its invariants are stated. The `VmSpaceOwner` catalogues the readers and writers
+/// that are associated with the `VmSpace`, and the `MemView` which encodes the active page table and
+/// the subset of the TLB that covers the same virtual address space.
+/// All proofs about the correctness of the readers and writers are founded on the well-formedness of the `MemView`:
+/// ```rust
+/// open spec fn mem_view_wf(self) -> bool {
+///    &&& self.mem_view is Some <==> self.mv_range@ is Some
+///    // This requires that TotalMapping (mvv) = mv ∪ writer mappings ∪ reader mappings
+///    &&& self.mem_view matches Some(remaining_view)
+///        ==> self.mv_range@ matches Some(total_view)
+///        ==> {
+///        &&& remaining_view.mappings_are_disjoint()
+///        &&& remaining_view.mappings.finite()
+///        &&& total_view.mappings_are_disjoint()
+///        &&& total_view.mappings.finite()
+///        // ======================
+///        // Remaining Consistency
+///        // ======================
+///        &&& remaining_view.mappings.subset_of(total_view.mappings)
+///        &&& remaining_view.memory.dom().subset_of(
+///            total_view.memory.dom(),
+///        )
+///        // =====================
+///        // Total View Consistency
+///        // =====================
+///        &&& forall|va: usize|
+///            remaining_view.addr_transl(va) == total_view.addr_transl(
+///                va,
+///            )
+///        // =====================
+///        // Writer correctness
+///        // =====================
+///        &&& forall|i: int|
+///            0 <= i < self.writers.len() as int ==> {
+///                &&& self.writers[i].inv()
+///            }
+///        }
+///    }
+/// }
+/// ```
 pub struct VmSpace<'a> {
     pub pt: PageTable<UserPtConfig>,
     /// Whether we allow shared reading.
@@ -112,64 +158,6 @@ impl Inv for VmSpace<'_> {
             #![trigger self.writers@[i]]
             0 <= i < self.writers@.len() as int ==> self.writers@[i].inv()
     }
-}
-
-/// The configuration for user page tables.
-#[derive(Clone, Debug)]
-pub struct UserPtConfig {}
-
-/// The item that can be mapped into the [`VmSpace`].
-#[derive(Clone)]
-pub struct MappedItem {
-    pub frame: UFrame,
-    pub prop: PageProperty,
-}
-
-// SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
-unsafe impl PageTableConfig for UserPtConfig {
-    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
-        0..256
-    }
-
-    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
-        true
-    }
-
-    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
-        0..256
-    }
-
-    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
-        true
-    }
-
-    type E = PageTableEntry;
-
-    type C = PagingConsts;
-
-    type Item = MappedItem;
-
-    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
-
-    #[verifier::external_body]
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
-        unimplemented!()
-    }
-
-    uninterp spec fn item_from_raw_spec(
-        paddr: Paddr,
-        level: PagingLevel,
-        prop: PageProperty,
-    ) -> Self::Item;
-
-    #[verifier::external_body]
-    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        unimplemented!()
-    }
-
-    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
-
-    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
 
 type Result<A> = core::result::Result<A, Error>;
@@ -296,6 +284,18 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Activates the given reader to read data from the user space of the current task.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The reader must be well-formed with respect to the `VmSpaceOwner`.
+    /// - The reader's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
+    /// ## Postconditions
+    /// - The reader will be added to the `VmSpace`'s readers list.
+    /// - The reader will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
+    /// ## Safety
+    /// - The function preserves all memory invariants.
+    /// - The `MemView` invariants ensure that the reader has a consistent view of memory.
+    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
     #[inline(always)]
     #[verus_spec(r =>
         with
@@ -372,6 +372,18 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Activates the given writer to write data to the user space of the current task.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The writer must be well-formed with respect to the `VmSpaceOwner`.
+    /// - The writer's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
+    /// ## Postconditions
+    /// - The writer will be added to the `VmSpace`'s writers list.
+    /// - The writer will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
+    /// ## Safety
+    /// - The function preserves all memory invariants.
+    /// - The `MemView` invariants ensure that the writer has a consistent view of memory.
+    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
     #[inline(always)]
     #[verus_spec(r =>
         with
@@ -456,6 +468,17 @@ impl<'a> VmSpace<'a> {
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created [`VmReader`]. This guarantees that the [`VmReader`] can operate
     /// correctly.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The range `vaddr..vaddr + len` must represent a user space memory range.
+    /// - The `VmSpaceOwner` must not have any active writers overlapping with the range `vaddr..vaddr + len`.
+    /// ## Postconditions
+    /// - An inactive `VmReader` will be created with the range `vaddr..vaddr + len`.
+    /// ## Safety
+    /// - The function preserves all memory invariants.
+    /// - By requiring that the `VmSpaceOwner` must not have any active writers overlapping with the target range,
+    /// it prevents data races between the reader and any writers.
     #[inline]
     #[verus_spec(r =>
         with
@@ -487,6 +510,17 @@ impl<'a> VmSpace<'a> {
     ///
     /// Users must ensure that no other page table is activated in the current task during the
     /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The range `vaddr..vaddr + len` must represent a user space memory range.
+    /// - The `VmSpaceOwner` must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
+    /// ## Postconditions
+    /// - An inactive `VmWriter` will be created with the range `vaddr..vaddr + len`.
+    /// ## Safety
+    /// - The function preserves all memory invariants.
+    /// - By requiring that the `VmSpaceOwner` must not have any active readers or writers overlapping with the target range,
+    /// it prevents data races.
     #[inline]
     #[verus_spec(r =>
         with
@@ -571,14 +605,17 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
     /// ## Preconditions
-    /// In addition to the standard well-formedness conditions, the function will give an error
-    /// if the cursor is outside of the locked range.
+    /// - All system invariants must hold
+    /// - **Liveness**: The function will return an error if the cursor is not within the locked range
     /// ## Postconditions
-    /// If the cursor is valid, the result of the lookup is given by [`query_success_ensures`](Self::query_success_ensures).
-    /// The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
+    /// - If there is a mapped item at the current virtual address ([`query_some_condition`]),
+    /// it is returned along with the virtual address range that it maps ([`query_success_ensures`]).
+    /// - The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
+    /// - If there is no mapped item at the current virtual address ([`query_none_condition`]),
+    /// it returns `None`, and the virtual address range of the cursor's current position.
     /// ## Safety
-    /// This function preserves all memory invariants.
-    /// The locking mechanism prevents data races.
+    /// - This function preserves all memory invariants.
+    /// - The locking mechanism prevents data races.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -615,11 +652,12 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// The cursor must be within the locked range and below the guard level.
-    /// The length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// - **Liveness**: The cursor must be within the locked range and below the guard level.
+    /// - **Liveness**: The length must be page-aligned and less than or equal to the remaining range of the cursor.
     /// ## Postconditions
-    /// If the cursor is valid, it will move the cursor to the next mapped address and return it.
-    /// If the cursor is not valid, it will return `None`. The cursor may stop at any
+    /// - If there is a mapped address after the current address within the next `len` bytes,
+    /// it will move the cursor to the next mapped address and return it.
+    /// - If not, it will return `None`. The cursor may stop at any
     /// address after `len` bytes, but it will not move past the barrier address.
     /// ## Panics
     /// This method panics if the length is longer than the remaining range of the cursor.
@@ -628,12 +666,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// Because it panics rather than move the cursor to an invalid address,
     /// it ensures that the cursor is safe to use after the call.
     /// The locking mechanism prevents data races.
-    #[verus_spec(r =>
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
-    )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).0.level < old(self).0.guard_level,
@@ -647,6 +683,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& owner.level < owner.guard_level
                 &&& owner.in_locked_range()
             },
+    )]
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
@@ -660,8 +698,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// ## Preconditions
     /// The cursor must be within the locked range and below the guard level.
     /// ## Postconditions
-    /// If the target address is in the locked range, it will move the cursor to the given address.
-    /// If the target address is not in the locked range, it will return an error.
+    /// - If the target address is in the locked range, it will move the cursor to the given address.
+    /// - If the target address is not in the locked range, it will return an error.
     /// ## Panics
     /// This method panics if the target address is not aligned to the page size.
     /// ## Safety
@@ -743,6 +781,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
+    /// ## Preconditions
+    /// - All system invariants must hold
+    /// - **Liveness**: The function will return an error if the cursor is not within the locked range
+    /// ## Postconditions
+    /// - If there is a mapped item at the current virtual address ([`query_some_condition`]),
+    /// it is returned along with the virtual address range that it maps ([`query_success_ensures`]).
+    /// - The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
+    /// - If there is no mapped item at the current virtual address ([`query_none_condition`]),
+    /// it returns `None`, and the virtual address range of the cursor's current position.
+    /// ## Safety
+    /// - This function preserves all memory invariants.
+    /// - The locking mechanism prevents data races.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -771,6 +821,23 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
+    /// 
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Liveness**: The cursor must be within the locked range and below the guard level.
+    /// The length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// ## Postconditions
+    /// - If there is a mapped address after the current address within the next `len` bytes,
+    /// it will move the cursor to the next mapped address and return it.
+    /// - If not, it will return `None`. The cursor may stop at any
+    /// address after `len` bytes, but it will not move past the barrier address.
+    /// ## Panics
+    /// This method panics if the length is longer than the remaining range of the cursor.
+    /// ## Safety
+    /// This function preserves all memory invariants.
+    /// Because it panics rather than move the cursor to an invalid address,
+    /// it ensures that the cursor is safe to use after the call.
+    /// The locking mechanism prevents data races.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -798,6 +865,22 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Jump to the virtual address.
     ///
     /// This is the same as [`Cursor::jump`].
+    ///
+    /// This function will move the cursor to the given virtual address.
+    /// If the target address is not in the locked range, it will return an error.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be within the locked range and below the guard level.
+    /// ## Postconditions
+    /// - If the target address is in the locked range, it will move the cursor to the given address.
+    /// - If the target address is not in the locked range, it will return an error.
+    /// ## Panics
+    /// This method panics if the target address is not aligned to the page size.
+    /// ## Safety
+    /// This function preserves all memory invariants.
+    /// Because it throws an error rather than move the cursor to an invalid address,
+    /// it ensures that the cursor is safe to use after the call.
+    /// The locking mechanism prevents data races.
     #[verus_spec(res =>
         with
             Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
@@ -1306,4 +1389,66 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 pub(super) fn get_activated_vm_space() -> *const VmSpace {
     ACTIVATED_VM_SPACE.load()
 }*/
+
+/// The configuration for user page tables.
+#[derive(Clone, Debug)]
+pub struct UserPtConfig {}
+
+/// The item that can be mapped into the [`VmSpace`].
+#[derive(Clone)]
+pub struct MappedItem {
+    pub frame: UFrame,
+    pub prop: PageProperty,
+}
+
+// SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
+unsafe impl PageTableConfig for UserPtConfig {
+    open spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize> {
+        0..256
+    }
+
+    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
+        true
+    }
+
+    fn TOP_LEVEL_INDEX_RANGE() -> Range<usize> {
+        0..256
+    }
+
+    fn TOP_LEVEL_CAN_UNMAP() -> (b: bool) {
+        true
+    }
+
+    type E = PageTableEntry;
+
+    type C = PagingConsts;
+
+    type Item = MappedItem;
+
+    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+
+    #[verifier::external_body]
+    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        let MappedItem { frame, prop } = item;
+        let level = frame.map_level();
+        let paddr = frame.into_raw();
+        (paddr, level, prop)
+    }
+
+    uninterp spec fn item_from_raw_spec(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> Self::Item;
+
+    #[verifier::external_body]
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
+        let frame = unsafe { UFrame::from_raw(paddr) };
+        MappedItem { frame, prop }
+    }
+
+    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+
+    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+}
 } // verus!

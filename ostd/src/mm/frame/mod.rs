@@ -450,13 +450,11 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     ///
     /// Currently, the level is always 1, which means the frame is a regular
     /// page frame.
-    #[rustc_allow_incoherent_impl]
     pub const fn map_level(&self) -> PagingLevel {
         1
     }
 
     /// Gets the size of this page in bytes.
-    #[rustc_allow_incoherent_impl]
     pub const fn size(&self) -> usize {
         PAGE_SIZE
     }
