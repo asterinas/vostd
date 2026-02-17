@@ -59,13 +59,37 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///     removal without iterating through the list at a cost of some checks.
 /// # Verified Properties
 /// ## Verification Design
-/// The linked list is abstractly represented by a
-/// [`LinkedListOwner`](crate::specs::mm::frame::linked_list::linked_list_owners::LinkedListOwner)
-/// which is a sequence of [`LinkOwner`](crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner)
-/// objects. Each [`LinkOwner`] uniquely owns the frame metadata of a link.
+/// The linked list is abstractly represented by a [`LinkedListOwner`]:
+/// ```rust
+/// tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
+///     pub list: Seq<LinkOwner>,
+///     pub perms: Map<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>>,
+///     pub list_id: u64,
+/// }
+/// ```
 /// ## Invariant
 /// The linked list uniquely owns the raw frames that it contains, so they cannot be used by other
 /// data structures. The frame metadata field `in_list` is equal to `list_id` for all links in the list.
+/// ```rust
+///    pub open spec fn inv_at(self, i: int) -> bool {
+///        &&& self.perms.contains_key(i)
+///        &&& self.perms[i].addr() == self.list[i].paddr
+///        &&& self.perms[i].is_init()
+///        &&& self.perms[i].value().wf(self.list[i])
+///        &&& i == 0 <==> self.perms[i].mem_contents().value().prev is None
+///        &&& i == self.list.len() - 1 <==> self.perms[i].value().next is None
+///        &&& 0 < i ==> self.perms[i].value().prev is Some && self.perms[i].value().prev.unwrap()
+///            == self.perms[i - 1].pptr()
+///        &&& i < self.list.len() - 1 ==> self.perms[i].value().next is Some
+///            && self.perms[i].value().next.unwrap() == self.perms[i + 1].pptr()
+///        &&& self.list[i].inv()
+///        &&& self.list[i].in_list == self.list_id
+///    }
+///
+///    pub open spec fn inv(self) -> bool {
+///        forall|i: int| 0 <= i < self.list.len() ==> self.inv_at(i)
+///    }
+/// ```
 /// ## Safety
 /// A given linked list can only have one cursor at a time, so there are no data races.
 /// The `prev` and `next` fields of the metadata for each link always points to valid
