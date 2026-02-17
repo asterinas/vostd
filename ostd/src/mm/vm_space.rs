@@ -54,8 +54,8 @@ use crate::{
 use alloc::sync::Arc;
 
 #[path = "../../specs/mm/vm_space.rs"]
-mod vm_space;
-use vm_space::*;
+pub mod vm_space_specs;
+use vm_space_specs::*;
 
 verus! {
 
