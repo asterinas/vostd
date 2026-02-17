@@ -287,8 +287,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// matching the tracked permission objects. The new frame must be active, so that it is
     /// valid to call `into_raw` on it inside of `insert_before`.
     /// ## Postconditions
-    /// The new frame is inserted at the back of the list, and the cursor is moved to the new frame.
-    /// The list invariants are preserved.
+    /// - The new frame is inserted at the back of the list, and the cursor is moved to the new frame.
+    /// - The list invariants are preserved.
     /// ## Safety
     /// See [`insert_before`] for the safety guarantees.
     #[verus_spec(
@@ -340,12 +340,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// Pops a frame from the back of the linked list.
     /// # Verified Properties
     /// ## Preconditions
-    /// The list must be well-formed, with the pointers to its links' metadata slots
-    /// matching the tracked permission objects. The list must be non-empty, so that the
+    /// - The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects.
+    /// - The list must be non-empty, so that the
     /// current frame is valid.
     /// ## Postconditions
-    /// The back frame is removed from the list, and the cursor is moved to the "ghost" non-element.
-    /// The list invariants are preserved.
+    /// - The back frame is removed from the list, and the cursor is moved to the "ghost" non-element.
+    /// - The list invariants are preserved.
     /// ## Safety
     /// See [`take_current`] for the safety guarantees.
     #[verus_spec(r =>
@@ -381,15 +382,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// Tells if a frame is in the list.
     /// # Verified Properties
     /// ## Preconditions
-    /// The list must be well-formed, with the pointers to its links' metadata slots
-    /// matching the tracked permission objects. The frame must be a valid, active frame.
+    /// - The list must be well-formed, with the pointers to its links' metadata slots
+    /// matching the tracked permission objects.
+    /// - The frame must be a valid, active frame.
     /// ## Postconditions
     /// The function returns `true` if the frame is in the list, `false` otherwise.
     /// ## Safety
-    /// `lazy_get_id` uses atomic memory accesses, so there are no data races. We
-    /// assume that the ID allocator has an available ID if the list previously didn't have one,
-    /// but the consequence if that is not the case is a panic.
-    /// Everything else conforms to the safe interface.
+    /// - `lazy_get_id` uses atomic memory accesses, so there are no data races.
+    /// - We assume that the ID allocator has an available ID if the list previously didn't have one,
+    /// but the consequence if that is not the case is a failsafe panic.
+    /// - Everything else conforms to the safe interface.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -433,18 +435,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// This method fails if the frame is not in the list.
     /// # Verified Properties
     /// ## Preconditions
-    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// - The list must be well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects.
-    /// The frame should be raw (because it is owned by the list)
+    /// - The frame should be raw (because it is owned by the list)
     /// ## Postconditions
-    /// This functions post-conditions are incomplete due to refactoring of the permission model.
+    /// - This functions post-conditions are incomplete due to refactoring of the permission model.
     /// When complete, it will guarantee that the cursor is well-formed and points to the matching
     /// element in the list.
     /// ## Safety
-    /// `lazy_get_id` uses atomic memory accesses, so there are no data races. We
-    /// assume that the ID allocator has an available ID if the list previously didn't have one,
-    /// but the consequence if that is not the case is a panic.
-    /// Everything else conforms to the safe interface.
+    /// - `lazy_get_id` uses atomic memory accesses, so there are no data races.
+    /// - We assume that the ID allocator has an available ID if the list previously didn't have one,
+    /// but the consequence if that is not the case is a failsafe panic.
+    /// - Everything else conforms to the safe interface.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -507,15 +509,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// If the list is empty, the cursor points to the "ghost" non-element.
     /// # Verified Properties
     /// ## Preconditions
-    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// - The list must be well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects.
     /// ## Postconditions
-    /// The cursor is well-formed, with the pointers to its links' metadata slots
+    /// - The cursor is well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects. The list invariants are preserved.
-    /// See [`CursorOwner::front_owner_spec`] for the precise specification.
+    /// - See [`CursorOwner::front_owner_spec`] for the precise specification.
     /// ## Safety
-    /// This function only uses the list permission, so there are no illegal memory accesses.
-    /// No data races are possible.
+    /// - This function only uses the list permission, so there are no illegal memory accesses.
+    /// - No data races are possible.
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -544,15 +546,15 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     /// If the list is empty, the cursor points to the "ghost" non-element.
     /// # Verified Properties
     /// ## Preconditions
-    /// The list must be well-formed, with the pointers to its links' metadata slots
+    /// - The list must be well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects.
     /// ## Postconditions
-    /// The cursor is well-formed, with the pointers to its links' metadata slots
+    /// - The cursor is well-formed, with the pointers to its links' metadata slots
     /// matching the tracked permission objects. The list invariants are preserved.
     /// See [`CursorOwner::back_owner_spec`] for the precise specification.
     /// ## Safety
-    /// This function only uses the list permission, so there are no illegal memory accesses.
-    /// No data races are possible.
+    /// - This function only uses the list permission, so there are no illegal memory accesses.
+    /// - No data races are possible.
     #[verus_spec(
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
@@ -854,17 +856,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
     /// element is inserted at the back of the [`LinkedList`].
     /// # Verified Properties
     /// ## Preconditions
-    /// The cursor must be well-formed, with the pointers to its links' metadata slots
-    /// matching the tracked permission objects. The new frame must be active, so that it is
-    /// valid to call `into_raw` on it.
+    /// The cursor must be well-formed, with the pointers to its links' metadata slots matching the tracked permission objects.
+    /// - The new frame must be active, so that it is valid to call `into_raw` on it.
     /// ## Postconditions
-    /// The new frame is inserted into the list, immediately before the current index.
-    /// The list invariants are preserved.
+    /// - The new frame is inserted into the list, immediately before the current index.
+    /// - The list invariants are preserved.
     /// ## Safety
-    /// This function calls `into_raw` on the frame, so the caller must ensure that the frame is active and
+    /// - This function calls `into_raw` on the frame, so the caller must ensure that the frame is active and
     /// has not been forgotten already to avoid a memory leak. If the caller attempts to insert a forgotten frame,
     /// the invariant around `into_raw` and `from_raw` will be violated. But, it is the safe failure case in that
-    /// it will not cause a double-free.
+    /// it will not cause a double-free. (Note: we should be able to move this requirement into the `UniqueFrame` invariants.)
     #[verus_spec(
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(owner): Tracked<&mut CursorOwner<M>>,
@@ -1017,7 +1018,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
     }
 
     /// Provides a reference to the linked list.
-    #[rustc_allow_incoherent_impl]
     pub fn as_list(&self) -> PPtr<LinkedList<M>> {
         self.list
     }
