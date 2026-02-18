@@ -10,7 +10,7 @@ This work is ongoing. Our current focus is on verifying OSTD’s *memory managem
 
 Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `aster_common` and `ostd` directories, while specifications are located under `specs`.
 
-This repository currently contains verification code for `ostd/src/mm` and `ostd/src/boot/memory_region.rs`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
+This repository currently contains verification code for `ostd/src/mm` and `ostd/src/sync`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
 
 A merge of these efforts is planned, but has not yet begun.
 
@@ -22,7 +22,7 @@ If you have not installed Rust yet, follow the [official instructions](https://w
 
 #### Clone Submodule
 
-`vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier), which serves as a more powerful alternative to `cargo-verus`. Please run:
+`vostd` relies on our [custom build tool](https://github.com/asterinas/rust-deductive-verifier). Please run:
 
 ```
 git submodule update --init --recursive
@@ -37,6 +37,9 @@ cargo dv bootstrap
 ```
 
 Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo dv bootstrap` again.
+
+We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)"
+
 
 #### Build Verification Targets
 
@@ -100,5 +103,5 @@ We welcome your contributions!
 #### Tips
 
 - During your development process, please frequently run `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
--  Format checking is currently disabled due to instability in `verusfmt`, but we still recommend formatting your code with `verusfmt` before submission.
+-  Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
 - If you are contributing to Verus, we recommend submitting pull requests to [the official repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
