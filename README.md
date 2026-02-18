@@ -38,7 +38,7 @@ cargo dv bootstrap
 
 Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo dv bootstrap` again.
 
-We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)"
+We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)
 
 
 #### Build Verification Targets
