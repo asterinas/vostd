@@ -100,7 +100,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont = self.continuations[(level - 1) as int];
             // Each entry takes at most `max_step_subtree` steps.
             let steps = Self::max_steps_subtree(level) * (NR_ENTRIES - cont.idx);
-            // Then the number of steps for the remaining entries at higer levels
+            // Then the number of steps for the remaining entries at higher levels
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
             (steps + remaining_steps) as usize
         }

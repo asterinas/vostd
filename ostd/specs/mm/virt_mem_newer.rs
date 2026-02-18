@@ -52,7 +52,7 @@ pub tracked struct MemView {
 }
 
 /// A [`MemView`] can be created by taking a view from a [`GlobalMemView`]; it
-/// is structed similarly but with the extra global fields like TLB and page tables.
+/// is structured similarly but with the extra global fields like TLB and page tables.
 /// It also tracks the physical addresses in the valid range that are unmapped.
 
 

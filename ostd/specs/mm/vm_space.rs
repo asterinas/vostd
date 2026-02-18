@@ -12,7 +12,7 @@ use crate::specs::mm::virt_mem_newer::{FrameContents, MemView};
 verus! {
 
 /// This struct is used for reading/writing memories represented by the
-/// [`VmReader`] or [`VmWriter`]. We also requrie a valid `vmspace_owner`
+/// [`VmReader`] or [`VmWriter`]. We also require a valid `vmspace_owner`
 /// must be present in this struct to ensure that the reader/writer is
 /// not created out of thin air.
 pub tracked struct VmIoPermission<'a> {
