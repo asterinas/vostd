@@ -38,7 +38,7 @@ cargo dv bootstrap
 
 Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo dv bootstrap` again.
 
-We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)
+We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may manually clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)
 
 
 #### Build Verification Targets
@@ -49,11 +49,10 @@ To verify the entire project, simply run:
 cargo dv verify --targets ostd
 ```
 
-The `ostd` crate relies on two verified libraries: `vstd_extra` and `aster_common`. To compile and verify these libraries independently, run:
+The `ostd` crate relies on a verified library: `vstd_extra`. To compile and verify the library independently, run:
 
 ```
 cargo dv compile --targets vstd_extra
-cargo dv compile --targets aster_common
 ```
 
 #### Clean Build Artifacts
@@ -62,7 +61,6 @@ cargo dv compile --targets aster_common
 
 ```
 cargo dv clean --targets vstd_extra
-cargo dv clean --targets aster_common
 ```
 
 You can also run `cargo dv clean` to clean all artifacts at once.
