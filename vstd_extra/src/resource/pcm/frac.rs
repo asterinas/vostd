@@ -1,7 +1,7 @@
 //! This module defines the real-based fractional permissions PCM.
 //!
 //! Unlike the [`FracGhost`](https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html) in vstd,
-//! which requires a compile-time constant TOTTL to define integer-based fractions,
+//! which requires a compile-time constant TOTAL to define integer-based fractions,
 //! we model fractions as real numbers `q : real` in (0, 1] like Iris, where 1.0 is full
 //! ownership, which allows arbitrary splitting of fractions at runtime.
 //!

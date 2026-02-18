@@ -67,7 +67,7 @@ pub proof fn lemma_nat_range_finite(l: nat, r: nat)
     }
 }
 
-/// A finite set can be separated by a predicate into two disjoiint sets.
+/// A finite set can be separated by a predicate into two disjoint sets.
 pub proof fn lemma_set_separation<T>(s: Set<T>, f: spec_fn(T) -> bool)
     requires
         s.finite(),

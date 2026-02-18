@@ -24,7 +24,7 @@ impl<A> PCM for ExclR<A> {
         self !is ExclInvalid
     }
 
-    // Compositio of two non-unit elements is always invalid.
+    // Composition of two non-unit elements is always invalid.
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
             (ExclR::Unit, x) => x,
