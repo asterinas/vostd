@@ -73,15 +73,7 @@ We provide comprehensive API-level documentation that describes the verified API
 cargo dv doc --target ostd
 ```
 
-The generated documentation can be found at `doc/index.html`.
-
-If you are interested in the precise Verus definitions, you can run:
-
-```
-cargo dv doc --target ostd --verus-conds
-```
-
-This will additionally include the Verus specifications and the pre- and post-conditions for each function.
+The generated documentation can be found at `doc/index.html`. An online version is available [here](https://asterinas.github.io/vostd/).
 
 #### IDE Support
 
