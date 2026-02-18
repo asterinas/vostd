@@ -57,7 +57,7 @@ cargo dv compile --targets vstd_extra
 
 #### Clean Build Artifacts
 
-`dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove all build artifacts and force a fresh build, run:
+`dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact of a particular library and force a fresh build, run:
 
 ```
 cargo dv clean --targets vstd_extra
@@ -73,7 +73,7 @@ We provide comprehensive API-level documentation that describes the verified API
 cargo dv doc --target ostd
 ```
 
-The generated documentation can be found at `doc/index.html`. An online version is available [here](https://asterinas.github.io/vostd/).
+The generated documentation can be found at `doc/index.html`. An online version is also available [here](https://asterinas.github.io/vostd/).
 
 #### IDE Support
 
