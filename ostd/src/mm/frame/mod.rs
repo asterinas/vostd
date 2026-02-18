@@ -76,16 +76,10 @@ use vstd_extra::undroppable::*;
 
 use crate::mm::{kspace::{LINEAR_MAPPING_BASE_VADDR,VMALLOC_BASE_VADDR}, Paddr, PagingLevel, Vaddr, MAX_PADDR};
 use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 verus! {
-
-/// A permission token for frame metadata.
-///
-/// [`Frame<M>`] the high-level representation of the low-level pointer
-/// to the [`super::meta::MetaSlot`].
-pub type MetaPerm<M> = cast_ptr::PointsTo<MetaSlot, M>;
 
 /// A smart pointer to a frame.
 ///
@@ -133,68 +127,6 @@ impl<M: AnyFrameMeta> Undroppable for Frame<M> {
         let index = frame_to_index(meta_to_frame(meta_addr));
         let tracked perm = s.slots.tracked_remove(index);
         s.dropped_slots.tracked_insert(index, perm);
-    }
-}
-
-impl<M: AnyFrameMeta> cast_ptr::Repr<MetaSlot> for Frame<M> {
-    open spec fn wf(m: MetaSlot) -> bool {
-        true  /* Placeholder */
-
-    }
-
-    open spec fn to_repr_spec(self) -> MetaSlot {
-        arbitrary()  /* Placeholder */
-
-    }
-
-    open spec fn from_repr_spec(r: MetaSlot) -> Self {
-        arbitrary()  /* Placeholder */
-
-    }
-
-    #[verifier::external_body]
-    fn to_repr(self) -> (res: MetaSlot)
-        ensures
-            res == self.to_repr_spec(),
-    {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlot) -> (res: Self)
-        ensures
-            res == Self::from_repr_spec(r),
-    {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot) -> (res: &'a Self)
-        ensures
-            *res == Self::from_repr_spec(*r),
-    {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self)
-        ensures
-            Self::from_repr(self.to_repr()) == self,
-    {
-        admit();
-    }
-
-    proof fn to_from_repr(r: MetaSlot)
-        ensures
-            Self::from_repr(r).to_repr() == r,
-    {
-        admit();
-    }
-
-    proof fn to_repr_wf(self)
-        ensures
-            Self::wf(self.to_repr()),
-    {
-        admit();
     }
 }
 
@@ -261,7 +193,7 @@ impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 */
 
 #[verus_verify]
-impl<'a, M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     pub open spec fn from_unused_requires(
         regions: MetaRegionOwners,
         paddr: Paddr,
@@ -319,14 +251,14 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
 
     /// Gets the metadata of this page.
     #[verus_spec(
-        with Tracked(perm) : Tracked<&'a PointsTo<MetaSlot, M>>,
+        with Tracked(perm) : Tracked<&'a PointsTo<MetaSlot, Metadata<M>>>,
         requires
             self.ptr.addr() == perm.addr(),
             self.ptr == perm.points_to.pptr(),
             perm.is_init(),
             perm.wf(),
         returns
-            perm.value(),
+            perm.value().metadata,
     )]
     pub fn meta(&self) -> &'a M {
         // SAFETY: The type is tracked by the type system.
@@ -336,7 +268,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
         #[verus_spec(with Tracked(&perm.points_to))]
         let ptr = slot.as_meta_ptr();
 
-        ptr.borrow(Tracked(perm))
+        &ptr.borrow(Tracked(perm)).metadata
     }
 }
 
@@ -551,7 +483,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         #[verus_spec(with Tracked(&perm))]
         let paddr = self.start_paddr();
 
-        let tracked meta_perm = PointsTo::<MetaSlot, M>::new(Ghost(self.ptr.addr()), perm);
+        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm);
 
         let this = NeverDrop::new(self, Tracked(regions));
 

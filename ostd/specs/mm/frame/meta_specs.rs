@@ -5,7 +5,7 @@ use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{MetaSlotModel, MetaSlotStatus, PageUsage};
+use super::meta_owners::{MetaSlotModel, MetaSlotStatus, PageUsage, MetaSlotStorage};
 use crate::mm::frame::meta::{
     get_slot_spec,
     mapping::{frame_to_index, frame_to_meta},
@@ -21,7 +21,6 @@ use core::marker::PhantomData;
 verus! {
 
 impl MetaSlot {
-    #[rustc_allow_incoherent_impl]
     pub open spec fn from_unused_slot_spec<M: AnyFrameMeta>(
         paddr: Paddr,
         metadata: M,
@@ -162,7 +161,7 @@ impl MetaSlot {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     pub open spec fn from_raw_spec(paddr: Paddr) -> Self {
         Frame::<M> {
             ptr: PPtr::<MetaSlot>(frame_to_meta(paddr), PhantomData),

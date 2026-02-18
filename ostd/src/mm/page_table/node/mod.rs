@@ -52,6 +52,8 @@ use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, StoredPageTablePageMeta};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -166,25 +168,25 @@ extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<
         *_page == drop_tree_spec::<C>(*old(_page)),
 ;
 
-impl<C: PageTableConfig> Repr<MetaSlot> for PageTablePageMeta<C> {
-    uninterp spec fn wf(r: MetaSlot) -> bool;
+impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
+    uninterp spec fn wf(r: MetaSlotStorage) -> bool;
 
-    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+    uninterp spec fn to_repr_spec(self) -> MetaSlotStorage;
 
     #[verifier::external_body]
-    fn to_repr(self) -> MetaSlot {
+    fn to_repr(self) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
+    uninterp spec fn from_repr_spec(r: MetaSlotStorage) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlot) -> Self {
+    fn from_repr(r: MetaSlotStorage) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
         unimplemented!()
     }
 
@@ -192,7 +194,7 @@ impl<C: PageTableConfig> Repr<MetaSlot> for PageTablePageMeta<C> {
         admit()
     }
 
-    proof fn to_from_repr(r: MetaSlot) {
+    proof fn to_from_repr(r: MetaSlotStorage) {
         admit()
     }
 
@@ -215,7 +217,7 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 #[verus_verify]
 impl<C: PageTableConfig> PageTableNode<C> {
     #[verus_spec(
-        with Tracked(perm) : Tracked<&PointsTo<MetaSlot, PageTablePageMeta<C>>>
+        with Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
     pub fn level(&self) -> PagingLevel
         requires
@@ -224,7 +226,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             perm.is_init(),
             perm.wf(),
         returns
-            perm.value().level,
+            perm.value().metadata.level,
     {
         #[verus_spec(with Tracked(perm))]
         let meta = self.meta();
@@ -579,7 +581,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// Gets the mutable reference to the number of valid PTEs in the node.
     #[rustc_allow_incoherent_impl]
     #[verus_spec(
-        with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, PageTablePageMeta<C>>>
+        with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
     fn nr_children_mut<'a>(&'a mut self) -> (res: &'a PCell<u16>)
         requires
@@ -588,7 +590,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_perm.is_init(),
             meta_perm.wf(),
         ensures
-            res.id() == meta_perm.value().nr_children.id(),
+            res.id() == meta_perm.value().metadata.nr_children.id(),
             *self == *old(self),
     {
         // SAFETY: The lock is held so we have an exclusive access.
@@ -605,7 +607,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 }*/
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-    #[rustc_allow_incoherent_impl]
     pub fn new(level: PagingLevel) -> Self {
         Self {
             nr_children: PCell::new(0).0,

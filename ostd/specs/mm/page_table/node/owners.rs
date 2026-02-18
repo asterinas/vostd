@@ -17,6 +17,7 @@ use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::GuardPerm;
 use crate::specs::mm::page_table::owners::INC_LEVELS;
+use crate::specs::mm::frame::meta_owners::*;
 
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
@@ -74,7 +75,7 @@ impl<C: PageTableConfig> OwnerOf for PageTablePageMeta<C> {
 
 pub tracked struct NodeOwner<C: PageTableConfig> {
     pub meta_own: PageMetaOwner,
-    pub meta_perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, PageTablePageMeta<C>>,
+    pub meta_perm: MetaPerm<PageTablePageMeta<C>>,
     pub children_perm: array_ptr::PointsTo<C::E, NR_ENTRIES>,
     pub level: PagingLevel,
     pub tree_level: int,
@@ -83,10 +84,9 @@ pub tracked struct NodeOwner<C: PageTableConfig> {
 impl<C: PageTableConfig> Inv for NodeOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.meta_perm.points_to.is_init()
-        &&& <PageTablePageMeta<C> as Repr<MetaSlot>>::wf(self.meta_perm.points_to.value())
         &&& self.meta_perm.addr() == self.meta_perm.points_to.addr()
         &&& self.meta_own.inv()
-        &&& self.meta_perm.value().wf(self.meta_own)
+        &&& self.meta_perm.value().metadata.wf(self.meta_own)
         &&& self.meta_perm.is_init()
         &&& self.meta_perm.wf()
         &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
@@ -94,12 +94,12 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
         &&& meta_to_frame(self.meta_perm.addr()) < MAX_PADDR
         &&& meta_to_frame(self.meta_perm.addr()) == self.children_perm.addr()
-        &&& self.meta_own.nr_children.id() == self.meta_perm.value().nr_children.id()
+        &&& self.meta_own.nr_children.id() == self.meta_perm.value().metadata.nr_children.id()
         &&& 0 <= self.meta_own.nr_children.value() <= NR_ENTRIES
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
-        &&& self.level == self.meta_perm.value().level
+        &&& self.level == self.meta_perm.value().metadata.level
         &&& self.tree_level == INC_LEVELS - self.level
     }
 }
@@ -129,7 +129,7 @@ impl<C: PageTableConfig> View for NodeOwner<C> {
     type V = NodeModel<C>;
 
     open spec fn view(&self) -> <Self as View>::V {
-        NodeModel { meta: self.meta_perm.value() }
+        NodeModel { meta: self.meta_perm.value().metadata }
     }
 }
 

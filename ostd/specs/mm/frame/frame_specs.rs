@@ -8,12 +8,13 @@ use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionModel;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 
 use core::marker::PhantomData;
 
 verus! {
 
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
     pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionModel)
         -> (Self, MetaRegionModel)

@@ -3,7 +3,7 @@
 //! - The invariants for both MetaSlot and MetaSlotModel.
 //! - The primitives for MetaSlot.
 use vstd::atomic::*;
-use vstd::cell::{self, PCell};
+use vstd::cell::{self, PCell, PointsTo};
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
@@ -18,6 +18,7 @@ use crate::mm::frame::linked_list::StoredLink;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
+use crate::mm::frame::AnyFrameMeta;
 
 use core::marker::PhantomData;
 
@@ -147,9 +148,9 @@ impl MetaSlotStorage {
 }
 
 pub tracked struct MetaSlotOwner {
-    pub storage: PointsTo<MetaSlotStorage>,
+    pub storage: cell::PointsTo<MetaSlotStorage>,
     pub ref_count: PermissionU64,
-    pub vtable_ptr: PointsTo<usize>,
+    pub vtable_ptr: vstd::simple_pptr::PointsTo<usize>,
     pub in_list: PermissionU64,
     pub self_addr: usize,
     pub usage: PageUsage,
@@ -236,7 +237,7 @@ impl OwnerOf for MetaSlot {
     type Owner = MetaSlotOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.storage == owner.storage.pptr()
+        &&& self.storage.id() == owner.storage.id()
         &&& self.ref_count.id() == owner.ref_count.id()
         &&& self.vtable_ptr == owner.vtable_ptr.pptr()
         &&& self.in_list.id() == owner.in_list.id()
@@ -246,5 +247,56 @@ impl OwnerOf for MetaSlot {
 impl ModelOf for MetaSlot {
 
 }
+
+pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+    pub metadata: M,
+    pub ref_count: u64,
+    pub vtable_ptr: MemContents<usize>,
+    pub in_list: u64,
+    pub self_addr: usize,
+    pub usage: PageUsage,
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
+    uninterp spec fn wf(r: MetaSlot) -> bool;
+
+    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+
+    #[verifier::external_body]
+    fn to_repr(self) -> MetaSlot {
+        unimplemented!()
+    }
+
+    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
+
+    #[verifier::external_body]
+    fn from_repr(r: MetaSlot) -> Self {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
+        unimplemented!()
+    }
+
+    proof fn from_to_repr(self) {
+        admit()
+    }
+
+    proof fn to_from_repr(r: MetaSlot) {
+        admit()
+    }
+
+    proof fn to_repr_wf(self) {
+        admit()
+    }
+}
+
+/// A permission token for frame metadata.
+///
+/// [`Frame<M>`] the high-level representation of the low-level pointer
+/// to the [`super::meta::MetaSlot`].
+pub type MetaPerm<M: AnyFrameMeta + Repr<MetaSlotStorage>> = cast_ptr::PointsTo<MetaSlot, Metadata<M>>;
+
 
 } // verus!

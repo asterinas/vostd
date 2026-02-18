@@ -141,7 +141,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     {
         let guard = self.node.borrow(Tracked(guard_perm));
 
-        assert(parent_owner.level == parent_owner.meta_perm.value().level) by { admit() };
+        assert(parent_owner.level == parent_owner.meta_perm.value().metadata.level) by { admit() };
 
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
         let level = guard.level();

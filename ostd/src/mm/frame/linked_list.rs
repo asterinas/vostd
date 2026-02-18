@@ -23,6 +23,8 @@ use crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -39,9 +41,9 @@ use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot, has_safe_slot};
 verus! {
 
 /// A link in the linked list.
-pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
-    pub next: Option<ReprPtr<MetaSlot, Link<M>>>,
-    pub prev: Option<ReprPtr<MetaSlot, Link<M>>>,
+pub struct Link<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+    pub next: Option<ReprPtr<MetaSlot, Metadata<Link<M>>>>,
+    pub prev: Option<ReprPtr<MetaSlot, Metadata<Link<M>>>>,
     pub meta: M,
 }
 
@@ -61,9 +63,9 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
 /// ## Verification Design
 /// The linked list is abstractly represented by a [`LinkedListOwner`]:
 /// ```rust
-/// tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlot>> {
+/// tracked struct LinkedListOwner<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
 ///     pub list: Seq<LinkOwner>,
-///     pub perms: Map<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Link<M>>>,
+///     pub perms: Map<int, vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>>,
 ///     pub list_id: u64,
 /// }
 /// ```
@@ -94,9 +96,9 @@ pub struct Link<M: AnyFrameMeta + Repr<MetaSlot>> {
 /// A given linked list can only have one cursor at a time, so there are no data races.
 /// The `prev` and `next` fields of the metadata for each link always points to valid
 /// links in the list, so the structure is memory safe (will not read or write invalid memory).
-pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
-    pub front: Option<ReprPtr<MetaSlot, Link<M>>>,
-    pub back: Option<ReprPtr<MetaSlot, Link<M>>>,
+pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+    pub front: Option<ReprPtr<MetaSlot, Metadata<Link<M>>>>,
+    pub back: Option<ReprPtr<MetaSlot, Metadata<Link<M>>>>,
     /// The number of frames in the list.
     pub size: usize,
     /// A lazily initialized ID, used to check whether a frame is in the list.
@@ -108,32 +110,34 @@ pub struct LinkedList<M: AnyFrameMeta + Repr<MetaSlot>> {
 ///
 /// The cursor points to either a frame or the "ghost" non-element. It points
 /// to the "ghost" non-element when the cursor surpasses the back of the list.
-pub struct CursorMut<M: AnyFrameMeta + Repr<MetaSlot>> {
+pub struct CursorMut<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub list: PPtr<LinkedList<M>>,
-    pub current: Option<ReprPtr<MetaSlot, Link<M>>>,
+    pub current: Option<ReprPtr<MetaSlot, Metadata<Link<M>>>>,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> LinkedList<M> {
     /// Creates a new linked list.
     pub const fn new() -> Self {
         Self { front: None, back: None, size: 0, list_id: 0 }
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> Default for LinkedList<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Default for LinkedList<M> {
     fn default() -> Self {
         Self::new()
     }
 }
 
+pub struct MetaSlotSmall;
+
 /// Representation of a link as stored in the metadata slot.
 pub struct StoredLink {
     pub next: Option<Paddr>,
     pub prev: Option<Paddr>,
-    pub slot: MetaSlot,
+    pub slot: MetaSlotSmall,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> AnyFrameMeta for Link<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> AnyFrameMeta for Link<M> {
     fn on_drop(&mut self) {
     }
 
@@ -149,7 +153,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> AnyFrameMeta for Link<M> {
 //unsafe impl<M> Send for LinkedList<M> where Link<M>: AnyFrameMeta {}
 //unsafe impl<M> Sync for LinkedList<M> where Link<M>: AnyFrameMeta {}
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> LinkedList<M> {
     /// Gets the number of frames in the linked list.
     #[verus_spec(s =>
         with
@@ -617,7 +621,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> LinkedList<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> CursorMut<M> {
     /// Moves the cursor to the next frame towards the back.
     ///
     /// If the cursor is pointing to the "ghost" non-element then this will
@@ -650,7 +654,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         self.current = match self.current {
             // SAFETY: The cursor is pointing to a valid element.
-            Some(current) => *borrow_field!(& current => next, owner.list_own.perms.tracked_borrow(owner.index)),
+            Some(current) => *borrow_field!(& current => metadata.next, owner.list_own.perms.tracked_borrow(owner.index)),
             None => borrow_field!(self.list => front, &owner.list_perm),
         };
 
@@ -693,7 +697,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         self.current = match self.current {
             // SAFETY: The cursor is pointing to a valid element.
-            Some(current) => *borrow_field!(& current => prev, owner.list_own.perms.tracked_borrow(owner.index)),
+            Some(current) => *borrow_field!(& current => metadata.prev, owner.list_own.perms.tracked_borrow(owner.index)),
             None => borrow_field!(self.list => back, &owner.list_perm),
         };
 
@@ -798,12 +802,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
 
-        let opt_prev = borrow_field!(frame_meta => prev, &frame_own.meta_perm);
+        let opt_prev = borrow_field!(frame_meta => metadata.prev, &frame_own.meta_perm);
 
         if let Some(prev) = opt_prev {
             // SAFETY: We own the previous node by `&mut self` and the node is
             // initialized.
-            update_field!(prev => next <- next_ptr; owner.list_own.perms, owner.index-1);
+            update_field!(prev => metadata.next <- next_ptr; owner.list_own.perms, owner.index-1);
 
             assert(owner.index > 0);
         } else {
@@ -814,12 +818,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
         #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
-        let opt_next = frame_meta.borrow(Tracked(&frame_own.meta_perm)).next;
+        let opt_next = frame_meta.borrow(Tracked(&frame_own.meta_perm)).metadata.next;
 
         if let Some(next) = opt_next {
             // SAFETY: We own the next node by `&mut self` and the node is
             // initialized.
-            update_field!(next => prev <- prev_ptr; owner.list_own.perms, owner.index+1);
+            update_field!(next => metadata.prev <- prev_ptr; owner.list_own.perms, owner.index+1);
 
             self.current = Some(next);
         } else {
@@ -831,8 +835,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
         #[verus_spec(with Tracked(&frame_own))]
         let frame_meta = frame.meta_mut();
 
-        update_field!(frame_meta => next <- None; frame_own.meta_perm);
-        update_field!(frame_meta => prev <- None; frame_own.meta_perm);
+        update_field!(frame_meta => metadata.next <- None; frame_own.meta_perm);
+        update_field!(frame_meta => metadata.prev <- None; frame_own.meta_perm);
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
 
@@ -915,7 +919,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             // SAFETY: We own the current node by `&mut self` and the node is
             // initialized.
             let tracked mut cur_perm = owner.list_own.perms.tracked_remove(owner.index);
-            let opt_prev = borrow_field!(current => prev, &cur_perm);
+            let opt_prev = borrow_field!(current => metadata.prev, &cur_perm);
             proof {
                 owner.list_own.perms.tracked_insert(owner.index, cur_perm);
             }
@@ -923,16 +927,16 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
             if let Some(prev) = opt_prev {
                 // SAFETY: We own the previous node by `&mut self` and the node
                 // is initialized.
-                update_field!(prev => next <- Some(frame_ptr); owner.list_own.perms, owner.index-1);
+                update_field!(prev => metadata.next <- Some(frame_ptr); owner.list_own.perms, owner.index-1);
 
-                update_field!(frame_ptr => prev <- Some(prev); frame_own.meta_perm);
-                update_field!(frame_ptr => next <- Some(prev); frame_own.meta_perm);
+                update_field!(frame_ptr => metadata.prev <- Some(prev); frame_own.meta_perm);
+                update_field!(frame_ptr => metadata.next <- Some(prev); frame_own.meta_perm);
 
-                update_field!(current => prev <- Some(frame_ptr); owner.list_own.perms, owner.index);
+                update_field!(current => metadata.prev <- Some(frame_ptr); owner.list_own.perms, owner.index);
             } else {
-                update_field!(frame_ptr => next <- Some(current); frame_own.meta_perm);
+                update_field!(frame_ptr => metadata.next <- Some(current); frame_own.meta_perm);
 
-                update_field!(current => prev <- Some(frame_ptr); owner.list_own.perms, owner.index);
+                update_field!(current => metadata.prev <- Some(frame_ptr); owner.list_own.perms, owner.index);
 
                 update_field!(self.list => front <- Some(frame_ptr); owner.list_perm);
             }
@@ -944,9 +948,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlot>> CursorMut<M> {
 
                 // SAFETY: We have ownership of the links via `&mut self`.
                 //                    debug_assert!(back.as_mut().next.is_none());
-                update_field!(back => next <- Some(frame_ptr); owner.list_own.perms, owner.length()-1);
+                update_field!(back => metadata.next <- Some(frame_ptr); owner.list_own.perms, owner.length()-1);
 
-                update_field!(frame_ptr => prev <- Some(back); frame_own.meta_perm);
+                update_field!(frame_ptr => metadata.prev <- Some(back); frame_own.meta_perm);
 
                 update_field!(self.list => back <- Some(frame_ptr); owner.list_perm);
             } else {
@@ -1052,7 +1056,7 @@ impl DerefMut for Link {
 }
 */
 
-impl<M: AnyFrameMeta + Repr<MetaSlot>> Link<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Link<M> {
     #[rustc_allow_incoherent_impl]
     /// Creates a new linked list metadata.
     pub const fn new(meta: M) -> Self {

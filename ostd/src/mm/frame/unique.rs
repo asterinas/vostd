@@ -23,16 +23,18 @@ use crate::mm::frame::MetaPerm;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 verus! {
 
-pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> {
+pub struct UniqueFrame<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
 }
 
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Gets a [`UniqueFrame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -73,13 +75,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlot> + OwnerOf>(self, transmuted: UniqueFrame<M1>) -> bool {
+    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, transmuted: UniqueFrame<M1>) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
         &&& transmuted._marker == PhantomData::<M1>
     }
 
     #[verifier::external_body]
-    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlot> + OwnerOf>(self) -> (res: UniqueFrame<M1>)
+    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<M1>)
         ensures
             Self::transmute_spec(self, res)
     {
@@ -111,17 +113,17 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
             old(regions).inv(),
         ensures
             res.wf(new_owner@),
-            new_owner@.meta_perm.value() == metadata,
+            new_owner@.meta_perm.value().metadata == metadata,
             regions.inv(),
     )]
-    pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlot> + OwnerOf>(self, metadata: M1) -> UniqueFrame<M1> {
+    pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, metadata: M1) -> UniqueFrame<M1> {
         assert(regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))) by { admit() };
         assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr() == self.ptr.addr()) by { admit() };
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(meta_to_frame(self.ptr.addr())));
         let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(meta_to_frame(self.ptr.addr())));
 
-        assert(slot_own.storage.addr() == slot_perm.value().storage.addr()) by { admit() };
+        assert(slot_own.storage.id() == slot_perm.value().storage.id()) by { admit() };
 
         #[verus_spec(with Tracked(&slot_perm))]
         let slot = self.slot();
@@ -150,7 +152,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
 
     /// Gets the metadata of this page.
     /// Note that this function body differs from the original, because `as_meta_ptr` returns
-    /// a `ReprPtr<MetaSlot, M>` instead of a `*M`. So in order to keep the immutable borrow, we
+    /// a `ReprPtr<MetaSlot, Metadata<M>>` instead of a `*M`. So in order to keep the immutable borrow, we
     /// borrow the metadata value from that pointer.
     /// # Verified Properties
     /// ## Preconditions
@@ -168,7 +170,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
             owner.inv(),
             self.wf(*owner),
         ensures
-            owner.meta_perm.mem_contents().value() == l,
+            owner.meta_perm.mem_contents().value().metadata == l,
     {
         // SAFETY: The type is tracked by the type system.
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
@@ -177,7 +179,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let ptr = slot.as_meta_ptr();
 
-        ptr.borrow(Tracked(&owner.meta_perm))
+        &ptr.borrow(Tracked(&owner.meta_perm)).metadata
     }
 
     /// Gets the mutable metadata of this page.
@@ -192,7 +194,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     #[verus_spec(
         with Tracked(owner): Tracked<&UniqueFrameOwner<M>>
     )]
-    pub fn meta_mut(&mut self) -> (res: ReprPtr<MetaSlot, M>)
+    pub fn meta_mut(&mut self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
         requires
             owner.inv(),
             old(self).wf(*owner),
@@ -211,7 +213,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> UniqueFrame<M> {
     }
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf + ?Sized> UniqueFrame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// Gets the physical address of the start of the frame.
     #[verus_spec(
         with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
@@ -337,7 +339,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf + ?Sized> UniqueFrame<M> {
     /// a forgotten frame that was previously casted by [`Self::into_raw`].
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(meta_perm): Tracked<PointsTo<MetaSlot, M>>,
+            Tracked(meta_perm): Tracked<PointsTo<MetaSlot, Metadata<M>>>,
             Tracked(meta_own): Tracked<M::Owner>
     )]
     #[verifier::external_body]

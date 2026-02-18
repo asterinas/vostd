@@ -18,7 +18,7 @@ use vstd::prelude::*;
 pub mod mapping;
 
 use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, MetaSlotStorage};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, MetaSlotStorage, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
@@ -185,7 +185,7 @@ pub open spec fn get_slot_spec(paddr: Paddr) -> (res: PPtr<MetaSlot>)
 }
 
 /// Space-holder of the AnyFrameMeta virtual table.
-pub trait AnyFrameMeta: Repr<MetaSlot> {
+pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
     exec fn on_drop(&mut self) {
     }
 
@@ -203,25 +203,25 @@ impl AnyFrameMeta for MetaSlotStorage {
     uninterp spec fn vtable_ptr(&self) -> usize;
 }
 
-impl Repr<MetaSlot> for MetaSlotStorage {
-    uninterp spec fn wf(slot: MetaSlot) -> bool;
+impl Repr<MetaSlotStorage> for MetaSlotStorage {
+    uninterp spec fn wf(slot: MetaSlotStorage) -> bool;
 
-    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+    uninterp spec fn to_repr_spec(self) -> MetaSlotStorage;
 
     #[verifier::external_body]
-    fn to_repr(self) -> MetaSlot {
+    fn to_repr(self) -> MetaSlotStorage {
         todo!()
     }
 
-    uninterp spec fn from_repr_spec(slot: MetaSlot) -> Self;
+    uninterp spec fn from_repr_spec(slot: MetaSlotStorage) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(slot: MetaSlot) -> Self {
+    fn from_repr(slot: MetaSlotStorage) -> Self {
         todo!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(slot: &'a MetaSlot) -> &'a Self {
+    fn from_borrowed<'a>(slot: &'a MetaSlotStorage) -> &'a Self {
         todo!()
     }
 
@@ -229,7 +229,7 @@ impl Repr<MetaSlot> for MetaSlotStorage {
         admit()
     }
 
-    proof fn to_from_repr(slot: MetaSlot) {
+    proof fn to_from_repr(slot: MetaSlotStorage) {
         admit()
     }
 
@@ -239,7 +239,7 @@ impl Repr<MetaSlot> for MetaSlotStorage {
 }
 
 pub struct MetaSlot {
-    pub storage: PPtr<MetaSlotStorage>,
+    pub storage: PCell<MetaSlotStorage>,
     pub ref_count: PAtomicU64,
     pub vtable_ptr: PPtr<usize>,
     pub in_list: PAtomicU64,
@@ -321,11 +321,11 @@ impl MetaSlot {
         unimplemented!()
     }
 
-    pub fn cast_slot<T: Repr<MetaSlot>>(
+    pub fn cast_slot<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         &self,
         addr: usize,
         Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>,
-    ) -> (res: ReprPtr<MetaSlot, T>)
+    ) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
         requires
             perm.value() == self,
             addr == perm.addr(),
@@ -333,13 +333,13 @@ impl MetaSlot {
             res.ptr.addr() == addr,
             res.addr == addr,
     {
-        ReprPtr::<MetaSlot, T> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+        ReprPtr::<MetaSlot, Metadata<M>> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
     }
 
-    pub fn cast_perm<T: Repr<MetaSlot>>(
+    pub fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         addr: usize,
         Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
-    ) -> Tracked<PointsTo<MetaSlot, T>> {
+    ) -> Tracked<PointsTo<MetaSlot, Metadata<M>>> {
         Tracked(PointsTo { addr: addr, points_to: perm, _T: PhantomData })
     }
 
@@ -368,7 +368,7 @@ impl MetaSlot {
                 old(regions).slots.contains_key(i) ==> regions.slots.contains_key(i),
     )]
     #[verifier::external_body]
-    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf>(
+    pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
@@ -669,7 +669,7 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlot>>(&self) -> (res: ReprPtr<MetaSlot, M>)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
         requires
             self == perm.value(),
         ensures
@@ -688,22 +688,22 @@ impl MetaSlot {
     /// The caller should have exclusive access to the metadata slot's fields.
     #[verus_spec(
         with Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
-            Tracked(meta_perm): Tracked<&mut vstd_extra::cast_ptr::PointsTo<MetaSlot, M>>
+            Tracked(meta_perm): Tracked<&mut vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<M>>>
         requires
-            old(slot_own).storage.pptr() == self.storage,
+            old(slot_own).storage.id() == self.storage.id(),
         ensures
             slot_own.ref_count == old(slot_own).ref_count,
             slot_own.vtable_ptr.is_init(),
             slot_own.vtable_ptr.value() == metadata.vtable_ptr(),
             slot_own.vtable_ptr.pptr() == old(slot_own).vtable_ptr.pptr(),
-            slot_own.storage.pptr() == old(slot_own).storage.pptr(),
+            slot_own.storage.id() == old(slot_own).storage.id(),
             slot_own.in_list == old(slot_own).in_list,
             slot_own.self_addr == old(slot_own).self_addr,
-            meta_perm.value() == metadata,
+            meta_perm.value().metadata == metadata,
             meta_perm.addr() == old(meta_perm).addr(),
     )]
     #[verifier::external_body]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf>(&self, metadata: M)
+    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(&self, metadata: M)
     {
         //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
         //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
@@ -773,7 +773,7 @@ impl MetaSlot {
         ensures
             slot_own.ref_count == old(slot_own).ref_count,
             slot_own.storage.is_uninit(),
-            slot_own.storage.addr() == old(slot_own).storage.addr(),
+            slot_own.storage.id() == old(slot_own).storage.id(),
             slot_own.in_list == old(slot_own).in_list,
             slot_own.vtable_ptr == old(slot_own).vtable_ptr,
             slot_own.self_addr == old(slot_own).self_addr,

@@ -15,6 +15,7 @@ use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use vstd_extra::undroppable::*;
 
 verus! {
@@ -152,7 +153,7 @@ pub type USegment = Segment<dyn AnyUFrameMeta>;
 //     }
 // }
 #[verus_verify]
-impl<M: AnyFrameMeta + Repr<MetaSlot> + OwnerOf> Segment<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     #[rustc_allow_incoherent_impl]
     #[verifier::inline]
     pub open spec fn start_paddr_spec(&self) -> Paddr
