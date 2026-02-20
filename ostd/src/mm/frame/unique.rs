@@ -69,7 +69,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             let ptr = from_unused.unwrap();
             proof_decl! {
                 let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, metadata);
-            } 
+            }
             proof_with!(|= Tracked(Some(owner)));
             Ok(Self { ptr, _marker: PhantomData })
         }
@@ -91,9 +91,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// Repurposes the frame with a new metadata.
     /// # Verified Properties
     /// ## Preconditions
-    /// The caller must provide a valid owner for the frame, and the metadata region invariants must hold.
-    /// The frame must be tracked by the metadata region, not forgotten.
-    /// The meta slot's reference count must be `REF_COUNT_UNIQUE`.
+    /// - The caller must provide a valid owner for the frame, and the metadata region invariants must hold.
+    /// - The meta slot's reference count must be `REF_COUNT_UNIQUE`.
     /// ## Postconditions
     /// The function returns a new owner for the frame with the new metadata,
     /// and the metadata region invariants are preserved.
@@ -107,7 +106,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         requires
             self.wf(owner),
             owner.inv(),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).inv(),
@@ -117,15 +115,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             regions.inv(),
     )]
     pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, metadata: M1) -> UniqueFrame<M1> {
-        assert(regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))) by { admit() };
-        assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr() == self.ptr.addr()) by { admit() };
 
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(meta_to_frame(self.ptr.addr())));
-        let tracked mut slot_perm = regions.slots.tracked_remove(frame_to_index(meta_to_frame(self.ptr.addr())));
 
-        assert(slot_own.storage.id() == slot_perm.value().storage.id()) by { admit() };
-
-        #[verus_spec(with Tracked(&slot_perm))]
+        #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
 
         // SAFETY: We are the sole owner and the metadata is initialized.
@@ -142,7 +135,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
         proof {
             regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(self.ptr.addr())), slot_own);
-            regions.slots.tracked_insert(frame_to_index(meta_to_frame(self.ptr.addr())), slot_perm);
         }
 
         // SAFETY: The metadata is initialized with type `M1`.

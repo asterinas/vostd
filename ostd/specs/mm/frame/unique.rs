@@ -26,7 +26,7 @@ pub ghost struct UniqueFrameModel<M: AnyFrameMeta + Repr<MetaSlotStorage> + Owne
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Inv for UniqueFrameOwner<M> {
     open spec fn inv(self) -> bool {
         &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf()
+        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
         &&& self.slot_index == frame_to_index(meta_to_frame(self.meta_perm.addr()))
         &&& self.slot_index < max_meta_slots()
         &&& (self.slot_index - FRAME_METADATA_RANGE.start) as usize % META_SLOT_SIZE == 0
@@ -103,8 +103,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         res: Self,
         regions: MetaRegionOwners,
     ) -> bool {
-        &&& res.meta_perm == PointsTo::<MetaSlot, Metadata<M>>::new_spec(frame_to_meta(paddr), regions.slots[frame_to_index(paddr)])
         &&& <M as OwnerOf>::wf(metadata,res.meta_own)
+        &&& res.meta_perm.addr() == frame_to_meta(paddr)
         &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
         &&& regions.dropped_slots == old_regions.dropped_slots
         &&& regions.slot_owners == old_regions.slot_owners

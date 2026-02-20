@@ -14,7 +14,7 @@ use vstd_extra::ownership::*;
 use super::*;
 use crate::mm::PagingLevel;
 use crate::mm::frame::meta::MetaSlot;
-use crate::mm::frame::linked_list::StoredLink;
+use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
@@ -248,7 +248,7 @@ impl ModelOf for MetaSlot {
 
 }
 
-pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
+pub struct Metadata<M: AnyFrameMeta> {
     pub metadata: M,
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
@@ -257,37 +257,43 @@ pub struct Metadata<M: AnyFrameMeta + Repr<MetaSlotStorage>> {
     pub usage: PageUsage,
 }
 
+pub struct MetadataInnerPerms {
+    pub storage: cell::PointsTo<MetaSlotStorage>,
+}
+
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
-    uninterp spec fn wf(r: MetaSlot) -> bool;
+    type Perm = MetadataInnerPerms;
 
-    uninterp spec fn to_repr_spec(self) -> MetaSlot;
+    uninterp spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool;
+
+    uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
 
     #[verifier::external_body]
-    fn to_repr(self) -> MetaSlot {
+    fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlot) -> Self;
+    uninterp spec fn from_repr_spec(r: MetaSlot, perm: MetadataInnerPerms) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlot) -> Self {
+    fn from_repr(r: MetaSlot, Tracked(perm): Tracked<&MetadataInnerPerms>) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlot, Tracked(perm): Tracked<&'a MetadataInnerPerms>) -> &'a Self {
         unimplemented!()
     }
 
-    proof fn from_to_repr(self) {
+    proof fn from_to_repr(self, perm: MetadataInnerPerms) {
         admit()
     }
 
-    proof fn to_from_repr(r: MetaSlot) {
+    proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
         admit()
     }
 
-    proof fn to_repr_wf(self) {
+    proof fn to_repr_wf(self, perm: MetadataInnerPerms) {
         admit()
     }
 }

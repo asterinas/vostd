@@ -15,7 +15,7 @@ use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::meta_owners::*;
 use vstd_extra::undroppable::*;
 
 verus! {
@@ -80,7 +80,7 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
             0 <= i < self.perms.len() as int ==> {
                 &&& self.perms[i].addr() % PAGE_SIZE == 0
                 &&& self.perms[i].addr() < MAX_PADDR
-                &&& self.perms[i].wf()
+                &&& self.perms[i].wf(&self.perms[i].inner_perms)
                 &&& self.perms[i].is_init()
             }
     }
@@ -551,6 +551,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
+                            inner_perms: MetadataInnerPerms { storage: regions.slot_owners[frame_to_index(addr)].storage },
                             _T: core::marker::PhantomData,
                         }
                     },
@@ -711,6 +712,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
+                            inner_perms: MetadataInnerPerms { storage: regions.slot_owners[frame_to_index(paddr)].storage },
                             _T: core::marker::PhantomData,
                         }
                     },

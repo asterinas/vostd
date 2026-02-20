@@ -256,7 +256,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             self.ptr.addr() == perm.addr(),
             self.ptr == perm.points_to.pptr(),
             perm.is_init(),
-            perm.wf(),
+            perm.wf(&perm.inner_perms),
         returns
             perm.value().metadata,
     )]
@@ -477,13 +477,13 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     pub fn into_raw(self) -> Paddr {
         assert(regions.slots[self.index()].addr() == self.paddr()) by { admit() };
 
-        let tracked owner = regions.slot_owners.tracked_borrow(self.index());
+        let tracked owner = regions.slot_owners.tracked_remove(self.index());
         let tracked perm = regions.slots.tracked_remove(self.index());
 
         #[verus_spec(with Tracked(&perm))]
         let paddr = self.start_paddr();
 
-        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm);
+        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, MetadataInnerPerms { storage: owner.storage });
 
         let this = NeverDrop::new(self, Tracked(regions));
 

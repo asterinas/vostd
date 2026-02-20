@@ -18,7 +18,7 @@ use vstd::prelude::*;
 pub mod mapping;
 
 use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, MetaSlotStorage, Metadata};
+use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
@@ -204,36 +204,38 @@ impl AnyFrameMeta for MetaSlotStorage {
 }
 
 impl Repr<MetaSlotStorage> for MetaSlotStorage {
-    uninterp spec fn wf(slot: MetaSlotStorage) -> bool;
+    type Perm = ();
 
-    uninterp spec fn to_repr_spec(self) -> MetaSlotStorage;
+    uninterp spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool;
+
+    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
 
     #[verifier::external_body]
-    fn to_repr(self) -> MetaSlotStorage {
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
         todo!()
     }
 
-    uninterp spec fn from_repr_spec(slot: MetaSlotStorage) -> Self;
+    uninterp spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(slot: MetaSlotStorage) -> Self {
+    fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
         todo!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(slot: &'a MetaSlotStorage) -> &'a Self {
+    fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
         todo!()
     }
 
-    proof fn from_to_repr(self) {
+    proof fn from_to_repr(self, perm: ()) {
         admit()
     }
 
-    proof fn to_from_repr(slot: MetaSlotStorage) {
+    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
         admit()
     }
 
-    proof fn to_repr_wf(self) {
+    proof fn to_repr_wf(self, perm: ()) {
         admit()
     }
 }
@@ -339,8 +341,9 @@ impl MetaSlot {
     pub fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         addr: usize,
         Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
+        Tracked(inner_perms): Tracked<MetadataInnerPerms>,
     ) -> Tracked<PointsTo<MetaSlot, Metadata<M>>> {
-        Tracked(PointsTo { addr: addr, points_to: perm, _T: PhantomData })
+        Tracked(PointsTo { addr, points_to: perm, inner_perms, _T: PhantomData })
     }
 
     /// Initializes the metadata slot of a frame assuming it is unused.
@@ -402,7 +405,8 @@ impl MetaSlot {
         // not access the metadata slot so it is safe to have a mutable reference.
         let contents = slot.take(Tracked(&mut slot_perm));
 
-        let Tracked(meta_perm) = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm));
+        let tracked inner_perms = MetadataInnerPerms { storage: slot_own.storage };
+        let Tracked(meta_perm) = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm), Tracked(inner_perms));
 
         #[verus_spec(with Tracked(&mut slot_own), Tracked(&mut meta_perm))]
         contents.write_meta(metadata);

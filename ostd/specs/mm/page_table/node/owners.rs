@@ -88,7 +88,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.meta_own.inv()
         &&& self.meta_perm.value().metadata.wf(self.meta_own)
         &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf()
+        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
         &&& FRAME_METADATA_RANGE.start <= self.meta_perm.addr() < FRAME_METADATA_RANGE.end
         &&& self.meta_perm.addr() % META_SLOT_SIZE == 0
         &&& meta_to_frame(self.meta_perm.addr()) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
@@ -111,7 +111,7 @@ impl<'rcu, C: PageTableConfig> NodeOwner<C> {
         &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
         &&& guard_perm.value().inner.inner@.wf(self)
         &&& self.meta_perm.is_init()
-        &&& self.meta_perm.wf()
+        &&& self.meta_perm.wf(&self.meta_perm.inner_perms)
     }
 }
 

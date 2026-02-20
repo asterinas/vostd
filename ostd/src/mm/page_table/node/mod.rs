@@ -169,36 +169,38 @@ extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<
 ;
 
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    uninterp spec fn wf(r: MetaSlotStorage) -> bool;
+    type Perm = ();
 
-    uninterp spec fn to_repr_spec(self) -> MetaSlotStorage;
+    uninterp spec fn wf(r: MetaSlotStorage, perm: ()) -> bool;
+
+    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
 
     #[verifier::external_body]
-    fn to_repr(self) -> MetaSlotStorage {
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlotStorage) -> Self;
+    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage) -> Self {
+    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
         unimplemented!()
     }
 
-    proof fn from_to_repr(self) {
+    proof fn from_to_repr(self, perm: ()) {
         admit()
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage) {
+    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
         admit()
     }
 
-    proof fn to_repr_wf(self) {
+    proof fn to_repr_wf(self, perm: ()) {
         admit()
     }
 }
@@ -224,7 +226,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             self.ptr.addr() == perm.addr(),
             self.ptr.addr() == perm.points_to.addr(),
             perm.is_init(),
-            perm.wf(),
+            perm.wf(&perm.inner_perms),
         returns
             perm.value().metadata.level,
     {
@@ -588,7 +590,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
             meta_perm.is_init(),
-            meta_perm.wf(),
+            meta_perm.wf(&meta_perm.inner_perms),
         ensures
             res.id() == meta_perm.value().metadata.nr_children.id(),
             *self == *old(self),

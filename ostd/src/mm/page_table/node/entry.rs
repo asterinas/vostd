@@ -127,7 +127,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             guard_perm.value().inner.inner@.ptr.addr() == parent_owner.meta_perm.points_to.addr(),
             guard_perm.value().inner.inner@.wf(*parent_owner),
             parent_owner.meta_perm.is_init(),
-            parent_owner.meta_perm.wf(),
+            parent_owner.meta_perm.wf(&parent_owner.meta_perm.inner_perms),
             parent_owner.inv(),
             owner.relate_region(*old(regions)),
         ensures
