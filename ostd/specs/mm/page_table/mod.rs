@@ -10,8 +10,8 @@ pub use node::*;
 pub use owners::*;
 pub use view::*;
 
-use vstd::prelude::*;
 use vstd::arithmetic::power2::pow2;
+use vstd::prelude::*;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
@@ -220,17 +220,17 @@ impl AbstractVaddr {
     {
         // align_down(level).to_vaddr() = sum of index[i] * 2^(12 + 9*i) for i >= level-1
         // Since indices at levels >= level-1 are equal, the sums are equal
-        // 
+        //
         // align_down(level) zeroes offset and indices 0 through level-2
         // So to_vaddr() = 0 + sum(0 * ...) for i < level-1 + sum(index[i] * ...) for i >= level-1
         //               = sum(index[i] * 2^(12+9*i)) for i >= level-1
         //
         // Since self.index[i] == other.index[i] for i >= level-1, the sums are equal.
-        
+
         // Use the axiom that relates align_down to concrete alignment
         self.align_down_concrete(level);
         other.align_down_concrete(level);
-        
+
         // align_down_concrete says:
         //   self.align_down(level).reflect(nat_align_down(self.to_vaddr(), page_size(level)))
         //   other.align_down(level).reflect(nat_align_down(other.to_vaddr(), page_size(level)))
@@ -248,11 +248,11 @@ impl AbstractVaddr {
         // page_size(level) = 2^(12 + 9*(level-1)) = 2^(3 + 9*level)
         // nat_align_down(va, size) = va - (va % size) = (va / size) * size
         //
-        // va / page_size(level) = va / 2^(12 + 9*(level-1)) 
+        // va / page_size(level) = va / 2^(12 + 9*(level-1))
         //                       = sum over i >= level-1: index[i] * 2^(9*(i - level + 1))
         //
         // Since indices at i >= level-1 are equal, va / page_size(level) are equal, so align_down results are equal.
-        
+
         // For now, admit the arithmetic
         admit()
     }

@@ -4,7 +4,9 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::*;
 
-use super::linked_list_owners::{CursorModel, CursorOwner, LinkModel, LinkOwner, LinkedListModel, LinkedListOwner};
+use super::linked_list_owners::{
+    CursorModel, CursorOwner, LinkModel, LinkOwner, LinkedListModel, LinkedListOwner,
+};
 use crate::mm::frame::linked_list::Link;
 use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
@@ -232,7 +234,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> CursorOwner<M> {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
+
     pub open spec fn move_prev_owner_spec(self) -> Self {
         if self.length() == 0 {
             self

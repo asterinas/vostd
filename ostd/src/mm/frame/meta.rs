@@ -18,7 +18,7 @@ use vstd::prelude::*;
 pub mod mapping;
 
 use self::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, PageUsage, MetaSlotStorage, Metadata};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, MetaSlotStorage, Metadata, PageUsage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
@@ -289,7 +289,7 @@ pub open spec fn has_safe_slot(paddr: Paddr) -> bool {
 pub(super) fn get_slot(paddr: Paddr) -> (res: Result<PPtr<MetaSlot>, GetFrameError>)
     ensures
         has_safe_slot(paddr) <==> res is Ok,
-        res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr)
+        res is Ok ==> res.unwrap().addr() == frame_to_meta(paddr),
 {
     if paddr % PAGE_SIZE != 0 {
         return Err(GetFrameError::NotAligned);
@@ -372,8 +372,7 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> (res: Result<PPtr<Self>, GetFrameError>)
-    {
+    ) -> (res: Result<PPtr<Self>, GetFrameError>) {
         proof {
             regions.inv_implies_correct_addr(paddr);
         }
@@ -453,8 +452,7 @@ impl MetaSlot {
                 old(regions).slot_owners[frame_to_index(meta_to_frame(slot.addr()))].ref_count.value() + 1,
             regions.inv(),
     )]
-    pub(super) fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError>
-    {
+    pub(super) fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
         let tracked mut meta_perm = regions.slots.tracked_remove(
             frame_to_index(meta_to_frame(slot.addr())),
         );
@@ -465,25 +463,43 @@ impl MetaSlot {
         match slot.borrow(Tracked(&meta_perm)).ref_count.load(Tracked(&mut slot_own.ref_count)) {
             REF_COUNT_UNUSED => {
                 proof {
-                    regions.slots.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), meta_perm);
-                    regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), slot_own);
+                    regions.slots.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        meta_perm,
+                    );
+                    regions.slot_owners.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        slot_own,
+                    );
                 }
                 return Err(GetFrameError::Unused);
-            }
+            },
             REF_COUNT_UNIQUE => {
                 proof {
-                    regions.slots.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), meta_perm);
-                    regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), slot_own);
+                    regions.slots.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        meta_perm,
+                    );
+                    regions.slot_owners.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        slot_own,
+                    );
                 }
                 return Err(GetFrameError::Unique);
-            }
+            },
             0 => {
                 proof {
-                    regions.slots.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), meta_perm);
-                    regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), slot_own);
+                    regions.slots.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        meta_perm,
+                    );
+                    regions.slot_owners.tracked_insert(
+                        frame_to_index(meta_to_frame(slot.addr())),
+                        slot_own,
+                    );
                 }
                 return Err(GetFrameError::Busy);
-            }
+            },
             last_ref_cnt => {
                 if last_ref_cnt >= REF_COUNT_MAX {
                     // See `Self::inc_ref_count` for the explanation.
@@ -501,14 +517,26 @@ impl MetaSlot {
                     last_ref_cnt + 1,
                 ).is_ok() {
                     proof {
-                        regions.slots.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), meta_perm);
-                        regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), slot_own);
+                        regions.slots.tracked_insert(
+                            frame_to_index(meta_to_frame(slot.addr())),
+                            meta_perm,
+                        );
+                        regions.slot_owners.tracked_insert(
+                            frame_to_index(meta_to_frame(slot.addr())),
+                            slot_own,
+                        );
                     }
                     return Ok(slot);
                 } else {
                     proof {
-                        regions.slots.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), meta_perm);
-                        regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(slot.addr())), slot_own);
+                        regions.slots.tracked_insert(
+                            frame_to_index(meta_to_frame(slot.addr())),
+                            meta_perm,
+                        );
+                        regions.slot_owners.tracked_insert(
+                            frame_to_index(meta_to_frame(slot.addr())),
+                            slot_own,
+                        );
                     }
                     return Err(GetFrameError::Retry);
                 }
@@ -614,8 +642,7 @@ impl MetaSlot {
         returns
             meta_to_frame(perm.addr()),
     )]
-    pub(super) fn frame_paddr(&self) -> (pa: Paddr)
-    {
+    pub(super) fn frame_paddr(&self) -> (pa: Paddr) {
         let addr = self.addr_of(Tracked(perm));
         meta_to_frame(addr)
     }
@@ -630,7 +657,7 @@ impl MetaSlot {
     ///
     /// The returned pointer should not be dereferenced as mutable unless having
     /// exclusive access to the metadata slot.
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     pub(super) unsafe fn dyn_meta_ptr<M: AnyFrameMeta>(&self) -> PPtr<M> {
         unimplemented!()
@@ -647,7 +674,6 @@ impl MetaSlot {
 
         meta_ptr
     }*/
-
     /// Gets the stored metadata as type `M`.
     ///
     /// # Verified Properties
@@ -669,7 +695,10 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
+        MetaSlot,
+        Metadata<M>,
+    >)
         requires
             self == perm.value(),
         ensures
@@ -703,8 +732,10 @@ impl MetaSlot {
             meta_perm.addr() == old(meta_perm).addr(),
     )]
     #[verifier::external_body]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(&self, metadata: M)
-    {
+    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        &self,
+        metadata: M,
+    ) {
         //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
         //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
         // SAFETY: Caller ensures that the access to the fields are exclusive.

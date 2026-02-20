@@ -75,7 +75,6 @@ impl<R, T: Repr<R>> Copy for ReprPtr<R, T> {
 }
 
 impl<R, T: Repr<R>> ReprPtr<R, T> {
-
     pub open spec fn new_spec(ptr: PPtr<R>) -> Self {
         Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
     }

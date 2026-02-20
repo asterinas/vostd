@@ -14,8 +14,8 @@ use crate::mm::vm_space::*;
 use crate::mm::{PagingConstsTrait, PagingLevel};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{CursorOwner, EntryOwner, Guards};
-use crate::specs::task::InAtomicMode;
 use crate::specs::mm::tlb::TlbModel;
+use crate::specs::task::InAtomicMode;
 
 verus! {
 

@@ -18,13 +18,13 @@ use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::mm::frame::UniqueFrame;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
 use crate::specs::mm::frame::linked_list::linked_list_owners::LinkOwner;
+use crate::specs::mm::frame::linked_list::{CursorOwner, LinkedListOwner};
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -36,7 +36,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
-use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot, has_safe_slot};
+use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
 
 verus! {
 
@@ -1029,7 +1029,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> CursorMut<M> {
 
 /*impl Drop for LinkedList
 {
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     fn drop(&mut self) {
         unimplemented!()
@@ -1042,14 +1042,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> CursorMut<M> {
 impl Deref for Link {
     type Target = FrameMeta;
 
-    #[rustc_allow_incoherent_impl]
+
     fn deref(&self) -> &Self::Target {
         &self.meta
     }
 }
 
 impl DerefMut for Link {
-    #[rustc_allow_incoherent_impl]
+
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.meta
     }
@@ -1057,7 +1057,7 @@ impl DerefMut for Link {
 */
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Link<M> {
-    #[rustc_allow_incoherent_impl]
+
     /// Creates a new linked list metadata.
     pub const fn new(meta: M) -> Self {
         Self { next: None, prev: None, meta }

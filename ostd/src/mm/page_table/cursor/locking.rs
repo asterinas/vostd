@@ -15,9 +15,9 @@ use crate::mm::{
 use vstd_extra::array_ptr::*;
 
 use crate::mm::page_table::*;
-use crate::specs::task::InAtomicMode;
-use crate::specs::mm::page_table::Guards;
 use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
+use crate::specs::mm::page_table::Guards;
+use crate::specs::task::InAtomicMode;
 use vstd_extra::ghost_tree::TreePath;
 
 use core::ops::IndexMut;

@@ -166,7 +166,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         let other_addr = other.node.unwrap().meta_perm.addr();
         let self_idx = frame_to_index(meta_to_frame(self_addr));
         let other_idx = frame_to_index(meta_to_frame(other_addr));
-        
+
         if self_addr == other_addr {
             assert(regions.slot_owners[self_idx].path_if_in_pt == Some(self.path));
             assert(regions.slot_owners[other_idx].path_if_in_pt == Some(other.path));

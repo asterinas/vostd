@@ -1,7 +1,7 @@
 pub mod cpu;
-pub mod tlb;
 pub mod frame;
 pub mod page_table;
+pub mod tlb;
 pub mod virt_mem_newer;
 
 use vstd::prelude::*;
@@ -11,7 +11,7 @@ use vstd_extra::ownership::*;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{Guards, PageTableOwner, Mapping, PageTableView};
+use crate::specs::mm::page_table::{Guards, Mapping, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem_newer::FrameContents;
 

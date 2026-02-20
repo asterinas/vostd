@@ -12,13 +12,13 @@ use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use super::*;
-use crate::mm::PagingLevel;
-use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::linked_list::StoredLink;
+use crate::mm::frame::meta::MetaSlot;
+use crate::mm::frame::AnyFrameMeta;
+use crate::mm::PagingLevel;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
-use crate::mm::frame::AnyFrameMeta;
 
 use core::marker::PhantomData;
 

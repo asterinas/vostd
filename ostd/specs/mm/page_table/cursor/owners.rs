@@ -615,7 +615,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub open spec fn cur_va(self) -> Vaddr {
         self.va.to_vaddr()
     }
-    
+
     pub open spec fn cur_va_range(self) -> Range<AbstractVaddr> {
         let start = self.va.align_down(self.level as int);
         let end = self.va.align_up(self.level as int);
@@ -648,17 +648,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
         ensures
-            PageTableOwner(self.cur_subtree())@.mappings == 
+            PageTableOwner(self.cur_subtree())@.mappings ==
                 self@.mappings.filter(|m: Mapping| self@.cur_va <= m.va_range.start < self@.cur_va + page_size(self.level)),
     {
         let cur_subtree = self.cur_subtree();
         let cur_path = cur_subtree.value.path;
         let cur_va = self.cur_va();
         let size = page_size(self.level);
-        
+
         let subtree_mappings = PageTableOwner(cur_subtree)@.mappings;
         let filtered = self@.mappings.filter(|m: Mapping| cur_va <= m.va_range.start < cur_va + size);
-        
+
         // Direction 1: Every mapping in cur_subtree is in the filtered set
         assert forall |m: Mapping| subtree_mappings.contains(m) implies filtered.contains(m) by {
             // m is in view_rec(cur_path), so m's VA range is bounded by cur_path's VA range
@@ -668,7 +668,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // For now, admit this relationship
             admit();
         };
-        
+
         // Direction 2: Every mapping in filtered is in cur_subtree
         assert forall |m: Mapping| filtered.contains(m) implies subtree_mappings.contains(m) by {
             // m is in self@.mappings = self.view_mappings()
@@ -676,25 +676,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // By disjointness of subtrees, m must come from cur_subtree
             // Similar reasoning to mapping_covering_cur_va_from_cur_subtree but for start in range
             assume(self.view_mappings().contains(m));
-            
+
             // Find which continuation/child m comes from
             let i = choose|i: int| self.level - 1 <= i < NR_LEVELS - 1
                 && #[trigger] self.continuations[i].view_mappings().contains(m);
             self.inv_continuation(i);
-            
+
             let cont_i = self.continuations[i];
             let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES
                 && cont_i.children[j] is Some
                 && PageTableOwner(cont_i.children[j].unwrap())
                     .view_rec(cont_i.path().push_tail(j as usize)).contains(m);
-            
+
             // By view_rec_vaddr_range, m's VA range is bounded by child j's path
             // If i == self.level - 1 and j == self.index(), then m is in cur_subtree
             // Otherwise, by disjointness, m.va_range.start cannot be in [cur_va, cur_va + size)
             // which contradicts the filter condition
             admit();
         };
-        
+
         assert(subtree_mappings =~= filtered);
     }
 

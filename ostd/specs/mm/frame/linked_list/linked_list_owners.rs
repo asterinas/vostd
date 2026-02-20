@@ -11,9 +11,9 @@ use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 
@@ -168,11 +168,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> LinkedListOwner<M> {
         &&& 0 < i ==> {
             &&& self.perms[i].value().metadata.prev is Some
             &&& self.perms[i].value().metadata.prev.unwrap() == self.perms[i - 1].pptr()
-        } 
+        }
         &&& i < self.list.len() - 1 ==> {
             &&& self.perms[i].value().metadata.next is Some
             &&& self.perms[i].value().metadata.next.unwrap() == self.perms[i + 1].pptr()
-        } 
+        }
         &&& self.list[i].inv()
         &&& self.list[i].in_list == self.list_id
     }
@@ -423,7 +423,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> CursorOwner<M> {
     ) -> (res: Self)
         ensures
             res == Self::front_owner_spec(list_own, list_perm);
-    
+
     pub open spec fn back_owner_spec(
         list_own: LinkedListOwner<M>,
         list_perm: PointsTo<LinkedList<M>>,

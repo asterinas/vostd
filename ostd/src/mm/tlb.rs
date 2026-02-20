@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 //! TLB flush operations.
-
 use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
@@ -16,9 +15,9 @@ use super::{
     Vaddr, PAGE_SIZE,
 };
 
-use crate::specs::mm::tlb::TlbModel;
-use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
+use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::tlb::TlbModel;
 
 /*use crate::{
     arch::irq,
@@ -33,14 +32,14 @@ verus! {
 /// A TLB flusher that is aware of which CPUs are needed to be flushed.
 ///
 /// The flusher needs to stick to the current CPU.
-pub struct TlbFlusher<'a/*, G: PinCurrentCpu*/> {
+pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
     target_cpus: &'a AtomicCpuSet,
     have_unsynced_flush: CpuSet,
     ops_stack: OpsStack,
     //_pin_current: G,
 }
 
-impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
+impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     /// Creates a new TLB flusher with the specified CPUs to be flushed.
     ///
     /// The target CPUs should be a reference to an [`AtomicCpuSet`] that will
@@ -48,7 +47,7 @@ impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
     ///
     /// The flusher needs to stick to the current CPU. So please provide a
     /// guard that implements [`PinCurrentCpu`].
-    pub fn new(target_cpus: &'a AtomicCpuSet/*, pin_current_guard: G*/) -> Self {
+    pub fn new(target_cpus: &'a AtomicCpuSet  /*, pin_current_guard: G*/ ) -> Self {
         Self {
             target_cpus,
             have_unsynced_flush: CpuSet::new_empty(),
@@ -111,8 +110,7 @@ impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
             model.inv(),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
-        unimplemented!()
-        /*let irq_guard = crate::trap::irq::disable_local();
+        unimplemented!()/*let irq_guard = crate::trap::irq::disable_local();
 
         if self.ops_stack.is_empty() {
             return;
@@ -151,6 +149,7 @@ impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
         } else {
             self.ops_stack.clear_without_flush();
         }*/
+
     }
 
     /// Waits for all the previous TLB flush requests to be completed.
@@ -170,8 +169,7 @@ impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
     /// other's TLB coherence.
     #[verifier::external_body]
     pub fn sync_tlb_flush(&mut self) {
-        unimplemented!()
-        /*
+        unimplemented!()/*
         assert!(
             irq::is_local_enabled(),
             "Waiting for remote flush with IRQs disabled"
@@ -185,6 +183,7 @@ impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
 
         self.have_unsynced_flush = CpuSet::new_empty();
         */
+
     }
 }
 
@@ -200,12 +199,10 @@ pub enum TlbFlushOp {
 }
 
 impl TlbFlushOp {
-
     /// Performs the TLB flush operation on the current CPU.
     #[verifier::external_body]
     pub fn perform_on_current(&self) {
-        unimplemented!()
-        /*use crate::arch::mm::{
+        unimplemented!()/*use crate::arch::mm::{
             tlb_flush_addr, tlb_flush_addr_range, tlb_flush_all_excluding_global,
         };
         match self {
@@ -213,6 +210,7 @@ impl TlbFlushOp {
             TlbFlushOp::Address(addr) => tlb_flush_addr(*addr),
             TlbFlushOp::Range(range) => tlb_flush_addr_range(range),
         }*/
+
     }
 
     #[verifier::external_body]
@@ -224,7 +222,7 @@ impl TlbFlushOp {
                 } else {
                     TlbFlushOp::Range(range)
                 }
-            }
+            },
             _ => self,
         }
     }
@@ -239,8 +237,7 @@ impl TlbFlushOp {
 
 #[verifier::external_body]
 fn do_remote_flush() {
-    unimplemented!()
-    /*
+    unimplemented!()/*
     // No races because we are in IRQs or have disabled preemption.
     let current_cpu = crate::cpu::CpuId::current_racy();
 
@@ -259,6 +256,7 @@ fn do_remote_flush() {
     // fine since we cannot switch back to userspace now.
     new_op_queue.flush_all();
     */
+
 }
 
 /// If a TLB flushing request exceeds this threshold, we flush all.
@@ -279,7 +277,7 @@ impl OpsStack {
     #[verifier::external_body]
     const fn new() -> Self {
         Self {
-            ops: [const { None }; FLUSH_ALL_OPS_THRESHOLD],
+            ops: [const { None };FLUSH_ALL_OPS_THRESHOLD],
             need_flush_all: false,
             size: 0,
             //            page_keeper: Vec::new(),
@@ -296,17 +294,15 @@ impl OpsStack {
         if let Some(frame) = drop_after_flush {
             //            self.page_keeper.push(frame);
         }
-
         if self.need_flush_all {
-            return;
+            return ;
         }
         let op = op.optimize_for_large_range();
         if op == TlbFlushOp::All || self.size >= FLUSH_ALL_OPS_THRESHOLD {
             self.need_flush_all = true;
             self.size = 0;
-            return;
+            return ;
         }
-
         self.ops[self.size] = Some(op);
         self.size += 1;
     }
@@ -314,16 +310,14 @@ impl OpsStack {
     #[verifier::external_body]
     fn push_from(&mut self, other: &OpsStack) {
         //        self.page_keeper.extend(other.page_keeper.iter().cloned());
-
         if self.need_flush_all {
-            return;
+            return ;
         }
         if other.need_flush_all || self.size + other.size >= FLUSH_ALL_OPS_THRESHOLD {
             self.need_flush_all = true;
             self.size = 0;
-            return;
+            return ;
         }
-
         for i in 0..other.size {
             self.ops[self.size] = other.ops[i].clone();
             self.size += 1;
@@ -333,8 +327,8 @@ impl OpsStack {
     #[verifier::external_body]
     fn flush_all(&mut self) {
         if self.need_flush_all {
-            unimplemented!()
-            /*crate::arch::mm::tlb_flush_all_excluding_global();*/
+            unimplemented!()  /*crate::arch::mm::tlb_flush_all_excluding_global();*/
+
         } else {
             for i in 0..self.size {
                 if let Some(op) = &self.ops[i] {
@@ -353,4 +347,5 @@ impl OpsStack {
         //        self.page_keeper.clear();
     }
 }
+
 } // verus!
