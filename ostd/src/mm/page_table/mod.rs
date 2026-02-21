@@ -692,7 +692,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Create a new empty page table.
     ///
     /// Useful for the IOMMU page tables only.
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     pub fn empty() -> Self {
         unimplemented!()/*        PageTable {
@@ -701,7 +701,7 @@ impl<C: PageTableConfig> PageTable<C> {
 
     }
 
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     pub(in crate::mm) unsafe fn first_activate_unchecked(&self) {
         unimplemented!()
@@ -715,7 +715,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Obtaining the physical address of the root page table is safe, however, using it or
     /// providing it to the hardware will be unsafe since the page table node may be dropped,
     /// resulting in UAF.
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     #[verifier::when_used_as_spec(root_paddr_spec)]
     pub fn root_paddr(&self) -> (r: Paddr)
@@ -733,7 +733,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// cursors concurrently accessing the same virtual address range, just like what
     /// happens for the hardware MMU walk.
     #[cfg(ktest)]
-    #[rustc_allow_incoherent_impl]
+
     pub fn page_walk(&self, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
         // SAFETY: The root node is a valid page table node so the address is valid.
         unsafe { page_walk::<C>(self.root_paddr(), vaddr) }
@@ -743,7 +743,7 @@ impl<C: PageTableConfig> PageTable<C> {
     ///
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped.
-    #[rustc_allow_incoherent_impl]
+
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
@@ -757,7 +757,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped. The modification to the mapping by the cursor may also
     /// block or be overridden by the mapping of another cursor.
-    #[rustc_allow_incoherent_impl]
+
     #[verus_spec(
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>

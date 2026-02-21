@@ -1,13 +1,13 @@
 use vstd::pervasive::proof_from_false;
 use vstd::prelude::*;
 
-use vstd_extra::ownership::*;
-use crate::mm::io::{VmIoOwner, VmIoMemView};
+use crate::mm::io::{VmIoMemView, VmIoOwner};
 use crate::mm::vm_space::{UserPtConfig, VmSpace};
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem_newer::{FrameContents, MemView};
+use vstd_extra::ownership::*;
 
 verus! {
 

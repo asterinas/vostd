@@ -23,7 +23,6 @@
 #![no_std]
 #![warn(missing_docs)]
 #![feature(proc_macro_hygiene)]
-
 #![allow(unused_parens)]
 #![allow(unused_braces)]
 #![allow(rustdoc::invalid_rust_codeblocks)]

@@ -65,7 +65,7 @@ pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
 };
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
+pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
@@ -74,7 +74,10 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use crate::mm::{kspace::{LINEAR_MAPPING_BASE_VADDR,VMALLOC_BASE_VADDR}, Paddr, PagingLevel, Vaddr, MAX_PADDR};
+use crate::mm::{
+    kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
+    Paddr, PagingLevel, Vaddr, MAX_PADDR,
+};
 use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -208,7 +211,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         &&& regions.inv()
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn from_unused_ensures(
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
@@ -307,7 +309,6 @@ impl<M: AnyFrameMeta> Frame<M> {
         &&& regions.inv()
     }
 
-    #[rustc_allow_incoherent_impl]
     pub open spec fn from_raw_ensures(
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
@@ -413,7 +414,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         with Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
             Tracked(slot_perm) : Tracked<& vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    #[rustc_allow_incoherent_impl]
     pub fn reference_count(&self) -> u64
         requires
             slot_perm.pptr() == self.ptr,
@@ -527,7 +527,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(
         with Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    #[rustc_allow_incoherent_impl]
     pub fn slot(&self) -> (slot: &'a MetaSlot)
         requires
             slot_perm.pptr() == self.ptr,

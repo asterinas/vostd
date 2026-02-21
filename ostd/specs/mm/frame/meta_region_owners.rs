@@ -16,7 +16,7 @@ use crate::mm::frame::meta::{
 };
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::arch::mm::{NR_ENTRIES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::arch::mm::{MAX_PADDR, NR_ENTRIES, PAGE_SIZE};
 
 verus! {
 

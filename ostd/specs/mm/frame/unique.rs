@@ -5,11 +5,13 @@ use vstd_extra::undroppable::*;
 
 use super::meta_owners::*;
 use crate::mm::frame::*;
-use crate::specs::mm::Paddr;
-use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame, max_meta_slots};
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
+use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
+use crate::specs::mm::frame::mapping::{
+    frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame,
+};
+use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
+use crate::specs::mm::Paddr;
 
 verus! {
 
@@ -69,7 +71,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> ModelOf for UniqueFrame<
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
-    
+
     pub open spec fn perm_inv(self, perm: vstd::simple_pptr::PointsTo<MetaSlot>) -> bool {
         &&& perm.is_init()
         &&& perm.addr() == self.meta_perm.addr()

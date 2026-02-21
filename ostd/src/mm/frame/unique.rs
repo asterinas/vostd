@@ -10,7 +10,7 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::undroppable::*;
 
-use super::meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
+use super::meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 
 use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
 
@@ -18,13 +18,13 @@ use super::meta::mapping::{
     frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
 };
 use super::meta::{REF_COUNT_UNIQUE, REF_COUNT_UNUSED};
-use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::mm::frame::MetaPerm;
+use crate::mm::{Paddr, PagingLevel, MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 
@@ -57,8 +57,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             has_safe_slot(paddr) ==> res is Ok,
             res is Ok ==> res.unwrap().wf(owner@.unwrap()),
     )]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
-    {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, true);
 
@@ -75,15 +74,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, transmuted: UniqueFrame<M1>) -> bool {
+    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        self,
+        transmuted: UniqueFrame<M1>,
+    ) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
         &&& transmuted._marker == PhantomData::<M1>
     }
 
     #[verifier::external_body]
-    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<M1>)
+    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<
+        M1,
+    >)
         ensures
-            Self::transmute_spec(self, res)
+            Self::transmute_spec(self, res),
     {
         unimplemented!()
     }
@@ -216,7 +220,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             meta_to_frame(self.ptr.addr()),
     )]
     pub fn start_paddr(&self) -> Paddr {
-        
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
 
@@ -243,7 +246,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /*    /// Gets the dynamically-typed metadata of this frame.
     ///
     /// If the type is known at compile time, use [`Frame::meta`] instead.
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     pub fn dyn_meta(&self) -> &M {
         // SAFETY: The metadata is initialized and valid.
@@ -253,14 +256,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     /// Gets the dynamically-typed metadata of this frame.
     ///
     /// If the type is known at compile time, use [`Frame::meta`] instead.
-    #[rustc_allow_incoherent_impl]
+
     #[verifier::external_body]
     pub fn dyn_meta_mut(&mut self) -> &mut FrameMeta {
         // SAFETY: The metadata is initialized and valid. We have the exclusive
         // access to the frame.
         unsafe { &mut *self.slot().dyn_meta_ptr() }
     }*/
-
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
         &&& regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& !regions.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
@@ -275,9 +277,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     ) -> bool {
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
-        &&& regions.slots == old_regions.slots.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& regions.dropped_slots == old_regions.dropped_slots.insert(frame_to_index(meta_to_frame(self.ptr.addr())),
-            old_regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))])
+        &&& regions.slots == old_regions.slots.remove(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+        )
+        &&& regions.dropped_slots == old_regions.dropped_slots.insert(
+            frame_to_index(meta_to_frame(self.ptr.addr())),
+            old_regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))],
+        )
     }
 
     /*
@@ -300,7 +306,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // The slot is initialized.
         unsafe { this.slot().drop_last_in_place() };
     }*/
-
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
@@ -312,9 +317,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         ensures
             Self::into_raw_ensures(self, *old(regions), *regions, r),
     )]
-    pub(crate) fn into_raw(self) -> Paddr
-    {
-        assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr() == self.ptr.addr()) by { admit() };
+    pub(crate) fn into_raw(self) -> Paddr {
+        assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr()
+            == self.ptr.addr()) by { admit() };
         #[verus_spec(with Tracked(owner))]
         let paddr = self.start_paddr();
 
@@ -370,7 +375,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         )
     }
 
-    #[rustc_allow_incoherent_impl]
     #[verifier::external_body]
     #[verus_spec(
         with Tracked(slot_perm): Tracked<&'a vstd::simple_pptr::PointsTo<MetaSlot>>

@@ -7,8 +7,8 @@ use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
 
 use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
 
-use vstd_extra::ownership::*;
 use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, meta_addr, meta_to_frame_spec};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
@@ -60,11 +60,15 @@ impl<M: AnyFrameMeta + ?Sized> Undroppable for Segment<M> {
 /// A [`SegmentOwner<M>`] holds the permission tokens for all frames in the
 /// [`Segment<M>`] for verification purposes.
 pub tracked struct SegmentOwner<M: AnyFrameMeta + ?Sized> {
+    /// The permissions for all frames in the segment, which must be well-formed and valid.
     pub perms: Seq<MetaPerm<M>>,
 }
 
 impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
-    /// The invariant of a [`Segment`].
+    /// The invariant of a [`Segment`]:
+    ///
+    /// - the physical addresses of the frames are aligned and within bounds.
+    /// - the range is well-formed, i.e., the start is less than or equal to the end.
     open spec fn inv(self) -> bool {
         &&& self.range.start % PAGE_SIZE == 0
         &&& self.range.end % PAGE_SIZE == 0
@@ -73,7 +77,10 @@ impl<M: AnyFrameMeta + ?Sized> Inv for Segment<M> {
 }
 
 impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
-    /// The invariant of a [`Segment`].
+    /// The invariant of a [`Segment`]:
+    ///
+    /// - the permissions are well-formed and valid;
+    /// - the physical addresses of the permissions are aligned and within bounds.
     open spec fn inv(self) -> bool {
         &&& forall|i: int|
             #![trigger self.perms[i]]
@@ -87,6 +94,13 @@ impl<M: AnyFrameMeta + ?Sized> Inv for SegmentOwner<M> {
 }
 
 impl<M: AnyFrameMeta + ?Sized> Segment<M> {
+    /// The invariant of a [`Segment`] with a specific owner, such that besides [`Self::inv`]:
+    ///
+    /// - the number of permissions in the owner matches the number of frames in the segment;
+    /// - the physical address of each permission matches the corresponding frame in the segment.
+    ///
+    /// Interested readers are encouraged to see [`frame_to_index`] and [`meta_addr`] for how
+    /// we convert between physical addresses and meta region indices.
     pub open spec fn inv_with(&self, owner: &SegmentOwner<M>) -> bool {
         &&& self.inv()
         &&& owner.perms.len() * PAGE_SIZE == self.range.end - self.range.start
@@ -99,6 +113,11 @@ impl<M: AnyFrameMeta + ?Sized> Segment<M> {
 }
 
 impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
+    /// Checks if this [`SegmentOwner`] is disjoint with the meta region in the given
+    /// [`MetaRegionOwners`].
+    ///
+    /// We check the disjointness by ensuring that for each frame in the segment,
+    /// its corresponding slot in the meta region is not dropped.
     pub open spec fn is_disjoint_with_meta_region(&self, region: &MetaRegionOwners) -> bool {
         forall|i: int|
             #![trigger self.perms[i]]
@@ -108,11 +127,6 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
     }
 }
 
-// impl<M: AnyFrameMeta + ?Sized> Debug for Segment<M> {
-//     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-//         write!(f, "Segment({:#x}..{:#x})", self.range.start, self.range.end)
-//     }
-// }
 /// A contiguous range of homogeneous untyped physical memory frames that have any metadata.
 ///
 /// In other words, the metadata of the frames are of the same type, and they
@@ -122,39 +136,9 @@ impl<M: AnyFrameMeta + ?Sized> SegmentOwner<M> {
 /// The usage of this frame will not be changed while this object is alive.
 pub type USegment = Segment<dyn AnyUFrameMeta>;
 
-// impl<M: AnyFrameMeta + ?Sized> Drop for Segment<M> {
-//     fn drop(&mut self) {
-//         for paddr in self.range.clone().step_by(PAGE_SIZE()) {
-//             // SAFETY: for each frame there would be a forgotten handle
-//             // when creating the `Segment` object.
-//             drop(unsafe { Frame::<M>::from_raw(paddr) });
-//         }
-//     }
-// }
-// impl<M: AnyFrameMeta + ?Sized> Clone for Segment<M> {
-//     fn clone(&self) -> (res: Self)
-//         ensures
-//             res == *self,
-//     {
-//         let mut i = 0;
-//         let addr_len = (self.range.end - self.range.start) / PAGE_SIZE;
-//         while i < addr_len
-//             decreases addr_len - i,
-//         {
-//             let paddr = self.range.start + i * PAGE_SIZE;
-//             // SAFETY: for each frame there would be a forgotten handle
-//             // when creating the `Segment` object, so we already have
-//             // reference counts for the frames.
-//             unsafe {
-//                 inc_frame_ref_count(paddr);
-//             }
-//         }
-//         Self { range: self.range.clone(), _marker: core::marker::PhantomData }
-//     }
-// }
 #[verus_verify]
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
-    #[rustc_allow_incoherent_impl]
+    /// Returns the starting physical address of the contiguous frames.
     #[verifier::inline]
     pub open spec fn start_paddr_spec(&self) -> Paddr
         recommends
@@ -163,7 +147,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.range.start
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// Returns the ending physical address of the contiguous frames.
     #[verifier::inline]
     pub open spec fn end_paddr_spec(&self) -> Paddr
         recommends
@@ -172,7 +156,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.range.end
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// Returns the length in bytes of the contiguous frames.
     #[verifier::inline]
     pub open spec fn size_spec(&self) -> usize
         recommends
@@ -181,7 +165,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         (self.range.end - self.range.start) as usize
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// Returns the number of pages of the contiguous frames.
     #[verifier::inline]
     pub open spec fn nrpage_spec(&self) -> usize
         recommends
@@ -190,7 +174,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.size_spec() / PAGE_SIZE
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// Splits the contiguous frames into two at the given byte offset from the start in spec mode.
     pub open spec fn split_spec(self, offset: usize) -> (Self, Self)
         recommends
             self.inv(),
@@ -206,7 +190,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 
     /// Gets the start physical address of the contiguous frames.
-    #[rustc_allow_incoherent_impl]
     #[inline(always)]
     #[verifier::when_used_as_spec(start_paddr_spec)]
     pub fn start_paddr(&self) -> (res: Paddr)
@@ -219,7 +202,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 
     /// Gets the end physical address of the contiguous frames.
-    #[rustc_allow_incoherent_impl]
     #[inline(always)]
     #[verifier::when_used_as_spec(end_paddr_spec)]
     pub fn end_paddr(&self) -> (res: Paddr)
@@ -232,7 +214,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 
     /// Gets the length in bytes of the contiguous frames.
-    #[rustc_allow_incoherent_impl]
     #[inline(always)]
     #[verifier::when_used_as_spec(size_spec)]
     pub fn size(&self) -> (res: usize)
@@ -244,7 +225,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         self.range.end - self.range.start
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the precondition for [`Self::from_unused`]:
+    ///
+    /// - the metadata function must be well-formed and valid for all frames in the range;
+    /// - the metadata function must ensure that the frames can be created and owned by the segment.
+    /// - for any frame created via the closure `metadata_fn`, the corresponding slot in `regions`
+    ///   must be unused and not dropped in the owner ([`MetaRegionOwners`]).
     pub open spec fn from_unused_requires(
         regions: MetaRegionOwners,
         range: Range<Paddr>,
@@ -270,7 +256,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             }
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for [`Self::from_unused`]:
+    ///
+    /// - if the result is `Ok`, then the returned segment must satisfy the invariant with the owner;
+    /// - the returned segment must have the same physical address range as the input;
+    /// - the returned owner must be `Some` if the result is `Ok`, and the owner must satisfy the invariant;
     pub open spec fn from_unused_ensures(
         old_regions: MetaRegionOwners,
         new_regions: MetaRegionOwners,
@@ -297,14 +287,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the precondition for [`Self::split`]:
+    ///
+    /// - the segment must satisfy the invariant with the owner ([`Self::inv_with`])
+    /// - the offset must be aligned and within bounds.
     pub open spec fn split_requires(self, owner: SegmentOwner<M>, offset: usize) -> bool {
         &&& self.inv_with(&owner)
         &&& offset % PAGE_SIZE == 0
         &&& 0 < offset < self.size()
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for [`Self::split`]:
+    ///
+    /// - the resulting segments must satisfy the invariant with the corresponding owners;
+    /// - the resulting segments must be the same as the result of [`Self::split_spec`];
+    /// - the permissions in the original owner must be split into the resulting owners.
     pub open spec fn split_ensures(
         self,
         offset: usize,
@@ -320,7 +317,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& ori_owner.perms =~= (lhs_owner.perms + rhs_owner.perms)
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the precondition for [`Self::into_raw`]:
+    ///
+    /// - the segment must satisfy the invariant with the owner;
+    /// - the meta region in `regions` must satisfy the invariant and be disjoint with the segment
+    ///   (see [`SegmentOwner::is_disjoint_with_meta_region`]).
     pub open spec fn into_raw_requires(
         self,
         regions: MetaRegionOwners,
@@ -332,7 +333,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& owner.is_disjoint_with_meta_region(&regions)
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for [`Self::into_raw`]:
+    ///
+    /// - the returned physical address range must be the same as the segment's range;
+    /// - the corresponding slots in `regions` must be dropped and match the type `M`
+    ///   for all frames in the range (see [`MetaRegionOwners::paddr_range_in_dropped_region`]);
     pub open spec fn into_raw_ensures(
         self,
         regions: MetaRegionOwners,
@@ -344,7 +349,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& regions.paddr_range_in_dropped_region(self.range)
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the precondition for [`Self::from_raw`]:
+    ///
+    /// - the range must be a forgotten [`Segment`] that matches the type `M`;
+    /// - the corresponding slots in `regions` must be dropped and match the type `M`
+    ///   for all frames in the range (see [`MetaRegionOwners::paddr_range_in_dropped_region`]);
+    /// - the range must be aligned and within bounds.
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, range: Range<Paddr>) -> bool {
         &&& regions.inv()
         &&& regions.paddr_range_in_dropped_region(range)
@@ -353,7 +363,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& range.start < range.end < MAX_PADDR
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for [`Self::from_raw`]:
+    ///
+    /// - the returned segment must satisfy the invariant with the returned owner;
+    /// - the returned segment must have the same physical address range as the input;
+    ///
+    /// See also [`MetaRegionOwners::paddr_range_not_in_region`].
     pub open spec fn from_raw_ensures(
         self,
         old_regions: MetaRegionOwners,
@@ -367,7 +382,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& new_regions.paddr_range_not_in_region(range)
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the precondition for slicing a segment with a given range:
+    ///
+    /// - the segment must satisfy the invariant with the owner ([`Self::inv_with`])
+    /// - the slicing range must be aligned and within bounds of the segment.
     pub open spec fn slice_requires(self, owner: SegmentOwner<M>, range: Range<Paddr>) -> bool {
         &&& self.inv_with(&owner)
         &&& range.start % PAGE_SIZE == 0
@@ -375,7 +393,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& self.range.start + range.start <= self.range.start + range.end <= self.range.end
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for slicing a segment with a given range:
+    ///
+    /// - the resulting slice must satisfy the invariant with the owner;
+    /// - the resulting slice must have the same physical address range as the slicing range.
+    ///
+    /// See also [`vstd::seq::Seq::subrange`].
     pub open spec fn slice_ensures(
         self,
         owner: SegmentOwner<M>,
@@ -392,7 +415,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         )
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// Checks if the current segment can be iterated to get the next frame:
+    ///
+    /// - the segment and meta regions must satisfy their respective invariants;
+    /// - the next frame (the one right after the end of the segment) must be dropped in `regions` and not in `slots`.
     pub open spec fn next_requires(self, regions: MetaRegionOwners) -> bool {
         &&& self.inv()
         &&& regions.inv()
@@ -400,7 +426,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& !regions.slots.contains_key(frame_to_index(self.range.start))
     }
 
-    #[rustc_allow_incoherent_impl]
+    /// The wrapper for the postcondition for iterating to the next frame:
+    ///
+    /// - if the result is [`None`], then the segment must be extended by one frame;
+    /// - if the result is [`Some`], then the segment must be extended by one frame and
+    ///   the returned frame must be the next frame, and the corresponding slot in `regions`
+    ///   must be not dropped and match the type `M`.
     pub open spec fn next_ensures(
         old_self: Self,
         new_self: Self,
@@ -436,7 +467,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// It returns an error if:
     ///  - any of the frames cannot be created with a specific reason.
     ///
-    #[rustc_allow_incoherent_impl]
+    /// # Verified Properties
+    /// ## Preconditions
+    /// See [`Self::from_unused_requires`].
+    /// ## Postconditions
+    /// See [`Self::from_unused_ensures`].
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -590,12 +625,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
     /// zero nor the length of the frames.
-    ///
-    /// # Panics
-    ///
-    /// The function panics if the offset is out of bounds, at either ends, or
-    /// not base-page-aligned.
-    #[rustc_allow_incoherent_impl]
+    /// 
+    /// # Verified Properties
+    /// ## Preconditions
+    /// See [`Self::split_requires`].
+    /// 
+    /// ## Postconditions
+    /// See [`Self::split_ensures`].
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<SegmentOwner<M>>,
@@ -634,7 +670,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// Forgets the [`Segment`] and gets a raw range of physical addresses.
     // NOTE: forgotten frames will be released from `owner`'s permission and
     //       later added back to `regions.dropped_slots`, and `owner` is moved.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -678,12 +713,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
     /// Restores the [`Segment`] from the raw physical address range.
     ///
+    /// # Verified Properties
+    /// #`# P`reconditions
+    /// See [`Self::from_raw_requires`].
+    ///
+    /// ## Postconditions
+    /// See [`Self::from_raw_ensures`].
+    ///
     /// # Safety
     ///
     /// The range must be a forgotten [`Segment`] that matches the type `M`.
     /// It could be manually forgotten by [`core::mem::forget`],
     /// [`ManuallyDrop`], or [`Self::into_raw`].
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -748,12 +789,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The sliced byte offset range in indexed by the offset from the start of
     /// the contiguous frames. The resulting frames holds extra reference counts.
+    /// 
+    /// # Verified Properties
     ///
-    /// # Panics
+    /// ## Preconditions
+    /// See [`Self::slice_requires`].
     ///
-    /// The function panics if the byte offset range is out of bounds, or if
-    /// any of the ends of the byte offset range is not base-page aligned.
-    #[rustc_allow_incoherent_impl]
+    /// ## Postconditions
+    /// See [`Self::slice_ensures`].
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&SegmentOwner<M>>,
@@ -795,7 +838,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// associated with it; [`Segment`] becomes a kind of "zombie"
     /// container through which we can only iterate the frames and
     /// get the frame out of the `regions` instead.
-    #[rustc_allow_incoherent_impl]
+    ///
+    /// # Note
+    ///
+    /// We chose to make `next` the member function of [`Segment`] rather than a trait method
+    /// because the current Verus standard library has limited support for [`core::iter::Iterator`]
+    /// and associated types, and we want to avoid the complexity of defining a custom iterator trait
+    /// and implementing it for `Segment`.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// See [`Self::next_requires`].
+    ///
+    /// ## Postconditions
+    /// See [`Self::next_ensures`].
     #[verus_spec(res =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -824,87 +880,4 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     }
 }
 
-// impl<M: AnyFrameMeta + ?Sized> From<Frame<M>> for Segment<M> {
-//     fn from(frame: Frame<M>) -> Self {
-//         let pa = frame.start_paddr();
-//         let _ = ManuallyDrop::new(frame);
-//         Self { range: pa..pa + PAGE_SIZE, _marker: core::marker::PhantomData }
-//     }
-// }
-/*
-Don't worry about `dyn` stuff for now
-impl<M: AnyFrameMeta> From<Segment<M>> for Segment<dyn AnyFrameMeta> {
-    fn from(seg: Segment<M>) -> Self {
-        let seg = ManuallyDrop::new(seg);
-        Self {
-            range: seg.range.clone(),
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-
-impl<M: AnyFrameMeta> TryFrom<Segment<dyn AnyFrameMeta>> for Segment<M> {
-    type Error = Segment<dyn AnyFrameMeta>;
-
-    fn try_from(seg: Segment<dyn AnyFrameMeta>) -> core::result::Result<Self, Self::Error> {
-        // SAFETY: for each page there would be a forgotten handle
-        // when creating the `Segment` object.
-        let first_frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(seg.range.start) };
-        let first_frame = ManuallyDrop::new(first_frame);
-        if !(first_frame.dyn_meta() as &dyn core::any::Any).is::<M>() {
-            return Err(seg);
-        }
-        // Since segments are homogeneous, we can safely assume that the rest
-        // of the frames are of the same type. We just debug-check here.
-        #[cfg(debug_assertions)]
-        {
-            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
-                let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
-                let frame = ManuallyDrop::new(frame);
-                debug_assert!((frame.dyn_meta() as &dyn core::any::Any).is::<M>());
-            }
-        }
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, Segment<M>>(seg) })
-    }
-}
-
-impl<M: AnyUFrameMeta> From<Segment<M>> for USegment {
-    fn from(seg: Segment<M>) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(seg) }
-    }
-}
-
-impl TryFrom<Segment<dyn AnyFrameMeta>> for USegment {
-    type Error = Segment<dyn AnyFrameMeta>;
-
-    /// Try converting a [`Segment<dyn AnyFrameMeta>`] into [`USegment`].
-    ///
-    /// If the usage of the page is not the same as the expected usage, it will
-    /// return the dynamic page itself as is.
-    fn try_from(seg: Segment<dyn AnyFrameMeta>) -> core::result::Result<Self, Self::Error> {
-        // SAFETY: for each page there would be a forgotten handle
-        // when creating the `Segment` object.
-        let first_frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(seg.range.start) };
-        let first_frame = ManuallyDrop::new(first_frame);
-        if !first_frame.dyn_meta().is_untyped() {
-            return Err(seg);
-        }
-        // Since segments are homogeneous, we can safely assume that the rest
-        // of the frames are of the same type. We just debug-check here.
-        #[cfg(debug_assertions)]
-        {
-            for paddr in seg.range.clone().step_by(PAGE_SIZE) {
-                let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
-                let frame = ManuallyDrop::new(frame);
-                debug_assert!(frame.dyn_meta().is_untyped());
-            }
-        }
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        Ok(unsafe { core::mem::transmute::<Segment<dyn AnyFrameMeta>, USegment>(seg) })
-    }
-}
-*/
 } // verus!

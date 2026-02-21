@@ -44,16 +44,16 @@ use vstd_extra::ownership::*;
 use crate::mm::frame::allocator::FrameAllocOptions;
 use crate::mm::frame::meta::MetaSlot;
 use crate::mm::frame::{frame_to_index, AnyFrameMeta, Frame};
+use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::mm::kspace::VMALLOC_BASE_VADDR;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
+use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, StoredPageTablePageMeta};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::{marker::PhantomData, ops::Deref, sync::atomic::Ordering};
 
@@ -259,7 +259,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 &&& owner@.children[i].unwrap().value.inv()
                 &&& owner@.children[i].unwrap().value.path == owner@.value.path.push_tail(i as usize)
             },
-            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> 
+            forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
                 owner@.children[i].unwrap().value.match_pte(
                     owner@.value.node.unwrap().children_perm.value()[i],
                     owner@.children[i].unwrap().value.parent_level,
@@ -370,8 +370,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>>
-        where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -400,8 +401,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A)
-    -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -410,8 +412,12 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             guards.guards.tracked_insert(owner.meta_perm.addr(), None);
             assert(owner.relate_guard_perm(guard_perm@));
 
-            assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>| owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
-                ==> #[trigger] CursorOwner::node_unlocked_except(*guards, owner.meta_perm.addr())(other, path));
+            assert(forall|other: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                owner.inv() && CursorOwner::node_unlocked(guards0)(other, path)
+                    ==> #[trigger] CursorOwner::node_unlocked_except(
+                    *guards,
+                    owner.meta_perm.addr(),
+                )(other, path));
         }
 
         proof_with!{|= guard_perm}
@@ -439,7 +445,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES,
-            child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
+            child_owner.match_pte(
+                owner.children_perm.value()[idx as int],
+                child_owner.parent_level,
+            ),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
@@ -451,7 +460,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     /// Gets the number of valid PTEs in the node.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner) : Tracked<&mut NodeOwner<C>>
     )]
@@ -471,7 +479,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     /// Returns if the page table node is detached from its parent.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner) : Tracked<EntryOwner<C>>
     )]
@@ -500,7 +507,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     /// # Safety
     ///
     /// The caller must ensure that the index is within the bound.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&NodeOwner<C>>
     )]
@@ -509,8 +515,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             self.inner.inner@.ptr.addr() == owner.meta_perm.addr(),
             self.inner.inner@.ptr.addr() == owner.meta_perm.points_to.addr(),
             owner.inv(),
-            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR
-                - LINEAR_MAPPING_BASE_VADDR,
+            meta_to_frame(owner.meta_perm.addr) < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR,
             FRAME_METADATA_RANGE.start <= owner.meta_perm.addr < FRAME_METADATA_RANGE.end,
             owner.meta_perm.addr % META_SLOT_SIZE == 0,
             idx < NR_ENTRIES,
@@ -545,7 +550,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     ///     with the page table node.
     ///  3. The page table node will have the ownership of the [`Child`]
     ///     after this method.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut NodeOwner<C>>
     )]
@@ -581,7 +585,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     }
 
     /// Gets the mutable reference to the number of valid PTEs in the node.
-    #[rustc_allow_incoherent_impl]
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
