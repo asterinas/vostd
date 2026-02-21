@@ -551,7 +551,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
-                            inner_perms: MetadataInnerPerms { storage: regions.slot_owners[frame_to_index(addr)].storage },
+                            inner_perms: regions.slot_owners[frame_to_index(addr)].into_inner_perms_spec(),
                             _T: core::marker::PhantomData,
                         }
                     },
@@ -712,7 +712,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
-                            inner_perms: MetadataInnerPerms { storage: regions.slot_owners[frame_to_index(paddr)].storage },
+                            inner_perms: regions.slot_owners[frame_to_index(paddr)].into_inner_perms_spec(),
                             _T: core::marker::PhantomData,
                         }
                     },

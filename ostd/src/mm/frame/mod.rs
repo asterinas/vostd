@@ -483,7 +483,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         #[verus_spec(with Tracked(&perm))]
         let paddr = self.start_paddr();
 
-        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, MetadataInnerPerms { storage: owner.storage });
+        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, owner.into_inner_perms());
 
         let this = NeverDrop::new(self, Tracked(regions));
 

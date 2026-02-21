@@ -206,37 +206,37 @@ impl AnyFrameMeta for MetaSlotStorage {
 impl Repr<MetaSlotStorage> for MetaSlotStorage {
     type Perm = ();
 
-    uninterp spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool;
+    open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
+        true
+    }
 
-    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
+    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
+        (self, ())
+    }
 
-    #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        todo!()
+        self
     }
 
-    uninterp spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self;
+    open spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self {
+        slot
+    }
 
-    #[verifier::external_body]
     fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
-        todo!()
+        slot
     }
 
-    #[verifier::external_body]
     fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        todo!()
+        slot
     }
 
     proof fn from_to_repr(self, perm: ()) {
-        admit()
     }
 
     proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
-        admit()
     }
 
     proof fn to_repr_wf(self, perm: ()) {
-        admit()
     }
 }
 
@@ -405,7 +405,14 @@ impl MetaSlot {
         // not access the metadata slot so it is safe to have a mutable reference.
         let contents = slot.take(Tracked(&mut slot_perm));
 
-        let tracked inner_perms = MetadataInnerPerms { storage: slot_own.storage };
+        let tracked inner_perms = MetadataInnerPerms {
+            storage: slot_own.storage,
+            ref_count: slot_own.ref_count.value(),
+            vtable_ptr: slot_own.vtable_ptr.mem_contents(),
+            in_list: slot_own.in_list.value(),
+            self_addr: slot_own.self_addr,
+            usage: slot_own.usage,
+        };
         let Tracked(meta_perm) = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm), Tracked(inner_perms));
 
         #[verus_spec(with Tracked(&mut slot_own), Tracked(&mut meta_perm))]
