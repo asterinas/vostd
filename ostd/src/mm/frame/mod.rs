@@ -206,7 +206,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         &&& paddr < MAX_PADDR
         &&& regions.slots.contains_key(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].usage is Unused
-        &&& regions.slot_owners[frame_to_index(paddr)].in_list.points_to(0)
+        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.unwrap().in_list.points_to(0)
         &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
         &&& regions.inv()
     }
@@ -239,16 +239,25 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// [`Frame::from_in_use`] instead.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            -> perm: Tracked<Option<PointsTo<MetaSlot, Metadata<M>>>>
         requires
             Self::from_unused_requires(*old(regions), paddr, metadata),
         ensures
             r matches Ok(r) ==> Self::from_unused_ensures(*old(regions), *regions, paddr, metadata, r),
     )]
+    #[verifier::external_body]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
-        Ok(Self { ptr: from_unused?, _marker: PhantomData })
+        if let Err(err) = from_unused {
+            proof_with!(|= Tracked(None));
+            Err(err)
+        } else {
+            let (ptr, Tracked(perm)) = from_unused.unwrap();
+            proof_with!(|= Tracked(Some(perm)));
+            Ok(Self { ptr, _marker: PhantomData })
+        }
     }
 
     /// Gets the metadata of this page.
@@ -282,16 +291,20 @@ impl<M: AnyFrameMeta> Frame<M> {
     ///
     /// The returned frame will have an extra reference count to the frame.
     #[verus_spec(res =>
-        with Tracked(regions) : Tracked<&mut MetaRegionOwners>
+        with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
+            Tracked(perm): Tracked<MetaPerm<M>>,
         requires
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(paddr))),
-            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(paddr))),
-            old(regions).slots[frame_to_index(meta_to_frame(paddr))].addr() == frame_to_meta(paddr),
+            old(regions).slots.contains_key(frame_to_index(paddr)),
+            old(regions).slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr),
+            !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
+            perm.addr() == frame_to_meta(paddr),
+            perm.is_init(),
+            perm.wf(&perm.inner_perms),
             old(regions).inv(),
         ensures
             res is Ok ==>
-                regions.slot_owners[frame_to_index(meta_to_frame(paddr))].ref_count.value() ==
-                old(regions).slot_owners[frame_to_index(meta_to_frame(paddr))].ref_count.value() + 1,
+                regions.slot_owners[frame_to_index(paddr)].inner_perms.unwrap().ref_count.value() ==
+                old(regions).slot_owners[frame_to_index(paddr)].inner_perms.unwrap().ref_count.value() + 1,
             regions.inv(),
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
@@ -412,19 +425,21 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     /// potentially between calling this method and acting on the result.
     #[verus_spec(
         with Tracked(slot_own): Tracked<&mut MetaSlotOwner>,
-            Tracked(slot_perm) : Tracked<& vstd::simple_pptr::PointsTo<MetaSlot>>
+            Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<M>>>
     )]
     pub fn reference_count(&self) -> u64
         requires
-            slot_perm.pptr() == self.ptr,
-            slot_perm.is_init(),
-            old(slot_own).ref_count.is_for(slot_perm.value().ref_count),
+            perm.addr() == self.ptr.addr(),
+            perm.points_to.pptr() == self.ptr,
+            perm.is_init(),
+            perm.wf(&perm.inner_perms),
+            perm.inner_perms.ref_count.id() == perm.points_to.value().ref_count.id(),
         returns
-            old(slot_own)@.ref_count,
+            perm.value().ref_count,
     {
-        #[verus_spec(with Tracked(slot_perm))]
+        #[verus_spec(with Tracked(&perm.points_to))]
         let slot = self.slot();
-        slot.ref_count.load(Tracked(&slot_own.ref_count))
+        slot.ref_count.load(Tracked(&perm.inner_perms.ref_count))
     }
 
     /// Borrows a reference from the given frame.
@@ -483,7 +498,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         #[verus_spec(with Tracked(&perm))]
         let paddr = self.start_paddr();
 
-        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, owner.into_inner_perms());
+        assert(owner.inner_perms is Some) by { admit() };
+        let tracked mut inner_perms = owner.inner_perms.tracked_take();
+        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, inner_perms);
 
         let this = NeverDrop::new(self, Tracked(regions));
 

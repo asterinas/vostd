@@ -147,32 +147,43 @@ impl MetaSlotStorage {
     }
 }
 
-pub tracked struct MetaSlotOwner {
+pub tracked struct MetadataInnerPerms {
     pub storage: cell::PointsTo<MetaSlotStorage>,
     pub ref_count: PermissionU64,
     pub vtable_ptr: vstd::simple_pptr::PointsTo<usize>,
     pub in_list: PermissionU64,
+}
+
+pub tracked struct MetaSlotOwner {
+    /// The inner permissions of the metadata slot. When the slot is in use, these will be transferred to its current owner.
+    pub inner_perms: Option<MetadataInnerPerms>,
     pub self_addr: usize,
     pub usage: PageUsage,
+    pub raw_count: u64,
     pub path_if_in_pt: Option<TreePath<NR_ENTRIES>>,
 }
 
 impl Inv for MetaSlotOwner {
     open spec fn inv(self) -> bool {
-        &&& self.ref_count.value() == REF_COUNT_UNUSED ==> {
-            &&& self.vtable_ptr.is_uninit()
-            &&& self.in_list.value() == 0
+        &&& self.inner_perms.unwrap().ref_count.value() == REF_COUNT_UNUSED ==> {
+            /// An unused slot had better not have any raw pointer hanging around.
+            &&& self.raw_count == 0
+            &&& self.inner_perms is Some
+            &&& self.inner_perms.unwrap().vtable_ptr.is_uninit()
+            &&& self.inner_perms.unwrap().in_list.value() == 0
         }
-        &&& self.ref_count.value() == REF_COUNT_UNIQUE ==> {
-            &&& self.vtable_ptr.is_init()
+        &&& self.inner_perms.unwrap().ref_count.value() == REF_COUNT_UNIQUE ==> {
+            &&& self.inner_perms.unwrap().vtable_ptr.is_init()
         }
-        &&& 0 < self.ref_count.value() <= REF_COUNT_MAX ==> {
-            &&& self.vtable_ptr.is_init()
+        &&& 0 < self.inner_perms.unwrap().ref_count.value() <= REF_COUNT_MAX ==> {
+            &&& self.inner_perms.unwrap().vtable_ptr.is_init()
         }
-        &&& REF_COUNT_MAX <= self.ref_count.value() < REF_COUNT_UNUSED ==> { false }
-        &&& self.ref_count.value() == 0 ==> {
-            &&& self.vtable_ptr.is_uninit()
-            &&& self.in_list.value() == 0
+        &&& REF_COUNT_MAX <= self.inner_perms.unwrap().ref_count.value() < REF_COUNT_UNUSED ==> { false }
+        &&& self.inner_perms.unwrap().ref_count.value() == 0 ==> {
+            // If we ever have 0 ref count, there had better be a `ManuallyDrop` somewhere keeping us from getting garbage collected.
+            &&& self.raw_count > 0
+            &&& self.inner_perms.unwrap().vtable_ptr.is_uninit()
+            &&& self.inner_perms.unwrap().in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
         &&& self.self_addr % META_SLOT_SIZE == 0
@@ -211,10 +222,10 @@ impl View for MetaSlotOwner {
     type V = MetaSlotModel;
 
     open spec fn view(&self) -> Self::V {
-        let storage = self.storage.mem_contents();
-        let ref_count = self.ref_count.value();
-        let vtable_ptr = self.vtable_ptr.mem_contents();
-        let in_list = self.in_list.value();
+        let storage = self.inner_perms.unwrap().storage.mem_contents();
+        let ref_count = self.inner_perms.unwrap().ref_count.value();
+        let vtable_ptr = self.inner_perms.unwrap().vtable_ptr.mem_contents();
+        let in_list = self.inner_perms.unwrap().in_list.value();
         let self_addr = self.self_addr;
         let usage = self.usage;
         let status = match ref_count {
@@ -237,10 +248,11 @@ impl OwnerOf for MetaSlot {
     type Owner = MetaSlotOwner;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
-        &&& self.storage.id() == owner.storage.id()
-        &&& self.ref_count.id() == owner.ref_count.id()
-        &&& self.vtable_ptr == owner.vtable_ptr.pptr()
-        &&& self.in_list.id() == owner.in_list.id()
+        &&& owner.inner_perms is Some
+        &&& self.storage.id() == owner.inner_perms.unwrap().storage.id()
+        &&& self.ref_count.id() == owner.inner_perms.unwrap().ref_count.id()
+        &&& self.vtable_ptr == owner.inner_perms.unwrap().vtable_ptr.pptr()
+        &&& self.in_list.id() == owner.inner_perms.unwrap().in_list.id()
     }
 }
 
@@ -253,62 +265,23 @@ pub struct Metadata<M: AnyFrameMeta> {
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
     pub in_list: u64,
-    pub self_addr: usize,
-    pub usage: PageUsage,
-}
-
-pub tracked struct MetadataInnerPerms {
-    pub storage: cell::PointsTo<MetaSlotStorage>,
-    pub ghost ref_count: u64,
-    pub ghost vtable_ptr: MemContents<usize>,
-    pub ghost in_list: u64,
-    pub ghost self_addr: usize,
-    pub ghost usage: PageUsage,
-}
-
-impl MetaSlotOwner {
-    /// Spec-level conversion to `MetadataInnerPerms`.
-    /// Used in `spec_fn` closures (e.g., `seq_tracked_map_values`).
-    pub open spec fn into_inner_perms_spec(self) -> MetadataInnerPerms {
-        MetadataInnerPerms {
-            storage: self.storage,
-            ref_count: self.ref_count.value(),
-            vtable_ptr: self.vtable_ptr.mem_contents(),
-            in_list: self.in_list.value(),
-            self_addr: self.self_addr,
-            usage: self.usage,
-        }
-    }
-
-    /// Proof-level conversion to `MetadataInnerPerms`, consuming `self`.
-    /// The ghost value fields are populated from the owner's permission snapshots.
-    pub proof fn into_inner_perms(tracked self) -> (tracked result: MetadataInnerPerms)
-        ensures
-            result == self.into_inner_perms_spec(),
-    {
-        MetadataInnerPerms {
-            storage: self.storage,
-            ref_count: self.ref_count.value(),
-            vtable_ptr: self.vtable_ptr.mem_contents(),
-            in_list: self.in_list.value(),
-            self_addr: self.self_addr,
-            usage: self.usage,
-        }
-    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
     /// The metadata value is an abstract function of the inner permissions,
     /// since extracting `M` from `MetaSlotStorage` requires `M::Perm` which
     /// is not stored in `MetadataInnerPerms`.
-    pub uninterp spec fn metadata_from_inner_perms(perm: MetadataInnerPerms) -> M;
+    pub uninterp spec fn metadata_from_inner_perms(perm: cell::PointsTo<MetaSlotStorage>) -> M;
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
     type Perm = MetadataInnerPerms;
 
     open spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool {
-        perm.storage.id() == r.storage.id()
+        &&& perm.storage.id() == r.storage.id()
+        &&& perm.ref_count.id() == r.ref_count.id()
+        &&& perm.vtable_ptr.pptr() == r.vtable_ptr
+        &&& perm.in_list.id() == r.in_list.id()
     }
 
     uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
@@ -320,12 +293,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
 
     open spec fn from_repr_spec(r: MetaSlot, perm: MetadataInnerPerms) -> Self {
         Metadata {
-            metadata: Self::metadata_from_inner_perms(perm),
-            ref_count: perm.ref_count,
-            vtable_ptr: perm.vtable_ptr,
-            in_list: perm.in_list,
-            self_addr: perm.self_addr,
-            usage: perm.usage,
+            metadata: Self::metadata_from_inner_perms(perm.storage),
+            ref_count: perm.ref_count.value(),
+            vtable_ptr: perm.vtable_ptr.mem_contents(),
+            in_list: perm.in_list.value(),
         }
     }
 

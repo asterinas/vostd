@@ -111,44 +111,31 @@ impl MetaSlot {
         }
     }
 
-    pub open spec fn get_from_in_use_spec(paddr: Paddr, pre: MetaRegionModel) -> (
-        PPtr<MetaSlot>,
-        MetaRegionModel,
-    )
-        recommends
-            paddr % 4096 == 0,
-            paddr < MAX_PADDR,
-            pre.inv(),
-            0 <= pre.slots[paddr / 4096].ref_count < REF_COUNT_MAX,
-    {
-        let ptr = get_slot_spec(paddr);
-        let idx = paddr / 4096;
-        let pre_slot = pre.slots[idx];
-        let post = MetaRegionModel {
-            slots: pre.slots.insert(
-                idx,
-                MetaSlotModel { ref_count: (pre_slot.ref_count + 1) as u64, ..pre_slot },
-            ),
-        };
-        (ptr, post)
+    pub open spec fn get_from_in_use_panic_cond(paddr: Paddr, regions: MetaRegionOwners) -> bool {
+        let idx = frame_to_index(paddr);
+        let pre_perms = regions.slot_owners[idx].inner_perms.unwrap().ref_count.value();
+        pre_perms + 1 >= REF_COUNT_MAX
     }
 
-    pub open spec fn get_from_in_use_tracked(
-        paddr: Paddr,
-        // -- ghost parameters --
-        pre: MetaRegionOwners,
-        post: MetaRegionOwners,
-    ) -> bool
+    pub open spec fn get_from_in_use_success(paddr: Paddr, pre: MetaRegionOwners, post: MetaRegionOwners) -> bool
         recommends
-            paddr % 4096 == 0,
+            paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
             pre.inv(),
-            0 <= pre.view().slots[paddr / 4096].ref_count < REF_COUNT_MAX,
     {
-        let idx = paddr / 4096;
+        let idx = frame_to_index(paddr);
+        let pre_perms = pre.slot_owners[idx].inner_perms.unwrap().ref_count.value();
         {
-            &&& Self::update_index_tracked(idx, pre, post)
-            &&& Self::get_from_in_use_spec(paddr, pre.view()).1 == post.view()
+            &&& post.slot_owners[idx].inner_perms.unwrap().ref_count.value() == pre_perms + 1
+            &&& post.slot_owners[idx].inner_perms.unwrap().ref_count.id() == pre.slot_owners[idx].inner_perms.unwrap().ref_count.id()
+            &&& post.slot_owners[idx].inner_perms.unwrap().storage == pre.slot_owners[idx].inner_perms.unwrap().storage
+            &&& post.slot_owners[idx].inner_perms.unwrap().vtable_ptr == pre.slot_owners[idx].inner_perms.unwrap().vtable_ptr
+            &&& post.slot_owners[idx].inner_perms.unwrap().in_list == pre.slot_owners[idx].inner_perms.unwrap().in_list
+            &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
+            &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
+            &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
+            &&& post.slot_owners[idx].path_if_in_pt == pre.slot_owners[idx].path_if_in_pt
+            &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
     }
 

@@ -252,7 +252,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& regions.slots.contains_key(frame_to_index(paddr_out))
                 &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
                 &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
+                &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
             }
     }
 
@@ -519,7 +519,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& regions.slots.contains_key(frame_to_index(paddr_out))
                         &&& !regions.dropped_slots.contains_key(frame_to_index(paddr_out))
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
                     },
                 forall|j: int|
                     0 <= j < addrs.len() as int ==> {
@@ -540,7 +540,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             let paddr = range.start + i * PAGE_SIZE;
             let (paddr, meta) = metadata_fn(paddr);
 
-            let frame = match #[verus_spec(with Tracked(regions))]
+            proof_decl! {
+                let tracked mut perm : Option<PointsTo<MetaSlot, Metadata<M>>>;
+            }
+
+            let frame = match #[verus_spec(with Tracked(regions) => perm)]
             Frame::<M>::from_unused(paddr, meta) {
                 Ok(f) => f,
                 Err(e) => {
@@ -555,7 +559,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 assert(forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
                     metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
                     }) by {
                     admit();
                 }
@@ -586,7 +590,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
-                            inner_perms: regions.slot_owners[frame_to_index(addr)].into_inner_perms_spec(),
+                            inner_perms: regions.slot_owners[frame_to_index(addr)].inner_perms.unwrap(),
                             _T: core::marker::PhantomData,
                         }
                     },
@@ -753,7 +757,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(paddr)),
                             points_to: regions.dropped_slots[frame_to_index(paddr)],
-                            inner_perms: regions.slot_owners[frame_to_index(paddr)].into_inner_perms_spec(),
+                            inner_perms: regions.slot_owners[frame_to_index(paddr)].inner_perms.unwrap(),
                             _T: core::marker::PhantomData,
                         }
                     },

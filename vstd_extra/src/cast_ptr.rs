@@ -233,6 +233,22 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
             self.addr() == #[trigger] self.pptr().addr(),
     {
     }
+
+    #[verifier::external_body]
+    pub proof fn take_inner_perms(tracked &mut self) -> (tracked result: T::Perm)
+        ensures
+            result == old(self).inner_perms,
+            self.addr == old(self).addr,
+            self.points_to == old(self).points_to,
+    { unimplemented!() }
+
+    #[verifier::external_body]
+    pub proof fn put_inner_perms(tracked &mut self, tracked perms: T::Perm)
+        ensures
+            self.inner_perms == perms,
+            self.addr == old(self).addr,
+            self.points_to == old(self).points_to,
+    { unimplemented!() }
 }
 
 impl<R, T: Repr<R>> From<PointsTo<R, T>> for vstd::simple_pptr::PointsTo<R> {

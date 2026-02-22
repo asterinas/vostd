@@ -85,8 +85,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
             regions.dropped_slots[self.slot_index],
         )
         &&& regions.slot_owners.contains_key(self.slot_index) ==> {
-            &&& regions.slot_owners[self.slot_index].ref_count.value() != REF_COUNT_UNUSED
-            &&& regions.slot_owners[self.slot_index].ref_count.value() != 0
+            &&& regions.slot_owners[self.slot_index].inner_perms is Some
+            &&& regions.slot_owners[self.slot_index].inner_perms.unwrap().ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[self.slot_index].inner_perms.unwrap().ref_count.value() != 0
         }
     }
 
@@ -105,21 +106,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         res: Self,
         regions: MetaRegionOwners,
     ) -> bool {
-        &&& <M as OwnerOf>::wf(metadata,res.meta_own)
+        &&& <M as OwnerOf>::wf(metadata, res.meta_own)
         &&& res.meta_perm.addr() == frame_to_meta(paddr)
         &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
         &&& regions.dropped_slots == old_regions.dropped_slots
-        &&& regions.slot_owners == old_regions.slot_owners
+        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
+        &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& regions.slot_owners[frame_to_index(paddr)].path_if_in_pt == old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms is None
+        &&& forall|i: usize| i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& regions.inv()
     }
 
     pub axiom fn from_unused_owner(
         tracked regions: &mut MetaRegionOwners,
         paddr: Paddr,
-        metadata: M,
+        meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> (tracked res: Self)
     ensures
-        Self::from_unused_owner_spec(*old(regions), paddr, metadata, res, *regions);
+        Self::from_unused_owner_spec(*old(regions), paddr, meta_perm.value().metadata, res, *regions);
     /* {
         let tracked perm = regions.slots.tracked_remove(frame_to_index(paddr));
         UniqueFrameOwner::<M> {

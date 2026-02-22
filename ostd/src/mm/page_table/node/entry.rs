@@ -433,14 +433,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 regions.inv_implies_correct_addr(paddr);
             }
         };
-        assert(regions.inv()) by {
-            assert(forall|i: usize|
-                regions.slot_owners.contains_key(i) ==> regions.slot_owners[i].inv());
-            assert(forall|i: usize|
-                regions.slots.contains_key(i) ==> regions.slots[i].value().wf(
-                    regions.slot_owners[i],
-                ));
-        };
+
+        assert(forall|i: usize| regions.slots.contains_key(i) ==> regions.slots[i].value().wf(regions.slot_owners[i]));
 
         old_child
     }

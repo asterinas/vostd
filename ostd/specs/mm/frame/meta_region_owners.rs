@@ -64,13 +64,11 @@ impl Inv for MetaRegionOwners {
             forall|i: usize| #[trigger] self.dropped_slots.contains_key(i) ==> i < max_meta_slots()
         }
         &&& {
-            // Invariant for each slot holds.
-            forall|i: usize| #[trigger]
-                self.slot_owners.contains_key(i) ==> self.slot_owners[i].inv()
-        }
-        &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
+                    &&& self.slot_owners.contains_key(i)
+                    &&& self.slot_owners[i].inv()
+                    &&& self.slot_owners[i].inner_perms is Some
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
@@ -130,8 +128,9 @@ impl MetaRegionOwners {
         recommends
             self.inv(),
             i < max_meta_slots() as usize,
+            self.slot_owners[i].inner_perms is Some,
     {
-        self.slot_owners[i].ref_count.value()
+        self.slot_owners[i].inner_perms.unwrap().ref_count.value()
     }
 
     pub open spec fn paddr_range_in_region(self, range: Range<Paddr>) -> bool

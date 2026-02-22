@@ -30,77 +30,8 @@ pub struct StoredLink {
     pub slot: MetaSlotSmall,
 }
 
-pub struct MetadataLink<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
-    pub metadata: M,
-    pub next: Option<Paddr>,
-    pub prev: Option<Paddr>,
-    pub ref_count: u64,
-    pub vtable_ptr: MemContents<usize>,
-    pub in_list: u64,
-    pub self_addr: usize,
-    pub usage: PageUsage,
-}
-
-pub struct MetadataInnerPerms {
+pub struct LinkInnerPerms {
     pub storage: cell::PointsTo<MetaSlotSmall>,
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataLink<M> {
-    #[verifier::external_body]
-    pub fn into_metadata(perm: ReprPtr<MetaSlot, MetadataLink<M>>) -> ReprPtr<MetaSlot, Metadata<Link<M>>> {
-        unimplemented!()
-        /*
-        Metadata {
-            metadata: Link { next: self.next, prev: self.prev, meta: self.metadata },
-            ref_count: self.ref_count,
-            vtable_ptr: self.vtable_ptr,
-            in_list: self.in_list,
-            self_addr: self.self_addr,
-        }
-        */
-    }
-
-    #[verifier::external_body]
-    pub fn from_metadata(perm: ReprPtr<MetaSlot, Metadata<Link<M>>>) -> ReprPtr<MetaSlot, MetadataLink<M>> {
-        unimplemented!()
-    }
-}
-
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataLink<M> {
-    type Perm = MetadataInnerPerms;
-
-    uninterp spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool;
-
-    uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
-
-    #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
-        unimplemented!()
-    }
-
-    uninterp spec fn from_repr_spec(r: MetaSlot, perm: MetadataInnerPerms) -> Self;
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlot, Tracked(perm): Tracked<&MetadataInnerPerms>) -> Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlot, Tracked(perm): Tracked<&'a MetadataInnerPerms>) -> &'a Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self, perm: MetadataInnerPerms) {
-        admit()
-    }
-
-    proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
-        admit()
-    }
-
-    proof fn to_repr_wf(self, perm: MetadataInnerPerms) {
-        admit()
-    }
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
@@ -115,38 +46,38 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
-    type Perm = MetadataInnerPerms;
+    type Perm = LinkInnerPerms;
 
-    uninterp spec fn wf(r: MetaSlotStorage, perm: MetadataInnerPerms) -> bool;
+    uninterp spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms) -> bool;
 
-    uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlotStorage, MetadataInnerPerms);
+    uninterp spec fn to_repr_spec(self, perm: LinkInnerPerms) -> (MetaSlotStorage, LinkInnerPerms);
 
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlotStorage {
+    fn to_repr(self, Tracked(perm): Tracked<&mut LinkInnerPerms>) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: MetadataInnerPerms) -> Self;
+    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms) -> Self;
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&MetadataInnerPerms>) -> Self {
+    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&LinkInnerPerms>) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a MetadataInnerPerms>) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a LinkInnerPerms>) -> &'a Self {
         unimplemented!()
     }
 
-    proof fn from_to_repr(self, perm: MetadataInnerPerms) {
+    proof fn from_to_repr(self, perm: LinkInnerPerms) {
         admit();
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage, perm: MetadataInnerPerms) {
+    proof fn to_from_repr(r: MetaSlotStorage, perm: LinkInnerPerms) {
         admit();
     }
 
-    proof fn to_repr_wf(self, perm: MetadataInnerPerms) {
+    proof fn to_repr_wf(self, perm: LinkInnerPerms) {
         admit();
     }
 }
@@ -596,8 +527,6 @@ pub struct MetadataAsLink<M: AnyFrameMeta> {
     pub ref_count: u64,
     pub vtable_ptr: MemContents<usize>,
     pub in_list: u64,
-    pub self_addr: usize,
-    pub usage: PageUsage,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M> {
@@ -657,8 +586,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<Metadata<Link<M>>> for 
             ref_count: m.ref_count,
             vtable_ptr: m.vtable_ptr,
             in_list: m.in_list,
-            self_addr: m.self_addr,
-            usage: m.usage,
         }
     }
 }
@@ -680,8 +607,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> From<Metadata<Link<M>>> for Metadata
             ref_count: m.ref_count,
             vtable_ptr: m.vtable_ptr,
             in_list: m.in_list,
-            self_addr: m.self_addr,
-            usage: m.usage,
         }
     }
 }
@@ -707,8 +632,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<MetadataAsLink<M>> for 
             ref_count: m.ref_count,
             vtable_ptr: m.vtable_ptr,
             in_list: m.in_list,
-            self_addr: m.self_addr,
-            usage: m.usage,
         }
     }
 }
@@ -728,8 +651,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> From<MetadataAsLink<M>> for Metadata
             ref_count: m.ref_count,
             vtable_ptr: m.vtable_ptr,
             in_list: m.in_list,
-            self_addr: m.self_addr,
-            usage: m.usage,
         }
     }
 }
