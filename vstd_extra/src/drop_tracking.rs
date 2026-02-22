@@ -1,11 +1,10 @@
 use crate::external::manually_drop::*;
-use core::mem::ManuallyDrop;
 use core::ops::Deref;
 use vstd::prelude::*;
 
 verus! {
 
-pub trait Undroppable {
+pub trait TrackDrop {
     type State;
 
     spec fn constructor_requires(self, s: Self::State) -> bool;
@@ -21,9 +20,9 @@ pub trait Undroppable {
     ;
 }
 
-pub struct NeverDrop<T: Undroppable>(pub T);
+pub struct ManuallyDrop<T: TrackDrop>(pub T);
 
-impl<T: Undroppable> NeverDrop<T> {
+impl<T: TrackDrop> ManuallyDrop<T> {
     #[verifier::external_body]
     pub fn new(t: T, Tracked(s): Tracked<&mut T::State>) -> (res: Self)
         requires
@@ -39,7 +38,7 @@ impl<T: Undroppable> NeverDrop<T> {
     }
 }
 
-impl<T: Undroppable> Deref for NeverDrop<T> {
+impl<T: TrackDrop> Deref for ManuallyDrop<T> {
     type Target = T;
 
     #[verifier::external_body]
@@ -51,7 +50,7 @@ impl<T: Undroppable> Deref for NeverDrop<T> {
     }
 }
 
-impl<T: Undroppable> View for NeverDrop<T> {
+impl<T: TrackDrop> View for ManuallyDrop<T> {
     type V = T;
 
     open spec fn view(&self) -> (res: Self::V) {

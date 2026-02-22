@@ -8,11 +8,11 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use super::meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 
-use core::{marker::PhantomData, mem::ManuallyDrop, sync::atomic::Ordering};
+use core::{marker::PhantomData, sync::atomic::Ordering};
 
 use super::meta::mapping::{
     frame_to_index, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE,
@@ -336,7 +336,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         #[verus_spec(with Tracked(owner))]
         let paddr = self.start_paddr();
 
-        let _ = NeverDrop::new(self, Tracked(regions));
+        let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
     }

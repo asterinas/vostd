@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
+use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 
 use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
 use crate::mm::frame::meta::{has_safe_slot, AnyFrameMeta, MetaSlot};
@@ -22,7 +22,7 @@ verus! {
 
 /// A struct that can work as `&'a Frame<M>`.
 pub struct FrameRef<'a, M: AnyFrameMeta> {
-    pub inner: NeverDrop<Frame<M>>,
+    pub inner: ManuallyDrop<Frame<M>>,
     pub _marker: PhantomData<&'a Frame<M>>,
 }
 
@@ -73,10 +73,10 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
         let frame = Frame::from_raw(raw);
 
         proof {
-            Frame::lemma_from_raw_neverdrop_inverse(raw, frame, *old(regions), *regions);
+            Frame::lemma_from_raw_manuallydrop_inverse(raw, frame, *old(regions), *regions);
         }
 
-        Self { inner: NeverDrop::new(frame, Tracked(regions)), _marker: PhantomData }
+        Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
     }
 }
 
@@ -167,7 +167,7 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
         assert(self.constructor_requires(*old(regions))) by { admit() };
-        let _ = NeverDrop::new(self, Tracked(regions));
+        let _ = ManuallyDrop::new(self, Tracked(regions));
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
 
@@ -179,7 +179,7 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
         raw: PPtr<Self::Target>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
     ) -> Self::Ref<'a> {
-        let dropped = NeverDrop::<Frame<M>>::new(
+        let dropped = ManuallyDrop::<Frame<M>>::new(
             Frame { ptr: PPtr::<MetaSlot>::from_addr(raw.addr()), _marker: PhantomData },
             Tracked(regions),
         );

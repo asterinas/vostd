@@ -17,13 +17,13 @@ pub mod array_ptr;
 pub mod auxiliary;
 pub mod bit_mapping;
 pub mod cast_ptr;
+pub mod drop_tracking;
 pub mod extern_const;
 pub mod external;
 pub mod function_properties;
 pub mod ghost_tree;
 pub mod ownership;
 pub mod resource;
-pub mod undroppable;
 
 #[macro_use]
 pub mod ptr_extra;

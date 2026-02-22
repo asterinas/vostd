@@ -36,7 +36,7 @@ use vstd::simple_pptr::*;
 use vstd_extra::arithmetic::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::NeverDrop;
+use vstd_extra::drop_tracking::ManuallyDrop;
 
 use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
@@ -46,7 +46,7 @@ use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame, META_SLOT_
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
-use core::{fmt::Debug, marker::PhantomData, mem::ManuallyDrop, ops::Range};
+use core::{fmt::Debug, marker::PhantomData, ops::Range};
 
 use align_ext::AlignExt;
 
@@ -589,7 +589,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let ghost guards_before_drop = *guards;
                         let ghost locked_addr = child_node_owner.meta_perm.addr();
 
-                        let _ = NeverDrop::new(
+                        let _ = ManuallyDrop::new(
                             pt_guard.take(Tracked(&mut guard_perm)),
                             Tracked(guards),
                         );
@@ -986,7 +986,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let taken: Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(
             self.level as usize - 1,
         ).unwrap();
-        let _ = NeverDrop::new(taken.unwrap().take(Tracked(&mut guard_perm)), Tracked(guards));
+        let _ = ManuallyDrop::new(taken.unwrap().take(Tracked(&mut guard_perm)), Tracked(guards));
 
         proof {
             owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
@@ -2218,7 +2218,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     if level as usize == NR_LEVELS {
                         assert(owner.level == NR_LEVELS);
 
-                        let _ = NeverDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
+                        let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
                         assert(false);
                         return None;
                         // panic!("Unmapping shared kernel page table nodes");

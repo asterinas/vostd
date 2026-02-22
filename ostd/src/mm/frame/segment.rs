@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_new, seq_tracked_subrange};
 
-use core::{fmt::Debug, mem::ManuallyDrop, ops::Range};
+use core::{fmt::Debug, ops::Range};
 
 use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
 
@@ -16,7 +16,7 @@ use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 verus! {
 
@@ -41,7 +41,7 @@ pub struct Segment<M: AnyFrameMeta + ?Sized> {
 }
 
 // TODO: treat `manually_drop` as equivalent to `into_raw`
-impl<M: AnyFrameMeta + ?Sized> Undroppable for Segment<M> {
+impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     type State = MetaRegionOwners;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
@@ -566,7 +566,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 assert(frame.constructor_requires(*old(regions))) by { admit() };
             }
 
-            let _ = NeverDrop::new(frame, Tracked(regions));
+            let _ = ManuallyDrop::new(frame, Tracked(regions));
             segment.range.end = paddr + PAGE_SIZE;
             proof {
                 addrs.tracked_push(paddr);
@@ -654,7 +654,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             Self { range: at..self.range.end, _marker: core::marker::PhantomData },
         );
 
-        let _ = NeverDrop::new(self, Tracked(regions));
+        let _ = ManuallyDrop::new(self, Tracked(regions));
 
         let tracked frame_perms1 = SegmentOwner {
             perms: seq_tracked_subrange(owner.perms, 0, idx as int),
@@ -711,7 +711,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         }
 
         let range = self.range.clone();
-        let _ = NeverDrop::new(self, Tracked(regions));
+        let _ = ManuallyDrop::new(self, Tracked(regions));
         range
     }
 

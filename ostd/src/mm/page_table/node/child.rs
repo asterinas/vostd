@@ -12,7 +12,7 @@ use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::specs::*;
 
@@ -20,7 +20,7 @@ use crate::{
     mm::{page_prop::PageProperty, Paddr, PagingConstsTrait, PagingLevel, Vaddr},
     //    sync::RcuDrop,
 };
-use vstd_extra::undroppable::NeverDrop;
+use vstd_extra::drop_tracking::ManuallyDrop;
 
 use super::*;
 
@@ -163,7 +163,7 @@ impl<C: PageTableConfig> Child<C> {
                 let paddr = node.start_paddr();
 
                 assert(node.constructor_requires(*old(regions))) by { admit() };
-                let _ = NeverDrop::new(node, Tracked(regions));
+                let _ = ManuallyDrop::new(node, Tracked(regions));
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => C::E::new_page(paddr, level, prop),

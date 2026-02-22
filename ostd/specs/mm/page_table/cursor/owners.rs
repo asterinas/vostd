@@ -2,7 +2,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::mm::page_table::*;
 
@@ -446,8 +446,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     requires
         self.inv(),
         self.only_current_locked(guards0),
-        <PageTableGuard<'rcu, C> as Undroppable>::constructor_requires(guard, guards0),
-        <PageTableGuard<'rcu, C> as Undroppable>::constructor_ensures(guard, guards0, guards1),
+        <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
+        <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
     ensures
         self.children_not_locked(guards1),
     {

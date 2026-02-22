@@ -11,7 +11,7 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::mm::{
     page_table::{EntryOwner, FrameView},

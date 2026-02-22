@@ -11,7 +11,7 @@ pub use page_table_node_specs::*;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::mm::page_table::{PageTableConfig, PageTableGuard};
 
@@ -61,7 +61,7 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig> Undroppable for PageTableGuard<'rcu, C> {
+impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     type State = Guards<'rcu, C>;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {

@@ -7,7 +7,7 @@ use vstd::simple_pptr::{self, PPtr, PointsTo};
 use vstd_extra::cast_ptr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::NeverDrop;
+use vstd_extra::drop_tracking::ManuallyDrop;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::frame::{Frame, FrameRef};
@@ -21,7 +21,6 @@ use crate::specs::mm::page_table::PageTableOwner;
 use crate::specs::task::InAtomicMode;
 
 use core::marker::PhantomData;
-use core::mem::ManuallyDrop;
 
 use crate::{
     mm::{nr_subpage_per_huge, page_prop::PageProperty},

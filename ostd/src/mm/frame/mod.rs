@@ -50,7 +50,6 @@ use vstd_extra::cast_ptr;
 
 use core::{
     marker::PhantomData,
-    mem::ManuallyDrop,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -72,7 +71,7 @@ use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
-use vstd_extra::undroppable::*;
+use vstd_extra::drop_tracking::*;
 
 use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
@@ -104,7 +103,7 @@ impl<M: AnyFrameMeta> Clone for Frame<M> {
     }
 }
 
-impl<M: AnyFrameMeta> Undroppable for Frame<M> {
+impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
     type State = MetaRegionOwners;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
@@ -502,7 +501,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         let tracked mut inner_perms = owner.inner_perms.tracked_take();
         let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, inner_perms);
 
-        let this = NeverDrop::new(self, Tracked(regions));
+        let _ = ManuallyDrop::new(self, Tracked(regions));
 
         proof_with!(|= Tracked(meta_perm));
         paddr
