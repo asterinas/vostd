@@ -164,14 +164,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
         let mut guard_val = pt_guard.take(Tracked(guard_perm));
         let tracked node_owner = pt_own.value.node.tracked_take();
-        let stray_mut = guard_val.stray_mut(); //.borrow(Tracked(&node_owner.meta_own.stray));
+        #[verus_spec(with Tracked(&node_owner.meta_perm))]
+        let stray = guard_val.stray_mut();
+        let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
         proof {
             pt_guard.put(Tracked(guard_perm), guard_val);
             pt_own.value.node = Some(node_owner);
         }
 
-        if *(stray_mut.borrow(Tracked(&node_owner.meta_own.stray))) {
+        if is_stray {
             return None;
         }
         let mut cur_entry = PageTableGuard::<'rcu, C>::entry(pt_guard, start_idx);
@@ -205,14 +207,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 
     let mut guard_val = pt_guard.take(Tracked(guard_perm));
     let tracked node_owner = pt_own.value.node.tracked_take();
-    let stray_mut = guard_val.stray_mut();
+    #[verus_spec(with Tracked(&node_owner.meta_perm))]
+    let stray = guard_val.stray_mut();
+    let is_stray = *(stray.borrow(Tracked(&node_owner.meta_own.stray)));
 
     proof {
         pt_guard.put(Tracked(guard_perm), guard_val);
         pt_own.value.node = Some(node_owner);
     }
 
-    if *(stray_mut.borrow(Tracked(&node_owner.meta_own.stray))) {
+    if is_stray {
         return None;
     }
     Some(pt_guard)

@@ -101,13 +101,6 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-    #[verifier::external_body]
-    pub fn get_stray(&self) -> PCell<bool>
-        returns
-            self.stray,
-    {
-        unimplemented!()
-    }
 
     pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
         StoredPageTablePageMeta {
@@ -158,9 +151,7 @@ impl StoredPageTablePageMeta {
     }
 }
 
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
-    PageTablePageMeta<C>,
->;
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
 
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
@@ -218,10 +209,19 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
 #[verus_verify]
 impl<C: PageTableConfig> PageTableNode<C> {
+
+    /// Gets the level of a page table node.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The node must be well-formed, and the caller must provide a permission token for its metadata.
+    /// ## Postconditions
+    /// - Returns the level of the node.
+    /// ## Safety
+    /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
     #[verus_spec(
         with Tracked(perm) : Tracked<&PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    pub fn level(&self) -> PagingLevel
+    pub(super) fn level(&self) -> PagingLevel
         requires
             self.ptr.addr() == perm.addr(),
             self.ptr.addr() == perm.points_to.addr(),
@@ -351,6 +351,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
     /// An atomic mode guard is required to
     ///  1. prevent deadlocks;
     ///  2. provide a lifetime (`'rcu`) that the nodes are guaranteed to outlive.
+    /// # Verification Design
+    /// As of when we verified this library, we didn't have a spin lock implementation, so we axiomatize
+    /// what happens when it's successful.
     #[verifier::external_body]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&NodeOwner<C>>,
@@ -370,9 +373,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -401,9 +402,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -445,10 +444,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES,
-            child_owner.match_pte(
-                owner.children_perm.value()[idx as int],
-                child_owner.parent_level,
-            ),
+            child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
@@ -459,17 +455,23 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         Entry::new_at(guard, idx);
     }
 
-    /// Gets the number of valid PTEs in the node.
+    /// Gets the number of valid PTEs in a page table node.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The node must be well-formed.
+    /// ## Postconditions
+    /// - Returns the number of valid PTEs in the node.
+    /// ## Safety
+    /// - We require the caller to provide a permission token to ensure that this function is only called on a valid page table node.
     #[verus_spec(
-        with Tracked(owner) : Tracked<&mut NodeOwner<C>>
+        with Tracked(owner) : Tracked<&NodeOwner<C>>
     )]
     pub fn nr_children(&self) -> (nr: u16)
         requires
-            self.inner.inner@.ptr.addr() == old(owner).meta_perm.addr(),
-            self.inner.inner@.ptr.addr() == old(owner).meta_perm.points_to.addr(),
-            old(owner).inv(),
-        ensures
-            *owner == *old(owner),
+            self.inner.inner@.wf(*owner),
+            owner.inv(),
+        returns
+            owner.meta_own.nr_children.value(),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(&owner.meta_perm))]
@@ -480,23 +482,25 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 
     /// Returns if the page table node is detached from its parent.
     #[verus_spec(
-        with Tracked(owner) : Tracked<EntryOwner<C>>
+        with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    pub fn stray_mut(&mut self) -> PCell<bool>
+    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a PCell<bool>)
         requires
-            owner.is_node(),
-            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().meta_perm.addr(),
-            old(self).inner.inner@.ptr.addr() == owner.node.unwrap().meta_perm.points_to.addr(),
-            owner.inv(),
+            old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
+            old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
+            meta_perm.is_init(),
+            meta_perm.wf(&meta_perm.inner_perms),
+        ensures
+            res.id() == meta_perm.value().metadata.stray.id(),
+            *self == *old(self),
     {
-        let tracked node_owner = owner.node.tracked_borrow();
-
         // SAFETY: The lock is held so we have an exclusive access.
-        #[verus_spec(with Tracked(&node_owner.meta_perm))]
+        #[verus_spec(with Tracked(meta_perm))]
         let meta = self.meta();
-
-        meta.get_stray()
+        &meta.stray
     }
+
+
 
     /// Reads a non-owning PTE at the given index.
     ///
@@ -553,10 +557,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(owner): Tracked<&mut NodeOwner<C>>
     )]
-    #[verifier::external_body]
     pub fn write_pte(&mut self, idx: usize, pte: C::E)
         requires
             old(owner).inv(),
+            old(self).inner.inner@.wf(*old(owner)),
             meta_to_frame(old(owner).meta_perm.addr) < VMALLOC_BASE_VADDR
                 - LINEAR_MAPPING_BASE_VADDR,
             idx < NR_ENTRIES,
@@ -581,6 +585,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         // SAFETY:
         // - The page table node is alive. The index is inside the bound, so the page table entry is valid.
         // - All page table entries are aligned and accessed with atomic operations only.
+        #[verus_spec(with Tracked(&mut owner.children_perm))]
         store_pte(ptr.add(idx), pte, Ordering::Release)
     }
 
