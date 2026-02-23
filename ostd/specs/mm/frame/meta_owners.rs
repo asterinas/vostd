@@ -169,6 +169,7 @@ impl Inv for MetaSlotOwner {
             /// An unused slot had better not have any raw pointer hanging around.
             &&& self.raw_count == 0
             &&& self.inner_perms is Some
+            &&& self.inner_perms.unwrap().storage.is_uninit()
             &&& self.inner_perms.unwrap().vtable_ptr.is_uninit()
             &&& self.inner_perms.unwrap().in_list.value() == 0
         }

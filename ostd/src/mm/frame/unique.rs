@@ -60,7 +60,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> res.unwrap().wf(owner@.unwrap()),
     )]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
+    {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, true);
 

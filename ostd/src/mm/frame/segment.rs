@@ -472,8 +472,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
-        Result<Self, GetFrameError>) {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res: Result<Self, GetFrameError>)
+    {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();

@@ -126,6 +126,8 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
             }
         &&& forall|i: usize| #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slots =~= s0.slots
+        &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
@@ -146,6 +148,8 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (slot_own.raw_count - 1) as usize
         &&& forall|i: usize| #![trigger s1.slot_owners[i]]
             i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slots =~= s0.slots
+        &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
     proof fn drop_spec(self, tracked s: &mut Self::State) {
@@ -241,16 +245,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         metadata: M,
         r: Self,
     ) -> bool {
-        &&& new_regions@ == MetaSlot::get_from_unused_spec::<M>(
-            paddr,
-            metadata,
-            false,
-            old_regions@,
-        ).1
+        &&& MetaSlot::get_from_unused_spec(paddr, old_regions, new_regions)
         &&& new_regions.inv()
-        &&& forall|paddr: Paddr| #[trigger]
-            old_regions.slots.contains_key(frame_to_index(paddr))
-                ==> new_regions.slots.contains_key(frame_to_index(paddr))
     }
 
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
@@ -270,7 +266,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r matches Ok(r) ==> Self::from_unused_ensures(*old(regions), *regions, paddr, metadata, r),
     )]
     #[verifier::external_body]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
+    {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
