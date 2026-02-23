@@ -109,6 +109,51 @@ pub enum MetaSlotStorage {
     PTNode(StoredPageTablePageMeta),
 }
 
+
+/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
+/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
+/// it can then be used to stand in for `dyn AnyFrameMeta`.
+impl AnyFrameMeta for MetaSlotStorage {
+    uninterp spec fn vtable_ptr(&self) -> usize;
+}
+
+impl Repr<MetaSlotStorage> for MetaSlotStorage {
+    type Perm = ();
+
+    open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
+        true
+    }
+
+    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
+        (self, ())
+    }
+
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+        self
+    }
+
+    open spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self {
+        slot
+    }
+
+    fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+        slot
+    }
+
+    fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+        slot
+    }
+
+    proof fn from_to_repr(self, perm: ()) {
+    }
+
+    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
+    }
+
+    proof fn to_repr_wf(self, perm: ()) {
+    }
+}
+
 impl MetaSlotStorage {
     pub open spec fn get_link_spec(self) -> Option<StoredLink> {
         match self {

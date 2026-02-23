@@ -128,6 +128,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
 
+        assert(slot_own.inv()) by { admit(); }
+
         // SAFETY: We are the sole owner and the metadata is initialized.
         #[verus_spec(with Tracked(&mut slot_own))]
         slot.drop_meta_in_place();
@@ -449,6 +451,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // The slot is initialized.
         #[verus_spec(with Tracked(&perm))]
         let slot = self.slot();
+
+        assert(slot_own.inv()) by { admit(); }
 
         #[verus_spec(with Tracked(&mut slot_own))]
         slot.drop_last_in_place();

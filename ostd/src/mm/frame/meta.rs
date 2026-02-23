@@ -63,19 +63,9 @@ use crate::{
     //    util::ops::range_difference,
 };
 
-/// The maximum number of bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_SIZE: usize = META_SLOT_SIZE
-    - size_of::<AtomicU64>()
-//    - size_of::<FrameMetaVtablePtr>()
-    - size_of::<AtomicU64>();
-/// The maximum alignment in bytes of the metadata of a frame.
-pub const FRAME_METADATA_MAX_ALIGN: usize = META_SLOT_SIZE;
-
-//const META_SLOT_SIZE: usize = 64;
-
 verus! {
 
-/*#[repr(C)]
+#[repr(C)]
 pub struct MetaSlot {
     /// The metadata of a frame.
     ///
@@ -87,9 +77,10 @@ pub struct MetaSlot {
     ///  - the subsequent fields can utilize the padding of the
     ///    reference count to save space.
     ///
-    /// Don't interpret this field as an array of bytes. It is a
-    /// placeholder for the metadata of a frame.
-    storage: UnsafeCell<MetaSlotStorage>,
+    /// # Verification Design
+    /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
+    /// types of metadata defined in the development.
+    pub storage: PCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///
     /// Specifically, the reference count has the following meaning:
@@ -101,16 +92,10 @@ pub struct MetaSlot {
     ///  - `REF_COUNT_MAX..REF_COUNT_UNIQUE`: Illegal values to
     ///    prevent the reference count from overflowing. Otherwise,
     ///    overflowing the reference count will cause soundness issue.
-    ///
-    /// [`Frame::from_unused`]: super::Frame::from_unused
-    /// [`UniqueFrame`]: super::unique::UniqueFrame
-    /// [`drop_last_in_place`]: Self::drop_last_in_place
-    //
-    // Other than this field the fields should be `MaybeUninit`.
-    // See initialization in `alloc_meta_frames`.
-    pub(super) ref_count: AtomicU64,
-    /// The virtual table that indicates the type of the metadata.
-    pub(super) vtable_ptr: UnsafeCell<MaybeUninit<FrameMetaVtablePtr>>,
+    pub ref_count: PAtomicU64,
+    /// The virtual table that indicates the type of the metadata. Currently we do not verify this because
+    /// of the dependency on the `dyn Trait` pattern. But we can revisit it now that `dyn Trait` is supported by Verus.
+    pub vtable_ptr: PPtr<usize>,
     /// This is only accessed by [`crate::mm::frame::linked_list`].
     /// It stores 0 if the frame is not in any list, otherwise it stores the
     /// ID of the list.
@@ -119,8 +104,8 @@ pub struct MetaSlot {
     /// one relaxed read. Otherwise, if we store it conditionally in `storage`
     /// we would have to ensure that the type is correct before the read, which
     /// costs a synchronization.
-    pub(super) in_list: AtomicU64,
-}*/
+    pub in_list: PAtomicU64,
+}
 
 pub const REF_COUNT_UNUSED: u64 = u64::MAX;
 
@@ -170,57 +155,6 @@ pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
     }
 
     spec fn vtable_ptr(&self) -> usize;
-}
-
-/// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
-/// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
-/// it can then be used to stand in for `dyn AnyFrameMeta`.
-impl AnyFrameMeta for MetaSlotStorage {
-    uninterp spec fn vtable_ptr(&self) -> usize;
-}
-
-impl Repr<MetaSlotStorage> for MetaSlotStorage {
-    type Perm = ();
-
-    open spec fn wf(slot: MetaSlotStorage, perm: ()) -> bool {
-        true
-    }
-
-    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
-        (self, ())
-    }
-
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        self
-    }
-
-    open spec fn from_repr_spec(slot: MetaSlotStorage, perm: ()) -> Self {
-        slot
-    }
-
-    fn from_repr(slot: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
-        slot
-    }
-
-    fn from_borrowed<'a>(slot: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        slot
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-    }
-
-    proof fn to_from_repr(slot: MetaSlotStorage, perm: ()) {
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
-    }
-}
-
-pub struct MetaSlot {
-    pub storage: PCell<MetaSlotStorage>,
-    pub ref_count: PAtomicU64,
-    pub vtable_ptr: PPtr<usize>,
-    pub in_list: PAtomicU64,
 }
 
 //global layout MetaSlot is size == 64, align == 8;
@@ -727,32 +661,31 @@ impl MetaSlot {
         //ReprPtr::<MetaSlot, M>::new_borrowed(ptr).put(Tracked(slot_own.storage.borrow_mut()), &metadata);
     }
 
-    pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
-        &&& owner.inner_perms.unwrap().ref_count.value() == REF_COUNT_UNIQUE
-        &&& owner.inner_perms is Some
-        &&& owner.inner_perms.unwrap().storage.is_init()
-    }
-
     /// Drops the metadata and deallocates the frame.
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// The permission must match the reference count being updated.
-    /// **Safety**: The reference count must be `REF_COUNT_UNIQUE`.
+    /// - **Safety Invariant**: The metadata slot must satisfy the safety invariants.
+    /// - **Safety**: The caller must provide an owner object for the metadata slot, which must include the permission for the
+    /// slot's `ref_count` field.
+    /// - **Safety**: The owner must satisfy [`drop_last_in_place_safety_cond`], which ensures that its reference count is 0
+    /// and it has no dangling raw pointers.
     /// ## Postconditions
-    /// The reference count is set to `REF_COUNT_UNUSED`.
+    /// - **Safety**: The metadata slot satisfies the safety invariants after the call.
+    /// - **Correctness**: The reference count is set to `REF_COUNT_UNUSED` and the contents of the slot are uninitialized.
     /// ## Safety
-    /// The safety precondition requires `REF_COUNT_UNIQUE` and that the storage is initialized.
-    /// This is an internal function, so it is fine to require the caller to verify this.
+    /// - By requiring the caller to provide an owner object, we ensure that it already has a reference to the frame.
+    /// - The safety precondition ensures that there are no dangling pointers, including raw pointer, guaranteeing temporal safety.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut MetaSlotOwner>
     )]
-    #[verifier::external_body]
     pub(super) fn drop_last_in_place(&self)
         requires
+            old(owner).inv(),
             self.ref_count.id() == old(owner).inner_perms.unwrap().ref_count.id(),
             Self::drop_last_in_place_safety_cond(*old(owner)),
         ensures
+            owner.inv(),
             owner.inner_perms is Some,
             owner.inner_perms.unwrap().ref_count.value() == REF_COUNT_UNUSED,
             owner.inner_perms.unwrap().ref_count.id() == old(owner).inner_perms.unwrap().ref_count.id(),
@@ -777,6 +710,10 @@ impl MetaSlot {
         // `Release` pairs with the `Acquire` in `Frame::from_unused` and ensures
         // `drop_meta_in_place` won't be reordered after this memory store.
         self.ref_count.store(Tracked(&mut inner_perms.ref_count), REF_COUNT_UNUSED);
+
+        proof {
+            owner.inner_perms = Some(inner_perms);
+        }
     }
 
     /// Drops the metadata of a slot in place.
@@ -784,7 +721,14 @@ impl MetaSlot {
     /// After this operation, the metadata becomes uninitialized. Any access to the
     /// metadata is undefined behavior unless it is re-initialized by [`Self::write_meta`].
     ///
-    /// # Safety
+    /// # Verification Design
+    /// This function is axiomatized because of its reliance on dynamic trait methods and `VmReader`.
+    /// The latter dependency makes it part of the "bootstrap gap".
+    /// Now that Verus better supports the `dyn Trait` pattern and we have verified `VmReader`, we can revisit it.
+    /// ## Preconditions
+    /// - The caller must provide an owner object for the metadata slot.
+    /// - The reference count must be 0
+    /// ## Safety
     ///
     /// The caller should ensure that:
     ///  - the reference count is `0` (so we are the sole owner of the frame);
@@ -792,15 +736,25 @@ impl MetaSlot {
     #[verifier::external_body]
     #[verus_spec(
         with Tracked(slot_own): Tracked<&mut MetaSlotOwner>
+        requires
+            old(slot_own).inv(),
+            old(slot_own).inner_perms is Some,
+            old(slot_own).inner_perms.unwrap().ref_count.value() == 0,
+            old(slot_own).inner_perms.unwrap().storage.is_init(),
+            old(slot_own).inner_perms.unwrap().in_list.value() == 0,
+            old(slot_own).inner_perms.unwrap().vtable_ptr.is_uninit(),
         ensures
-            slot_own.inner_perms.unwrap().ref_count == old(slot_own).inner_perms.unwrap().ref_count,
+            slot_own.inv(),
             slot_own.inner_perms is Some,
+            slot_own.inner_perms.unwrap().ref_count == old(slot_own).inner_perms.unwrap().ref_count,
             slot_own.inner_perms.unwrap().storage.is_uninit(),
             slot_own.inner_perms.unwrap().storage.id() == old(slot_own).inner_perms.unwrap().storage.id(),
             slot_own.inner_perms.unwrap().in_list == old(slot_own).inner_perms.unwrap().in_list,
-            slot_own.inner_perms.unwrap().vtable_ptr == old(slot_own).inner_perms.unwrap().vtable_ptr,
+            slot_own.inner_perms.unwrap().vtable_ptr.is_uninit(),
+            slot_own.inner_perms.unwrap().vtable_ptr.pptr() == old(slot_own).inner_perms.unwrap().vtable_ptr.pptr(),
             slot_own.self_addr == old(slot_own).self_addr,
             slot_own.usage == old(slot_own).usage,
+            slot_own.raw_count == old(slot_own).raw_count,
             slot_own.path_if_in_pt == old(slot_own).path_if_in_pt,
     )]
     #[verifier::external_body]

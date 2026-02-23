@@ -6,7 +6,7 @@ use vstd::atomic::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{Metadata, MetaSlotModel, MetaSlotStatus, MetaSlotStorage, PageUsage};
+use super::meta_owners::{Metadata, MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, PageUsage};
 use crate::mm::frame::meta::{
     get_slot_spec,
     mapping::{frame_to_index, frame_to_meta},
@@ -95,6 +95,14 @@ impl MetaSlot {
             &&& post.slot_owners[idx].path_if_in_pt == pre.slot_owners[idx].path_if_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
+    }
+
+    pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
+        &&& owner.inner_perms is Some
+        &&& owner.inner_perms.unwrap().ref_count.value() == 0
+        &&& owner.inner_perms.unwrap().storage.is_init()
+        &&& owner.inner_perms.unwrap().in_list.value() == 0
+        &&& owner.raw_count == 0
     }
 
     pub open spec fn inc_ref_count_spec(&self, pre: MetaSlotModel) -> (MetaSlotModel)
