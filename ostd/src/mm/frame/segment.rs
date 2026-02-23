@@ -9,6 +9,7 @@ use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
+use vstd_extra::cast_ptr::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};

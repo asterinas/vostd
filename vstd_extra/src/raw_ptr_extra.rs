@@ -39,7 +39,7 @@ pub tracked struct PointsTowithDealloc<T> {
 
 impl<T> Inv for PointsTowithDealloc<T> {
     open spec fn inv(self) -> bool {
-        // This alignment is to enable the conversion between PointsTo<T> and PoinstToRaw
+        // This alignment is to enable the conversion between PointsTo<T> and PointsToRaw
         &&& self.points_to.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0
         &&& match self.dealloc {
             Some(dealloc) => {
@@ -49,7 +49,7 @@ impl<T> Inv for PointsTowithDealloc<T> {
                 &&& dealloc.size() == vstd::layout::size_of::<
                     T,
                 >()
-                // By definition in raw_ptr, the alignment of Dealloc is determined by alloc and it idoes not need to be equal to the alignment of T.
+                // By definition in raw_ptr, the alignment of Dealloc is determined by alloc and it does not need to be equal to the alignment of T.
                 // This alignment requirement is to ensure correctness of allocation and deallocation.
                 &&& valid_layout(size_of::<T>(), dealloc.align() as usize)
             },

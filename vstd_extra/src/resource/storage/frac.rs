@@ -3,7 +3,7 @@
 //! - `FracP` defines the basic fractional protocol monoid.
 //! - `FracStorage` define the actual storage resource that can be split
 //! into arbitrary finite pieces for shared read access, it can be seen
-//! as a real-based re-implemetation of `Frac`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
+//! as a real-based re-implementation of `Frac`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
 use crate::ownership::Inv;
 use vstd::map::*;
 use vstd::pcm::Loc;

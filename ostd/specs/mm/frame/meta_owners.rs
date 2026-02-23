@@ -109,7 +109,6 @@ pub enum MetaSlotStorage {
     PTNode(StoredPageTablePageMeta),
 }
 
-
 /// `MetaSlotStorage` is an inductive tagged union of all of the frame meta types that
 /// we work with in this development. So, it should itself implement `AnyFrameMeta`, and
 /// it can then be used to stand in for `dyn AnyFrameMeta`.

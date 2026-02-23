@@ -34,7 +34,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
-use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
+use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot, has_safe_slot};
 
 verus! {
 
@@ -1018,7 +1018,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
     }
 
     /// Provides a reference to the linked list.
-    #[verifier::external_body]
     pub fn as_list(&self) -> PPtr<LinkedList<M>> {
         self.list
     }

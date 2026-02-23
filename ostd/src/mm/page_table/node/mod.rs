@@ -49,9 +49,7 @@ use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
-use crate::specs::mm::frame::meta_owners::Metadata;
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, StoredPageTablePageMeta};
+use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, MetaSlotOwner, Metadata, StoredPageTablePageMeta};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 

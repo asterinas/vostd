@@ -79,10 +79,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
-        self,
-        transmuted: UniqueFrame<M1>,
-    ) -> bool {
+    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, transmuted: UniqueFrame<M1>) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
         &&& transmuted._marker == PhantomData::<M1>
     }

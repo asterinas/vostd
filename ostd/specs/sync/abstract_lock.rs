@@ -486,7 +486,7 @@ pub proof fn lemma_dead_and_alive_lock_free_case_not_locked(spec: TempPred<Progr
                 && s.inv_pc_stack_match() && s.inv_unchanged(n) implies enabled(
             acquire_lock(tid),
         ).apply(s) by {
-            lock().lemma_statisfy_pre_implies_enabled(tid, s);
+            lock().lemma_satisfy_pre_implies_enabled(tid, s);
         };
 
         wf1_by_borrowing_inv_n!(

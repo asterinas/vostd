@@ -448,7 +448,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
     ) -> (res: Self)
         ensures
             res == Self::front_owner_spec(list_own, list_perm);
-
     pub open spec fn back_owner_spec(
         list_own: LinkedListOwner<M>,
         list_perm: PointsTo<LinkedList<M>>,

@@ -8,21 +8,21 @@ use vstd::prelude::*;
 // Internal lemmas about executions and temporal predicates.
 verus! {
 
-broadcast proof fn lemma_execution_sufix_0<T>(ex: Execution<T>)
+broadcast proof fn lemma_execution_suffix_0<T>(ex: Execution<T>)
     ensures
         #[trigger] ex.suffix(0) == ex,
 {
 }
 
-broadcast proof fn lemma_execution_sufix_sufix<T>(ex: Execution<T>, i: nat, j: nat)
+broadcast proof fn lemma_execution_suffix_suffix<T>(ex: Execution<T>, i: nat, j: nat)
     ensures
         #[trigger] ex.suffix(i).suffix(j) == ex.suffix(i + j),
 {
 }
 
 broadcast group group_execution_suffix_lemmas {
-    lemma_execution_sufix_0,
-    lemma_execution_sufix_sufix,
+    lemma_execution_suffix_0,
+    lemma_execution_suffix_suffix,
 }
 
 } // verus!

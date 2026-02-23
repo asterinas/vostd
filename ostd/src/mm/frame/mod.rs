@@ -64,7 +64,7 @@ pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
 };
-pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
+pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 pub use unique::UniqueFrame;
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
@@ -265,7 +265,6 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             r matches Ok(r) ==> Self::from_unused_ensures(*old(regions), *regions, paddr, metadata, r),
     )]
-    #[verifier::external_body]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
     {
         #[verus_spec(with Tracked(regions))]

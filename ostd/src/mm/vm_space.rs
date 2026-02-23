@@ -270,18 +270,14 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
                     CursorMut {
-                        pt_cursor: pt_cursor.0,
-                        flusher: TlbFlusher::new(
-                            &self.cpus  /*, disable_preempt()*/
-                            ,
-                        ),
+                        pt_cursor:
+                            pt_cursor.0,
+                        flusher: TlbFlusher::new(&self.cpus/*, disable_preempt()*/),
                     },
             )?,
         )
@@ -687,7 +683,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& owner.in_locked_range()
             },
     )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>) {
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
+    {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
     }
@@ -749,7 +746,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
-    pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
+    pub flusher: TlbFlusher<'a/*, DisabledPreemptGuard*/>,
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
@@ -823,7 +820,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
-    ///
+    /// 
     /// # Verified Properties
     /// ## Preconditions
     /// - **Liveness**: The cursor must be within the locked range and below the guard level.
@@ -920,7 +917,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn flusher(&self) -> &TlbFlusher<'a> {
         &self.flusher
     }
-
+    
     /// Collects the invariants of the cursor, its owner, and associated tracked structures.
     /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
     pub open spec fn map_cursor_inv(
@@ -1024,7 +1021,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.inner.model(*cursor_owner),
             ),
     )]
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
+    {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
@@ -1046,14 +1044,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 let old_frame = item.frame;
 
                 #[verus_spec(with Tracked(tlb_model))]
-                self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
+                self.flusher
+                    .issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
                 #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.dispatch_tlb_flush();
             },
             PageTableFrag::StrayPageTable { .. } => {
                 assert(false) by { admit() };
                 //panic!("`UFrame` is base page sized but re-mapping out a child PT");
-            },
+            }
         }
     }
 
@@ -1166,63 +1165,62 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     assert(cursor_owner@.cur_va >= end_va);
                     assert(self.pt_cursor.inner.va == end_va);
 
-                    assert(start_mappings.filter(|m: Mapping| prev_va <= m.va_range.start < end_va)
+                    assert(start_mappings.filter(
+                        |m: Mapping| prev_va <= m.va_range.start < end_va)
                         =~= Set::<Mapping>::empty()) by {
-                        assert forall|m: Mapping|
-                            #![auto]
-                            start_mappings.contains(m) && prev_va <= m.va_range.start
-                                && m.va_range.start < end_va implies false by {
+                        assert forall |m: Mapping| #![auto]
+                            start_mappings.contains(m)
+                            && prev_va <= m.va_range.start
+                            && m.va_range.start < end_va
+                        implies false
+                        by {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(
-                                |m: Mapping| prev_va <= m.va_range.start < end_va,
-                            ).contains(m));
+                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
                         };
                     };
 
-                    assert forall|m: Mapping|
-                        start_mappings.contains(m) && prev_va
-                            <= m.va_range.start implies m.va_range.start >= end_va by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start
-                            && m.va_range.start < end_va {
+                    assert forall |m: Mapping|
+                        start_mappings.contains(m)
+                        && prev_va <= m.va_range.start
+                    implies
+                        m.va_range.start >= end_va
+                    by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < end_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(
-                                |m: Mapping| prev_va <= m.va_range.start < end_va,
-                            ).contains(m));
+                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
                         }
                     };
 
                     // filter([start_va, end_va)) == filter([start_va, prev_va))
-                    assert(start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < end_va)
+                    assert(start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < end_va)
                         =~= start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < prev_va,
-                    ));
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
 
                     // filter([start_va, cursor_va)) == filter([start_va, end_va))
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
-                    ) =~= start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < prev_va,
-                    ));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
                     // Since cursor_owner@.cur_va == end_va, the filter predicates are identical
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
-                    ) =~= start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < end_va,
-                    ));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < end_va));
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
-                    ) =~= start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < prev_va,
-                    ));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
+                        =~= start_mappings.filter(
+                            |m: Mapping| start_va <= m.va_range.start < prev_va));
                 }
                 break ;
             };
 
             let ghost step_removed_len: nat = prev_mappings.filter(
-                |m: Mapping| prev_va <= m.va_range.start < cursor_owner@.cur_va,
-            ).len();
+                |m: Mapping| prev_va <= m.va_range.start < cursor_owner@.cur_va).len();
 
             proof {
                 // Re-establish reflect for post-call state
@@ -1233,12 +1231,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 let new_va = cursor_owner@.cur_va;
 
                 assert(cursor_owner@.mappings =~= start_mappings.difference(
-                    start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < new_va),
-                )) by {
-                    assert forall|m: Mapping|
-                        #![auto]
-                        cursor_owner@.mappings.contains(m) <==> (start_mappings.contains(m) && !(
-                        start_va <= m.va_range.start && m.va_range.start < new_va)) by {
+                    start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < new_va))) by {
+                    assert forall |m: Mapping| #![auto]
+                        cursor_owner@.mappings.contains(m) <==>
+                        (start_mappings.contains(m) &&
+                         !(start_va <= m.va_range.start && m.va_range.start < new_va))
+                    by {
                         // LHS: m in prev_mappings AND NOT in step_removed
                         // RHS: m in start_mappings AND NOT in [start_va, new_va)
                         if start_mappings.contains(m) {
@@ -1262,25 +1261,19 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 };
 
                 let f_prev = start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < prev_va,
-                );
+                    |m: Mapping| start_va <= m.va_range.start < prev_va);
                 let f_step = start_mappings.filter(
-                    |m: Mapping| prev_va <= m.va_range.start < new_va,
-                );
+                    |m: Mapping| prev_va <= m.va_range.start < new_va);
                 let f_all = start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < new_va,
-                );
+                    |m: Mapping| start_va <= m.va_range.start < new_va);
 
                 assert(f_step =~= prev_mappings.filter(
-                    |m: Mapping| prev_va <= m.va_range.start < new_va,
-                )) by {
-                    assert forall|m: Mapping|
-                        #![auto]
+                    |m: Mapping| prev_va <= m.va_range.start < new_va)) by {
+                    assert forall |m: Mapping| #![auto]
                         f_step.contains(m) <==> prev_mappings.filter(
-                            |m: Mapping| prev_va <= m.va_range.start < new_va,
-                        ).contains(m) by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start
-                            && m.va_range.start < new_va {
+                            |m: Mapping| prev_va <= m.va_range.start < new_va).contains(m)
+                    by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < new_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                         }
@@ -1298,28 +1291,25 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     let frame = item.frame;
                     assume(num_unmapped < usize::MAX);
                     num_unmapped += 1;
-                    proof {
-                        step_delta = 1;
-                    }
+                    proof { step_delta = 1; }
                     #[verus_spec(with Tracked(tlb_model))]
-                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+                    self.flusher
+                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
                     assume(num_unmapped + num_frames < usize::MAX);
                     num_unmapped += num_frames;
-                    proof {
-                        step_delta = num_frames as nat;
-                    }
+                    proof { step_delta = num_frames as nat; }
                     assume(va + len <= usize::MAX);
                     #[verus_spec(with Tracked(tlb_model))]
-                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+                    self.flusher
+                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 },
             }
 
             proof {
                 assert(num_unmapped as nat == start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
-                ).len());
+                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va).len());
                 assert(self.pt_cursor.inner.va < end_va) by { admit() };
             }
         }
@@ -1464,5 +1454,4 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
-
 } // verus!

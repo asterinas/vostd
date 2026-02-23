@@ -1,9 +1,9 @@
 use vstd::prelude::*;
 
-use crate::mm::tlb::TlbFlushOp;
-use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::cpu::*;
 use crate::specs::mm::page_table::*;
+use crate::mm::{Vaddr, Paddr};
+use crate::mm::tlb::TlbFlushOp;
 
 use vstd::set;
 use vstd_extra::ownership::*;

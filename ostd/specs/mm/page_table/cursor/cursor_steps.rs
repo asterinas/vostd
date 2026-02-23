@@ -100,7 +100,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont = self.continuations[(level - 1) as int];
             // Each entry takes at most `max_step_subtree` steps.
             let steps = Self::max_steps_subtree(level) * (NR_ENTRIES - cont.idx);
-            // Then the number of steps for the remaining entries at higer levels
+            // Then the number of steps for the remaining entries at higher levels
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
             (steps + remaining_steps) as usize
         }
@@ -355,7 +355,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         let old_cont = self.continuations[self.level - 1];
         let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
-
         assert(forall |i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> self.continuations[i].guard_perm.addr() != guard_perm.addr()) by { admit() };
@@ -375,7 +374,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
                 if i == self.level - 2 {
                     assert(new_owner.continuations[i] == child_cont);
-
                     admit();
                 } else if i == self.level - 1 {
                     assert(new_owner.continuations[i] == modified_cont);
@@ -389,7 +387,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             CursorOwner::<'rcu, C>::node_unlocked(guards)) by {
                         assert(j != old_cont.idx as int);
                         assert(modified_cont.children[j] == old_cont.children[j]);
-
                         let sibling_root_path = old_cont.path().push_tail(j as usize);
                         assume(old_cont.path().inv());
 

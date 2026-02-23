@@ -8,7 +8,7 @@ use vstd::raw_ptr::*;
 // A unified interface for the raw ptr permission returned by `into_raw` methods of smart pointers like `Box` and `Arc`.
 verus! {
 
-// The permssion to access memory given by the `into_raw` methods of smart pointers like `Box` and `Arc`.
+// The permission to access memory given by the `into_raw` methods of smart pointers like `Box` and `Arc`.
 /// For `Box<T>`, the `into_raw` method gives you the ownership of the memory
 pub tracked struct BoxPointsTo<T> {
     pub perm: PointsTowithDealloc<T>,
@@ -240,7 +240,7 @@ impl<T> SmartPtrPointsTo<T> {
 
 pub uninterp spec fn box_pointer_spec<T>(b: Box<T>) -> *mut T;
 
-// VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an exterbnal_body function
+// VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // The memory layout ensures that Box<T> has the following properties:
 //  1. The pointer is aligned.
 //  2. The pointer is non-null even for zero-sized types.
@@ -300,7 +300,7 @@ pub unsafe fn box_from_raw<T>(
 
 pub uninterp spec fn arc_pointer_spec<T>(a: Arc<T>) -> *const T;
 
-// VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an exterbnal_body function
+// VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
 pub fn arc_into_raw<T>(p: Arc<T>) -> (ret: (*const T, Tracked<ArcPointsTo<T>>))

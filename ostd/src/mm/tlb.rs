@@ -15,9 +15,9 @@ use super::{
     Vaddr, PAGE_SIZE,
 };
 
-use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
-use crate::specs::mm::page_table::Mapping;
 use crate::specs::mm::tlb::TlbModel;
+use crate::specs::mm::page_table::Mapping;
+use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu};
 
 /*use crate::{
     arch::irq,
@@ -32,14 +32,14 @@ verus! {
 /// A TLB flusher that is aware of which CPUs are needed to be flushed.
 ///
 /// The flusher needs to stick to the current CPU.
-pub struct TlbFlusher<'a  /*, G: PinCurrentCpu*/ > {
+pub struct TlbFlusher<'a/*, G: PinCurrentCpu*/> {
     target_cpus: &'a AtomicCpuSet,
     have_unsynced_flush: CpuSet,
     ops_stack: OpsStack,
     //_pin_current: G,
 }
 
-impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
+impl<'a/*, G: PinCurrentCpu*/> TlbFlusher<'a/*, G*/> {
     /// Creates a new TLB flusher with the specified CPUs to be flushed.
     ///
     /// The target CPUs should be a reference to an [`AtomicCpuSet`] that will
@@ -47,7 +47,7 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     ///
     /// The flusher needs to stick to the current CPU. So please provide a
     /// guard that implements [`PinCurrentCpu`].
-    pub fn new(target_cpus: &'a AtomicCpuSet  /*, pin_current_guard: G*/ ) -> Self {
+    pub fn new(target_cpus: &'a AtomicCpuSet/*, pin_current_guard: G*/) -> Self {
         Self {
             target_cpus,
             have_unsynced_flush: CpuSet::new_empty(),
@@ -199,6 +199,7 @@ pub enum TlbFlushOp {
 }
 
 impl TlbFlushOp {
+
     /// Performs the TLB flush operation on the current CPU.
     #[verifier::external_body]
     pub fn perform_on_current(&self) {
@@ -347,5 +348,4 @@ impl OpsStack {
         //        self.page_keeper.clear();
     }
 }
-
 } // verus!

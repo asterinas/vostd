@@ -39,6 +39,7 @@ test-ledger
 *.log.json
 *.log.json.gz
 *.txt
+!.vscode/vostd-words.txt
 *.log
 
 #doc
