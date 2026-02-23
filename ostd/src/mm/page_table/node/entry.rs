@@ -787,7 +787,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         assert(paddr % PAGE_SIZE == 0);
         assert(paddr < MAX_PADDR);
         assert(!regions.slots.contains_key(frame_to_index(paddr))) by { admit() };
-        assert(regions.dropped_slots.contains_key(frame_to_index(paddr))) by { admit() };
 
         // SAFETY: The page table won't be dropped before the RCU grace period
         // ends, so it outlives `'rcu`.

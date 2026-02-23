@@ -76,6 +76,19 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     {
         s.guards.tracked_remove(self.inner.inner@.ptr.addr());
     }
+
+    open spec fn drop_requires(self, s: Self::State) -> bool {
+        s.unlocked(self.inner.inner@.ptr.addr())
+    }
+
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        s1.guards == s0.guards.insert(self.inner.inner@.ptr.addr(), None)
+    }
+
+    proof fn drop_spec(self, tracked s: &mut Self::State)
+    {
+        s.guards.tracked_insert(self.inner.inner@.ptr.addr(), None);
+    }
 }
 
 } // verus!

@@ -77,13 +77,9 @@ impl MetaSlot {
             pre.slots.contains_key(idx),
     {
         &&& pre.slots.dom() == post.slots.dom()
-        &&& pre.dropped_slots.dom() == post.dropped_slots.dom()
         &&& pre.slot_owners.dom() == post.slot_owners.dom()
         &&& forall|i: usize| #[trigger]
             pre.slots.contains_key(i) && i != idx ==> pre.slots[i] == post.slots[i]
-        &&& forall|i: usize| #[trigger]
-            pre.dropped_slots.contains_key(i) && i != idx ==> pre.dropped_slots[i]
-                == post.dropped_slots[i]
         &&& forall|i: usize| #[trigger]
             pre.slot_owners.contains_key(i) && i != idx ==> pre.slot_owners[i]
                 == post.slot_owners[i]

@@ -103,32 +103,56 @@ impl<M: AnyFrameMeta> Clone for Frame<M> {
     }
 }
 
+/// We need to keep track of when frames are forgotten with `ManuallyDrop`.
+/// We maintain a counter for each frame of how many times it has been forgotten (`raw_count`).
+/// Calling `ManuallyDrop::new` increments the counter. It is technically safe to forget a frame multiple times,
+/// and this will happen with read-only `FrameRef`s. All such references need to be dropped by the time
+/// `from_raw` is called. So, `ManuallyDrop::drop` decrements the counter when the reference is dropped,
+/// and `from_raw` may only be called when the counter is 1.
 impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
     type State = MetaRegionOwners;
 
     open spec fn constructor_requires(self, s: Self::State) -> bool {
-        &&& s.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& !s.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.inv()
     }
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
-        &&& !s1.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& s1.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& s0.slot_owners == s1.slot_owners
-        &&& s1.slots == s0.slots.remove(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& s1.dropped_slots == s0.dropped_slots.insert(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-            s0.slots[frame_to_index(meta_to_frame(self.ptr.addr()))],
-        )
-        &&& s1.inv()
+        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] ==
+            MetaSlotOwner {
+                raw_count: (slot_own.raw_count + 1) as usize,
+                ..slot_own
+            }
+        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
         let meta_addr = self.ptr.addr();
         let index = frame_to_index(meta_to_frame(meta_addr));
-        let tracked perm = s.slots.tracked_remove(index);
-        s.dropped_slots.tracked_insert(index, perm);
+        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
+        slot_own.raw_count = (slot_own.raw_count + 1) as usize;
+        s.slot_owners.tracked_insert(index, slot_own);
+    }
+
+    open spec fn drop_requires(self, s: Self::State) -> bool {
+        &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count > 0
+    }
+
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (slot_own.raw_count - 1) as usize
+        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+    }
+
+    proof fn drop_spec(self, tracked s: &mut Self::State) {
+        let index = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let tracked mut slot_own = s.slot_owners.tracked_remove(index);
+        slot_own.raw_count = (slot_own.raw_count - 1) as usize;
+        s.slot_owners.tracked_insert(index, slot_own);
     }
 }
 
@@ -316,8 +340,10 @@ impl<M: AnyFrameMeta> Frame<M> {
     /// This is a condition that supports unsafe Rust encapsulation. It should never be exposed to
     /// the API client.
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-        &&& has_safe_slot(paddr)
-        &&& !regions.slots.contains_key(frame_to_index(paddr))
+        &&& regions.slot_owners.contains_key(frame_to_index(paddr))
+        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == 1
+        &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
+        &&& !regions.slots.contains_key(frame_to_index(paddr)) // Whomever called `into_raw` should hold the permission.
         &&& regions.inv()
     }
 
@@ -329,25 +355,23 @@ impl<M: AnyFrameMeta> Frame<M> {
     ) -> bool {
         &&& new_regions.inv()
         &&& new_regions.slots.contains_key(frame_to_index(paddr))
-        &&& !new_regions.dropped_slots.contains_key(frame_to_index(paddr))
-        &&& new_regions.slots[frame_to_index(paddr)] == old_regions.dropped_slots[frame_to_index(
-            paddr,
-        )]
+        &&& new_regions.slot_owners[frame_to_index(paddr)].raw_count == 0
+        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms ==
+            old_regions.slot_owners[frame_to_index(paddr)].inner_perms
+        &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
+            old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt ==
+            old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
         &&& forall|i: usize|
-            #![trigger new_regions.slots[i], old_regions.slots[i]]
-            i != frame_to_index(paddr) ==> new_regions.slots[i] == old_regions.slots[i]
-        &&& forall|i: usize|
-            #![trigger new_regions.dropped_slots[i], old_regions.dropped_slots[i]]
-            i != frame_to_index(paddr) ==> new_regions.dropped_slots[i]
-                == old_regions.dropped_slots[i]
-        &&& new_regions.slot_owners == old_regions.slot_owners
-        &&& r.ptr == new_regions.slots[frame_to_index(paddr)].pptr()
+            #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
+            i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
     }
 
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
         &&& regions.slots.contains_key(self.index())
-        &&& !regions.dropped_slots.contains_key(self.index())
         &&& regions.inv()
     }
 
@@ -359,7 +383,6 @@ impl<M: AnyFrameMeta> Frame<M> {
     ) -> bool {
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.slot_owners == regions.slot_owners
-        &&& regions.dropped_slots == regions.dropped_slots
         &&& forall|i: usize|
             #![trigger frame_to_index(self.ptr.addr()), regions.slots[i]]
             i != frame_to_index(self.ptr.addr()) ==> regions.slots[i] == regions.slots[i]
@@ -459,7 +482,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             res.inner@.ptr.addr() == self.ptr.addr(),
             regions.slots =~= old(regions).slots,
             regions.slot_owners =~= old(regions).slot_owners,
-            regions.dropped_slots =~= old(regions).dropped_slots,
     )]
     #[verifier::external_body]
     pub fn borrow(&self) -> FrameRef<'a, M> {

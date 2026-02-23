@@ -31,20 +31,21 @@ pub struct MetaRegion;
 /// This makes the `MetaRegionOwners` the one place that tracks every frame, whether or not it is
 /// in use.
 /// ## Slot permissions
-/// Active slots, meaning slots that have not been forgotten, have their permission tracked in `slots`.
-/// Forgotten slots may have their permission tracked in `dropped_slots`, although other code is allowed to
-/// take those permissions and thus take ownership of the slot (and the frame that it represents).
+/// We treat the slot permissions differently depending on how they are used. The permissions of unused slots
+/// are tracked in `slots`, as are those of frames that do not otherwise belong to any other data structure.
+/// This is necessary because those frames can have a new reference taken at any time via `Frame::from_in_use`.
+/// Unique frames and frames that are forgotten with `into_raw` have their permissions tracked by the owner of
+/// whatever object they belong to. Their permissions will be returned to `slots` when the object is dropped.
+/// Whether or not the frame has a permission in `slots`, it will always have an owner in `slot_owners`,
+/// which tracks information that needs to be globally visible.
 /// ## Safety
 /// Forgetting a slot with `into_raw` or `ManuallyDrop::new` will leak the frame.
 /// Forgetting it multiple times without restoring it will likely result in a memory leak, but not double-free.
 /// Double-free happens when `from_raw` is called on a frame that is not forgotten, or that has been
 /// dropped with `ManuallyDrop::drop` instead of `into_raw`. All functions in
 /// the verified code that call `from_raw` have a precondition that the frame's index is not a key in `slots`.
-/// To avoid the case where `ManuallyDrop::drop` is used instead of `into_raw`, we have a custom wrapper
-/// `NeverDrop` that does not expose the `drop` method.
 pub tracked struct MetaRegionOwners {
     pub slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
-    pub dropped_slots: Map<usize, simple_pptr::PointsTo<MetaSlot>>,
     pub slot_owners: Map<usize, MetaSlotOwner>,
 }
 
@@ -61,9 +62,6 @@ impl Inv for MetaRegionOwners {
         }
         &&& { forall|i: usize| #[trigger] self.slots.contains_key(i) ==> i < max_meta_slots() }
         &&& {
-            forall|i: usize| #[trigger] self.dropped_slots.contains_key(i) ==> i < max_meta_slots()
-        }
-        &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
                     &&& self.slot_owners.contains_key(i)
@@ -73,17 +71,6 @@ impl Inv for MetaRegionOwners {
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
                     &&& self.slot_owners[i].self_addr == self.slots[i].addr()
-                    &&& !self.dropped_slots.contains_key(i)
-                }
-        }
-        &&& {
-            forall|i: usize| #[trigger]
-                self.dropped_slots.contains_key(i) ==> {
-                    &&& self.dropped_slots[i].is_init()
-                    &&& self.dropped_slots[i].addr() == meta_addr(i)
-                    &&& self.dropped_slots[i].value().wf(self.slot_owners[i])
-                    &&& self.slot_owners[i].self_addr == self.dropped_slots[i].addr()
-                    &&& !self.slots.contains_key(i)
                 }
         }
     }
@@ -155,18 +142,6 @@ impl MetaRegionOwners {
                 ==> self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None
     }
 
-    pub open spec fn paddr_range_in_dropped_region(self, range: Range<Paddr>) -> bool
-        recommends
-            self.inv(),
-            range.start < range.end < MAX_PADDR,
-    {
-        forall|paddr: Paddr|
-            #![trigger frame_to_index_spec(paddr)]
-            (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> !self.slots.contains_key(frame_to_index_spec(paddr))
-                && self.dropped_slots.contains_key(frame_to_index_spec(paddr))
-    }
-
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
         recommends
             self.inv(),
@@ -176,7 +151,6 @@ impl MetaRegionOwners {
             #![trigger frame_to_index_spec(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
                 ==> !self.slots.contains_key(frame_to_index_spec(paddr))
-                && !self.dropped_slots.contains_key(frame_to_index_spec(paddr))
     }
 
     pub proof fn inv_implies_correct_addr(self, paddr: usize)

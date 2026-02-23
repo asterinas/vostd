@@ -159,7 +159,7 @@ pub tracked struct MetaSlotOwner {
     pub inner_perms: Option<MetadataInnerPerms>,
     pub self_addr: usize,
     pub usage: PageUsage,
-    pub raw_count: u64,
+    pub raw_count: usize,
     pub path_if_in_pt: Option<TreePath<NR_ENTRIES>>,
 }
 

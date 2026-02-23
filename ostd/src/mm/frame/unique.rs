@@ -277,8 +277,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         unsafe { &mut *self.slot().dyn_meta_ptr() }
     }*/
     pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
-        &&& !regions.dropped_slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& regions.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
+        &&& regions.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
+        &&& regions.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms is None
         &&& regions.inv()
     }
 
@@ -290,13 +291,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     ) -> bool {
         &&& r == meta_to_frame(self.ptr.addr())
         &&& regions.inv()
-        &&& regions.slots == old_regions.slots.remove(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        )
-        &&& regions.dropped_slots == old_regions.dropped_slots.insert(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-            old_regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))],
-        )
+        &&& regions.slots =~= old_regions.slots
+        &&& regions.slot_owners[frame_to_index(r)].raw_count == 1
+        &&& forall|i: usize| #![trigger regions.slot_owners[i]]
+            i != frame_to_index(r) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
     }
 
     /*
@@ -319,6 +317,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         // The slot is initialized.
         unsafe { this.slot().drop_last_in_place() };
     }*/
+
     /// Converts this frame into a raw physical address.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&UniqueFrameOwner<M>>,
@@ -327,15 +326,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             Self::into_raw_requires(self, *old(regions)),
             self.wf(*owner),
             owner.inv(),
+            old(regions).inv(),
+            old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0,
         ensures
             Self::into_raw_ensures(self, *old(regions), *regions, r),
+            regions.inv(),
     )]
     pub(crate) fn into_raw(self) -> Paddr {
-        assert(regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].addr()
-            == self.ptr.addr()) by { admit() };
+
         #[verus_spec(with Tracked(owner))]
         let paddr = self.start_paddr();
 
+        assert(self.constructor_requires(*old(regions)));
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
         paddr
@@ -375,7 +377,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
 
         proof {
             let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
-            slot_own.raw_count = (slot_own.raw_count - 1) as u64;
+            slot_own.raw_count = (slot_own.raw_count - 1) as usize;
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
         }
 
@@ -418,7 +420,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             old(regions).slot_owners[owner.slot_index].raw_count == 0,
             old(regions).slot_owners[owner.slot_index].self_addr == meta_addr(owner.slot_index),
             !old(regions).slots.contains_key(owner.slot_index),
-            !old(regions).dropped_slots.contains_key(owner.slot_index),
             owner.meta_perm.inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             owner.meta_perm.inner_perms.in_list.value() == 0,
             owner.meta_perm.inner_perms.storage.is_init(),

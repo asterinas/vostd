@@ -65,7 +65,6 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             r.inner.0.ptr.addr() == frame_to_meta(raw),
             regions.slots =~= old(regions).slots,
             regions.slot_owners =~= old(regions).slot_owners,
-            regions.dropped_slots =~= old(regions).dropped_slots,
     )]
     #[verifier::external_body]
     pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
@@ -142,8 +141,9 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     ) -> Self::Ref<'a>
         requires
             old(regions).inv(),
-            old(regions).slots.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
-            !old(regions).dropped_slots.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
+            old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
+            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].raw_count == 0,
+//            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].read_only == raw.addr(),
     ;
 
     /// Converts a shared reference to a raw pointer.

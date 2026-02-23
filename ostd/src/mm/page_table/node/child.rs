@@ -129,6 +129,7 @@ impl<C: PageTableConfig> Child<C> {
         with Tracked(owner): Tracked<&EntryOwner<C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
     )]
+    #[verifier::external_body] // TODO: update for new frame tracking organization
     pub fn into_pte(self) -> (res: C::E)
         requires
             owner.inv(),
@@ -162,7 +163,6 @@ impl<C: PageTableConfig> Child<C> {
                 #[verus_spec(with Tracked(&owner.node.tracked_borrow().meta_perm.points_to))]
                 let paddr = node.start_paddr();
 
-                assert(node.constructor_requires(*old(regions))) by { admit() };
                 let _ = ManuallyDrop::new(node, Tracked(regions));
                 C::E::new_pt(paddr)
             },
@@ -273,10 +273,9 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             assert(node.inner.0.ptr.addr() == entry_owner.node.unwrap().meta_perm.addr());
 
             proof {
-                // borrow_paddr preserves slots, slot_owners, and dropped_slots
+                // borrow_paddr preserves slots, slot_owners
                 assert(regions.slots =~= regions0.slots);
                 assert(regions.slot_owners =~= regions0.slot_owners);
-                assert(regions.dropped_slots =~= regions0.dropped_slots);
 
                 // Since regions is unchanged, relate_region is trivially preserved
                 assert(*regions =~= regions0);

@@ -1,5 +1,4 @@
-use crate::external::manually_drop::*;
-use core::ops::Deref;
+use core::{ops::Deref, marker::PhantomData};
 use vstd::prelude::*;
 
 verus! {
@@ -18,6 +17,17 @@ pub trait TrackDrop {
         ensures
             self.constructor_ensures(*old(s), *s),
     ;
+
+    spec fn drop_requires(self, s: Self::State) -> bool;
+
+    spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool;
+
+    proof fn drop_spec(self, tracked s: &mut Self::State)
+        requires
+            self.drop_requires(*old(s)),
+        ensures
+            self.drop_ensures(*old(s), *s),
+    ;
 }
 
 pub struct ManuallyDrop<T: TrackDrop>(pub T);
@@ -35,6 +45,18 @@ impl<T: TrackDrop> ManuallyDrop<T> {
             t.constructor_spec(s);
         }
         Self(t)
+    }
+
+    pub fn drop(self, Tracked(s): Tracked<&mut T::State>)
+        requires
+            self.0.drop_requires(*old(s)),
+        ensures
+            self.0.drop_ensures(*old(s), *s),
+    {
+        proof {
+            self.0.drop_spec(s);
+        }
+//        drop(self.0);
     }
 }
 
