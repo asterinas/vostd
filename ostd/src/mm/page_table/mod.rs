@@ -849,7 +849,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 /// and the pointer is in bounds.
 /// - Like an `AtomicUsize::load` in normal Rust, this function assumes that the value being loaded is an integer
 /// (and therefore can be safely cloned). We model the PTE as an abstract type, but in all actual implementations it is an
-/// integer. Importantly, it does not inclue any data that is unsafe to duplicate.
+/// integer. Importantly, it does not include any data that is unsafe to duplicate.
 #[verifier::external_body]
 #[verus_spec(
     with Tracked(perm): Tracked<&vstd_extra::array_ptr::PointsTo<E, NR_ENTRIES>>
