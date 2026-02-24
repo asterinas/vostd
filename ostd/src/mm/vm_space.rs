@@ -1182,7 +1182,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     };
 
                     assert forall |m: Mapping|
-                        start_mappings.contains(m)
+                        #[trigger] start_mappings.contains(m)
                         && prev_va <= m.va_range.start
                     implies
                         m.va_range.start >= end_va

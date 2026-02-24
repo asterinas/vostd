@@ -292,7 +292,7 @@ impl MetaSlot {
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms is Some,
         ensures
             regions.inv(),
-            /// If we can make the failure conditions exhaustive, we can add this as a liveness condition.
+            // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res is Ok ==> Self::get_from_unused_spec(paddr, *old(regions), *regions),

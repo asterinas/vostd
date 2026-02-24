@@ -412,7 +412,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             }
         };
         assert(regions.inv()) by {
-            assert(forall|i: usize| regions.slots.contains_key(i) ==> regions.slots[i].value().wf(regions.slot_owners[i]));
+            assert(forall|i: usize| #[trigger] regions.slots.contains_key(i) ==> regions.slots[i].value().wf(regions.slot_owners[i]));
         };
 
         old_child
@@ -783,7 +783,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 new_owner.inv(),
                 new_owner.value.path == new_owner_path,
                 new_owner.value.node.unwrap().meta_perm.addr() == new_owner_meta_addr,
-                forall|j: int|
+                forall|j: int| #![auto]
                     0 <= j < NR_ENTRIES ==> {
                         &&& new_owner.children[j] is Some
                         &&& new_owner.children[j].unwrap().value.is_absent()
