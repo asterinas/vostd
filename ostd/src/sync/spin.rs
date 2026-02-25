@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*};
-use vstd::modes::*;
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
@@ -205,7 +204,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     ///    ghost cell_perm => {
     ///     // Extract the ghost permission when the lock is successfully acquired
     ///     if res is Ok {
-    ///            tracked_swap(&mut perm, &mut cell_perm);
+    ///            perm = Some(cell_perm.tracked_take());
     ///        }
     ///    }
     ///}.is_ok()
@@ -341,7 +340,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
             returning res;
             ghost cell_perm => {
                 if res is Ok {
-                    tracked_swap(&mut perm, &mut cell_perm);
+                    perm = Some(cell_perm.tracked_take());
                 }
             }
         }.is_ok()
