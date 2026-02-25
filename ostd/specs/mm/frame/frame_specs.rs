@@ -14,18 +14,8 @@ use core::marker::PhantomData;
 
 verus! {
 
-impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
 
-    pub open spec fn from_unused_spec(paddr: Paddr, metadata: M, pre: MetaRegionOwners)
-        -> Self
-        recommends
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-            pre.inv(),
-    {
-        let ptr = get_slot_spec(paddr);
-        UniqueFrame { ptr, _marker: PhantomData }
-    }
 }
 
 } // verus!

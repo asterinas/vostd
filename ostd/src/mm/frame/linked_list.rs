@@ -197,7 +197,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(owner).list.len() < usize::MAX,
             old(regions).inv(),
             old(regions).slots.contains_key(old(frame_own).slot_index),
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.unwrap().in_list.is_for(
+            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
         ensures
@@ -292,7 +292,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(owner).list.len() < usize::MAX,
             old(regions).inv(),
             old(regions).slots.contains_key(old(frame_own).slot_index),
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.unwrap().in_list.is_for(
+            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
         ensures
@@ -385,8 +385,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
             old(regions).slots.contains_key(frame_to_index(frame)),
             old(regions).slots[frame_to_index(frame)].is_init(),
             old(regions).slot_owners.contains_key(frame_to_index(frame)),
-            old(regions).slot_owners[frame_to_index(frame)].inner_perms is Some,
-            old(regions).slot_owners[frame_to_index(frame)].inner_perms.unwrap().in_list.is_for(
+            old(regions).slot_owners[frame_to_index(frame)].inner_perms.in_list.is_for(
                 old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
             ),
         ensures
@@ -402,12 +401,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
         let slot = slot_ptr.take(Tracked(&mut slot_perm));
 
-        let tracked mut inner_perms = slot_own.inner_perms.tracked_take();
+        let tracked mut inner_perms = slot_own.take_inner_perms();
 
         let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
         slot_ptr.put(Tracked(&mut slot_perm), slot);
 
         proof {
+            slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
             regions.slots.tracked_insert(frame_to_index(frame), slot_perm);
         }
@@ -449,7 +449,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     pub fn cursor_mut_at(ptr: PPtr<Self>, frame: Paddr) -> Option<CursorMut<M>>
     {
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(frame));
-        let tracked mut inner_perms = slot_own.inner_perms.tracked_take();
+        let tracked mut inner_perms = slot_own.take_inner_perms();
         
         if let Ok(slot_ptr) = get_slot(frame) {
             let slot = slot_ptr.borrow(Tracked(&regions.slots[frame_to_index(frame)]));
@@ -464,6 +464,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
 
             if contains {
                 proof {
+                    slot_own.sync_inner(&inner_perms);
                     regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
                 }
 
@@ -475,6 +476,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 Some(CursorMut { list: ptr, current: Some(MetadataAsLink::cast_from_metadata(meta_ptr)) })
             } else {
                 proof {
+                    slot_own.sync_inner(&inner_perms);
                     regions.slot_owners.tracked_insert(frame_to_index(frame), slot_own);
                 }
 
@@ -878,7 +880,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             old(owner).length() < usize::MAX,
             old(regions).inv(),
             old(regions).slots.contains_key(old(frame_own).slot_index),
-            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.unwrap().in_list.is_for(
+            old(regions).slot_owners[old(frame_own).slot_index].inner_perms.in_list.is_for(
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
             old(frame_own).meta_perm.addr() == frame.ptr.addr(),
@@ -980,8 +982,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             // From global_inv: ref_count != REF_COUNT_UNUSED && ref_count != 0.
             // So slot_own.inv() holds after the store.
             assert(frame_own.slot_index == frame_to_index(meta_to_frame(frame.ptr.addr())));
-            assert(slot_own.inner_perms.unwrap().ref_count.value() != REF_COUNT_UNUSED);
-            assert(slot_own.inner_perms.unwrap().ref_count.value() != 0);
+            assert(slot_own.inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+            assert(slot_own.inner_perms.ref_count.value() != 0);
             assert(slot_own.inv());
 
             regions.slot_owners.tracked_insert(

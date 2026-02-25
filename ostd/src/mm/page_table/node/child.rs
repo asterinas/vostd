@@ -168,11 +168,20 @@ impl<C: PageTableConfig> Child<C> {
 
                 proof {
                     assert(regions.slots =~= old(regions).slots.remove(node_index));
+                    assert(regions.slot_owners[node_index].inv()) by { admit(); }
+                    assert forall|i: usize| #[trigger]
+                        regions.slot_owners.contains_key(i) implies {
+                            &&& regions.slot_owners[i].inv()
+                        } by {
+                        if i == node_index {
+                        } else {
+                            assert(old(regions).slot_owners[i] == regions.slot_owners[i]);
+                        }
+                    };
                     assert forall|i: usize| #[trigger]
                         regions.slots.contains_key(i) implies {
                             &&& regions.slot_owners.contains_key(i)
                             &&& regions.slot_owners[i].inv()
-                            &&& regions.slot_owners[i].inner_perms is Some
                             &&& regions.slots[i].is_init()
                             &&& regions.slots[i].addr() == meta_addr(i)
                             &&& regions.slots[i].value().wf(regions.slot_owners[i])

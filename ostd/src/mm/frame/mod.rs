@@ -80,6 +80,7 @@ use crate::mm::{
 use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::frame_specs::*;
 
 verus! {
 
@@ -91,6 +92,7 @@ verus! {
 /// Frames are associated with metadata. The type of the metadata `M` is
 /// determines the kind of the frame. If `M` implements [`AnyUFrameMeta`], the
 /// frame is a untyped frame. Otherwise, it is a typed frame.
+/// # Verification Design
 #[repr(transparent)]
 pub struct Frame<M: AnyFrameMeta> {
     pub ptr: PPtr<MetaSlot>,
@@ -177,77 +179,10 @@ impl<M: AnyFrameMeta> Frame<M> {
     pub open spec fn index(self) -> usize {
         frame_to_index(self.paddr())
     }
-
-    #[verifier::external_body]
-    pub fn meta_pt<'a, C: PageTableConfig>(
-        &'a self,
-        Tracked(p_slot): Tracked<&'a simple_pptr::PointsTo<MetaSlot>>,
-        owner:
-            MetaSlotOwner,
-        //        Tracked(p_inner): Tracked<&'a cell::PointsTo<MetaSlot>>,
-    ) -> (res: &'a PageTablePageMeta<C>)
-        requires
-            self.inv(),
-            p_slot.pptr() == self.ptr,
-            p_slot.is_init(),
-            p_slot.value().wf(owner),
-            is_variant(owner.view().storage.value(), "PTNode"),
-        ensures
-    //            PTNode(*res) == owner.view().storage.value(),
-
-    {
-        let slot = self.ptr.borrow(Tracked(p_slot));
-        unimplemented!()
-        //        slot.storage.borrow(owner.storage)
-
-    }
 }
-
-/*
-unsafe impl<M: AnyFrameMeta + ?Sized> Send for Frame<M> {}
-
-unsafe impl<M: AnyFrameMeta + ?Sized> Sync for Frame<M> {}
-
-impl<M: AnyFrameMeta + ?Sized> core::fmt::Debug for Frame<M> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Frame({:#x})", self.start_paddr())
-    }
-}
-
-impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
-    fn eq(&self, other: &Self) -> bool {
-        self.start_paddr() == other.start_paddr()
-    }
-}
-impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
-*/
 
 #[verus_verify]
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
-    pub open spec fn from_unused_requires(
-        regions: MetaRegionOwners,
-        paddr: Paddr,
-        metadata: M,
-    ) -> bool {
-        &&& paddr % PAGE_SIZE == 0
-        &&& paddr < MAX_PADDR
-        &&& regions.slots.contains_key(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].usage is Unused
-        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms.unwrap().in_list.points_to(0)
-        &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
-        &&& regions.inv()
-    }
-
-    pub open spec fn from_unused_ensures(
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        paddr: Paddr,
-        metadata: M,
-        r: Self,
-    ) -> bool {
-        &&& MetaSlot::get_from_unused_spec(paddr, old_regions, new_regions)
-        &&& new_regions.inv()
-    }
 
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
@@ -256,14 +191,29 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// If the provided frame is not truly unused at the moment, it will return
     /// an error. If wanting to acquire a frame that is already in use, use
     /// [`Frame::from_in_use`] instead.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Bookkeeping**: The slot must be available in order to get the permission.
+    /// This is stronger than it needs to be; absent permissions correspond to error cases.
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: If successful, the function returns a pointer to the metadata slot and a permission to the slot.
+    /// - **Correctness**: If successful, the slot is initialized with the given metadata.
+    /// ## Safety
+    /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>
+            Tracked(regions): Tracked<&mut MetaRegionOwners>    
             -> perm: Tracked<Option<PointsTo<MetaSlot, Metadata<M>>>>
         requires
-            Self::from_unused_requires(*old(regions), paddr, metadata),
+            old(regions).inv(),
+            old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            r matches Ok(r) ==> Self::from_unused_ensures(*old(regions), *regions, paddr, metadata, r),
+            regions.inv(),
+            r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
+            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *regions),
+            !has_safe_slot(paddr) ==> r is Err,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
     {
@@ -322,8 +272,8 @@ impl<M: AnyFrameMeta> Frame<M> {
             old(regions).inv(),
         ensures
             res is Ok ==>
-                regions.slot_owners[frame_to_index(paddr)].inner_perms.unwrap().ref_count.value() ==
-                old(regions).slot_owners[frame_to_index(paddr)].inner_perms.unwrap().ref_count.value() + 1,
+                regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
+                old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
             regions.inv(),
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
@@ -515,8 +465,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         #[verus_spec(with Tracked(&perm))]
         let paddr = self.start_paddr();
 
-        assert(owner.inner_perms is Some) by { admit() };
-        let tracked mut inner_perms = owner.inner_perms.tracked_take();
+        let tracked mut inner_perms = owner.take_inner_perms();
         let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, inner_perms);
 
         let _ = ManuallyDrop::new(self, Tracked(regions));

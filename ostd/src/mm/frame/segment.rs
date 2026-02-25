@@ -249,7 +249,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 &&& paddr_in == paddr_out
                 &&& regions.slots.contains_key(frame_to_index(paddr_out))
                 &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
+                &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
             }
     }
 
@@ -510,7 +510,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         &&& paddr_in == paddr_out
                         &&& regions.slots.contains_key(frame_to_index(paddr_out))
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
                     },
                 forall|j: int|
                     0 <= j < addrs.len() as int ==> {
@@ -549,7 +549,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 assert(forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
                     metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.unwrap().in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
                     }) by {
                     admit();
                 }
@@ -580,7 +580,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                         MetaPerm {
                             addr: meta_addr(frame_to_index(addr)),
                             points_to: perm,
-                            inner_perms: regions.slot_owners[frame_to_index(addr)].inner_perms.unwrap(),
+                            inner_perms: regions.slot_owners[frame_to_index(addr)].inner_perms,
                             _T: core::marker::PhantomData,
                         }
                     },

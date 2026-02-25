@@ -77,20 +77,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& perm.addr() == self.meta_perm.addr()
     }
 
-    pub open spec fn as_meta_owner(self, stored_owner: MetaSlotOwner) -> MetaSlotOwner {
-        MetaSlotOwner {
-            inner_perms: Some(self.meta_perm.inner_perms),
-            ..stored_owner
-        }
-    }
-
     pub open spec fn global_inv(self, regions: MetaRegionOwners) -> bool {
         &&& !regions.slots.contains_key(self.slot_index)
         &&& regions.slot_owners.contains_key(self.slot_index)
-        &&& regions.slot_owners[self.slot_index].inner_perms is None
-        &&& self.as_meta_owner(regions.slot_owners[self.slot_index]).inv()
-        &&& regions.slot_owners[self.slot_index].inner_perms.unwrap().ref_count.value() != REF_COUNT_UNUSED
-        &&& regions.slot_owners[self.slot_index].inner_perms.unwrap().ref_count.value() != 0
+        &&& regions.slot_owners[self.slot_index].inner_perms == self.meta_perm.inner_perms
+        &&& self.meta_perm.addr() == regions.slot_owners[self.slot_index].self_addr
     }
 
     pub proof fn from_raw_owner(
@@ -114,7 +105,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
         &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
         &&& regions.slot_owners[frame_to_index(paddr)].path_if_in_pt == old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
-        &&& regions.slot_owners[frame_to_index(paddr)].inner_perms is None
         &&& forall|i: usize| i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& regions.inv()
     }
@@ -142,7 +132,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     open spec fn constructor_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == 0
-        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms is None
+        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() != REF_COUNT_UNUSED
         &&& s.inv()
     }
 
@@ -164,7 +154,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
     open spec fn drop_requires(self, s: Self::State) -> bool {
         &&& s.slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr())))
         &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count > 0
-        &&& s.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms is None
         &&& s.inv()
     }
     
