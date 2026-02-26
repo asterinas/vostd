@@ -54,7 +54,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
             old(regions).slots.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners.contains_key(frame_to_index(paddr)),
             old(regions).slot_owners[frame_to_index(paddr)].usage is Unused,
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms is Some,
             old(regions).inv(),
         ensures
             !has_safe_slot(paddr) ==> res is Err,
