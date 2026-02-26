@@ -292,7 +292,7 @@ impl MetaSlot {
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms is Some,
         ensures
             regions.inv(),
-            /// If we can make the failure conditions exhaustive, we can add this as a liveness condition.
+            // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res is Ok ==> Self::get_from_unused_spec(paddr, *old(regions), *regions),
@@ -301,9 +301,7 @@ impl MetaSlot {
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> (res: Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot, Metadata<M>>>), GetFrameError>)
-    {
-
+    ) -> (res: Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot, Metadata<M>>>), GetFrameError>) {
         let slot = get_slot(paddr)?;
 
         proof {
@@ -340,7 +338,6 @@ impl MetaSlot {
 
             return Err(err);
         }
-
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
 
@@ -351,21 +348,21 @@ impl MetaSlot {
             // No one can create a `Frame` instance directly from the page
             // address, so `Relaxed` is fine here.
             let mut contents = slot.take(Tracked(&mut slot_perm));
-            contents.ref_count.store(
-                Tracked(&mut inner_perms.ref_count),
-                REF_COUNT_UNIQUE,
-            );
+            contents.ref_count.store(Tracked(&mut inner_perms.ref_count), REF_COUNT_UNIQUE);
             slot.put(Tracked(&mut slot_perm), contents);
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(
+                Tracked(&mut inner_perms.ref_count),
+                1,
+            );
         }
 
         proof {
             slot_own.usage = PageUsage::Frame;
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
-//            assume(slot_own@ == MetaSlot::from_unused_slot_spec::<M>(paddr, metadata, as_unique_ptr));
+            //            assume(slot_own@ == MetaSlot::from_unused_slot_spec::<M>(paddr, metadata, as_unique_ptr));
             assert(regions.inv());
         }
 
@@ -400,7 +397,6 @@ impl MetaSlot {
             inner_perms.in_list == old(inner_perms).in_list,
     )]
     fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
-
         match slot.borrow(Tracked(perm)).ref_count.load(Tracked(&mut inner_perms.ref_count)) {
             REF_COUNT_UNUSED => {
                 return Err(GetFrameError::Unused);
@@ -469,7 +465,6 @@ impl MetaSlot {
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-
         let ghost regions0 = *regions;
 
         let slot = get_slot(paddr)?;
@@ -496,7 +491,7 @@ impl MetaSlot {
                 !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
         {
             match #[verus_spec(with Tracked(&slot_perm), Tracked(&mut inner_perms))]
-                  Self::get_from_in_use_loop(slot) {
+            Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
                 },
@@ -596,7 +591,6 @@ impl MetaSlot {
 
         meta_ptr
     }*/
-
     /// Gets the stored metadata as type `M`.
     ///
     /// # Verified Properties
@@ -613,7 +607,10 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
+        MetaSlot,
+        Metadata<M>,
+    >)
         requires
             self == perm.value(),
         ensures
@@ -644,8 +641,10 @@ impl MetaSlot {
             Metadata::<M>::metadata_from_inner_perms(*meta_perm) == metadata,
     )]
     #[verifier::external_body]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(&self, metadata: M)
-    {
+    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        &self,
+        metadata: M,
+    ) {
         //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
         //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
         // SAFETY: Caller ensures that the access to the fields are exclusive.
@@ -688,11 +687,15 @@ impl MetaSlot {
             owner.inv(),
             owner.inner_perms is Some,
             owner.inner_perms.unwrap().ref_count.value() == REF_COUNT_UNUSED,
-            owner.inner_perms.unwrap().ref_count.id() == old(owner).inner_perms.unwrap().ref_count.id(),
+            owner.inner_perms.unwrap().ref_count.id() == old(
+                owner,
+            ).inner_perms.unwrap().ref_count.id(),
             owner.inner_perms.unwrap().storage.id() == old(owner).inner_perms.unwrap().storage.id(),
             owner.inner_perms.unwrap().storage.is_uninit(),
             owner.inner_perms.unwrap().vtable_ptr.is_uninit(),
-            owner.inner_perms.unwrap().vtable_ptr.pptr() == old(owner).inner_perms.unwrap().vtable_ptr.pptr(),
+            owner.inner_perms.unwrap().vtable_ptr.pptr() == old(
+                owner,
+            ).inner_perms.unwrap().vtable_ptr.pptr(),
             owner.inner_perms.unwrap().in_list == old(owner).inner_perms.unwrap().in_list,
             owner.self_addr == old(owner).self_addr,
             owner.usage == old(owner).usage,

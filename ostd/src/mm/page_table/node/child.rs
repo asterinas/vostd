@@ -11,8 +11,8 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
 use vstd_extra::drop_tracking::*;
+use vstd_extra::ownership::*;
 
 use crate::specs::*;
 
@@ -134,17 +134,24 @@ impl<C: PageTableConfig> Child<C> {
             owner.inv(),
             old(regions).inv(),
             self.wf(*owner),
-            owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
+            owner.is_node() ==> old(regions).slots.contains_key(
+                frame_to_index(owner.meta_slot_paddr().unwrap()),
+            ),
         ensures
             regions.inv(),
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             owner.match_pte(res, owner.parent_level),
-            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
-            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(frame_to_index(owner.meta_slot_paddr().unwrap())),
-            owner.is_node() ==> forall|i: usize| #![trigger regions.slot_owners[i]]
-                i != frame_to_index(owner.meta_slot_paddr().unwrap())
-                    ==> regions.slot_owners[i] == old(regions).slot_owners[i],
+            owner.is_node() ==> !regions.slots.contains_key(
+                frame_to_index(owner.meta_slot_paddr().unwrap()),
+            ),
+            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(
+                frame_to_index(owner.meta_slot_paddr().unwrap()),
+            ),
+            owner.is_node() ==> forall|i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != frame_to_index(owner.meta_slot_paddr().unwrap()) ==> regions.slot_owners[i]
+                    == old(regions).slot_owners[i],
             !owner.is_node() ==> *regions =~= *old(regions),
     {
         proof {
@@ -168,16 +175,15 @@ impl<C: PageTableConfig> Child<C> {
 
                 proof {
                     assert(regions.slots =~= old(regions).slots.remove(node_index));
-                    assert forall|i: usize| #[trigger]
-                        regions.slots.contains_key(i) implies {
-                            &&& regions.slot_owners.contains_key(i)
-                            &&& regions.slot_owners[i].inv()
-                            &&& regions.slot_owners[i].inner_perms is Some
-                            &&& regions.slots[i].is_init()
-                            &&& regions.slots[i].addr() == meta_addr(i)
-                            &&& regions.slots[i].value().wf(regions.slot_owners[i])
-                            &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
-                        } by {
+                    assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies {
+                        &&& regions.slot_owners.contains_key(i)
+                        &&& regions.slot_owners[i].inv()
+                        &&& regions.slot_owners[i].inner_perms is Some
+                        &&& regions.slots[i].is_init()
+                        &&& regions.slots[i].addr() == meta_addr(i)
+                        &&& regions.slots[i].value().wf(regions.slot_owners[i])
+                        &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                    } by {
                         assert(i != node_index);
                         assert(old(regions).slots.contains_key(i));
                     };
@@ -226,8 +232,8 @@ impl<C: PageTableConfig> Child<C> {
             regions.slot_owners =~= old(regions).slot_owners,
             !entry_own.is_node() ==> *regions =~= *old(regions),
             entry_own.is_node() ==> forall|i: usize|
-                i != frame_to_index(entry_own.meta_slot_paddr().unwrap()) ==>
-                (regions.slots.contains_key(i) == old(regions).slots.contains_key(i)),
+                i != frame_to_index(entry_own.meta_slot_paddr().unwrap()) ==> (
+                regions.slots.contains_key(i) == old(regions).slots.contains_key(i)),
     {
         if !pte.is_present() {
             return Child::None;

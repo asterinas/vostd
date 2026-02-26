@@ -407,7 +407,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         if self.level < L - 1 {
             &&& f(self.value, path)
             &&& forall|i: int|
-                0 <= i < self.children.len() ==> #[trigger] self.children[i] is Some
+                0 <= i < self.children.len() ==> (#[trigger] self.children[i]) is Some
                     ==> self.children[i]->Some_0.tree_predicate_map(path.push_tail(i as usize), f)
         } else {
             &&& f(self.value, path)

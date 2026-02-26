@@ -8,10 +8,10 @@ use vstd::seq_lib::*;
 use vstd::set_lib::*;
 use vstd_extra::array_ptr;
 use vstd_extra::cast_ptr::Repr;
+use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
-use vstd_extra::drop_tracking::*;
 
 use crate::mm::{
     page_table::{EntryOwner, FrameView},
@@ -409,7 +409,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         if subtree.value.is_node() {
             assert forall |i: int| 0 <= i < NR_ENTRIES implies
-                subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::is_at_pred(entry, dest_path)) by {
+                (#[trigger] subtree.children[i as int]).unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::is_at_pred(entry, dest_path)) by {
                     Self::is_at_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
                         root_path.push_tail(i as usize), dest_path, entry);
                 };
@@ -436,7 +436,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     {
         if subtree.value.is_node() {
             assert forall |i: int| 0 <= i < NR_ENTRIES implies
-                subtree.children[i as int].unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::path_in_tree_pred(dest_path)) by {
+                (#[trigger] subtree.children[i as int]).unwrap().tree_predicate_map(root_path.push_tail(i as usize), Self::path_in_tree_pred(dest_path)) by {
                     Self::path_in_tree_holds_when_on_wrong_path(subtree.children[i as int].unwrap(),
                         root_path.push_tail(i as usize), dest_path);
                 };
@@ -515,7 +515,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let entry = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
             Self::prefix_transitive(path, path.push_tail(i as usize), entry.path);
             assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES && self.0.children[j] is Some implies
+                assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
                     self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
                         Self::is_at_pred(entry, entry.path))
                 by {
@@ -529,7 +529,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                 };
             };
             assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES && self.0.children[j] is Some implies
+                assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
                     self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
                         Self::path_in_tree_pred(entry.path))
                 by {

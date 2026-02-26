@@ -5,9 +5,9 @@ use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr, PointsTo};
 
 use vstd_extra::cast_ptr;
+use vstd_extra::drop_tracking::ManuallyDrop;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-use vstd_extra::drop_tracking::ManuallyDrop;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::frame::{Frame, FrameRef};
@@ -264,7 +264,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.relate_region(*old(regions)),
             new_owner.path == owner.path,
             new_owner.meta_slot_paddr_neq(*owner),
-            new_owner.is_node() ==> old(regions).slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())),
+            new_owner.is_node() ==> old(regions).slots.contains_key(
+                frame_to_index(new_owner.meta_slot_paddr().unwrap()),
+            ),
             old(guard_perm).addr() == old(self).node.addr(),
             old(parent_owner).relate_guard_perm(*old(guard_perm)),
             old(parent_owner).level == new_owner.parent_level,
@@ -282,17 +284,26 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_owner.inv(),
             res.wf(*owner),
             OwnerSubtree::implies(
-                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr_neq(*new_owner) && entry.relate_region(*old(regions)),
-                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions)),
+                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                    entry.meta_slot_paddr_neq(*new_owner) && entry.relate_region(*old(regions)),
+                |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions),
+            ),
             OwnerSubtree::implies(
                 PageTableOwner::<C>::path_tracked_pred(*old(regions)),
-                PageTableOwner::<C>::path_tracked_pred(*regions)),
+                PageTableOwner::<C>::path_tracked_pred(*regions),
+            ),
             new_owner.relate_region(*regions),
-            !new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path),
-            new_owner.match_pte(parent_owner.children_perm.value()[self.idx as int], parent_owner.level),
-            forall |i: int| 0 <= i < NR_ENTRIES ==>
-                i != self.idx ==>
-                parent_owner.children_perm.value()[i] == old(parent_owner).children_perm.value()[i],
+            !new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(
+                *new_owner,
+                new_owner.path,
+            ),
+            new_owner.match_pte(
+                parent_owner.children_perm.value()[self.idx as int],
+                parent_owner.level,
+            ),
+            forall|i: int|
+                0 <= i < NR_ENTRIES ==> i != self.idx ==> parent_owner.children_perm.value()[i]
+                    == old(parent_owner).children_perm.value()[i],
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
@@ -319,7 +330,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         let ghost regions_after_from = *regions;
 
-        assert(new_owner.is_node() ==> regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())));
+        assert(new_owner.is_node() ==> regions.slots.contains_key(
+            frame_to_index(new_owner.meta_slot_paddr().unwrap()),
+        ));
 
         if old_child.is_none() && !new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -340,11 +353,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         #[verus_spec(with Tracked(&new_owner), Tracked(regions))]
         let new_pte = new_child.into_pte();
-        
+
         let ghost regions_after_into = *regions;
 
         proof {
-            assert(new_owner.is_node() ==> !regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap())));
+            assert(new_owner.is_node() ==> !regions.slots.contains_key(
+                frame_to_index(new_owner.meta_slot_paddr().unwrap()),
+            ));
             assert(owner.relate_region(*regions));
         }
 
@@ -371,48 +386,57 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         }
 
         assert(OwnerSubtree::implies(
-            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr_neq(*new_owner) && entry.relate_region(*old(regions)),
-            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions))) by {
-            assert forall |entry: EntryOwner<C>|
-                entry.inv()
-                && entry.meta_slot_paddr_neq(*new_owner)
-                && entry.relate_region(*old(regions))
-            implies
-                #[trigger] entry.relate_region(*regions)
-            by {
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.meta_slot_paddr_neq(*new_owner) && entry.relate_region(*old(regions)),
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions),
+        )) by {
+            assert forall|entry: EntryOwner<C>|
+                entry.inv() && entry.meta_slot_paddr_neq(*new_owner) && entry.relate_region(
+                    *old(regions),
+                ) implies #[trigger] entry.relate_region(*regions) by {
                 if entry.is_node() || entry.is_frame() {
                     let e_idx = frame_to_index(entry.meta_slot_paddr().unwrap());
 
-                    assert(regions.slot_owners.contains_key(e_idx) ==>
-                        regions.slot_owners[e_idx] =~= old(regions).slot_owners[e_idx]);
+                    assert(regions.slot_owners.contains_key(e_idx) ==> regions.slot_owners[e_idx]
+                        =~= old(regions).slot_owners[e_idx]);
                 }
             };
         };
         assert(OwnerSubtree::implies(
             PageTableOwner::<C>::path_tracked_pred(*old(regions)),
-            PageTableOwner::<C>::path_tracked_pred(*regions))) by {
-            assert forall |entry: EntryOwner<C>|
-                entry.inv()
-                && entry.meta_slot_paddr() is Some
-                && old(regions).slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                && old(regions).slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
-            implies
-                regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                && #[trigger] regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
-            by {
+            PageTableOwner::<C>::path_tracked_pred(*regions),
+        )) by {
+            assert forall|entry: EntryOwner<C>|
+                entry.inv() && entry.meta_slot_paddr() is Some && old(
+                    regions,
+                ).slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap())) && old(
+                    regions,
+                ).slot_owners[frame_to_index(
+                    entry.meta_slot_paddr().unwrap(),
+                )].path_if_in_pt is Some implies regions.slot_owners.contains_key(
+                frame_to_index(entry.meta_slot_paddr().unwrap()),
+            ) && #[trigger] regions.slot_owners[frame_to_index(
+                entry.meta_slot_paddr().unwrap(),
+            )].path_if_in_pt is Some by {
                 let e_idx = frame_to_index(entry.meta_slot_paddr().unwrap());
                 assert(regions.slot_owners.contains_key(e_idx));
             };
         };
 
-        assert(!new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path)) by {
+        assert(!new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(
+            *new_owner,
+            new_owner.path,
+        )) by {
             if new_owner.is_node() || new_owner.is_frame() {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.inv_implies_correct_addr(paddr);
             }
         };
         assert(regions.inv()) by {
-            assert(forall|i: usize| regions.slots.contains_key(i) ==> regions.slots[i].value().wf(regions.slot_owners[i]));
+            assert(forall|i: usize|
+                #[trigger] regions.slots.contains_key(i) ==> regions.slots[i].value().wf(
+                    regions.slot_owners[i],
+                ));
         };
 
         old_child
@@ -459,7 +483,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& OwnerSubtree::implies(
                     PageTableOwner::<C>::path_tracked_pred(*old(regions)),
                     PageTableOwner::<C>::path_tracked_pred(*regions))
-                &&& owner.tree_predicate_map(owner.value.path, 
+                &&& owner.tree_predicate_map(owner.value.path,
                     CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
                 &&& owner.tree_predicate_map(owner.value.path, PageTableOwner::<C>::relate_region_pred(*regions))
             },
@@ -479,7 +503,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.inv(),
             regions.inv(),
     )]
-    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {
+    pub fn alloc_if_none<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >) {
         let entry_is_present = self.pte.is_present();
 
         let mut parent_guard = self.node.take(Tracked(parent_guard_perm));
@@ -494,13 +520,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 assert(parent_guard_perm.value() == parent_guard);
                 assert(parent_owner.relate_guard_perm(*parent_guard_perm));
                 assert(parent_guard_perm.addr() == old(parent_guard_perm).addr());
-                assert(parent_guard_perm.value().inner.inner@.ptr.addr()
-                    == old(parent_guard_perm).value().inner.inner@.ptr.addr());
+                assert(parent_guard_perm.value().inner.inner@.ptr.addr() == old(
+                    parent_guard_perm,
+                ).value().inner.inner@.ptr.addr());
                 // Prove the first ensures implication has a false antecedent:
                 // Either entry_is_present (so !is_absent) or parent_level <= 1
                 if entry_is_present {
                     assert(old(self).pte.is_present_spec());
-                    assert(old(owner).value.match_pte(old(self).pte, old(owner).value.parent_level));
+                    assert(old(owner).value.match_pte(
+                        old(self).pte,
+                        old(owner).value.parent_level,
+                    ));
                     assert(!old(owner).value.is_absent());
                 } else {
                     assert(parent_level <= 1);
@@ -535,7 +565,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             #[verus_spec(with Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm.points_to))]
             let paddr = new_page.start_paddr();
 
-            assert(regions.slots.contains_key(frame_to_index(new_node_owner.value.meta_slot_paddr().unwrap())));
+            assert(regions.slots.contains_key(
+                frame_to_index(new_node_owner.value.meta_slot_paddr().unwrap()),
+            ));
             #[verus_spec(with Tracked(&new_node_owner.value), Tracked(regions))]
             let new_pte = Child::PageTable(new_page).into_pte();
             self.pte = new_pte;
@@ -594,23 +626,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 assert(owner.value.relate_region(*regions));
 
                 assert(OwnerSubtree::implies(
-                    |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.meta_slot_paddr_neq(owner.value) && entry.relate_region(*old(regions)),
-                    |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(*regions))) by {
-                    assert forall |entry: EntryOwner<C>|
-                        entry.inv()
-                        && entry.meta_slot_paddr_neq(owner.value)
-                        && entry.relate_region(*old(regions))
-                    implies
-                        #[trigger] entry.relate_region(*regions)
-                    by {
+                    |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                        entry.meta_slot_paddr_neq(owner.value) && entry.relate_region(
+                            *old(regions),
+                        ),
+                    |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                        entry.relate_region(*regions),
+                )) by {
+                    assert forall|entry: EntryOwner<C>|
+                        entry.inv() && entry.meta_slot_paddr_neq(owner.value)
+                            && entry.relate_region(
+                            *old(regions),
+                        ) implies #[trigger] entry.relate_region(*regions) by {
                         if entry.is_node() || entry.is_frame() {
                             let e_idx = frame_to_index(entry.meta_slot_paddr().unwrap());
                             // e_idx != new_idx because meta_slot_paddr_neq
                             // slot_owners preserved at e_idx (alloc preserves, into_pte preserves, ghost only changes new_idx)
-                            assert(regions.slot_owners.contains_key(e_idx) ==>
-                                regions.slot_owners[e_idx] =~= old(regions).slot_owners[e_idx]);
+                            assert(regions.slot_owners.contains_key(e_idx)
+                                ==> regions.slot_owners[e_idx] =~= old(regions).slot_owners[e_idx]);
                             // slots preserved at e_idx
-                            assert(regions.slots.contains_key(e_idx) == old(regions).slots.contains_key(e_idx));
+                            assert(regions.slots.contains_key(e_idx) == old(
+                                regions,
+                            ).slots.contains_key(e_idx));
                         }
                     };
                 };
@@ -618,16 +655,19 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 // OwnerSubtree::implies for path_tracked_pred
                 assert(OwnerSubtree::implies(
                     PageTableOwner::<C>::path_tracked_pred(*old(regions)),
-                    PageTableOwner::<C>::path_tracked_pred(*regions))) by {
-                    assert forall |entry: EntryOwner<C>|
-                        entry.inv()
-                        && entry.meta_slot_paddr() is Some
-                        && old(regions).slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                        && old(regions).slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
-                    implies
-                        regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                        && #[trigger] regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
-                    by {
+                    PageTableOwner::<C>::path_tracked_pred(*regions),
+                )) by {
+                    assert forall|entry: EntryOwner<C>|
+                        entry.inv() && entry.meta_slot_paddr() is Some && old(
+                            regions,
+                        ).slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
+                            && old(regions).slot_owners[frame_to_index(
+                            entry.meta_slot_paddr().unwrap(),
+                        )].path_if_in_pt is Some implies regions.slot_owners.contains_key(
+                        frame_to_index(entry.meta_slot_paddr().unwrap()),
+                    ) && #[trigger] regions.slot_owners[frame_to_index(
+                        entry.meta_slot_paddr().unwrap(),
+                    )].path_if_in_pt is Some by {
                         let e_idx = frame_to_index(entry.meta_slot_paddr().unwrap());
                         if e_idx == new_idx {
                             // We set path_if_in_pt to Some(...) at new_idx
@@ -641,7 +681,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 };
 
                 let unlocked_pred = CursorOwner::<'rcu, C>::node_unlocked_except(
-                    *guards, owner.value.node.unwrap().meta_perm.addr());
+                    *guards,
+                    owner.value.node.unwrap().meta_perm.addr(),
+                );
                 assert(unlocked_pred(owner.value, owner.value.path));
                 assert(owner.tree_predicate_map(owner.value.path, unlocked_pred)) by { admit() };
 
@@ -714,7 +756,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
             forall |i: usize| old(guards).unlocked(i) ==> guards.unlocked(i),
     )]
-    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {
+    pub fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A) -> (res: Option<
+        PPtr<PageTableGuard<'rcu, C>>,
+    >) {
         let mut node_guard = self.node.take(Tracked(guard_perm));
 
         #[verus_spec(with Tracked(&parent_owner.meta_perm))]
@@ -784,6 +828,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 new_owner.value.path == new_owner_path,
                 new_owner.value.node.unwrap().meta_perm.addr() == new_owner_meta_addr,
                 forall|j: int|
+                #![trigger new_owner.children[j]]
                     0 <= j < NR_ENTRIES ==> {
                         &&& new_owner.children[j] is Some
                         &&& new_owner.children[j].unwrap().value.is_absent()
@@ -830,7 +875,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             assert(child_owner.path == new_owner.children[i as int].unwrap().value.path);
 
             assert(child_owner.meta_slot_paddr_neq(new_owner.value)) by { admit() };
-            assert(!regions.slots.contains_key(frame_to_index(child_owner.meta_slot_paddr().unwrap()))) by { admit() };
+            assert(!regions.slots.contains_key(
+                frame_to_index(child_owner.meta_slot_paddr().unwrap()),
+            )) by { admit() };
 
             assert(new_owner_node.level == child_owner.parent_level) by { admit() };
 
@@ -843,7 +890,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             }
         }
 
-        assert(regions.slots.contains_key(frame_to_index(new_owner.value.meta_slot_paddr().unwrap())));
+        assert(regions.slots.contains_key(
+            frame_to_index(new_owner.value.meta_slot_paddr().unwrap()),
+        ));
 
         self.pte = (#[verus_spec(with Tracked(&new_owner.value), Tracked(regions))]
         Child::PageTable(new_page).into_pte());

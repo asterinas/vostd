@@ -1,4 +1,4 @@
-use core::{ops::Deref, marker::PhantomData};
+use core::{marker::PhantomData, ops::Deref};
 use vstd::prelude::*;
 
 verus! {
@@ -56,7 +56,7 @@ impl<T: TrackDrop> ManuallyDrop<T> {
         proof {
             self.0.drop_spec(s);
         }
-//        drop(self.0);
+        //        drop(self.0);
     }
 }
 

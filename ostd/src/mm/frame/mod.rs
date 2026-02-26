@@ -64,14 +64,14 @@ pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
 };
-pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
+pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
 use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
 use vstd_extra::drop_tracking::*;
+use vstd_extra::ownership::*;
 
 use crate::mm::{
     kspace::{LINEAR_MAPPING_BASE_VADDR, VMALLOC_BASE_VADDR},
@@ -119,13 +119,14 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] ==
-            MetaSlotOwner {
-                raw_count: (slot_own.raw_count + 1) as usize,
-                ..slot_own
-            }
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
+            raw_count: (slot_own.raw_count + 1) as usize,
+            ..slot_own
+        }
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -145,9 +146,12 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (slot_own.raw_count - 1) as usize
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (
+        slot_own.raw_count - 1) as usize
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -265,8 +269,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
         ensures
             r matches Ok(r) ==> Self::from_unused_ensures(*old(regions), *regions, paddr, metadata, r),
     )]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
-    {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
@@ -338,8 +341,12 @@ impl<M: AnyFrameMeta> Frame<M> {
     pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == 1
-        &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
-        &&& !regions.slots.contains_key(frame_to_index(paddr)) // Whomever called `into_raw` should hold the permission.
+        &&& has_safe_slot(
+            paddr,
+        )  // TODO: this should actually imply the first condition
+        &&& !regions.slots.contains_key(
+            frame_to_index(paddr),
+        )  // Whomever called `into_raw` should hold the permission.
         &&& regions.inv()
     }
 
@@ -352,12 +359,12 @@ impl<M: AnyFrameMeta> Frame<M> {
         &&& new_regions.inv()
         &&& new_regions.slots.contains_key(frame_to_index(paddr))
         &&& new_regions.slot_owners[frame_to_index(paddr)].raw_count == 0
-        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms ==
-            old_regions.slot_owners[frame_to_index(paddr)].inner_perms
-        &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
-            old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt ==
-            old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms
+            == old_regions.slot_owners[frame_to_index(paddr)].inner_perms
+        &&& new_regions.slot_owners[frame_to_index(paddr)].usage
+            == old_regions.slot_owners[frame_to_index(paddr)].usage
+        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+            == old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
         &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
@@ -517,7 +524,11 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
 
         assert(owner.inner_perms is Some) by { admit() };
         let tracked mut inner_perms = owner.inner_perms.tracked_take();
-        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, inner_perms);
+        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(
+            Ghost(self.ptr.addr()),
+            perm,
+            inner_perms,
+        );
 
         let _ = ManuallyDrop::new(self, Tracked(regions));
 

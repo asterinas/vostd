@@ -1,12 +1,12 @@
 use vstd::atomic::*;
+use vstd::cell;
 use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
-use vstd::cell;
 
+use vstd::std_specs::convert::FromSpecImpl;
 use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
-use vstd::std_specs::convert::FromSpecImpl;
 
 use core::marker::PhantomData;
 
@@ -16,8 +16,8 @@ use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::meta_owners::*;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 
@@ -189,12 +189,12 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
             &&& self.perms[i].value().metadata.prev is Some
             &&& self.perms[i].value().metadata.prev.unwrap().addr() == self.perms[i - 1].addr()
             &&& self.perms[i].value().metadata.prev.unwrap().ptr == self.perms[i - 1].points_to.pptr()
-        } 
+        }
         &&& i < self.list.len() - 1 ==> {
             &&& self.perms[i].value().metadata.next is Some
             &&& self.perms[i].value().metadata.next.unwrap().addr() == self.perms[i + 1].addr()
             &&& self.perms[i].value().metadata.next.unwrap().ptr == self.perms[i + 1].points_to.pptr()
-        } 
+        }
         &&& self.list[i].inv()
         &&& self.list[i].in_list == self.list_id
     }
@@ -267,7 +267,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedListOwner<M> {
         Self::view_preserves_len(owners);
         Self::view_preserves_len(owners.insert(i, v));
         assert forall |j: int| 0 <= j < Self::view_helper(owners.insert(i, v)).len() implies
-            Self::view_helper(owners.insert(i, v))[j] == Self::view_helper(owners).insert(i, v.view())[j]
+            #[trigger] Self::view_helper(owners.insert(i, v))[j] == Self::view_helper(owners).insert(i, v.view())[j]
         by {
             Self::view_helper_index(owners.insert(i, v), j);
             if j < i {
@@ -534,7 +534,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     uninterp spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool;
 
     uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
-    
+
     #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
         unimplemented!()

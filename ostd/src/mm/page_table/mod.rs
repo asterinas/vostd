@@ -173,8 +173,12 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
 
     proof fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty)
         ensures
-            Self::item_into_raw_spec(item) == (paddr, level, prop) <==>
-            Self::item_from_raw_spec(paddr, level, prop) == item;
+            Self::item_into_raw_spec(item) == (paddr, level, prop) <==> Self::item_from_raw_spec(
+                paddr,
+                level,
+                prop,
+            ) == item,
+    ;
 }
 
 // Implement it so that we can comfortably use low level functions
@@ -248,8 +252,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
 /// The interface for defining architecture-specific page table entries.
 ///
 /// Note that a default PTE should be a PTE that points to nothing.
-pub trait PageTableEntryTrait:
-    Clone + Copy + Debug + Sized + Send + Sync + 'static {
+pub trait PageTableEntryTrait: Clone + Copy + Debug + Sized + Send + Sync + 'static {
     spec fn default_spec() -> Self;
 
     /// For implement `Default` trait.
@@ -314,21 +317,22 @@ pub trait PageTableEntryTrait:
     proof fn new_properties()
         ensures
             !Self::new_absent_spec().is_present(),
-            forall |paddr: Paddr, level: PagingLevel, prop: PageProperty|
-            #![trigger Self::new_page_spec(paddr, level, prop)]
-            {
-                &&& Self::new_page_spec(paddr, level, prop).is_present()
-                &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
-                &&& Self::new_page_spec(paddr, level, prop).prop() == prop
-                &&& Self::new_page_spec(paddr, level, prop).is_last(level)
-            },
-            forall |paddr: Paddr|
-            #![trigger Self::new_pt_spec(paddr)]
-            {
-                &&& Self::new_pt_spec(paddr).is_present()
-                &&& Self::new_pt_spec(paddr).paddr() == paddr
-                &&& forall |level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
-            };
+            forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
+                #![trigger Self::new_page_spec(paddr, level, prop)]
+                {
+                    &&& Self::new_page_spec(paddr, level, prop).is_present()
+                    &&& Self::new_page_spec(paddr, level, prop).paddr() == paddr
+                    &&& Self::new_page_spec(paddr, level, prop).prop() == prop
+                    &&& Self::new_page_spec(paddr, level, prop).is_last(level)
+                },
+            forall|paddr: Paddr|
+                #![trigger Self::new_pt_spec(paddr)]
+                {
+                    &&& Self::new_pt_spec(paddr).is_present()
+                    &&& Self::new_pt_spec(paddr).paddr() == paddr
+                    &&& forall|level: PagingLevel| !Self::new_pt_spec(paddr).is_last(level)
+                },
+    ;
 
     /// Get the physical address from the PTE.
     /// The physical address recorded in the PTE is either:
@@ -366,9 +370,10 @@ pub trait PageTableEntryTrait:
             self.set_prop_spec(prop).prop() == prop,
             self.set_prop_spec(prop).paddr() == self.paddr(),
             self.is_present() ==> self.set_prop_spec(prop).is_present(),
-            forall |level: PagingLevel|
+            forall|level: PagingLevel|
                 #![trigger self.is_last(level)]
-                self.is_last(level) ==> self.set_prop_spec(prop).is_last(level);
+                self.is_last(level) ==> self.set_prop_spec(prop).is_last(level),
+    ;
 
     /// If the PTE maps a page rather than a child page table.
     ///
@@ -692,7 +697,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Create a new empty page table.
     ///
     /// Useful for the IOMMU page tables only.
-
     #[verifier::external_body]
     pub fn empty() -> Self {
         unimplemented!()/*        PageTable {
@@ -700,7 +704,6 @@ impl<C: PageTableConfig> PageTable<C> {
         }*/
 
     }
-
 
     #[verifier::external_body]
     pub(in crate::mm) unsafe fn first_activate_unchecked(&self) {
@@ -715,7 +718,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Obtaining the physical address of the root page table is safe, however, using it or
     /// providing it to the hardware will be unsafe since the page table node may be dropped,
     /// resulting in UAF.
-
     #[verifier::external_body]
     #[verifier::when_used_as_spec(root_paddr_spec)]
     pub fn root_paddr(&self) -> (r: Paddr)
@@ -733,7 +735,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// cursors concurrently accessing the same virtual address range, just like what
     /// happens for the hardware MMU walk.
     #[cfg(ktest)]
-
     pub fn page_walk(&self, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
         // SAFETY: The root node is a valid page table node so the address is valid.
         unsafe { page_walk::<C>(self.root_paddr(), vaddr) }
@@ -743,7 +744,6 @@ impl<C: PageTableConfig> PageTable<C> {
     ///
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped.
-
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
@@ -757,7 +757,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped. The modification to the mapping by the cursor may also
     /// block or be overridden by the mapping of another cursor.
-
     #[verus_spec(
         with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
             Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
@@ -863,8 +862,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 pub fn load_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     ordering: Ordering,
-) -> (pte: E)
-{
+) -> (pte: E) {
     unimplemented!()
 }
 

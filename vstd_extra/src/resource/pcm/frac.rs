@@ -7,7 +7,6 @@
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/frac.v>
-
 use vstd::arithmetic::*;
 use vstd::pcm::PCM;
 use vstd::prelude::*;
@@ -42,12 +41,14 @@ impl<T: PartialEq> PCM for FracR<T> {
                 } else {
                     FracR::Invalid
                 }
-            }
+            },
             _ => FracR::Invalid,
         }
     }
 
-    open spec fn unit() -> Self { FracR::Unit }
+    open spec fn unit() -> Self {
+        FracR::Unit
+    }
 
     proof fn closed_under_incl(a: Self, b: Self) {
     }

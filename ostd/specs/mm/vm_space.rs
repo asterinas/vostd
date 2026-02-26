@@ -3,7 +3,7 @@ use vstd::prelude::*;
 
 use vstd_extra::ownership::*;
 
-use crate::mm::io::{VmIoOwner, VmIoMemView};
+use crate::mm::io::{VmIoMemView, VmIoOwner};
 use crate::mm::vm_space::{UserPtConfig, VmSpace};
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
