@@ -249,6 +249,14 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
             self.addr == old(self).addr,
             self.points_to == old(self).points_to,
     { unimplemented!() }
+
+    #[verifier::external_body]
+    pub proof fn take_points_to(tracked &mut self) -> (tracked result: simple_pptr::PointsTo<R>)
+        ensures
+            result == old(self).points_to,
+            self.addr == old(self).addr,
+            self.inner_perms == old(self).inner_perms,
+    { unimplemented!() }
 }
 
 impl<R, T: Repr<R>> From<PointsTo<R, T>> for vstd::simple_pptr::PointsTo<R> {

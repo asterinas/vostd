@@ -5,14 +5,15 @@ use vstd::simple_pptr::{self, *};
 
 use core::ops::Range;
 
+use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{MetaSlotModel, MetaSlotOwner};
+use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
 use super::*;
 use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
-    MetaSlot,
+    AnyFrameMeta, MetaSlot,
 };
 use crate::mm::Paddr;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
@@ -166,6 +167,26 @@ impl MetaRegionOwners {
     {
         assert((frame_to_index_spec(paddr)) < max_meta_slots() as usize);
     }
+
+    pub axiom fn sync_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        tracked &mut self,
+        index: usize,
+        perm: &MetaPerm<M>,
+    )
+        ensures
+            self.slots == old(self).slots.insert(index, perm.points_to),
+            self.slot_owners == old(self).slot_owners;
+
+    pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        tracked &mut self,
+        index: usize,
+    ) -> (tracked perm: MetaPerm<M>)
+        requires
+            old(self).slots.contains_key(index),
+        ensures
+            perm.points_to == old(self).slots[index],
+            self.slots == old(self).slots.remove(index),
+            self.slot_owners == old(self).slot_owners;
 }
 
 } // verus!

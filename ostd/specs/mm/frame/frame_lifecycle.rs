@@ -4,6 +4,7 @@ use crate::mm::frame::meta::AnyFrameMeta;
 use crate::mm::frame::Frame;
 use crate::mm::Paddr;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::frame_specs::*;
 
 use vstd_extra::drop_tracking::*;
 

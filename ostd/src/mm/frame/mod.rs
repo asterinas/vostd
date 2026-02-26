@@ -62,7 +62,7 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 pub use frame_ref::FrameRef;
 pub use linked_list::{CursorMut, Link, LinkedList};
 pub use meta::mapping::{
-    frame_to_index, frame_to_index_spec, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
+    frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr, meta_to_frame, META_SLOT_SIZE,
 };
 pub use meta::{AnyFrameMeta, GetFrameError, MetaSlot, has_safe_slot};
 pub use unique::UniqueFrame;
@@ -230,6 +230,15 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     }
 
     /// Gets the metadata of this page.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The caller must have a valid permission for the frame.
+    /// ## Postconditions
+    /// - The function returns the metadata of the frame.
+    /// ## Safety
+    /// - By requiring the caller to provide a typed permission, we ensure that the metadata is of type `M`.
+    /// While a non-verified caller cannot be trusted to obey this interface, all functions that return a `Frame<M>` also
+    /// return an appropriate permission.
     #[verus_spec(
         with Tracked(perm) : Tracked<&'a PointsTo<MetaSlot, Metadata<M>>>,
         requires
@@ -259,79 +268,41 @@ impl<M: AnyFrameMeta> Frame<M> {
     /// If the provided frame is not in use at the moment, it will return an error.
     ///
     /// The returned frame will have an extra reference count to the frame.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Liveness**: The slot must have fewer than `REF_COUNT_MAX - 1` references or the function will panic.
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: If successful, the function returns the frame at `paddr`.
+    /// - **Correctness**: If successful, the frame has an extra reference count to the frame.
+    /// - **Safety**: Frames other than the one at `paddr` are not affected by the call.
+    /// ## Safety
+    /// - If `paddr` is a valid frame address, it is safe to take a reference to the frame.
+    /// - If `paddr` is not a valid frame address, the function will return an error.
     #[verus_spec(res =>
         with Tracked(regions) : Tracked<&mut MetaRegionOwners>,
-            Tracked(perm): Tracked<MetaPerm<M>>,
         requires
-            old(regions).slots.contains_key(frame_to_index(paddr)),
-            old(regions).slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr),
-            !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
-            perm.addr() == frame_to_meta(paddr),
-            perm.is_init(),
-            perm.wf(&perm.inner_perms),
             old(regions).inv(),
+            old(regions).slots.contains_key(frame_to_index(paddr)),
+            !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
         ensures
+            regions.inv(),
             res is Ok ==>
                 regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
                 old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
-            regions.inv(),
+            res matches Ok(res) ==>
+                res.ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
+            !has_safe_slot(paddr) ==> res is Err,
+            forall|i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != frame_to_index(paddr) ==> regions.slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_in_use = MetaSlot::get_from_in_use(paddr);
         Ok(Self { ptr: from_in_use?, _marker: PhantomData })
-    }
-
-    /// # Internal Safety Spec
-    /// This is a condition that supports unsafe Rust encapsulation. It should never be exposed to
-    /// the API client.
-    pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
-        &&& regions.slot_owners.contains_key(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == 1
-        &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
-        &&& !regions.slots.contains_key(frame_to_index(paddr)) // Whomever called `into_raw` should hold the permission.
-        &&& regions.inv()
-    }
-
-    pub open spec fn from_raw_ensures(
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        paddr: Paddr,
-        r: Self,
-    ) -> bool {
-        &&& new_regions.inv()
-        &&& new_regions.slots.contains_key(frame_to_index(paddr))
-        &&& new_regions.slot_owners[frame_to_index(paddr)].raw_count == 0
-        &&& new_regions.slot_owners[frame_to_index(paddr)].inner_perms ==
-            old_regions.slot_owners[frame_to_index(paddr)].inner_perms
-        &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
-            old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt ==
-            old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
-        &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
-        &&& forall|i: usize|
-            #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
-            i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
-        &&& r.ptr.addr() == frame_to_meta(paddr)
-        &&& r.paddr() == paddr
-    }
-
-    pub open spec fn into_raw_requires(self, regions: MetaRegionOwners) -> bool {
-        &&& regions.slots.contains_key(self.index())
-        &&& regions.inv()
-    }
-
-    pub open spec fn into_raw_ensures(
-        self,
-        regions: MetaRegionOwners,
-        r: Paddr,
-        perm: MetaPerm<M>,
-    ) -> bool {
-        &&& r == meta_to_frame(self.ptr.addr())
-        &&& regions.slot_owners == regions.slot_owners
-        &&& forall|i: usize|
-            #![trigger frame_to_index(self.ptr.addr()), regions.slots[i]]
-            i != frame_to_index(self.ptr.addr()) ==> regions.slots[i] == regions.slots[i]
     }
 }
 
@@ -380,15 +351,21 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         // SAFETY: The metadata is initialized and valid.
         unsafe { &*self.slot().dyn_meta_ptr() }
     }*/
+
     /// Gets the reference count of the frame.
     ///
     /// It returns the number of all references to the frame, including all the
     /// existing frame handles ([`Frame`], [`Frame<dyn AnyFrameMeta>`]), and all
     /// the mappings in the page table that points to the frame.
     ///
-    /// # Safety
-    ///
-    /// The function is safe to call, but using it requires extra care. The
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Bookkeeping**: The caller must have a valid and well-typed permission for the frame.
+    /// ## Postconditions
+    /// - **Correctness**: The function returns the reference count of the frame.
+    /// ## Safety
+    /// - The function is safe to call, but using it requires extra care. The
     /// reference count can be changed by other threads at any time including
     /// potentially between calling this method and acting on the result.
     #[verus_spec(
@@ -411,27 +388,32 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     }
 
     /// Borrows a reference from the given frame.
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Bookkeeping**: The caller must have a valid and well-typed permission for the frame.
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: The function returns a reference to the frame.
+    /// - **Correctness**: The system context is unchanged.
     #[verus_spec(res =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             old(regions).inv(),
-            self.paddr() % PAGE_SIZE == 0,
-            self.paddr() < MAX_PADDR,
             !old(regions).slots.contains_key(self.index()),
             perm.points_to.pptr() == self.ptr,
             perm.is_init(),
-            FRAME_METADATA_RANGE.start <= perm.points_to.addr() < FRAME_METADATA_RANGE.end,
-            perm.points_to.addr() % META_SLOT_SIZE == 0,
+            self.inv(),
         ensures
             regions.inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
             regions.slots =~= old(regions).slots,
             regions.slot_owners =~= old(regions).slot_owners,
     )]
-    #[verifier::external_body]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
+        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
         // SAFETY: Both the lifetime and the type matches `self`.
         #[verus_spec(with Tracked(&perm.points_to))]
         let paddr = self.start_paddr();
@@ -447,29 +429,53 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     /// A physical address to the frame is returned in case the frame needs to be
     /// restored using [`Frame::from_raw`] later. This is useful when some architectural
     /// data structures need to hold the frame handle such as the page table.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariant**: Metaslot region invariants must hold.
+    /// - **Bookkeeping**: The frame must be in use (not unused).
+    /// ## Postconditions
+    /// - **Safety Invariant**: Metaslot region invariants hold after the call.
+    /// - **Correctness**: The function returns the physical address of the frame.
+    /// - **Correctness**: The frame's raw count is incremented.
+    /// - **Safety**: Frames other than this one are not affected by the call.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
                 -> frame_perm: Tracked<MetaPerm<M>>,
         requires
-            Self::into_raw_requires(self, *old(regions)),
+            old(regions).inv(),
+            old(regions).slots.contains_key(self.index()),
+            self.inv(),
+            old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
         ensures
-            Self::into_raw_ensures(self, *regions, r, frame_perm@),
+            regions.inv(),
+            r == self.paddr(),
+            frame_perm@.points_to == old(regions).slots[self.index()],
+            regions.slot_owners[self.index()].raw_count
+                == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
+            self.into_raw_post_noninterference(*old(regions), *regions),
     )]
     pub fn into_raw(self) -> Paddr {
-        assert(regions.slots[self.index()].addr() == self.paddr()) by { admit() };
+        broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
-        let tracked owner = regions.slot_owners.tracked_remove(self.index());
-        let tracked perm = regions.slots.tracked_remove(self.index());
+        let tracked perm = regions.slots.tracked_borrow(self.index());
 
-        #[verus_spec(with Tracked(&perm))]
+        assert(perm.addr() == self.ptr.addr()) by {
+            assert(frame_to_meta(meta_to_frame(self.ptr.addr())) == self.ptr.addr());
+        };
+
+        #[verus_spec(with Tracked(perm))]
         let paddr = self.start_paddr();
 
-        let tracked mut inner_perms = owner.take_inner_perms();
-        let tracked meta_perm = PointsTo::<MetaSlot, Metadata<M>>::new(Ghost(self.ptr.addr()), perm, inner_perms);
+        let ghost index = self.index();
 
+        assert(self.constructor_requires(*regions));
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
+        assert(regions.slots.contains_key(index));
+        let tracked meta_perm = regions.copy_perm::<M>(index);
+        
         proof_with!(|= Tracked(meta_perm));
         paddr
     }
@@ -492,16 +498,23 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             Self::from_raw_requires(*old(regions), paddr),
+            perm.points_to.is_init(),
+            perm.points_to.addr() == frame_to_meta(paddr),
+            perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
         ensures
             Self::from_raw_ensures(*old(regions), *regions, paddr, r),
     )]
-    #[verifier::external_body]
     pub fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
 
         proof {
-            regions.slots.tracked_insert(frame_to_index(paddr), perm.points_to);
+            let index = frame_to_index(paddr);
+            regions.sync_perm::<M>(index, perm);
+
+            let tracked mut slot_own = regions.slot_owners.tracked_remove(index);
+            slot_own.raw_count = 0usize;
+            regions.slot_owners.tracked_insert(index, slot_own);
         }
 
         Self { ptr, _marker: PhantomData }
@@ -523,7 +536,54 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     }
 }
 
+/// Increases the reference count of the frame by one.
+///
+/// # Safety
+///
+/// The caller should ensure the following conditions:
+///  1. The physical address must represent a valid frame;
+///  2. The caller must have already held a reference to the frame.
+#[verus_spec(
+    with Tracked(regions): Tracked<&mut MetaRegionOwners>
+)]
+pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
+    requires
+        old(regions).inv(),
+        old(regions).slots.contains_key(frame_to_index(paddr)),
+        paddr % PAGE_SIZE == 0,
+        paddr < MAX_PADDR,
+        !MetaSlot::inc_ref_count_panic_cond(
+            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count),
+    ensures
+        regions.inv(),
+        regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
+            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
+        regions.slots =~= old(regions).slots,
+        forall|i: usize| i != frame_to_index(paddr) ==>
+            (#[trigger] regions.slot_owners[i] == old(regions).slot_owners[i]),
+        regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+{
+    let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
+    let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
+    let tracked mut inner_perms = slot_own.take_inner_perms();
+
+    let vaddr: Vaddr = frame_to_meta(paddr);
+    // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
+    // an immutable reference to it is always safe.
+    let slot = PPtr::<MetaSlot>::from_addr(vaddr);
+
+    #[verus_spec(with Tracked(&mut inner_perms.ref_count))]
+    slot.borrow(Tracked(perm)).inc_ref_count();
+
+    proof {
+        admit();
+        slot_own.sync_inner(&inner_perms);
+        regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+    }
+}
+
 } // verus!
+
 /*
 impl<M: AnyFrameMeta + ?Sized> Clone for Frame<M> {
     fn clone(&self) -> Self {
@@ -606,22 +666,4 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
-/// Increases the reference count of the frame by one.
-///
-/// # Safety
-///
-/// The caller should ensure the following conditions:
-///  1. The physical address must represent a valid frame;
-///  2. The caller must have already held a reference to the frame.
-#[verifier::external_body]
-pub(in crate::mm) unsafe fn inc_frame_ref_count(paddr: Paddr) {
-    debug_assert!(paddr % PAGE_SIZE == 0);
 
-    let vaddr: Vaddr = frame_to_meta(paddr);
-    // SAFETY: `vaddr` points to a valid `MetaSlot` that will never be mutably borrowed, so taking
-    // an immutable reference to it is always safe.
-    let slot = unsafe { &*(vaddr as *const MetaSlot) };
-
-    // SAFETY: We have already held a reference to the frame.
-    slot.inc_ref_count();
-}

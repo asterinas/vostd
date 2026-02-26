@@ -57,7 +57,6 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>
         requires
-            has_safe_slot(raw),
             !old(regions).slots.contains_key(frame_to_index(raw)),
             old(regions).inv(),
         ensures

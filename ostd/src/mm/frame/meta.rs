@@ -463,6 +463,7 @@ impl MetaSlot {
             regions.inv(),
             !has_safe_slot(paddr) ==> res is Err,
             res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *regions),
+            res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             res is Err ==> *regions == *old(regions),
     )]
     #[verifier::exec_allows_no_decreases_clause]

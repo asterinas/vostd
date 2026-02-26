@@ -11,7 +11,7 @@ use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 use vstd_extra::cast_ptr::*;
 
-use super::meta::mapping::{frame_to_index, frame_to_index_spec, meta_addr};
+use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -423,6 +423,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         &&& !regions.slots.contains_key(frame_to_index(self.range.start))
         &&& regions.slot_owners.contains_key(frame_to_index(self.range.start))
         &&& regions.slot_owners[frame_to_index(self.range.start)].raw_count == 1
+        &&& regions.slot_owners[frame_to_index(self.range.start)].self_addr == frame_to_meta(self.range.start)
+        &&& owner.perms[0].points_to.is_init()
+        &&& owner.perms[0].points_to.addr() == frame_to_meta(self.range.start)
+        &&& owner.perms[0].points_to.value().wf(regions.slot_owners[frame_to_index(self.range.start)])
     }
 
     /// The wrapper for the postcondition for iterating to the next frame:
