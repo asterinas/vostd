@@ -1033,8 +1033,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let g = PageTableOwner::relate_region_pred(regions1);
         let h = PageTableOwner::<C>::path_tracked_pred(regions1);
 
-        assert forall|i: int| self.level - 1 <= i < NR_LEVELS implies {
-            &&& #[trigger] other.continuations[i].map_children(g)
+        assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
+            &&& other.continuations[i].map_children(g)
             &&& other.continuations[i].map_children(h)
         } by {
             let cont = self.continuations[i];

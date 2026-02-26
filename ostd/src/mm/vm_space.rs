@@ -1213,11 +1213,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         };
                     };
 
-                    assert forall|m: Mapping|
-                        #[trigger] start_mappings.contains(m) && prev_va
-                            <= m.va_range.start implies m.va_range.start >= end_va by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start
-                            && m.va_range.start < end_va {
+                    assert forall |m: Mapping|
+                        #[trigger] start_mappings.contains(m)
+                        && prev_va <= m.va_range.start
+                    implies
+                        m.va_range.start >= end_va
+                    by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < end_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(

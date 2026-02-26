@@ -65,6 +65,9 @@ impl Inv for MetaRegionOwners {
         &&& {
             forall|i: usize| #[trigger]
                 self.slots.contains_key(i) ==> {
+                    &&& self.slot_owners.contains_key(i)
+                    &&& self.slot_owners[i].inv()
+                    &&& self.slot_owners[i].inner_perms is Some
                     &&& self.slots[i].is_init()
                     &&& self.slots[i].addr() == meta_addr(i)
                     &&& self.slots[i].value().wf(self.slot_owners[i])
@@ -120,6 +123,7 @@ impl MetaRegionOwners {
         recommends
             self.inv(),
             i < max_meta_slots() as usize,
+            self.slot_owners[i].inner_perms is Some,
     {
         self.slot_owners[i].inner_perms.ref_count.value()
     }

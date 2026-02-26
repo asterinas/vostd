@@ -23,6 +23,7 @@ use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
 use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -986,10 +987,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             assert(slot_own.inner_perms.ref_count.value() != 0);
             assert(slot_own.inv());
 
-            regions.slot_owners.tracked_insert(
-                frame_to_index(meta_to_frame(frame.ptr.addr())),
-                slot_own
-            )
+            regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(frame.ptr.addr())), slot_own)
         }
 
         assert(regions.inv()) by {

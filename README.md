@@ -33,6 +33,12 @@ git submodule update --init --recursive
 You can build Verus with the following command:
 
 ```
+make verus
+```
+
+or
+
+```
 cargo dv bootstrap
 ```
 
@@ -44,6 +50,12 @@ We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we
 #### Build Verification Targets
 
 To verify the entire project, simply run:
+
+```
+make
+```
+
+or
 
 ```
 cargo dv verify --targets ostd
@@ -60,6 +72,12 @@ cargo dv compile --targets vstd_extra
 `dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact of a particular library and force a fresh build, run:
 
 ```
+make clean
+```
+
+or
+
+```
 cargo dv clean --targets vstd_extra
 ```
 
@@ -68,6 +86,12 @@ You can also run `cargo dv clean` to clean all artifacts at once.
 #### Documentation
 
 We provide comprehensive API-level documentation that describes the verified APIs along with their auxiliary lemmas. To generate the documentation, run:
+
+```
+make doc
+```
+
+or
 
 ```
 cargo dv doc --target ostd
@@ -92,6 +116,6 @@ We welcome your contributions!
 
 #### Tips
 
-- During your development process, please frequently run `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
+- During your development process, please frequently run `make verus update` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
 -  Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
 - If you are contributing to Verus, we recommend submitting pull requests to [the official repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.

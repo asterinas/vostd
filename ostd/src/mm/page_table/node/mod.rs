@@ -49,9 +49,7 @@ use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, StoredPageTablePageMeta,
-};
+use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, MetaSlotOwner, Metadata, StoredPageTablePageMeta};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
@@ -150,9 +148,7 @@ impl StoredPageTablePageMeta {
     }
 }
 
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
-    PageTablePageMeta<C>,
->;
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
 
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
@@ -373,9 +369,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -404,9 +398,7 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
-        PageTableGuard<'rcu, C>,
-    > where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -506,6 +498,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let meta = self.meta();
         &meta.stray
     }
+
+
 
     /// Reads a non-owning PTE at the given index.
     ///

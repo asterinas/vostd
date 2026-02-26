@@ -121,14 +121,13 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
-            raw_count: (slot_own.raw_count + 1) as usize,
-            ..slot_own
-        }
-        &&& forall|i: usize|
-            #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] ==
+            MetaSlotOwner {
+                raw_count: (slot_own.raw_count + 1) as usize,
+                ..slot_own
+            }
+        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -148,12 +147,9 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (
-        slot_own.raw_count - 1) as usize
-        &&& forall|i: usize|
-            #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
-                == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (slot_own.raw_count - 1) as usize
+        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -208,7 +204,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     /// - This function returns an error if `paddr` does not correspond to a valid slot or the slot is in use.
     #[verus_spec(r =>
         with
-            Tracked(regions): Tracked<&mut MetaRegionOwners>    
+            Tracked(regions): Tracked<&mut MetaRegionOwners>
             -> perm: Tracked<Option<PointsTo<MetaSlot, Metadata<M>>>>
         requires
             old(regions).inv(),
@@ -219,7 +215,8 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *regions),
             !has_safe_slot(paddr) ==> r is Err,
     )]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
+    {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
@@ -347,7 +344,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         PAGE_SIZE
     }
 
-    /*    /// Gets the dyncamically-typed metadata of this frame.
+    /*    /// Gets the dynamically-typed metadata of this frame.
     ///
     /// If the type is known at compile time, use [`Frame::meta`] instead.
     pub fn dyn_meta(&self) -> FrameMeta {

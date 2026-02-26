@@ -353,10 +353,7 @@ impl MetaSlot {
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(
-                Tracked(&mut inner_perms.ref_count),
-                1,
-            );
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
         }
 
         proof {
@@ -491,7 +488,7 @@ impl MetaSlot {
                 !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
         {
             match #[verus_spec(with Tracked(&slot_perm), Tracked(&mut inner_perms))]
-            Self::get_from_in_use_loop(slot) {
+                  Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
                 },
@@ -607,10 +604,7 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
-        MetaSlot,
-        Metadata<M>,
-    >)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
         requires
             self == perm.value(),
         ensures

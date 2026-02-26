@@ -7,6 +7,9 @@ use vstd::simple_pptr::*;
 use vstd::std_specs::convert::FromSpecImpl;
 use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
+use vstd::std_specs::convert::FromSpecImpl;
+
+use core::marker::PhantomData;
 
 use core::marker::PhantomData;
 
@@ -18,6 +21,7 @@ use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
+use crate::specs::mm::frame::meta_owners::*;
 
 verus! {
 
@@ -534,7 +538,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     uninterp spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool;
 
     uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
-
     #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
         unimplemented!()

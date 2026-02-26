@@ -142,16 +142,11 @@ impl<C: PageTableConfig> Child<C> {
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             owner.match_pte(res, owner.parent_level),
-            owner.is_node() ==> !regions.slots.contains_key(
-                frame_to_index(owner.meta_slot_paddr().unwrap()),
-            ),
-            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(
-                frame_to_index(owner.meta_slot_paddr().unwrap()),
-            ),
-            owner.is_node() ==> forall|i: usize|
-                #![trigger regions.slot_owners[i]]
-                i != frame_to_index(owner.meta_slot_paddr().unwrap()) ==> regions.slot_owners[i]
-                    == old(regions).slot_owners[i],
+            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
+            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(frame_to_index(owner.meta_slot_paddr().unwrap())),
+            owner.is_node() ==> forall|i: usize| #![trigger regions.slot_owners[i]]
+                i != frame_to_index(owner.meta_slot_paddr().unwrap())
+                    ==> regions.slot_owners[i] == old(regions).slot_owners[i],
             !owner.is_node() ==> *regions =~= *old(regions),
     {
         proof {
