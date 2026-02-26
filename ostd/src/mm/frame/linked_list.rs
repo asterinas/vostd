@@ -20,9 +20,9 @@ use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
 use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
+use crate::specs::mm::frame::meta_owners::Metadata;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
-use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::borrow::BorrowMut;
 use core::{
@@ -34,7 +34,7 @@ use core::{
 use crate::specs::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
-use crate::mm::frame::meta::{get_slot, AnyFrameMeta, MetaSlot, has_safe_slot};
+use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
 
 verus! {
 
@@ -453,7 +453,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
         
         if let Ok(slot_ptr) = get_slot(frame) {
             let slot = slot_ptr.borrow(Tracked(&regions.slots[frame_to_index(frame)]));
-        
+
             let in_list = slot.in_list.load(Tracked(&mut inner_perms.in_list));
 
             let contains = in_list == #[verus_spec(with Tracked(&owner))]

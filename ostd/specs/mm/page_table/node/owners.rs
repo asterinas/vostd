@@ -1,3 +1,4 @@
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 
 use vstd::cell;
@@ -25,8 +26,8 @@ use vstd_extra::ownership::*;
 verus! {
 
 pub tracked struct PageMetaOwner {
-    pub nr_children: vstd::cell::PointsTo<u16>,
-    pub stray: vstd::cell::PointsTo<bool>,
+    pub nr_children: pcell_maybe_uninit::PointsTo<u16>,
+    pub stray: pcell_maybe_uninit::PointsTo<bool>,
 }
 
 impl Inv for PageMetaOwner {

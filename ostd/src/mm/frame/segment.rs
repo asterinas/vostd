@@ -8,15 +8,15 @@ use core::{fmt::Debug, ops::Range};
 use crate::mm::frame::{inc_frame_ref_count, untyped::AnyUFrameMeta, Frame};
 
 use vstd_extra::cast_ptr::*;
-use vstd_extra::ownership::*;
 use vstd_extra::cast_ptr::*;
+use vstd_extra::ownership::*;
 
 use super::meta::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, meta_addr};
 use super::{AnyFrameMeta, GetFrameError, MetaPerm, MetaSlot};
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::*;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use vstd_extra::drop_tracking::*;
 
 verus! {
@@ -416,7 +416,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - the segment and meta regions must satisfy their respective invariants;
     /// - the frame's slot must not be in `regions.slots` (the owner holds the permission);
     /// - the frame's raw_count must be 1 (it was forgotten once).
-    pub open spec fn next_requires(self, regions: MetaRegionOwners, owner: SegmentOwner<M>) -> bool {
+    pub open spec fn next_requires(
+        self,
+        regions: MetaRegionOwners,
+        owner: SegmentOwner<M>,
+    ) -> bool {
         &&& self.inv()
         &&& regions.inv()
         &&& owner.perms.len() > 0
@@ -477,8 +481,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res: Result<Self, GetFrameError>)
-    {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
+        Result<Self, GetFrameError>) {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
@@ -622,11 +626,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The resulting frames cannot be empty. So the offset cannot be neither
     /// zero nor the length of the frames.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// See [`Self::split_requires`].
-    /// 
+    ///
     /// ## Postconditions
     /// See [`Self::split_ensures`].
     #[verus_spec(r =>
@@ -718,7 +722,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The sliced byte offset range in indexed by the offset from the start of
     /// the contiguous frames. The resulting frames holds extra reference counts.
-    /// 
+    ///
     /// # Verified Properties
     ///
     /// ## Preconditions

@@ -22,7 +22,7 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
-use vstd::cell::{self, PCell};
+use vstd::cell::pcell_maybe_uninit;
 
 use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
@@ -80,7 +80,7 @@ pub struct MetaSlot {
     /// # Verification Design
     /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
     /// types of metadata defined in the development.
-    pub storage: PCell<MetaSlotStorage>,
+    pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///
     /// Specifically, the reference count has the following meaning:
@@ -338,7 +338,6 @@ impl MetaSlot {
 
             return Err(err);
         }
-
         // SAFETY: The slot now has a reference count of `0`, other threads will
         // not access the metadata slot so it is safe to have a mutable reference.
 
@@ -349,22 +348,21 @@ impl MetaSlot {
             // No one can create a `Frame` instance directly from the page
             // address, so `Relaxed` is fine here.
             let mut contents = slot.take(Tracked(&mut slot_perm));
-            contents.ref_count.store(
-                Tracked(&mut inner_perms.ref_count),
-                REF_COUNT_UNIQUE,
-            );
+            contents.ref_count.store(Tracked(&mut inner_perms.ref_count), REF_COUNT_UNIQUE);
             slot.put(Tracked(&mut slot_perm), contents);
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(
+                Tracked(&mut inner_perms.ref_count),
+                1,
+            );
         }
 
         proof {
             slot_own.usage = PageUsage::Frame;
             slot_own.sync_inner(&inner_perms);
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
-
             assert(regions.inv());
         }
 
@@ -399,7 +397,6 @@ impl MetaSlot {
             inner_perms.in_list == old(inner_perms).in_list,
     )]
     fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
-
         match slot.borrow(Tracked(perm)).ref_count.load(Tracked(&mut inner_perms.ref_count)) {
             REF_COUNT_UNUSED => {
                 return Err(GetFrameError::Unused);
@@ -468,7 +465,6 @@ impl MetaSlot {
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
-
         let ghost regions0 = *regions;
 
         let slot = get_slot(paddr)?;
@@ -495,7 +491,7 @@ impl MetaSlot {
                 !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
         {
             match #[verus_spec(with Tracked(&slot_perm), Tracked(&mut inner_perms))]
-                  Self::get_from_in_use_loop(slot) {
+            Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
                 },
@@ -595,7 +591,6 @@ impl MetaSlot {
 
         meta_ptr
     }*/
-
     /// Gets the stored metadata as type `M`.
     ///
     /// # Verified Properties
@@ -612,7 +607,10 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
+        MetaSlot,
+        Metadata<M>,
+    >)
         requires
             self == perm.value(),
         ensures
@@ -634,7 +632,7 @@ impl MetaSlot {
     /// ## Safety
     /// The caller must have exclusive access to the metadata slot's storage in order to provide the permission token.
     #[verus_spec(
-        with Tracked(meta_perm): Tracked<&mut cell::PointsTo<MetaSlotStorage>>,
+        with Tracked(meta_perm): Tracked<&mut vstd::cell::pcell_maybe_uninit::PointsTo<MetaSlotStorage>>,
             Tracked(vtable_perm): Tracked<&mut vstd::simple_pptr::PointsTo<usize>>
         requires
             self.storage.id() === old(meta_perm).id(),
@@ -648,8 +646,10 @@ impl MetaSlot {
             Metadata::<M>::metadata_from_inner_perms(*meta_perm) == metadata,
     )]
     #[verifier::external_body]
-    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(&self, metadata: M)
-    {
+    pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        &self,
+        metadata: M,
+    ) {
         //        const { assert!(size_of::<M>() <= FRAME_METADATA_MAX_SIZE) };
         //        const { assert!(align_of::<M>() <= FRAME_METADATA_MAX_ALIGN) };
         // SAFETY: Caller ensures that the access to the fields are exclusive.

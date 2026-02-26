@@ -3,12 +3,12 @@ use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 
+use vstd_extra::drop_tracking::*;
 use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
-use vstd_extra::drop_tracking::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};
-use crate::mm::frame::meta::{AnyFrameMeta, MetaSlot, has_safe_slot};
+use crate::mm::frame::meta::{has_safe_slot, AnyFrameMeta, MetaSlot};
 use crate::mm::frame::MetaPerm;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
@@ -45,7 +45,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     /// ## Postconditions
     /// The result points to the frame at the physical address, and the metadata region is unchanged.
     /// ## Safety
-    /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame 
+    /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame
     /// has that type and that the `FrameRef` will be useless if it outlives the frame.
     /// ## Verification Issues
     /// Currently we cannot provide the underlying `PointsTo<MetaSlot>` permission needed by
@@ -141,8 +141,10 @@ pub unsafe trait NonNullPtr: 'static + Sized {
         requires
             old(regions).inv(),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(raw.addr()))),
-            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].raw_count == 0,
-//            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].read_only == raw.addr(),
+            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].raw_count
+                == 0,
+    //            old(regions).slot_owners[frame_to_index(meta_to_frame(raw.addr()))].read_only == raw.addr(),
+
     ;
 
     /// Converts a shared reference to a raw pointer.

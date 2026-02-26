@@ -50,7 +50,7 @@ verus! {
 /// We present its formally verified version and invariant below.
 ///
 /// The `lock` field is extended with a [`PointsTo<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PointsTo.html)
-/// ghost permission to track the ownership of the protected data. This ghost permission is also checked by Rust's ownership and borrowing rules and cannot be duplicated, 
+/// ghost permission to track the ownership of the protected data. This ghost permission is also checked by Rust's ownership and borrowing rules and cannot be duplicated,
 /// thereby ensuring exclusive access to the protected data.
 /// The `val` field is a [`PCell<T>`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/pcell/struct.PCell.html), which behaves like [`UnsafeCell<T>`](https://doc.rust-lang.org/std/cell/struct.UnsafeCell.html) used in the Asterinas mainline, but
 /// only allows verified access through the ghost permission.

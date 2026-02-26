@@ -3,7 +3,7 @@
 //! - The invariants for both MetaSlot and MetaSlotModel.
 //! - The primitives for MetaSlot.
 use vstd::atomic::*;
-use vstd::cell::{self, PCell, PointsTo};
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
@@ -12,13 +12,13 @@ use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
 use super::*;
-use crate::mm::PagingLevel;
 use crate::mm::frame::meta::MetaSlot;
-use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
+use crate::mm::frame::AnyFrameMeta;
+use crate::mm::PagingLevel;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
+use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
-use crate::mm::frame::AnyFrameMeta;
 
 use core::marker::PhantomData;
 
@@ -97,8 +97,8 @@ pub const REF_COUNT_UNIQUE: u64 = u64::MAX - 1;
 pub const REF_COUNT_MAX: u64 = i64::MAX as u64;
 
 pub struct StoredPageTablePageMeta {
-    pub nr_children: PCell<u16>,
-    pub stray: PCell<bool>,
+    pub nr_children: pcell_maybe_uninit::PCell<u16>,
+    pub stray: pcell_maybe_uninit::PCell<bool>,
     pub level: PagingLevel,
     pub lock: PAtomicU8,
 }
@@ -192,7 +192,7 @@ impl MetaSlotStorage {
 }
 
 pub tracked struct MetadataInnerPerms {
-    pub storage: cell::PointsTo<MetaSlotStorage>,
+    pub storage: pcell_maybe_uninit::PointsTo<MetaSlotStorage>,
     pub ref_count: PermissionU64,
     pub vtable_ptr: vstd::simple_pptr::PointsTo<usize>,
     pub in_list: PermissionU64,
@@ -325,7 +325,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Metadata<M> {
     /// The metadata value is an abstract function of the inner permissions,
     /// since extracting `M` from `MetaSlotStorage` requires `M::Perm` which
     /// is not stored in `MetadataInnerPerms`.
-    pub uninterp spec fn metadata_from_inner_perms(perm: cell::PointsTo<MetaSlotStorage>) -> M;
+    pub uninterp spec fn metadata_from_inner_perms(perm: pcell_maybe_uninit::PointsTo<MetaSlotStorage>) -> M;
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {

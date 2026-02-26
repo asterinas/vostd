@@ -76,7 +76,7 @@ impl GlobalMemOwner {
         let pt_mappings = self.page_table_mappings();
         forall |m: Mapping|
             pt_mappings has m ==>
-            m.inv()
+            #[trigger] m.inv()
     }
 
     /// Top-level property: the TLB mappings are disjoint in the virtual address space.
@@ -104,7 +104,7 @@ impl GlobalMemOwner {
         let tlb_mappings = self.tlb.mappings;
         forall |m: Mapping|
             tlb_mappings has m ==>
-            m.inv()
+            #[trigger] m.inv()
     }
 
     /// Top-level properties: the page table mappings are disjoint and well-formed.

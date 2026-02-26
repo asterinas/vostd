@@ -1,8 +1,8 @@
 use vstd::prelude::*;
 
+use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-use vstd_extra::drop_tracking::*;
 
 use crate::mm::page_table::*;
 
@@ -1034,7 +1034,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let h = PageTableOwner::<C>::path_tracked_pred(regions1);
 
         assert forall|i: int| self.level - 1 <= i < NR_LEVELS implies {
-            &&& other.continuations[i].map_children(g)
+            &&& #[trigger] other.continuations[i].map_children(g)
             &&& other.continuations[i].map_children(h)
         } by {
             let cont = self.continuations[i];
@@ -1042,11 +1042,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(cont.map_children(f));
             assert(cont.map_children(e));
             assert(cont == other.continuations[i]);
-            assert forall |j: int| 0 <= j < NR_ENTRIES && cont.children[j] is Some implies
+            assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
             };
-            assert forall |j: int| 0 <= j < NR_ENTRIES && cont.children[j] is Some implies
+            assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), h) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), e, h);
             };

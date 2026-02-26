@@ -80,7 +80,7 @@ impl<R, T: Repr<R>> Copy for ReprPtr<R, T> {
 impl<R, T: Repr<R>> From<PPtr<R>> for ReprPtr<R, T> {
     #[verifier::external_body]
     fn from(ptr: PPtr<R>) -> Self {
-       Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
+        Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
     }
 }
 
@@ -182,7 +182,11 @@ pub tracked struct PointsTo<R, T: Repr<R>> {
 }
 
 impl<R, T: Repr<R>> PointsTo<R, T> {
-    pub open spec fn new_spec(addr: usize, points_to: simple_pptr::PointsTo<R>, inner_perms: T::Perm) -> Self {
+    pub open spec fn new_spec(
+        addr: usize,
+        points_to: simple_pptr::PointsTo<R>,
+        inner_perms: T::Perm,
+    ) -> Self {
         Self { addr: addr@, points_to, inner_perms, _T: PhantomData }
     }
 
@@ -205,7 +209,9 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
     pub open spec fn mem_contents(self) -> MemContents<T> {
         match self.points_to.mem_contents() {
             MemContents::<R>::Uninit => MemContents::<T>::Uninit,
-            MemContents::<R>::Init(r) => MemContents::<T>::Init(T::from_repr_spec(r, self.inner_perms)),
+            MemContents::<R>::Init(r) => MemContents::<T>::Init(
+                T::from_repr_spec(r, self.inner_perms),
+            ),
         }
     }
 
@@ -240,7 +246,9 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
             result == old(self).inner_perms,
             self.addr == old(self).addr,
             self.points_to == old(self).points_to,
-    { unimplemented!() }
+    {
+        unimplemented!()
+    }
 
     #[verifier::external_body]
     pub proof fn put_inner_perms(tracked &mut self, tracked perms: T::Perm)

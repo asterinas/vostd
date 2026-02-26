@@ -32,23 +32,12 @@ use crate::mm::tlb::*;
 use crate::specs::mm::cpu::AtomicCpuSet;
 
 use crate::{
-    // cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    // cpu_local_cell,
     mm::{
         io::{VmIoOwner, VmReader, VmWriter},
-        // io::Fallible,
-        // kspace::KERNEL_PAGE_TABLE,
-        // page_table,
-        // tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
-        Paddr,
-        PagingConstsTrait,
-        PagingLevel,
-        Vaddr,
-        MAX_USERSPACE_VADDR,
+        Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
     prelude::*,
-    //    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
 };
 
 use alloc::sync::Arc;
@@ -61,46 +50,46 @@ verus! {
 
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
 ///
-/// The `VmSpace` type provides memory isolation guarantees between user-space and
+/// The [`VmSpace`] type provides memory isolation guarantees between user-space and
 /// kernel-space. For example, given an arbitrary user-space pointer, one can read and
 /// write the memory location referred to by the user-space pointer without the risk of
 /// breaking the memory safety of the kernel space.
 ///
 /// # Task Association Semantics
 ///
-/// As far as OSTD is concerned, a `VmSpace` is not necessarily associated with a task. Once a
-/// `VmSpace` is activated (see [`VmSpace::activate`]), it remains activated until another
-/// `VmSpace` is activated **possibly by another task running on the same CPU**.
+/// As far as OSTD is concerned, a [`VmSpace`] is not necessarily associated with a task. Once a
+/// [`VmSpace`] is activated (see [`VmSpace::activate`]), it remains activated until another
+/// [`VmSpace`] is activated **possibly by another task running on the same CPU**.
 ///
-/// This means that it's up to the kernel to ensure that a task's `VmSpace` is always activated
+/// This means that it's up to the kernel to ensure that a task's [`VmSpace`] is always activated
 /// while the task is running. This can be done by using the injected post schedule handler
-/// (see [`inject_post_schedule_handler`]) to always activate the correct `VmSpace` after each
+/// (see [`inject_post_schedule_handler`]) to always activate the correct [`VmSpace`] after each
 /// context switch.
 ///
-/// If the kernel otherwise decides not to ensure that the running task's `VmSpace` is always
+/// If the kernel otherwise decides not to ensure that the running task's [`VmSpace`] is always
 /// activated, the kernel must deal with race conditions when calling methods that require the
-/// `VmSpace` to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
+/// `[VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
 /// [`VmSpace::writer`]. Otherwise, the behavior is unspecified, though it's guaranteed _not_ to
 /// compromise the kernel's memory safety.
 ///
 /// # Memory Backing
 ///
-/// A newly-created `VmSpace` is not backed by any physical memory pages. To
-/// provide memory pages for a `VmSpace`, one can allocate and map physical
-/// memory ([`UFrame`]s) to the `VmSpace` using the cursor.
+/// A newly-created [`VmSpace`] is not backed by any physical memory pages. To
+/// provide memory pages for a [`VmSpace`], one can allocate and map physical
+/// memory ([`UFrame`]s) to the [`VmSpace`] using the cursor.
 ///
-/// A `VmSpace` can also attach a page fault handler, which will be invoked to
+/// A [`VmSpace`] can also attach a page fault handler, which will be invoked to
 /// handle page faults generated from user space.
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
 /// # Verification Design
 ///
-/// A `VmSpace` has a corresponding [`VmSpaceOwner`] object that is used to track its state,
-/// and against which its invariants are stated. The `VmSpaceOwner` catalogues the readers and writers
-/// that are associated with the `VmSpace`, and the `MemView` which encodes the active page table and
+/// A [`VmSpace`] has a corresponding [`VmSpaceOwner`] object that is used to track its state,
+/// and against which its invariants are stated. The [`VmSpaceOwner`] catalogues the readers and writers
+/// that are associated with the [`VmSpace`], and the [`MemView`] which encodes the active page table and
 /// the subset of the TLB that covers the same virtual address space.
-/// All proofs about the correctness of the readers and writers are founded on the well-formedness of the `MemView`:
+/// All proofs about the correctness of the readers and writers are founded on the well-formedness of the [`MemView`]:
 /// ```rust
 /// open spec fn mem_view_wf(self) -> bool {
 ///    &&& self.mem_view is Some <==> self.mv_range@ is Some
@@ -164,8 +153,24 @@ type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
 impl<'a> VmSpace<'a> {
+    /// A spec function to create a new [`VmSpace`] instance.
+    /// 
+    /// The reason why this function is marked as `uninterp` is that the implementation details
+    /// of the [`VmSpace`] struct are not important for the verification of its clients.
     pub uninterp spec fn new_spec() -> Self;
 
+    /// Checks the preconditions for creating a reader or writer for the given virtual address range.
+    ///
+    /// Essentially, this requires that
+    /// 
+    /// - the invariants of the [`VmSpace`] and [`VmSpaceOwner`] hold
+    ///   (see [`VmSpaceOwner::inv_with`] and [`VmSpaceOwner::inv`]);
+    /// - the [`VmSpaceOwner`] is active (via some threads or activation function);
+    /// - the [`VmSpaceOwner`] can create a reader or writer for the given virtual address range
+    ///   (see [`VmSpaceOwner::can_create_reader`] and [`VmSpaceOwner::can_create_writer`]);
+    /// - the virtual address range is valid (non-zero, non-empty, and within user-space limits);
+    /// - the currently active page table is the one owned by the [`VmSpace`] (note that this is
+    ///   an `uninterp` spec function as this is non-trackable during verification).
     pub open spec fn reader_requires(
         &self,
         vm_owner: VmSpaceOwner<'a>,
@@ -181,6 +186,11 @@ impl<'a> VmSpace<'a> {
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
+    /// Checks the preconditions for creating a writer for the given virtual address range.
+    /// 
+    /// Most of the pre-conditions are the same as those for creating a reader (see
+    /// [`Self::reader_requires`]), except that the caller must also have permission to
+    /// create a writer for the given virtual address range.
     pub open spec fn writer_requires(
         &self,
         vm_owner: VmSpaceOwner<'a>,
@@ -196,6 +206,26 @@ impl<'a> VmSpace<'a> {
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
+    /// The guarantees of the created reader or writer, assuming the preconditions are satisfied.
+    /// 
+    /// Essentially, this ensures that
+    /// 
+    /// - the invariants of the new [`VmSpace`] and the reader or writer hold;
+    /// - the reader or writer is associated with a [`VmIoOwner`] that is well-formed with respect to
+    ///   the reader or writer;
+    /// - the reader or writer has no memory view, as the memory view will be taken from the
+    ///   [`VmSpaceOwner`] when the reader or writer is activated.
+    /// 
+    /// # Special Note
+    /// 
+    /// The newly created instance of [`VmReader`] and its associated [`VmIoOwner`] are not yet
+    /// activated, so the guarantees about the memory view only require that the memory view is
+    /// [`None`]. The guarantees about the memory view will be provided by the activation function
+    /// (see [`Self::activate_reader`] and [`Self::activate_writer`]).
+    /// 
+    /// We avoid mixing the creation, usage and deletion into one giant function as this would
+    /// create some unnecessary life-cycle management complexities and not really help with the
+    /// verification itself.
     pub open spec fn reader_ensures(
         &self,
         vm_owner_old: VmSpaceOwner<'_>,
@@ -215,6 +245,10 @@ impl<'a> VmSpace<'a> {
         }
     }
 
+    /// The guarantees of the created writer, assuming the preconditions are satisfied.
+    /// 
+    /// Most of the guarantees are the same as those for creating a reader (see
+    /// [`Self::reader_ensures`]), except that the writer is associated with a [`VmIoOwner`] that is well-formed with respect to the writer.
     pub open spec fn writer_ensures(
         &self,
         vm_owner_old: VmSpaceOwner<'a>,
@@ -235,6 +269,19 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Creates a new VM address space.
+    /// 
+    /// # Verification Design
+    /// 
+    /// This function is marked as `external_body` for now as the current design does not entail
+    /// the conrete implementation details of the underlying data structure of the [`VmSpace`].
+    /// 
+    /// ## Preconditions
+    /// None
+    /// 
+    /// ## Postconditions
+    /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`]
+    /// - The returned [`VmSpace`] instance is equal to the one created by the [`Self::new_spec`]
+    ///   function, which is an `uninterp` function that can be used in specifications.
     #[inline]
     #[verifier::external_body]
     #[verifier::when_used_as_spec(new_spec)]
@@ -256,7 +303,9 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
+    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        Cursor<'a, G>,
+    > {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -270,14 +319,18 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        CursorMut<'a, G>,
+    > {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
                     CursorMut {
-                        pt_cursor:
-                            pt_cursor.0,
-                        flusher: TlbFlusher::new(&self.cpus/*, disable_preempt()*/),
+                        pt_cursor: pt_cursor.0,
+                        flusher: TlbFlusher::new(
+                            &self.cpus  /*, disable_preempt()*/
+                            ,
+                        ),
                     },
             )?,
         )
@@ -286,16 +339,16 @@ impl<'a> VmSpace<'a> {
     /// Activates the given reader to read data from the user space of the current task.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
-    /// - The reader must be well-formed with respect to the `VmSpaceOwner`.
-    /// - The reader's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
+    /// - The reader must be well-formed with respect to the [`VmSpaceOwner`].
+    /// - The reader's virtual address range must be mapped within the [`VmSpaceOwner`]'s memory view.
     /// ## Postconditions
-    /// - The reader will be added to the `VmSpace`'s readers list.
-    /// - The reader will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
+    /// - The reader will be added to the [`VmSpace`]'s readers list.
+    /// - The reader will be activated with a view of its virtual address range taken from the [`VmSpaceOwner`]'s memory view.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - The `MemView` invariants ensure that the reader has a consistent view of memory.
-    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
+    /// - The [`MemView`] invariants ensure that the reader has a consistent view of memory.
+    /// - The [`VmSpaceOwner`] invariants ensure that the viewed memory is owned exclusively by this [`VmSpace`].
     #[inline(always)]
     #[verus_spec(r =>
         with
@@ -553,13 +606,7 @@ impl<'a> VmSpace<'a> {
     }
 }
 
-/*
-impl Default for VmSpace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-*/
+
 
 /// The cursor for querying over the VM space without modifying it.
 ///
@@ -567,16 +614,6 @@ impl Default for VmSpace {
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
 pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>);
-
-/*
-impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
-    type Item = (Range<Vaddr>, Option<MappedItem>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-*/
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
@@ -683,8 +720,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& owner.in_locked_range()
             },
     )]
-    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
-    {
+    pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>) {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.0.find_next(len)
     }
@@ -746,7 +782,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub pt_cursor: crate::mm::page_table::CursorMut<'a, UserPtConfig, A>,
     // We have a read lock so the CPU set in the flusher is always a superset
     // of actual activated CPUs.
-    pub flusher: TlbFlusher<'a/*, DisabledPreemptGuard*/>,
+    pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
@@ -820,7 +856,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// Moves the cursor forward to the next mapped virtual address.
     ///
     /// This is the same as [`Cursor::find_next`].
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - **Liveness**: The cursor must be within the locked range and below the guard level.
@@ -917,7 +953,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn flusher(&self) -> &TlbFlusher<'a> {
         &self.flusher
     }
-    
+
     /// Collects the invariants of the cursor, its owner, and associated tracked structures.
     /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
     pub open spec fn map_cursor_inv(
@@ -1021,8 +1057,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.inner.model(*cursor_owner),
             ),
     )]
-    pub fn map(&mut self, frame: UFrame, prop: PageProperty)
-    {
+    pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
 
@@ -1044,15 +1079,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 let old_frame = item.frame;
 
                 #[verus_spec(with Tracked(tlb_model))]
-                self.flusher
-                    .issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
+                self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(start_va), old_frame.into());
                 #[verus_spec(with Tracked(tlb_model))]
                 self.flusher.dispatch_tlb_flush();
             },
             PageTableFrag::StrayPageTable { .. } => {
                 assert(false) by { admit() };
                 //panic!("`UFrame` is base page sized but re-mapping out a child PT");
-            }
+            },
         }
     }
 
@@ -1165,62 +1199,63 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     assert(cursor_owner@.cur_va >= end_va);
                     assert(self.pt_cursor.inner.va == end_va);
 
-                    assert(start_mappings.filter(
-                        |m: Mapping| prev_va <= m.va_range.start < end_va)
+                    assert(start_mappings.filter(|m: Mapping| prev_va <= m.va_range.start < end_va)
                         =~= Set::<Mapping>::empty()) by {
-                        assert forall |m: Mapping| #![auto]
-                            start_mappings.contains(m)
-                            && prev_va <= m.va_range.start
-                            && m.va_range.start < end_va
-                        implies false
-                        by {
+                        assert forall|m: Mapping|
+                            #![auto]
+                            start_mappings.contains(m) && prev_va <= m.va_range.start
+                                && m.va_range.start < end_va implies false by {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(
-                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
+                                |m: Mapping| prev_va <= m.va_range.start < end_va,
+                            ).contains(m));
                         };
                     };
 
-                    assert forall |m: Mapping|
-                        start_mappings.contains(m)
-                        && prev_va <= m.va_range.start
-                    implies
-                        m.va_range.start >= end_va
-                    by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < end_va {
+                    assert forall|m: Mapping|
+                        #[trigger] start_mappings.contains(m) && prev_va
+                            <= m.va_range.start implies m.va_range.start >= end_va by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start
+                            && m.va_range.start < end_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(
-                                |m: Mapping| prev_va <= m.va_range.start < end_va).contains(m));
+                                |m: Mapping| prev_va <= m.va_range.start < end_va,
+                            ).contains(m));
                         }
                     };
 
                     // filter([start_va, end_va)) == filter([start_va, prev_va))
-                    assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < end_va)
+                    assert(start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < end_va)
                         =~= start_mappings.filter(
-                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+                        |m: Mapping| start_va <= m.va_range.start < prev_va,
+                    ));
 
                     // filter([start_va, cursor_va)) == filter([start_va, end_va))
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
-                        =~= start_mappings.filter(
-                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                    ) =~= start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < prev_va,
+                    ));
                     // Since cursor_owner@.cur_va == end_va, the filter predicates are identical
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
-                        =~= start_mappings.filter(
-                            |m: Mapping| start_va <= m.va_range.start < end_va));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                    ) =~= start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < end_va,
+                    ));
                     assert(start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)
-                        =~= start_mappings.filter(
-                            |m: Mapping| start_va <= m.va_range.start < prev_va));
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                    ) =~= start_mappings.filter(
+                        |m: Mapping| start_va <= m.va_range.start < prev_va,
+                    ));
                 }
                 break ;
             };
 
             let ghost step_removed_len: nat = prev_mappings.filter(
-                |m: Mapping| prev_va <= m.va_range.start < cursor_owner@.cur_va).len();
+                |m: Mapping| prev_va <= m.va_range.start < cursor_owner@.cur_va,
+            ).len();
 
             proof {
                 // Re-establish reflect for post-call state
@@ -1231,13 +1266,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 let new_va = cursor_owner@.cur_va;
 
                 assert(cursor_owner@.mappings =~= start_mappings.difference(
-                    start_mappings.filter(
-                        |m: Mapping| start_va <= m.va_range.start < new_va))) by {
-                    assert forall |m: Mapping| #![auto]
-                        cursor_owner@.mappings.contains(m) <==>
-                        (start_mappings.contains(m) &&
-                         !(start_va <= m.va_range.start && m.va_range.start < new_va))
-                    by {
+                    start_mappings.filter(|m: Mapping| start_va <= m.va_range.start < new_va),
+                )) by {
+                    assert forall|m: Mapping|
+                        #![auto]
+                        cursor_owner@.mappings.contains(m) <==> (start_mappings.contains(m) && !(
+                        start_va <= m.va_range.start && m.va_range.start < new_va)) by {
                         // LHS: m in prev_mappings AND NOT in step_removed
                         // RHS: m in start_mappings AND NOT in [start_va, new_va)
                         if start_mappings.contains(m) {
@@ -1261,19 +1295,25 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 };
 
                 let f_prev = start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < prev_va);
+                    |m: Mapping| start_va <= m.va_range.start < prev_va,
+                );
                 let f_step = start_mappings.filter(
-                    |m: Mapping| prev_va <= m.va_range.start < new_va);
+                    |m: Mapping| prev_va <= m.va_range.start < new_va,
+                );
                 let f_all = start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < new_va);
+                    |m: Mapping| start_va <= m.va_range.start < new_va,
+                );
 
                 assert(f_step =~= prev_mappings.filter(
-                    |m: Mapping| prev_va <= m.va_range.start < new_va)) by {
-                    assert forall |m: Mapping| #![auto]
+                    |m: Mapping| prev_va <= m.va_range.start < new_va,
+                )) by {
+                    assert forall|m: Mapping|
+                        #![auto]
                         f_step.contains(m) <==> prev_mappings.filter(
-                            |m: Mapping| prev_va <= m.va_range.start < new_va).contains(m)
-                    by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < new_va {
+                            |m: Mapping| prev_va <= m.va_range.start < new_va,
+                        ).contains(m) by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start
+                            && m.va_range.start < new_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                         }
@@ -1291,25 +1331,28 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     let frame = item.frame;
                     assume(num_unmapped < usize::MAX);
                     num_unmapped += 1;
-                    proof { step_delta = 1; }
+                    proof {
+                        step_delta = 1;
+                    }
                     #[verus_spec(with Tracked(tlb_model))]
-                    self.flusher
-                        .issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
+                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
                 },
                 PageTableFrag::StrayPageTable { pt, va, len, num_frames } => {
                     assume(num_unmapped + num_frames < usize::MAX);
                     num_unmapped += num_frames;
-                    proof { step_delta = num_frames as nat; }
+                    proof {
+                        step_delta = num_frames as nat;
+                    }
                     assume(va + len <= usize::MAX);
                     #[verus_spec(with Tracked(tlb_model))]
-                    self.flusher
-                        .issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
+                    self.flusher.issue_tlb_flush_with(TlbFlushOp::Range(va..va + len), pt);
                 },
             }
 
             proof {
                 assert(num_unmapped as nat == start_mappings.filter(
-                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va).len());
+                    |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                ).len());
                 assert(self.pt_cursor.inner.va < end_va) by { admit() };
             }
         }
@@ -1454,4 +1497,5 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
+
 } // verus!

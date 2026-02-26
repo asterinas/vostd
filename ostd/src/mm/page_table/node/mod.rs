@@ -30,10 +30,10 @@ pub use crate::specs::mm::page_table::node::{entry_owners::*, entry_view::*, own
 pub use child::*;
 pub use entry::*;
 
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 
 use vstd::atomic::PAtomicU8;
-use vstd::cell::PCell;
 use vstd::simple_pptr::{self, PPtr};
 
 use vstd_extra::array_ptr;
@@ -49,7 +49,9 @@ use crate::mm::page_table::*;
 use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, MetaSlotOwner, Metadata, StoredPageTablePageMeta};
+use crate::specs::mm::frame::meta_owners::{
+    MetaSlotOwner, MetaSlotStorage, Metadata, StoredPageTablePageMeta,
+};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
 
@@ -72,13 +74,13 @@ verus! {
 /// Make sure the the generic parameters don't effect the memory layout.
 pub struct PageTablePageMeta<C: PageTableConfig> {
     /// The number of valid PTEs. It is mutable if the lock is held.
-    pub nr_children: PCell<u16>,
+    pub nr_children: pcell_maybe_uninit::PCell<u16>,
     /// If the page table is detached from its parent.
     ///
     /// A page table can be detached from its parent while still being accessed,
     /// since we use a RCU scheme to recycle page tables. If this flag is set,
     /// it means that the parent is recycling the page table.
-    pub stray: PCell<bool>,
+    pub stray: pcell_maybe_uninit::PCell<bool>,
     /// The level of the page table page. A page table page cannot be
     /// referenced by page tables of different levels.
     pub level: PagingLevel,
@@ -99,7 +101,6 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
 impl<C: PageTableConfig> PageTablePageMeta<C> {
-
     pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
         StoredPageTablePageMeta {
             nr_children: self.nr_children,
@@ -149,7 +150,9 @@ impl StoredPageTablePageMeta {
     }
 }
 
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
+uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<
+    PageTablePageMeta<C>,
+>;
 
 #[verifier::external_body]
 extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
@@ -207,7 +210,6 @@ impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
 
 #[verus_verify]
 impl<C: PageTableConfig> PageTableNode<C> {
-
     /// Gets the level of a page table node.
     /// # Verified Properties
     /// ## Preconditions
@@ -371,7 +373,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
+    pub fn lock<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         unimplemented!()
     }
 
@@ -400,7 +404,9 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
-    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<PageTableGuard<'rcu, C>> where 'a: 'rcu {
+    pub fn make_guard_unchecked<'rcu, A: InAtomicMode>(self, _guard: &'rcu A) -> PPtr<
+        PageTableGuard<'rcu, C>,
+    > where 'a: 'rcu {
         let guard = PageTableGuard { inner: self };
         let (ptr, guard_perm) = PPtr::<PageTableGuard<C>>::new(guard);
 
@@ -442,7 +448,10 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
             idx < NR_ENTRIES,
-            child_owner.match_pte(owner.children_perm.value()[idx as int], child_owner.parent_level),
+            child_owner.match_pte(
+                owner.children_perm.value()[idx as int],
+                child_owner.parent_level,
+            ),
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
@@ -482,7 +491,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a PCell<bool>)
+    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<bool>)
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -497,8 +506,6 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         let meta = self.meta();
         &meta.stray
     }
-
-
 
     /// Reads a non-owning PTE at the given index.
     ///
@@ -591,7 +598,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a PCell<u16>)
+    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<u16>)
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -617,8 +624,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub fn new(level: PagingLevel) -> Self {
         Self {
-            nr_children: PCell::new(0).0,
-            stray: PCell::new(false).0,
+            nr_children: pcell_maybe_uninit::PCell::new(0).0,
+            stray: pcell_maybe_uninit::PCell::new(false).0,
             level,
             lock: PAtomicU8::new(0).0,
             _phantom: PhantomData,
