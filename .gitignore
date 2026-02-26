@@ -39,7 +39,6 @@ test-ledger
 *.log.json
 *.log.json.gz
 *.txt
-!.vscode/vostd-words.txt
 *.log
 
 #doc
@@ -47,3 +46,7 @@ doc
 
 #copilot
 .github/copilot-instructions.md
+
+# cspell
+.vscode/cspell.json
+.vscode/vostd-words.txt
