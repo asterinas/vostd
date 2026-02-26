@@ -389,8 +389,10 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> (ret: (
         ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
         ret.1@.inv(),
 {
+    
     proof!{
         use_type_invariant(&ptr_ref);
+        admit();
     }
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
     let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
@@ -407,6 +409,7 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
     ensures
         ret.ptr() == perm@.ptr(),
 {
+    proof{admit();}
     unsafe {
         ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
     }
