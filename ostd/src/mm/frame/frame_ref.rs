@@ -4,7 +4,6 @@ use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 use vstd::prelude::*;
 
 use vstd_extra::drop_tracking::*;
-use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_to_frame};

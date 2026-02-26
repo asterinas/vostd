@@ -19,11 +19,9 @@ use crate::mm::frame::UniqueFrame;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
 use crate::specs::mm::frame::linked_list::linked_list_owners::*;
-use crate::specs::mm::frame::meta_owners::MetaSlotOwner;
-use crate::specs::mm::frame::meta_owners::Metadata;
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, Metadata};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::unique::UniqueFrameOwner;
-use crate::specs::mm::frame::meta_owners::Metadata;
 
 use core::borrow::BorrowMut;
 use core::{

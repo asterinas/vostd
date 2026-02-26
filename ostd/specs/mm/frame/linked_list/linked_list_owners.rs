@@ -7,9 +7,6 @@ use vstd::simple_pptr::*;
 use vstd::std_specs::convert::FromSpecImpl;
 use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
-use vstd::std_specs::convert::FromSpecImpl;
-
-use core::marker::PhantomData;
 
 use core::marker::PhantomData;
 

@@ -19,9 +19,6 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::NR_ENTRIES;
 use crate::specs::mm::frame::linked_list::linked_list_owners::StoredLink;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
-use crate::mm::frame::AnyFrameMeta;
-
-use core::marker::PhantomData;
 
 verus! {
 
