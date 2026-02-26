@@ -6,7 +6,7 @@ VERIFICATION_TARGETS := \
 # Disabled:
 # 	demo
 
-.PHONY: all verify $(VERIFICATION_TARGETS) fmt clean
+.PHONY: all verify $(VERIFICATION_TARGETS) fmt clean verus update
 
 $(VERIFICATION_TARGETS):
 	cargo dv verify --targets $@
@@ -21,6 +21,9 @@ fmt:
 
 doc: verify
 	cargo dv doc --target ostd
+
+verus update:
+	cargo dv bootstrap $(if $(filter update,$@),--upgrade,)
 
 clean:
 	cargo clean
