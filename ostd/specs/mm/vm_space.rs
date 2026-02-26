@@ -22,6 +22,41 @@ pub tracked struct VmIoPermission<'a> {
 }
 
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
+/// 
+/// This struct serves as a bookkeeper for all _active_ readers/writers within a specific
+/// virtual memory space. It maintains a holistic view of the memory range coverted by the
+/// VM space it is tracking using a [`Ghost<MemView>`]. It also maintains a [`Tracked<MemView>`]
+/// for the current memories it is holding permissions for, which is a subset of the total
+/// memory range.
+/// 
+/// The management of each reader/writer and their corresponding memory views and permissions
+/// must talk to this struct's APIs for properly taking and returning permissions, which ensures
+/// the consistency of the overall VM space so that, e.g., no memory-aliasing will occur during
+/// the lifetime of the readers/writers, and that no reader/writer will be created out of thin air 
+/// without the permission from the VM space owner (or the verification rejects invalid requests).
+/// 
+/// # Lifecycle of a reader/writer
+/// 
+/// We briefly introduce how we manage the lifecycle of a reader/writer under the management of
+/// [`VmSpaceOwner`] in this section. In the first place we require that whenever the reader or
+/// writer is being used to read or write memory, a matching permission called [`VmIoOwner`] must
+/// be present. Thus the key is to properly manage the creation and deletion of the [`VmIoOwner`].
+/// 
+/// 1. **Creation**: To create a new reader/writer, we first check if the new reader/writer can be created
+///   under the current VM space owner using the APIs [`Self::can_create_reader`] and [`Self::can_create_writer`].
+///   Interestingly, this creates an empty reader/writer that doesn't hold any memory view yet.
+/// 2. **Activation**: This is the magic step where we assign a memory view to the reader/writer. Via
+///  [`crate::mm::vm_space::VmSpace::activate_reader`] and [`crate::mm::vm_space::VmSpace::activate_writer`],
+///   the permissions will be moved from the VM space owner to the reader/writer. Note that readers do not
+///   need owned permissions so they just borrow the memory view from the VM space owner, while writers need to
+///   take the ownership of the memory view from the VM space owner.
+///   After this step, the reader/writer is fully activated and can be used to read/write memory.
+/// 3. **Disposal**: After the reader/writer finishes the reading/writing operation, we can dispose it via
+///   [`Self::dispose_reader`] and [`Self::dispose_writer`]. This step is the reverse of activation, where the
+///   permissions will be moved back from the reader/writer to the VM space owner. After this step, the reader/writer
+///   is considered disposed but re-usable as long as it is properly activated again before use.
+/// 4. **Removal**: If we know for sure that the reader/writer will never be used again, we can remove it from the
+///    active list via [`Self::remove_reader`] and [`Self::remove_writer`].
 pub tracked struct VmSpaceOwner<'a> {
     /// The owner of the page table of this VM space.
     pub page_table_owner: OwnerSubtree<UserPtConfig>,
