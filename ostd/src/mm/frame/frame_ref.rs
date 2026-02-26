@@ -3,7 +3,6 @@ use core::{marker::PhantomData, ops::Deref, ptr::NonNull};
 
 use vstd::prelude::*;
 
-use vstd_extra::external::manually_drop::*;
 use vstd_extra::ownership::*;
 use vstd_extra::drop_tracking::*;
 

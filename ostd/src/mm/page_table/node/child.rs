@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
-use vstd_extra::external::manually_drop_deref_spec;
 
 use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
 use crate::mm::frame::Frame;

@@ -280,7 +280,7 @@ impl<'a, T> ArcRef<'a, T> {
     }
 
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
-        &manually_drop_deref_spec(&self.inner)
+        &self.inner@
     }
 
     /// A workaround that Verus does not support implementing spec for Deref trait yet.
@@ -389,9 +389,6 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> (ret: (
         ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
         ret.1@.inv(),
 {
-    proof!{
-        manually_drop_into_inner_spec(ptr_ref.inner);
-    }
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
     let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
     (ptr, Tracked(perm.get_arc_points_to()))
@@ -407,9 +404,6 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
     ensures
         ret.ptr() == perm@.ptr(),
 {
-    proof! {
-        manually_drop_new_deref_spec(arc_from_raw_spec(ptr_mut_from_nonnull(raw), perm@));
-    }
     unsafe {
         ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
     }

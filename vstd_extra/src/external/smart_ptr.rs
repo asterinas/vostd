@@ -314,8 +314,6 @@ pub fn arc_into_raw<T>(p: Arc<T>) -> (ret: (*const T, Tracked<ArcPointsTo<T>>))
     (Arc::into_raw(p), Tracked::assume_new())
 }
 
-pub uninterp spec fn arc_from_raw_spec<T>(ptr: *const T, points_to: ArcPointsTo<T>) -> Arc<T>;
-
 #[verifier::external_body]
 /// According to the documentation, [`Arc::from_raw`](<https://doc.rust-lang.org/std/sync/struct.Arc.html#method.from_raw>) allows transmuting between different types as long as the pointer has the same size and alignment.
 /// In verification this responsibility is dispatched to casting the `PointsTo<T>` appropriately, which is not handled here.
@@ -328,7 +326,6 @@ pub unsafe fn arc_from_raw<T>(ptr: *const T, tracked points_to: Tracked<ArcPoint
         points_to@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
     ensures
         arc_pointer_spec(ret) == ptr,
-        ret == arc_from_raw_spec(ptr, points_to@),
 {
     unsafe { Arc::from_raw(ptr) }
 }
