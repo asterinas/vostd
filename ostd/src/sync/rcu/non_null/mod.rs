@@ -389,24 +389,11 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> (ret: (
         ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
         ret.1@.inv(),
 {
-    let ghost old_ptr = ptr_ref.ptr();
     proof!{
-        use_type_invariant(&ptr_ref);
-    }
-    let md = ptr_ref.inner;
-    let ghost md_snap = md;
-    proof! {
-        assert(old_ptr == arc_pointer_spec(*manually_drop_deref_spec(&md_snap)));
+        manually_drop_into_inner_spec(ptr_ref.inner);
     }
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
-    let inner = ManuallyDrop::into_inner(md);
-    proof! {
-        manually_drop_into_inner_spec(md_snap, inner);
-        assert(call_ensures(ManuallyDrop::into_inner, (md_snap,), inner));
-        assert(inner == manually_drop_unwrap(md_snap));
-        assert(arc_pointer_spec(inner) == old_ptr);
-    }
-    let (ptr, Tracked(perm)) = NonNullPtr::into_raw(inner);
+    let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
     (ptr, Tracked(perm.get_arc_points_to()))
 }
 
@@ -420,20 +407,11 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
     ensures
         ret.ptr() == perm@.ptr(),
 {
-    let ptr = raw.as_ptr();
-    let arc = unsafe { arc_from_raw(ptr, perm) };
-    let ghost arc_snap = arc;
-    let inner = ManuallyDrop::new(arc);
     proof! {
-        assert(arc_pointer_spec(arc_snap) == ptr);
-        manually_drop_new_deref_spec(arc_snap, inner);
-        assert(call_ensures(ManuallyDrop::new, (arc_snap,), inner));
-        assert(manually_drop_deref_spec(&inner) == &arc_snap);
-        assert(arc_pointer_spec(*manually_drop_deref_spec(&inner)) == ptr);
-        assert(arc_pointer_spec(*manually_drop_deref_spec(&inner)) as *mut T == perm@.ptr());
+        manually_drop_new_deref_spec(arc_from_raw_spec(ptr_mut_from_nonnull(raw), perm@));
     }
     unsafe {
-        ArcRef { inner, _marker: PhantomData }
+        ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
     }
 }
 
