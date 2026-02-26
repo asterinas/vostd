@@ -15,7 +15,7 @@ pub use self::{
         LocalIrqDisabled, /*, PreemptDisabled, SpinGuardian, WriteIrqDisabled*/
     },
     //mutex::{ArcMutexGuard, Mutex, MutexGuard},
-    // rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
+    rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
     /*rwarc::{RoArc, RwArc},
     rwlock::{
         ArcRwLockReadGuard, ArcRwLockUpgradeableGuard, ArcRwLockWriteGuard, RwLock,

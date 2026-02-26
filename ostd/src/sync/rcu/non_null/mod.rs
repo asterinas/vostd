@@ -280,7 +280,7 @@ impl<'a, T> ArcRef<'a, T> {
     }
 
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
-        &manually_drop_deref_spec(&self.inner)
+        &self.inner@
     }
 
     /// A workaround that Verus does not support implementing spec for Deref trait yet.
@@ -389,9 +389,6 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> (ret: (
         ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
         ret.1@.inv(),
 {
-    proof!{
-        use_type_invariant(&ptr_ref);
-    }
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
     let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
     (ptr, Tracked(perm.get_arc_points_to()))
