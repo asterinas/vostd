@@ -68,9 +68,9 @@ verus! {
 ///
 /// If the kernel otherwise decides not to ensure that the running task's [`VmSpace`] is always
 /// activated, the kernel must deal with race conditions when calling methods that require the
-/// `[VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
-/// [`VmSpace::writer`]. Otherwise, the behavior is unspecified, though it's guaranteed _not_ to
-/// compromise the kernel's memory safety.
+/// [`VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmReader`] and [`VmWriter`].
+/// Otherwise, the behavior is unspecified, though it's guaranteed _not_ to compromise the kernel's
+/// memory safety.
 ///
 /// # Memory Backing
 ///
@@ -83,6 +83,8 @@ verus! {
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
+/// [`VmReader`]: crate::mm::io::VmWriter
+/// [`VmReader`]: crate::mm::io::VmReader
 /// # Verification Design
 ///
 /// A [`VmSpace`] has a corresponding [`VmSpaceOwner`] object that is used to track its state,
@@ -90,6 +92,7 @@ verus! {
 /// that are associated with the [`VmSpace`], and the [`MemView`] which encodes the active page table and
 /// the subset of the TLB that covers the same virtual address space.
 /// All proofs about the correctness of the readers and writers are founded on the well-formedness of the [`MemView`]:
+/// 
 /// ```rust
 /// open spec fn mem_view_wf(self) -> bool {
 ///    &&& self.mem_view is Some <==> self.mv_range@ is Some
@@ -427,16 +430,17 @@ impl<'a> VmSpace<'a> {
     /// Activates the given writer to write data to the user space of the current task.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
-    /// - The writer must be well-formed with respect to the `VmSpaceOwner`.
-    /// - The writer's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
+    /// - The writer must be well-formed with respect to the `[VmSpaceOwner`].
+    /// - The writer's virtual address range must be mapped within the [`VmSpaceOwner`]'s memory view.
     /// ## Postconditions
-    /// - The writer will be added to the `VmSpace`'s writers list.
-    /// - The writer will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
+    /// - The writer will be added to the [`VmSpace`]'s writers list.
+    /// - The writer will be activated with a view of its virtual address range taken from the [`VmSpaceOwner`]'s memory view.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - The `MemView` invariants ensure that the writer has a consistent view of memory.
-    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
+    /// - The [`MemView`] invariants ensure that the writer has a consistent view of memory.
+    /// - The [`VmSpaceOwner`] invariants ensure that the viewed memory is owned exclusively by
+    ///   this [`VmSpace`].
     #[inline(always)]
     #[verus_spec(r =>
         with
@@ -523,14 +527,14 @@ impl<'a> VmSpace<'a> {
     /// correctly.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
     /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The `VmSpaceOwner` must not have any active writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] must not have any active writers overlapping with the range `vaddr..vaddr + len`.
     /// ## Postconditions
-    /// - An inactive `VmReader` will be created with the range `vaddr..vaddr + len`.
+    /// - An inactive [`VmReader`] will be created with the range `vaddr..vaddr + len`.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - By requiring that the `VmSpaceOwner` must not have any active writers overlapping with the target range,
+    /// - By requiring that the [`VmSpaceOwner`] must not have any active writers overlapping with the target range,
     /// it prevents data races between the reader and any writers.
     #[inline]
     #[verus_spec(r =>
@@ -558,21 +562,21 @@ impl<'a> VmSpace<'a> {
         Ok(reader)
     }
 
-    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
     /// or the `vaddr` and `len` do not represent a user space memory range.
     ///
     /// Users must ensure that no other page table is activated in the current task during the
-    /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
+    /// lifetime of the created [`VmWriter`]. This guarantees that the [`VmWriter`] can operate correctly.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
     /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The `VmSpaceOwner` must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
     /// ## Postconditions
-    /// - An inactive `VmWriter` will be created with the range `vaddr..vaddr + len`.
+    /// - An inactive [`VmWriter`] will be created with the range `vaddr..vaddr + len`.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - By requiring that the `VmSpaceOwner` must not have any active readers or writers overlapping with the target range,
+    /// - By requiring that the [`VmSpaceOwner`] must not have any active readers or writers overlapping with the target range,
     /// it prevents data races.
     #[inline]
     #[verus_spec(r =>
@@ -648,7 +652,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// it is returned along with the virtual address range that it maps ([`query_success_ensures`]).
     /// - The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
     /// - If there is no mapped item at the current virtual address ([`query_none_condition`]),
-    /// it returns `None`, and the virtual address range of the cursor's current position.
+    /// it returns [`None`], and the virtual address range of the cursor's current position.
     /// ## Safety
     /// - This function preserves all memory invariants.
     /// - The locking mechanism prevents data races.

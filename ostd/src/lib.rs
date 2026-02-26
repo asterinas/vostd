@@ -25,7 +25,6 @@
 #![feature(proc_macro_hygiene)]
 #![allow(unused_parens)]
 #![allow(unused_braces)]
-#![feature(portable_simd)]
 #![allow(rustdoc::invalid_rust_codeblocks)]
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]

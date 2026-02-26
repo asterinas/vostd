@@ -118,22 +118,22 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
     core::intrinsics::volatile_copy_memory(dst as *mut u8, src as *const u8, len);
 }
 
-/// `VmReader` is a reader for reading data from a contiguous range of memory.
+/// [`VmReader`] is a reader for reading data from a contiguous range of memory.
 ///
-/// The memory range read by `VmReader` can be in either kernel space or user space.
+/// The memory range read by [`VmReader`] can be in either kernel space or user space.
 /// When the operating range is in kernel space, the memory within that range
 /// is guaranteed to be valid, and the corresponding memory reads are infallible.
 /// When the operating range is in user space, it is ensured that the page table of
-/// the process creating the `VmReader` is active for the duration of `'a`,
+/// the process creating the [`VmReader`] is active for the duration of `'a`,
 /// and the corresponding memory reads are considered fallible.
 ///
-/// When perform reading with a `VmWriter`, if one of them represents typed memory,
+/// When perform reading with a [`VmWriter`], if one of them represents typed memory,
 /// it can ensure that the reading range in this reader and writing range in the
 /// writer are not overlapped.
 ///
 /// NOTE: The overlap mentioned above is at both the virtual address level
 /// and physical address level. There is not guarantee for the operation results
-/// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
+/// of [`VmReader`] and [`VmWriter`] in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
     pub id: Ghost<nat>,
@@ -143,6 +143,18 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
 }
 
 /// The memory view used for VM I/O operations.
+/// 
+/// The readers can think of this as a wrapped permission tokens for operating with a certain
+/// memory view (see [`MemView`]) "owned" by the [`VmIoOwner`] that they are created from, which
+/// are used for allowing callers to use [`VmReader`] and [`VmWriter`] to perform VM I/O operations.
+/// 
+/// For writers the memory permission must be exclusive so this enum contains an owned [`MemView`]
+/// for the write view; for readers the memory permission can be shared so this enum contains a
+/// reference to a [`MemView`] for the read view (which can be disabled optionally in [`VmSpaceOwner`]).
+/// 
+/// ⚠️ WARNING: We do not recommend using this enum directly.
+/// 
+/// [`VmSpaceOwner`]: crate::mm::vm_space::VmSpaceOwner
 pub tracked enum VmIoMemView<'a> {
     /// An owned memory for writing.
     WriteView(MemView),
@@ -150,7 +162,12 @@ pub tracked enum VmIoMemView<'a> {
     ReadView(&'a MemView),
 }
 
-/// This looks like we can implement a single struct with a type parameter
+/// The owner of a VM I/O operation, which tracks the memory range and the memory view for the
+/// operation.
+/// 
+/// Basically the caller should be only interested in this struct when using [`VmReader`] and
+/// [`VmWriter`] to perform VM I/O operations, since the safety of these operations depends on the
+/// validity of the memory range and memory view tracked by this struct.
 pub tracked struct VmIoOwner<'a> {
     /// The unique identifier of this owner.
     pub id: Ghost<nat>,
@@ -416,22 +433,22 @@ impl VmIoOwner<'_> {
     }
 }
 
-/// `VmWriter` is a writer for writing data to a contiguous range of memory.
+/// [`VmWriter`] is a writer for writing data to a contiguous range of memory.
 ///
-/// The memory range write by `VmWriter` can be in either kernel space or user space.
+/// The memory range write by [`VmWriter`] can be in either kernel space or user space.
 /// When the operating range is in kernel space, the memory within that range
 /// is guaranteed to be valid, and the corresponding memory writes are infallible.
 /// When the operating range is in user space, it is ensured that the page table of
-/// the process creating the `VmWriter` is active for the duration of `'a`,
+/// the process creating the [`VmWriter`] is active for the duration of `'a`,
 /// and the corresponding memory writes are considered fallible.
 ///
-/// When perform writing with a `VmReader`, if one of them represents typed memory,
+/// When perform writing with a [`VmReader`], if one of them represents typed memory,
 /// it can ensure that the writing range in this writer and reading range in the
 /// reader are not overlapped.
 ///
 /// NOTE: The overlap mentioned above is at both the virtual address level
 /// and physical address level. There is not guarantee for the operation results
-/// of `VmReader` and `VmWriter` in overlapping untyped addresses, and it is
+/// of [`VmReader`] and [`VmWriter`] in overlapping untyped addresses, and it is
 /// the user's responsibility to handle this situation.
 pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
     pub id: Ghost<nat>,
@@ -442,10 +459,24 @@ pub struct VmWriter<'a  /*, Fallibility = Fallible*/ > {
 
 #[verus_verify]
 impl<'a> VmWriter<'a  /* Infallible */ > {
-    /// Constructs a `VmWriter` from a pointer and a length, which represents
+    /// Constructs a [`VmWriter`] from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
-    /// # Safety
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The memory region represented by `ptr` and `len` must be valid for writes of `len` bytes
+    ///   during the entire lifetime `a`. This means that the underlying pages must remain alive,
+    ///   and the kernel must access the memory region using only the APIs provided in this module.
+    /// - The range `ptr.vaddr..ptr.vaddr + len` must represent a kernel space memory range.
+    /// ## Postconditions
+    /// - An infallible [`VmWriter`] will be created with the range `ptr.vaddr..ptr.vaddr + len`.
+    /// - The created [`VmWriter`] will have a unique identifier `id`, and its cursor will be
+    ///   initialized to `ptr`.
+    /// - The created [`VmWriter`] will be associated with a [`VmIoOwner`] that has the same `id`, the
+    ///   same memory range, and is marked as kernel space and infallible.
+    /// - The memory view of the associated [`VmIoOwner`] will be `None`, indicating that it does not
+    ///   have any specific permissions yet.
+    /// ## Safety
     ///
     /// `ptr` must be [valid] for writes of `len` bytes during the entire lifetime `a`.
     ///
@@ -492,6 +523,19 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
         Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
+    /// Converts a PoD value into a [`VmWriter`] that writes to the memory occupied by the PoD value.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// None as the Rust's type system guarantees that if `T` is valid, then we can always create a
+    /// valid `VmWriter` for it.
+    /// ## Postconditions
+    /// - If the memory region occupied by `val` is valid for writes, then an infallible [`VmWriter`]
+    ///   will be created that points to the memory region of `val`.
+    /// - If the memory region occupied by `val` is not valid for writes, then an [`IoError`] will be
+    ///   returned.
+    /// 
+    /// [`IoError`]: `Error::IoError`
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
@@ -532,11 +576,12 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
     }
 }
 
-// `Clone` can be implemented for `VmReader`
-// because it either points to untyped memory or represents immutable references.
-// Note that we cannot implement `Clone` for `VmWriter`
-// because it can represent mutable references, which must remain exclusive.
 impl Clone for VmReader<'_  /* Fallibility */ > {
+    /// [`Clone`] can be implemented for [`VmReader`]
+    /// because it either points to untyped memory or represents immutable references.
+    /// 
+    /// Note that we cannot implement [`Clone`] for [`VmWriter`]
+    /// because it can represent mutable references, which must remain exclusive.
     fn clone(&self) -> Self {
         Self { id: self.id, cursor: self.cursor, end: self.end, phantom: PhantomData }
     }
@@ -544,8 +589,10 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 
 #[verus_verify]
 impl<'a> VmReader<'a  /* Infallible */ > {
-    /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// Constructs a [`VmReader`] from a pointer and a length, which represents
     /// a memory range in USER space.
+    /// 
+    /// ⚠️ WARNING: Currently not implemented yet.
     #[verifier::external_body]
     #[verus_spec(r =>
         with
@@ -568,10 +615,22 @@ impl<'a> VmReader<'a  /* Infallible */ > {
         unimplemented!()
     }
 
-    /// Constructs a `VmReader` from a pointer and a length, which represents
+    /// Constructs a [`VmReader`] from a pointer and a length, which represents
     /// a memory range in kernel space.
     ///
-    /// # Safety
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The memory region represented by `ptr` and `len` must be valid for reads of `len` bytes
+    ///   during the entire lifetime `a`. This means that the underlying pages must remain alive,
+    ///   and the kernel must access the memory region using only the APIs provided in this module.
+    /// - The range `ptr.vaddr..ptr.vaddr + len` must represent a kernel space memory range.
+    /// ## Postconditions
+    /// - An infallible [`VmReader`] will be created with the range `ptr.vaddr..ptr.vaddr + len`.
+    /// - The created [`VmReader`] will have a unique identifier `id`, and its cursor will be
+    ///   initialized to `ptr`.
+    /// - The created [`VmReader`] will be associated with a [`VmIoOwner`] that has the same `id`,
+    ///   the same memory range, and is marked as kernel space and infallible.
+    /// ## Safety
     ///
     /// `ptr` must be [valid] for reads of `len` bytes during the entire lifetime `a`.
     ///
@@ -614,6 +673,19 @@ impl<'a> VmReader<'a  /* Infallible */ > {
         Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
+    /// Converts a PoD value into a [`VmReader`] that reads from the memory occupied by the PoD value.
+    /// 
+    /// # Verified Properties
+    /// ## Preconditions
+    /// None as the Rust's type system guarantees that if `&mut T` is valid, then we can always
+    /// create a valid [`VmReader`] for it.
+    /// ## Postconditions
+    /// - If the memory region occupied by `val` is valid for reads, then an infallible [`VmReader`]
+    ///   will be created that points to the memory region of `val`.
+    /// - If the memory region occupied by `val` is not valid for reads, then an [`IoError`] will be
+    ///   returned.
+    /// 
+    /// [`IoError`]: `Error::IoError`
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
