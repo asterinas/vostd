@@ -32,23 +32,12 @@ use crate::mm::tlb::*;
 use crate::specs::mm::cpu::AtomicCpuSet;
 
 use crate::{
-    // cpu::{AtomicCpuSet, CpuSet, PinCurrentCpu},
-    // cpu_local_cell,
     mm::{
         io::{VmIoOwner, VmReader, VmWriter},
-        // io::Fallible,
-        // kspace::KERNEL_PAGE_TABLE,
-        // page_table,
-        // tlb::{TlbFlushOp, TlbFlusher},
         page_prop::PageProperty,
-        Paddr,
-        PagingConstsTrait,
-        PagingLevel,
-        Vaddr,
-        MAX_USERSPACE_VADDR,
+        Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR,
     },
     prelude::*,
-    //    task::{atomic_mode::AsAtomicModeGuard, disable_preempt, DisabledPreemptGuard},
 };
 
 use alloc::sync::Arc;
@@ -61,46 +50,46 @@ verus! {
 
 /// A virtual address space for user-mode tasks, enabling safe manipulation of user-space memory.
 ///
-/// The `VmSpace` type provides memory isolation guarantees between user-space and
+/// The [`VmSpace`] type provides memory isolation guarantees between user-space and
 /// kernel-space. For example, given an arbitrary user-space pointer, one can read and
 /// write the memory location referred to by the user-space pointer without the risk of
 /// breaking the memory safety of the kernel space.
 ///
 /// # Task Association Semantics
 ///
-/// As far as OSTD is concerned, a `VmSpace` is not necessarily associated with a task. Once a
-/// `VmSpace` is activated (see [`VmSpace::activate`]), it remains activated until another
-/// `VmSpace` is activated **possibly by another task running on the same CPU**.
+/// As far as OSTD is concerned, a [`VmSpace`] is not necessarily associated with a task. Once a
+/// [`VmSpace`] is activated (see [`VmSpace::activate`]), it remains activated until another
+/// [`VmSpace`] is activated **possibly by another task running on the same CPU**.
 ///
-/// This means that it's up to the kernel to ensure that a task's `VmSpace` is always activated
+/// This means that it's up to the kernel to ensure that a task's [`VmSpace`] is always activated
 /// while the task is running. This can be done by using the injected post schedule handler
-/// (see [`inject_post_schedule_handler`]) to always activate the correct `VmSpace` after each
+/// (see [`inject_post_schedule_handler`]) to always activate the correct [`VmSpace`] after each
 /// context switch.
 ///
-/// If the kernel otherwise decides not to ensure that the running task's `VmSpace` is always
+/// If the kernel otherwise decides not to ensure that the running task's [`VmSpace`] is always
 /// activated, the kernel must deal with race conditions when calling methods that require the
-/// `VmSpace` to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
+/// `[VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
 /// [`VmSpace::writer`]. Otherwise, the behavior is unspecified, though it's guaranteed _not_ to
 /// compromise the kernel's memory safety.
 ///
 /// # Memory Backing
 ///
-/// A newly-created `VmSpace` is not backed by any physical memory pages. To
-/// provide memory pages for a `VmSpace`, one can allocate and map physical
-/// memory ([`UFrame`]s) to the `VmSpace` using the cursor.
+/// A newly-created [`VmSpace`] is not backed by any physical memory pages. To
+/// provide memory pages for a [`VmSpace`], one can allocate and map physical
+/// memory ([`UFrame`]s) to the [`VmSpace`] using the cursor.
 ///
-/// A `VmSpace` can also attach a page fault handler, which will be invoked to
+/// A [`VmSpace`] can also attach a page fault handler, which will be invoked to
 /// handle page faults generated from user space.
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
 /// # Verification Design
 ///
-/// A `VmSpace` has a corresponding [`VmSpaceOwner`] object that is used to track its state,
-/// and against which its invariants are stated. The `VmSpaceOwner` catalogues the readers and writers
-/// that are associated with the `VmSpace`, and the `MemView` which encodes the active page table and
+/// A [`VmSpace`] has a corresponding [`VmSpaceOwner`] object that is used to track its state,
+/// and against which its invariants are stated. The [`VmSpaceOwner`] catalogues the readers and writers
+/// that are associated with the [`VmSpace`], and the [`MemView`] which encodes the active page table and
 /// the subset of the TLB that covers the same virtual address space.
-/// All proofs about the correctness of the readers and writers are founded on the well-formedness of the `MemView`:
+/// All proofs about the correctness of the readers and writers are founded on the well-formedness of the [`MemView`]:
 /// ```rust
 /// open spec fn mem_view_wf(self) -> bool {
 ///    &&& self.mem_view is Some <==> self.mv_range@ is Some
@@ -164,8 +153,24 @@ type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
 impl<'a> VmSpace<'a> {
+    /// A spec function to create a new [`VmSpace`] instance.
+    /// 
+    /// The reason why this function is marked as `uninterp` is that the implementation details
+    /// of the [`VmSpace`] struct are not important for the verification of its clients.
     pub uninterp spec fn new_spec() -> Self;
 
+    /// Checks the preconditions for creating a reader or writer for the given virtual address range.
+    ///
+    /// Essentially, this requires that
+    /// 
+    /// - the invariants of the [`VmSpace`] and [`VmSpaceOwner`] hold
+    ///   (see [`VmSpaceOwner::inv_with`] and [`VmSpaceOwner::inv`]);
+    /// - the [`VmSpaceOwner`] is active (via some threads or activation function);
+    /// - the [`VmSpaceOwner`] can create a reader or writer for the given virtual address range
+    ///   (see [`VmSpaceOwner::can_create_reader`] and [`VmSpaceOwner::can_create_writer`]);
+    /// - the virtual address range is valid (non-zero, non-empty, and within user-space limits);
+    /// - the currently active page table is the one owned by the [`VmSpace`] (note that this is
+    ///   an `uninterp` spec function as this is non-trackable during verification).
     pub open spec fn reader_requires(
         &self,
         vm_owner: VmSpaceOwner<'a>,
@@ -181,6 +186,11 @@ impl<'a> VmSpace<'a> {
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
+    /// Checks the preconditions for creating a writer for the given virtual address range.
+    /// 
+    /// Most of the pre-conditions are the same as those for creating a reader (see
+    /// [`Self::reader_requires`]), except that the caller must also have permission to
+    /// create a writer for the given virtual address range.
     pub open spec fn writer_requires(
         &self,
         vm_owner: VmSpaceOwner<'a>,
@@ -196,6 +206,26 @@ impl<'a> VmSpace<'a> {
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
     }
 
+    /// The guarantees of the created reader or writer, assuming the preconditions are satisfied.
+    /// 
+    /// Essentially, this ensures that
+    /// 
+    /// - the invariants of the new [`VmSpace`] and the reader or writer hold;
+    /// - the reader or writer is associated with a [`VmIoOwner`] that is well-formed with respect to
+    ///   the reader or writer;
+    /// - the reader or writer has no memory view, as the memory view will be taken from the
+    ///   [`VmSpaceOwner`] when the reader or writer is activated.
+    /// 
+    /// # Special Note
+    /// 
+    /// The newly created instance of [`VmReader`] and its associated [`VmIoOwner`] are not yet
+    /// activated, so the guarantees about the memory view only require that the memory view is
+    /// [`None`]. The guarantees about the memory view will be provided by the activation function
+    /// (see [`Self::activate_reader`] and [`Self::activate_writer`]).
+    /// 
+    /// We avoid mixing the creation, usage and deletion into one giant function as this would
+    /// create some unnecessary life-cycle management complexities and not really help with the
+    /// verification itself.
     pub open spec fn reader_ensures(
         &self,
         vm_owner_old: VmSpaceOwner<'_>,
@@ -215,6 +245,10 @@ impl<'a> VmSpace<'a> {
         }
     }
 
+    /// The guarantees of the created writer, assuming the preconditions are satisfied.
+    /// 
+    /// Most of the guarantees are the same as those for creating a reader (see
+    /// [`Self::reader_ensures`]), except that the writer is associated with a [`VmIoOwner`] that is well-formed with respect to the writer.
     pub open spec fn writer_ensures(
         &self,
         vm_owner_old: VmSpaceOwner<'a>,
@@ -235,6 +269,19 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Creates a new VM address space.
+    /// 
+    /// # Verification Design
+    /// 
+    /// This function is marked as `external_body` for now as the current design does not entail
+    /// the conrete implementation details of the underlying data structure of the [`VmSpace`].
+    /// 
+    /// ## Preconditions
+    /// None
+    /// 
+    /// ## Postconditions
+    /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`]
+    /// - The returned [`VmSpace`] instance is equal to the one created by the [`Self::new_spec`]
+    ///   function, which is an `uninterp` function that can be used in specifications.
     #[inline]
     #[verifier::external_body]
     #[verifier::when_used_as_spec(new_spec)]
@@ -292,16 +339,16 @@ impl<'a> VmSpace<'a> {
     /// Activates the given reader to read data from the user space of the current task.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
-    /// - The reader must be well-formed with respect to the `VmSpaceOwner`.
-    /// - The reader's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
+    /// - The reader must be well-formed with respect to the [`VmSpaceOwner`].
+    /// - The reader's virtual address range must be mapped within the [`VmSpaceOwner`]'s memory view.
     /// ## Postconditions
-    /// - The reader will be added to the `VmSpace`'s readers list.
-    /// - The reader will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
+    /// - The reader will be added to the [`VmSpace`]'s readers list.
+    /// - The reader will be activated with a view of its virtual address range taken from the [`VmSpaceOwner`]'s memory view.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - The `MemView` invariants ensure that the reader has a consistent view of memory.
-    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
+    /// - The [`MemView`] invariants ensure that the reader has a consistent view of memory.
+    /// - The [`VmSpaceOwner`] invariants ensure that the viewed memory is owned exclusively by this [`VmSpace`].
     #[inline(always)]
     #[verus_spec(r =>
         with
@@ -559,13 +606,7 @@ impl<'a> VmSpace<'a> {
     }
 }
 
-/*
-impl Default for VmSpace {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-*/
+
 
 /// The cursor for querying over the VM space without modifying it.
 ///
@@ -573,16 +614,6 @@ impl Default for VmSpace {
 /// reading or modifying the same sub-tree. Two read-only cursors can not be
 /// created from the same virtual address range either.
 pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, UserPtConfig, A>);
-
-/*
-impl<A: InAtomicMode> Iterator for Cursor<'_, A> {
-    type Item = (Range<Vaddr>, Option<MappedItem>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next()
-    }
-}
-*/
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {

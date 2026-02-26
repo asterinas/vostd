@@ -44,9 +44,6 @@ pub trait Pod: Copy + Sized {
     /// mutable reference is not yet supported in Verus.
     ///
     /// Instead, the caller must uphold a separate permission to mutate the Pod value.
-    ///
-    /// This seems a bit awkward if we try to use `arrayptr` and then making a mutable
-    /// reference from it as verus cannot do it now.
     #[verifier::external_body]
     fn as_bytes_mut(&mut self) -> (r: (usize, usize))
         ensures
@@ -54,7 +51,7 @@ pub trait Pod: Copy + Sized {
     {
         let ptr = self as *mut Self as usize;
         let len = core::mem::size_of::<Self>();
-        // unsafe { core::slice::from_raw_parts_mut(ptr, len) }
+
         (ptr, len)
     }
 }
@@ -62,7 +59,7 @@ pub trait Pod: Copy + Sized {
 /// A marker trait for POD types that can be read or written with one instruction.
 ///
 /// We currently rely on this trait to ensure that the memory operation created by
-/// `ptr::read_volatile` and `ptr::write_volatile` doesn't tear. However, the Rust documentation
+/// [`core::ptr::read_volatile`] and [`core::ptr::write_volatile`] doesn't tear. However, the Rust documentation
 /// makes no such guarantee, and even the wording in the LLVM LangRef is ambiguous.
 ///
 /// At this point, we can only _hope_ that this doesn't break in future versions of the Rust or
