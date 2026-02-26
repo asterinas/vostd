@@ -337,15 +337,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         if old_child.is_none() && !new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
             let nr_children = guard.nr_children_mut();
-            let _tmp = nr_children.take(Tracked(&mut parent_owner.meta_own.nr_children));
+            let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             assume(_tmp < NR_ENTRIES);
-            nr_children.put(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
+            nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
         } else if !old_child.is_none() && new_child.is_none() {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
             let nr_children = guard.nr_children_mut();
-            let _tmp = nr_children.take(Tracked(&mut parent_owner.meta_own.nr_children));
+            let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             assume(_tmp > 0);
-            nr_children.put(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
+            nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
         }
         proof {
             assert(owner.relate_region(*regions));
@@ -598,9 +598,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
             let nr_children = parent_guard.nr_children_mut();
-            let _tmp = nr_children.take(Tracked(&mut parent_owner.meta_own.nr_children));
+            let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             assume(_tmp < NR_ENTRIES);
-            nr_children.put(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
+            nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
 
             self.node.put(Tracked(parent_guard_perm), parent_guard);
 

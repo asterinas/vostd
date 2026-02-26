@@ -30,10 +30,10 @@ pub use crate::specs::mm::page_table::node::{entry_owners::*, entry_view::*, own
 pub use child::*;
 pub use entry::*;
 
+use vstd::cell::pcell_maybe_uninit;
 use vstd::prelude::*;
 
 use vstd::atomic::PAtomicU8;
-use vstd::cell::PCell;
 use vstd::simple_pptr::{self, PPtr};
 
 use vstd_extra::array_ptr;
@@ -74,13 +74,13 @@ verus! {
 /// Make sure the the generic parameters don't effect the memory layout.
 pub struct PageTablePageMeta<C: PageTableConfig> {
     /// The number of valid PTEs. It is mutable if the lock is held.
-    pub nr_children: PCell<u16>,
+    pub nr_children: pcell_maybe_uninit::PCell<u16>,
     /// If the page table is detached from its parent.
     ///
     /// A page table can be detached from its parent while still being accessed,
     /// since we use a RCU scheme to recycle page tables. If this flag is set,
     /// it means that the parent is recycling the page table.
-    pub stray: PCell<bool>,
+    pub stray: pcell_maybe_uninit::PCell<bool>,
     /// The level of the page table page. A page table page cannot be
     /// referenced by page tables of different levels.
     pub level: PagingLevel,
@@ -491,7 +491,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a PCell<bool>)
+    pub(super) fn stray_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<bool>)
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -598,7 +598,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     #[verus_spec(
         with Tracked(meta_perm): Tracked<&'a PointsTo<MetaSlot, Metadata<PageTablePageMeta<C>>>>
     )]
-    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a PCell<u16>)
+    fn nr_children_mut<'a>(&'a mut self) -> (res: &'a pcell_maybe_uninit::PCell<u16>)
         requires
             old(self).inner.inner@.ptr.addr() == meta_perm.addr(),
             old(self).inner.inner@.ptr.addr() == meta_perm.points_to.addr(),
@@ -624,8 +624,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
 impl<C: PageTableConfig> PageTablePageMeta<C> {
     pub fn new(level: PagingLevel) -> Self {
         Self {
-            nr_children: PCell::new(0).0,
-            stray: PCell::new(false).0,
+            nr_children: pcell_maybe_uninit::PCell::new(0).0,
+            stray: pcell_maybe_uninit::PCell::new(false).0,
             level,
             lock: PAtomicU8::new(0).0,
             _phantom: PhantomData,

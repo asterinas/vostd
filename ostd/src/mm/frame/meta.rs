@@ -22,7 +22,7 @@ use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use vstd::atomic::{PAtomicU64, PAtomicU8, PermissionU64};
-use vstd::cell::{self, PCell};
+use vstd::cell::pcell_maybe_uninit;
 
 use vstd::simple_pptr::{self, PPtr};
 use vstd_extra::cast_ptr::*;
@@ -80,7 +80,7 @@ pub struct MetaSlot {
     /// # Verification Design
     /// We model the metadata of the slot as a `MetaSlotStorage`, which is a tagged union of the different
     /// types of metadata defined in the development.
-    pub storage: PCell<MetaSlotStorage>,
+    pub storage: pcell_maybe_uninit::PCell<MetaSlotStorage>,
     /// The reference count of the page.
     ///
     /// Specifically, the reference count has the following meaning:
@@ -632,7 +632,7 @@ impl MetaSlot {
     /// ## Safety
     /// The caller must have exclusive access to the metadata slot's storage in order to provide the permission token.
     #[verus_spec(
-        with Tracked(meta_perm): Tracked<&mut cell::PointsTo<MetaSlotStorage>>
+        with Tracked(meta_perm): Tracked<&mut pcell_maybe_uninit::PointsTo<MetaSlotStorage>>
         requires
             self.storage.id() === old(meta_perm).id(),
         ensures
