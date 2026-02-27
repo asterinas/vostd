@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -39,6 +42,7 @@ jobs:
         run: make doc
 
       - name: Upload artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: doc
@@ -48,6 +52,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
