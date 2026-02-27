@@ -293,7 +293,7 @@ impl MetaSlot {
             regions.inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *regions),
-            /// If we can make the failure conditions exhaustive, we can add this as a liveness condition.
+            // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
