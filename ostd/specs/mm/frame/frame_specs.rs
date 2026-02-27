@@ -7,7 +7,7 @@ use crate::mm::frame::meta::{get_slot_spec, mapping::frame_to_index, REF_COUNT_U
 use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, MetaPerm};
+use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use core::marker::PhantomData;
