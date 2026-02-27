@@ -449,7 +449,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     {
         let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(frame));
         let tracked mut inner_perms = slot_own.take_inner_perms();
-        
+
         if let Ok(slot_ptr) = get_slot(frame) {
             let slot = slot_ptr.borrow(Tracked(&regions.slots[frame_to_index(frame)]));
 

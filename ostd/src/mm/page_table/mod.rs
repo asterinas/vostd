@@ -811,6 +811,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
     let _rcu_guard = disable_preempt();
 
     let mut pt_addr = paddr_to_vaddr(root_paddr);
+    #[verusfmt::skip]
     for cur_level in (1..= C::NR_LEVELS()).rev() {
         let offset = pte_index::<C>(vaddr, cur_level);
         // SAFETY:
@@ -862,8 +863,7 @@ pub(super) unsafe fn page_walk<C: PageTableConfig>(root_paddr: Paddr, vaddr: Vad
 pub fn load_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
     ordering: Ordering,
-) -> (pte: E)
-{
+) -> (pte: E) {
     unimplemented!()
 }
 

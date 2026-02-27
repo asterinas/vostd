@@ -2230,7 +2230,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let ghost child_entry = old_child_owner.value;
 
                 let tracked mut old_node_owner = old_child_owner.value.node.tracked_take();
-                assert(regions.slots.contains_key(frame_to_index(old_node_owner.meta_perm.addr()))) by { admit() };
+                assert(regions.slots.contains_key(frame_to_index(old_node_owner.meta_perm.addr())))
+                    by { admit() };
                 #[verus_spec(with Tracked(regions), Tracked(& old_node_owner.meta_perm))]
                 let borrow_pt = pt.borrow();
 
