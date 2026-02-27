@@ -143,17 +143,17 @@ pub struct VmReader<'a  /*, Fallibility = Fallible*/ > {
 }
 
 /// The memory view used for VM I/O operations.
-/// 
+///
 /// The readers can think of this as a wrapped permission tokens for operating with a certain
 /// memory view (see [`MemView`]) "owned" by the [`VmIoOwner`] that they are created from, which
 /// are used for allowing callers to use [`VmReader`] and [`VmWriter`] to perform VM I/O operations.
-/// 
+///
 /// For writers the memory permission must be exclusive so this enum contains an owned [`MemView`]
 /// for the write view; for readers the memory permission can be shared so this enum contains a
 /// reference to a [`MemView`] for the read view (which can be disabled optionally in [`VmSpaceOwner`]).
-/// 
+///
 /// ⚠️ WARNING: We do not recommend using this enum directly.
-/// 
+///
 /// [`VmSpaceOwner`]: crate::mm::vm_space::VmSpaceOwner
 pub tracked enum VmIoMemView<'a> {
     /// An owned memory for writing.
@@ -164,7 +164,7 @@ pub tracked enum VmIoMemView<'a> {
 
 /// The owner of a VM I/O operation, which tracks the memory range and the memory view for the
 /// operation.
-/// 
+///
 /// Basically the caller should be only interested in this struct when using [`VmReader`] and
 /// [`VmWriter`] to perform VM I/O operations, since the safety of these operations depends on the
 /// validity of the memory range and memory view tracked by this struct.
@@ -534,7 +534,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
     ///   will be created that points to the memory region of `val`.
     /// - If the memory region occupied by `val` is not valid for writes, then an [`IoError`] will be
     ///   returned.
-    /// 
+    ///
     /// [`IoError`]: `Error::IoError`
     #[verus_spec(r =>
         with
@@ -579,7 +579,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
 impl Clone for VmReader<'_  /* Fallibility */ > {
     /// [`Clone`] can be implemented for [`VmReader`]
     /// because it either points to untyped memory or represents immutable references.
-    /// 
+    ///
     /// Note that we cannot implement [`Clone`] for [`VmWriter`]
     /// because it can represent mutable references, which must remain exclusive.
     fn clone(&self) -> Self {
@@ -591,7 +591,7 @@ impl Clone for VmReader<'_  /* Fallibility */ > {
 impl<'a> VmReader<'a  /* Infallible */ > {
     /// Constructs a [`VmReader`] from a pointer and a length, which represents
     /// a memory range in USER space.
-    /// 
+    ///
     /// ⚠️ WARNING: Currently not implemented yet.
     #[verifier::external_body]
     #[verus_spec(r =>
@@ -674,7 +674,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     }
 
     /// Converts a PoD value into a [`VmReader`] that reads from the memory occupied by the PoD value.
-    /// 
+    ///
     /// # Verified Properties
     /// ## Preconditions
     /// None as the Rust's type system guarantees that if `&mut T` is valid, then we can always
@@ -684,7 +684,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     ///   will be created that points to the memory region of `val`.
     /// - If the memory region occupied by `val` is not valid for reads, then an [`IoError`] will be
     ///   returned.
-    /// 
+    ///
     /// [`IoError`]: `Error::IoError`
     #[verus_spec(r =>
         with
