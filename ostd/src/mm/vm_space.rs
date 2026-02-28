@@ -273,7 +273,7 @@ impl<'a> VmSpace<'a> {
     /// # Verification Design
     /// 
     /// This function is marked as `external_body` for now as the current design does not entail
-    /// the conrete implementation details of the underlying data structure of the [`VmSpace`].
+    /// the concrete implementation details of the underlying data structure of the [`VmSpace`].
     /// 
     /// ## Preconditions
     /// None

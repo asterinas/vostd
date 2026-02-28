@@ -24,7 +24,7 @@ pub tracked struct VmIoPermission<'a> {
 /// A tracked struct for reasoning about verification-only properties of a [`VmSpace`].
 /// 
 /// This struct serves as a bookkeeper for all _active_ readers/writers within a specific
-/// virtual memory space. It maintains a holistic view of the memory range coverted by the
+/// virtual memory space. It maintains a holistic view of the memory range covered by the
 /// VM space it is tracking using a [`Ghost<MemView>`]. It also maintains a [`Tracked<MemView>`]
 /// for the current memories it is holding permissions for, which is a subset of the total
 /// memory range.
