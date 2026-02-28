@@ -427,7 +427,8 @@ pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
 pub struct SpinLockGuard_<T /*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
     guard: G::Guard,
     lock: R,
-    v_perm: Tracked<PointsTo<T>>, //Ghost permission for verification
+    /// Ghost permission for verification
+    v_perm: Tracked<PointsTo<T>>, 
 }
 
 verus! {
