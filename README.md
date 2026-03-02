@@ -125,4 +125,4 @@ We welcome your contributions!
 
 - During your development process, please frequently run `make verus update` or `cargo dv bootstrap --upgrade` to stay up-to-date with the [latest supported version](https://github.com/asterinas/verus) of Verus.
 -  Format checking is not enforced, but we still recommend formatting your code with `cargo dv fmt --paths path_to_your_file` before submission.
-- If you are contributing to Verus, we recommend submitting pull requests to [the official repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
+- If you are contributing to Verus, we recommend submitting pull requests to [the upstream repo](https://github.com/verus-lang/verus) rather than our fork, since we aim to minimize differences between them.
