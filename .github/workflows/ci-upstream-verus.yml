@@ -1,0 +1,30 @@
+name: Verify VOSTD (Main) with verus-lang/verus
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify-upstream-verus:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt update -qq
+          sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
+
+      - name: Run dv bootstrap with upstream verus
+        run: cargo dv bootstrap --upstream-verus
+
+      - name: Verify ostd with upstream verus
+        run: cargo dv verify --targets ostd
