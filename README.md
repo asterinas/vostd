@@ -1,8 +1,8 @@
 # Formal Verification of Asterinas OSTD with Verus
 
-[![Docs](https://img.shields.io/badge/docs-asterinas.github.io%2Fvostd-blue)](https://asterinas.github.io/vostd/)
-[![verify](https://github.com/asterinas/vostd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
-[![verify (verus-lang/verus)](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml/badge.svg?branch=main)](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
+[![docs](https://img.shields.io/badge/docs-vostd-blue)](https://asterinas.github.io/vostd/)
+[![verify](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci.yml?branch=main&label=verify)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
+[![verify (verus-lang/verus)](https://img.shields.io/github/actions/workflow/status/asterinas/vostd/ci-upstream-verus.yml?branch=main&label=verify%20(verus-lang%2Fverus))](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
 
 The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which requires using `unsafe` Rust—into a small yet powerful set of high-level, safe abstractions. These abstractions enable the creation of complex, general-purpose OSes like [Asterinas](https://github.com/asterinas/asterinas) entirely in safe Rust.
 
@@ -48,7 +48,10 @@ cargo dv bootstrap
 
 Verus should be automatically cloned and built in the `tools` directory. If download fails, please clone the repo manually into `tools/verus` , then run `cargo dv bootstrap` again.
 
-We utilize [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the official repository. While you may manually clone the [official Verus source](https://github.com/verus-lang/verus), please note that we cannot guarantee it will compile correctly. (We typically address any breaking changes within a week.)
+> [!NOTE]
+>
+> We use [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the upstream repository. You may choose to install the [upstream Verus source](https://github.com/verus-lang/verus) via `cargo dv bootstrap --upstream-verus`, however, we cannot guarantee that it will always verify successfully with our project. That said, our CI continuously tests against upstream, and we typically resolve any breaking changes within about a week.
+>
 
 
 #### Build Verification Targets
