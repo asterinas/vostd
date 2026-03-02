@@ -141,11 +141,16 @@ impl<C: PageTableConfig> Child<C> {
             res.paddr() % PAGE_SIZE == 0,
             res.paddr() < MAX_PADDR,
             owner.match_pte(res, owner.parent_level),
-            owner.is_node() ==> !regions.slots.contains_key(frame_to_index(owner.meta_slot_paddr().unwrap())),
-            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(frame_to_index(owner.meta_slot_paddr().unwrap())),
-            owner.is_node() ==> forall|i: usize| #![trigger regions.slot_owners[i]]
-                i != frame_to_index(owner.meta_slot_paddr().unwrap())
-                    ==> regions.slot_owners[i] == old(regions).slot_owners[i],
+            owner.is_node() ==> !regions.slots.contains_key(
+                frame_to_index(owner.meta_slot_paddr().unwrap()),
+            ),
+            owner.is_node() ==> regions.slots =~= old(regions).slots.remove(
+                frame_to_index(owner.meta_slot_paddr().unwrap()),
+            ),
+            owner.is_node() ==> forall|i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != frame_to_index(owner.meta_slot_paddr().unwrap()) ==> regions.slot_owners[i]
+                    == old(regions).slot_owners[i],
             !owner.is_node() ==> *regions =~= *old(regions),
     {
         proof {
@@ -169,25 +174,25 @@ impl<C: PageTableConfig> Child<C> {
 
                 proof {
                     assert(regions.slots =~= old(regions).slots.remove(node_index));
-                    assert(regions.slot_owners[node_index].inv()) by { admit(); }
-                    assert forall|i: usize| #[trigger]
-                        regions.slot_owners.contains_key(i) implies {
-                            &&& regions.slot_owners[i].inv()
-                        } by {
+                    assert(regions.slot_owners[node_index].inv()) by {
+                        admit();
+                    }
+                    assert forall|i: usize| #[trigger] regions.slot_owners.contains_key(i) implies {
+                        &&& regions.slot_owners[i].inv()
+                    } by {
                         if i == node_index {
                         } else {
                             assert(old(regions).slot_owners[i] == regions.slot_owners[i]);
                         }
                     };
-                    assert forall|i: usize| #[trigger]
-                        regions.slots.contains_key(i) implies {
-                            &&& regions.slot_owners.contains_key(i)
-                            &&& regions.slot_owners[i].inv()
-                            &&& regions.slots[i].is_init()
-                            &&& regions.slots[i].addr() == meta_addr(i)
-                            &&& regions.slots[i].value().wf(regions.slot_owners[i])
-                            &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
-                        } by {
+                    assert forall|i: usize| #[trigger] regions.slots.contains_key(i) implies {
+                        &&& regions.slot_owners.contains_key(i)
+                        &&& regions.slot_owners[i].inv()
+                        &&& regions.slots[i].is_init()
+                        &&& regions.slots[i].addr() == meta_addr(i)
+                        &&& regions.slots[i].value().wf(regions.slot_owners[i])
+                        &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
+                    } by {
                         assert(i != node_index);
                         assert(old(regions).slots.contains_key(i));
                     };

@@ -77,13 +77,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
     }
 
-    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self, transmuted: UniqueFrame<M1>) -> bool {
+    pub open spec fn transmute_spec<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
+        self,
+        transmuted: UniqueFrame<M1>,
+    ) -> bool {
         &&& transmuted.ptr.addr() == self.ptr.addr()
         &&& transmuted._marker == PhantomData::<M1>
     }
 
     #[verifier::external_body]
-    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<M1>)
+    pub fn transmute<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(self) -> (res: UniqueFrame<
+        M1,
+    >)
         ensures
             Self::transmute_spec(self, res),
     {
@@ -127,7 +132,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
 
-        assert(slot_own.inv()) by { admit(); }
+        assert(slot_own.inv()) by {
+            admit();
+        }
 
         // SAFETY: We are the sole owner and the metadata is initialized.
         #[verus_spec(with Tracked(&mut slot_own))]
@@ -148,11 +155,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         }
 
         // SAFETY: We are the sole owner.
-//        #[verus_spec(with Tracked(&mut new_owner.meta_perm.inner_perms.storage))]
-//        slot.write_meta(metadata);
+        //        #[verus_spec(with Tracked(&mut new_owner.meta_perm.inner_perms.storage))]
+        //        slot.write_meta(metadata);
 
         proof {
-            regions.slot_owners.tracked_insert(frame_to_index(meta_to_frame(self.ptr.addr())), slot_own);
+            regions.slot_owners.tracked_insert(
+                frame_to_index(meta_to_frame(self.ptr.addr())),
+                slot_own,
+            );
             admit();
         }
 
@@ -294,7 +304,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         &&& regions.inv()
         &&& regions.slots =~= old_regions.slots
         &&& regions.slot_owners[frame_to_index(r)].raw_count == 1
-        &&& forall|i: usize| #![trigger regions.slot_owners[i]]
+        &&& forall|i: usize|
+            #![trigger regions.slot_owners[i]]
             i != frame_to_index(r) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
     }
 
@@ -370,7 +381,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             res.1@.meta_own == meta_own,
             res.1@.meta_perm == meta_perm,
             regions.inv(),
-            regions.slot_owners[frame_to_index(paddr)].raw_count == old(regions).slot_owners[frame_to_index(paddr)].raw_count - 1,
+            regions.slot_owners[frame_to_index(paddr)].raw_count == old(
+                regions,
+            ).slot_owners[frame_to_index(paddr)].raw_count - 1,
     {
         let vaddr = frame_to_meta(paddr);
         let ptr = vstd::simple_pptr::PPtr::<MetaSlot>::from_addr(vaddr);
@@ -443,7 +456,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             assert(perm.value().storage.id() == inner_storage_id);
             assert(perm.value().ref_count.id() == inner_ref_count_id);
             slot_own.inner_perms = owner.meta_perm.inner_perms;
-        };
+        }
+        ;
 
         // SAFETY: We are the sole owner and the reference count is 0.
         // The slot is initialized.

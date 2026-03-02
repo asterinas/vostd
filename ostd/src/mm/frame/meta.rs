@@ -293,15 +293,14 @@ impl MetaSlot {
             regions.inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
             res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *regions),
-            /// If we can make the failure conditions exhaustive, we can add this as a liveness condition.
+            // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
     )]
     pub(super) fn get_from_unused<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         paddr: Paddr,
         metadata: M,
         as_unique_ptr: bool,
-    ) -> (res: Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot, Metadata<M>>>), GetFrameError>)
-    {
+    ) -> (res: Result<(PPtr<Self>, Tracked<PointsTo<MetaSlot, Metadata<M>>>), GetFrameError>) {
         let slot = get_slot(paddr)?;
 
         proof {
@@ -353,7 +352,10 @@ impl MetaSlot {
         } else {
             // `Release` is used to ensure that the metadata initialization
             // won't be reordered after this memory store.
-            slot.borrow(Tracked(&slot_perm)).ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
+            slot.borrow(Tracked(&slot_perm)).ref_count.store(
+                Tracked(&mut inner_perms.ref_count),
+                1,
+            );
         }
 
         proof {
@@ -488,7 +490,7 @@ impl MetaSlot {
                 !Self::get_from_in_use_panic_cond(paddr, *old(regions)),
         {
             match #[verus_spec(with Tracked(&slot_perm), Tracked(&mut inner_perms))]
-                  Self::get_from_in_use_loop(slot) {
+            Self::get_from_in_use_loop(slot) {
                 Err(GetFrameError::Retry) => {
                     core::hint::spin_loop();
                 },
@@ -604,7 +606,10 @@ impl MetaSlot {
     #[verus_spec(
         with Tracked(perm): Tracked<&vstd::simple_pptr::PointsTo<MetaSlot>>
     )]
-    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<MetaSlot, Metadata<M>>)
+    pub(super) fn as_meta_ptr<M: AnyFrameMeta + Repr<MetaSlotStorage>>(&self) -> (res: ReprPtr<
+        MetaSlot,
+        Metadata<M>,
+    >)
         requires
             self == perm.value(),
         ensures

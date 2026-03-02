@@ -78,9 +78,9 @@ use crate::mm::{
     Paddr, PagingLevel, Vaddr, MAX_PADDR,
 };
 use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
+use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::frame_specs::*;
 
 verus! {
 
@@ -121,13 +121,14 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] ==
-            MetaSlotOwner {
-                raw_count: (slot_own.raw_count + 1) as usize,
-                ..slot_own
-            }
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))] == MetaSlotOwner {
+            raw_count: (slot_own.raw_count + 1) as usize,
+            ..slot_own
+        }
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -147,9 +148,12 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
 
     open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
         let slot_own = s0.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))];
-        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (slot_own.raw_count - 1) as usize
-        &&& forall|i: usize| #![trigger s1.slot_owners[i]]
-            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i] == s0.slot_owners[i]
+        &&& s1.slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].raw_count == (
+        slot_own.raw_count - 1) as usize
+        &&& forall|i: usize|
+            #![trigger s1.slot_owners[i]]
+            i != frame_to_index(meta_to_frame(self.ptr.addr())) ==> s1.slot_owners[i]
+                == s0.slot_owners[i]
         &&& s1.slots =~= s0.slots
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
@@ -183,7 +187,6 @@ impl<M: AnyFrameMeta> Frame<M> {
 
 #[verus_verify]
 impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
-
     /// Gets a [`Frame`] with a specific usage from a raw, unused page.
     ///
     /// The caller should provide the initial metadata of the page.
@@ -215,8 +218,7 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *regions),
             !has_safe_slot(paddr) ==> r is Err,
     )]
-    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError>
-    {
+    pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
         if let Err(err) = from_unused {
@@ -351,7 +353,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         // SAFETY: The metadata is initialized and valid.
         unsafe { &*self.slot().dyn_meta_ptr() }
     }*/
-
     /// Gets the reference count of the frame.
     ///
     /// It returns the number of all references to the frame, including all the
@@ -415,6 +416,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         assert(regions.slot_owners.contains_key(self.index()));
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
         // SAFETY: Both the lifetime and the type matches `self`.
+
         #[verus_spec(with Tracked(&perm.points_to))]
         let paddr = self.start_paddr();
 
@@ -587,14 +589,19 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         has_safe_slot(paddr),
-        !MetaSlot::inc_ref_count_panic_cond(old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count),
+        !MetaSlot::inc_ref_count_panic_cond(
+            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
+        ),
     ensures
         regions.inv(),
-        regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
-            old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
+        regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
+            regions,
+        ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
         regions.slots =~= old(regions).slots,
-        forall|i: usize| i != frame_to_index(paddr) ==>
-            (#[trigger] regions.slot_owners[i] == old(regions).slot_owners[i]),
+        forall|i: usize|
+            i != frame_to_index(paddr) ==> (#[trigger] regions.slot_owners[i] == old(
+                regions,
+            ).slot_owners[i]),
         regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
 {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
@@ -617,7 +624,6 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
 }
 
 } // verus!
-
 /*
 impl<M: AnyFrameMeta + ?Sized> Clone for Frame<M> {
     fn clone(&self) -> Self {
@@ -700,4 +706,3 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
-

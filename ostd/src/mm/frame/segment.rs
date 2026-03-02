@@ -416,17 +416,25 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     /// - the segment and meta regions must satisfy their respective invariants;
     /// - the frame's slot must not be in `regions.slots` (the owner holds the permission);
     /// - the frame's raw_count must be 1 (it was forgotten once).
-    pub open spec fn next_requires(self, regions: MetaRegionOwners, owner: SegmentOwner<M>) -> bool {
+    pub open spec fn next_requires(
+        self,
+        regions: MetaRegionOwners,
+        owner: SegmentOwner<M>,
+    ) -> bool {
         &&& self.inv()
         &&& regions.inv()
         &&& owner.perms.len() > 0
         &&& !regions.slots.contains_key(frame_to_index(self.range.start))
         &&& regions.slot_owners.contains_key(frame_to_index(self.range.start))
         &&& regions.slot_owners[frame_to_index(self.range.start)].raw_count == 1
-        &&& regions.slot_owners[frame_to_index(self.range.start)].self_addr == frame_to_meta(self.range.start)
+        &&& regions.slot_owners[frame_to_index(self.range.start)].self_addr == frame_to_meta(
+            self.range.start,
+        )
         &&& owner.perms[0].points_to.is_init()
         &&& owner.perms[0].points_to.addr() == frame_to_meta(self.range.start)
-        &&& owner.perms[0].points_to.value().wf(regions.slot_owners[frame_to_index(self.range.start)])
+        &&& owner.perms[0].points_to.value().wf(
+            regions.slot_owners[frame_to_index(self.range.start)],
+        )
     }
 
     /// The wrapper for the postcondition for iterating to the next frame:
@@ -477,8 +485,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         ensures
             Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
     )]
-    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res: Result<Self, GetFrameError>)
-    {
+    pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
+        Result<Self, GetFrameError>) {
         proof_decl! {
             let tracked mut owner: Option<SegmentOwner<M>> = None;
             let tracked mut addrs = Seq::<usize>::tracked_empty();
@@ -553,7 +561,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 assert(forall|paddr_in: Paddr, paddr_out: Paddr, m: M|
                     metadata_fn.ensures((paddr_in,), (paddr_out, m)) ==> {
                         &&& regions.slot_owners[frame_to_index(paddr_out)].usage is Unused
-                        &&& regions.slot_owners[frame_to_index(paddr_out)].inner_perms.in_list.points_to(0)
+                        &&& regions.slot_owners[frame_to_index(
+                            paddr_out,
+                        )].inner_perms.in_list.points_to(0)
                     }) by {
                     admit();
                 }
@@ -718,7 +728,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     ///
     /// The sliced byte offset range in indexed by the offset from the start of
     /// the contiguous frames. The resulting frames holds extra reference counts.
-    /// 
+    ///
     /// # Verified Properties
     ///
     /// # Verified Properties

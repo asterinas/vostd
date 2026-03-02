@@ -68,9 +68,9 @@ verus! {
 ///
 /// If the kernel otherwise decides not to ensure that the running task's [`VmSpace`] is always
 /// activated, the kernel must deal with race conditions when calling methods that require the
-/// `[VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmSpace::reader`],
-/// [`VmSpace::writer`]. Otherwise, the behavior is unspecified, though it's guaranteed _not_ to
-/// compromise the kernel's memory safety.
+/// [`VmSpace`] to be activated, e.g., [`UserMode::execute`], [`VmReader`] and [`VmWriter`].
+/// Otherwise, the behavior is unspecified, though it's guaranteed _not_ to compromise the kernel's
+/// memory safety.
 ///
 /// # Memory Backing
 ///
@@ -83,6 +83,8 @@ verus! {
 ///
 /// [`inject_post_schedule_handler`]: crate::task::inject_post_schedule_handler
 /// [`UserMode::execute`]: crate::user::UserMode::execute
+/// [`VmReader`]: crate::mm::io::VmWriter
+/// [`VmReader`]: crate::mm::io::VmReader
 /// # Verification Design
 ///
 /// A [`VmSpace`] has a corresponding [`VmSpaceOwner`] object that is used to track its state,
@@ -90,6 +92,7 @@ verus! {
 /// that are associated with the [`VmSpace`], and the [`MemView`] which encodes the active page table and
 /// the subset of the TLB that covers the same virtual address space.
 /// All proofs about the correctness of the readers and writers are founded on the well-formedness of the [`MemView`]:
+///
 /// ```rust
 /// open spec fn mem_view_wf(self) -> bool {
 ///    &&& self.mem_view is Some <==> self.mv_range@ is Some
@@ -128,25 +131,8 @@ verus! {
 /// ```
 pub struct VmSpace<'a> {
     pub pt: PageTable<UserPtConfig>,
-    /// Whether we allow shared reading.
-    pub shared_reader: bool,
-    /// All readers belonging to this VM space.
-    pub readers: Vec<&'a VmReader<'a>>,
-    /// All writers belonging to this VM space.
-    pub writers: Vec<&'a VmWriter<'a>>,
     pub cpus: AtomicCpuSet,
-    pub marker: PhantomData<&'a ()>,
-}
-
-impl Inv for VmSpace<'_> {
-    open spec fn inv(self) -> bool {
-        &&& forall|i: int|
-            #![trigger self.readers@[i]]
-            0 <= i < self.readers@.len() as int ==> self.readers@[i].inv()
-        &&& forall|i: int|
-            #![trigger self.writers@[i]]
-            0 <= i < self.writers@.len() as int ==> self.writers@[i].inv()
-    }
+    pub _marker: PhantomData<&'a ()>,
 }
 
 type Result<A> = core::result::Result<A, Error>;
@@ -154,7 +140,7 @@ type Result<A> = core::result::Result<A, Error>;
 #[verus_verify]
 impl<'a> VmSpace<'a> {
     /// A spec function to create a new [`VmSpace`] instance.
-    /// 
+    ///
     /// The reason why this function is marked as `uninterp` is that the implementation details
     /// of the [`VmSpace`] struct are not important for the verification of its clients.
     pub uninterp spec fn new_spec() -> Self;
@@ -162,7 +148,7 @@ impl<'a> VmSpace<'a> {
     /// Checks the preconditions for creating a reader or writer for the given virtual address range.
     ///
     /// Essentially, this requires that
-    /// 
+    ///
     /// - the invariants of the [`VmSpace`] and [`VmSpaceOwner`] hold
     ///   (see [`VmSpaceOwner::inv_with`] and [`VmSpaceOwner::inv`]);
     /// - the [`VmSpaceOwner`] is active (via some threads or activation function);
@@ -177,7 +163,6 @@ impl<'a> VmSpace<'a> {
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
-        &&& self.inv()
         &&& vm_owner.inv_with(*self)
         &&& vm_owner.inv()
         &&& vm_owner.active
@@ -187,7 +172,7 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Checks the preconditions for creating a writer for the given virtual address range.
-    /// 
+    ///
     /// Most of the pre-conditions are the same as those for creating a reader (see
     /// [`Self::reader_requires`]), except that the caller must also have permission to
     /// create a writer for the given virtual address range.
@@ -197,7 +182,6 @@ impl<'a> VmSpace<'a> {
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
-        &&& self.inv()
         &&& vm_owner.inv_with(*self)
         &&& vm_owner.inv()
         &&& vm_owner.active
@@ -207,22 +191,22 @@ impl<'a> VmSpace<'a> {
     }
 
     /// The guarantees of the created reader or writer, assuming the preconditions are satisfied.
-    /// 
+    ///
     /// Essentially, this ensures that
-    /// 
+    ///
     /// - the invariants of the new [`VmSpace`] and the reader or writer hold;
     /// - the reader or writer is associated with a [`VmIoOwner`] that is well-formed with respect to
     ///   the reader or writer;
     /// - the reader or writer has no memory view, as the memory view will be taken from the
     ///   [`VmSpaceOwner`] when the reader or writer is activated.
-    /// 
+    ///
     /// # Special Note
-    /// 
+    ///
     /// The newly created instance of [`VmReader`] and its associated [`VmIoOwner`] are not yet
     /// activated, so the guarantees about the memory view only require that the memory view is
     /// [`None`]. The guarantees about the memory view will be provided by the activation function
     /// (see [`Self::activate_reader`] and [`Self::activate_writer`]).
-    /// 
+    ///
     /// We avoid mixing the creation, usage and deletion into one giant function as this would
     /// create some unnecessary life-cycle management complexities and not really help with the
     /// verification itself.
@@ -246,7 +230,7 @@ impl<'a> VmSpace<'a> {
     }
 
     /// The guarantees of the created writer, assuming the preconditions are satisfied.
-    /// 
+    ///
     /// Most of the guarantees are the same as those for creating a reader (see
     /// [`Self::reader_ensures`]), except that the writer is associated with a [`VmIoOwner`] that is well-formed with respect to the writer.
     pub open spec fn writer_ensures(
@@ -269,15 +253,15 @@ impl<'a> VmSpace<'a> {
     }
 
     /// Creates a new VM address space.
-    /// 
+    ///
     /// # Verification Design
-    /// 
+    ///
     /// This function is marked as `external_body` for now as the current design does not entail
-    /// the conrete implementation details of the underlying data structure of the [`VmSpace`].
+    /// the concrete implementation details of the underlying data structure of the [`VmSpace`].
     /// 
     /// ## Preconditions
     /// None
-    /// 
+    ///
     /// ## Postconditions
     /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`]
     /// - The returned [`VmSpace`] instance is equal to the one created by the [`Self::new_spec`]
@@ -288,7 +272,6 @@ impl<'a> VmSpace<'a> {
     #[verus_spec(r =>
         ensures
             r == Self::new_spec(),
-            r.inv(),
     )]
     pub fn new() -> Self {
         unimplemented!()
@@ -336,183 +319,6 @@ impl<'a> VmSpace<'a> {
         )
     }
 
-    /// Activates the given reader to read data from the user space of the current task.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
-    /// - The reader must be well-formed with respect to the [`VmSpaceOwner`].
-    /// - The reader's virtual address range must be mapped within the [`VmSpaceOwner`]'s memory view.
-    /// ## Postconditions
-    /// - The reader will be added to the [`VmSpace`]'s readers list.
-    /// - The reader will be activated with a view of its virtual address range taken from the [`VmSpaceOwner`]'s memory view.
-    /// ## Safety
-    /// - The function preserves all memory invariants.
-    /// - The [`MemView`] invariants ensure that the reader has a consistent view of memory.
-    /// - The [`VmSpaceOwner`] invariants ensure that the viewed memory is owned exclusively by this [`VmSpace`].
-    #[inline(always)]
-    #[verus_spec(r =>
-        with
-            Tracked(vm_space_owner): Tracked<&'a mut VmSpaceOwner<'a>>,
-            Tracked(owner_r): Tracked<&'a mut VmIoOwner<'a>>,
-        requires
-            old(self).inv(),
-            old(vm_space_owner).mem_view matches Some(mv) &&
-                forall |va: usize|
-                #![auto]
-                    old(owner_r).range@.start <= va < old(owner_r).range@.end ==>
-                        mv.addr_transl(va) is Some
-            ,
-            old(vm_space_owner).inv_with(*old(self)),
-            old(vm_space_owner).inv(),
-            old(vm_space_owner).active,
-            old(owner_r).inv_with_reader(*reader),
-            old(owner_r).mem_view is None,
-            reader.inv(),
-        ensures
-            self.inv(),
-            self.shared_reader == old(self).shared_reader,
-            self.readers@ == old(self).readers@.push(reader),
-            owner_r.inv_with_reader(*reader),
-            owner_r.mem_view == Some(VmIoMemView::ReadView(&old(vm_space_owner).mem_view@.unwrap().borrow_at_spec(
-                old(owner_r).range@.start,
-                (old(owner_r).range@.end - old(owner_r).range@.start) as usize,
-            ))),
-    )]
-    pub fn activate_reader(&mut self, reader: &'a VmReader<'a>) {
-        self.readers.push(reader);
-
-        proof {
-            let tracked mv = match vm_space_owner.mem_view {
-                Some(ref mv) => mv,
-                _ => { proof_from_false() },
-            };
-            let tracked borrowed_mv = mv.borrow_at(
-                owner_r.range@.start,
-                (owner_r.range@.end - owner_r.range@.start) as usize,
-            );
-
-            owner_r.mem_view = Some(VmIoMemView::ReadView(borrowed_mv));
-
-            assert forall|va: usize|
-                #![auto]
-                owner_r.range@.start <= va < owner_r.range@.end implies borrowed_mv.addr_transl(
-                va,
-            ) is Some by {
-                if owner_r.range@.start <= va && va < owner_r.range@.end {
-                    assert(borrowed_mv.mappings =~= mv.mappings.filter(
-                        |m: Mapping|
-                            m.va_range.start < (owner_r.range@.end) && m.va_range.end
-                                > owner_r.range@.start,
-                    ));
-                    let o_borrow_mv = borrowed_mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    let o_mv = mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    assert(mv.addr_transl(va) is Some);
-                    assert(o_mv.len() > 0);
-                    assert(o_borrow_mv.len() > 0) by {
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m)) by {
-                            vstd::set::axiom_set_choose_len(o_mv);
-                        }
-                        assert(o_borrow_mv.contains(m));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Activates the given writer to write data to the user space of the current task.
-    /// # Verified Properties
-    /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
-    /// - The writer must be well-formed with respect to the `VmSpaceOwner`.
-    /// - The writer's virtual address range must be mapped within the `VmSpaceOwner`'s memory view.
-    /// ## Postconditions
-    /// - The writer will be added to the `VmSpace`'s writers list.
-    /// - The writer will be activated with a view of its virtual address range taken from the `VmSpaceOwner`'s memory view.
-    /// ## Safety
-    /// - The function preserves all memory invariants.
-    /// - The `MemView` invariants ensure that the writer has a consistent view of memory.
-    /// - The `VmSpaceOwner` invariants ensure that the viewed memory is owned exclusively by this `VmSpace`.
-    #[inline(always)]
-    #[verus_spec(r =>
-        with
-            Tracked(vm_space_owner): Tracked<&'a mut VmSpaceOwner<'a>>,
-            Tracked(owner_w): Tracked<&'a mut VmIoOwner<'a>>,
-        requires
-            old(self).inv(),
-            old(vm_space_owner).mem_view matches Some(mv) &&
-                forall |va: usize|
-                #![auto]
-                    old(owner_w).range@.start <= va < old(owner_w).range@.end ==>
-                        mv.addr_transl(va) is Some
-            ,
-            old(vm_space_owner).inv_with(*old(self)),
-            old(vm_space_owner).inv(),
-            old(vm_space_owner).active,
-            old(owner_w).inv_with_writer(*writer),
-            old(owner_w).mem_view is None,
-            writer.inv(),
-        ensures
-            self.inv(),
-            self.shared_reader == old(self).shared_reader,
-            self.writers@ == old(self).writers@.push(writer),
-            owner_w.inv_with_writer(*writer),
-            owner_w.mem_view == Some(VmIoMemView::WriteView(old(vm_space_owner).mem_view@.unwrap().split_spec(
-                old(owner_w).range@.start,
-                (old(owner_w).range@.end - old(owner_w).range@.start) as usize,
-            ).0)),
-    )]
-    pub fn activate_writer(&mut self, writer: &'a VmWriter<'a>) {
-        self.writers.push(writer);
-
-        proof {
-            let tracked mut mv = vm_space_owner.mem_view.tracked_take();
-            let ghost old_mv = mv;
-            let tracked (lhs, rhs) = mv.split(
-                owner_w.range@.start,
-                (owner_w.range@.end - owner_w.range@.start) as usize,
-            );
-
-            owner_w.mem_view = Some(VmIoMemView::WriteView(lhs));
-            vm_space_owner.mem_view = Some(rhs);
-
-            assert forall|va: usize|
-                #![auto]
-                owner_w.range@.start <= va < owner_w.range@.end implies lhs.addr_transl(
-                va,
-            ) is Some by {
-                if owner_w.range@.start <= va && va < owner_w.range@.end {
-                    assert(lhs.mappings =~= old_mv.mappings.filter(
-                        |m: Mapping|
-                            m.va_range.start < (owner_w.range@.end) && m.va_range.end
-                                > owner_w.range@.start,
-                    ));
-                    let o_lhs = lhs.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-                    let o_mv = old_mv.mappings.filter(
-                        |m: Mapping| m.va_range.start <= va < m.va_range.end,
-                    );
-
-                    assert(old_mv.addr_transl(va) is Some);
-                    assert(o_mv.len() > 0);
-                    assert(o_lhs.len() > 0) by {
-                        broadcast use vstd::set::axiom_set_choose_len;
-
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m));
-                        assert(m.va_range.start <= va < m.va_range.end);
-                        assert(o_lhs.contains(m));
-                    }
-                }
-            }
-        }
-    }
-
     /// Creates a reader to read data from the user space of the current task.
     ///
     /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
@@ -523,14 +329,14 @@ impl<'a> VmSpace<'a> {
     /// correctly.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
     /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The `VmSpaceOwner` must not have any active writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] must not have any active writers overlapping with the range `vaddr..vaddr + len`.
     /// ## Postconditions
-    /// - An inactive `VmReader` will be created with the range `vaddr..vaddr + len`.
+    /// - An inactive [`VmReader`] will be created with the range `vaddr..vaddr + len`.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - By requiring that the `VmSpaceOwner` must not have any active writers overlapping with the target range,
+    /// - By requiring that the [`VmSpaceOwner`] must not have any active writers overlapping with the target range,
     /// it prevents data races between the reader and any writers.
     #[inline]
     #[verus_spec(r =>
@@ -542,7 +348,7 @@ impl<'a> VmSpace<'a> {
         ensures
             self.reader_ensures(*old(owner), *owner, vaddr, len, r, vm_reader_owner@),
     )]
-    pub fn create_reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
+    pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
         proof_decl! {
@@ -558,21 +364,21 @@ impl<'a> VmSpace<'a> {
         Ok(reader)
     }
 
-    /// Returns `Err` if this `VmSpace` is not belonged to the user space of the current task
+    /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
     /// or the `vaddr` and `len` do not represent a user space memory range.
     ///
     /// Users must ensure that no other page table is activated in the current task during the
-    /// lifetime of the created `VmWriter`. This guarantees that the `VmWriter` can operate correctly.
+    /// lifetime of the created [`VmWriter`]. This guarantees that the [`VmWriter`] can operate correctly.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The `VmSpace` invariants must hold with respect to the `VmSpaceOwner`, which must be active.
+    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
     /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The `VmSpaceOwner` must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
     /// ## Postconditions
-    /// - An inactive `VmWriter` will be created with the range `vaddr..vaddr + len`.
+    /// - An inactive [`VmWriter`] will be created with the range `vaddr..vaddr + len`.
     /// ## Safety
     /// - The function preserves all memory invariants.
-    /// - By requiring that the `VmSpaceOwner` must not have any active readers or writers overlapping with the target range,
+    /// - By requiring that the [`VmSpaceOwner`] must not have any active readers or writers overlapping with the target range,
     /// it prevents data races.
     #[inline]
     #[verus_spec(r =>
@@ -584,7 +390,7 @@ impl<'a> VmSpace<'a> {
         ensures
             self.writer_ensures(*old(owner), *owner, vaddr, len, r, new_owner@),
     )]
-    pub fn create_writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
+    pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
         let vptr = VirtPtr::from_vaddr(vaddr, len);
         let ghost id = owner.new_vm_io_id();
         proof_decl! {
@@ -605,8 +411,6 @@ impl<'a> VmSpace<'a> {
         Ok(writer)
     }
 }
-
-
 
 /// The cursor for querying over the VM space without modifying it.
 ///
@@ -648,7 +452,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// it is returned along with the virtual address range that it maps ([`query_success_ensures`]).
     /// - The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
     /// - If there is no mapped item at the current virtual address ([`query_none_condition`]),
-    /// it returns `None`, and the virtual address range of the cursor's current position.
+    /// it returns [`None`], and the virtual address range of the cursor's current position.
     /// ## Safety
     /// - This function preserves all memory invariants.
     /// - The locking mechanism prevents data races.
@@ -1213,13 +1017,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         };
                     };
 
-                    assert forall |m: Mapping|
-                        #[trigger] start_mappings.contains(m)
-                        && prev_va <= m.va_range.start
-                    implies
-                        m.va_range.start >= end_va
-                    by {
-                        if start_mappings.contains(m) && prev_va <= m.va_range.start && m.va_range.start < end_va {
+                    assert forall|m: Mapping| #[trigger]
+                        start_mappings.contains(m) && prev_va
+                            <= m.va_range.start implies m.va_range.start >= end_va by {
+                        if start_mappings.contains(m) && prev_va <= m.va_range.start
+                            && m.va_range.start < end_va {
                             assert(!(start_va <= m.va_range.start && m.va_range.start < prev_va));
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(

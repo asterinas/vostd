@@ -17,8 +17,8 @@ use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::MAX_NR_PAGES;
 use crate::specs::mm::frame::mapping::META_SLOT_SIZE;
 use crate::specs::mm::frame::meta_owners::*;
-use crate::specs::mm::frame::unique::UniqueFrameOwner;
 use crate::specs::mm::frame::meta_owners::*;
+use crate::specs::mm::frame::unique::UniqueFrameOwner;
 
 verus! {
 

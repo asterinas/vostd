@@ -1,13 +1,15 @@
 use vstd::atomic::*;
+use vstd::atomic::*;
 use vstd::cell;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
-use vstd::atomic::*;
 
 use vstd_extra::cast_ptr::*;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{Metadata, MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, PageUsage};
+use super::meta_owners::{
+    MetaSlotModel, MetaSlotOwner, MetaSlotStatus, MetaSlotStorage, Metadata, PageUsage,
+};
 use crate::mm::frame::meta::{
     get_slot_spec,
     mapping::{frame_to_index, frame_to_meta},
@@ -17,8 +19,8 @@ use crate::mm::frame::*;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
-use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
 use crate::specs::mm::frame::meta_owners::MetadataInnerPerms;
+use crate::specs::mm::frame::meta_region_owners::{MetaRegionModel, MetaRegionOwners};
 
 use core::marker::PhantomData;
 
