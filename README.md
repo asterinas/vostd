@@ -1,5 +1,9 @@
 # Formal Verification of Asterinas OSTD with Verus
 
+[![Docs](https://img.shields.io/badge/docs-asterinas.github.io%2Fvostd-blue)](https://asterinas.github.io/vostd/)
+[![verify](https://github.com/asterinas/vostd/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/asterinas/vostd/actions/workflows/ci.yml)
+[![verify (verus-lang/verus)](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml/badge.svg?branch=main)](https://github.com/asterinas/vostd/actions/workflows/ci-upstream-verus.yml)
+
 The `vostd` project provides a formally-verified version of [OSTD](https://asterinas.github.io/book/ostd/index.html), the (unofficial) standard library for OS development in safe Rust. OSTD encapsulates low-level hardware interactions—which requires using `unsafe` Rust—into a small yet powerful set of high-level, safe abstractions. These abstractions enable the creation of complex, general-purpose OSes like [Asterinas](https://github.com/asterinas/asterinas) entirely in safe Rust.
 
 By design, OSTD guarantees *soundness*: no undefined behavior is possible, regardless of how its API is used in safe Rust. The goal of the `vostd` project is to bolster confidence in this soundness through formal verification, leveraging the [Verus](https://github.com/verus-lang/verus) verification tool.
