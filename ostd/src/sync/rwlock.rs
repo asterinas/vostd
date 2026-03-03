@@ -388,7 +388,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a read lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    #[verifier::external_body]
+    #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
@@ -418,16 +418,22 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                             prev_usize & WRITER != 0usize;
                         assert(false);
                     }
+                    if g.cell_perm->Some_0.frac() == 1 {
+                        assert(prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0) by (bit_vector)
+                        requires
+                            prev_usize & MAX_READER != 0;
+                        assert(false);
+                    }
                     let tracked mut tmp = g.cell_perm.tracked_take();
                     let tracked frac_perm = tmp.split(1int);
                     g.cell_perm = Some(tmp);
                     perm = Some(frac_perm);
-                } else {
                     admit();
+                } else {
                     let tracked mut tmp = g.read_retract_token.split(1int);
                     retract_read_token = Some(tmp);
+                    admit();
                 }
-                admit();
             }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
@@ -443,7 +449,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                 update prev -> next;
                 ghost g => {
                     g.read_retract_token.combine(retract_read_token.tracked_unwrap());
-                admit();
                 }
             );
             None
