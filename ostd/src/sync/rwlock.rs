@@ -31,6 +31,8 @@ verus! {
 broadcast use group_deref_spec;
 
 type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
+type UpgradeRetractToken = FracGhost<()>;
+type ReadRetractToken = FracGhost<(), V_MAX_PERM_FRACS>;
 
 spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 1) as u64;
 
@@ -47,8 +49,8 @@ ensures
 
 tracked struct RwPerms<T> {
     cell_perm: Option<RwFrac<T>>,
-    upgrade_retract_token: FracGhost<()>,
-    read_retract_token: FracGhost<(),V_MAX_PERM_FRACS>,
+    upgrade_retract_token: UpgradeRetractToken,
+    read_retract_token: ReadRetractToken,
 }
 
 ghost struct RwId {
@@ -60,11 +62,11 @@ ghost struct RwId {
 /// **NOTE**: We *ASSUME* this property always holds without proving it. The implementation will not work correctly because of overflow caused by 
 /// more than `2*MAX_READER` concurrent `RwLock::try_read` operations, but it will never happen in the real world 
 /// because it will require more than `2^61` threads.
-pub closed spec fn no_max_reader_overflow(v: usize) -> bool {
+pub closed spec fn no_max_reader_overflow_prev(v: usize) -> bool {
     let has_max_reader: bool = (v & MAX_READER) != 0usize;
     let reader_count: usize = v & READER_MASK;
     if has_max_reader {
-        reader_count + READER <= MAX_READER
+        reader_count + READER < MAX_READER
     } else {
         true
     }
@@ -379,23 +381,47 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     #[verifier::external_body]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         let guard = G::read_guard();
+        proof_decl!{
+            let tracked mut perm: Option<RwFrac<T>> = None;
+            let tracked mut retract_read_token: Option<ReadRetractToken> = None;
+        }
+        proof!{
+            use_type_invariant(self);
+            lemma_consts_properties();
+        }
+
         // let lock = self.lock.fetch_add(READER, Acquire);
         let lock = atomic_with_ghost!(
             self.lock => fetch_add(READER);
-            returning res;
-            ghost g => { }
+            update prev -> next;
+            ghost g => { 
+                let prev_usize = prev as usize;
+                assume (no_max_reader_overflow_prev(prev_usize));
+                if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+                    let tracked mut tmp = g.cell_perm.tracked_take();
+                    let tracked frac_perm = tmp.split(1int);
+                    g.cell_perm = Some(tmp);
+                    perm = Some(frac_perm);
+                } else {
+                    let tracked mut tmp = g.read_retract_token.split(1int);
+                    retract_read_token = Some(tmp);
+                }
+            }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
             Some(RwLockReadGuard {
                 inner: self,
                 guard,
-                v_perm: Tracked::assume_new(),
+                v_perm: Tracked(perm.tracked_unwrap()),
             })
         } else {
             // self.lock.fetch_sub(READER, Release);
             atomic_with_ghost!(
                 self.lock => fetch_sub(READER);
-                ghost g => { }
+                update prev -> next;
+                ghost g => {
+                    g.read_retract_token.combine(retract_read_token.tracked_unwrap());
+                }
             );
             None
         }
@@ -521,7 +547,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
         let guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
-            let tracked mut retract_upgrade_token: Option<FracGhost<()>> = None;
+            let tracked mut retract_upgrade_token: Option<UpgradeRetractToken> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -611,7 +637,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
         let guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
-            let tracked mut retract_upgrade_token: Option<FracGhost<()>> = None;
+            let tracked mut retract_upgrade_token: Option<UpgradeRetractToken> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -1107,7 +1133,7 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
-        next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true } ==> {
+        next == prev + READER && no_max_reader_overflow_prev(prev) ==> {
             &&& next & READER_MASK == if prev & READER_MASK == MAX_READER - READER {
                     0
                 } else {
