@@ -32,7 +32,7 @@ broadcast use group_deref_spec;
 
 type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
 type UpgradeRetractToken = FracGhost<()>;
-type ReadRetractToken = FracGhost<(), V_MAX_PERM_FRACS>;
+type ReadRetractToken = FracGhost<(), V_MAX_READ_RETRACT_FRACS>;
 
 spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 2) as u64;
 
@@ -47,15 +47,29 @@ ensures
     (MAX_READER + 2) as u64
 }
 
+spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
+
+#[verifier::when_used_as_spec(V_MAX_READ_RETRACT_FRACS_SPEC)]
+exec const V_MAX_READ_RETRACT_FRACS: u64
+ensures
+    V_MAX_READ_RETRACT_FRACS == V_MAX_READ_RETRACT_FRACS_SPEC,
+    V_MAX_READ_RETRACT_FRACS == MAX_READER_MASK + 1,
+    V_MAX_READ_RETRACT_FRACS < u64::MAX,
+{
+    assert(MAX_READER_MASK + 1 < u64::MAX) by (compute_only);
+    (MAX_READER_MASK + 1) as u64
+}
+
 tracked struct RwPerms<T> {
     /// The fractional permission of the `PCell<T>`. It can be splited up to `V_MAX_PERM_FRACS:= MAX_READER + 2` pieces, 
     /// which allows at most `MAX_READER` `RwLockReadGuard`s and 1 `RwLockUpgradeableGuard`, and 1 reserved in the lock atomic.
     /// It will be switched out when there is a writer.
     cell_perm: Option<RwFrac<T>>,
-    /// The permission to retract a `READER` count. It can be split into at most `V_MAX_PERM_FRACS:=MAX_READER + 2` pieces, 
-    /// but we always reserve 3 pieces in the lock atomic, which allows at most `MAX_READER -1` failing `try_read` operations to
-    /// subtract the `READER` bit.
-    /// The total fraction of `read_retract_token` and `cell_perm` allows at most `2*MAX_READER` `try_read` attempts to add the reader count successfully.
+    /// The permission to retract a `READER` count. Its total quantity tracks the gap between
+    /// the number of `try_read` increments recorded in the lock word and the number of active
+    /// `RwLockReadGuard`s represented by `cell_perm`.
+    /// This budget is large enough to cover every representable pending failed `try_read`,
+    /// up to the `2*MAX_READER - 1` low-bit states in the atomic counter.
     read_retract_token: ReadRetractToken,
     /// The permission to retract the set of `UPGRADEABLE_READER` bit, it can be spilit at two pieces, 
     /// which allows at most 1 failing `try_upread` to subtract the `UPGRADEABLE_READER` bit, and 1 reserved in the lock atomic.
@@ -174,23 +188,22 @@ closed spec fn wf(self) -> bool {
         let has_writer: bool = (v & WRITER) != 0;
         let has_upgrade: bool = (v & UPGRADEABLE_READER) != 0;
         let has_max_reader: bool = (v & MAX_READER) != 0;
-        // The maximum number of created `RwLockReadGuard`s.
-        // NOTE: This does not mean there are exactly so many `RwLockReadGuard`s, some of them may be in the middle of being created.
-        // Even if `MAX_READER` is set, there is not necessarily `MAX_READER` `RwLockReadGuard`s.
-        let reader_count: usize = if has_max_reader { MAX_READER } else { v & READER_MASK };
         // The maximum number of created `RwLockUpgradeableGuard`, which can only be 0 or 1.
         // NOTE: This does not mean there is actually an `RwLockUpgradeableGuard`, it may be in the middle of being created.
         let upgrade_reader_count: int = if has_upgrade && !has_writer { 1int } else { 0int };
-        // The maximum number of readers, including `RwLockReadGuard`s and the `RwLockUpgradeableGuard`. 
-        // NOTE: This does not mean there are actually `total_readers` guards, it is an upper bound.
-        let total_readers: int = reader_count + upgrade_reader_count;
         // The total number of reader creation attempts, including created `RwLockReadGuard`s and those who are trying.
         let total_reader_attempts: int = (v & MAX_READER_MASK) as int;
-        // The remaining fractional permissions in the `RwLock` to access the protected data, it serves as an upper bound of the number of new `RwLockReadGuard` and `RwLockUpgradeableGuard` that can be successfully created.
+        // The clamped value represented in the counter bits. This counts successful readers plus any
+        // pending failed `try_read` operations, saturating at `MAX_READER`.
+        let counter_reader_count: int = if has_max_reader { MAX_READER as int } else { (v & READER_MASK) as int };
+        // Remaining fractional permissions in the lock to access the protected data.
         let remaining_pcell_perms: int = if g.cell_perm is Some { g.cell_perm->Some_0.frac() } else { 0 };
-        // Invariant: The sum of remaining read permissions and read retract tokens in the lock, plus the number of tokens given out when creating `RwLockReadGuard`s and `RwLockUpgradeableGuard`s,
-        // should always equal to the total `2*V_MAX_PERM_FRACS` permissions.
-        &&& g.read_retract_token.frac() + remaining_pcell_perms + upgrade_reader_count + total_reader_attempts  == V_MAX_PERM_FRACS + if g.cell_perm is Some {V_MAX_PERM_FRACS} else { 0 }
+        // The exact number of active readers, including the upgradeable reader if present.
+        let total_readers: int = if g.cell_perm is Some { (V_MAX_PERM_FRACS as int) - remaining_pcell_perms } else { 0 };
+        // Active `RwLockReadGuard`s; pending failed `try_read`s are accounted for separately by
+        // the read retract token and the extra increments in `total_reader_attempts`.
+        let reader_count: int = total_readers - upgrade_reader_count;
+        &&& g.read_retract_token.frac() + total_reader_attempts - reader_count == V_MAX_READ_RETRACT_FRACS
         // Not checked
         //&&& ((v & BEING_UPGRADED) != 0usize ==> (v & UPGRADEABLE_READER) != 0usize)  
         &&& g.upgrade_retract_token.frac() == if has_writer && has_upgrade {
@@ -198,17 +211,16 @@ closed spec fn wf(self) -> bool {
         } else {
             2int
         }
-        &&& 3 <= g.read_retract_token.frac() <= V_MAX_PERM_FRACS
+        &&& 0 <= reader_count <= counter_reader_count <= total_reader_attempts
+        &&& 1 <= g.read_retract_token.frac() <= V_MAX_READ_RETRACT_FRACS
         &&& match g.cell_perm {
             None => {
                 &&& has_writer
-                &&& reader_count == 0
                 &&& (v & BEING_UPGRADED) == 0usize
             }
             Some(perm) => {
                 &&& !has_writer
                 &&& perm.resource().id() == val.id()
-                &&& V_MAX_PERM_FRACS - total_readers <= perm.frac() <= V_MAX_PERM_FRACS 
             }
         }
         &&& v_id@.upgrade_retract_token_id == g.upgrade_retract_token.id()
@@ -423,20 +435,18 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                     let ghost has_upgrade = prev_usize & UPGRADEABLE_READER != 0usize;
                     let ghost old_upgrade_reader_count = if has_upgrade { 1int } else { 0int };
                     let ghost old_total_reader_attempts = (prev_usize & MAX_READER_MASK) as int;
-                    let ghost old_reader_count = (prev_usize & READER_MASK) as int;
-                    let ghost old_total_readers = old_reader_count + old_upgrade_reader_count;
+                    let ghost old_reader_count = (V_MAX_PERM_FRACS as int) - old_perm_frac - old_upgrade_reader_count;
+                    let ghost old_total_readers = (V_MAX_PERM_FRACS as int) - old_perm_frac;
                     assert(prev_usize & WRITER == 0usize) by (bit_vector)
                         requires
                             prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
                     assert(prev_usize & MAX_READER == 0usize) by (bit_vector)
                         requires
                             prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
-                    assert((if (prev_usize & MAX_READER) != 0usize { MAX_READER as int } else { (prev_usize & READER_MASK) as int }) == old_reader_count);
                     assert((if (prev_usize & UPGRADEABLE_READER) != 0usize && (prev_usize & WRITER) == 0usize { 1int } else { 0int }) == old_upgrade_reader_count);
-                    assert(old_total_readers
-                        == (if (prev_usize & MAX_READER) != 0usize { MAX_READER as int } else { (prev_usize & READER_MASK) as int })
-                            + (if (prev_usize & UPGRADEABLE_READER) != 0usize && (prev_usize & WRITER) == 0usize { 1int } else { 0int }));
-                    assert(old_perm_frac >= (V_MAX_PERM_FRACS as int) - old_total_readers);
+                    assert(old_total_readers == old_reader_count + old_upgrade_reader_count);
+                    assert(old_read_retract_frac + old_total_reader_attempts - old_reader_count == V_MAX_READ_RETRACT_FRACS as int);
+                    assert(old_reader_count <= (prev_usize & READER_MASK) as int);
                     assert(old_reader_count < MAX_READER as int);
                     if has_upgrade {
                         assert(old_reader_count + 1int <= MAX_READER as int);
@@ -461,17 +471,37 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                     assert(next_usize & UPGRADEABLE_READER == prev_usize & UPGRADEABLE_READER);
                     let ghost next_upgrade_reader_count = if next_usize & UPGRADEABLE_READER != 0usize { 1int } else { 0int };
                     assert(next_upgrade_reader_count == old_upgrade_reader_count);
-                    let ghost next_reader_count = if next_usize & MAX_READER != 0usize { MAX_READER as int } else { (next_usize & READER_MASK) as int };
-                    let ghost next_total_readers = next_reader_count + next_upgrade_reader_count;
+                    let ghost next_total_readers = (V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac();
                     assert(next_total_readers == old_total_readers + 1int);
-                    assert(g.read_retract_token.frac() + g.cell_perm->Some_0.frac() + next_upgrade_reader_count + ((next_usize & MAX_READER_MASK) as int)
-                        == old_read_retract_frac + old_perm_frac + old_upgrade_reader_count + old_total_reader_attempts);
+                    assert(g.cell_perm->Some_0.frac() == old_perm_frac - 1int);
+                    let ghost next_reader_count = next_total_readers - next_upgrade_reader_count;
+                    assert(next_reader_count == old_reader_count + 1int);
+                    assert(g.read_retract_token.frac() + ((next_usize & MAX_READER_MASK) as int) - next_reader_count
+                        == old_read_retract_frac + old_total_reader_attempts - old_reader_count);
+                    assert(g.read_retract_token.frac() + ((next_usize & MAX_READER_MASK) as int) - next_reader_count
+                        == V_MAX_READ_RETRACT_FRACS as int);
                     assert(g.cell_perm->Some_0.resource().id() == self.val.id());
-                    assert((V_MAX_PERM_FRACS as int) - next_total_readers <= g.cell_perm->Some_0.frac());
+                    assert((V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac() == next_total_readers);
+                    assert(0 <= next_reader_count <= (if (next_usize & MAX_READER) != 0usize { MAX_READER as int } else { (next_usize & READER_MASK) as int }));
                 } else {
+                    let ghost old_total_reader_attempts = (prev_usize & MAX_READER_MASK) as int;
+                    let ghost old_reader_count = if g.cell_perm is Some {
+                        (V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac()
+                            - (if (prev_usize & UPGRADEABLE_READER) != 0usize { 1int } else { 0int })
+                    } else {
+                        0int
+                    };
+                    let ghost old_read_retract_frac = g.read_retract_token.frac();
+                    assert(old_read_retract_frac + old_total_reader_attempts - old_reader_count
+                        == V_MAX_READ_RETRACT_FRACS as int);
+                    assert((prev_usize & MAX_READER_MASK) < MAX_READER_MASK) by (bit_vector)
+                        requires no_max_reader_overflow(prev_usize);
+                    assert(old_total_reader_attempts - old_reader_count < V_MAX_READ_RETRACT_FRACS as int);
+                    assert(old_read_retract_frac >= 2int);
                     let tracked mut tmp = g.read_retract_token.split(1int);
                     retract_read_token = Some(tmp);
-                    admit();
+                    assert(g.read_retract_token.frac() + ((next_usize & MAX_READER_MASK) as int) - old_reader_count
+                        == V_MAX_READ_RETRACT_FRACS as int);
                 }
             }
         );
@@ -487,6 +517,55 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                 self.lock => fetch_sub(READER);
                 update prev -> next;
                 ghost g => {
+                    let prev_usize = prev as usize;
+                    let next_usize = next as usize;
+                    lemma_consts_properties_prev_next(prev_usize, next_usize);
+                    let ghost upgrade_reader_count = if (prev_usize & UPGRADEABLE_READER) != 0usize && (prev_usize & WRITER) == 0usize { 1int } else { 0int };
+                    let ghost reader_count = if g.cell_perm is Some {
+                        (V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac() - upgrade_reader_count
+                    } else {
+                        0int
+                    };
+                    let ghost old_read_retract_frac = g.read_retract_token.frac();
+                    let ghost prev_total_reader_attempts = (prev_usize & MAX_READER_MASK) as int;
+                    let ghost prev_counter_reader_count = if (prev_usize & MAX_READER) != 0usize {
+                        MAX_READER as int
+                    } else {
+                        (prev_usize & READER_MASK) as int
+                    };
+                    assert(old_read_retract_frac + prev_total_reader_attempts - reader_count
+                        == V_MAX_READ_RETRACT_FRACS as int);
+                    let tracked token = retract_read_token.tracked_unwrap();
+                    assert(token.frac() == 1int);
+                    g.read_retract_token.combine(token);
+                    g.read_retract_token.bounded();
+                    assert(old_read_retract_frac <= (V_MAX_READ_RETRACT_FRACS as int) - 1int);
+                    assert(prev_total_reader_attempts >= reader_count + 1int);
+                    let ghost next_total_reader_attempts = (next_usize & MAX_READER_MASK) as int;
+                    assert(next_total_reader_attempts == prev_total_reader_attempts - 1int);
+                    let ghost next_counter_reader_count = if (next_usize & MAX_READER) != 0usize {
+                        MAX_READER as int
+                    } else {
+                        (next_usize & READER_MASK) as int
+                    };
+                    assert(0 <= reader_count <= prev_counter_reader_count);
+                    assert(next_total_reader_attempts >= reader_count);
+                    if (next_usize & MAX_READER) != 0usize {
+                        assert(next_counter_reader_count == MAX_READER as int);
+                        assert((next_usize & MAX_READER_MASK) >= MAX_READER) by (bit_vector)
+                            requires (next_usize & MAX_READER) != 0usize;
+                        assert(MAX_READER as int <= next_total_reader_attempts);
+                        assert(reader_count <= next_counter_reader_count);
+                        assert(next_counter_reader_count <= next_total_reader_attempts);
+                    } else {
+                        assert((next_usize & MAX_READER_MASK) == (next_usize & READER_MASK)) by (bit_vector)
+                            requires (next_usize & MAX_READER) == 0usize;
+                        assert(next_counter_reader_count == next_total_reader_attempts);
+                        assert(reader_count <= next_counter_reader_count);
+                        assert(next_counter_reader_count <= next_total_reader_attempts);
+                    }
+                    assert(g.read_retract_token.frac() + next_total_reader_attempts - reader_count
+                        == V_MAX_READ_RETRACT_FRACS as int);
                 }
             );
             None
@@ -1222,6 +1301,12 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
+        next == prev - READER && prev & MAX_READER_MASK != 0 ==> {
+            &&& next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER
+            &&& next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER
+            &&& next & WRITER == prev & WRITER
+            &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
+        },
         next == prev + READER && no_max_reader_overflow(prev) ==> {
             &&& next & READER_MASK == if (prev & READER_MASK) + READER == MAX_READER {
                     0
@@ -1299,6 +1384,20 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
                 requires
                     next == prev - READER && prev & READER_MASK != 0;    
+        }
+        if next == prev - READER && prev & MAX_READER_MASK != 0 {
+            assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER) by (bit_vector)
+                requires
+                    next == prev - READER && prev & MAX_READER_MASK != 0;
+            assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
+                requires
+                    next == prev - READER && prev & MAX_READER_MASK != 0;
+            assert(next & WRITER == prev & WRITER) by (bit_vector)
+                requires
+                    next == prev - READER && prev & MAX_READER_MASK != 0;
+            assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
+                requires
+                    next == prev - READER && prev & MAX_READER_MASK != 0;
         }
         if next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK {
             assert(next & READER_MASK == if prev & READER_MASK == MAX_READER - READER {
