@@ -418,17 +418,56 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                             prev_usize & WRITER != 0usize;
                         assert(false);
                     }
-                    if g.cell_perm->Some_0.frac() == 1 {
-                        assert(prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0) by (bit_vector)
+                    let ghost old_read_retract_frac = g.read_retract_token.frac();
+                    let ghost old_perm_frac = g.cell_perm->Some_0.frac();
+                    let ghost has_upgrade = prev_usize & UPGRADEABLE_READER != 0usize;
+                    let ghost old_upgrade_reader_count = if has_upgrade { 1int } else { 0int };
+                    let ghost old_total_reader_attempts = (prev_usize & MAX_READER_MASK) as int;
+                    let ghost old_reader_count = (prev_usize & READER_MASK) as int;
+                    let ghost old_total_readers = old_reader_count + old_upgrade_reader_count;
+                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
                         requires
-                            prev_usize & MAX_READER != 0;
-                        assert(false);
+                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
+                    assert(prev_usize & MAX_READER == 0usize) by (bit_vector)
+                        requires
+                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
+                    assert((if (prev_usize & MAX_READER) != 0usize { MAX_READER as int } else { (prev_usize & READER_MASK) as int }) == old_reader_count);
+                    assert((if (prev_usize & UPGRADEABLE_READER) != 0usize && (prev_usize & WRITER) == 0usize { 1int } else { 0int }) == old_upgrade_reader_count);
+                    assert(old_total_readers
+                        == (if (prev_usize & MAX_READER) != 0usize { MAX_READER as int } else { (prev_usize & READER_MASK) as int })
+                            + (if (prev_usize & UPGRADEABLE_READER) != 0usize && (prev_usize & WRITER) == 0usize { 1int } else { 0int }));
+                    assert(old_perm_frac >= (V_MAX_PERM_FRACS as int) - old_total_readers);
+                    assert(old_reader_count < MAX_READER as int);
+                    if has_upgrade {
+                        assert(old_reader_count + 1int <= MAX_READER as int);
+                    } else {
+                        assert(old_total_readers == old_reader_count);
+                        assert(old_total_readers <= MAX_READER as int);
                     }
+                    assert(old_total_readers <= MAX_READER as int);
                     let tracked mut tmp = g.cell_perm.tracked_take();
                     let tracked frac_perm = tmp.split(1int);
                     g.cell_perm = Some(tmp);
                     perm = Some(frac_perm);
-                    admit();
+                    assert(frac_perm.frac() == 1int);
+                    assert(g.cell_perm->Some_0.frac() + frac_perm.frac() == old_perm_frac);
+                    assert(g.cell_perm->Some_0.frac() == old_perm_frac - 1int);
+                    assert((next_usize & MAX_READER_MASK) as int == old_total_reader_attempts + 1int);
+                    assert(next_usize & WRITER == prev_usize & WRITER);
+                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
+                        requires
+                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
+                    assert(next_usize & WRITER == 0usize);
+                    assert(next_usize & UPGRADEABLE_READER == prev_usize & UPGRADEABLE_READER);
+                    let ghost next_upgrade_reader_count = if next_usize & UPGRADEABLE_READER != 0usize { 1int } else { 0int };
+                    assert(next_upgrade_reader_count == old_upgrade_reader_count);
+                    let ghost next_reader_count = if next_usize & MAX_READER != 0usize { MAX_READER as int } else { (next_usize & READER_MASK) as int };
+                    let ghost next_total_readers = next_reader_count + next_upgrade_reader_count;
+                    assert(next_total_readers == old_total_readers + 1int);
+                    assert(g.read_retract_token.frac() + g.cell_perm->Some_0.frac() + next_upgrade_reader_count + ((next_usize & MAX_READER_MASK) as int)
+                        == old_read_retract_frac + old_perm_frac + old_upgrade_reader_count + old_total_reader_attempts);
+                    assert(g.cell_perm->Some_0.resource().id() == self.val.id());
+                    assert((V_MAX_PERM_FRACS as int) - next_total_readers <= g.cell_perm->Some_0.frac());
                 } else {
                     let tracked mut tmp = g.read_retract_token.split(1int);
                     retract_read_token = Some(tmp);
@@ -448,7 +487,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                 self.lock => fetch_sub(READER);
                 update prev -> next;
                 ghost g => {
-                    g.read_retract_token.combine(retract_read_token.tracked_unwrap());
                 }
             );
             None
