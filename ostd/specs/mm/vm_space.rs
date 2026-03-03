@@ -352,7 +352,7 @@ impl<'a> VmSpaceOwner<'a> {
     /// # Verified Properties
     /// ## Preconditions
     /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
-    /// - The writer must be well-formed with respect to the `[VmSpaceOwner`].
+    /// - The writer must be well-formed with respect to the [`VmSpaceOwner`].
     /// - The writer's virtual address range must be mapped within the [`VmSpaceOwner`]'s memory view.
     /// ## Postconditions
     /// - The writer will be added to the [`VmSpace`]'s writers list.
