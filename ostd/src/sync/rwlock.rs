@@ -34,23 +34,32 @@ type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
 type UpgradeRetractToken = FracGhost<()>;
 type ReadRetractToken = FracGhost<(), V_MAX_PERM_FRACS>;
 
-spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 1) as u64;
+spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 2) as u64;
 
 #[verifier::when_used_as_spec(V_MAX_PERM_FRACS_SPEC)]
 exec const V_MAX_PERM_FRACS: u64 
 ensures
     V_MAX_PERM_FRACS == V_MAX_PERM_FRACS_SPEC,
-    V_MAX_PERM_FRACS == MAX_READER + 1,
+    V_MAX_PERM_FRACS == MAX_READER + 2,
     V_MAX_PERM_FRACS < u64::MAX,
 { 
-    assert(MAX_READER + 1 < u64::MAX) by (compute_only);
-    (MAX_READER + 1) as u64
+    assert(MAX_READER + 2 < u64::MAX) by (compute_only);
+    (MAX_READER + 2) as u64
 }
 
 tracked struct RwPerms<T> {
+    /// The fractional permission of the `PCell<T>`. It can be splited up to `V_MAX_PERM_FRACS:= MAX_READER + 2` pieces, 
+    /// which allows at most `MAX_READER` `RwLockReadGuard`s and 1 `RwLockUpgradeableGuard`, and 1 reserved in the lock atomic.
+    /// It will be switched out when there is a writer.
     cell_perm: Option<RwFrac<T>>,
-    upgrade_retract_token: UpgradeRetractToken,
+    /// The permission to retract a `READER` count. It can be split into at most `V_MAX_PERM_FRACS:=MAX_READER + 2` pieces, 
+    /// but we always reserve 3 pieces in the lock atomic, which allows at most `MAX_READER -1` failing `try_read` operations to
+    /// subtract the `READER` bit.
+    /// The total fraction of `read_retract_token` and `cell_perm` allows at most `2*MAX_READER` `try_read` attempts to add the reader count successfully.
     read_retract_token: ReadRetractToken,
+    /// The permission to retract the set of `UPGRADEABLE_READER` bit, it can be spilit at two pieces, 
+    /// which allows at most 1 failing `try_upread` to subtract the `UPGRADEABLE_READER` bit, and 1 reserved in the lock atomic.
+    upgrade_retract_token: UpgradeRetractToken,
 }
 
 ghost struct RwId {
@@ -58,18 +67,13 @@ ghost struct RwId {
     read_retract_token_id: Loc,
 }
 
-/// The number of concurrent readers will not exceed `2*MAX_READER` is necessary to ensure the correctness of the implementation.
-/// **NOTE**: We *ASSUME* this property always holds without proving it. The implementation will not work correctly because of overflow caused by 
-/// more than `2*MAX_READER` concurrent `RwLock::try_read` operations, but it will never happen in the real world 
-/// because it will require more than `2^61` threads.
-pub closed spec fn no_max_reader_overflow_prev(v: usize) -> bool {
-    let has_max_reader: bool = (v & MAX_READER) != 0usize;
-    let reader_count: usize = v & READER_MASK;
-    if has_max_reader {
-        reader_count + READER < MAX_READER
-    } else {
-        true
-    }
+/// The reader count can never reach `2*MAX_READER` to avoid overflow. 
+/// **NOTE**: We *ASSUME* this property always holds without any proof. We believe this is true in practice because:
+/// - More than `2^61` `try_read` operations are required to trigger the overflow concurrently, which is absurd in real world scenarios. 
+/// - If one tries to create a huge number (more than `2*MAX_READER`) of `RwLockReadGuard`s in a loop with `mem::forget`, it will take years and 
+/// will be prevented by the `MAX_READER` check.
+pub closed spec fn no_max_reader_overflow(v: usize) -> bool {
+    v & MAX_READER_MASK < MAX_READER_MASK
 }
 
 struct_with_invariants! {
@@ -166,35 +170,35 @@ pub struct RwLock<T  /* : ?Sized*/ , Guard  /* = PreemptDisabled*/ > {
 
 /// This invariant holds at any time, i.e. not violated during any method execution.
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val, guard, v_id) is (v:usize, g: RwPerms<T>) {
-        let has_writer: bool = (v & WRITER) != 0usize;
-        let has_upgrade: bool = (v & UPGRADEABLE_READER) != 0usize;
-        let has_max_reader: bool = (v & MAX_READER) != 0usize;
-        // The value of the reader count bits.
-        // NOTE: This does not mean there are actually `v & READER_MASK` `RwLockReadGuard`s, some of them may be in the middle of being created.
-        // Even if `MAX_READER` is set, it is not necessary to have `MAX_READER - 1` `RwLockReadGuard`s.
-        let reader_count: usize = v & READER_MASK;
-        // The value of the upgradeable reader bit.
-        // NOTE: This does not mean there is actually an `RwLockUpgradeableGuard`, it may be in the middle of creating one.
+    invariant on lock with (val, guard, v_id) is (v: usize, g: RwPerms<T>) {
+        let has_writer: bool = (v & WRITER) != 0;
+        let has_upgrade: bool = (v & UPGRADEABLE_READER) != 0;
+        let has_max_reader: bool = (v & MAX_READER) != 0;
+        // The maximum number of created `RwLockReadGuard`s.
+        // NOTE: This does not mean there are exactly so many `RwLockReadGuard`s, some of them may be in the middle of being created.
+        // Even if `MAX_READER` is set, there is not necessarily `MAX_READER` `RwLockReadGuard`s.
+        let reader_count: usize = if has_max_reader { MAX_READER } else { v & READER_MASK };
+        // The maximum number of created `RwLockUpgradeableGuard`, which can only be 0 or 1.
+        // NOTE: This does not mean there is actually an `RwLockUpgradeableGuard`, it may be in the middle of being created.
         let upgrade_reader_count: int = if has_upgrade && !has_writer { 1int } else { 0int };
-        // The total number of readers, considering normal `RwLockReadGuard`s and the `RwLockUpgradeableGuard`. 
+        // The maximum number of readers, including `RwLockReadGuard`s and the `RwLockUpgradeableGuard`. 
         // NOTE: This does not mean there are actually `total_readers` guards, it is an upper bound.
         let total_readers: int = reader_count + upgrade_reader_count;
         // The total number of reader creation attempts, including created `RwLockReadGuard`s and those who are trying.
-        let total_reader_attempts: int = reader_count + if has_max_reader { MAX_READER } else { 0 };
-        // The remaining permissions in the `RwLock` to create new read guards, it serves as an upper bound of the number of new `RwLockReadGuard` and `RwLockUpgradeableGuard` that can be successfully created.
+        let total_reader_attempts: int = (v & MAX_READER_MASK) as int;
+        // The remaining fractional permissions in the `RwLock` to access the protected data, it serves as an upper bound of the number of new `RwLockReadGuard` and `RwLockUpgradeableGuard` that can be successfully created.
         let remaining_pcell_perms: int = if g.cell_perm is Some { g.cell_perm->Some_0.frac() } else { 0 };
-        // Invariant: The sum of all reader attempts, remaining permissions and the upgrade reader should be equal to the maximum permissions.
-        &&& total_reader_attempts + g.read_retract_token.frac() + upgrade_reader_count + remaining_pcell_perms == V_MAX_PERM_FRACS + if g.cell_perm is Some {V_MAX_PERM_FRACS} else { 0 }
+        // Invariant: The sum of remaining read permissions and read retract tokens in the lock, plus the number of tokens given out when creating `RwLockReadGuard`s and `RwLockUpgradeableGuard`s,
+        // should always equal to the total `2*V_MAX_PERM_FRACS` permissions.
+        &&& g.read_retract_token.frac() + remaining_pcell_perms + upgrade_reader_count + total_reader_attempts  == V_MAX_PERM_FRACS + if g.cell_perm is Some {V_MAX_PERM_FRACS} else { 0 }
         // Not checked
-        //&&& ((v & BEING_UPGRADED) != 0usize ==> (v & UPGRADEABLE_READER) != 0usize)
-        &&& v_id@.upgrade_retract_token_id == g.upgrade_retract_token.id()
-        &&& v_id@.read_retract_token_id == g.read_retract_token.id()
+        //&&& ((v & BEING_UPGRADED) != 0usize ==> (v & UPGRADEABLE_READER) != 0usize)  
         &&& g.upgrade_retract_token.frac() == if has_writer && has_upgrade {
             1int
         } else {
             2int
         }
+        &&& 3 <= g.read_retract_token.frac() <= V_MAX_PERM_FRACS
         &&& match g.cell_perm {
             None => {
                 &&& has_writer
@@ -204,9 +208,11 @@ closed spec fn wf(self) -> bool {
             Some(perm) => {
                 &&& !has_writer
                 &&& perm.resource().id() == val.id()
-                &&& perm.frac() >= V_MAX_PERM_FRACS - total_readers
+                &&& V_MAX_PERM_FRACS - total_readers <= perm.frac() <= V_MAX_PERM_FRACS 
             }
         }
+        &&& v_id@.upgrade_retract_token_id == g.upgrade_retract_token.id()
+        &&& v_id@.read_retract_token_id == g.read_retract_token.id()
     }
 }
 
@@ -222,7 +228,11 @@ const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 
-const READER_MASK: usize = (!0usize) >> 4;
+/// Used only in verification. Excluding the `MAX_READER` bit.
+const READER_MASK: usize = usize::MAX >> 4;
+
+/// Used only in verification. Including the `MAX_READER` bit.
+const MAX_READER_MASK: usize = usize::MAX >> 3;
 
 impl<T, G> RwLock<T, G> {
     /// Returns the unique [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the internal `PCell<T>`.
@@ -380,7 +390,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// This function will never spin-wait and will return immediately.
     #[verifier::external_body]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
-        let guard = G::read_guard();
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
             let tracked mut retract_read_token: Option<ReadRetractToken> = None;
@@ -389,6 +398,8 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             use_type_invariant(self);
             lemma_consts_properties();
         }
+        
+        let guard = G::read_guard();
 
         // let lock = self.lock.fetch_add(READER, Acquire);
         let lock = atomic_with_ghost!(
@@ -396,16 +407,27 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             update prev -> next;
             ghost g => { 
                 let prev_usize = prev as usize;
-                assume (no_max_reader_overflow_prev(prev_usize));
+                let next_usize = next as usize;
+                assume (no_max_reader_overflow(prev_usize));
+                lemma_consts_properties_prev(prev_usize);
+                lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+                    if g.cell_perm is None {
+                        assert (prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0usize) by (bit_vector)
+                        requires
+                            prev_usize & WRITER != 0usize;
+                        assert(false);
+                    }
                     let tracked mut tmp = g.cell_perm.tracked_take();
                     let tracked frac_perm = tmp.split(1int);
                     g.cell_perm = Some(tmp);
                     perm = Some(frac_perm);
                 } else {
+                    admit();
                     let tracked mut tmp = g.read_retract_token.split(1int);
                     retract_read_token = Some(tmp);
                 }
+                admit();
             }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
@@ -421,6 +443,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                 update prev -> next;
                 ghost g => {
                     g.read_retract_token.combine(retract_read_token.tracked_unwrap());
+                admit();
                 }
             );
             None
@@ -463,11 +486,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
-        let guard = G::guard();
-        // if self
-        //     .lock
-        //     .compare_exchange(0, WRITER, Acquire, Relaxed)
-        //     .is_ok()
         proof_decl!{
             let tracked mut perm: Option<PointsTo<T>> = None;
         }
@@ -475,14 +493,19 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             use_type_invariant(self);
             lemma_consts_properties();
         }
+
+        let guard = G::guard();
+        // if self
+        //     .lock
+        //     .compare_exchange(0, WRITER, Acquire, Relaxed)
+        //     .is_ok()
         if atomic_with_ghost!(
             self.lock => compare_exchange(0, WRITER);
             returning res;
             ghost g=> { 
                 if res is Ok {
                     let tracked frac_perm = g.cell_perm.tracked_take();
-                    frac_perm.bounded();
-                    let tracked (full_perm, _empty) = frac_perm.take_resource();
+                    let tracked (full_perm, _) = frac_perm.take_resource();
                     perm = Some(full_perm);
                 }
             }
@@ -503,11 +526,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// [`try_write`]: Self::try_write
     #[verus_spec]
     fn try_write_arc(self: &Arc<Self>) -> Option<ArcRwLockWriteGuard<T, G>> {
-        let guard = G::guard();
-        // if self
-        //     .lock
-        //     .compare_exchange(0, WRITER, Acquire, Relaxed)
-        //     .is_ok()
         proof_decl!{
             let tracked mut perm: Option<PointsTo<T>> = None;
         }
@@ -515,13 +533,18 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             use_type_invariant(self);
             lemma_consts_properties();
         }
+
+        let guard = G::guard();
+        // if self
+        //     .lock
+        //     .compare_exchange(0, WRITER, Acquire, Relaxed)
+        //     .is_ok()
         if atomic_with_ghost!(
             self.lock => compare_exchange(0, WRITER);
             returning res;
             ghost g => {
                 if res is Ok {
                     let tracked frac_perm = g.cell_perm.tracked_take();
-                    frac_perm.bounded();
                     let tracked (full_perm, _) = frac_perm.take_resource();
                     perm = Some(full_perm);
                 }
@@ -544,7 +567,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
     pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<T, G>> {
-        let guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
             let tracked mut retract_upgrade_token: Option<UpgradeRetractToken> = None;
@@ -553,6 +575,9 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             use_type_invariant(self);
             lemma_consts_properties();
         }
+        
+        let guard = G::guard();
+        
         // let lock = self.lock.fetch_or(UPGRADEABLE_READER, Acquire) & (WRITER | UPGRADEABLE_READER);
         let lock = atomic_with_ghost!(
             self.lock => fetch_or(UPGRADEABLE_READER);
@@ -634,7 +659,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
     /// [`try_upread`]: Self::try_upread
     #[verus_spec]
     pub fn try_upread_arc(self: &Arc<Self>) -> Option<ArcRwLockUpgradeableGuard<T, G>> {
-        let guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
             let tracked mut retract_upgrade_token: Option<UpgradeRetractToken> = None;
@@ -643,6 +667,8 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
             use_type_invariant(self);
             lemma_consts_properties();
         }
+        
+        let guard = G::guard();
         // let lock = self.lock.fetch_or(UPGRADEABLE_READER, Acquire) & (WRITER | UPGRADEABLE_READER);
         let lock = atomic_with_ghost!(
             self.lock => fetch_or(UPGRADEABLE_READER);
@@ -1078,16 +1104,19 @@ proof fn lemma_consts_properties()
         0 & UPGRADEABLE_READER == 0,
         0 & BEING_UPGRADED == 0,
         0 & READER_MASK == 0,
+        0 & MAX_READER_MASK == 0,
         0 & MAX_READER == 0,
         0 & READER == 0,
         WRITER == 0x8000_0000_0000_0000,
         UPGRADEABLE_READER == 0x4000_0000_0000_0000,
         BEING_UPGRADED == 0x2000_0000_0000_0000,
         READER_MASK == 0x0FFF_FFFF_FFFF_FFFF,
+        MAX_READER_MASK == 0x1FFF_FFFF_FFFF_FFFF,
         MAX_READER == 0x1000_0000_0000_0000,
         WRITER & WRITER == WRITER,
         WRITER & BEING_UPGRADED == 0,
         WRITER & READER_MASK == 0,
+        WRITER & MAX_READER_MASK == 0,
         WRITER & MAX_READER == 0,
         WRITER & UPGRADEABLE_READER == 0,
 {
@@ -1096,17 +1125,31 @@ proof fn lemma_consts_properties()
     assert(0 & BEING_UPGRADED == 0) by (compute_only);
     assert(0 & READER_MASK == 0) by (compute_only);
     assert(0 & MAX_READER == 0) by (compute_only);
+    assert(0 & MAX_READER_MASK == 0) by (compute_only);
     assert(0 & READER == 0) by (compute_only);
     assert(WRITER == 0x8000_0000_0000_0000) by (compute_only);
     assert(UPGRADEABLE_READER == 0x4000_0000_0000_0000) by (compute_only);
     assert(BEING_UPGRADED == 0x2000_0000_0000_0000) by (compute_only);
     assert(READER_MASK == 0x0FFF_FFFF_FFFF_FFFF) by (compute_only);
     assert(MAX_READER == 0x1000_0000_0000_0000) by (compute_only);
+    assert(MAX_READER_MASK == 0x1FFF_FFFF_FFFF_FFFF) by (compute_only);
     assert(WRITER & WRITER == WRITER) by (compute_only);
     assert(WRITER & BEING_UPGRADED == 0) by (compute_only);
     assert(WRITER & READER_MASK == 0) by (compute_only);
+    assert(WRITER & MAX_READER_MASK == 0) by (compute_only);
     assert(WRITER & MAX_READER == 0) by (compute_only);
     assert(WRITER & UPGRADEABLE_READER == 0) by (compute_only);
+}
+
+proof fn lemma_consts_properties_prev(prev: usize)
+    ensures
+        no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
+{
+    if no_max_reader_overflow(prev) {
+        assert(prev + READER <= usize::MAX) by (bit_vector)
+        requires
+            prev & MAX_READER_MASK < MAX_READER_MASK;
+    }
 }
 
 proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
@@ -1116,6 +1159,7 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & UPGRADEABLE_READER != 0
             &&& next & WRITER == prev & WRITER
             &&& next & READER_MASK == prev & READER_MASK
+            &&& next & MAX_READER_MASK == prev & MAX_READER_MASK
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
@@ -1123,25 +1167,28 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & UPGRADEABLE_READER == 0
             &&& next & WRITER == prev & WRITER
             &&& next & READER_MASK == prev & READER_MASK
+            &&& next & MAX_READER_MASK == prev & MAX_READER_MASK
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
         next == prev - READER && prev & READER_MASK != 0 ==> {
             &&& next & READER_MASK == (prev & READER_MASK) - READER
+            &&& next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER
             &&& next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER
             &&& next & WRITER == prev & WRITER
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
         },
-        next == prev + READER && no_max_reader_overflow_prev(prev) ==> {
-            &&& next & READER_MASK == if prev & READER_MASK == MAX_READER - READER {
+        next == prev + READER && no_max_reader_overflow(prev) ==> {
+            &&& next & READER_MASK == if (prev & READER_MASK) + READER == MAX_READER {
                     0
                 } else {
                     (prev & READER_MASK) + READER
                 }
+            &&& next & MAX_READER_MASK == (prev & MAX_READER_MASK) + READER
             &&& next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER
             &&& next & WRITER == prev & WRITER
-            &&& next & MAX_READER == if prev & READER_MASK == MAX_READER - READER {
+            &&& next & MAX_READER == if (prev & READER_MASK) + READER == MAX_READER {
                     MAX_READER
                 } else {
                     prev & MAX_READER
@@ -1158,6 +1205,9 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
                 requires
                     next == prev | UPGRADEABLE_READER;
             assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
+                requires
+                    next == prev | UPGRADEABLE_READER;
+            assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
                 requires
                     next == prev | UPGRADEABLE_READER;
             assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
@@ -1177,6 +1227,9 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
                 requires
                     next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0;
+            assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
+                requires
+                    next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0;    
             assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
                 requires
                     next == prev - UPGRADEABLE_READER && prev & UPGRADEABLE_READER != 0;
@@ -1186,6 +1239,9 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
         }
         if next == prev - READER && prev & READER_MASK != 0 {
             assert(next & READER_MASK == (prev & READER_MASK) - READER) by (bit_vector)
+                requires
+                    next == prev - READER && prev & READER_MASK != 0;
+            assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) - READER) by (bit_vector)
                 requires
                     next == prev - READER && prev & READER_MASK != 0;
             assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
@@ -1201,30 +1257,33 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
                 requires
                     next == prev - READER && prev & READER_MASK != 0;    
         }
-        if next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true } {
+        if next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK {
             assert(next & READER_MASK == if prev & READER_MASK == MAX_READER - READER {
                     0
                 } else {
                     (prev & READER_MASK) + READER
                 }) by (bit_vector)
+                    requires
+                        next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;
+            assert(next & MAX_READER_MASK == (prev & MAX_READER_MASK) + READER) by (bit_vector)
                 requires
-                    next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true };
+                    next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;
             assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
                 requires
-                    next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true };
+                    next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;
             assert(next & WRITER == prev & WRITER) by (bit_vector)
                 requires
-                    next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true };
-            assert(next & MAX_READER == if prev & READER_MASK == MAX_READER - READER {
+                    next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;
+            assert(next & MAX_READER == if (prev & READER_MASK) + READER == MAX_READER {
                     MAX_READER
                 } else {
                     prev & MAX_READER
                 }) by (bit_vector)
                 requires
-                    next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true };
+                    next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;
             assert(next & BEING_UPGRADED == prev & BEING_UPGRADED) by (bit_vector)
                 requires
-                    next == prev + READER && if prev & MAX_READER != 0 { ((prev & READER_MASK) + READER) < MAX_READER } else { true };    
+                    next == prev + READER && prev & MAX_READER_MASK < MAX_READER_MASK;    
         }
 }
 
