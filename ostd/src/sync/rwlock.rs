@@ -68,8 +68,8 @@ tracked struct RwPerms<T> {
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
     /// `RwLockReadGuard`s represented by `cell_perm`.
-    /// This budget is large enough to cover every representable pending failed `try_read`,
-    /// up to the `2*MAX_READER - 1` low-bit states in the atomic counter.
+    /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
+    /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock, and 1 reserved in the lock atomic.
     read_retract_token: ReadRetractToken,
     /// The permission to retract the set of `UPGRADEABLE_READER` bit, it can be spilit at two pieces, 
     /// which allows at most 1 failing `try_upread` to subtract the `UPGRADEABLE_READER` bit, and 1 reserved in the lock atomic.
@@ -444,9 +444,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLock<T, G> {
                     let tracked frac_perm = tmp.split(1int);
                     g.cell_perm = Some(tmp);
                     perm = Some(frac_perm);
-                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
-                        requires
-                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
                 } else {
                     let tracked mut tmp = g.read_retract_token.split(1int);
                     retract_read_token = Some(tmp);
