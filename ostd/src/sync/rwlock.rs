@@ -484,23 +484,79 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// for compile-time checked lifetimes of the lock guard.
     ///
     /// [`try_read`]: Self::try_read
-    #[verifier::external_body]
+    #[verus_spec]
     pub fn try_read_arc(self: &Arc<Self>) -> Option<ArcRwLockReadGuard<T, G>> {
+        proof_decl!{
+            let tracked mut perm: Option<RwFrac<T>> = None;
+            let tracked mut retract_read_token: Option<ReadRetractToken> = None;
+        }
+        proof!{
+            use_type_invariant(self);
+            lemma_consts_properties();
+        }
         let guard = G::read_guard();
         // let lock = self.lock.fetch_add(READER, Acquire);
         let lock =
             atomic_with_ghost!(
             self.lock => fetch_add(READER);
-            returning res;
-            ghost g => { }
+            update prev -> next;
+            ghost g => {
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
+                assume (no_max_reader_overflow(prev_usize));
+                lemma_consts_properties_prev(prev_usize);
+                lemma_consts_properties_prev_next(prev_usize, next_usize);
+                if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+                    if g.cell_perm is None {
+                        assert (prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0usize) by (bit_vector)
+                        requires
+                            prev_usize & WRITER != 0usize;
+                        assert(false);
+                    }
+                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
+                        requires
+                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
+                    assert(prev_usize & MAX_READER == 0usize) by (bit_vector)
+                        requires
+                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
+                    let tracked mut tmp = g.cell_perm.tracked_take();
+                    let tracked frac_perm = tmp.split(1int);
+                    g.cell_perm = Some(tmp);
+                    perm = Some(frac_perm);
+                } else {
+                    let tracked mut tmp = g.read_retract_token.split(1int);
+                    retract_read_token = Some(tmp);
+                }
+            }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-            Some(ArcRwLockReadGuard { inner: self.clone(), guard, v_perm: Tracked::assume_new() })
+            Some(
+                ArcRwLockReadGuard {
+                    inner: self.clone(),
+                    guard,
+                    v_perm: Tracked(perm.tracked_unwrap()),
+                },
+            )
         } else {
             // self.lock.fetch_sub(READER, Release);
             atomic_with_ghost!(
                 self.lock => fetch_sub(READER);
-                ghost g => { }
+                update prev -> next;
+                ghost g => {
+                    let prev_usize = prev as usize;
+                    let next_usize = next as usize;
+                    lemma_consts_properties_prev_next(prev_usize, next_usize);
+                    let tracked token = retract_read_token.tracked_unwrap();
+                    g.read_retract_token.combine(token);
+                    g.read_retract_token.bounded();
+                    if (next_usize & MAX_READER) != 0usize {
+                        assert((next_usize & MAX_READER_MASK) >= MAX_READER) by (bit_vector)
+                            requires (next_usize & MAX_READER) != 0usize;
+                    } else {
+                        assert((next_usize & MAX_READER_MASK) == (next_usize & READER_MASK)) by (bit_vector)
+                            requires (next_usize & MAX_READER) == 0usize;
+                    }
+                }
             );
             None
         }
