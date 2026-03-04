@@ -69,7 +69,7 @@ tracked struct RwPerms<T> {
     cell_perm: Option<RwFrac<T>>,
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
-    /// `RwLockReadGuard`s represented by `cell_perm`.
+    /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `cell_perm`.
     /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
     /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock, and 1 reserved in the lock atomic.
     read_retract_token: ReadRetractToken,
@@ -83,7 +83,7 @@ ghost struct RwId {
     read_retract_token_id: Loc,
 }
 
-/// The number of `try_read` increments recorded in the lock atomic can never reach `2*MAX_READER` to avoid overflow.
+/// The number of `try_read` operations recorded in the lock atomic (created and ongoing) can never reach `2*MAX_READER` to avoid overflow.
 /// **NOTE**: We *ASSUME* this property always holds without any proof. We believe this is true in practice because:
 /// - More than `2^61` `try_read` operations are required to trigger the overflow concurrently, which is absurd in real world scenarios.
 /// - If one tries to create a huge number (more than `2*MAX_READER`) of `RwLockReadGuard`s in a loop with `mem::forget`, it will take years and
@@ -193,21 +193,20 @@ closed spec fn wf(self) -> bool {
         // The maximum number of created `RwLockUpgradeableGuard`, which can only be 0 or 1.
         // NOTE: This does not mean there is actually an `RwLockUpgradeableGuard`, it may be in the middle of being created.
         let upgrade_reader_count: int = if has_upgrade && !has_writer { 1int } else { 0int };
-        // The total number of reader creation attempts recorded in the lock atomic, including created `RwLockReadGuard`s
+        // The total number of `try_read` attempts recorded in the lock atomic, including created `RwLockReadGuard`s
         // and those who are trying, no matter they will succeed or fail.
         let total_reader_attempts: int = (v & MAX_READER_MASK) as int;
         // The clamped value represented in the counter bits. This counts the maximum number of active `RwLockReadGuard`s.
-        // NOTE: This does not mean there are actually this number of `RwLockReadGuard`s. The actual number of created `RwLockReadGuard`s
-        // and those will be created successfully can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
+        // NOTE: This does not mean there are actually this number of `RwLockReadGuard`s. The actual number of successfully 
+        // created/creating `RwLockReadGuard`s can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
         let reader_count: int = if has_max_reader { MAX_READER as int } else { (v & READER_MASK) as int };
         // Remaining fractional permissions in the lock to access the protected data.
         let remaining_pcell_perms: int = if g.cell_perm is Some { g.cell_perm->Some_0.frac() } else { 0 };
-        // The number of active readers, including both `RwLockReadGuard`s and `RwLockUpgradeableGuard`s,
-        // and those who are trying to create and will succeed.
+        // The number of successfully created/creating readers, including both `RwLockReadGuard`s and `RwLockUpgradeableGuard`s.
         let total_successful_readers: int = if g.cell_perm is Some { (V_MAX_PERM_FRACS as int) - remaining_pcell_perms } else { 0 };
-        // The number of `RwLockReadGuard`s that have been successfully created or will be successfully created.s
+        // The number of successfully created/creating `RwLockReadGuard`s.
         let successful_read_guards: int = total_successful_readers - upgrade_reader_count;
-        // The number of read creation attempts that will fail.
+        // The number of `try_read` attempts that will fail.
         let failed_reader_attempts: int = total_reader_attempts + upgrade_reader_count - total_successful_readers;
         &&& g.read_retract_token.frac() + failed_reader_attempts == V_MAX_READ_RETRACT_FRACS
         // Not checked
