@@ -425,28 +425,14 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
                 assume (no_max_reader_overflow(prev_usize));
-                lemma_consts_properties_prev(prev_usize);
+                lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    if g.cell_perm is None {
-                        assert (prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0usize) by (bit_vector)
-                        requires
-                            prev_usize & WRITER != 0usize;
-                        assert(false);
-                    }
-                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
-                        requires
-                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
-                    assert(prev_usize & MAX_READER == 0usize) by (bit_vector)
-                        requires
-                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
                     let tracked mut tmp = g.cell_perm.tracked_take();
-                    let tracked frac_perm = tmp.split(1int);
+                    perm = Some(tmp.split(1int));
                     g.cell_perm = Some(tmp);
-                    perm = Some(frac_perm);
                 } else {
-                    let tracked mut tmp = g.read_retract_token.split(1int);
-                    retract_read_token = Some(tmp);
+                    retract_read_token = Some(g.read_retract_token.split(1int));
                 }
             }
         );
@@ -460,17 +446,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 ghost g => {
                     let prev_usize = prev as usize;
                     let next_usize = next as usize;
+                    lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     let tracked token = retract_read_token.tracked_unwrap();
                     g.read_retract_token.combine(token);
                     g.read_retract_token.bounded();
-                    if (next_usize & MAX_READER) != 0usize {
-                        assert((next_usize & MAX_READER_MASK) >= MAX_READER) by (bit_vector)
-                            requires (next_usize & MAX_READER) != 0usize;
-                    } else {
-                        assert((next_usize & MAX_READER_MASK) == (next_usize & READER_MASK)) by (bit_vector)
-                            requires (next_usize & MAX_READER) == 0usize;
-                    }
                 }
             );
             None
@@ -503,28 +483,14 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
                 assume (no_max_reader_overflow(prev_usize));
-                lemma_consts_properties_prev(prev_usize);
+                lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    if g.cell_perm is None {
-                        assert (prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) != 0usize) by (bit_vector)
-                        requires
-                            prev_usize & WRITER != 0usize;
-                        assert(false);
-                    }
-                    assert(prev_usize & WRITER == 0usize) by (bit_vector)
-                        requires
-                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
-                    assert(prev_usize & MAX_READER == 0usize) by (bit_vector)
-                        requires
-                            prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0usize;
                     let tracked mut tmp = g.cell_perm.tracked_take();
-                    let tracked frac_perm = tmp.split(1int);
+                    perm = Some(tmp.split(1int));
                     g.cell_perm = Some(tmp);
-                    perm = Some(frac_perm);
                 } else {
-                    let tracked mut tmp = g.read_retract_token.split(1int);
-                    retract_read_token = Some(tmp);
+                    retract_read_token = Some(g.read_retract_token.split(1int));
                 }
             }
         );
@@ -544,17 +510,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 ghost g => {
                     let prev_usize = prev as usize;
                     let next_usize = next as usize;
+                    lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     let tracked token = retract_read_token.tracked_unwrap();
                     g.read_retract_token.combine(token);
                     g.read_retract_token.bounded();
-                    if (next_usize & MAX_READER) != 0usize {
-                        assert((next_usize & MAX_READER_MASK) >= MAX_READER) by (bit_vector)
-                            requires (next_usize & MAX_READER) != 0usize;
-                    } else {
-                        assert((next_usize & MAX_READER_MASK) == (next_usize & READER_MASK)) by (bit_vector)
-                            requires (next_usize & MAX_READER) == 0usize;
-                    }
                 }
             );
             None
@@ -584,8 +544,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             returning res;
             ghost g=> {
                 if res is Ok {
-                    let tracked frac_perm = g.cell_perm.tracked_take();
-                    let tracked (full_perm, _) = frac_perm.take_resource();
+                    let tracked (full_perm, _) = g.cell_perm.tracked_take().take_resource();
                     perm = Some(full_perm);
                 }
             }
@@ -622,8 +581,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             returning res;
             ghost g => {
                 if res is Ok {
-                    let tracked frac_perm = g.cell_perm.tracked_take();
-                    let tracked (full_perm, _) = frac_perm.take_resource();
+                    let tracked (full_perm, _) = g.cell_perm.tracked_take().take_resource();
                     perm = Some(full_perm);
                 }
             }
@@ -660,38 +618,18 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             self.lock => fetch_or(UPGRADEABLE_READER);
             update prev -> next;
             ghost g => {
+                lemma_consts_properties_value(prev);
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-                    if g.cell_perm is None {
-                        assert (prev & (WRITER | UPGRADEABLE_READER) != 0usize) by (bit_vector)
-                        requires
-                            prev & WRITER != 0usize;
-                        assert(false);
-                    }
-                    assert (prev & UPGRADEABLE_READER == 0) by (bit_vector)
-                    requires
-                        prev & (WRITER | UPGRADEABLE_READER) == 0;
                     let tracked mut tmp = g.cell_perm.tracked_take();
-                    let tracked frac_perm = tmp.split(1int);
+                    perm = Some(tmp.split(1int));
                     g.cell_perm = Some(tmp);
-                    perm = Some(frac_perm);
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
-                    assert (prev & UPGRADEABLE_READER == 0 && prev & WRITER == WRITER) by (bit_vector)
-                    requires
-                        prev & (WRITER | UPGRADEABLE_READER) == WRITER;
-                    let tracked mut tmp = g.upgrade_retract_token.split(1int);
-                    retract_upgrade_token = Some(tmp);
-                }
-                else {
-                    assert (prev & UPGRADEABLE_READER != 0) by (bit_vector)
-                    requires
-                        !(prev & (WRITER | UPGRADEABLE_READER) == 0),
-                        !(prev & (WRITER | UPGRADEABLE_READER) == WRITER);
+                    retract_upgrade_token = Some(g.upgrade_retract_token.split(1int));
                 }
             }
-        )
-            & (WRITER | UPGRADEABLE_READER);
+        ) & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
             return Some(
                 RwLockUpgradeableGuard {
@@ -708,26 +646,21 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 ghost g => {
                     let prev_usize = prev as usize;
                     let next_usize = next as usize;
+                    lemma_consts_properties_value(prev_usize);
+                    lemma_consts_properties_prev_next(prev_usize, next_usize);
                     if (prev_usize & UPGRADEABLE_READER) == 0 {
                         assert(g.upgrade_retract_token.frac() == 2int);
                         g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
                         g.upgrade_retract_token.bounded();
                         assert(false);
                     } else {
-                        assert(prev_usize >= UPGRADEABLE_READER) by (bit_vector)
-                            requires (prev_usize & UPGRADEABLE_READER != 0);
-                        assert(next == prev - UPGRADEABLE_READER);
-                        lemma_consts_properties_prev_next(prev_usize, next_usize);
                         let frac = g.upgrade_retract_token.frac();
                         assert(frac == 1int || frac == 2int);
                         g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
                         if frac == 2int {
                             g.upgrade_retract_token.bounded();
                             assert(false);
-                        } else
-                        {
-                            assert(g.upgrade_retract_token.frac() == 2int);
-                        }
+                        } 
                     }
                 }
             );
@@ -758,38 +691,18 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             self.lock => fetch_or(UPGRADEABLE_READER);
             update prev -> next;
             ghost g => {
+                lemma_consts_properties_value(prev);
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-                    if g.cell_perm is None {
-                        assert (prev & (WRITER | UPGRADEABLE_READER) != 0usize) by (bit_vector)
-                        requires
-                            prev & WRITER != 0usize;
-                        assert(false);
-                    }
-                    assert (prev & UPGRADEABLE_READER == 0) by (bit_vector)
-                    requires
-                        prev & (WRITER | UPGRADEABLE_READER) == 0;
                     let tracked mut tmp = g.cell_perm.tracked_take();
-                    let tracked frac_perm = tmp.split(1int);
+                    perm = Some(tmp.split(1int));
                     g.cell_perm = Some(tmp);
-                    perm = Some(frac_perm);
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
-                    assert (prev & UPGRADEABLE_READER == 0 && prev & WRITER == WRITER) by (bit_vector)
-                    requires
-                        prev & (WRITER | UPGRADEABLE_READER) == WRITER;
-                    let tracked mut tmp = g.upgrade_retract_token.split(1int);
-                    retract_upgrade_token = Some(tmp);
-                }
-                else {
-                    assert (prev & UPGRADEABLE_READER != 0) by (bit_vector)
-                    requires
-                        !(prev & (WRITER | UPGRADEABLE_READER) == 0),
-                        !(prev & (WRITER | UPGRADEABLE_READER) == WRITER);
+                    retract_upgrade_token = Some(g.upgrade_retract_token.split(1int));
                 }
             }
-        )
-            & (WRITER | UPGRADEABLE_READER);
+        ) & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
             return Some(
                 ArcRwLockUpgradeableGuard {
@@ -806,25 +719,20 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 ghost g => {
                     let prev_usize = prev as usize;
                     let next_usize = next as usize;
+                    lemma_consts_properties_value(prev_usize);
+                    lemma_consts_properties_prev_next(prev_usize, next_usize);
                     if (prev_usize & UPGRADEABLE_READER) == 0 {
                         assert(g.upgrade_retract_token.frac() == 2int);
                         g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
                         g.upgrade_retract_token.bounded();
                         assert(false);
                     } else {
-                        assert(prev_usize >= UPGRADEABLE_READER) by (bit_vector)
-                            requires (prev_usize & UPGRADEABLE_READER != 0);
-                        assert(next == prev - UPGRADEABLE_READER);
-                        lemma_consts_properties_prev_next(prev_usize, next_usize);
                         let frac = g.upgrade_retract_token.frac();
                         assert(frac == 1int || frac == 2int);
                         g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
                         if frac == 2int {
                             g.upgrade_retract_token.bounded();
                             assert(false);
-                        } else
-                        {
-                            assert(g.upgrade_retract_token.frac() == 2int);
                         }
                     }
                 }
@@ -1278,14 +1186,89 @@ proof fn lemma_consts_properties()
     assert(WRITER & UPGRADEABLE_READER == 0) by (compute_only);
 }
 
-proof fn lemma_consts_properties_prev(prev: usize)
+proof fn lemma_consts_properties_value(prev: usize)
     ensures
         no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
+        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==> 
+        {
+            &&& prev & WRITER == 0
+            &&& prev & BEING_UPGRADED == 0
+            &&& prev & MAX_READER == 0
+        },
+        prev & (WRITER | UPGRADEABLE_READER) == 0 ==> {
+                &&& prev & WRITER == 0
+                &&& prev & UPGRADEABLE_READER == 0
+        },
+        prev & MAX_READER == 0 ==> prev & READER_MASK == prev & MAX_READER_MASK,
+        prev & MAX_READER != 0 ==> prev & MAX_READER_MASK >= MAX_READER,
+        prev & (WRITER | UPGRADEABLE_READER) == WRITER ==> {
+            &&& prev & UPGRADEABLE_READER == 0
+            &&& prev & WRITER == WRITER
+        },
+        prev & UPGRADEABLE_READER != 0 ==> prev >= UPGRADEABLE_READER,
+        prev & UPGRADEABLE_READER == 0 ==> {
+            ||| prev & (WRITER | UPGRADEABLE_READER) == 0
+            ||| prev & (WRITER | UPGRADEABLE_READER) == WRITER
+        }
 {
     if no_max_reader_overflow(prev) {
         assert(prev + READER <= usize::MAX) by (bit_vector)
             requires
                 prev & MAX_READER_MASK < MAX_READER_MASK,
+        ;
+    }
+    if prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+        assert(prev & WRITER == 0) by (bit_vector)
+            requires
+                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+        ;
+        assert(prev & BEING_UPGRADED == 0) by (bit_vector)
+            requires
+                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+        ;
+        assert(prev & MAX_READER == 0) by (bit_vector)
+            requires
+                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+        ;
+    }
+    if prev & (WRITER | UPGRADEABLE_READER) == 0 {
+        assert(prev & WRITER == 0) by (bit_vector)
+            requires
+                prev & (WRITER | UPGRADEABLE_READER) == 0,
+        ;
+        assert(prev & UPGRADEABLE_READER == 0) by (bit_vector)
+            requires
+                prev & (WRITER | UPGRADEABLE_READER) == 0,
+        ;
+    }
+    if prev & MAX_READER == 0 {
+        assert(prev & READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
+            requires
+                prev & MAX_READER == 0,
+        ;
+    }
+    if prev & MAX_READER != 0 {
+        assert(prev & MAX_READER_MASK >= MAX_READER) by (bit_vector)
+            requires
+                prev & MAX_READER != 0,
+        ;
+    }
+    if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
+        assert(prev & UPGRADEABLE_READER == 0 && prev & WRITER == WRITER) by (bit_vector)
+            requires
+                prev & (WRITER | UPGRADEABLE_READER) == WRITER,
+        ;
+    }
+    if prev & UPGRADEABLE_READER != 0 {
+        assert(prev >= UPGRADEABLE_READER) by (bit_vector)
+            requires
+                prev & UPGRADEABLE_READER != 0,
+        ;
+    }
+    if prev & UPGRADEABLE_READER == 0 {
+        assert(prev & (WRITER | UPGRADEABLE_READER) == 0 || prev & (WRITER | UPGRADEABLE_READER) == WRITER) by (bit_vector)
+            requires
+                prev & UPGRADEABLE_READER == 0,
         ;
     }
 }
