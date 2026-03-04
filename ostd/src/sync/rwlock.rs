@@ -863,44 +863,44 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
     }
 }
 
-/*
+/* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
-}
+}*/
 
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
-unsafe impl<T: ?Sized + Send, G> Send for RwLock<T, G> {}
-unsafe impl<T: ?Sized + Send + Sync, G> Sync for RwLock<T, G> {}
+unsafe impl<T: /*?Sized +*/ Send, G> Send for RwLock<T, G> {}
+unsafe impl<T: /*?Sized +*/ Send + Sync, G> Sync for RwLock<T, G> {}
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
+impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
     for RwLockWriteGuard_<T, R, G>
 {
 }
-unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
+unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
     for RwLockWriteGuard_<T, R, G>
 {
 }
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
+impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
     for RwLockReadGuard_<T, R, G>
 {
 }
-unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
+unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
     for RwLockReadGuard_<T, R, G>
 {
 }
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
+impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
     for RwLockUpgradeableGuard_<T, R, G>
 {
 }
-unsafe impl<T: ?Sized + Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
+unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
     for RwLockUpgradeableGuard_<T, R, G>
 {
-}*/
+}
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
@@ -943,26 +943,38 @@ impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockReadGuar
     }
 }
 
-} // verus!
-/*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockReadGuard_<T, R, G>
 {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockReadGuard_<T, R, G>
 {
-    fn drop(&mut self) {
-        self.inner.lock.fetch_sub(READER, Release);
+    #[verifier::external_body]
+    fn drop(&mut self)
+        opens_invariants none
+        no_unwind
+    {
+        // self.inner.lock.fetch_sub(READER, Release);
+        atomic_with_ghost!(
+            &self.inner.lock => fetch_sub(READER);
+            ghost g => { }
+        );
     }
 }
-
+} // verus!
+/*
 impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
     for RwLockReadGuard_<T, R, G>
 {
@@ -1008,16 +1020,22 @@ pub type RwLockWriteGuard<'a, T, G> = RwLockWriteGuard_<T, &'a RwLock<T, G>, G>;
 /// A guard that provides exclusive write access to the data protected by a `Arc<RwLock>`.
 pub type ArcRwLockWriteGuard<T, G> = RwLockWriteGuard_<T, Arc<RwLock<T, G>>, G>;
 
-/*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
+verus! {
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockWriteGuard_<T, R, G>
 {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
+} // verus!
 
 /*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
@@ -1076,7 +1094,7 @@ impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGua
     }
 }
 */
-*/
+
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
@@ -1116,9 +1134,8 @@ impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockUpgradea
 }
 
 } // verus!
-/*
-/*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
+
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     RwLockUpgradeableGuard_<T, R, G>
 {
     /// Upgrades this upread guard to a write guard atomically.
@@ -1126,10 +1143,16 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// After calling this method, subsequent readers will be blocked
     /// while previous readers remain unaffected. The calling thread
     /// will spin-wait until previous readers finish.
-    pub fn upgrade(mut self) -> RwLockWriteGuard_<T, R, G> {
-        self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
+    #[verifier::external_body]
+    pub fn upgrade(self) -> RwLockWriteGuard_<T, R, G> {
+        let mut this = self;
+        // self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
+        atomic_with_ghost!(
+            &this.inner.lock => fetch_or(BEING_UPGRADED);
+            ghost g => { }
+        );
         loop {
-            self = match self.try_upgrade() {
+            this = match this.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -1138,42 +1161,63 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will never spin-wait and will return immediately.
-    pub fn try_upgrade(mut self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
-        let res = self.inner.lock.compare_exchange(
-            UPGRADEABLE_READER | BEING_UPGRADED,
-            WRITER | UPGRADEABLE_READER,
-            AcqRel,
-            Relaxed,
+    #[verifier::external_body]
+    pub fn try_upgrade(self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
+        // let res = self.inner.lock.compare_exchange(
+        //     UPGRADEABLE_READER | BEING_UPGRADED,
+        //     WRITER | UPGRADEABLE_READER,
+        //     AcqRel,
+        //     Relaxed,
+        // );
+        let res = atomic_with_ghost!(
+            &self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER);
+            returning res;
+            ghost g => { }
         );
         if res.is_ok() {
-            let inner = self.inner.clone();
-            let guard = self.guard.transfer_to();
-            drop(self);
-            Ok(RwLockWriteGuard_ { inner, guard })
+            let this = core::mem::ManuallyDrop::new(self);
+            let inner = this.inner.clone();
+            let guard = unsafe { core::ptr::read(&this.guard) };
+            Ok(RwLockWriteGuard_ { inner, guard, v_perm: Tracked::assume_new() })
         } else {
             Err(self)
         }
     }
-}*/
+}
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
+verus! {
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockUpgradeableGuard_<T, R, G>
 {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
+impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockUpgradeableGuard_<T, R, G>
 {
-    fn drop(&mut self) {
-        self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
+    #[verifier::external_body]
+    fn drop(&mut self)
+        opens_invariants none
+        no_unwind
+    {
+        // self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
+        atomic_with_ghost!(
+            &self.inner.lock => fetch_sub(UPGRADEABLE_READER);
+            ghost g => { }
+        );
     }
 }
-
+} // verus!
+/*
 impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
     for RwLockUpgradeableGuard_<T, R, G>
 {
