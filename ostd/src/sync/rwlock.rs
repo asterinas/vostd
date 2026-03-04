@@ -79,6 +79,7 @@ tracked struct RwPerms<T> {
 }
 
 ghost struct RwId {
+    cell_perm_id: Loc,
     upgrade_retract_token_id: Loc,
     read_retract_token_id: Loc,
 }
@@ -216,12 +217,13 @@ closed spec fn wf(self) -> bool {
         } else {
             2int
         }
+        &&& (v & UPGRADEABLE_READER) != 0usize && (v & WRITER) == 0usize ==> g.cell_perm is Some
+        &&& g.cell_perm is Some ==> g.cell_perm->Some_0.id() == v_id@.cell_perm_id
         &&& 0 <= successful_read_guards <= reader_count <= total_reader_attempts
         &&& 1 <= g.read_retract_token.frac() <= V_MAX_READ_RETRACT_FRACS
         &&& match g.cell_perm {
             None => {
                 &&& has_writer
-                &&& (v & BEING_UPGRADED) == 0usize
             }
             Some(perm) => {
                 &&& !has_writer
@@ -255,6 +257,10 @@ impl<T, G> RwLock<T, G> {
     /// Returns the unique [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the internal `PCell<T>`.
     pub closed spec fn cell_id(self) -> cell::CellId {
         self.val.id()
+    }
+
+    pub closed spec fn cell_perm_id(self) -> Loc {
+        self.v_id@.cell_perm_id
     }
 
     pub closed spec fn upgrade_retract_token_id(self) -> Loc {
@@ -846,6 +852,7 @@ verus! {
 impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockReadGuard_<T, R, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
+        &&& self.inner.deref_spec().cell_perm_id() == self.v_perm@.id()
         &&& self.inner.deref_spec().cell_id() == self.v_perm@.resource().id()
         &&& self.v_perm@.frac() == 1
     }
@@ -1043,13 +1050,13 @@ verus! {
 impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockUpgradeableGuard_<T, R, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
+        &&& self.inner.deref_spec().cell_perm_id() == self.v_perm@.id()
         &&& self.inner.deref_spec().cell_id() == self.v_perm@.resource().id()
         &&& self.v_perm@.frac() == 1
     }
 }
 
-} // verus!
-
+#[verus_verify]
 impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     RwLockUpgradeableGuard_<T, R, G>
 {
@@ -1058,13 +1065,48 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// After calling this method, subsequent readers will be blocked
     /// while previous readers remain unaffected. The calling thread
     /// will spin-wait until previous readers finish.
-    #[verifier::external_body]
+    #[verus_spec]
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn upgrade(self) -> RwLockWriteGuard_<T, R, G> {
         let mut this = self;
+        let lock = this.inner.deref();
+        proof! {
+            use_type_invariant(&this);
+            use_type_invariant(lock);
+            lemma_consts_properties();
+        }
         // self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
         atomic_with_ghost!(
-            &this.inner.lock => fetch_or(BEING_UPGRADED);
-            ghost g => { }
+            &lock.lock => fetch_or(BEING_UPGRADED);
+            update prev -> next;
+            ghost g => {
+                assert(next == prev | BEING_UPGRADED);
+                assert(next & WRITER == prev & WRITER) by (bit_vector)
+                    requires
+                        next == prev | BEING_UPGRADED,
+                        BEING_UPGRADED & WRITER == 0,
+                ;
+                assert(next & UPGRADEABLE_READER == prev & UPGRADEABLE_READER) by (bit_vector)
+                    requires
+                        next == prev | BEING_UPGRADED,
+                        BEING_UPGRADED & UPGRADEABLE_READER == 0,
+                ;
+                assert(next & READER_MASK == prev & READER_MASK) by (bit_vector)
+                    requires
+                        next == prev | BEING_UPGRADED,
+                        BEING_UPGRADED & READER_MASK == 0,
+                ;
+                assert(next & MAX_READER_MASK == prev & MAX_READER_MASK) by (bit_vector)
+                    requires
+                        next == prev | BEING_UPGRADED,
+                        BEING_UPGRADED & MAX_READER_MASK == 0,
+                ;
+                assert(next & MAX_READER == prev & MAX_READER) by (bit_vector)
+                    requires
+                        next == prev | BEING_UPGRADED,
+                        BEING_UPGRADED & MAX_READER == 0,
+                ;
+            }
         );
         loop {
             this = match this.try_upgrade() {
@@ -1076,8 +1118,26 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will never spin-wait and will return immediately.
-    #[verifier::external_body]
+    #[verus_spec]
     pub fn try_upgrade(self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
+        proof_decl! {
+            let tracked mut lock_perm: Option<RwFrac<T>> = None;
+            let tracked mut write_perm: Option<PointsTo<T>> = None;
+            let ghost mut lock_perm_id: Option<Loc> = None;
+            let ghost mut up_perm_id: Option<Loc> = None;
+            let ghost mut canon_perm_id: Option<Loc> = None;
+        }
+        let lock = self.inner.deref();
+        proof! {
+            use_type_invariant(&self);
+            use_type_invariant(lock);
+            lemma_consts_properties();
+            self.inner.deref_spec_eq();
+            assert(self.inner.deref_spec() == lock);
+            up_perm_id = Some(self.v_perm@.id());
+            canon_perm_id = Some(lock.cell_perm_id());
+            assert(up_perm_id->Some_0 == canon_perm_id->Some_0);
+        }
         // let res = self.inner.lock.compare_exchange(
         //     UPGRADEABLE_READER | BEING_UPGRADED,
         //     WRITER | UPGRADEABLE_READER,
@@ -1085,22 +1145,104 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
         //     Relaxed,
         // );
         let res = atomic_with_ghost!(
-            &self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER);
+            &lock.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER);
+            update prev -> next;
             returning res;
-            ghost g => { }
+            ghost g => {
+                if res is Ok {
+                    assert(prev == UPGRADEABLE_READER | BEING_UPGRADED);
+                    assert(next == WRITER);
+                    assert(prev & WRITER == 0usize) by (bit_vector)
+                        requires
+                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
+                            WRITER & UPGRADEABLE_READER == 0,
+                            WRITER & BEING_UPGRADED == 0,
+                    ;
+                    assert(prev & UPGRADEABLE_READER == UPGRADEABLE_READER) by (bit_vector)
+                        requires
+                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
+                            UPGRADEABLE_READER & BEING_UPGRADED == 0,
+                    ;
+                    assert(prev & READER_MASK == 0usize) by (bit_vector)
+                        requires
+                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
+                            UPGRADEABLE_READER & READER_MASK == 0,
+                            BEING_UPGRADED & READER_MASK == 0,
+                    ;
+                    assert(prev & MAX_READER_MASK == 0usize) by (bit_vector)
+                        requires
+                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
+                            UPGRADEABLE_READER & MAX_READER_MASK == 0,
+                            BEING_UPGRADED & MAX_READER_MASK == 0,
+                    ;
+                    assert(prev & MAX_READER == 0usize) by (bit_vector)
+                        requires
+                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
+                            UPGRADEABLE_READER & MAX_READER == 0,
+                            BEING_UPGRADED & MAX_READER == 0,
+                    ;
+                    assert(g.cell_perm is Some);
+                    assert(0 <= ((V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac()) - 1);
+                    assert(((V_MAX_PERM_FRACS as int) - g.cell_perm->Some_0.frac()) - 1 <= 0);
+                    assert(g.cell_perm->Some_0.frac() == (V_MAX_PERM_FRACS as int) - 1);
+                    assert(g.cell_perm->Some_0.id() == lock.cell_perm_id());
+                    lock_perm_id = Some(g.cell_perm->Some_0.id());
+                    lock_perm = Some(g.cell_perm.tracked_take());
+                }
+            }
         );
         if res.is_ok() {
-            let this = core::mem::ManuallyDrop::new(self);
-            let inner = this.inner.clone();
-            let guard = unsafe { core::ptr::read(&this.guard) };
-            Ok(RwLockWriteGuard_ { inner, guard, v_perm: Tracked::assume_new() })
+            let mut this = core::mem::ManuallyDrop::new(self);
+            let inner = unsafe { Self::get_inner(&this) };
+            let guard = unsafe { Self::get_guard(&this) };
+            let Tracked(up_perm) = unsafe { Self::get_v_perm(&this) };
+            proof! {
+                let tracked mut rem = lock_perm.tracked_unwrap();
+                assert(rem.id() == lock_perm_id->Some_0);
+                assert(lock_perm_id->Some_0 == canon_perm_id->Some_0);
+                assert(up_perm == this@.v_perm@);
+                assert(this@.v_perm@.id() == up_perm_id->Some_0);
+                assert(up_perm.id() == this@.v_perm@.id());
+                let ghost up_cell_id = up_perm.resource().id();
+                assert(up_cell_id == inner.deref_spec().cell_id());
+                rem.combine(up_perm);
+                assert(rem.frac() == V_MAX_PERM_FRACS as int);
+                let tracked (full_perm, _) = rem.take_resource();
+                assert(full_perm.id() == up_cell_id);
+                write_perm = Some(full_perm);
+            }
+            Ok(RwLockWriteGuard_ { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()) })
         } else {
             Err(self)
         }
     }
+
+    #[verifier::external_body]
+    unsafe fn get_guard(me: &core::mem::ManuallyDrop<Self>) -> G::Guard {
+        core::ptr::read(&me.guard)
+    }
+
+    #[verifier::external_body]
+    #[verus_spec(
+        ret =>
+        ensures
+            ret.deref_spec() == me@.inner.deref_spec(),
+    )]
+    unsafe fn get_inner(me: &core::mem::ManuallyDrop<Self>) -> R {
+        core::ptr::read(&me.inner)
+    }
+
+    #[verifier::external_body]
+    #[verus_spec(
+        ret =>
+        ensures
+            ret@ == me@.v_perm@,
+    )]
+    unsafe fn get_v_perm(me: &core::mem::ManuallyDrop<Self>) -> Tracked<RwFrac<T>> {
+        core::ptr::read(&me.v_perm)
+    }
 }
 
-verus! {
 impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
     for RwLockUpgradeableGuard_<T, R, G>
 {
@@ -1164,6 +1306,15 @@ proof fn lemma_consts_properties()
         WRITER & MAX_READER_MASK == 0,
         WRITER & MAX_READER == 0,
         WRITER & UPGRADEABLE_READER == 0,
+        BEING_UPGRADED & WRITER == 0,
+        BEING_UPGRADED & UPGRADEABLE_READER == 0,
+        UPGRADEABLE_READER & BEING_UPGRADED == 0,
+        UPGRADEABLE_READER & READER_MASK == 0,
+        UPGRADEABLE_READER & MAX_READER_MASK == 0,
+        UPGRADEABLE_READER & MAX_READER == 0,
+        BEING_UPGRADED & READER_MASK == 0,
+        BEING_UPGRADED & MAX_READER_MASK == 0,
+        BEING_UPGRADED & MAX_READER == 0,
 {
     assert(0 & WRITER == 0) by (compute_only);
     assert(0 & UPGRADEABLE_READER == 0) by (compute_only);
@@ -1184,6 +1335,15 @@ proof fn lemma_consts_properties()
     assert(WRITER & MAX_READER_MASK == 0) by (compute_only);
     assert(WRITER & MAX_READER == 0) by (compute_only);
     assert(WRITER & UPGRADEABLE_READER == 0) by (compute_only);
+    assert(BEING_UPGRADED & WRITER == 0) by (compute_only);
+    assert(BEING_UPGRADED & UPGRADEABLE_READER == 0) by (compute_only);
+    assert(UPGRADEABLE_READER & BEING_UPGRADED == 0) by (compute_only);
+    assert(UPGRADEABLE_READER & READER_MASK == 0) by (compute_only);
+    assert(UPGRADEABLE_READER & MAX_READER_MASK == 0) by (compute_only);
+    assert(UPGRADEABLE_READER & MAX_READER == 0) by (compute_only);
+    assert(BEING_UPGRADED & READER_MASK == 0) by (compute_only);
+    assert(BEING_UPGRADED & MAX_READER_MASK == 0) by (compute_only);
+    assert(BEING_UPGRADED & MAX_READER == 0) by (compute_only);
 }
 
 proof fn lemma_consts_properties_value(prev: usize)
