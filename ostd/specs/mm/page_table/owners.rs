@@ -14,7 +14,7 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use crate::mm::{
-    page_table::{EntryOwner, FrameView},
+    page_table::EntryOwner,
     Paddr, Vaddr, MAX_NR_LEVELS,
 };
 
@@ -103,6 +103,7 @@ pub proof fn sibling_paths_disjoint(
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
+            child: false,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
             node: None,

@@ -26,7 +26,10 @@
 mod child;
 mod entry;
 
-pub use crate::specs::mm::page_table::node::{entry_owners::*, entry_view::*, owners::*};
+#[path = "../../../../specs/mm/page_table/node/child.rs"]
+mod child_specs;
+
+pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 pub use child::*;
 pub use entry::*;
 
@@ -50,7 +53,7 @@ use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr}
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, StoredPageTablePageMeta,
+    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED, StoredPageTablePageMeta,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
@@ -270,11 +273,18 @@ impl<C: PageTableConfig> PageTableNode<C> {
             !guard_addrs.contains(owner@.value.node.unwrap().meta_perm.addr()),
             // Allocation preserves slot_owners and only changes slots at the new index
             regions.slot_owners =~= old(regions).slot_owners,
-            regions.slots.contains_key(
+            !regions.slots.contains_key(
                 frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
             forall |i: usize| i != frame_to_index(
                 meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))
                 ==> (regions.slots.contains_key(i) == old(regions).slots.contains_key(i)),
+            regions.slot_owners[frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))].inner_perms.ref_count.value() !=
+                REF_COUNT_UNUSED,
+            regions.slot_owners[frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))].raw_count == 0,
+            regions.slot_owners[frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))].self_addr ==
+                owner@.value.node.unwrap().meta_perm.addr(),
+            owner@.value.node.unwrap().meta_perm.points_to.value().wf(
+                regions.slot_owners[frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))]),
     )]
     #[verifier::external_body]
     pub fn alloc(level: PagingLevel) -> Self {

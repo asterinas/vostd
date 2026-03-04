@@ -23,7 +23,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == 1
         &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
         &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
-        &&& !regions.slots.contains_key(frame_to_index(paddr)) // Whomever called `into_raw` should hold the permission.
         &&& regions.inv()
     }
 
@@ -46,6 +45,9 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]
             i != frame_to_index(paddr) ==> new_regions.slot_owners[i] == old_regions.slot_owners[i]
+        &&& forall|i: usize|
+            i != frame_to_index(paddr) ==>
+            new_regions.slots.contains_key(i) == old_regions.slots.contains_key(i)
         &&& r.ptr.addr() == frame_to_meta(paddr)
         &&& r.paddr() == paddr
     }
