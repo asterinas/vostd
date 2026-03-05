@@ -105,9 +105,19 @@ impl<C: PageTableConfig> Child<C> {
         &&& regions.inv()
         &&& self.wf(owner)
         &&& owner.relate_region(regions)
+        &&& owner.in_scope
     }
 }
 
+impl<C: PageTableConfig> ChildRef<'_, C> {
+    pub open spec fn invariants(self, owner: EntryOwner<C>, regions: MetaRegionOwners) -> bool {
+        &&& owner.inv()
+        &&& regions.inv()
+        &&& self.wf(owner)
+        &&& owner.relate_region(regions)
+        &&& !owner.in_scope
+    }
+}
 
 impl<C: PageTableConfig> EntryOwner<C> {
 
@@ -148,14 +158,14 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn into_pte_owner_spec(self) -> EntryOwner<C> {
         EntryOwner {
-            child: false,
+            in_scope: false,
             ..self
         }
     }
 
     pub open spec fn from_pte_owner_spec(self) -> EntryOwner<C> {
         EntryOwner {
-            child: true,
+            in_scope: true,
             ..self
         }
     }
@@ -167,7 +177,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& regions.inv()
         &&& self.match_pte(pte, self.parent_level)
         &&& self.relate_region(regions)
-        &&& !self.child
+        &&& !self.in_scope
     }
 
 }

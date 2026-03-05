@@ -402,7 +402,6 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             old(regions).inv(),
-            !old(regions).slots.contains_key(self.index()),
             old(regions).slot_owners[self.index()].raw_count == 1,
             old(regions).slot_owners[self.index()].self_addr == self.ptr.addr(),
             perm.points_to.pptr() == self.ptr,

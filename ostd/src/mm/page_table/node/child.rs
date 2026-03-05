@@ -65,11 +65,10 @@ impl<C: PageTableConfig> Child<C> {
     pub fn into_pte(self) -> (res: C::E)
         requires
             self.invariants(*old(owner), *old(regions)),
-            old(owner).child,
+            old(owner).in_scope,
         ensures
             owner.pte_invariants(res, *regions),
             *regions == old(owner).into_pte_regions_spec(*old(regions)),
-            self.invariants(*owner, *regions),
             *owner == old(owner).into_pte_owner_spec(),
     {
         proof {
@@ -91,17 +90,17 @@ impl<C: PageTableConfig> Child<C> {
                     let node_index = frame_to_index(meta_to_frame(node.ptr.addr()));
                     let spec_regions = owner.into_pte_regions_spec(*old(regions));
                     assert(regions.slot_owners =~= spec_regions.slot_owners);
-                    owner.child = false;
+                    owner.in_scope = false;
                 }
 
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof { owner.child = false; }
+                proof { owner.in_scope = false; }
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {
-                proof { owner.child = false; }
+                proof { owner.in_scope = false; }
                 C::E::new_absent()
             },
         }
@@ -137,7 +136,7 @@ impl<C: PageTableConfig> Child<C> {
             *regions == entry_own.from_pte_regions_spec(*old(regions)),
     {
         if !pte.is_present() {
-            proof { entry_own.child = true; }
+            proof { entry_own.in_scope = true; }
             return Child::None;
         }
         let paddr = pte.paddr();
@@ -152,7 +151,7 @@ impl<C: PageTableConfig> Child<C> {
             let node = PageTableNode::from_raw(paddr);
 
             proof {
-                entry_own.child = true;
+                entry_own.in_scope = true;
 
                 assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(*old(regions)).slot_owners);
                 assert(regions.slots =~= entry_own.from_pte_regions_spec(*old(regions)).slots);
@@ -160,7 +159,7 @@ impl<C: PageTableConfig> Child<C> {
 
             return Child::PageTable(node);
         }
-        proof { entry_own.child = true; }
+        proof { entry_own.in_scope = true; }
         Child::Frame(paddr, level, pte.prop())
     }
 }
@@ -204,9 +203,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,
         ensures
-            regions.inv(),
-            res.wf(*entry_owner),
-            entry_owner.relate_region(*regions),
+            res.invariants(*entry_owner, *regions),
             *regions =~= *old(regions),
     {
         if !pte.is_present() {

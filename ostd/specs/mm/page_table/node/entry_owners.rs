@@ -32,7 +32,7 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
     pub absent: bool,
-    pub child: bool,
+    pub in_scope: bool,
     pub path: TreePath<NR_ENTRIES>,
     pub parent_level: PagingLevel,
 }
@@ -60,7 +60,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: None,
             locked: None,
             absent: true,
-            child: true,
+            in_scope: true,
             path,
             parent_level,
         }
@@ -72,7 +72,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
-            child: true,
+            in_scope: true,
             path,
             parent_level,
         }
@@ -84,7 +84,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: None,
             locked: None,
             absent: false,
-            child: true,
+            in_scope: true,
             path,
             parent_level: (node.level + 1) as PagingLevel,
         }
@@ -117,7 +117,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 
     pub open spec fn expected_raw_count(self) -> usize {
-        if self.child {
+        if self.in_scope {
             0
         } else {
             1
@@ -126,12 +126,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].raw_count == self.expected_raw_count()
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].self_addr == self.node.unwrap().meta_perm.addr()
-            &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())])
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
-                regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path
+            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
+            &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_perm.addr()
+            &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[idx])
+            &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
+                regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
         } else if self.is_frame() {
             regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
             regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path

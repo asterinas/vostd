@@ -103,7 +103,7 @@ pub proof fn sibling_paths_disjoint(
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
-            child: false,
+            in_scope: true,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
             node: None,

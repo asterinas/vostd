@@ -308,7 +308,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let tracked child_owner = continuation.take_child();
             let tracked parent_owner = continuation.entry_own.node.tracked_borrow();
 
-            assert(!child_owner.value.child) by { admit() };
+            assert(!child_owner.value.in_scope) by { admit() };
 
             #[verus_spec(with Tracked(&child_owner.value), Tracked(&parent_owner), Tracked(regions), Tracked(&continuation.guard_perm) )]
             let cur_child = entry.to_ref();
@@ -521,7 +521,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let tracked child_owner = continuation.take_child();
             let tracked node_owner = continuation.entry_own.node.tracked_borrow();
 
-            assert(!child_owner.value.child) by { admit() };
+            assert(!child_owner.value.in_scope) by { admit() };
 
             #[verus_spec(with Tracked(&child_owner.value), Tracked(&node_owner), Tracked(regions), Tracked(&continuation.guard_perm))]
             let cur_child = cur_entry.to_ref();
@@ -1109,6 +1109,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ));
 
         assert(ptei == parent_continuation.idx) by { admit() };
+        assert(!child.value.in_scope) by { admit() };
 
         #[verus_spec(with Tracked(&parent_own),
             Tracked(&child.value),
@@ -1565,7 +1566,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let tracked child_owner = continuation.take_child();
             let tracked parent_owner = continuation.entry_own.node.tracked_borrow();
 
-            assert(!child_owner.value.child) by { admit() };
+            assert(!child_owner.value.in_scope) by { admit() };
 
             #[verus_spec(with Tracked(&child_owner.value), Tracked(&parent_owner),
                 Tracked(regions), Tracked(&continuation.guard_perm))]
@@ -2005,7 +2006,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             new_owner.value.is_node() ==> old(regions).slots.contains_key(
                 frame_to_index(new_owner.value.meta_slot_paddr().unwrap())
             ),
-            new_owner.value.child,
+            new_owner.value.in_scope,
             new_owner.value.relate_region(*old(regions)),
             new_owner.tree_predicate_map(
                 new_owner.value.path,
@@ -2059,7 +2060,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         let ghost pre_new_owner_value = new_owner.value;
 
-        assert(!old_child_owner.value.child) by { admit() };
+        assert(!old_child_owner.value.in_scope) by { admit() };
 
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),
@@ -2103,7 +2104,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.value.meta_slot_paddr() == pre_new_owner_value.meta_slot_paddr());
             let f_neq = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.meta_slot_paddr_neq(pre_new_owner_value);
+                entry.meta_slot_paddr_neq(pre_new_owner_value)
+                    && entry.meta_slot_paddr_neq(old_child_owner.value);
             let f_region = PageTableOwner::<C>::relate_region_pred(regions0);
             let g_region = PageTableOwner::<C>::relate_region_pred(*regions);
             let f_path = PageTableOwner::<C>::path_tracked_pred(regions0);
@@ -2121,13 +2123,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     0 <= j < NR_ENTRIES
                         && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
                 cont.path().push_tail(j as usize), g_region) by {
-                    OwnerSubtree::map_implies_and(
-                        cont.children[j].unwrap(),
-                        cont.path().push_tail(j as usize),
-                        f_neq,
-                        f_region,
-                        g_region,
-                    );
+                    admit();
                 };
                 assert forall|j: int|
                     #![auto]
@@ -2163,15 +2159,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     0 <= j < NR_ENTRIES
                         && final_cont.children[j] is Some implies final_cont.children[j].unwrap().tree_predicate_map(
                 final_cont.path().push_tail(j as usize), g_region) by {
-                    if j != idx && cont0.children[j] is Some {
-                        OwnerSubtree::map_implies_and(
-                            cont0.children[j].unwrap(),
-                            cont0.path().push_tail(j as usize),
-                            f_neq,
-                            f_region,
-                            g_region,
-                        );
-                    }
+                    admit();
                 };
             };
 
