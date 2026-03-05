@@ -282,7 +282,7 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
-/*#[verus_verify]
+#[verus_verify]
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
     #[verus_verify]
@@ -291,6 +291,18 @@ impl<T, G> RwLock<T, G> {
 
         // Proof code
         let tracked frac_perm = RwFrac::<T>::new(perm);
+        let tracked read_retract_token = ReadRetractToken::new(());
+        let tracked upgrade_retract_token = UpgradeRetractToken::new(());
+        let ghost v_id = RwId {
+            cell_perm_id: frac_perm.id(),
+            upgrade_retract_token_id: upgrade_retract_token.id(),
+            read_retract_token_id: read_retract_token.id(),
+        };
+        let tracked perms = RwPerms {
+            cell_perm: Some(frac_perm),
+            read_retract_token,
+            upgrade_retract_token,
+        };
         proof {
             lemma_consts_properties();
         }
@@ -298,12 +310,13 @@ impl<T, G> RwLock<T, G> {
         Self {
             guard: PhantomData,
             //lock: AtomicUsize::new(0),
-            lock: AtomicUsize::new(Ghost((val, PhantomData)), 0, Tracked(Some(frac_perm))),
+            lock: AtomicUsize::new(Ghost((val, PhantomData, Ghost(v_id))), 0, Tracked(perms)),
             val: val,
+            v_id: Ghost(v_id),
             //val: UnsafeCell::new(val),
         }
     }
-}*/
+}
 } // verus!
 verus! {
 
