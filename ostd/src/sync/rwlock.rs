@@ -28,8 +28,6 @@ use super::{
 
 verus! {
 
-broadcast use group_deref_spec;
-
 type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
 
 type UpgradeRetractToken = FracGhost<()>;
@@ -238,18 +236,28 @@ closed spec fn wf(self) -> bool {
 }
 
 const READER: usize = 1;
-
 const WRITER: usize = 1 << (usize::BITS - 1);
-
 const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
-
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 
+/// This bit is reserved as an overflow sentinel.
+/// We intentionally cap read guards before counter growth can affect
+/// `BEING_UPGRADED` / `UPGRADEABLE_READER` / `WRITER` bits.
+/// This is defense-in-depth with no extra runtime cost.
+///
+/// This follows the same strategy as Rust std's `Arc`,
+/// which uses `isize::MAX` as a sentinel to prevent its reference count
+/// from overflowing into values that could compromise safety.
+///
+/// On 64-bit platforms (the only targets Asterinas supports),
+/// a counter overflow is not a practical concern:
+/// incrementing one-by-one from zero to `MAX_READER` (2^60)
+/// would take hundreds of years even at billions of increments per second.
+/// Nevertheless, this sentinel provides an extra layer of safety at no runtime cost.
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 
 /// Used only in verification. Excluding the `MAX_READER` bit.
 const READER_MASK: usize = usize::MAX >> 4;
-
 /// Used only in verification. Including the `MAX_READER` bit.
 const MAX_READER_MASK: usize = usize::MAX >> 3;
 
@@ -318,23 +326,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         }
     }
 
-    /// Acquires a read lock through an [`Arc`].
-    ///
-    /// The method is similar to [`read`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the read guard.
-    ///
-    /// [`read`]: Self::read
-    #[verifier::exec_allows_no_decreases_clause]
-    pub fn read_arc(self: &Arc<Self>) -> ArcRwLockReadGuard<T, G> {
-        loop {
-            if let Some(readguard) = self.try_read_arc() {
-                return readguard;
-            } else {
-                core::hint::spin_loop();
-            }
-        }
-    }
-
     /// Acquires a write lock and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no other writers,
@@ -345,23 +336,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     pub fn write(&self) -> RwLockWriteGuard<T, G> {
         loop {
             if let Some(writeguard) = self.try_write() {
-                return writeguard;
-            } else {
-                core::hint::spin_loop();
-            }
-        }
-    }
-
-    /// Acquires a write lock through an [`Arc`].
-    ///
-    /// The method is similar to [`write`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`write`]: Self::write
-    #[verifier::exec_allows_no_decreases_clause]
-    pub fn write_arc(self: &Arc<Self>) -> ArcRwLockWriteGuard<T, G> {
-        loop {
-            if let Some(writeguard) = self.try_write_arc() {
                 return writeguard;
             } else {
                 core::hint::spin_loop();
@@ -383,23 +357,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     pub fn upread(&self) -> RwLockUpgradeableGuard<T, G> {
         loop {
             if let Some(guard) = self.try_upread() {
-                return guard;
-            } else {
-                core::hint::spin_loop();
-            }
-        }
-    }
-
-    /// Acquires an upgradeable read lock through an [`Arc`].
-    ///
-    /// The method is similar to [`upread`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`upread`]: Self::upread
-    #[verifier::exec_allows_no_decreases_clause]
-    pub fn upread_arc(self: &Arc<Self>) -> ArcRwLockUpgradeableGuard<T, G> {
-        loop {
-            if let Some(guard) = self.try_upread_arc() {
                 return guard;
             } else {
                 core::hint::spin_loop();
@@ -463,70 +420,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         }
     }
 
-    /// Attempts to acquire an read lock through an [`Arc`].
-    ///
-    /// The method is similar to [`try_read`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`try_read`]: Self::try_read
-    #[verus_spec]
-    pub fn try_read_arc(self: &Arc<Self>) -> Option<ArcRwLockReadGuard<T, G>> {
-        proof_decl!{
-            let tracked mut perm: Option<RwFrac<T>> = None;
-            let tracked mut retract_read_token: Option<ReadRetractToken> = None;
-        }
-        proof!{
-            use_type_invariant(self);
-            lemma_consts_properties();
-        }
-        let guard = G::read_guard();
-        // let lock = self.lock.fetch_add(READER, Acquire);
-        let lock =
-            atomic_with_ghost!(
-            self.lock => fetch_add(READER);
-            update prev -> next;
-            ghost g => {
-                let prev_usize = prev as usize;
-                let next_usize = next as usize;
-                assume (no_max_reader_overflow(prev_usize));
-                lemma_consts_properties_value(prev_usize);
-                lemma_consts_properties_prev_next(prev_usize, next_usize);
-                if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    let tracked mut tmp = g.cell_perm.tracked_take();
-                    perm = Some(tmp.split(1int));
-                    g.cell_perm = Some(tmp);
-                } else {
-                    retract_read_token = Some(g.read_retract_token.split(1int));
-                }
-            }
-        );
-        if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-            Some(
-                ArcRwLockReadGuard {
-                    inner: self.clone(),
-                    guard,
-                    v_perm: Tracked(perm.tracked_unwrap()),
-                },
-            )
-        } else {
-            // self.lock.fetch_sub(READER, Release);
-            atomic_with_ghost!(
-                self.lock => fetch_sub(READER);
-                update prev -> next;
-                ghost g => {
-                    let prev_usize = prev as usize;
-                    let next_usize = next as usize;
-                    lemma_consts_properties_value(next_usize);
-                    lemma_consts_properties_prev_next(prev_usize, next_usize);
-                    let tracked token = retract_read_token.tracked_unwrap();
-                    g.read_retract_token.combine(token);
-                    g.read_retract_token.bounded();
-                }
-            );
-            None
-        }
-    }
-
     /// Attempts to acquire a write lock.
     ///
     /// This function will never spin-wait and will return immediately.
@@ -556,49 +449,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         ).is_ok() {
             Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(perm.tracked_unwrap()) })
-        } else {
-            None
-        }
-    }
-
-    /// Attempts to acquire a write lock through an [`Arc`].
-    ///
-    /// The method is similar to [`try_write`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`try_write`]: Self::try_write
-    #[verus_spec]
-    fn try_write_arc(self: &Arc<Self>) -> Option<ArcRwLockWriteGuard<T, G>> {
-        proof_decl!{
-            let tracked mut perm: Option<PointsTo<T>> = None;
-        }
-        proof!{
-            use_type_invariant(self);
-            lemma_consts_properties();
-        }
-
-        let guard = G::guard();
-        // if self
-        //     .lock
-        //     .compare_exchange(0, WRITER, Acquire, Relaxed)
-        //     .is_ok()
-        if atomic_with_ghost!(
-            self.lock => compare_exchange(0, WRITER);
-            returning res;
-            ghost g => {
-                if res is Ok {
-                    let tracked (full_perm, _) = g.cell_perm.tracked_take().take_resource();
-                    perm = Some(full_perm);
-                }
-            }
-        ).is_ok() {
-            Some(
-                ArcRwLockWriteGuard {
-                    inner: self.clone(),
-                    guard,
-                    v_perm: Tracked(perm.tracked_unwrap()),
-                },
-            )
         } else {
             None
         }
@@ -673,82 +523,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         }
         None
     }
-
-    /// Attempts to acquire an upgradeable read lock through an [`Arc`].
-    ///
-    /// The method is similar to [`try_upread`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`try_upread`]: Self::try_upread
-    #[verus_spec]
-    pub fn try_upread_arc(self: &Arc<Self>) -> Option<ArcRwLockUpgradeableGuard<T, G>> {
-        proof_decl!{
-            let tracked mut perm: Option<RwFrac<T>> = None;
-            let tracked mut retract_upgrade_token: Option<UpgradeRetractToken> = None;
-        }
-        proof!{
-            use_type_invariant(self);
-            lemma_consts_properties();
-        }
-        let guard = G::guard();
-        // let lock = self.lock.fetch_or(UPGRADEABLE_READER, Acquire) & (WRITER | UPGRADEABLE_READER);
-        let lock =
-            atomic_with_ghost!(
-            self.lock => fetch_or(UPGRADEABLE_READER);
-            update prev -> next;
-            ghost g => {
-                lemma_consts_properties_value(prev);
-                lemma_consts_properties_prev_next(prev, next);
-                if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-                    let tracked mut tmp = g.cell_perm.tracked_take();
-                    perm = Some(tmp.split(1int));
-                    g.cell_perm = Some(tmp);
-                }
-                else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
-                    retract_upgrade_token = Some(g.upgrade_retract_token.split(1int));
-                }
-            }
-        ) & (WRITER | UPGRADEABLE_READER);
-        if lock == 0 {
-            return Some(
-                ArcRwLockUpgradeableGuard {
-                    inner: self.clone(),
-                    guard,
-                    v_perm: Tracked(perm.tracked_unwrap()),
-                },
-            );
-        } else if lock == WRITER {
-            // self.lock.fetch_sub(UPGRADEABLE_READER, Release);
-            atomic_with_ghost!(
-                self.lock => fetch_sub(UPGRADEABLE_READER);
-                update prev -> next;
-                ghost g => {
-                    let prev_usize = prev as usize;
-                    let next_usize = next as usize;
-                    lemma_consts_properties_value(prev_usize);
-                    lemma_consts_properties_prev_next(prev_usize, next_usize);
-                    if (prev_usize & UPGRADEABLE_READER) == 0 {
-                        assert(g.upgrade_retract_token.frac() == 2int);
-                        g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
-                        g.upgrade_retract_token.bounded();
-                        assert(false);
-                    } else {
-                        let frac = g.upgrade_retract_token.frac();
-                        assert(frac == 1int || frac == 2int);
-                        g.upgrade_retract_token.combine(retract_upgrade_token.tracked_unwrap());
-                        if frac == 2int {
-                            g.upgrade_retract_token.bounded();
-                            assert(false);
-                        }
-                    }
-                }
-            );
-        }
-        None
-    }
-}
-
 } // verus!
+
+/*
 impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
     ///
@@ -776,6 +553,7 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
         }
     }
 }
+*/
 
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
@@ -786,54 +564,39 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
 
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
+#[verifier::external]
 unsafe impl<T: /*?Sized +*/ Send, G> Send for RwLock<T, G> {}
+
+#[verifier::external]
 unsafe impl<T: /*?Sized +*/ Send + Sync, G> Sync for RwLock<T, G> {}
 
-impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
-    for RwLockWriteGuard_<T, R, G>
-{
-}
-unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
-    for RwLockWriteGuard_<T, R, G>
-{
-}
+impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
-impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
-    for RwLockReadGuard_<T, R, G>
-{
-}
-unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
-    for RwLockReadGuard_<T, R, G>
-{
-}
+impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
 
-impl<T: /*?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> !Send
-    for RwLockUpgradeableGuard_<T, R, G>
-{
-}
-unsafe impl<T: /*?Sized +*/ Sync, R: Deref<Target = RwLock<T, G>> + Clone + Sync, G: SpinGuardian> Sync
-    for RwLockUpgradeableGuard_<T, R, G>
-{
-}
+impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
+
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct RwLockReadGuard_<
-    T, /*: ?Sized*/
-    R: Deref<Target = RwLock<T, G>> + Clone,
-    G: SpinGuardian,
-> {
+pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
-    inner: R,
+    inner: &'a RwLock<T, G>,
     v_perm: Tracked<RwFrac<T>>,
 }
 
 /*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
-    for RwLockReadGuard_<T, R, G>
+    for RwLockReadGuard<T, R, G>
 {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
@@ -841,25 +604,18 @@ impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtom
 }
 */
 
-/// A guard that provides shared read access to the data protected by a [`RwLock`].
-pub type RwLockReadGuard<'a, T, G> = RwLockReadGuard_<T, &'a RwLock<T, G>, G>;
-
-/// A guard that provides shared read access to the data protected by a `Arc<RwLock>`.
-pub type ArcRwLockReadGuard<T, G> = RwLockReadGuard_<T, Arc<RwLock<T, G>>, G>;
-
 verus! {
 
-impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockReadGuard_<T, R, G> {
+impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        &&& self.inner.deref_spec().cell_perm_id() == self.v_perm@.id()
-        &&& self.inner.deref_spec().cell_id() == self.v_perm@.resource().id()
+        &&& self.inner.cell_perm_id() == self.v_perm@.id()
+        &&& self.inner.cell_id() == self.v_perm@.resource().id()
         &&& self.v_perm@.frac() == 1
     }
 }
 
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
-    for RwLockReadGuard_<T, R, G>
+impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
 {
     type Target = T;
 
@@ -873,8 +629,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
     }
 }
 
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
-    for RwLockReadGuard_<T, R, G>
+impl<T /*: ?Sized*/, G: SpinGuardian> Drop for RwLockReadGuard<'_, T, G>
 {
     #[verifier::external_body]
     fn drop(&mut self)
@@ -889,55 +644,44 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
     }
 }
 } // verus!
+
 /*
-impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
-    for RwLockReadGuard_<T, R, G>
-{
+impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }*/
+
 /// A guard that provides mutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct RwLockWriteGuard_<
-    T, /*: ?Sized*/
-    R: Deref<Target = RwLock<T, G>> + Clone,
-    G: SpinGuardian,
-> {
+pub struct RwLockWriteGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
-    inner: R,
+    inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
     v_perm: Tracked<PointsTo<T>>,
 }
 
 verus! {
 
-impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockWriteGuard_<T, R, G> {
+impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
-        self.inner.deref_spec().cell_id() == self.v_perm@.id()
+        self.inner.cell_id() == self.v_perm@.id()
     }
 }
 
 } // verus!
 /*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
-    for RwLockWriteGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G> {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
 }*/
-/// A guard that provides exclusive write access to the data protected by a [`RwLock`].
-pub type RwLockWriteGuard<'a, T, G> = RwLockWriteGuard_<T, &'a RwLock<T, G>, G>;
-/// A guard that provides exclusive write access to the data protected by a `Arc<RwLock>`.
-pub type ArcRwLockWriteGuard<T, G> = RwLockWriteGuard_<T, Arc<RwLock<T, G>>, G>;
 
 verus! {
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
-    for RwLockWriteGuard_<T, R, G>
+impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G>
 {
     type Target = T;
 
@@ -953,72 +697,54 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
 
 } // verus!
 /*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> DerefMut
-    for RwLockWriteGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.inner.val.get() }
     }
 }
 
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
-    for RwLockWriteGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> Drop for RwLockWriteGuard<'_, T, G> {
     fn drop(&mut self) {
         self.inner.lock.fetch_and(!WRITER, Release);
     }
+}
 
-impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
-    for RwLockWriteGuard_<T, R, G>
-{
+impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
-*/
+}*/
 
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct RwLockUpgradeableGuard_<
-    T, /*: ?Sized*/
-    R: Deref<Target = RwLock<T, G>> + Clone,
-    G: SpinGuardian,
-> {
+pub struct RwLockUpgradeableGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
-    inner: R,
+    inner: &'a RwLock<T, G>,
     v_perm: Tracked<RwFrac<T>>,
 }
 /*
-impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> AsAtomicModeGuard
-    for RwLockUpgradeableGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_, T, G> {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
 }*/
 
-/// A upgradable guard that provides read access to the data protected by a [`RwLock`].
-pub type RwLockUpgradeableGuard<'a, T, G> = RwLockUpgradeableGuard_<T, &'a RwLock<T, G>, G>;
-/// A upgradable guard that provides read access to the data protected by a `Arc<RwLock>`.
-pub type ArcRwLockUpgradeableGuard<T, G> = RwLockUpgradeableGuard_<T, Arc<RwLock<T, G>>, G>;
-
 verus! {
 
-impl<T, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> RwLockUpgradeableGuard_<T, R, G> {
+impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        &&& self.inner.deref_spec().cell_perm_id() == self.v_perm@.id()
-        &&& self.inner.deref_spec().cell_id() == self.v_perm@.resource().id()
+        &&& self.inner.cell_perm_id() == self.v_perm@.id()
+        &&& self.inner.cell_id() == self.v_perm@.resource().id()
         &&& self.v_perm@.frac() == 1
     }
 }
 
 #[verus_verify]
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
-    RwLockUpgradeableGuard_<T, R, G>
+impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
 {
     /// Upgrades this upread guard to a write guard atomically.
     ///
@@ -1027,9 +753,9 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// will spin-wait until previous readers finish.
     #[verus_spec]
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(/* mut */ self) -> RwLockWriteGuard_<T, R, G> {
+    pub fn upgrade(/* mut */ self) -> RwLockWriteGuard<'a, T, G> {
         let mut this = self;
-        let lock = this.inner.deref();
+        let lock = this.inner;
         proof! {
             use_type_invariant(&this);
             use_type_invariant(lock);
@@ -1076,11 +802,15 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             };
         }
     }
+    
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will never spin-wait and will return immediately.
+    ///
+    /// This function is not exposed publicly because the `BEING_UPGRADED` bit
+    /// is set only in [`Self::upgrade`].
     #[verus_spec]
-    pub fn try_upgrade(/* mut */ self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
+    fn try_upgrade(/* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
         proof_decl! {
             let tracked mut lock_perm: Option<RwFrac<T>> = None;
             let tracked mut write_perm: Option<PointsTo<T>> = None;
@@ -1088,13 +818,11 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             let ghost mut up_perm_id: Option<Loc> = None;
             let ghost mut canon_perm_id: Option<Loc> = None;
         }
-        let lock = self.inner.deref();
+        let lock = self.inner;
         proof! {
             use_type_invariant(&self);
             use_type_invariant(lock);
             lemma_consts_properties();
-            self.inner.deref_spec_eq();
-            assert(self.inner.deref_spec() == lock);
             up_perm_id = Some(self.v_perm@.id());
             canon_perm_id = Some(lock.cell_perm_id());
             assert(up_perm_id->Some_0 == canon_perm_id->Some_0);
@@ -1153,11 +881,11 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             }
         );
         if res.is_ok() {
-            // let inner = self.inner.clone();
+            // let inner = self.inner;
             // let guard = self.guard.transfer_to();
             // drop(self);
             let mut this = core::mem::ManuallyDrop::new(self);
-            let inner = unsafe { Self::get_inner(&this) };
+            let inner = &this.inner;
             let guard = unsafe { Self::get_guard(&this) };
             let Tracked(up_perm) = unsafe { Self::get_v_perm(&this) };
             proof! {
@@ -1168,14 +896,13 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
                 assert(this@.v_perm@.id() == up_perm_id->Some_0);
                 assert(up_perm.id() == this@.v_perm@.id());
                 let ghost up_cell_id = up_perm.resource().id();
-                assert(up_cell_id == inner.deref_spec().cell_id());
                 rem.combine(up_perm);
                 assert(rem.frac() == V_MAX_PERM_FRACS as int);
                 let tracked (full_perm, _) = rem.take_resource();
                 assert(full_perm.id() == up_cell_id);
                 write_perm = Some(full_perm);
             }
-            Ok(RwLockWriteGuard_ { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()) })
+            Ok(RwLockWriteGuard { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()) })
         } else {
             Err(self)
         }
@@ -1190,25 +917,15 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     #[verus_spec(
         ret =>
         ensures
-            ret.deref_spec() == me@.inner.deref_spec(),
-    )]
-    unsafe fn get_inner(me: &core::mem::ManuallyDrop<Self>) -> R {
-        core::ptr::read(&me.inner)
-    }
-
-    #[verifier::external_body]
-    #[verus_spec(
-        ret =>
-        ensures
             ret@ == me@.v_perm@,
     )]
     unsafe fn get_v_perm(me: &core::mem::ManuallyDrop<Self>) -> Tracked<RwFrac<T>> {
         core::ptr::read(&me.v_perm)
     }
 }
+}
 
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Deref
-    for RwLockUpgradeableGuard_<T, R, G>
+impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G>
 {
     type Target = T;
 
@@ -1222,8 +939,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
     }
 }
 
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
-    for RwLockUpgradeableGuard_<T, R, G>
+impl<T /*: ?Sized*/, G: SpinGuardian> Drop for RwLockUpgradeableGuard<'_, T, G>
 {
     #[verifier::external_body]
     fn drop(&mut self)
@@ -1239,13 +955,12 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
 }
 } // verus!
 /*
-impl<T: ?Sized + fmt::Debug, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> fmt::Debug
-    for RwLockUpgradeableGuard_<T, R, G>
-{
+impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
+
 */
 verus! {
 
