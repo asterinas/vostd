@@ -302,14 +302,13 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    #[verifier::external_body]
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
                     CursorMut {
-                        pt_cursor: pt_cursor.0,
+                        pt_cursor: pt_cursor,
                         flusher: TlbFlusher::new(
                             &self.cpus  /*, disable_preempt()*/
                             ,

@@ -32,15 +32,15 @@
 //!
 //! If the address width is (according to [`crate::arch::mm::PagingConsts`])
 //! 39 bits or 57 bits, the memory space just adjust proportionally.
-//pub(crate) mod kvirt_area;
 use vstd::prelude::*;
 
 use core::ops::Range;
 
 //use log::info;
-//use spin::Once;
+use crate::sync::{OnceImpl, TrivialPred};
 #[cfg(ktest)]
 mod test;
+pub(crate) mod kvirt_area;
 
 use super::{
     frame::{
@@ -51,6 +51,7 @@ use super::{
     page_table::{PageTable, PageTableConfig},
     Paddr, PagingConstsTrait, Vaddr,
 };
+use crate::specs::mm::frame::meta_owners::MetaSlotStorage;
 use crate::{
     boot::memory_region::MemoryRegionType,
     mm::{largest_pages, PagingLevel},
@@ -133,18 +134,18 @@ pub fn paddr_to_vaddr(pa: Paddr) -> usize
     pa + LINEAR_MAPPING_BASE_VADDR
 }
 
-/*
+
 /// The kernel page table instance.
 ///
 /// It manages the kernel mapping of all address spaces by sharing the kernel part. And it
 /// is unlikely to be activated.
-pub static KERNEL_PAGE_TABLE: Once<PageTable<KernelPtConfig>> = Once::new();
-*/
+pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPred> =
+    OnceImpl::new(Ghost(TrivialPred));
+
 
 #[derive(Clone, Debug)]
 pub(crate) struct KernelPtConfig {}
 
-/*
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,
 unsafe impl PageTableConfig for KernelPtConfig {
@@ -159,6 +160,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         256..512
     }
 
+    open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> bool {
+        false
+    }
+
     fn TOP_LEVEL_CAN_UNMAP() -> (b: bool)
         ensures
             b == Self::TOP_LEVEL_CAN_UNMAP_spec(),
@@ -171,36 +176,58 @@ unsafe impl PageTableConfig for KernelPtConfig {
 
     type Item = MappedItem;
 
-    fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+
+//    #[verifier::when_used_as_spec(item_into_raw_spec)]
+    #[verifier::external_body]
+    fn item_into_raw(item: Self::Item) -> (res: (Paddr, PagingLevel, PageProperty))
+        ensures
+            1 <= res.1 <= crate::specs::arch::mm::NR_LEVELS,
+            res == Self::item_into_raw_spec(item),
+    {
         match item {
             MappedItem::Tracked(frame, mut prop) => {
-                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1));
-                prop.flags |= PageFlags::AVAIL1;
+                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
+                prop.flags = prop.flags | PageFlags::AVAIL1();
                 let level = frame.map_level();
                 let paddr = frame.into_raw();
                 (paddr, level, prop)
             }
             MappedItem::Untracked(pa, level, mut prop) => {
-                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1));
-                prop.flags -= PageFlags::AVAIL1;
+                debug_assert!(!prop.flags.contains(PageFlags::AVAIL1()));
+                prop.flags = prop.flags - PageFlags::AVAIL1();
                 (pa, level, prop)
             }
         }
     }
 
-    unsafe fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> Self::Item {
-        if prop.flags.contains(PageFlags::AVAIL1) {
+    uninterp spec fn item_from_raw_spec(
+        paddr: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    ) -> Self::Item;
+
+    //#[verifier::when_used_as_spec(item_from_raw_spec)]
+    #[verifier::external_body]
+    fn item_from_raw(paddr: Paddr, level: PagingLevel, prop: PageProperty) -> (res: Self::Item)
+        ensures
+            res == Self::item_from_raw_spec(paddr, level, prop),
+    {
+        if prop.flags.contains(PageFlags::AVAIL1()) {
             debug_assert_eq!(level, 1);
             // SAFETY: The caller ensures safety.
-            let frame = unsafe { Frame::<dyn AnyFrameMeta>::from_raw(paddr) };
+            let frame = unsafe { Frame::<MetaSlotStorage>::from_raw(paddr) };
             MappedItem::Tracked(frame, prop)
         } else {
             MappedItem::Untracked(paddr, level, prop)
         }
     }
+
+    axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
+
+    axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
 }
-*/
-} // verus!
+
 /*
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum MappedItem {
@@ -208,6 +235,14 @@ pub(crate) enum MappedItem {
     Untracked(Paddr, PagingLevel, PageProperty),
 }
 */
+
+#[derive(Clone)]
+pub enum MappedItem {
+    Tracked(Frame<MetaSlotStorage>, PageProperty),
+    Untracked(Paddr, PagingLevel, PageProperty),
+}
+
+} // verus!
 // /// Initializes the kernel page table.
 // ///
 // /// This function should be called after:

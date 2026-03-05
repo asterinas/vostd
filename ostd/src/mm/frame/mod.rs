@@ -66,6 +66,7 @@ pub use meta::mapping::{
 };
 pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
+pub use untyped::{AnyUFrameMeta, UFrame};
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
@@ -681,12 +682,12 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-/*impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
+impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
     fn from(frame: Frame<M>) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
-}*/
+}
 /*impl From<UFrame> for Frame<FrameMeta> {
     fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.

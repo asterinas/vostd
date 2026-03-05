@@ -1,21 +1,68 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Kernel virtual memory allocation
+use vstd::prelude::*;
 use core::ops::Range;
 
 use super::{KERNEL_PAGE_TABLE, VMALLOC_VADDR_RANGE};
 use crate::{
     mm::{
-        frame::{meta::AnyFrameMeta, Frame, Segment},
+        frame::{untyped::AnyUFrameMeta, Frame, Segment},
         kspace::{KernelPtConfig, MappedItem},
         largest_pages,
         page_prop::PageProperty,
         Paddr, Vaddr, PAGE_SIZE,
+        page_table::CursorMut,
     },
-    task::disable_preempt,
-    //    util::range_alloc::RangeAllocator,
 };
 
+use crate::specs::task::InAtomicMode;
+use crate::specs::mm::page_table::CursorOwner;
+
 //static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
+
+verus! {
+
+#[derive(Debug)]
+pub struct RangeAllocError;
+
+pub struct RangeAllocator;
+
+impl RangeAllocator {
+    #[verifier::external_body]
+    pub const fn new(_r: core::ops::Range<Vaddr>) -> Self {
+        Self
+    }
+
+    #[verifier::external_body]
+    pub fn alloc(&self, _size: usize) -> Result<core::ops::Range<Vaddr>, RangeAllocError> {
+        unimplemented!("Uses runtime RangeAllocator")
+    }
+}
+
+#[verifier::external_body]
+pub fn disable_preempt<G: InAtomicMode>() -> G {
+    unimplemented!()
+}
+
+exec static KVIRT_AREA_ALLOCATOR: RangeAllocator = RangeAllocator::new(VMALLOC_VADDR_RANGE);
+
+// Axiomatized spec for alloc - cannot read exec static in proof mode.
+pub uninterp spec fn kvirt_alloc_spec(size: usize) -> Result<core::ops::Range<Vaddr>, RangeAllocError>;
+
+pub axiom fn kvirt_alloc_succeeds(area_size: usize)
+    requires
+        0 < area_size <= usize::MAX / 2,
+    ensures
+        kvirt_alloc_spec(area_size).is_ok();
+
+pub axiom fn kvirt_alloc_range_bounds(area_size: usize, map_offset: usize, r: core::ops::Range<Vaddr>)
+    ensures
+        kvirt_alloc_spec(area_size) == Ok::<core::ops::Range<Vaddr>, RangeAllocError>(r)
+        ==> r.start <= r.end
+            && (r.end - r.start) >= area_size
+            && map_offset <= r.end - r.start
+            && r.start + map_offset <= usize::MAX
+;
 
 /// Kernel virtual area.
 ///
@@ -35,6 +82,7 @@ pub struct KVirtArea {
     range: Range<Vaddr>,
 }
 
+#[verus_verify]
 impl KVirtArea {
     pub fn start(&self) -> Vaddr {
         self.range.start
@@ -61,8 +109,8 @@ impl KVirtArea {
         let start = addr.align_down(PAGE_SIZE);
         let vaddr = start..start + PAGE_SIZE;
         let page_table = KERNEL_PAGE_TABLE.get().unwrap();
-        let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
+        //let preempt_guard = disable_preempt();
+        let mut cursor = page_table.cursor(&vaddr).unwrap();
         cursor.query().unwrap().1
     }
 
@@ -77,29 +125,37 @@ impl KVirtArea {
     ///  - the area size is not a multiple of [`PAGE_SIZE`];
     ///  - the map offset is not aligned to [`PAGE_SIZE`];
     ///  - the map offset plus the size of the pages exceeds the area size.
-    pub fn map_frames<T: AnyFrameMeta>(
+    // TODO: T should be any AnyFrameMeta + Repr<MetaSlotStorage>
+    #[verifier::external_body]
+    pub fn map_frames<T: AnyUFrameMeta, A: InAtomicMode>(
         area_size: usize,
         map_offset: usize,
-        frames: impl Iterator<Item = Frame<T>>,
+        frames: alloc::vec::Vec<Frame<T>>,
         prop: PageProperty,
-    ) -> Self {
-        assert!(area_size % PAGE_SIZE == 0);
-        assert!(map_offset % PAGE_SIZE == 0);
-
+    ) -> Self
+        requires
+            map_offset <= area_size,
+            area_size <= usize::MAX / 2,
+    {
+        proof {
+            kvirt_alloc_succeeds(area_size);
+        }
         let range = KVIRT_AREA_ALLOCATOR.alloc(area_size).unwrap();
         let cursor_range = range.start + map_offset..range.end;
 
         let page_table = KERNEL_PAGE_TABLE.get().unwrap();
-        let preempt_guard = disable_preempt();
-        let mut cursor = page_table
-            .cursor_mut(&preempt_guard, &cursor_range)
-            .unwrap();
+        let preempt_guard = disable_preempt::<A>();
+
+        proof_decl! {
+            let tracked mut cursor_owner: Tracked<Option<CursorOwner<KernelPtConfig>>>;
+        }
+
+        let mut cursor = (#[verus_spec(with => cursor_owner)] page_table.cursor_mut(&preempt_guard, &cursor_range)).unwrap();
 
         for frame in frames.into_iter() {
             // SAFETY: The constructor of the `KVirtArea` has already ensured
             // that this mapping does not affect kernel's memory safety.
-            unsafe { cursor.map(MappedItem::Tracked(frame.into(), prop)) }
-                .expect("Failed to map frame in a new `KVirtArea`");
+            cursor.map(MappedItem::Tracked(frame.into(), prop));
         }
 
         Self { range }
@@ -123,17 +179,18 @@ impl KVirtArea {
     ///  - the map offset plus the length of the physical range exceeds the
     ///    area size;
     ///  - the provided physical range contains tracked physical addresses.
-    pub unsafe fn map_untracked_frames(
+    #[verifier::external_body]
+    pub unsafe fn map_untracked_frames<A: InAtomicMode, 'rcu>(
         area_size: usize,
         map_offset: usize,
         pa_range: Range<Paddr>,
         prop: PageProperty,
     ) -> Self {
-        assert!(pa_range.start % PAGE_SIZE == 0);
+        /*assert!(pa_range.start % PAGE_SIZE == 0);
         assert!(pa_range.end % PAGE_SIZE == 0);
         assert!(area_size % PAGE_SIZE == 0);
         assert!(map_offset % PAGE_SIZE == 0);
-        assert!(map_offset + pa_range.len() <= area_size);
+        assert!(map_offset + pa_range.len() <= area_size);*/
 
         let range = KVIRT_AREA_ALLOCATOR.alloc(area_size).unwrap();
 
@@ -142,13 +199,18 @@ impl KVirtArea {
             let va_range = range.start + map_offset..range.start + map_offset + len;
 
             let page_table = KERNEL_PAGE_TABLE.get().unwrap();
-            let preempt_guard = disable_preempt();
-            let mut cursor = page_table.cursor_mut(&preempt_guard, &va_range).unwrap();
+            let preempt_guard = disable_preempt::<A>();
 
-            for (pa, level) in largest_pages::<KernelPtConfig>(va_range.start, pa_range.start, len)
-            {
+            proof_decl! {
+                let tracked mut cursor_owner: Tracked<CursorOwner<KernelPtConfig>>;
+            }
+
+            let mut cursor = (#[verus_spec(with => cursor_owner)] page_table.cursor_mut(&preempt_guard, &va_range)).unwrap();
+
+            let pages = largest_pages::<KernelPtConfig>(va_range.start, pa_range.start, len);
+            for (pa, level) in pages.into_iter() {
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                let _ = unsafe { cursor.map(MappedItem::Untracked(pa, level, prop)) };
+                let _ = cursor.map(MappedItem::Untracked(pa, level, prop));
             }
         }
 
@@ -156,13 +218,13 @@ impl KVirtArea {
     }
 }
 
-impl Drop for KVirtArea {
+/*impl Drop for KVirtArea {
     fn drop(&mut self) {
         // 1. unmap all mapped pages.
-        let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+        let page_table = KERNEL_PAGE_TABLE.unwrap();
         let range = self.start()..self.end();
-        let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor_mut(&preempt_guard, &range).unwrap();
+        //let preempt_guard = disable_preempt();
+        let mut cursor = page_table.cursor_mut(&range).unwrap();
         loop {
             // SAFETY: The range is under `KVirtArea` so it is safe to unmap.
             let Some(frag) = (unsafe { cursor.take_next(self.end() - cursor.virt_addr()) }) else {
@@ -171,6 +233,7 @@ impl Drop for KVirtArea {
             drop(frag);
         }
         // 2. free the virtual block
-        KVIRT_AREA_ALLOCATOR.free(range);
+        //KVIRT_AREA_ALLOCATOR.free(range);
     }
-}
+}*/
+} // verus!

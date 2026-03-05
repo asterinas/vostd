@@ -744,12 +744,23 @@ impl<C: PageTableConfig> PageTable<C> {
     ///
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped.
+    #[verus_spec(with -> cursor_owner: Tracked<Option<CursorOwner<'rcu, C>>>)]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
-        CursorMut::new(self, guard, va)
+    ) -> Result<CursorMut<'rcu, C, G>, PageTableError> {
+        match CursorMut::new(self, guard, va) {
+            Ok((cursor, owner)) => {
+                let Tracked(owner) = owner;
+                proof_with!(|= Tracked(Some(owner)));
+                Ok(cursor)
+            },
+            Err(error) => {
+                proof_with!(|= Tracked(None));
+                Err(error)
+            },
+        }
     }
 
     /// Create a new cursor exclusively accessing the virtual address range for querying.
