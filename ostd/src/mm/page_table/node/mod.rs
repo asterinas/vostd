@@ -285,6 +285,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
                 owner@.value.node.unwrap().meta_perm.addr(),
             owner@.value.node.unwrap().meta_perm.points_to.value().wf(
                 regions.slot_owners[frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))]),
+            owner@.value.relate_region(*regions),
     )]
     #[verifier::external_body]
     pub fn alloc(level: PagingLevel) -> Self {
@@ -454,6 +455,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
     pub fn entry(guard: PPtr<Self>, idx: usize) -> (res: Entry<'rcu, C>)
         requires
             owner.inv(),
+            !child_owner.in_scope,
             child_owner.inv(),
             owner.relate_guard_perm(*guard_perm),
             guard_perm.addr() == guard.addr(),
