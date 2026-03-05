@@ -8,6 +8,7 @@ use vstd::prelude::*;
 verus! {
 
 /// This is a workaround to add an uninterpreted specification of Deref trait, as Deref is included in Verus but does not have spec functions.
+/// It is currently not used, and we do not recommend using it, as it adds assumptions about the core of Rust's deref semantics, which may cause soundness issues if not used carefully.
 /// It may change if Verus adds native support for spec functions in the Deref trait.
 pub trait DerefSpec: Deref {
     spec fn deref_spec(&self) -> &<Self as Deref>::Target;
