@@ -958,9 +958,10 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     ///
     /// This method always succeeds because the lock is exclusively held by the writer.
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn downgrade(self) -> RwLockUpgradeableGuard_<T, R, G> {
+    pub fn downgrade(/* mut */ self) -> RwLockUpgradeableGuard_<T, R, G> {
         let mut this = self;
         loop {
+            // self = match self.try_downgrade() {
             this = match this.try_downgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
@@ -971,7 +972,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// This is not exposed as a public method to prevent intermediate lock states from affecting the
     /// downgrade process.
     #[verifier::external_body]
-    fn try_downgrade(self) -> Result<RwLockUpgradeableGuard_<T, R, G>, Self> {
+    fn try_downgrade(/* mut */ self) -> Result<RwLockUpgradeableGuard_<T, R, G>, Self> {
         let inner = self.inner.clone();
         // let res = self
         //     .inner
@@ -983,6 +984,8 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             ghost g => { }
         );
         if res.is_ok() {
+            // let guard = self.guard.transfer_to();
+            // drop(self);
             let this = core::mem::ManuallyDrop::new(self);
             let guard = unsafe { core::ptr::read(&this.guard) };
             Ok(RwLockUpgradeableGuard_ { inner, guard, v_perm: Tracked::assume_new() })
@@ -1067,7 +1070,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     /// will spin-wait until previous readers finish.
     #[verus_spec]
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(self) -> RwLockWriteGuard_<T, R, G> {
+    pub fn upgrade(/* mut */ self) -> RwLockWriteGuard_<T, R, G> {
         let mut this = self;
         let lock = this.inner.deref();
         proof! {
@@ -1109,6 +1112,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             }
         );
         loop {
+            // self = match self.try_upgrade() {
             this = match this.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
@@ -1119,7 +1123,7 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
-    pub fn try_upgrade(self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
+    pub fn try_upgrade(/* mut */ self) -> Result<RwLockWriteGuard_<T, R, G>, Self> {
         proof_decl! {
             let tracked mut lock_perm: Option<RwFrac<T>> = None;
             let tracked mut write_perm: Option<PointsTo<T>> = None;
@@ -1192,6 +1196,9 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
             }
         );
         if res.is_ok() {
+            // let inner = self.inner.clone();
+            // let guard = self.guard.transfer_to();
+            // drop(self);
             let mut this = core::mem::ManuallyDrop::new(self);
             let inner = unsafe { Self::get_inner(&this) };
             let guard = unsafe { Self::get_guard(&this) };
