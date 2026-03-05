@@ -258,7 +258,7 @@ impl<'a> VmSpace<'a> {
     ///
     /// This function is marked as `external_body` for now as the current design does not entail
     /// the concrete implementation details of the underlying data structure of the [`VmSpace`].
-    /// 
+    ///
     /// ## Preconditions
     /// None
     ///

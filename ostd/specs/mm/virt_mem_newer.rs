@@ -91,7 +91,7 @@ impl Inv for FrameContents {
 /// [`GlobalMemView::take_view`], then consumed by APIs such as [`VirtPtr::read`],
 /// [`VirtPtr::write`], and higher-level ownership proofs in
 /// [`VmSpaceOwner`].
-/// 
+///
 /// [`VmSpaceOwner`]: crate::mm::vm_space::vm_space_specs::VmSpaceOwner
 pub tracked struct MemView {
     /// Virtual-to-physical mapping set used for address translation.
