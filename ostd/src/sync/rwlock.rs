@@ -951,49 +951,6 @@ impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> D
     }
 }
 
-impl<T /*: ?Sized*/, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian>
-    RwLockWriteGuard_<T, R, G>
-{
-    /// Atomically downgrades a write guard to an upgradeable reader guard.
-    ///
-    /// This method always succeeds because the lock is exclusively held by the writer.
-    #[verifier::exec_allows_no_decreases_clause]
-    pub fn downgrade(/* mut */ self) -> RwLockUpgradeableGuard_<T, R, G> {
-        let mut this = self;
-        loop {
-            // self = match self.try_downgrade() {
-            this = match this.try_downgrade() {
-                Ok(guard) => return guard,
-                Err(e) => e,
-            };
-        }
-    }
-
-    /// This is not exposed as a public method to prevent intermediate lock states from affecting the
-    /// downgrade process.
-    #[verifier::external_body]
-    fn try_downgrade(/* mut */ self) -> Result<RwLockUpgradeableGuard_<T, R, G>, Self> {
-        let inner = self.inner.clone();
-        // let res = self
-        //     .inner
-        //     .lock
-        //     .compare_exchange(WRITER, UPGRADEABLE_READER, AcqRel, Relaxed);
-        let res = atomic_with_ghost!(
-            &self.inner.lock => compare_exchange(WRITER, UPGRADEABLE_READER);
-            returning res;
-            ghost g => { }
-        );
-        if res.is_ok() {
-            // let guard = self.guard.transfer_to();
-            // drop(self);
-            let this = core::mem::ManuallyDrop::new(self);
-            let guard = unsafe { core::ptr::read(&this.guard) };
-            Ok(RwLockUpgradeableGuard_ { inner, guard, v_perm: Tracked::assume_new() })
-        } else {
-            Err(self)
-        }
-    }
-}
 } // verus!
 /*
 impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> DerefMut
