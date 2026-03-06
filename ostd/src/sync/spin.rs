@@ -455,8 +455,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for SpinLockGuard<'_, T
 #[verus_verify]
 impl<T: ?Sized, G: SpinGuardian> !Send for SpinLockGuard<'_, T, G> {}
 
-/*
+#[verifier::external]
 // SAFETY: `SpinLockGuard` can be shared between tasks/threads in same CPU.
 // As `lock()` is only called when there are no race conditions caused by interrupts.
-unsafe impl<T: ?Sized + Sync, G: SpinGuardian> Sync for SpinLockGuard<'_, T, G> {}
-*/
+unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for SpinLockGuard<'_, T, G> {}
