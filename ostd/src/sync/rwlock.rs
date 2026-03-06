@@ -829,23 +829,6 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
                 if res is Ok {
-                    assert(prev & WRITER == 0usize) by (bit_vector)
-                        requires
-                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
-                            WRITER & UPGRADEABLE_READER == 0,
-                            WRITER & BEING_UPGRADED == 0,
-                    ;
-                    assert(prev & UPGRADEABLE_READER == UPGRADEABLE_READER) by (bit_vector)
-                        requires
-                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
-                            UPGRADEABLE_READER & BEING_UPGRADED == 0,
-                    ;
-                    assert(prev & MAX_READER_MASK == 0usize) by (bit_vector)
-                        requires
-                            prev == UPGRADEABLE_READER | BEING_UPGRADED,
-                            UPGRADEABLE_READER & MAX_READER_MASK == 0,
-                            BEING_UPGRADED & MAX_READER_MASK == 0,
-                    ;
                     lock_perm = Some(g.cell_perm.tracked_take());
                 }
             }
@@ -962,6 +945,13 @@ proof fn lemma_consts_properties()
         BEING_UPGRADED & READER_MASK == 0,
         BEING_UPGRADED & MAX_READER_MASK == 0,
         BEING_UPGRADED & MAX_READER == 0,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & WRITER == 0,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & UPGRADEABLE_READER == UPGRADEABLE_READER,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & BEING_UPGRADED == BEING_UPGRADED,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & READER_MASK == 0,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER_MASK == 0,
+        (UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER == 0,
+        
 {
     assert(0 & WRITER == 0) by (compute_only);
     assert(0 & UPGRADEABLE_READER == 0) by (compute_only);
@@ -991,6 +981,12 @@ proof fn lemma_consts_properties()
     assert(BEING_UPGRADED & READER_MASK == 0) by (compute_only);
     assert(BEING_UPGRADED & MAX_READER_MASK == 0) by (compute_only);
     assert(BEING_UPGRADED & MAX_READER == 0) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & WRITER == 0) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & UPGRADEABLE_READER == UPGRADEABLE_READER) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & BEING_UPGRADED == BEING_UPGRADED) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & READER_MASK == 0) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER_MASK == 0) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER == 0) by (compute_only);
 }
 
 proof fn lemma_consts_properties_value(prev: usize)
