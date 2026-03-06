@@ -16,10 +16,6 @@ use core::{
 use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
-verus! {
-    broadcast use group_deref_spec;
-}
-
 /// A spin lock.
 ///
 /// # Guard behavior
@@ -34,13 +30,14 @@ verus! {
 /// The guard behavior can be temporarily upgraded from [`PreemptDisabled`] to
 /// [`LocalIrqDisabled`] using the [`disable_irq`] method.
 ///
+/// [`disable_irq`]: Self::disable_irq
+/// 
 /// # Verified Properties
 /// ## Verification Design
 /// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust). Only the owner of this permission can access the protected data in the cell.
 /// When [`lock`] or [`try_lock`] succeeds, the ghost permission is transferred to the lock guard and given to the user for accessing the protected data.
 /// When the lock guard is dropped, the ghost permission is transferred back to the spin lock.
 ///
-/// [`disable_irq`]: Self::disable_irq
 /// [`lock`]: Self::lock
 /// [`try_lock`]: Self::try_lock
 ///
@@ -148,7 +145,6 @@ impl<T, G> SpinLock<T, G> {
     }
 }
 
-verus!{}
 impl<T,G> SpinLock<T,G>
 {
     /// Returns the unique [`CellId`](https://verus-lang.github.io/verus/verusdoc/vstd/cell/struct.CellId.html) of the internal `PCell<T>`.
@@ -210,7 +206,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     ///}.is_ok()
     /// ```
     #[verus_spec]
-    pub fn lock(&self) -> SpinLockGuard<T, G> {
+    pub fn lock(&self) -> SpinLockGuard<'_, T, G> {
         // Notice the guard must be created before acquiring the lock.
         proof!{ use_type_invariant(self);}
         proof_decl!{
@@ -219,36 +215,8 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         let inner_guard = G::guard();
         proof_with! {=> Tracked(perm)}
         self.acquire_lock();
-        SpinLockGuard_ {
+        SpinLockGuard {
             lock: self,
-            guard: inner_guard,
-            v_perm: Tracked(perm),
-        }
-    }
-
-    /// Acquires the spin lock through an [`Arc`].
-    ///
-    /// The method is similar to [`lock`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the lock guard.
-    ///
-    /// [`lock`]: Self::lock
-    ///
-    /// # Verified Properties
-    /// Same as [`lock`].
-    #[verus_spec]
-    pub fn lock_arc(self: &Arc<Self>) -> ArcSpinLockGuard<T, G> {
-        proof!{ use_type_invariant(self);}
-        proof_decl!{
-            let tracked mut perm: PointsTo<T> = arbitrary_cell_pointsto();
-        }
-        let inner_guard = G::guard();
-        proof_with! {=> Tracked(perm)}
-        self.acquire_lock();
-        proof!{
-            assert(perm.id() == (*self.clone().deref_spec()).cell_id());
-        }
-        SpinLockGuard_ {
-            lock: self.clone(),
             guard: inner_guard,
             v_perm: Tracked(perm),
         }
@@ -266,13 +234,13 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// - An exclusive permission to access the protected data is held by the guard.
     /// - The guard's permission matches the lock's internal cell ID.
     #[verus_spec]
-    pub fn try_lock(&self) -> Option<SpinLockGuard<T, G>> {
+    pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<PointsTo<T>> = None;
         }
         if #[verus_spec(with => Tracked(perm))] self.try_acquire_lock() {
-            let lock_guard = SpinLockGuard_ {
+            let lock_guard = SpinLockGuard {
                 lock: self,
                 guard: inner_guard,
                 v_perm: Tracked(perm.tracked_unwrap()),
@@ -385,12 +353,14 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.inner.val, f)
     }
-}
+}*/
 
 // SAFETY: Only a single lock holder is permitted to access the inner data of Spinlock.
-unsafe impl<T: ?Sized + Send, G> Send for SpinLock<T, G> {}
-unsafe impl<T: ?Sized + Send, G> Sync for SpinLock<T, G> {}
-*/
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Send, G> Send for SpinLock<T, G> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized +*/ Send, G> Sync for SpinLock<T, G> {}
+
 /// A guard that provides exclusive access to the data protected by a [`SpinLock`].
 ///
 /// # Verified Properties
@@ -408,91 +378,85 @@ unsafe impl<T: ?Sized + Send, G> Sync for SpinLock<T, G> {}
 /// ```rust
 /// #[verifier::type_invariant]
 ///    spec fn type_inv(self) -> bool{
-///        self.lock.deref_spec().cell_id() == self.v_perm@.id()
+///        self.lock.cell_id() == self.v_perm@.id()
 ///    }
 /// ```
 ///
 /// *Note*: The invariant is encapsulated using the [`#[verifier::type_invariant]`](https://verus-lang.github.io/verus/guide/reference-type-invariants.html?highlight=type_#declaring-a-type-invariant) mechanism.
 /// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
-pub type SpinLockGuard<'a, T, G> = SpinLockGuard_<T, &'a SpinLock<T, G>, G>;
-/// A guard that provides exclusive access to the data protected by a `Arc<SpinLock>`.
-pub type ArcSpinLockGuard<T, G> = SpinLockGuard_<T, Arc<SpinLock<T, G>>, G>;
-
-/// The guard of a spin lock.
-#[clippy::has_significant_drop]
-#[must_use]
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct SpinLockGuard_<T /*: ?Sized*/, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> {
+#[clippy::has_significant_drop]
+#[must_use]
+pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
-    lock: R,
+    lock: &'a SpinLock<T, G>,
     /// Ghost permission for verification
     v_perm: Tracked<PointsTo<T>>, 
 }
 
 verus! {
-impl<T, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> SpinLockGuard_<T, R, G>
+impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
 {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool{
-        self.lock.deref_spec().cell_id() == self.v_perm@.id()
+        self.lock.cell_id() == self.v_perm@.id()
     }
 }
 }
 /*
-impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> AsAtomicModeGuard
-    for SpinLockGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
         self.guard.as_atomic_mode_guard()
     }
-}
+}*/
 
-impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Deref
-    for SpinLockGuard_<T, R, G>
-{
+verus!{
+#[verus_verify]
+impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
 
+    #[verus_spec]
     fn deref(&self) -> &T {
-        unsafe { &*self.lock.inner.val.get() }
+        proof_decl! {
+            let tracked read_perm = self.v_perm.borrow();
+        }
+        proof!{
+            use_type_invariant(self);
+        }
+        // unsafe { &*self.lock.inner.val.get() }
+        // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
+        // and here we verify that we have the permission to call `borrow`.
+        self.lock.inner.val.borrow(Tracked(read_perm))
     }
 }
+}
 
-impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> DerefMut
-    for SpinLockGuard_<T, R, G>
-{
+/*
+impl<T: ?Sized, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.inner.val.get() }
     }
 }
 
-impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> Drop
-    for SpinLockGuard_<T, R, G>
-{
+impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
     fn drop(&mut self) {
         self.lock.release_lock();
     }
 }
 
-impl<T: ?Sized + fmt::Debug, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> fmt::Debug
-    for SpinLockGuard_<T, R, G>
-{
+impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for SpinLockGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }*/
 
-/*
-impl<T: ?Sized, R: Deref<Target = SpinLock<T, G>>, G: SpinGuardian> !Send
-    for SpinLockGuard_<T, R, G>
-{
-}
+#[verus_verify]
+impl<T: ?Sized, G: SpinGuardian> !Send for SpinLockGuard<'_, T, G> {}
 
-// SAFETY: `SpinLockGuard_` can be shared between tasks/threads in same CPU.
+/*
+// SAFETY: `SpinLockGuard` can be shared between tasks/threads in same CPU.
 // As `lock()` is only called when there are no race conditions caused by interrupts.
-unsafe impl<T: ?Sized + Sync, R: Deref<Target = SpinLock<T, G>> + Sync, G: SpinGuardian> Sync
-    for SpinLockGuard_<T, R, G>
-{
-}
+unsafe impl<T: ?Sized + Sync, G: SpinGuardian> Sync for SpinLockGuard<'_, T, G> {}
 */

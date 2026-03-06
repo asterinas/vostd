@@ -579,14 +579,17 @@ unsafe impl<T: /*?Sized +*/ Send, G> Send for RwLock<T, G> {}
 #[verifier::external]
 unsafe impl<T: /*?Sized +*/ Send + Sync, G> Sync for RwLock<T, G> {}
 
+#[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
+#[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
 
+#[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
