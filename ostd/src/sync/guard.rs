@@ -30,22 +30,29 @@ pub trait GuardTransfer {
     /// The original guard must be dropped immediately after calling this method.
     fn transfer_to(&mut self) -> Self;
 }
-
+*/
 /// A guardian that disables preemption while holding a lock.
-pub enum PreemptDisabled {}
+#[verus_verify]
+// pub enum PreemptDisabled {}
+pub struct PreemptDisabled;
 
+#[verus_verify]
 impl SpinGuardian for PreemptDisabled {
-    type Guard = DisabledPreemptGuard;
-    type ReadGuard = DisabledPreemptGuard;
+    // type Guard = DisabledPreemptGuard;
+    // type ReadGuard = DisabledPreemptGuard;
+    type Guard = ();
+    type ReadGuard = ();
 
     fn guard() -> Self::Guard {
-        disable_preempt()
+        // disable_preempt()
+        ()
     }
     fn read_guard() -> Self::Guard {
-        disable_preempt()
+        // disable_preempt()
+        ()
     }
 }
-*/
+
 /// A guardian that disables IRQs while holding a lock.
 ///
 /// This guardian would incur a certain time overhead over
