@@ -534,12 +534,12 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     }
 } // verus!
 
-/*
 impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
     /// already statically guaranteed that access to the data is exclusive.
+    #[verifier::external]
     pub fn get_mut(&mut self) -> &mut T {
         // self.val.get_mut()
         // `PCell<T>` is implemented using an `UnsafeCell<T>` internally; we do an unchecked
@@ -554,6 +554,7 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
     ///
     /// This method is safe, but it's up to the caller to ensure that access to the data behind it
     /// is still safe.
+    #[verifier::external_body]
     pub(super) fn as_ptr(&self) -> *mut T {
         // self.val.get()
         unsafe {
@@ -562,7 +563,6 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
         }
     }
 }
-*/
 
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
