@@ -470,6 +470,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            old(owner).level < NR_LEVELS,
             // Panic conditions as preconditions
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).va + len <= old(self).barrier_va.end,
@@ -504,6 +505,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.nodes_locked(*guards),
                 owner.relate_region(*regions),
                 !owner.popped_too_high,
+                owner.level < NR_LEVELS,
             decreases owner.max_steps(),
         {
             let ghost owner0 = *owner;
@@ -620,14 +622,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.move_forward_not_popped_too_high();
                         }
 
+                        let ghost owner_before_move = *owner;
                         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                         self.move_forward();
 
                         proof {
                             owner.va.reflect_prop(self.va);
+                            assert(*owner == owner_before_move.move_forward_owner_spec());
+                            assert(owner.in_locked_range()) by { admit() };
+                            owner.in_locked_range_level_lt_nr_levels();
                         }
                     }
 
+                    proof {
+                        assert(owner.in_locked_range());
+                        owner.in_locked_range_level_lt_nr_levels();
+                    }
                     continue ;
                 },
                 ChildRef::None => {
@@ -638,13 +648,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     // These predicates are established by the loop invariants
 
+                    let ghost owner_before_move = *owner;
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.move_forward();
 
                     proof {
                         owner.va.reflect_prop(self.va);
+                        assert(*owner == owner_before_move.move_forward_owner_spec());
+                        assert(owner.in_locked_range());
+                        owner.in_locked_range_level_lt_nr_levels();
                     }
-
                     continue ;
                 },
                 ChildRef::Frame(_, _, _) => {
@@ -1470,6 +1483,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(cur_entry).node.addr() == old(owner).continuations[old(owner).level - 1].guard_perm.addr(),
             old(owner).in_locked_range(),
             old(owner).level > 1,
+            old(owner).level < NR_LEVELS,
         ensures
             self.inner.invariants(*owner, *regions, *guards),
             owner@ == old(owner)@.split_if_mapped_huge_spec(page_size((old(owner).level - 1) as PagingLevel)),

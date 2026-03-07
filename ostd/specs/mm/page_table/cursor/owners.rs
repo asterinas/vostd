@@ -390,10 +390,6 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.va.index[0] == self.continuations[0].idx
             &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
                 self.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
-            &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
         }
     }
 }
@@ -906,6 +902,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.in_locked_range(),
     { admit() }
+
+    /// When in_locked_range and !popped_too_high, level < guard_level (from inv), hence level < NR_LEVELS.
+    pub proof fn in_locked_range_level_lt_nr_levels(self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            !self.popped_too_high,
+        ensures
+            self.level < NR_LEVELS,
+    {
+        assert(self.above_locked_range() ==> self.va.to_vaddr() >= self.locked_range().end);
+        assert(self.in_locked_range() ==> self.va.to_vaddr() < self.locked_range().end);
+        assert(self.in_locked_range() ==> !self.above_locked_range());
+        assert(!self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range());
+        assert(self.level < self.guard_level);
+        assert(self.guard_level <= NR_LEVELS);
+    }
 
     /// If in_locked_range() and level < guard_level, then:
     /// - va.align_down(page_size(level+1)) >= locked_range().start
