@@ -21,8 +21,8 @@ use core::{
 };
 
 use super::{
-    guard::{/*GuardTransfer,*/ SpinGuardian},
-    //PreemptDisabled,
+    PreemptDisabled,
+    guard::{GuardTransfer, SpinGuardian},
 };
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
@@ -170,7 +170,7 @@ struct_with_invariants! {
 /// ```
 ///
 /// [`SpinLock`]: super::SpinLock
-pub struct RwLock<T  /* : ?Sized*/ , Guard  /* = PreemptDisabled*/ > {
+pub struct RwLock<T  /* : ?Sized*/ , Guard /* = PreemptDisabled*/ > {
     guard: PhantomData<Guard>,
     /// The internal representation of the lock state is as follows:
     /// - **Bit 63:** Writer lock.

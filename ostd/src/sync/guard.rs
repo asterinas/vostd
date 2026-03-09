@@ -12,11 +12,9 @@ use crate::{
 #[verus_verify]
 pub trait SpinGuardian {
     /// The guard type for holding a spin lock or a spin-based write lock.
-    //type Guard: AsAtomicModeGuard + GuardTransfer;
-    type Guard;
+    type Guard: /*AsAtomicModeGuard + */GuardTransfer;
     /// The guard type for holding a spin-based read lock.
-    //type ReadGuard: AsAtomicModeGuard + GuardTransfer;
-    type ReadGuard;
+    type ReadGuard: /*AsAtomicModeGuard +*/GuardTransfer;
 
     /// Creates a new guard.
     fn guard() -> Self::Guard;
@@ -24,8 +22,9 @@ pub trait SpinGuardian {
     fn read_guard() -> Self::ReadGuard;
 }
 
-/*
+
 /// The Guard can be transferred atomically.
+#[verus_verify]
 pub trait GuardTransfer {
     /// Atomically transfers the current guard to a new instance.
     ///
@@ -35,13 +34,16 @@ pub trait GuardTransfer {
     /// The original guard must be dropped immediately after calling this method.
     fn transfer_to(&mut self) -> Self;
 }
-*/
-/// A guardian that disables preemption while holding a lock.
-#[verus_verify]
-// pub enum PreemptDisabled {}
-pub struct PreemptDisabled;
 
+/// A guardian that disables preemption while holding a lock.
 #[verifier::external]
+pub enum PreemptDisabled {}
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExPreemptDisabled(PreemptDisabled);
+
+#[verus_verify]
 impl SpinGuardian for PreemptDisabled {
     type Guard = DisabledPreemptGuard;
     type ReadGuard = DisabledPreemptGuard;
@@ -63,7 +65,13 @@ impl SpinGuardian for PreemptDisabled {
 /// IRQ handlers are allowed to get executed while holding the
 /// lock. For example, if a lock is never used in the interrupt
 /// context, then it is ok not to use this guardian in the process context.
+#[verifier::external]
 pub enum LocalIrqDisabled {}
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExLocalIrqDisabled(LocalIrqDisabled);
+
 /*
 impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
