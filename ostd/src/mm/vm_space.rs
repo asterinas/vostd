@@ -1209,6 +1209,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             len % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.level < NR_LEVELS,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
+            old(owner).cur_entry_owner().is_frame(),
             op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
         ensures
     )]

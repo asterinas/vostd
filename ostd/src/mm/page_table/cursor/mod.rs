@@ -1959,8 +1959,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             len % C::BASE_PAGE_SIZE() == 0,
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
             old(self).inner.level < NR_LEVELS,
+            old(owner).cur_entry_owner().is_frame(),
             op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
-    )]
+        )]
     pub fn protect_next(
         &mut self,
         len: usize,

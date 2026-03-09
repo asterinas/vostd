@@ -161,6 +161,20 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
     /// Operates on the mapping properties of the entry.
     ///
     /// It only modifies the properties if the entry is present.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The entry must satisfy the relevant safety invariants.
+    /// - **Safety**: The caller must provide a valid guard permission matching `guard_perm`, and it must be guarding the
+    /// correct parent node.
+    /// - **Safety**: The entry must be a frame.
+    /// ## Postconditions
+    /// - **Safety Invariants**: The entry continues to satisfy the relevant safety invariants.
+    /// - **Safety**: The guard permission is preserved.
+    /// - **Correctness**: The entry's permissions are updated by `op`
+    /// ## Safety
+    /// - The entry is updated in place, only changing its properties, so the metadata is unchanged.
+    /// That's why we don't take a `MetaRegionOwners` argument. It means that all invariants will be preserved.
     #[verus_spec(
         with Tracked(owner) : Tracked<&mut EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
@@ -170,25 +184,17 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         requires
             old(owner).inv(),
             old(self).wf(*old(owner)),
-            old(parent_owner).inv(),
-            old(self).node.addr() == old(guard_perm).addr(),
-            old(parent_owner).relate_guard_perm(*old(guard_perm)),
+            old(self).node_matching(*old(owner), *old(parent_owner), *old(guard_perm)),
             op.requires((old(self).pte.prop(),)),
             old(owner).is_frame(),
         ensures
             owner.inv(),
             self.wf(*owner),
-            parent_owner.inv(),
-            parent_owner.relate_guard_perm(*guard_perm),
-            parent_owner.level == old(parent_owner).level,
-            guard_perm.addr() == old(guard_perm).addr(),
-            guard_perm.value().inner.inner@.ptr.addr() == old(
-                guard_perm,
-            ).value().inner.inner@.ptr.addr(),
+            self.node_matching(*owner, *parent_owner, *guard_perm),
+            self.parent_perms_preserved(*old(parent_owner), *parent_owner, *old(guard_perm), *guard_perm),
             owner.is_frame(),
-            owner.parent_level == old(owner).parent_level,
-            owner.path == old(owner).path,
             owner.frame.unwrap().mapped_pa == old(owner).frame.unwrap().mapped_pa,
+            old(self).pte.is_present() ==> op.ensures((old(owner).frame.unwrap().prop,), owner.frame.unwrap().prop),
     {
         let ghost pte0 = self.pte;
 
