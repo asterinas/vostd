@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
+use crate::{
+    task::{/* atomic_mode::AsAtomicModeGuard, */ disable_preempt, DisabledPreemptGuard},
+    //trap::irq::{disable_local, DisabledLocalIrqGuard},
+};
+
 /// A guardian that denotes the guard behavior for holding a spin-based lock.
 ///
 /// It at least ensures that the atomic mode is maintained while the lock is held.
@@ -36,20 +41,18 @@ pub trait GuardTransfer {
 // pub enum PreemptDisabled {}
 pub struct PreemptDisabled;
 
-#[verus_verify]
+#[verifier::external]
 impl SpinGuardian for PreemptDisabled {
-    // type Guard = DisabledPreemptGuard;
-    // type ReadGuard = DisabledPreemptGuard;
-    type Guard = ();
-    type ReadGuard = ();
+    type Guard = DisabledPreemptGuard;
+    type ReadGuard = DisabledPreemptGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
-        // disable_preempt()
-        ()
+        disable_preempt()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::Guard {
-        // disable_preempt()
-        ()
+        disable_preempt()
     }
 }
 
