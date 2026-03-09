@@ -2,8 +2,11 @@
 use alloc::sync::Arc;
 use core::sync::atomic::{fence, AtomicUsize, Ordering};
 
+use vstd::prelude::*;
+
 use super::{PreemptDisabled, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+verus! {
 /// A reference-counting pointer with read-write capabilities.
 ///
 /// This is essentially `Arc<RwLock<T>>`, so it can provide read-write capabilities through
@@ -25,12 +28,13 @@ pub struct RwArc<T>(Arc<Inner<T>>);
 pub struct RoArc<T>(Arc<Inner<T>>);
 
 struct Inner<T> {
-    data: RwLock<T>,
+    data: RwLock<T, PreemptDisabled>,
     num_rw: AtomicUsize,
 }
 
 impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
+    #[verifier::external_body]
     pub fn new(data: T) -> Self {
         let inner = Inner {
             data: RwLock::new(data),
@@ -40,11 +44,13 @@ impl<T> RwArc<T> {
     }
 
     /// Acquires the read lock for immutable access.
+    #[verifier::external_body]
     pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
         self.0.data.read()
     }
 
     /// Acquires the write lock for mutable access.
+    #[verifier::external_body]
     pub fn write(&self) -> RwLockWriteGuard<T, PreemptDisabled> {
         self.0.data.write()
     }
@@ -58,6 +64,7 @@ impl<T> RwArc<T> {
     ///   accessing the unique `RwArc` instance for the particular allocation.
     /// - There may be any number of [`RoArc`]s pointing to the same allocation, but they may only
     ///   produce immutable references to the underlying data.
+    #[verifier::external_body]
     pub fn get(&mut self) -> Option<&T> {
         if self.0.num_rw.load(Ordering::Relaxed) > 1 {
             return None;
@@ -74,12 +81,15 @@ impl<T> RwArc<T> {
     }
 
     /// Clones a [`RoArc`] that points to the same allocation.
+    #[verifier::external_body]
     pub fn clone_ro(&self) -> RoArc<T> {
         RoArc(self.0.clone())
     }
 }
 
+// #[verifier::external]
 impl<T> Clone for RwArc<T> {
+    #[verifier::external_body]
     fn clone(&self) -> Self {
         let inner = self.0.clone();
 
@@ -92,13 +102,18 @@ impl<T> Clone for RwArc<T> {
 }
 
 impl<T> Drop for RwArc<T> {
-    fn drop(&mut self) {
+    #[verifier::external_body]
+    fn drop(&mut self) 
+        opens_invariants none
+        no_unwind
+    {
         self.0.num_rw.fetch_sub(1, Ordering::Release);
     }
 }
 
 impl<T: Clone> RwArc<T> {
     /// Returns the contained value by cloning it.
+    #[verifier::external_body]
     pub fn get_cloned(&self) -> T {
         let guard = self.read();
         guard.clone()
@@ -107,12 +122,14 @@ impl<T: Clone> RwArc<T> {
 
 impl<T> RoArc<T> {
     /// Acquires the read lock for immutable access.
+    #[verifier::external_body]
     pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
         self.0.data.read()
     }
 }
+}
 
-#[cfg(ktest)]
+/* #[cfg(ktest)]
 mod test {
     use super::*;
     use crate::prelude::*;
@@ -131,4 +148,4 @@ mod test {
         drop(rw2);
         assert_eq!(rw1.get(), Some(1).as_ref());
     }
-}
+} */

@@ -1,19 +1,21 @@
 pub mod entry_owners;
 pub mod entry_view;
 pub mod owners;
-pub mod page_table_node_specs;
 
 pub use entry_owners::*;
 pub use entry_view::*;
 pub use owners::*;
-pub use page_table_node_specs::*;
 
+use core::marker::PhantomData;
 use vstd::prelude::*;
 use vstd::simple_pptr::*;
 
+use vstd_extra::cast_ptr::Repr;
 use vstd_extra::drop_tracking::*;
 
-use crate::mm::page_table::{PageTableConfig, PageTableGuard};
+use crate::mm::frame::Frame;
+use crate::mm::page_table::{PageTableConfig, PageTableGuard, PageTablePageMeta};
+use crate::specs::mm::frame::meta_owners::{MetaSlotStorage, StoredPageTablePageMeta};
 
 verus! {
 
@@ -88,6 +90,95 @@ impl<'rcu, C: PageTableConfig> TrackDrop for PageTableGuard<'rcu, C> {
     proof fn drop_spec(self, tracked s: &mut Self::State)
     {
         s.guards.tracked_insert(self.inner.inner@.ptr.addr(), None);
+    }
+}
+
+impl<C: PageTableConfig> PageTablePageMeta<C> {
+    pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
+        StoredPageTablePageMeta {
+            nr_children: self.nr_children,
+            stray: self.stray,
+            level: self.level,
+            lock: self.lock,
+        }
+    }
+
+    #[verifier::when_used_as_spec(into_spec)]
+    pub fn into(self) -> (res: StoredPageTablePageMeta)
+        ensures
+            res == self.into_spec(),
+    {
+        StoredPageTablePageMeta {
+            nr_children: self.nr_children,
+            stray: self.stray,
+            level: self.level,
+            lock: self.lock,
+        }
+    }
+}
+
+impl StoredPageTablePageMeta {
+    pub open spec fn into_spec<C: PageTableConfig>(self) -> PageTablePageMeta<C> {
+        PageTablePageMeta::<C> {
+            nr_children: self.nr_children,
+            stray: self.stray,
+            level: self.level,
+            lock: self.lock,
+            _phantom: PhantomData,
+        }
+    }
+
+    #[verifier::when_used_as_spec(into_spec)]
+    pub fn into<C: PageTableConfig>(self) -> (res: PageTablePageMeta<C>)
+        ensures
+            res == self.into_spec::<C>(),
+    {
+        PageTablePageMeta::<C> {
+            nr_children: self.nr_children,
+            stray: self.stray,
+            level: self.level,
+            lock: self.lock,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
+
+impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
+    type Perm = ();
+
+    uninterp spec fn wf(r: MetaSlotStorage, perm: ()) -> bool;
+
+    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
+
+    #[verifier::external_body]
+    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
+        unimplemented!()
+    }
+
+    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self;
+
+    #[verifier::external_body]
+    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
+        unimplemented!()
+    }
+
+    #[verifier::external_body]
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
+        unimplemented!()
+    }
+
+    proof fn from_to_repr(self, perm: ()) {
+        admit()
+    }
+
+    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
+        admit()
+    }
+
+    proof fn to_repr_wf(self, perm: ()) {
+        admit()
     }
 }
 

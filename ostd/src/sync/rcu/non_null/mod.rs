@@ -7,7 +7,7 @@ use vstd_extra::prelude::*;
 
 //mod either;
 
-use core::simd::ptr;
+//use core::simd::ptr;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
 
 use crate::prelude::*;

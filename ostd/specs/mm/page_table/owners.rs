@@ -14,12 +14,13 @@ use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
 use crate::mm::{
-    page_table::{EntryOwner, FrameView},
-    Paddr, Vaddr, MAX_NR_LEVELS,
+    page_table::EntryOwner,
+    Paddr, PagingLevel, Vaddr, MAX_NR_LEVELS,
 };
 
 use crate::mm::frame::frame_to_index;
-use crate::mm::page_table::PageTableGuard;
+use crate::mm::page_table::{PageTableGuard, PageTableEntryTrait};
+
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;
@@ -103,6 +104,7 @@ pub proof fn sibling_paths_disjoint(
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
+            in_scope: false,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
             node: None,
@@ -150,6 +152,36 @@ pub const INC_LEVELS: usize = NR_LEVELS + 1;
 ///                        tree level 3 ==> path length 3 ==> level 1 page table or frame mapped by level 2 table
 ///                        tree level 4 ==> path length 4 ==> frame mapped by level 1 table
 pub type OwnerSubtree<C> = Node<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
+
+/// Specifies that `owner` is the ghost owner of a newly allocated empty page table node at the given level.
+/// Captures the structural post-conditions of `PageTableNode::alloc`.
+pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
+    owner: OwnerSubtree<C>,
+    level: PagingLevel,
+) -> bool {
+    &&& owner.inv()
+    &&& owner.value.is_node()
+    &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
+    &&& owner.value.parent_level == level
+    &&& owner.value.node.unwrap().level == level - 1
+    &&& owner.value.node.unwrap().inv()
+    &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
+        !owner.value.node.unwrap().children_perm.value()[i].is_present()
+    &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> {
+        &&& owner.children[i] is Some
+        &&& owner.children[i].unwrap().value.is_absent()
+        &&& !owner.children[i].unwrap().value.in_scope
+        &&& owner.children[i].unwrap().value.inv()
+        &&& owner.children[i].unwrap().value.path == owner.value.path.push_tail(i as usize)
+    }
+    &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
+        owner.children[i].unwrap().value.match_pte(
+            owner.value.node.unwrap().children_perm.value()[i],
+            owner.children[i].unwrap().value.parent_level,
+        )
+    &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
+        owner.children[i].unwrap().value.parent_level == owner.value.node.unwrap().level
+}
 
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
@@ -293,9 +325,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
-            &&& entry.meta_slot_paddr() is Some
-            &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
+            entry.meta_slot_paddr() is Some ==> {
+                &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
+                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
+            }
         }
     }
 

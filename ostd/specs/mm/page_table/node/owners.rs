@@ -103,7 +103,29 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
     }
 }
 
+impl<C: PageTableConfig> NodeOwner<C> {
+    /// Returns a NodeOwner with children_perm updated at the given index.
+    /// Used to specify the state after storing a new PTE for an allocated child.
+    pub open spec fn set_children_perm(self, idx: usize, pte: C::E) -> Self;
+
+    #[verifier::external_body]
+    pub axiom fn set_children_perm_axiom(self, idx: usize, pte: C::E)
+        requires
+            self.inv(),
+            idx < NR_ENTRIES,
+        ensures
+            self.set_children_perm(idx, pte).inv(),
+            self.set_children_perm(idx, pte).meta_perm == self.meta_perm,
+            self.set_children_perm(idx, pte).meta_own == self.meta_own,
+            self.set_children_perm(idx, pte).level == self.level,
+            self.set_children_perm(idx, pte).tree_level == self.tree_level,
+            self.set_children_perm(idx, pte).children_perm.addr() == self.children_perm.addr(),
+            self.set_children_perm(idx, pte).children_perm.value()
+                == self.children_perm.value().update(idx as int, pte);
+}
+
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
+
     pub open spec fn relate_guard_perm(self, guard_perm: GuardPerm<'rcu, C>) -> bool {
         &&& guard_perm.is_init()
         &&& guard_perm.value().inner.inner@.ptr.addr() == self.meta_perm.addr()
@@ -142,6 +164,16 @@ impl<C: PageTableConfig> OwnerOf for PageTableNode<C> {
 
     open spec fn wf(self, owner: Self::Owner) -> bool {
         &&& self.ptr.addr() == owner.meta_perm.addr()
+    }
+}
+
+impl<C: PageTableConfig> PageTableNode<C> {
+    pub open spec fn invariants(self, owner: NodeOwner<C>) -> bool {
+        &&& owner.inv()
+        &&& self.wf(owner)
+//        &&& owner.meta_perm.wf(&owner.meta_perm.inner_perms)
+//        &&& owner.meta_perm.addr() == self.ptr.addr()
+//        &&& owner.meta_perm.addr() == self.ptr.addr()
     }
 }
 

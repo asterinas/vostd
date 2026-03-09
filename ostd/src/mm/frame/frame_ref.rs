@@ -46,26 +46,30 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     /// ## Safety
     /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame
     /// has that type and that the `FrameRef` will be useless if it outlives the frame.
-    /// ## Verification Issues
-    /// Currently we cannot provide the underlying `PointsTo<MetaSlot>` permission needed by
-    /// `Frame::from_raw` without breaking Verus' ability to reason about its lifetime.
-    /// But we immediately take that permission back, so it should not actually be a problem to do so.
-    /// The solution is to overhaul `MetaPerm` to allow us to take and restore the underlying permission.
     #[verus_spec(r =>
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>
         requires
-            !old(regions).slots.contains_key(frame_to_index(raw)),
             old(regions).inv(),
+            has_safe_slot(raw),
+            old(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
+            old(regions).slot_owners[frame_to_index(raw)].self_addr == frame_to_meta(raw),
+            perm.points_to.is_init(),
+            perm.points_to.addr() == frame_to_meta(raw),
+            perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
         ensures
             regions.inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
             regions.slots =~= old(regions).slots,
             regions.slot_owners =~= old(regions).slot_owners,
     )]
-    #[verifier::external_body]
     pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
+        proof {
+            broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            old(regions).inv_implies_correct_addr(raw);
+        }
+
         #[verus_spec(with Tracked(regions), Tracked(perm))]
         let frame = Frame::from_raw(raw);
 

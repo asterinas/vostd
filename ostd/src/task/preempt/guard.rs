@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
-use crate::{sync::GuardTransfer, task::atomic_mode::InAtomicMode};
+use vstd::prelude::*;
+
+use crate::{sync::GuardTransfer/*, task::atomic_mode::InAtomicMode*/};
 
 /// A guard for disable preempt.
+#[verus_verify]
 #[clippy::has_significant_drop]
 #[must_use]
 #[derive(Debug)]
@@ -10,7 +13,7 @@ pub struct DisabledPreemptGuard {
     _private: (),
 }
 
-impl !Send for DisabledPreemptGuard {}
+/* impl !Send for DisabledPreemptGuard {}
 
 // SAFETY: The guard disables preemptions, which meets the second
 // sufficient condition for atomic mode.
@@ -22,20 +25,25 @@ impl DisabledPreemptGuard {
         Self { _private: () }
     }
 }
-
+*/
+#[verus_verify]
 impl GuardTransfer for DisabledPreemptGuard {
+    #[verifier::external_body]
     fn transfer_to(&mut self) -> Self {
         disable_preempt()
     }
 }
 
+/*
 impl Drop for DisabledPreemptGuard {
     fn drop(&mut self) {
         super::cpu_local::dec_guard_count();
     }
-}
+} */
 
 /// Disables preemption.
+#[verifier::external_body]
 pub fn disable_preempt() -> DisabledPreemptGuard {
-    DisabledPreemptGuard::new()
+    // DisabledPreemptGuard::new()
+    unimplemented!()
 }

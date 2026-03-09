@@ -46,9 +46,8 @@ impl PageProperty {
     }
 
     #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(flags: PageFlags, cache: CachePolicy) -> (res: Self)
-        ensures
-            res == Self::new_spec(flags, cache),
+    pub fn new(flags: PageFlags, cache: CachePolicy) -> Self
+        returns Self::new_spec(flags, cache),
     {
         Self { flags, cache, priv_flags: PrivilegedPageFlags::USER() }
     }
@@ -62,9 +61,8 @@ impl PageProperty {
     }
 
     #[verifier::when_used_as_spec(new_absent_spec)]
-    pub fn new_absent() -> (res: Self)
-        ensures
-            res == Self::new_absent_spec(),
+    pub fn new_absent() -> Self
+        returns Self::new_absent_spec(),
     {
         Self {
             flags: PageFlags::empty(),

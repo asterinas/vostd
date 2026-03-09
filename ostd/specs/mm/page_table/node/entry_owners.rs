@@ -10,11 +10,13 @@ use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
+use crate::mm::frame::meta::REF_COUNT_UNUSED;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::owners::*;
+use crate::specs::mm::page_table::node::entry_view::*;
+use crate::specs::mm::page_table::*;
 use core::marker::PhantomData;
 
 verus! {
@@ -30,6 +32,7 @@ pub tracked struct EntryOwner<C: PageTableConfig> {
     pub frame: Option<FrameEntryOwner>,
     pub locked: Option<Ghost<Seq<FrameView<C>>>>,
     pub absent: bool,
+    pub in_scope: bool,
     pub path: TreePath<NR_ENTRIES>,
     pub parent_level: PagingLevel,
 }
@@ -57,6 +60,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: None,
             locked: None,
             absent: true,
+            in_scope: true,
             path,
             parent_level,
         }
@@ -68,6 +72,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
+            in_scope: true,
             path,
             parent_level,
         }
@@ -79,6 +84,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             frame: None,
             locked: None,
             absent: false,
+            in_scope: true,
             path,
             parent_level: (node.level + 1) as PagingLevel,
         }
@@ -110,13 +116,45 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    /// All nodes have their metadata forgotten for the duration of their lifetime.
-    /// If they are in the page table, their path is consistent.
+    /// When owner is absent and pte is the absent PTE with valid paddr, match_pte holds.
+    pub proof fn absent_match_pte(owner: Self, pte: C::E, parent_level: PagingLevel)
+        requires
+            owner.is_absent(),
+            pte == C::E::new_absent_spec(),
+            pte.paddr() % PAGE_SIZE == 0,
+            pte.paddr() < MAX_PADDR,
+        ensures
+            owner.match_pte(pte, parent_level),
+    {
+        C::E::new_properties();
+        assert(!pte.is_present());
+        if pte.is_present() && !pte.is_last(parent_level) {
+            assert(pte.is_present());
+            assert(!pte.is_present());
+        }
+        if pte.is_present() && pte.is_last(parent_level) {
+            assert(pte.is_present());
+            assert(!pte.is_present());
+        }
+    }
+
+    pub open spec fn expected_raw_count(self) -> usize {
+        if self.in_scope {
+            0
+        } else {
+            1
+        }
+    }
+
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
-            &&& !regions.slots.contains_key(frame_to_index(self.meta_slot_paddr().unwrap()))
-            &&& regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
-                regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path
+            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
+            &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_perm.addr()
+            &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[idx])
+            &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
+                regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
         } else if self.is_frame() {
             regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
             regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path

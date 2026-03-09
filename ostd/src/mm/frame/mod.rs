@@ -402,8 +402,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             old(regions).inv(),
-            !old(regions).slots.contains_key(self.index()),
+            old(regions).slot_owners[self.index()].raw_count == 1,
+            old(regions).slot_owners[self.index()].self_addr == self.ptr.addr(),
             perm.points_to.pptr() == self.ptr,
+            perm.points_to.value().wf(old(regions).slot_owners[self.index()]),
             perm.is_init(),
             self.inv(),
         ensures
@@ -415,8 +417,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-        // SAFETY: Both the lifetime and the type matches `self`.
 
+        // SAFETY: Both the lifetime and the type matches `self`.
         #[verus_spec(with Tracked(&perm.points_to))]
         let paddr = self.start_paddr();
 
@@ -525,6 +527,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
         ensures
             Self::from_raw_ensures(*old(regions), *regions, paddr, r),
+            regions.slots == old(regions).slots.insert(frame_to_index(paddr), perm.points_to),
     )]
     pub(in crate::mm) fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);

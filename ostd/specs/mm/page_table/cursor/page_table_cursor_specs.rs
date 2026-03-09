@@ -12,6 +12,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
+use vstd_extra::arithmetic::*;
 
 use core::ops::Range;
 
@@ -59,6 +60,14 @@ impl<C: PageTableConfig> CursorView<C> {
 
     pub open spec fn query_range(self) -> Range<Vaddr> {
         self.query_mapping().va_range
+    }
+
+    /// The VA range of the current slot when mapping a page of the given size.
+    /// Works for both present and absent mappings: when present, equals query_range() for
+    /// a mapping of that size; when absent, returns the aligned range that would be mapped.
+    pub open spec fn cur_slot_range(self, size: usize) -> Range<Vaddr> {
+        let start = nat_align_down(self.cur_va as nat, size as nat) as Vaddr;
+        start..(start as nat + size as nat) as Vaddr
     }
 
     /// This predicate specifies the behavior of the `query` method. It states that the current item
@@ -175,7 +184,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// a new large mapping.
     pub open spec fn map_spec(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let new = Mapping {
-            va_range: self.query_range(),
+            va_range: self.cur_slot_range(size),
             pa_range: paddr..(paddr + size) as usize,
             page_size: size,
             property: prop,
@@ -191,7 +200,7 @@ impl<C: PageTableConfig> CursorView<C> {
     ///
     pub open spec fn map_simple(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let new = Mapping {
-            va_range: self.query_range(),
+            va_range: self.cur_slot_range(size),
             pa_range: paddr..(paddr + size) as usize,
             page_size: size,
             property: prop,
