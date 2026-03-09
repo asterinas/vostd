@@ -12,16 +12,15 @@ use crate::{
 #[verus_verify]
 pub trait SpinGuardian {
     /// The guard type for holding a spin lock or a spin-based write lock.
-    type Guard: /*AsAtomicModeGuard + */GuardTransfer;
+    type Guard: GuardTransfer;
     /// The guard type for holding a spin-based read lock.
-    type ReadGuard: /*AsAtomicModeGuard +*/GuardTransfer;
+    type ReadGuard: GuardTransfer;
 
     /// Creates a new guard.
     fn guard() -> Self::Guard;
     /// Creates a new read guard.
     fn read_guard() -> Self::ReadGuard;
 }
-
 
 /// The Guard can be transferred atomically.
 #[verus_verify]

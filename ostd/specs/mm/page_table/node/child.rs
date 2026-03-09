@@ -52,7 +52,7 @@ impl<'a, C: PageTableConfig> OwnerOf for ChildRef<'a, C> {
             Self::None => owner.is_absent(),
         }
     }
-}    
+}
 
 impl<C: PageTableConfig> Child<C> {
 

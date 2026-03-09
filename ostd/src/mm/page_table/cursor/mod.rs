@@ -42,7 +42,9 @@ use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, MAX_NR_LEVELS};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{
+    frame_to_index, frame_to_meta, meta_to_frame, META_SLOT_SIZE,
+};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
@@ -1356,7 +1358,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             self.inner.guard_level == old(self).inner.guard_level,
     )]
     fn map_branch_none(&mut self, cur_entry: &mut Entry<'rcu, C>, rcu_guard: &'rcu A) {
-
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
 
@@ -1456,7 +1457,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     0 <= j < NR_ENTRIES
                         && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
                 cont.path().push_tail(j as usize), g_region) by {
-                    assert(OwnerSubtree::implies(f_region, g_region)) by { admit(); }
+                    assert(OwnerSubtree::implies(f_region, g_region)) by {
+                        admit();
+                    }
                     OwnerSubtree::map_implies(
                         cont.children[j].unwrap(),
                         cont.path().push_tail(j as usize),
@@ -1473,7 +1476,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         && cont_final.children[j] is Some implies cont_final.children[j].unwrap().tree_predicate_map(
                 cont_final.path().push_tail(j as usize), g_region) by {
                     if j != idx && cont0.children[j] is Some {
-                        assert(OwnerSubtree::implies(f_region, g_region)) by { admit(); }
+                        assert(OwnerSubtree::implies(f_region, g_region)) by {
+                            admit();
+                        }
                         OwnerSubtree::map_implies(
                             cont0.children[j].unwrap(),
                             cont0.path().push_tail(j as usize),
@@ -1488,7 +1493,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
 
         proof {
-            assert(owner.relate_region(*regions)) by { admit(); }
+            assert(owner.relate_region(*regions)) by {
+                admit();
+            }
         }
 
         #[verus_spec(with Tracked(owner), Tracked(guard_perm.tracked_unwrap()), Tracked(regions), Tracked(guards))]
@@ -1628,7 +1635,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 },
                 ChildRef::None => {
                     proof {
-                        assert(owner.level > 2) by { admit(); }
+                        assert(owner.level > 2) by {
+                            admit();
+                        }
                     }
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.map_branch_none(&mut cur_entry, rcu_guard);
@@ -1677,8 +1686,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         &&& self.inner.va % page_size(level) == 0
         &&& self.inner.va + page_size(level) <= self.inner.barrier_va.end
         &&& level < self.inner.guard_level
-        &&& (entry_owner.is_absent()
-            || Child::Frame(paddr, level, prop).wf(entry_owner))
+        &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))
     }
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {
@@ -2034,16 +2042,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(owner).popped_too_high,
             new_owner.inv(),
             new_owner.level == old(owner).continuations[old(owner).level - 1].tree_level + 1,
-            new_owner.value.parent_level == old(owner).continuations[old(owner).level - 1].child().value.parent_level,
+            new_owner.value.parent_level == old(owner).continuations[old(owner).level
+                - 1].child().value.parent_level,
             new_owner.value.path == old(owner).continuations[old(owner).level - 1].path().push_tail(
                 old(owner).continuations[old(owner).level - 1].idx as usize,
             ),
             new_child.wf(new_owner.value),
-            new_owner.value.is_node() ==> old(regions).slot_owners[
-                frame_to_index(new_owner.value.meta_slot_paddr().unwrap())
-            ].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            new_owner.value.is_node() ==> old(regions).slot_owners[frame_to_index(
+                new_owner.value.meta_slot_paddr().unwrap(),
+            )].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
             new_owner.value.is_node() ==> old(regions).slots.contains_key(
-                frame_to_index(new_owner.value.meta_slot_paddr().unwrap())
+                frame_to_index(new_owner.value.meta_slot_paddr().unwrap()),
             ),
             new_owner.value.in_scope,
             new_owner.value.relate_region(*old(regions)),
@@ -2143,8 +2152,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.value.meta_slot_paddr() == pre_new_owner_value.meta_slot_paddr());
             let f_neq = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.meta_slot_paddr_neq(pre_new_owner_value)
-                    && entry.meta_slot_paddr_neq(old_child_owner.value);
+                entry.meta_slot_paddr_neq(pre_new_owner_value) && entry.meta_slot_paddr_neq(
+                    old_child_owner.value,
+                );
             let f_region = PageTableOwner::<C>::relate_region_pred(regions0);
             let g_region = PageTableOwner::<C>::relate_region_pred(*regions);
             let f_path = PageTableOwner::<C>::path_tracked_pred(regions0);

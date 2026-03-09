@@ -247,12 +247,6 @@ impl<'a> VmSpaceOwner<'a> {
         }
     }
 
-    /// The basic invariant between a VM space and its owner.
-    #[deprecated(note = "We removed the `exec` fields in VmSpace so this is no longer needed.")]
-    pub open spec fn inv_with(&self, vm_space: VmSpace<'a>) -> bool {
-        true
-    }
-
     /// Determines whether a new reader can be safely instantiated within the VM address space.
     ///
     /// This specification function enforces memory isolation by ensuring that the

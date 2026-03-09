@@ -417,8 +417,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
         // SAFETY: Both the lifetime and the type matches `self`.
+
         #[verus_spec(with Tracked(&perm.points_to))]
         let paddr = self.start_paddr();
 

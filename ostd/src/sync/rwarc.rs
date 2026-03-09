@@ -7,6 +7,7 @@ use vstd::prelude::*;
 use super::{PreemptDisabled, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 verus! {
+
 /// A reference-counting pointer with read-write capabilities.
 ///
 /// This is essentially `Arc<RwLock<T>>`, so it can provide read-write capabilities through
@@ -36,10 +37,7 @@ impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
     #[verifier::external_body]
     pub fn new(data: T) -> Self {
-        let inner = Inner {
-            data: RwLock::new(data),
-            num_rw: AtomicUsize::new(1),
-        };
+        let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
         Self(Arc::new(inner))
     }
 
@@ -69,8 +67,8 @@ impl<T> RwArc<T> {
         if self.0.num_rw.load(Ordering::Relaxed) > 1 {
             return None;
         }
-
         // This will synchronize with `RwArc::drop` to make sure its changes are visible to us.
+
         fence(Ordering::Acquire);
 
         let data_ptr = self.0.data.as_ptr();
@@ -103,7 +101,7 @@ impl<T> Clone for RwArc<T> {
 
 impl<T> Drop for RwArc<T> {
     #[verifier::external_body]
-    fn drop(&mut self) 
+    fn drop(&mut self)
         opens_invariants none
         no_unwind
     {
@@ -127,8 +125,8 @@ impl<T> RoArc<T> {
         self.0.data.read()
     }
 }
-}
 
+} // verus!
 /* #[cfg(ktest)]
 mod test {
     use super::*;

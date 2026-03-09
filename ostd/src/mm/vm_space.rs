@@ -163,7 +163,6 @@ impl<'a> VmSpace<'a> {
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
-        &&& vm_owner.inv_with(*self)
         &&& vm_owner.inv()
         &&& vm_owner.active
         &&& vm_owner.can_create_reader(vaddr, len)
@@ -182,7 +181,6 @@ impl<'a> VmSpace<'a> {
         vaddr: Vaddr,
         len: usize,
     ) -> bool {
-        &&& vm_owner.inv_with(*self)
         &&& vm_owner.inv()
         &&& vm_owner.active
         &&& vm_owner.can_create_writer(vaddr, len)

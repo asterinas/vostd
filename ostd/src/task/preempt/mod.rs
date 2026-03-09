@@ -3,7 +3,7 @@
 mod guard;
 
 pub use self::guard::{disable_preempt, DisabledPreemptGuard};
-/* 
+/*
 /// Halts the CPU until interrupts if no preemption is required.
 ///
 /// This function will return if:

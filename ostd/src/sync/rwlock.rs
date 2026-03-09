@@ -21,8 +21,8 @@ use core::{
 };
 
 use super::{
-    PreemptDisabled,
     guard::{GuardTransfer, SpinGuardian},
+    PreemptDisabled,
 };
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
@@ -196,7 +196,7 @@ closed spec fn wf(self) -> bool {
         // and those who are trying, no matter they will succeed or fail.
         let total_reader_attempts: int = (v & MAX_READER_MASK) as int;
         // The clamped value represented in the counter bits. This counts the maximum number of active `RwLockReadGuard`s.
-        // NOTE: This does not mean there are actually this number of `RwLockReadGuard`s. The actual number of successfully 
+        // NOTE: This does not mean there are actually this number of `RwLockReadGuard`s. The actual number of successfully
         // created/creating `RwLockReadGuard`s can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
         let reader_count: int = if has_max_reader { MAX_READER as int } else { (v & READER_MASK) as int };
         // Remaining fractional permissions in the lock to access the protected data.
@@ -525,7 +525,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                         if frac == 2int {
                             g.upgrade_retract_token.bounded();
                             assert(false);
-                        } 
+                        }
                     }
                 }
             );
@@ -800,7 +800,7 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
             };
         }
     }
-    
+
     /// Attempts to upgrade this upread guard to a write guard atomically.
     ///
     /// This function will never spin-wait and will return immediately.
@@ -908,14 +908,14 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Drop for RwLockUpgradeableGuard<'_, T, G>
     }
 }
 } // verus!
-/*
-impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGuard<'_, T, G> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
-    }
-}
+  /*
+  impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGuard<'_, T, G> {
+      fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+          fmt::Debug::fmt(&**self, f)
+      }
+  }
 
-*/
+  */
 verus! {
 
 proof fn lemma_consts_properties()
@@ -954,7 +954,7 @@ proof fn lemma_consts_properties()
         (UPGRADEABLE_READER | BEING_UPGRADED) & READER_MASK == 0,
         (UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER_MASK == 0,
         (UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER == 0,
-        
+
 {
     assert(0 & WRITER == 0) by (compute_only);
     assert(0 & UPGRADEABLE_READER == 0) by (compute_only);
@@ -995,7 +995,7 @@ proof fn lemma_consts_properties()
 proof fn lemma_consts_properties_value(prev: usize)
     ensures
         no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
-        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==> 
+        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==>
         {
             &&& prev & WRITER == 0
             &&& prev & BEING_UPGRADED == 0

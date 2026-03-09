@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
-use crate::{sync::GuardTransfer/*, task::atomic_mode::InAtomicMode*/};
+use crate::{sync::GuardTransfer /*, task::atomic_mode::InAtomicMode*/};
 
 /// A guard for disable preempt.
 #[verus_verify]
