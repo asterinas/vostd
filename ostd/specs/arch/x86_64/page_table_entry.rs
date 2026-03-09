@@ -319,4 +319,12 @@ impl PageTableEntryTrait for PageTableEntry {
 
 }
 
+impl PageTableEntry {
+    /// Absent (zero) PTE has well-formed paddr for match_pte.
+    pub axiom fn absent_pte_paddr_ok()
+        ensures
+            Self::new_absent_spec().paddr_spec() % crate::specs::arch::mm::PAGE_SIZE == 0,
+            Self::new_absent_spec().paddr_spec() < crate::specs::arch::mm::MAX_PADDR;
+}
+
 }

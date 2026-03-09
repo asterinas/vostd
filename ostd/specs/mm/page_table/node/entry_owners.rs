@@ -116,6 +116,28 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    /// When owner is absent and pte is the absent PTE with valid paddr, match_pte holds.
+    pub proof fn absent_match_pte(owner: Self, pte: C::E, parent_level: PagingLevel)
+        requires
+            owner.is_absent(),
+            pte == C::E::new_absent_spec(),
+            pte.paddr() % PAGE_SIZE == 0,
+            pte.paddr() < MAX_PADDR,
+        ensures
+            owner.match_pte(pte, parent_level),
+    {
+        C::E::new_properties();
+        assert(!pte.is_present());
+        if pte.is_present() && !pte.is_last(parent_level) {
+            assert(pte.is_present());
+            assert(!pte.is_present());
+        }
+        if pte.is_present() && pte.is_last(parent_level) {
+            assert(pte.is_present());
+            assert(!pte.is_present());
+        }
+    }
+
     pub open spec fn expected_raw_count(self) -> usize {
         if self.in_scope {
             0

@@ -104,7 +104,7 @@ pub proof fn sibling_paths_disjoint(
 impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
     open spec fn default(lv: nat) -> Self {
         Self {
-            in_scope: true,
+            in_scope: false,
             path: TreePath::new(Seq::empty()),
             parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
             node: None,
@@ -170,6 +170,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
     &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> {
         &&& owner.children[i] is Some
         &&& owner.children[i].unwrap().value.is_absent()
+        &&& !owner.children[i].unwrap().value.in_scope
         &&& owner.children[i].unwrap().value.inv()
         &&& owner.children[i].unwrap().value.path == owner.value.path.push_tail(i as usize)
     }
@@ -324,9 +325,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
-            &&& entry.meta_slot_paddr() is Some
-            &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
+            entry.meta_slot_paddr() is Some ==> {
+                &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
+                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
+            }
         }
     }
 

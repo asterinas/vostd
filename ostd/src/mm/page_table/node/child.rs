@@ -70,6 +70,8 @@ impl<C: PageTableConfig> Child<C> {
             owner.pte_invariants(res, *regions),
             *regions == old(owner).into_pte_regions_spec(*old(regions)),
             *owner == old(owner).into_pte_owner_spec(),
+            old(owner).node is Some ==>
+                res == C::E::new_pt_spec(meta_to_frame(old(owner).node.unwrap().meta_perm.addr())),
     {
         proof {
             C::E::new_properties();

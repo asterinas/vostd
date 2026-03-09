@@ -28,6 +28,8 @@ mod entry;
 
 #[path = "../../../../specs/mm/page_table/node/child.rs"]
 mod child_specs;
+#[path = "../../../../specs/mm/page_table/node/entry.rs"]
+mod entry_specs;
 
 pub use crate::specs::mm::page_table::node::{entry_owners::*, owners::*};
 pub use child::*;
@@ -53,7 +55,7 @@ use crate::mm::{kspace::LINEAR_MAPPING_BASE_VADDR, paddr_to_vaddr, Paddr, Vaddr}
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::mm::frame::mapping::{meta_to_frame, META_SLOT_SIZE};
 use crate::specs::mm::frame::meta_owners::{
-    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED, StoredPageTablePageMeta,
+    MetaSlotOwner, MetaSlotStorage, Metadata, REF_COUNT_UNUSED,
 };
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::owners::*;
@@ -103,101 +105,6 @@ pub struct PageTablePageMeta<C: PageTableConfig> {
 /// [`PageTableGuard`].
 pub type PageTableNode<C> = Frame<PageTablePageMeta<C>>;
 
-impl<C: PageTableConfig> PageTablePageMeta<C> {
-    pub open spec fn into_spec(self) -> StoredPageTablePageMeta {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into(self) -> (res: StoredPageTablePageMeta)
-        ensures
-            res == self.into_spec(),
-    {
-        StoredPageTablePageMeta {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-        }
-    }
-}
-
-impl StoredPageTablePageMeta {
-    pub open spec fn into_spec<C: PageTableConfig>(self) -> PageTablePageMeta<C> {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-
-    #[verifier::when_used_as_spec(into_spec)]
-    pub fn into<C: PageTableConfig>(self) -> (res: PageTablePageMeta<C>)
-        ensures
-            res == self.into_spec::<C>(),
-    {
-        PageTablePageMeta::<C> {
-            nr_children: self.nr_children,
-            stray: self.stray,
-            level: self.level,
-            lock: self.lock,
-            _phantom: PhantomData,
-        }
-    }
-}
-
-uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePageMeta<C>>) -> Frame<PageTablePageMeta<C>>;
-
-#[verifier::external_body]
-extern "C" fn drop_tree<C: PageTableConfig>(_page: &mut Frame<PageTablePageMeta<C>>)
-    ensures
-        *_page == drop_tree_spec::<C>(*old(_page)),
-;
-
-impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
-    type Perm = ();
-
-    uninterp spec fn wf(r: MetaSlotStorage, perm: ()) -> bool;
-
-    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
-
-    #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
-        unimplemented!()
-    }
-
-    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self;
-
-    #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a ()>) -> &'a Self {
-        unimplemented!()
-    }
-
-    proof fn from_to_repr(self, perm: ()) {
-        admit()
-    }
-
-    proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-        admit()
-    }
-
-    proof fn to_repr_wf(self, perm: ()) {
-        admit()
-    }
-}
-
 impl<C: PageTableConfig> AnyFrameMeta for PageTablePageMeta<C> {
     fn on_drop(&mut self) {
     }
@@ -238,20 +145,27 @@ impl<C: PageTableConfig> PageTableNode<C> {
 
     /// Allocates a new empty page table node.
     #[verus_spec(res =>
-        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&Guards<'rcu, C>>
+        with Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&Guards<'rcu, C>>,
+            Ghost(idx): Ghost<usize>,
         -> owner: Tracked<OwnerSubtree<C>>
         requires
             1 <= level < NR_LEVELS,
+            idx < NR_ENTRIES,
             old(regions).inv(),
+            old(parent_owner).inv(),
         ensures
             regions.inv(),
+            parent_owner.inv(),
             allocated_empty_node_owner(owner@, level),
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *regions),
             owner@.value.relate_region(*regions),
             owner@.value.in_scope,
+            owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),
+            *parent_owner == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
@@ -427,6 +341,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
         ensures
             res.wf(*child_owner),
             res.node.addr() == guard_perm.addr(),
+            res.idx == idx,
     {
         //        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
