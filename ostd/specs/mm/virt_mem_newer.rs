@@ -1,3 +1,17 @@
+//! Virtual-memory specification model used by [`VmSpace`] proofs.
+//!
+//! This module defines:
+//! - [`VirtPtr`], a specification-level virtual pointer over a bounded virtual range;
+//! - [`FrameContents`], a physical-frame content model with alignment and range invariants;
+//! - [`MemView`], a projection of virtual-to-physical mappings and frame contents that supports
+//!   translation, read/write reasoning, borrowing, splitting, and joining.
+//!
+//! The model is intentionally verification-oriented (Verus specs/proofs) and is used by
+//! [`crate::mm::vm_space`] to state and prove reader/writer permission isolation as well
+//! as correctness of low-level virtual memory operations that are used by them.
+//!
+//! [`VmSpace`]: crate::mm::vm_space::VmSpace
+
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
 
@@ -19,23 +33,44 @@ mod virt_mem_example;
 
 verus! {
 
-/// This module implements a model of virtual memory that can be used to reason about the behavior
-/// of code that interacts with virtual memory. It interfaces with the [vm_space] module for mapping
-/// and unmapping frames.
-
-/// Concrete representation of a pointer
+/// Specification-level virtual pointer with an associated half-open range.
+///
+/// [`VirtPtr`] models a C-like pointer used by verification code:
+/// - `vaddr` is the current cursor position;
+/// - `range` is the allocation-like bounds `[start, end)`.
+///
+/// Most operations require `is_valid()` (i.e., the current pointer is within
+/// range and not one-past-end), while offset operations additionally require
+/// the computed address to stay inside the same range.
 pub struct VirtPtr {
+    /// Current virtual address represented by this pointer value.
     pub vaddr: Vaddr,
+    /// Logical bounds of the pointer's valid object/range.
     pub ghost range: Ghost<Range<Vaddr>>,
 }
 
+/// Byte contents of one physical frame range tracked in a [`MemView`].
+///
+/// This is the physical-memory side of the model: each frame base `Paddr` maps
+/// to a [`FrameContents`] value whose metadata (`size`, `range`) constrains how
+/// `contents` can be interpreted.
 pub struct FrameContents {
+    /// Per-byte initialization/value state for this frame.
     pub contents: Seq<raw_ptr::MemContents<u8>>,
+    /// Frame size in bytes.
     pub ghost size: Ghost<usize>,
+    /// Physical range covered by this frame, modeled as `[start, end)`.
     pub ghost range: Ghost<Range<Paddr>>,
 }
 
 impl Inv for FrameContents {
+    /// Well-formedness invariant for [`FrameContents`].
+    ///
+    /// # Invariant
+    /// - `contents.len() == size`.
+    /// - `size == range.end - range.start`.
+    /// - `range.start` and `range.end` are aligned to `size`.
+    /// - `range` is ordered and remains below [`MAX_PADDR`].
     open spec fn inv(self) -> bool {
         &&& self.contents.len() == self.size@
         &&& self.size@ == self.range@.end - self.range@.start
@@ -46,17 +81,29 @@ impl Inv for FrameContents {
 }
 
 
+/// A local virtual-memory view used in proofs.
+///
+/// A [`MemView`] pairs:
+/// - [`Self::mappings`]: a set of [`Mapping`] entries used by [`Self::addr_transl`];
+/// - [`Self::memory`]: frame bytes keyed by physical frame base (`Paddr`) via [`FrameContents`].
+///
+/// In practice this view is obtained from [`GlobalMemView`] using
+/// [`GlobalMemView::take_view`], then consumed by APIs such as [`VirtPtr::read`],
+/// [`VirtPtr::write`], and higher-level ownership proofs in
+/// [`VmSpaceOwner`].
+///
+/// [`VmSpaceOwner`]: crate::mm::vm_space::vm_space_specs::VmSpaceOwner
 pub tracked struct MemView {
+    /// Virtual-to-physical mapping set used for address translation.
     pub mappings: Set<Mapping>,
+    /// Physical frame contents for mapped pages referenced by [`Self::mappings`].
     pub memory: Map<Paddr, FrameContents>
 }
 
-/// A [`MemView`] can be created by taking a view from a [`GlobalMemView`]; it
-/// is structured similarly but with the extra global fields like TLB and page tables.
-/// It also tracks the physical addresses in the valid range that are unmapped.
-
-
 impl MemView {
+    /// Translates a virtual address to `(frame_base_pa, frame_offset)`.
+    ///
+    /// Returns [`Option::None`] if no mapping in [`Self::mappings`] covers `va`.
     pub open spec fn addr_transl(self, va: usize) -> Option<(usize, usize)> {
         let mappings = self.mappings.filter(|m: Mapping| m.va_range.start <= va < m.va_range.end);
         if 0 < mappings.len() {
@@ -68,11 +115,17 @@ impl MemView {
         }
     }
 
+    /// Specification read through virtual translation.
+    ///
+    /// Equivalent to resolving via [`Self::addr_transl`] and reading from [`Self::memory`].
     pub open spec fn read(self, va: usize) -> raw_ptr::MemContents<u8> {
         let (pa, off) = self.addr_transl(va).unwrap();
         self.memory[pa].contents[off as int]
     }
 
+    /// Specification write through virtual translation.
+    ///
+    /// Returns a new [`MemView`] with one byte updated, preserving all mappings.
     pub open spec fn write(self, va: usize, x: u8) -> Self {
         let (pa, off) = self.addr_transl(va).unwrap();
         MemView {
@@ -85,16 +138,22 @@ impl MemView {
         }
     }
 
+    /// Whether two virtual addresses denote equal byte contents in this view.
     pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
         let (pa1, off1) = self.addr_transl(va1).unwrap();
         let (pa2, off2) = self.addr_transl(va2).unwrap();
         self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
     }
 
+    /// Whether `va` is translated and mapped to frame base `pa`.
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
         self.addr_transl(va) is Some && self.addr_transl(va).unwrap().0 == pa
     }
 
+    /// Specification for borrowing a sub-view covering `[vaddr, vaddr + len)`.
+    ///
+    /// The result keeps overlapping mappings and restricts memory to physical
+    /// frames reachable from that virtual range.
     pub open spec fn borrow_at_spec(&self, vaddr: usize, len: usize) -> MemView {
         let range_end = vaddr + len;
 
@@ -112,6 +171,7 @@ impl MemView {
         }
     }
 
+    /// Whether mappings in this view are pairwise VA-disjoint.
     pub open spec fn mappings_are_disjoint(self) -> bool {
         forall|m1: Mapping, m2: Mapping|
             #![trigger self.mappings.contains(m1), self.mappings.contains(m2)]
@@ -120,6 +180,11 @@ impl MemView {
             }
     }
 
+    /// Specification for splitting this view at `split_end = vaddr + len`.
+    ///
+    /// Returns `(left, right)` where:
+    /// - `left` covers `[vaddr, split_end)`,
+    /// - `right` covers addresses `>= split_end`.
     pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
 
@@ -143,7 +208,12 @@ impl MemView {
         )
     }
 
-    /// Borrows a memory view for a sub-range.
+    /// Executable proof wrapper of [`Self::borrow_at_spec`].
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Postconditions
+    /// - `r == self.borrow_at_spec(vaddr, len)`.
     #[verifier::external_body]
     pub proof fn borrow_at(tracked &self, vaddr: usize, len: usize) -> (tracked r: &MemView)
         ensures
@@ -153,10 +223,12 @@ impl MemView {
     }
 
 
-    /// Splits the memory view into two disjoint views.
+    /// Executable proof wrapper of [`Self::split_spec`].
     ///
-    /// Returns the split memory views where the first is
-    /// for `[vaddr, vaddr + len)` and the second is for the rest.
+    /// # Verified Properties
+    ///
+    /// ## Postconditions
+    /// - `r == self.split_spec(vaddr, len)`.
     #[verifier::external_body]
     pub proof fn split(tracked self, vaddr: usize, len: usize) -> (tracked r: (Self, Self))
         ensures
@@ -165,9 +237,19 @@ impl MemView {
         unimplemented!()
     }
 
-    /// This proves that if split is performed and we have
-    /// (lhs, rhs) = self.split(vaddr, len), then we have
-    /// all translations preserved in lhs and rhs.
+    /// Lemma: [`Self::split_spec`] preserves translation semantics on each side.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `original.split_spec(vaddr, len) == (left, right)`.
+    ///
+    /// ## Postconditions
+    /// - `right.memory.dom().subset_of(original.memory.dom())`.
+    /// - For any `va` in `[vaddr, vaddr + len)`,
+    ///   `original.addr_transl(va) == left.addr_transl(va)`.
+    /// - For any `va >= vaddr + len`,
+    ///   `original.addr_transl(va) == right.addr_transl(va)`.
     pub proof fn lemma_split_preserves_transl(
         original: MemView,
         vaddr: usize,
@@ -242,6 +324,10 @@ impl MemView {
         }
     }
 
+    /// Specification for merging two views.
+    ///
+    /// Mappings are unioned, and memory conflicts are resolved by
+    /// [`vstd::map::Map::union_prefer_right`] with `other` taking precedence.
     pub open spec fn join_spec(self, other: MemView) -> MemView {
         MemView {
             mappings: self.mappings.union(other.mappings),
@@ -249,7 +335,15 @@ impl MemView {
         }
     }
 
-    /// Merges two disjoint memory views back into one.
+    /// Executable proof wrapper of [`Self::join_spec`].
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `old(self).mappings.disjoint(other.mappings)`.
+    ///
+    /// ## Postconditions
+    /// - `*self == old(self).join_spec(other)`.
     #[verifier::external_body]
     pub proof fn join(tracked &mut self, tracked other: Self)
         requires
@@ -260,6 +354,15 @@ impl MemView {
         unimplemented!()
     }
 
+    /// Lemma: splitting and then joining reconstructs the original view.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `this.split_spec(vaddr, len) == (lhs, rhs)`.
+    ///
+    /// ## Postconditions
+    /// - `this == lhs.join_spec(rhs)`.
     #[verifier::external_body]
     pub proof fn lemma_split_join_identity(
         this: MemView,
@@ -299,27 +402,49 @@ impl Copy for VirtPtr {
 }
 
 impl VirtPtr {
-
+    /// Pure constructor specification for [`Self::new`].
     pub open spec fn new_spec(vaddr: Vaddr, len: usize) -> Self {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 
+    /// Creates a pointer at `vaddr` with logical range `[vaddr, vaddr + len)`.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Postconditions
+    /// - `result == Self::new_spec(vaddr, len)`.
     pub fn new(vaddr: Vaddr, len: usize) -> Self
         returns Self::new_spec(vaddr, len),
     {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 
+    /// Whether the pointer has a non-null address and consistent bounds.
     pub open spec fn is_defined(self) -> bool {
         &&& self.vaddr != 0
         &&& self.range@.start <= self.vaddr <= self.range@.end
     }
 
+    /// Whether dereferencing the current pointer position is allowed.
+    ///
+    /// This excludes the one-past-end position (`vaddr == range.end`).
     pub open spec fn is_valid(self) -> bool {
         &&& self.is_defined()
         &&& self.vaddr < self.range@.end
     }
 
+    /// Reads one byte from `self.vaddr` in the provided memory view.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `mem.addr_transl(self.vaddr) is Some`.
+    /// - Target byte is initialized:
+    ///   `mem.memory[mem.addr_transl(self.vaddr).unwrap().0].contents[mem.addr_transl(self.vaddr).unwrap().1 as int] is Init`.
+    /// - `self.is_valid()`.
+    ///
+    /// ## Postconditions
+    /// - Returns `mem.read(self.vaddr).value()`.
     #[verifier::external_body]
     pub fn read(self, Tracked(mem): Tracked<&MemView>) -> u8
         requires
@@ -332,6 +457,16 @@ impl VirtPtr {
         unimplemented!()
     }
 
+    /// Writes one byte to `self.vaddr` in the provided memory view.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `old(mem).addr_transl(self.vaddr) is Some`.
+    /// - `self.is_valid()`.
+    ///
+    /// ## Postconditions
+    /// - `*mem == old(mem).write(self.vaddr, x)`.
     #[verifier::external_body]
     pub fn write(self, Tracked(mem): Tracked<&mut MemView>, x: u8)
         requires
@@ -347,6 +482,17 @@ impl VirtPtr {
         VirtPtr { vaddr: (self.vaddr + n) as usize, range: self.range }
     }
 
+    /// Advances the pointer by `n` bytes.
+    ///
+    /// This operation only updates the cursor; it does not perform memory access.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `0 <= old(self).vaddr + n < usize::MAX`.
+    ///
+    /// ## Postconditions
+    /// - `*self == old(self).add_spec(n)`.
     pub fn add(&mut self, n: usize)
         requires
     // Option 1: strict C standard compliance
@@ -367,8 +513,21 @@ impl VirtPtr {
         mem.read((self.vaddr + n) as usize).value()
     }
 
-    /// Unlike `add`, we just create a temporary pointer value and read that
-    /// When `self.vaddr == self.range.start` this acts like array index notation
+    /// Reads from `self.vaddr + n` without mutating `self`.
+    ///
+    /// Implemented by creating a temporary pointer and calling [`Self::read`].
+    /// When `self.vaddr == self.range.start`, this behaves like array indexing.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `0 < self.vaddr + n < usize::MAX`.
+    /// - `self.range@.start <= self.vaddr + n < self.range@.end`.
+    /// - `mem.addr_transl((self.vaddr + n) as usize) is Some`.
+    /// - Target byte at offset is initialized.
+    ///
+    /// ## Postconditions
+    /// - Returns `self.read_offset_spec(*mem, n)`.
     pub fn read_offset(&self, Tracked(mem): Tracked<&MemView>, n: usize) -> u8
         requires
             0 < self.vaddr + n < usize::MAX,
@@ -387,6 +546,14 @@ impl VirtPtr {
         mem.write((self.vaddr + n) as usize, x)
     }
 
+    /// Writes to `self.vaddr + n` without mutating `self`.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `self.inv()`.
+    /// - `self.range@.start <= self.vaddr + n < self.range@.end`.
+    /// - `old(mem).addr_transl((self.vaddr + n) as usize) is Some`.
     pub fn write_offset(&self, Tracked(mem): Tracked<&mut MemView>, n: usize, x: u8)
         requires
             self.inv(),
@@ -403,6 +570,22 @@ impl VirtPtr {
         dst.write_offset_spec(mem_dst, n, x)
     }
 
+    /// Copies one byte from `src + n` to `dst + n`.
+    ///
+    /// Source and destination are reasoned about via distinct memory views.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `src.inv()` and `dst.inv()`.
+    /// - Source offset and destination offset are both in-range.
+    /// - Source offset is mapped and initialized in `mem_src`.
+    /// - Destination offset is mapped in `old(mem_dst)`.
+    ///
+    /// ## Postconditions
+    /// - `*mem_dst == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n)`.
+    /// - `mem_dst.mappings == old(mem_dst).mappings`.
+    /// - `mem_dst.memory.dom() == old(mem_dst).memory.dom()`.
     pub fn copy_offset(src: &Self, dst: &Self, Tracked(mem_src): Tracked<&MemView>, Tracked(mem_dst): Tracked<&mut MemView>, n: usize)
         requires
             src.inv(),
@@ -445,6 +628,20 @@ impl VirtPtr {
     /// but with the source and destination arguments swapped.
     ///
     /// `mem` points to `src`'s owned memory regions.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `src.inv()` and `dst.inv()`.
+    /// - Source and destination ranges are non-overlapping.
+    /// - Source slice `[src.vaddr, src.vaddr + n)` is in-range and initialized in `mem_src`.
+    /// - Destination slice `[dst.vaddr, dst.vaddr + n)` is in-range and mapped in `old(mem_dst)`.
+    ///
+    /// ## Postconditions
+    /// - `*mem_dst == Self::memcpy_spec(*src, *dst, *mem_src, *old(mem_dst), n)`.
+    /// - `mem_dst.mappings == old(mem_dst).mappings`.
+    /// - `mem_dst.memory.dom() == old(mem_dst).memory.dom()`.
+    /// - Destination slice remains mapped in `mem_dst`.
     pub fn copy_nonoverlapping(
         src: &Self,
         dst: &Self,
@@ -500,6 +697,18 @@ impl VirtPtr {
         }
     }
 
+    /// Builds a valid [`VirtPtr`] from a concrete virtual-address range.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `vaddr != 0`.
+    /// - `0 < len <= usize::MAX - vaddr`.
+    ///
+    /// ## Postconditions
+    /// - `r.is_valid()`.
+    /// - `r.range@.start == vaddr`.
+    /// - `r.range@.end == (vaddr + len) as usize`.
     pub fn from_vaddr(vaddr: usize, len: usize) -> (r: Self)
         requires
             vaddr != 0,
@@ -512,8 +721,20 @@ impl VirtPtr {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }
 
-    /// Executable helper to split the VirtPtr struct
-    /// This updates the ghost ranges to match a MemView::split operation
+    /// Executable helper to split the [`VirtPtr`] into two contiguous ranges.
+    ///
+    /// This updates ghost ranges to match a split operation over the same region.
+    ///
+    /// # Verified Properties
+    ///
+    /// ## Preconditions
+    /// - `self.is_valid()`.
+    /// - `0 <= n <= self.range@.end - self.range@.start`.
+    /// - `self.vaddr == self.range@.start`.
+    ///
+    /// ## Postconditions
+    /// - Left pointer covers `[self.range@.start, self.range@.start + n)`.
+    /// - Right pointer covers `[self.range@.start + n, self.range@.end)`.
     #[verus_spec(r =>
         requires
             self.is_valid(),

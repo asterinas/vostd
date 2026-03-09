@@ -205,7 +205,7 @@ impl<'a> VmSpace<'a> {
     /// The newly created instance of [`VmReader`] and its associated [`VmIoOwner`] are not yet
     /// activated, so the guarantees about the memory view only require that the memory view is
     /// [`None`]. The guarantees about the memory view will be provided by the activation function
-    /// (see [`Self::activate_reader`] and [`Self::activate_writer`]).
+    /// (see [`VmSpaceOwner::activate_reader`] and [`VmSpaceOwner::activate_writer`]).
     ///
     /// We avoid mixing the creation, usage and deletion into one giant function as this would
     /// create some unnecessary life-cycle management complexities and not really help with the
@@ -258,7 +258,7 @@ impl<'a> VmSpace<'a> {
     ///
     /// This function is marked as `external_body` for now as the current design does not entail
     /// the concrete implementation details of the underlying data structure of the [`VmSpace`].
-    /// 
+    ///
     /// ## Preconditions
     /// None
     ///
