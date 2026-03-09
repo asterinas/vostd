@@ -111,8 +111,8 @@ impl PageTableEntry {
 
     #[verifier::external_body]
     #[verifier::when_used_as_spec(format_flags_spec)]
-    pub fn format_flags(prop: PageProperty) -> (res: usize)
-        ensures res == Self::format_flags_spec(prop)
+    pub fn format_flags(prop: PageProperty) -> usize
+        returns Self::format_flags_spec(prop)
     {
         let flags: u8 = prop.flags.value();
         let priv_flags: u8 = prop.priv_flags.value();
@@ -149,8 +149,8 @@ impl PageTableEntry {
 
     #[verifier::external_body]
     #[verifier::when_used_as_spec(format_property_spec)]
-    pub fn format_property(entry: usize) -> (res: PageProperty)
-        ensures res == Self::format_property_spec(entry)
+    pub fn format_property(entry: usize) -> PageProperty
+        returns Self::format_property_spec(entry)
     {
         let flags = entry.map_backward(&PAGE_FLAG_MAPPING)
                   | entry.map_invert_backward(&PAGE_INVERTED_FLAG_MAPPING);
@@ -189,8 +189,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn default() -> (res: Self)
-        ensures res == Self::default_spec()
+    fn default() -> Self
+        returns Self::default_spec()
     {
         Self { 0: 0 }
     }
@@ -213,8 +213,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn as_usize(self) -> (res: usize)
-            ensures res == self.as_usize_spec()
+    fn as_usize(self) -> usize
+        returns self.as_usize_spec()
     {
         self.0 as usize
     }
@@ -225,8 +225,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn is_present(&self) -> (res: bool)
-        ensures res == self.is_present_spec()
+    fn is_present(&self) -> bool
+        returns self.is_present_spec()
     {
         self.0 & PageTableFlags::PRESENT() != 0
     }
@@ -277,8 +277,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn paddr(&self) -> (res: Paddr)
-        ensures res == self.paddr_spec()
+    fn paddr(&self) -> Paddr
+        returns self.paddr_spec()
     {
         self.0 & PHYS_ADDR_MASK
     }
@@ -289,8 +289,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn prop(&self) -> (res: PageProperty)
-        ensures res == self.prop_spec()
+    fn prop(&self) -> PageProperty
+        returns self.prop_spec()
     {
         Self::format_property(self.0)
     }
@@ -301,8 +301,8 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     #[inline(always)]
-    fn is_last(&self, level: PagingLevel) -> (res: bool)
-        ensures res == self.is_last_spec(level)
+    fn is_last(&self, level: PagingLevel) -> bool
+        returns self.is_last_spec(level)
     {
         level == 1 || (self.0 & PageTableFlags::HUGE() != 0)
     }
