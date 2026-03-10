@@ -13,13 +13,10 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 use vstd_extra::prelude::TreeNodeValue;
 
-use crate::mm::{
-    page_table::EntryOwner,
-    Paddr, PagingLevel, Vaddr, MAX_NR_LEVELS,
-};
+use crate::mm::{page_table::EntryOwner, Paddr, PagingLevel, Vaddr, MAX_NR_LEVELS};
 
 use crate::mm::frame::frame_to_index;
-use crate::mm::page_table::{PageTableGuard, PageTableEntryTrait};
+use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;

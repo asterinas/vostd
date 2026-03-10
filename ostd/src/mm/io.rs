@@ -58,6 +58,16 @@ use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
 verus! {
 
+/// Performs a fallible transfer from `reader` to `writer`.
+///
+/// # Verified Properties
+/// ## Preconditions
+/// - `reader`, `writer`, and their associated owners must satisfy their invariants.
+/// - Each owner must match the corresponding reader or writer.
+/// - Both owners must be marked fallible.
+/// ## Postconditions
+/// - The reader, writer, and both owners still satisfy their invariants.
+/// - The owner parameters tracked by [`VmIoOwner::params_eq`] are preserved for both sides.
 #[verus_spec(r =>
         with
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
@@ -116,6 +126,71 @@ unsafe fn memcpy(dst: usize, src: usize, len: usize) {
     // <https://github.com/asterinas/asterinas/pull/1001#discussion_r1667317406>.
     // SAFETY: The safety is guaranteed by the safety preconditions and the explanation above.
     core::intrinsics::volatile_copy_memory(dst as *mut u8, src as *const u8, len);
+}
+
+/// Reads a `Pod` value directly from a verified memory view.
+///
+/// # Verified Properties
+/// ## Preconditions
+/// - `ptr` must satisfy [`VirtPtr::inv`].
+/// - The readable range `[ptr.vaddr, ptr.vaddr + size_of::<T>())` must fit in `ptr.range@`.
+/// - Every byte in that range must translate in `mem` and be initialized.
+/// ## Postconditions
+/// - The function returns a `T` value reconstructed from the bytes at `ptr`.
+/// ## Safety
+/// - This function is trusted because Verus cannot currently express the raw-pointer read needed
+///   to reconstruct a typed `Pod` value from verified byte-level memory permissions.
+#[verifier::external_body]
+#[verus_spec(
+    with
+        Tracked(mem): Tracked<&MemView>,
+    requires
+        ptr.inv(),
+        core::mem::size_of::<T>() <= ptr.range@.end - ptr.vaddr,
+        forall|i: usize|
+            #![trigger mem.addr_transl(i)]
+            ptr.vaddr <= i < ptr.vaddr + core::mem::size_of::<T>() ==> {
+                &&& mem.addr_transl(i) is Some
+                &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
+                &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] is Init
+            },
+)]
+fn read_pod_from_view<T: Pod>(ptr: VirtPtr) -> T {
+    unsafe { (ptr.vaddr as *const T).read() }
+}
+
+/// Reads a `PodOnce` value using one volatile memory load from a verified memory view.
+///
+/// # Verified Properties
+/// ## Preconditions
+/// - `ptr` must satisfy [`VirtPtr::inv`].
+/// - The readable range `[ptr.vaddr, ptr.vaddr + size_of::<T>())` must fit in `ptr.range@`.
+/// - `ptr.vaddr` must satisfy the alignment requirement of `T`.
+/// - Every byte in that range must translate in `mem` and be initialized.
+/// ## Postconditions
+/// - The function returns a `T` value read from `ptr` using one volatile load.
+/// ## Safety
+/// - This function is trusted because the underlying volatile typed read relies on raw-pointer
+///   operations that Verus does not yet model directly.
+#[verifier::external_body]
+#[verus_spec(
+    with
+        Tracked(mem): Tracked<&MemView>,
+    requires
+        ptr.inv(),
+        core::mem::size_of::<T>() <= ptr.range@.end - ptr.vaddr,
+        ptr.vaddr % core::mem::align_of::<T>() == 0,
+        forall|i: usize|
+            #![trigger mem.addr_transl(i)]
+            ptr.vaddr <= i < ptr.vaddr + core::mem::size_of::<T>() ==> {
+                &&& mem.addr_transl(i) is Some
+                &&& mem.memory.contains_key(mem.addr_transl(i).unwrap().0)
+                &&& mem.memory[mem.addr_transl(i).unwrap().0].contents[mem.addr_transl(i).unwrap().1 as int] is Init
+            },
+)]
+fn read_once_from_view<T: PodOnce>(ptr: VirtPtr) -> T {
+    let pnt = ptr.vaddr as *const T;
+    unsafe { pnt.read_volatile() }
 }
 
 /// [`VmReader`] is a reader for reading data from a contiguous range of memory.
@@ -185,6 +260,12 @@ pub tracked struct VmIoOwner<'a> {
 }
 
 impl Inv for VmIoOwner<'_> {
+    /// The invariant of a [`VmIoOwner`].
+    ///
+    /// The owned virtual-address range must be ordered. When a memory view is present,
+    /// its mappings must be finite, disjoint, and cover the whole range. If the memory
+    /// view is `None`, then this owner acts as a placeholder that grants no accessible
+    /// memory.
     open spec fn inv(self) -> bool {
         // We do allow ZSTs so that empty ranges are valid.
         &&& self.range@.start <= self.range@.end
@@ -257,6 +338,14 @@ impl VmIoOwner<'_> {
     }
 
     /// Changes the fallibility of this owner.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The owner must satisfy its invariant.
+    /// - The new fallibility must differ from the current one.
+    /// ## Postconditions
+    /// - The updated owner still satisfies its invariant.
+    /// - The `is_fallible` field is updated to `fallible`.
     pub proof fn change_fallible(tracked &mut self, tracked fallible: bool)
         requires
             old(self).inv(),
@@ -272,6 +361,17 @@ impl VmIoOwner<'_> {
     ///
     /// Note this will return the advanced `VmIoMemView` as the previous permission
     /// is no longer needed and must be discarded then.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The owner must satisfy its invariant.
+    /// - The owner must carry a memory view.
+    /// - `nbytes` must not exceed the remaining length of the owned range.
+    /// ## Postconditions
+    /// - The updated owner still satisfies its invariant.
+    /// - The start of the owned range is advanced by `nbytes`.
+    /// - The end of the owned range and the other owner parameters are preserved.
+    /// - The returned [`VmIoMemView`] is the portion advanced past.
     pub proof fn advance(tracked &mut self, nbytes: usize) -> (tracked res: VmIoMemView<'_>)
         requires
             old(self).inv(),
@@ -361,6 +461,13 @@ impl VmIoOwner<'_> {
     }
 
     /// Unwraps the read view.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The owner must satisfy its invariant.
+    /// - The owner must carry a read memory view.
+    /// ## Postconditions
+    /// - The returned reference is exactly the read view stored in `self.mem_view`.
     pub proof fn tracked_read_view_unwrap(tracked &self) -> (tracked r: &MemView)
         requires
             self.inv(),
@@ -593,6 +700,16 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     /// a memory range in USER space.
     ///
     /// ⚠️ WARNING: Currently not implemented yet.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `ptr` must satisfy [`VirtPtr::inv`].
+    /// ## Postconditions
+    /// - The returned [`VmReader`] satisfies its invariant.
+    /// - The returned reader is associated with a [`VmIoOwner`] that satisfies both [`VmIoOwner::inv`]
+    ///   and [`VmIoOwner::inv_with_reader`].
+    /// - The owner has the same range as `ptr`, has no memory view yet, and is marked as user-space
+    ///   and infallible.
     #[verifier::external_body]
     #[verus_spec(r =>
         with
@@ -1017,6 +1134,12 @@ impl VmReader<'_> {
     }
 
     /// Returns the number of remaining bytes that can be read.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `self` must satisfy its invariant.
+    /// ## Postconditions
+    /// - The returned value equals [`Self::remain_spec`].
     #[inline]
     #[verus_spec(r =>
         requires
@@ -1029,7 +1152,17 @@ impl VmReader<'_> {
         self.end.vaddr - self.cursor.vaddr
     }
 
-    /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes remaining.
+    /// Advances the cursor by `len` bytes.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `self` must satisfy its invariant.
+    /// - `len` must not exceed the remaining readable bytes.
+    /// ## Postconditions
+    /// - `self` still satisfies its invariant.
+    /// - The cursor advances by `len`.
+    /// - The remaining readable bytes decrease by `len`.
+    /// - The reader identity and end cursor are preserved.
     #[inline]
     #[verus_spec(
         requires
@@ -1065,6 +1198,19 @@ impl VmReader<'_> {
     /// # Returns
     ///
     /// The number of bytes actually transferred.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The reader, writer, and both associated owners must satisfy their invariants.
+    /// - The owners must match the given reader and writer.
+    /// - The writer owner must carry a write memory view.
+    /// - The source and destination ranges must not overlap.
+    /// - The reader owner must provide initialized readable memory for the readable range.
+    /// ## Postconditions
+    /// - The reader, writer, and both owners still satisfy their invariants.
+    /// - The owners still match the updated reader and writer.
+    /// - The returned byte count equals the minimum of readable bytes and writable bytes.
+    /// - Both cursors advance by exactly the returned byte count.
     #[verus_spec(r =>
         with
             Tracked(owner_r): Tracked<&mut VmIoOwner<'_>>,
@@ -1160,21 +1306,37 @@ impl VmReader<'_> {
     ///
     /// If the length of the `Pod` type exceeds `self.remain()`,
     /// this method will return `Err`.
-    #[verifier::external_body]
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The reader and its owner must satisfy their invariants.
+    /// - The owner must match this reader and carry a read memory view.
+    /// - The readable range must translate to initialized bytes in the read view.
+    /// ## Postconditions
+    /// - The reader and owner still satisfy their invariants.
+    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On error, the reader state is unchanged.
     #[verus_spec(r =>
         with
-            Ghost(id): Ghost<nat>,
             Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
             old(owner).inv(),
             old(owner).inv_with_reader(*old(self)),
-            old(owner).mem_view is Some,
+            old(owner).mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(owner).mem_view matches Some(VmIoMemView::ReadView(mem_src)) ==> {
+                forall|i: usize|
+                    #![trigger mem_src.addr_transl(i)]
+                    old(self).cursor.vaddr <= i < old(self).cursor.vaddr + old(self).remain_spec() ==> {
+                        &&& mem_src.addr_transl(i) is Some
+                        &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
+                        &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    }
+            },
         ensures
             self.inv(),
             owner.inv(),
             owner.inv_with_reader(*self),
-            owner.params_eq(*old(owner)),
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
@@ -1189,27 +1351,19 @@ impl VmReader<'_> {
         if self.remain() < core::mem::size_of::<T>() {
             return Err(Error::InvalidArgs);
         }
-        let mut v = T::new_uninit();
-        proof_with!(Ghost(id) => Tracked(owner_w));
-        let mut writer = VmWriter::from_pod(v)?;
+        let len = core::mem::size_of::<T>();
+        let tracked mem_src = owner.tracked_read_view_unwrap();
 
-        let tracked mut owner_w = owner_w.tracked_unwrap();
+        proof_with!(Tracked(mem_src));
+        let v = read_pod_from_view(self.cursor);
 
-        proof_with!(Tracked(owner), Tracked(&mut owner_w));
-        self.read(&mut writer);
+        self.advance(len);
+
+        proof {
+            owner.advance(len);
+        }
 
         Ok(v)
-    }
-
-    #[verifier::external_body]
-    #[verus_spec(
-        requires
-            self.inv(),
-            core::mem::size_of::<T>() <= self.remain_spec(),
-    )]
-    fn read_once_inner<T: PodOnce>(&self) -> T {
-        let pnt = self.cursor.vaddr as *const T;
-        unsafe { pnt.read_volatile() }
     }
 
     /// Reads a value of the `PodOnce` type using one non-tearing memory load.
@@ -1223,14 +1377,35 @@ impl VmReader<'_> {
     ///
     /// This method will panic if the current position of the reader does not meet the alignment
     /// requirements of type `T`.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The reader and its owner must satisfy their invariants.
+    /// - The owner must match this reader and carry a read memory view.
+    /// - The readable range must translate to initialized bytes in the read view.
+    /// - The current cursor must satisfy the alignment requirements of `T`.
+    /// ## Postconditions
+    /// - The reader and owner still satisfy their invariants.
+    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On error, the reader state is unchanged.
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmIoOwner<'_>>,
         requires
             old(self).inv(),
-            old(owner).mem_view is Some,
             old(owner).inv(),
             old(owner).inv_with_reader(*old(self)),
+            old(owner).mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(self).cursor.vaddr % core::mem::align_of::<T>() == 0,
+            old(owner).mem_view matches Some(VmIoMemView::ReadView(mem_src)) ==> {
+                forall|i: usize|
+                    #![trigger mem_src.addr_transl(i)]
+                    old(self).cursor.vaddr <= i < old(self).cursor.vaddr + core::mem::size_of::<T>() ==> {
+                        &&& mem_src.addr_transl(i) is Some
+                        &&& mem_src.memory.contains_key(mem_src.addr_transl(i).unwrap().0)
+                        &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
+                    }
+            },
         ensures
             self.inv(),
             owner.inv(),
@@ -1253,7 +1428,9 @@ impl VmReader<'_> {
         // and that the cursor is properly aligned with respect to the type `T`. All other safety
         // requirements are the same as for `Self::read`.
 
-        let v = self.read_once_inner::<T>();
+        let tracked mem_src = owner.tracked_read_view_unwrap();
+        proof_with!(Tracked(mem_src));
+        let v = read_once_from_view::<T>(self.cursor);
         self.advance(core::mem::size_of::<T>());
 
         proof {
@@ -1270,6 +1447,19 @@ impl<'a> VmWriter<'a> {
         (self.end.vaddr - self.cursor.vaddr) as usize
     }
 
+    /// Constructs a [`VmWriter`] from a pointer, which represents a memory range in USER space.
+    ///
+    /// ⚠️ WARNING: Currently not implemented yet.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `ptr` must satisfy [`VirtPtr::inv`].
+    /// ## Postconditions
+    /// - The returned [`VmWriter`] satisfies its invariant.
+    /// - The returned writer is associated with a [`VmIoOwner`] that satisfies both [`VmIoOwner::inv`]
+    ///   and [`VmIoOwner::inv_with_writer`].
+    /// - The owner has the same range as `ptr`, has no memory view yet, and is marked as user-space
+    ///   and infallible.
     #[verifier::external_body]
     #[verus_spec(r =>
         with
@@ -1296,6 +1486,12 @@ impl<'a> VmWriter<'a> {
     ///
     /// This has the same implementation as [`VmReader::remain`] but semantically
     /// they are different.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `self` must satisfy its invariant.
+    /// ## Postconditions
+    /// - The returned value equals [`Self::avail_spec`].
     #[inline]
     #[verus_spec(r =>
         requires
@@ -1308,7 +1504,17 @@ impl<'a> VmWriter<'a> {
         self.end.vaddr - self.cursor.vaddr
     }
 
-    /// Advances the cursor by `len` bytes. Requires that there are at least `len` bytes available.
+    /// Advances the cursor by `len` bytes.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - `self` must satisfy its invariant.
+    /// - `len` must not exceed the remaining writable bytes.
+    /// ## Postconditions
+    /// - `self` still satisfies its invariant.
+    /// - The cursor advances by `len`.
+    /// - The remaining writable bytes decrease by `len`.
+    /// - The writer identity and end cursor are preserved.
     #[inline]
     #[verus_spec(
         requires
@@ -1339,6 +1545,19 @@ impl<'a> VmWriter<'a> {
     /// # Returns
     ///
     /// Returns the number of bytes written to `self` (which is equal to the number of bytes read from `reader`).
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The writer, reader, and both associated owners must satisfy their invariants.
+    /// - The owners must match the given writer and reader.
+    /// - The writer owner must carry a write memory view.
+    /// - The source and destination ranges must not overlap.
+    /// - The reader owner must provide initialized readable memory for the readable range.
+    /// ## Postconditions
+    /// - The writer, reader, and both owners still satisfy their invariants.
+    /// - The owners still match the updated writer and reader.
+    /// - The returned byte count equals the minimum of writable bytes and readable bytes.
+    /// - Both cursors advance by exactly the returned byte count.
     #[inline]
     #[verus_spec(r =>
         with
@@ -1385,6 +1604,16 @@ impl<'a> VmWriter<'a> {
     ///
     /// If the length of the `Pod` type exceeds `self.avail()`,
     /// this method will return `Err`.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The writer and its owner must satisfy their invariants.
+    /// - The owner must match this writer and carry a memory view.
+    /// ## Postconditions
+    /// - The writer and owner still satisfy their invariants.
+    /// - The owner parameters tracked by [`VmIoOwner::params_eq`] are preserved.
+    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On error, the writer state is unchanged.
     #[verifier::external_body]
     #[verus_spec(r =>
         with
@@ -1400,7 +1629,6 @@ impl<'a> VmWriter<'a> {
             self.inv(),
             owner_w.inv(),
             owner_w.inv_with_writer(*self),
-            owner_w.params_eq(*old(owner_w)),
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
@@ -1437,6 +1665,18 @@ impl<'a> VmWriter<'a> {
         unsafe { cursor.write_volatile(*new_val) };
     }
 
+    /// Writes a value of the `PodOnce` type using one non-tearing memory store.
+    ///
+    /// If the length of the `PodOnce` type exceeds `self.avail()`, this method will return `Err`.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The writer and its owner must satisfy their invariants.
+    /// - The owner must match this writer and carry a memory view.
+    /// ## Postconditions
+    /// - The writer and owner still satisfy their invariants.
+    /// - On success, the cursor advances by `size_of::<T>()`.
+    /// - On error, the writer state is unchanged.
     #[verus_spec(r =>
         with
             Tracked(owner_w): Tracked<&mut VmIoOwner<'_>>,
