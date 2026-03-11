@@ -32,6 +32,8 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+
 mod node;
 pub use node::*;
 mod cursor;
@@ -536,8 +538,37 @@ fn sign_bit_of_va<C: PageTableConfig>(va: Vaddr) -> bool {
     (va >> (C::ADDRESS_WIDTH() - 1)) & 1 != 0
 }
 
+#[verifier::inline]
+pub open spec fn pte_index_bit_offset_spec<C: PagingConstsTrait>(level: PagingLevel) -> int {
+    (C::BASE_PAGE_SIZE().ilog2() as int) + (nr_pte_index_bits::<C>() as int) * (level as int - 1)
+}
+
+/// Spec for the managed virtual address range (exclusive end).
+/// For configs without VA_SIGN_EXT (e.g. UserPtConfig) or when the base range has sign bit 0.
+/// Configs with sign extension (e.g. KernelPtConfig) use a wrapped range in exec;
+/// we use an axiom to connect that case.
+#[verifier::inline]
+pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
+    let idx_range = C::TOP_LEVEL_INDEX_RANGE_spec();
+    let offset = pte_index_bit_offset_spec::<C::C>(C::NR_LEVELS()) as nat;
+    let start = (idx_range.start as int) * pow2(offset);
+    let end_inclusive = (idx_range.end as int) * pow2(offset) - 1;
+    (start as Vaddr)..((end_inclusive + 1) as Vaddr)
+}
+
+/// Spec for whether a range is within the page table's managed address space.
+#[verifier::inline]
+pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
+    let va_range = vaddr_range_spec::<C>();
+    (r.start == 0 && r.end == 0)
+        || (va_range.start <= r.start && r.end > 0 && r.end - 1 <= va_range.end - 1)
+}
+
 #[verifier::external_body]
-fn vaddr_range<C: PageTableConfig>() -> Range<Vaddr> {
+fn vaddr_range<C: PageTableConfig>() -> (ret: Range<Vaddr>)
+    ensures
+        ret == vaddr_range_spec::<C>(),
+{
     /*    const {
         assert!(C::TOP_LEVEL_INDEX_RANGE().start < C::TOP_LEVEL_INDEX_RANGE().end);
         assert!(top_level_index_width::<C>() <= nr_pte_index_bits::<C>(),);
@@ -565,7 +596,10 @@ fn vaddr_range<C: PageTableConfig>() -> Range<Vaddr> {
 
 /// Checks if the given range is covered by the valid range of the page table.
 #[verifier::external_body]
-fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
+fn is_valid_range<C: PageTableConfig>(r: &Range<Vaddr>) -> (ret: bool)
+    ensures
+        ret == is_valid_range_spec::<C>(r),
+{
     let va_range = vaddr_range::<C>();
     (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end - 1 <= va_range.end)
 }
@@ -744,23 +778,31 @@ impl<C: PageTableConfig> PageTable<C> {
     ///
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped.
-    #[verus_spec(with -> cursor_owner: Tracked<Option<CursorOwner<'rcu, C>>>)]
+    #[verus_spec(r =>
+        with Tracked(owner): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+        ensures
+            Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
+                &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
+                &&& r.unwrap().0.inner.va == va.start
+                &&& r.unwrap().0.inner.barrier_va == *va
+            }
+    )]
+    #[verifier::external_body]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
         &'rcu self,
         guard: &'rcu G,
         va: &Range<Vaddr>,
-    ) -> Result<CursorMut<'rcu, C, G>, PageTableError> {
-        match CursorMut::new(self, guard, va) {
-            Ok((cursor, owner)) => {
-                let Tracked(owner) = owner;
-                proof_with!(|= Tracked(Some(owner)));
-                Ok(cursor)
-            },
-            Err(error) => {
-                proof_with!(|= Tracked(None));
-                Err(error)
-            },
-        }
+    ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        CursorMut::new(self, guard, va)
     }
 
     /// Create a new cursor exclusively accessing the virtual address range for querying.
@@ -768,17 +810,22 @@ impl<C: PageTableConfig> PageTable<C> {
     /// If another cursor is already accessing the range, the new cursor may wait until the
     /// previous cursor is dropped. The modification to the mapping by the cursor may also
     /// block or be overridden by the mapping of another cursor.
-    #[verus_spec(
-        with Tracked(owner): Tracked<&mut OwnerSubtree<C>>,
-            Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
+    #[verus_spec(r =>
+        with Tracked(owner): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+        ensures
+            Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Ok
     )]
-    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
-        (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    > {
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm))]
+    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>)
+    -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard, va)
-    }/*
+    }
+    
+    /*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
     /// This is only useful for IOMMU page tables. Think twice before using it in other cases.

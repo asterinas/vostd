@@ -134,6 +134,34 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
     PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
 
+/// When `va` is aligned to `page_size(large_level)` and `level <= large_level` (so
+/// page_size(level) divides page_size(large_level)), then `va` is aligned to page_size(level).
+/// Note: page_size(level) for level >= 1 is always a multiple of PAGE_SIZE.
+pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS + 1,
+        va % PAGE_SIZE == 0,
+        exists |large_level: PagingLevel|
+            1 <= large_level <= NR_LEVELS + 1
+            && level <= large_level
+            && va % page_size_spec(large_level) == 0,
+    ensures
+        va % page_size_spec(level) == 0,
+{
+    admit()
+}
+
+/// Special case for level 1: page_size_spec(1) == PAGE_SIZE, so va % PAGE_SIZE == 0 implies
+/// va % page_size_spec(1) == 0.
+pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
+    requires
+        va % PAGE_SIZE == 0,
+    ensures
+        va % page_size_spec(1) == 0,
+{
+    admit()
+}
+
 /// A fragment of a page table that can be taken out of the page table.
 pub enum PageTableFrag<C: PageTableConfig> {
     /// A mapped page table item.
@@ -175,24 +203,38 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         item.clone()
     }
 
+    pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
+        &&& va.start < va.end
+        &&& va.start % C::BASE_PAGE_SIZE() == 0
+        &&& va.end % C::BASE_PAGE_SIZE() == 0
+        &&& crate::mm::page_table::is_valid_range_spec::<C>(va)
+    }
+
     /// Creates a cursor claiming exclusive access over the given range.
     ///
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    #[verus_spec(
-        with Tracked(pt_own): Tracked<&mut OwnerSubtree<C>>,
-            Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>
+    #[verus_spec(r =>
+        with Tracked(pt_own): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<PointsTo<PageTableGuard<'rcu, C>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        ensures
+            Self::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.level < r.unwrap().0.guard_level
+                &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
+                &&& r.unwrap().0.va == va.start
+                &&& r.unwrap().0.barrier_va == *va
+            }
     )]
-    #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    >)
-    //        ensures
-    //            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
+    -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError>
     {
-        if !is_valid_range::<C>(va) || va.start >= va.end {
+        let valid = is_valid_range::<C>(va);
+        if !valid || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
         }
         if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
@@ -201,7 +243,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
 
         Ok(
-            #[verus_spec(with Tracked(pt_own), Tracked(guard_perm))]
+            #[verus_spec(with Tracked(pt_own), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
             locking::lock_range(pt, guard, va),
         )
     }
@@ -1172,12 +1214,38 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// The cursor created will only be able to map, query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
+    #[verus_spec(r =>
+        with Tracked(pt_own): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+        ensures
+            Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
+                &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
+                &&& r.unwrap().0.inner.va == va.start
+                &&& r.unwrap().0.inner.barrier_va == *va
+            }
+    )]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    > {
-        Cursor::new(pt, guard, va).map(|inner| (Self { inner: inner.0 }, inner.1))
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
+    -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        let res = #[verus_spec(with Tracked(pt_own), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        Cursor::new(pt, guard, va);
+        match res {
+            Ok((inner_cursor, tracked_owner)) => {
+                proof {
+                    assert(inner_cursor.invariants(*tracked_owner, *regions, *guards));
+                    assert(CursorMut::<C, A> { inner: inner_cursor }.inner.invariants(*tracked_owner, *regions, *guards));
+                }
+                Ok((Self { inner: inner_cursor }, tracked_owner))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -1700,6 +1768,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(self).inner.model(*old(owner)),
                 self.inner.model(*owner),
             ),
+            self.inner.va < self.inner.barrier_va.end ==>
+                self.map_cursor_requires(*owner, *guards),
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
@@ -1780,6 +1850,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(owner@.cur_va == owner2@.align_up_spec(page_size(level)));
         assert(owner@ == owner0@.map_spec(pa, page_size(level), prop));
         assert(self0.map_item_ensures(item, owner0@, owner@));
+
+        proof {
+            assert(self.inner.va >= self.inner.barrier_va.end
+                || self.map_cursor_requires(*owner, *guards)) by { admit() };
+        }
 
         if let Some(frag) = frag {
             Err(frag)

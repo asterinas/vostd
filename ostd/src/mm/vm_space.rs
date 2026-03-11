@@ -308,7 +308,7 @@ impl<'a> VmSpace<'a> {
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
                     CursorMut {
-                        pt_cursor: pt_cursor,
+                        pt_cursor: pt_cursor.0,
                         flusher: TlbFlusher::new(
                             &self.cpus  /*, disable_preempt()*/
                             ,

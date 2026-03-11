@@ -40,7 +40,7 @@ use core::ops::Range;
 use crate::sync::{OnceImpl, TrivialPred};
 #[cfg(ktest)]
 mod test;
-pub(crate) mod kvirt_area;
+pub mod kvirt_area;
 
 use super::{
     frame::{
@@ -226,6 +226,20 @@ unsafe impl PageTableConfig for KernelPtConfig {
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+}
+
+impl KernelPtConfig {
+    /// The spec agrees with the exec, which ensures 1 <= level <= NR_LEVELS.
+    pub axiom fn item_into_raw_spec_level_bounds(item: MappedItem)
+        ensures
+            1 <= KernelPtConfig::item_into_raw_spec(item).1 <= crate::specs::arch::mm::NR_LEVELS;
+
+    /// Tracked frames use 4K pages (level 1). Used to prove alignment in map_frames.
+    pub axiom fn item_into_raw_spec_tracked_level(item: MappedItem)
+        requires
+            matches!(item, MappedItem::Tracked(_, _)),
+        ensures
+            KernelPtConfig::item_into_raw_spec(item).1 == 1;
 }
 
 /*

@@ -141,6 +141,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             guard_perm == old(self).restore_spec(child).1,
     ;
 
+    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
+        Self {
+            entry_own: owner_subtree.value,
+            idx: idx,
+            tree_level: owner_subtree.level,
+            children: owner_subtree.children,
+            path: TreePath::new(Seq::empty()),
+            guard_perm: guard_perm,
+        }
+    }
+
+    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, tracked guard_perm: GuardPerm<'rcu, C>)
+    -> (tracked res: Self)
+        ensures
+            res == Self::new_spec(owner_subtree, idx, guard_perm);
+
     pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
             #![trigger self.children[i]]
@@ -1067,6 +1083,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *self == old(self).set_va_spec(new_va);
 
+    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
+        let va = AbstractVaddr {
+            offset: 0,
+            index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
+        };
+        Self {
+            level: NR_LEVELS as PagingLevel,
+            continuations: Map::empty().insert(NR_LEVELS - 1 as int, CursorContinuation::new_spec(owner_subtree, idx, guard_perm)),
+            va,
+            guard_level: NR_LEVELS as PagingLevel,
+            prefix: va,
+            popped_too_high: false,
+        }
+    }
+
+    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, tracked guard_perm: GuardPerm<'rcu, C>)
+    -> (tracked res: Self)
+        ensures
+            res == Self::new_spec(owner_subtree, idx, guard_perm);
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {
