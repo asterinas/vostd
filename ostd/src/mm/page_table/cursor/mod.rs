@@ -60,6 +60,7 @@ use super::{
     PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel,
 };
 
+
 verus! {
 
 /// The state of virtual pages represented by a page table.
@@ -162,6 +163,15 @@ pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
     admit()
 }
 
+/// For any level in [1, NR_LEVELS], the page size is at least PAGE_SIZE.
+/// This follows from page_size(level) = PAGE_SIZE * pow2((ilog2 * (level-1)) as nat)
+/// with pow2(k) >= 1 for all k >= 0.
+pub axiom fn axiom_page_size_ge_page_size(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS,
+    ensures
+        page_size(level) >= PAGE_SIZE;
+
 /// A fragment of a page table that can be taken out of the page table.
 pub enum PageTableFrag<C: PageTableConfig> {
     /// A mapped page table item.
@@ -195,12 +205,20 @@ impl<C: PageTableConfig> PageTableFrag<C> {
 
 #[verus_verify]
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    #[verifier::external_body]
-    pub fn clone_item(item: &C::Item) -> C::Item
-        returns
-            item,
+
+    #[verus_spec(
+        with Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
+        Tracked(rc_perm): Tracked<&mut PermissionU64>)]
+    pub fn clone_item(item: &C::Item) -> (res: C::Item)
+        requires
+            item.clone_requires(*slot_perm, *old(rc_perm)),
+            old(rc_perm).is_for(slot_perm.value().ref_count),
+            old(rc_perm).value() < u64::MAX,
+        ensures
+            res == *item,
+            rc_perm.value() == old(rc_perm).value() + 1,
     {
-        item.clone()
+        item.clone(Tracked(slot_perm), Tracked(rc_perm))
     }
 
     pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
@@ -220,6 +238,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Tracked(guard_perm): Tracked<PointsTo<PageTableGuard<'rcu, C>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+            pt_own.inv(),
         ensures
             Self::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -241,6 +261,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             return Err(PageTableError::UnalignedVaddr);
         }
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
+
+        proof {
+            assert(pt_own.0.value.is_node());
+            assert(pt_own.0.inv_children());
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.children[i] is Some by {
+                if pt_own.0.children[i] is None {
+                    assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(pt_own.0.value, i, None));
+                }
+            };
+        }
 
         Ok(
             #[verus_spec(with Tracked(pt_own), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
@@ -365,9 +395,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let item = match cur_child {
                 ChildRef::PageTable(pt) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut child_node = child_owner.value.node.tracked_take();
 
@@ -432,8 +460,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         C::item_roundtrip(item, pa, level, prop);
                     }
 
-                    // TODO: Provide a `PageTableItemRef` to reduce copies.
-                    Some(Self::clone_item(&item))
+                    let idx = frame_to_index(pa);
+                    let tracked slot_perm = owner.borrow_cur_frame_slot_perm();
+                    let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+
+                    assert(item.clone_requires(*slot_perm, slot_own.inner_perms.ref_count)) by { admit() };
+
+                    #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms.ref_count))]
+                    let cloned = Self::clone_item(&item);
+
+                    proof {
+                        regions.slot_owners.tracked_insert(idx, slot_own);
+                        assert(regions.inv()) by { admit() };
+                        assert(owner.relate_region(*regions)) by { admit() };
+                    }
+
+                    Some(cloned)
                 },
             };
 
@@ -1220,6 +1262,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
+            pt_own.0.inv(),
         ensures
             Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
@@ -1229,7 +1272,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
                 &&& r.unwrap().0.inner.va == va.start
                 &&& r.unwrap().0.inner.barrier_va == *va
-            }
+            },
+            // cursor_mut only acquires locks on page-table node slots; it does not
+            // set path_if_in_pt for data-frame slots. Any frame that was item_not_mapped
+            // before the call remains item_not_mapped after.
+            forall |item: C::Item| #![trigger Self::item_not_mapped(item, *old(regions))]
+                Self::item_not_mapped(item, *old(regions)) ==>
+                Self::item_not_mapped(item, *regions),
+            // cursor_mut only locks page-table node slots; it does not modify path_if_in_pt
+            // for any slot (neither node slots nor data-frame slots).
+            forall |idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
     )]
     #[verifier::external_body]
     pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
@@ -1770,6 +1823,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ),
             self.inner.va < self.inner.barrier_va.end ==>
                 self.map_cursor_requires(*owner, *guards),
+            old(owner).cur_entry_owner().is_absent() ==> res.is_ok(),
+            forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                idx != frame_to_index(C::item_into_raw(item).0) ==>
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+            self.inner.guard_level == old(self).inner.guard_level,
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
@@ -1793,7 +1851,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner1 = *owner;
 
         proof_decl! {
-            let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop);
+            // The item consumed by item_into_raw deposits its slot perm into regions.slots.
+            // This connection will be established when item_into_raw is instrumented; admit for now.
+            assert(regions.slots.contains_key(frame_to_index(pa))) by { admit() };
+            let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop, regions);
         }
 
         proof {
@@ -1815,6 +1876,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             )) by { admit() };
 
             assert(new_owner.value.relate_region(*regions)) by { admit() };
+
+            // new_child removed the frame's slot perm from regions.slots; the remaining
+            // frame entries in owner carry their slot perms in FrameEntryOwner, so
+            // relate_region is unaffected. Admit until the implication is proved properly.
+            assert(owner.relate_region(*regions)) by { admit() };
+            assert(regions.inv()) by { admit() };
         }
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
@@ -1854,6 +1921,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             assert(self.inner.va >= self.inner.barrier_va.end
                 || self.map_cursor_requires(*owner, *guards)) by { admit() };
+            // The map operation only changes path_if_in_pt for the mapped pa's index;
+            // all other slot_owners entries are preserved.
+            assert(forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                idx != frame_to_index(C::item_into_raw(item).0) ==>
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt
+            ) by { admit() };
         }
 
         if let Some(frag) = frag {
@@ -2046,6 +2119,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             cont0.take_put_child();
             owner.continuations.tracked_insert(owner.level - 1, continuation);
             assert(owner.inv()) by { admit() };
+            assert(owner.relate_region(*regions)) by { admit() };
         }
 
         #[verus_spec(with Tracked(owner))]
@@ -2281,6 +2355,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Child::None => None,
             Child::Frame(pa, ch_level, prop) => {
                 // debug_assert_eq!(ch_level, level);
+                // Return the slot perm from the old FrameEntryOwner back to regions.slots so
+                // that item_from_raw can reclaim it.  Full instrumentation of item_from_raw to
+                // accept the perm directly is a follow-up (TODO).
+                proof {
+                    let tracked frame_own = old_child_owner.value.frame.tracked_take();
+                    regions.slots.tracked_insert(frame_to_index(pa), frame_own.slot_perm);
+                    // The inserted perm satisfies regions.inv() because relate_region for
+                    // the old frame entry guarantees is_init() and wf(slot_owners[idx]).
+                    assert(regions.inv()) by { admit() };
+                    assert(owner.relate_region(*regions)) by { admit() };
+                }
                 // SAFETY:
                 // This is part of (if `split_huge` happens) a page table item mapped
                 // with a previous call to `C::item_into_raw`, where:

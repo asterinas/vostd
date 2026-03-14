@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::arithmetic::power2::*;
 use vstd::prelude::*;
+use vstd::simple_pptr;
+use vstd::atomic::PermissionU64;
 use vstd::std_specs::clone::*;
 
 use vstd_extra::prelude::lemma_usize_ilog2_ordered;
@@ -11,6 +13,8 @@ use core::{
     ops::{Range, RangeInclusive},
     sync::atomic::{AtomicUsize, Ordering},
 };
+
+use crate::mm::frame::meta::MetaSlot;
 
 use super::{
     lemma_nr_subpage_per_huge_bounded,
@@ -33,6 +37,7 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use vstd_extra::ownership::Inv;
 
 mod node;
 pub use node::*;
@@ -55,6 +60,20 @@ pub enum PageTableError {
     InvalidVaddr(Vaddr),
     /// Using virtual address not aligned.
     UnalignedVaddr,
+}
+
+pub trait RCClone: Sized {
+    spec fn clone_requires(self, slot_perm: simple_pptr::PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool;
+
+    fn clone(&self, Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+        requires
+            self.clone_requires(*slot_perm, *old(rc_perm)),
+            old(rc_perm).is_for(slot_perm.value().ref_count),
+            old(rc_perm).value() < u64::MAX,
+        ensures
+            res == *self,
+            rc_perm.value() == old(rc_perm).value() + 1,
+    ;
 }
 
 /// The configurations of a page table.
@@ -125,7 +144,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     ///
     /// [`item_from_raw`]: PageTableConfig::item_from_raw
     /// [`item_into_raw`]: PageTableConfig::item_into_raw
-    type Item: Clone;
+    type Item: RCClone;
 
     /// Consumes the item and returns the physical address, the paging level,
     /// and the page property.
@@ -790,10 +809,17 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
+                &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
                 &&& r.unwrap().0.inner.va == va.start
                 &&& r.unwrap().0.inner.barrier_va == *va
-            }
+            },
+            forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
+                CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
+                CursorMut::<'rcu, C, G>::item_not_mapped(item, *regions),
+            // cursor_mut only locks page-table node slots; path_if_in_pt is unchanged for all slots.
+            forall |idx: usize| #![auto]
+                (*regions).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
     )]
     #[verifier::external_body]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
@@ -816,6 +842,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
+            owner.inv(),
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Ok
     )]

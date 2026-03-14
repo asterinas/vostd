@@ -774,11 +774,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             let small_pa = pa + i * page_size(level - 1);
             assert(small_pa % PAGE_SIZE == 0) by { admit() };
 
+            let tracked split_slot_perm = EntryOwner::<C>::placeholder_slot_perm(small_pa);
             let tracked child_owner = EntryOwner::new_frame(
                 small_pa,
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,
                 prop,
+                split_slot_perm,
             );
             assert(new_owner.children[i as int].unwrap().value.match_pte(
                 new_owner_node.children_perm.value()[i as int],

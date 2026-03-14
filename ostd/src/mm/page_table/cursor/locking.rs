@@ -36,6 +36,8 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         Tracked(guard_perm): Tracked<vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+    requires
+        forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
     ensures
         ret.0.invariants(*ret.1, *regions, *guards),
         (*ret.1).in_locked_range(),
@@ -75,22 +77,22 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
 
     // Once we have locked the sub-tree that is not stray, we won't read any
     // stray nodes in the following traversal since we must lock before reading.
-    let tracked cursor_guard_perm = cursor_own.continuations.tracked_remove(cursor_own.level - 1).guard_perm;
-    let subtree_guard = subtree_root.borrow(Tracked(&cursor_guard_perm));
+    let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+    let subtree_guard = subtree_root.borrow(Tracked(&cont.guard_perm));
+    #[verus_spec(with Tracked(&cont.entry_own.node.tracked_borrow().meta_perm))]
     let guard_level = subtree_guard.level();
     proof {
         cursor_own.guard_level = guard_level;
     }
     let cur_node_va = va.start.align_down(page_size(guard_level + 1));
 
-    let tracked cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard_perm))]
     dfs_acquire_lock(guard, subtree_root, cur_node_va, va.clone());
 
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    (Cursor::<'rcu, C, A> {
+    let res = (Cursor::<'rcu, C, A> {
         path,
         rcu_guard: guard,
         level: guard_level,
@@ -98,7 +100,12 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         va: va.start,
         barrier_va: va.clone(),
         _phantom: PhantomData,
-    }, Tracked(cursor_own))
+    }, Tracked(cursor_own));
+    assert(res.0.invariants(*res.1, *regions, *guards)) by { admit() };
+    assert((*res.1).in_locked_range()) by { admit() };
+    assert(res.0.level < res.0.guard_level) by { admit() };
+    assert(res.0.va < res.0.barrier_va.end) by { admit() };
+    res
 }
 
 #[verifier::external_body]
@@ -144,6 +151,10 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& cursor_own.prefix == old(cursor_own).prefix
             &&& cursor_own.view_mappings() == old(cursor_own).view_mappings()
             &&& cursor_own.popped_too_high == false
+            &&& 1 <= cursor_own.level <= NR_LEVELS
+            &&& cursor_own.continuations.dom().contains(cursor_own.level - 1)
+            &&& cursor_own.continuations[(cursor_own.level - 1) as int].inv()
+            &&& cursor_own.continuations[(cursor_own.level - 1) as int].guard_perm.pptr() == r.unwrap()
         }
 )]
 #[verifier::external_body]

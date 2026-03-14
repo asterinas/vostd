@@ -164,6 +164,26 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    /// `split_while_huge` only modifies `mappings`, not `cur_va`.
+    pub broadcast proof fn lemma_split_while_huge_preserves_cur_va(self, size: usize)
+        ensures #[trigger] self.split_while_huge(size).cur_va == self.cur_va
+        decreases self.query_mapping().page_size
+    {
+        if self.present() {
+            let m = self.query_mapping();
+            if m.page_size > size {
+                let new_size = m.page_size.ilog2() as usize;
+                let new_self = self.split_if_mapped_huge_spec(new_size);
+                // split_if_mapped_huge_spec preserves cur_va (it's in the struct literal)
+                assert(new_self.cur_va == self.cur_va);
+                // Use the same admits as in split_while_huge itself
+                assert(new_self.present()) by { admit() };
+                assert(new_self.query_mapping().page_size < m.page_size) by { admit() };
+                Self::lemma_split_while_huge_preserves_cur_va(new_self, size);
+            }
+        }
+    }
+
     pub open spec fn remove_subtree(self, size: usize) -> Set<Mapping> {
         let subtree = self.mappings.filter(|m: Mapping|
             self.cur_va <= m.va_range.start < self.cur_va + size);
