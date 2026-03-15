@@ -152,6 +152,23 @@ pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
     admit()
 }
 
+/// page_size_spec(1) == PAGE_SIZE.
+/// Both sides equal PAGE_SIZE * pow2(0) = PAGE_SIZE * 1 = PAGE_SIZE,
+/// because the exponent ilog2 * (1 - 1) = ilog2 * 0 = 0.
+pub proof fn lemma_page_size_spec_level1()
+    ensures
+        page_size_spec(1) == PAGE_SIZE,
+{
+    // ilog2 * 0 == 0 (for any value of ilog2)
+    vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
+        nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
+    );
+    // pow2(0) == pow(2, 0) == 1
+    broadcast use vstd::arithmetic::power2::lemma_pow2;
+    vstd::arithmetic::power::lemma_pow0(2int);
+    // Z3 can now unfold page_size_spec(1) = (PAGE_SIZE * 1) as usize = PAGE_SIZE
+}
+
 /// Special case for level 1: page_size_spec(1) == PAGE_SIZE, so va % PAGE_SIZE == 0 implies
 /// va % page_size_spec(1) == 0.
 pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
@@ -160,8 +177,22 @@ pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
     ensures
         va % page_size_spec(1) == 0,
 {
-    admit()
+    lemma_page_size_spec_level1();
 }
+
+/// For any level in [1, NR_LEVELS], page_size(level) is a multiple of PAGE_SIZE.
+///
+/// Mathematically: page_size(level) = PAGE_SIZE * pow2(e) for e = ilog2 * (level-1),
+/// so PAGE_SIZE divides it.  Proving this from the `page_size_spec` definition requires
+/// bounding the `as usize` cast (no overflow for levels 1–NR_LEVELS), which is left as
+/// an axiom following the same pattern as `axiom_page_size_ge_page_size`.
+///
+/// TODO: replace with a proof once the pow2-overflow bounds are established.
+pub axiom fn axiom_page_size_multiple_of_page_size(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS,
+    ensures
+        page_size_spec(level) % PAGE_SIZE == 0;
 
 /// For any level in [1, NR_LEVELS], the page size is at least PAGE_SIZE.
 /// This follows from page_size(level) = PAGE_SIZE * pow2((ilog2 * (level-1)) as nat)
