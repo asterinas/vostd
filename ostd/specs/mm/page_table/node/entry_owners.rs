@@ -6,7 +6,8 @@ use vstd_extra::array_ptr;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_index, meta_to_frame};
+use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
+use crate::mm::frame::meta::MetaSlot;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
@@ -25,6 +26,7 @@ pub tracked struct FrameEntryOwner {
     pub mapped_pa: usize,
     pub size: usize,
     pub prop: PageProperty,
+    pub slot_perm: PointsTo<MetaSlot>,
 }
 
 pub tracked struct EntryOwner<C: PageTableConfig> {
@@ -66,10 +68,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty, slot_perm: PointsTo<MetaSlot>) -> Self {
         EntryOwner {
             node: None,
-            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
+            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop, slot_perm }),
             locked: None,
             absent: false,
             in_scope: true,
@@ -93,11 +95,46 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub axiom fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
         returns Self::new_absent_spec(path, parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
-        returns Self::new_frame_spec(paddr, path, parent_level, prop);
+    pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty, tracked slot_perm: PointsTo<MetaSlot>) -> tracked Self
+        returns Self::new_frame_spec(paddr, path, parent_level, prop, slot_perm);
+
+    /// Produces a slot permission for a frame address without requiring it from `regions.slots`.
+    /// Used as a placeholder in cases (e.g. huge-page split) where the sub-frame slot perms
+    /// are not yet fully tracked.  Replace with real perm threading when the split path is verified.
+    pub axiom fn placeholder_slot_perm(paddr: Paddr) -> (tracked res: PointsTo<MetaSlot>)
+        ensures
+            res.addr() == meta_addr(frame_to_index(paddr));
 
     pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
         returns Self::new_node_spec(node, path);
+
+    /// Creates a ghost entry owner for mapping an untracked (device memory) frame.
+    /// Unlike `new_frame`, this does not consume a slot permission from the meta region,
+    /// since device memory PAs are outside the tracked frame allocator.
+    /// The actual mapping correctness is guaranteed by the caller's `unsafe` contract.
+    ///
+    /// The `requires` reflect properties guaranteed by `collect_largest_pages` postconditions,
+    /// so this axiom is only ever called with values that satisfy them.
+    pub axiom fn new_untracked_frame(
+        paddr: Paddr,
+        parent_level: PagingLevel,
+        prop: PageProperty,
+    ) -> (tracked res: Self)
+        requires
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            1 <= parent_level,
+            parent_level <= NR_LEVELS,
+        ensures
+            res.is_frame(),
+            res.frame.unwrap().mapped_pa == paddr,
+            res.frame.unwrap().prop == prop,
+            res.frame.unwrap().size == page_size(parent_level),
+            res.parent_level == parent_level,
+            res.path.inv(),
+            res.in_scope,
+            res.inv(),
+            crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
         &&& pte.paddr() % PAGE_SIZE == 0
@@ -156,8 +193,13 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
                 regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
         } else if self.is_frame() {
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some ==>
-            regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == self.path
+            let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+            &&& self.frame.unwrap().slot_perm.addr() == meta_addr(idx)
+            &&& self.frame.unwrap().slot_perm.is_init()
+            &&& self.frame.unwrap().slot_perm.value().wf(regions.slot_owners[idx])
+            &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
+                regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
         } else {
             true
         }

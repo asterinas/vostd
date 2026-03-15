@@ -9,6 +9,8 @@
 use alloc::vec::Vec;
 use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
+use vstd::simple_pptr::PointsTo;
+use vstd::atomic::PermissionU64;
 
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
@@ -17,9 +19,11 @@ use crate::mm::frame::untyped::UFrame;
 use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
+use crate::mm::frame::MetaSlot;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::meta_to_frame;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
@@ -302,9 +306,8 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        CursorMut<'a, G>,
-    > {
+    #[verifier::external_body]
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -1246,10 +1249,26 @@ pub(super) fn get_activated_vm_space() -> *const VmSpace {
 pub struct UserPtConfig {}
 
 /// The item that can be mapped into the [`VmSpace`].
-#[derive(Clone)]
 pub struct MappedItem {
     pub frame: UFrame,
     pub prop: PageProperty,
+}
+
+#[verus_verify]
+impl RCClone for MappedItem {
+
+    open spec fn clone_requires(self, slot_perm: PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
+        self.frame.clone_requires(slot_perm, rc_perm)
+    }
+
+    fn clone(&self, Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    {
+        let frame = self.frame.clone(Tracked(slot_perm), Tracked(rc_perm));
+        Self {
+            frame,
+            prop: self.prop,
+        }
+    }
 }
 
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,

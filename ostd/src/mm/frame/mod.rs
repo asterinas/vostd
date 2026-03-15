@@ -66,6 +66,7 @@ pub use meta::mapping::{
 };
 pub use meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
 pub use unique::UniqueFrame;
+pub use untyped::{AnyUFrameMeta, UFrame};
 
 use crate::mm::page_table::{PageTableConfig, PageTablePageMeta};
 
@@ -81,6 +82,7 @@ use crate::specs::arch::mm::{MAX_NR_PAGES, PAGE_SIZE};
 use crate::specs::mm::frame::frame_specs::*;
 use crate::specs::mm::frame::meta_owners::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::mm::page_table::RCClone;
 
 verus! {
 
@@ -97,12 +99,6 @@ verus! {
 pub struct Frame<M: AnyFrameMeta> {
     pub ptr: PPtr<MetaSlot>,
     pub _marker: PhantomData<M>,
-}
-
-impl<M: AnyFrameMeta> Clone for Frame<M> {
-    fn clone(&self) -> Self {
-        Self { ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0), _marker: PhantomData }
-    }
 }
 
 /// We need to keep track of when frames are forgotten with `ManuallyDrop`.
@@ -626,19 +622,34 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
     }
 }
 
-} // verus!
-/*
-impl<M: AnyFrameMeta + ?Sized> Clone for Frame<M> {
-    fn clone(&self) -> Self {
+/// A dynamically-typed frame is represented by a frame of the underlying metadata type,
+/// which can be cast from any other type.
+pub type DynFrame = Frame<MetaSlotStorage>;
+
+#[verus_verify]
+impl<M: AnyFrameMeta + ?Sized> RCClone for Frame<M> {
+
+    open spec fn clone_requires(self, slot_perm: simple_pptr::PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
+        &&& self.ptr.addr() == slot_perm.addr()
+        &&& slot_perm.is_init()
+        &&& !MetaSlot::inc_ref_count_panic_cond(rc_perm)
+    }
+
+    fn clone(&self, Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> Self
+    {
         // SAFETY: We have already held a reference to the frame.
-        unsafe { self.slot().inc_ref_count() };
+        #[verus_spec(with Tracked(slot_perm))]
+        let slot = self.slot();
+        
+        #[verus_spec(with Tracked(rc_perm))]
+        slot.inc_ref_count();
 
         Self {
-            ptr: self.ptr,
+            ptr: PPtr::<MetaSlot>::from_addr(self.ptr.0),
             _marker: PhantomData,
         }
     }
-}*/
+}
 /*
 impl<M: AnyFrameMeta + ?Sized> Drop for Frame<M> {
     fn drop(&mut self) {
@@ -681,12 +692,7 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         unsafe { core::mem::transmute(frame) }
     }
 }*/
-/*impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
-    fn from(frame: Frame<M>) -> Self {
-        // SAFETY: The metadata is coerceable and the struct is transmutable.
-        unsafe { core::mem::transmute(frame) }
-    }
-}*/
+
 /*impl From<UFrame> for Frame<FrameMeta> {
     fn from(frame: UFrame) -> Self {
         // SAFETY: The metadata is coerceable and the struct is transmutable.
@@ -709,3 +715,12 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
+
+} // verus!
+
+impl<M: AnyUFrameMeta> From<Frame<M>> for UFrame {
+    fn from(frame: Frame<M>) -> Self {
+        // SAFETY: The metadata is coerceable and the struct is transmutable.
+        unsafe { core::mem::transmute(frame) }
+    }
+}

@@ -616,6 +616,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
+        &&& self.0.value.is_node()
         &&& self.0.value.path.len() <= INC_LEVELS - 1
         &&& self.0.value.path.inv()
         &&& self.0.value.path.len() == self.0.level

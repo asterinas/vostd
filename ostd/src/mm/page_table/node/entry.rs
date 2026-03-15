@@ -698,11 +698,13 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
             assert(small_pa % PAGE_SIZE == 0) by { admit() };
 
+            let tracked split_slot_perm = EntryOwner::<C>::placeholder_slot_perm(small_pa);
             let tracked child_owner = EntryOwner::new_frame(
                 small_pa,
                 new_owner.value.path.push_tail(i as usize),
                 (level - 1) as PagingLevel,
                 prop,
+                split_slot_perm,
             );
 
             #[verus_spec(with Tracked(&new_owner_node), Tracked(&new_owner.children.tracked_borrow(i as int).tracked_borrow().value), Tracked(&new_guard_perm))]

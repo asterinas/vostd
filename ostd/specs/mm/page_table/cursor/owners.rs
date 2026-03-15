@@ -14,6 +14,7 @@ use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
+use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::*;
@@ -140,6 +141,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             *self == old(self).restore_spec(child).0,
             guard_perm == old(self).restore_spec(child).1,
     ;
+
+    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
+        Self {
+            entry_own: owner_subtree.value,
+            idx: idx,
+            tree_level: owner_subtree.level,
+            children: owner_subtree.children,
+            path: TreePath::new(Seq::empty()),
+            guard_perm: guard_perm,
+        }
+    }
+
+    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, tracked guard_perm: GuardPerm<'rcu, C>)
+    -> (tracked res: Self)
+        ensures
+            res == Self::new_spec(owner_subtree, idx, guard_perm);
 
     pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
@@ -316,15 +333,19 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         };
     }
 
-    pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty) -> (tracked res: OwnerSubtree<C>)
+    pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
+            old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop),
+            regions.slot_owners == old(regions).slot_owners,
+            regions.slots == old(regions).slots.remove(frame_to_index(paddr)),
+            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, old(regions).slots[frame_to_index(paddr)]),
             res.inv(),
             res.level == self.tree_level + 1
     {
-        let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop);
+        let tracked slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
+        let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, slot_perm);
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
 
@@ -882,6 +903,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.continuations[self.level - 1].children[self.index() as int].unwrap()
     }
 
+    /// Borrows the slot permission from the current frame entry owner.
+    ///
+    /// This is an axiom because expressing the structural borrow through the
+    /// nested Map/Seq/Option layers is not yet supported directly in Verus.
+    /// The axiom is safe: it only provides a shared reference to data already
+    /// logically owned by `self`, and the borrow cannot outlive `self`.
+    pub axiom fn borrow_cur_frame_slot_perm(tracked &self) -> (tracked res: &vstd::simple_pptr::PointsTo<crate::mm::frame::meta::MetaSlot>)
+        requires
+            self.cur_entry_owner().is_frame(),
+        ensures
+            *res == self.cur_entry_owner().frame.unwrap().slot_perm;
+
     pub open spec fn locked_range(self) -> Range<Vaddr> {
         let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
         let end = self.prefix.align_up(self.guard_level as int).to_vaddr();
@@ -935,6 +968,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.locked_range().start <= nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize,
             nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end,
+    {
+        admit()
+    }
+
+    /// The locked range boundaries are aligned to page_size(guard_level),
+    /// which is a multiple of PAGE_SIZE. Therefore both start and end are
+    /// PAGE_SIZE-aligned.
+    pub proof fn locked_range_page_aligned(self)
+        requires
+            self.inv(),
+        ensures
+            self.locked_range().end % PAGE_SIZE == 0,
+            self.locked_range().start % PAGE_SIZE == 0,
     {
         admit()
     }
@@ -1080,6 +1126,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *self == old(self).set_va_spec(new_va);
 
+    pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
+        let va = AbstractVaddr {
+            offset: 0,
+            index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
+        };
+        Self {
+            level: NR_LEVELS as PagingLevel,
+            continuations: Map::empty().insert(NR_LEVELS - 1 as int, CursorContinuation::new_spec(owner_subtree, idx, guard_perm)),
+            va,
+            guard_level: NR_LEVELS as PagingLevel,
+            prefix: va,
+            popped_too_high: false,
+        }
+    }
+
+    pub axiom fn new(tracked owner_subtree: OwnerSubtree<C>, idx: usize, tracked guard_perm: GuardPerm<'rcu, C>)
+    -> (tracked res: Self)
+        ensures
+            res == Self::new_spec(owner_subtree, idx, guard_perm);
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {

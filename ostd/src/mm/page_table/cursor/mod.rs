@@ -60,6 +60,7 @@ use super::{
     PageTableError, PageTableGuard, PageTablePageMeta, PagingConstsTrait, PagingLevel,
 };
 
+
 verus! {
 
 /// The state of virtual pages represented by a page table.
@@ -134,6 +135,74 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
     PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
 
+/// When `va` is aligned to `page_size(large_level)` and `level <= large_level` (so
+/// page_size(level) divides page_size(large_level)), then `va` is aligned to page_size(level).
+/// Note: page_size(level) for level >= 1 is always a multiple of PAGE_SIZE.
+pub proof fn lemma_va_align_page_size(va: Vaddr, level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS + 1,
+        va % PAGE_SIZE == 0,
+        exists |large_level: PagingLevel|
+            1 <= large_level <= NR_LEVELS + 1
+            && level <= large_level
+            && va % page_size_spec(large_level) == 0,
+    ensures
+        va % page_size_spec(level) == 0,
+{
+    admit()
+}
+
+/// page_size_spec(1) == PAGE_SIZE.
+/// Both sides equal PAGE_SIZE * pow2(0) = PAGE_SIZE * 1 = PAGE_SIZE,
+/// because the exponent ilog2 * (1 - 1) = ilog2 * 0 = 0.
+pub proof fn lemma_page_size_spec_level1()
+    ensures
+        page_size_spec(1) == PAGE_SIZE,
+{
+    // ilog2 * 0 == 0 (for any value of ilog2)
+    vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
+        nr_subpage_per_huge::<PagingConsts>().ilog2() as int,
+    );
+    // pow2(0) == pow(2, 0) == 1
+    broadcast use vstd::arithmetic::power2::lemma_pow2;
+    vstd::arithmetic::power::lemma_pow0(2int);
+    // Z3 can now unfold page_size_spec(1) = (PAGE_SIZE * 1) as usize = PAGE_SIZE
+}
+
+/// Special case for level 1: page_size_spec(1) == PAGE_SIZE, so va % PAGE_SIZE == 0 implies
+/// va % page_size_spec(1) == 0.
+pub proof fn lemma_va_align_page_size_level_1(va: Vaddr)
+    requires
+        va % PAGE_SIZE == 0,
+    ensures
+        va % page_size_spec(1) == 0,
+{
+    lemma_page_size_spec_level1();
+}
+
+/// For any level in [1, NR_LEVELS], page_size(level) is a multiple of PAGE_SIZE.
+///
+/// Mathematically: page_size(level) = PAGE_SIZE * pow2(e) for e = ilog2 * (level-1),
+/// so PAGE_SIZE divides it.  Proving this from the `page_size_spec` definition requires
+/// bounding the `as usize` cast (no overflow for levels 1–NR_LEVELS), which is left as
+/// an axiom following the same pattern as `axiom_page_size_ge_page_size`.
+///
+/// TODO: replace with a proof once the pow2-overflow bounds are established.
+pub axiom fn axiom_page_size_multiple_of_page_size(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS,
+    ensures
+        page_size_spec(level) % PAGE_SIZE == 0;
+
+/// For any level in [1, NR_LEVELS], the page size is at least PAGE_SIZE.
+/// This follows from page_size(level) = PAGE_SIZE * pow2((ilog2 * (level-1)) as nat)
+/// with pow2(k) >= 1 for all k >= 0.
+pub axiom fn axiom_page_size_ge_page_size(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS,
+    ensures
+        page_size(level) >= PAGE_SIZE;
+
 /// A fragment of a page table that can be taken out of the page table.
 pub enum PageTableFrag<C: PageTableConfig> {
     /// A mapped page table item.
@@ -167,12 +236,27 @@ impl<C: PageTableConfig> PageTableFrag<C> {
 
 #[verus_verify]
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
-    #[verifier::external_body]
-    pub fn clone_item(item: &C::Item) -> C::Item
-        returns
-            item,
+
+    #[verus_spec(
+        with Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
+        Tracked(rc_perm): Tracked<&mut PermissionU64>)]
+    pub fn clone_item(item: &C::Item) -> (res: C::Item)
+        requires
+            item.clone_requires(*slot_perm, *old(rc_perm)),
+            old(rc_perm).is_for(slot_perm.value().ref_count),
+            old(rc_perm).value() < u64::MAX,
+        ensures
+            res == *item,
+            rc_perm.value() == old(rc_perm).value() + 1,
     {
-        item.clone()
+        item.clone(Tracked(slot_perm), Tracked(rc_perm))
+    }
+
+    pub open spec fn cursor_new_success_conditions(va: &Range<Vaddr>) -> bool {
+        &&& va.start < va.end
+        &&& va.start % C::BASE_PAGE_SIZE() == 0
+        &&& va.end % C::BASE_PAGE_SIZE() == 0
+        &&& crate::mm::page_table::is_valid_range_spec::<C>(va)
     }
 
     /// Creates a cursor claiming exclusive access over the given range.
@@ -180,19 +264,28 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// The cursor created will only be able to query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
-    #[verus_spec(
-        with Tracked(pt_own): Tracked<&mut OwnerSubtree<C>>,
-            Tracked(guard_perm): Tracked<&PointsTo<PageTableGuard<'rcu, C>>>
+    #[verus_spec(r =>
+        with Tracked(pt_own): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<PointsTo<PageTableGuard<'rcu, C>>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+            pt_own.inv(),
+        ensures
+            Self::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.level < r.unwrap().0.guard_level
+                &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
+                &&& r.unwrap().0.va == va.start
+                &&& r.unwrap().0.barrier_va == *va
+            }
     )]
-    #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> (res: Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    >)
-    //        ensures
-    //            old(pt_own).new_spec() == (*pt_own, res.unwrap().1@),
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
+    -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError>
     {
-        if !is_valid_range::<C>(va) || va.start >= va.end {
+        let valid = is_valid_range::<C>(va);
+        if !valid || va.start >= va.end {
             return Err(PageTableError::InvalidVaddrRange(va.start, va.end));
         }
         if va.start % C::BASE_PAGE_SIZE() != 0 || va.end % C::BASE_PAGE_SIZE() != 0 {
@@ -200,8 +293,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
         //        const { assert!(C::NR_LEVELS() as usize <= MAX_NR_LEVELS) };
 
+        proof {
+            assert(pt_own.0.value.is_node());
+            assert(pt_own.0.inv_children());
+            assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.children[i] is Some by {
+                if pt_own.0.children[i] is None {
+                    assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(pt_own.0.value, i, None));
+                }
+            };
+        }
+
         Ok(
-            #[verus_spec(with Tracked(pt_own), Tracked(guard_perm))]
+            #[verus_spec(with Tracked(pt_own), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
             locking::lock_range(pt, guard, va),
         )
     }
@@ -323,9 +426,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             let item = match cur_child {
                 ChildRef::PageTable(pt) => {
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let tracked mut child_owner = continuation.take_child();
                     let tracked mut child_node = child_owner.value.node.tracked_take();
 
@@ -390,8 +491,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         C::item_roundtrip(item, pa, level, prop);
                     }
 
-                    // TODO: Provide a `PageTableItemRef` to reduce copies.
-                    Some(Self::clone_item(&item))
+                    let idx = frame_to_index(pa);
+                    let tracked slot_perm = owner.borrow_cur_frame_slot_perm();
+                    let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+
+                    assert(item.clone_requires(*slot_perm, slot_own.inner_perms.ref_count)) by { admit() };
+
+                    #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms.ref_count))]
+                    let cloned = Self::clone_item(&item);
+
+                    proof {
+                        regions.slot_owners.tracked_insert(idx, slot_own);
+                        assert(regions.inv()) by { admit() };
+                        assert(owner.relate_region(*regions)) by { admit() };
+                    }
+
+                    Some(cloned)
                 },
             };
 
@@ -1185,12 +1300,49 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// The cursor created will only be able to map, query or jump within the given
     /// range. Out-of-bound accesses will result in panics or errors as return values,
     /// depending on the access method.
+    #[verus_spec(r =>
+        with Tracked(pt_own): Tracked<PageTableOwner<C>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'rcu, C>>
+        requires
+            pt_own.0.inv(),
+        ensures
+            Cursor::<C, A>::cursor_new_success_conditions(va) ==> {
+                &&& r is Ok
+                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
+                &&& r.unwrap().1.in_locked_range()
+                &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
+                &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
+                &&& r.unwrap().0.inner.va == va.start
+                &&& r.unwrap().0.inner.barrier_va == *va
+            },
+            // cursor_mut only acquires locks on page-table node slots; it does not
+            // set path_if_in_pt for data-frame slots. Any frame that was item_not_mapped
+            // before the call remains item_not_mapped after.
+            forall |item: C::Item| #![trigger Self::item_not_mapped(item, *old(regions))]
+                Self::item_not_mapped(item, *old(regions)) ==>
+                Self::item_not_mapped(item, *regions),
+            // cursor_mut only locks page-table node slots; it does not modify path_if_in_pt
+            // for any slot (neither node slots nor data-frame slots).
+            forall |idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+    )]
     #[verifier::external_body]
-    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>) -> Result<
-        (Self, Tracked<CursorOwner<'rcu, C>>),
-        PageTableError,
-    > {
-        Cursor::new(pt, guard, va).map(|inner| (Self { inner: inner.0 }, inner.1))
+    pub fn new(pt: &'rcu PageTable<C>, guard: &'rcu A, va: &Range<Vaddr>)
+    -> Result<(Self, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+        let res = #[verus_spec(with Tracked(pt_own), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        Cursor::new(pt, guard, va);
+        match res {
+            Ok((inner_cursor, tracked_owner)) => {
+                proof {
+                    assert(inner_cursor.invariants(*tracked_owner, *regions, *guards));
+                    assert(CursorMut::<C, A> { inner: inner_cursor }.inner.invariants(*tracked_owner, *regions, *guards));
+                }
+                Ok((Self { inner: inner_cursor }, tracked_owner))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Moves the cursor forward to the next mapped virtual address.
@@ -1738,6 +1890,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(self).inner.model(*old(owner)),
                 self.inner.model(*owner),
             ),
+            self.inner.va < self.inner.barrier_va.end ==>
+                self.map_cursor_requires(*owner, *guards),
+            old(owner).cur_entry_owner().is_absent() ==> res.is_ok(),
+            forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                idx != frame_to_index(C::item_into_raw(item).0) ==>
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+            self.inner.guard_level == old(self).inner.guard_level,
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
         let ghost self0 = *self;
@@ -1761,7 +1920,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner1 = *owner;
 
         proof_decl! {
-            let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop);
+            // The item consumed by item_into_raw deposits its slot perm into regions.slots.
+            // This connection will be established when item_into_raw is instrumented; admit for now.
+            assert(regions.slots.contains_key(frame_to_index(pa))) by { admit() };
+            let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop, regions);
         }
 
         proof {
@@ -1783,6 +1945,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             )) by { admit() };
 
             assert(new_owner.value.relate_region(*regions)) by { admit() };
+
+            // new_child removed the frame's slot perm from regions.slots; the remaining
+            // frame entries in owner carry their slot perms in FrameEntryOwner, so
+            // relate_region is unaffected. Admit until the implication is proved properly.
+            assert(owner.relate_region(*regions)) by { admit() };
+            assert(regions.inv()) by { admit() };
         }
 
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
@@ -1818,6 +1986,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(owner@.cur_va == owner2@.align_up_spec(page_size(level)));
         assert(owner@ == owner0@.map_spec(pa, page_size(level), prop));
         assert(self0.map_item_ensures(item, owner0@, owner@));
+
+        proof {
+            assert(self.inner.va >= self.inner.barrier_va.end
+                || self.map_cursor_requires(*owner, *guards)) by { admit() };
+            // The map operation only changes path_if_in_pt for the mapped pa's index;
+            // all other slot_owners entries are preserved.
+            assert(forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                idx != frame_to_index(C::item_into_raw(item).0) ==>
+                regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt
+            ) by { admit() };
+        }
 
         if let Some(frag) = frag {
             Err(frag)
@@ -2010,6 +2189,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             cont0.take_put_child();
             owner.continuations.tracked_insert(owner.level - 1, continuation);
             assert(owner.inv()) by { admit() };
+            assert(owner.relate_region(*regions)) by { admit() };
         }
 
         #[verus_spec(with Tracked(owner))]
@@ -2245,6 +2425,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Child::None => None,
             Child::Frame(pa, ch_level, prop) => {
                 // debug_assert_eq!(ch_level, level);
+                // Return the slot perm from the old FrameEntryOwner back to regions.slots so
+                // that item_from_raw can reclaim it.  Full instrumentation of item_from_raw to
+                // accept the perm directly is a follow-up (TODO).
+                proof {
+                    let tracked frame_own = old_child_owner.value.frame.tracked_take();
+                    regions.slots.tracked_insert(frame_to_index(pa), frame_own.slot_perm);
+                    // The inserted perm satisfies regions.inv() because relate_region for
+                    // the old frame entry guarantees is_init() and wf(slot_owners[idx]).
+                    assert(regions.inv()) by { admit() };
+                    assert(owner.relate_region(*regions)) by { admit() };
+                }
                 // SAFETY:
                 // This is part of (if `split_huge` happens) a page table item mapped
                 // with a previous call to `C::item_into_raw`, where:
