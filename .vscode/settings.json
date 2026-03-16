@@ -31,5 +31,7 @@
         "**/.svn": false,
         "**/CVS": false,
         "**/Thumbs.db": false
-    }
+    },
+    "verus-analyzer.procMacro.attributes.enable": false,
+    "verus-analyzer.procMacro.enable": false
 }
