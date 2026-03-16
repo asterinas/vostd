@@ -35,15 +35,6 @@ pub open spec fn is_left(self) -> bool {
 pub open spec fn is_right(self) -> bool {
     self.protocol_monoid() is Cinr
 }
-    
-pub proof fn alloc_left(a:A, tracked s: Map<K, W>) -> (tracked res: Self)
-    requires
-        A::rel(a, s),
-    ensures
-        res.protocol_monoid() == CsumP::Cinl(a),
-{
-    
-}
 }
 
 } // verus!

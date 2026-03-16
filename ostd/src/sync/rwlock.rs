@@ -5,8 +5,8 @@ use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{Empty, Frac, FracGhost};
 use vstd_extra::prelude::*;
-use vstd_extra::sum::*;
 use vstd_extra::resource::ghost_resource::{excl::*, tokens::*};
+use vstd_extra::sum::*;
 
 use alloc::sync::Arc;
 use core::char::MAX;
@@ -40,6 +40,7 @@ type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
 type NoPerm<T> = Empty<PointsTo<T>, V_MAX_PERM_FRACS>;
 
 type ReadRetractToken = TokenStorage<V_MAX_READ_RETRACT_FRACS>;
+type ReadGuardToken = TokenStorage<V_MAX_READ_GUARDS>;
 
 spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 2) as u64;
 
@@ -67,6 +68,19 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
     (MAX_READER_MASK + 1) as u64
 }
 
+spec const V_MAX_READ_GUARDS_SPEC: u64 = MAX_READER as u64;
+
+#[verifier::when_used_as_spec(V_MAX_READ_GUARDS_SPEC)]
+exec const V_MAX_READ_GUARDS: u64
+    ensures
+        V_MAX_READ_GUARDS == V_MAX_READ_GUARDS_SPEC,
+        V_MAX_READ_GUARDS == MAX_READER,
+        V_MAX_READ_GUARDS < u64::MAX,
+{
+    assert(MAX_READER < u64::MAX) by (compute_only);
+    MAX_READER as u64
+}
+
 tracked struct RwPerms<T> {
     /// The fractional permission of the `PCell<T>`. It can be splited up to `V_MAX_PERM_FRACS:= MAX_READER + 2` pieces,
     /// which allows at most `MAX_READER` `RwLockReadGuard`s and 1 `RwLockUpgradeableGuard`, and 1 reserved in the lock atomic.
@@ -78,6 +92,8 @@ tracked struct RwPerms<T> {
     /// It can be splited up to `V_MAX_READ_RETRACT_FRACS:= 2 * MAX_READER` pieces,
     /// which allows at most `2*MAX_READER - 1` `try_read` attempts that will fail to acquire the lock, and 1 reserved in the lock atomic.
     read_retract_token: ReadRetractToken,
+    /// Tracks live `RwLockReadGuard`s.
+    read_guard_token: ReadGuardToken,
     /// The permission to retract the set of `UPGRADEABLE_READER` bit, it can be spilit at two pieces,
     /// which allows at most 1 failing `try_upread` to subtract the `UPGRADEABLE_READER` bit, and 1 reserved in the lock atomic.
     upread_retract_token: UniqueTokenStorage,
@@ -90,6 +106,7 @@ ghost struct RwId {
     upread_retract_token_id: Loc,
     upreader_guard_token_id: Loc,
     read_retract_token_id: Loc,
+    read_guard_token_id: Loc,
 }
 
 /// The number of `try_read` operations recorded in the lock atomic (created and ongoing) can never reach `2*MAX_READER` to avoid overflow.
@@ -208,11 +225,11 @@ closed spec fn wf(self) -> bool {
         // created/creating `RwLockReadGuard`s can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
         let reader_bits: int = if has_max_reader_bit { MAX_READER as int } else { (v & READER_MASK) as int };
         // ACTUAL NUMBER OF ACTIVE GUARDS.
-        // The number is tracked by the ghost resources remained in the lock. 
-        // By active, we mean from the perspective the lock, the permissions for these guards are given out. 
+        // The number is tracked by the ghost resources remained in the lock.
+        // By active, we mean from the perspective the lock, the permissions for these guards are given out.
         // The actual guards may be still being created, but they must be successfully created finally.
         // This invariant maintains the consistency between the ghost resources and the lock atomic value.
-        
+
         // Whether there is an active writer
         let active_writer: bool = g.cell_perm is Right;
         // Remaining fractional permissions in the lock to access the protected data.
@@ -234,6 +251,8 @@ closed spec fn wf(self) -> bool {
         &&& !(active_upgrade_guard && pending_failed_upread_attempt)
         // The `READER` bits count the number of all active readers and pending failed `try_read` attempts.
         &&& total_reader_bits + if active_upgrade_guard { 1int } else {0} == total_active_readers +  failed_reader_attempts
+        // Live `RwLockReadGuard`s correspond exactly to the split-out read-guard tokens.
+        &&& g.read_guard_token.frac() + active_read_guards == V_MAX_READ_GUARDS
         // There is an active `RwLockWriteGuard` iff the `WRITER` bit is set.
         &&& active_writer <==> has_writer_bit
         // The number of active `RwLockReadGaurd`s is less than or equal to the `READER` bits.
@@ -241,6 +260,7 @@ closed spec fn wf(self) -> bool {
         // The core invariant of `RwLock`: there are no simultaneous active writers and readers.
         &&& !(active_writer && total_active_readers > 0)
         &&& g.read_retract_token.wf()
+        &&& g.read_guard_token.wf()
         &&& g.upread_retract_token.wf()
         &&& g.upreader_guard_token.wf()
         &&& match g.cell_perm {
@@ -255,6 +275,7 @@ closed spec fn wf(self) -> bool {
         &&& v_id@.upread_retract_token_id == g.upread_retract_token.id()
         &&& v_id@.upreader_guard_token_id == g.upreader_guard_token.id()
         &&& v_id@.read_retract_token_id == g.read_retract_token.id()
+        &&& v_id@.read_guard_token_id == g.read_guard_token.id()
     }
 }
 
@@ -304,6 +325,10 @@ impl<T, G> RwLock<T, G> {
         self.v_id@.upreader_guard_token_id
     }
 
+    pub closed spec fn read_guard_token_id(self) -> Loc {
+        self.v_id@.read_guard_token_id
+    }
+
     /// Encapsulates the invariant described in the *Invariant* section of [`RwLock`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
@@ -323,6 +348,7 @@ impl<T, G> RwLock<T, G> {
         let tracked frac_perm = RwFrac::<T>::new(perm);
         proof_decl!{
             let tracked read_retract_token = TokenStorage::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+            let tracked read_guard_token = TokenStorage::<V_MAX_READ_GUARDS>::alloc(());
             let tracked upread_retract_token = UniqueTokenStorage::alloc(());
             let tracked upreader_guard_token = UniqueTokenStorage::alloc(());
         }
@@ -331,14 +357,16 @@ impl<T, G> RwLock<T, G> {
             upread_retract_token_id: upread_retract_token.id(),
             upreader_guard_token_id: upreader_guard_token.id(),
             read_retract_token_id: read_retract_token.id(),
+            read_guard_token_id: read_guard_token.id(),
         };
         let tracked perms = RwPerms {
             cell_perm: Sum::new_left(frac_perm),
             read_retract_token,
+            read_guard_token,
             upread_retract_token,
             upreader_guard_token,
         };
-        
+
         Self {
             guard: PhantomData,
             //lock: AtomicUsize::new(0),
@@ -417,6 +445,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         proof_decl!{
             let tracked mut perm: Option<RwFrac<T>> = None;
             let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
+            let tracked mut read_guard_token: Option<Token<V_MAX_READ_GUARDS>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -438,6 +467,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
                     let tracked mut tmp = g.cell_perm.tracked_take_left();
                     perm = Some(tmp.split(1int));
+                    read_guard_token = Some(g.read_guard_token.split_one());
                     g.cell_perm = Sum::new_left(tmp);
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
@@ -449,6 +479,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 inner: self,
                 guard,
                 v_perm: Tracked(perm.tracked_unwrap()),
+                v_token: Tracked(read_guard_token.tracked_unwrap()),
             })
         } else {
             // self.lock.fetch_sub(READER, Release);
@@ -634,6 +665,7 @@ pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
     v_perm: Tracked<RwFrac<T>>,
+    v_token: Tracked<Token<V_MAX_READ_GUARDS>>,
 }
 
 /*
@@ -652,6 +684,8 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
         &&& self.inner.cell_perm_id() == self.v_perm@.id()
         &&& self.inner.cell_id() == self.v_perm@.resource().id()
         &&& self.v_perm@.frac() == 1
+        &&& self.inner.read_guard_token_id() == self.v_token@.id()
+        &&& self.v_token@.frac() == 1
     }
 }
 }
@@ -690,7 +724,6 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
 {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
-    #[verifier::external_body]
     fn drop(self)
     {
         proof! {
@@ -699,6 +732,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
             lemma_consts_properties();
         }
         let Tracked(perm) = self.v_perm;
+        let Tracked(token) = self.v_token;
         // self.inner.lock.fetch_sub(READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
@@ -709,6 +743,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
 
+                g.read_guard_token.combine(token);
                 let tracked mut rem = g.cell_perm.tracked_take_left();
                 rem.combine(perm);
                 rem.bounded();
@@ -1028,7 +1063,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
                 let tracked mut rem = g.cell_perm.tracked_take_left();
                 rem.combine(perm);
                 g.cell_perm = Sum::new_left(rem);
-                
+
             }
         );
     }
