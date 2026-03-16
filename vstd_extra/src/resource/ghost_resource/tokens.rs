@@ -64,7 +64,7 @@ impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
         self.id
     }
 
-    pub proof fn new(value: T) -> (tracked res: Self)
+    pub proof fn alloc(value: T) -> (tracked res: Self)
         requires
             TOTAL > 0,
         ensures

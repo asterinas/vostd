@@ -52,7 +52,7 @@ impl<T> FracStorage<T> {
     }
 
     /// Allocate a new fractional storage resource with full permission.
-    pub proof fn new(tracked v: T) -> (tracked res: Self)
+    pub proof fn alloc(tracked v: T) -> (tracked res: Self)
         ensures
             res.has_full_frac(),
     {

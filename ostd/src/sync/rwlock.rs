@@ -322,7 +322,7 @@ impl<T, G> RwLock<T, G> {
         proof {lemma_consts_properties();}
         let tracked frac_perm = RwFrac::<T>::new(perm);
         proof_decl!{
-            let tracked read_retract_token = TokenStorage::<V_MAX_READ_RETRACT_FRACS>::new(());
+            let tracked read_retract_token = TokenStorage::<V_MAX_READ_RETRACT_FRACS>::alloc(());
             let tracked upread_retract_token = UniqueTokenStorage::alloc(());
             let tracked upreader_guard_token = UniqueTokenStorage::alloc(());
         }
