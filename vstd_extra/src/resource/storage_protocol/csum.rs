@@ -1,12 +1,13 @@
 //! Csum storage protocol.
+use core::panic;
 
-use vstd::prelude::*;
+use crate::sum::*;
 use vstd::pcm::Loc;
 use vstd::prelude::*;
+use vstd::prelude::*;
 use vstd::storage_protocol::*;
-use crate::sum::*;
 
-verus!{
+verus! {
 
 /// The Csum protocol monoid.
 pub ghost enum CsumP<A, B> {
@@ -17,7 +18,7 @@ pub ghost enum CsumP<A, B> {
 }
 
 /// This protocol monoid allows exclusive ownership of either an A or a B, but not both. s
-impl<A,B> Protocol<(), Sum<A, B>> for CsumP<A, B> {
+impl<A, B> Protocol<(), Sum<A, B>> for CsumP<A, B> {
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
             (CsumP::Unit, x) => x,
@@ -29,8 +30,8 @@ impl<A,B> Protocol<(), Sum<A, B>> for CsumP<A, B> {
     open spec fn rel(self, s: Map<(), Sum<A, B>>) -> bool {
         match self {
             CsumP::Unit => s.is_empty(),
-            CsumP::Cinl(a) => s.contains_key(()) && s[()] == Sum::<A,B>::Left(a),
-            CsumP::Cinr(b) => s.contains_key(()) && s[()] == Sum::<A,B>::Right(b),
+            CsumP::Cinl(a) => s.contains_key(()) && s[()] == Sum::<A, B>::Left(a),
+            CsumP::Cinr(b) => s.contains_key(()) && s[()] == Sum::<A, B>::Right(b),
             _ => false,
         }
     }
@@ -49,33 +50,33 @@ impl<A,B> Protocol<(), Sum<A, B>> for CsumP<A, B> {
     }
 }
 
+impl<A, B> CsumP<A, B> {
+    pub open spec fn to_sum(self) -> Sum<A, B> {
+        match self {
+            CsumP::Cinl(a) => Sum::Left(a),
+            CsumP::Cinr(b) => Sum::Right(b),
+            _ => arbitrary(),
+        }
+    }
 
-impl<A,B> CsumP<A, B> {
+    pub proof fn lemma_csum_withdraws(self)
+        requires
+            self is Cinl || self is Cinr,
+        ensures
+            withdraws(self, CsumP::Unit, map![() => self.to_sum()]),
+    {
+        let res_map = map![() => self.to_sum()];
 
-pub open spec fn to_sum(self) -> Sum<A, B> {
-    match self {
-        CsumP::Cinl(a) => Sum::Left(a),
-        CsumP::Cinr(b) => Sum::Right(b),
-        _ => arbitrary()
+        assert forall|q: Self, t1: Map<(), Sum<A, B>>|
+            Self::rel(Self::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>| #[trigger]
+            Self::rel(Self::op(CsumP::Unit, q), t2) && t2.dom().disjoint(res_map.dom()) && t1
+                == t2.union_prefer_right(res_map) by {
+            let empty_map = Map::<(), Sum<A, B>>::empty();
+            assert(Self::rel(Self::op(CsumP::Unit, q), empty_map) && empty_map.dom().disjoint(
+                res_map.dom(),
+            ) && Self::rel(Self::op(self, q), res_map));
+        }
     }
 }
 
-pub proof fn lemma_csum_withdraws(self)
-requires
-    self is Cinl || self is Cinr,
-ensures
-    withdraws(self, CsumP::Unit, map![() => self.to_sum()]),
-{
-    let res_map = map![() => self.to_sum()];
-    
-    assert forall |q: Self, t1: Map<(), Sum<A, B>>| Self::rel(Self::op(self, q), t1) implies 
-        exists |t2: Map<(), Sum<A, B>>| #[trigger] Self::rel(Self::op(CsumP::Unit, q), t2) && 
-        t2.dom().disjoint(res_map.dom()) &&
-        t1 == t2.union_prefer_right(res_map) by {
-            let empty_map = Map::<(), Sum<A, B>>::empty();
-            assert(Self::rel(Self::op(CsumP::Unit, q), empty_map) && empty_map.dom().disjoint(res_map.dom()) && Self::rel(Self::op(self, q), res_map));
-        }
-}
-}
-
-}
+} // verus!
