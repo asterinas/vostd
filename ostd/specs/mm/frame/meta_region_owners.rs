@@ -159,6 +159,20 @@ impl MetaRegionOwners {
                 ==> !self.slots.contains_key(frame_to_index_spec(paddr))
     }
 
+    /// Instantiates `paddr_range_not_mapped` at a specific paddr in the range.
+    pub proof fn paddr_not_mapped_at(self, range: Range<Paddr>, paddr: Paddr)
+        requires
+            self.paddr_range_not_mapped(range),
+            range.start <= paddr,
+            paddr < range.end,
+            paddr % PAGE_SIZE == 0,
+        ensures
+            self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None,
+    {
+        // The trigger frame_to_index_spec(paddr) fires from the ensures clause,
+        // instantiating the forall in paddr_range_not_mapped at this paddr.
+    }
+
     pub proof fn inv_implies_correct_addr(self, paddr: usize)
         requires
             paddr < MAX_PADDR,

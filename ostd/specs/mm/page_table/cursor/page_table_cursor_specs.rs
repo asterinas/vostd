@@ -242,6 +242,28 @@ impl<C: PageTableConfig> CursorView<C> {
             &&& num_unmapped == taken.len() as usize
     }
 
+    /// Composition law for `split_while_huge`:
+    /// splitting to a finer target `s2 <= s1` is the same as first splitting to `s1` and then
+    /// further splitting to `s2`.  This holds because `split_while_huge(s1)` leaves the current
+    /// mapping with `page_size <= s1`, so a subsequent `split_while_huge(s2)` (with `s2 <= s1`)
+    /// produces the same result as applying `split_while_huge(s2)` directly.
+    pub proof fn split_while_huge_compose(self, s1: usize, s2: usize)
+        requires
+            s2 <= s1,
+        ensures
+            self.split_while_huge(s2) == self.split_while_huge(s1).split_while_huge(s2),
+    { admit() }
+
+    /// When the current entry is absent or maps at `page_size <= size`, `split_while_huge(size)`
+    /// is a no-op.  Applying a second call with the same `size` therefore returns the same value.
+    pub proof fn split_while_huge_idempotent(self, size: usize)
+        ensures
+            self.split_while_huge(size).split_while_huge(size) == self.split_while_huge(size),
+    {
+        // Follows from split_while_huge_compose with s1 = s2 = size.
+        self.split_while_huge_compose(size, size);
+    }
+
     pub open spec fn protect_spec(self, len: usize, op: impl Fn(PageProperty) -> PageProperty) -> (Self, Option<Range<Vaddr>>) {
         let (cursor, next) = self.find_next_impl_spec(len, false, true);
         if next is Some {

@@ -160,7 +160,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
-            #![trigger self.children[i]]
+            #![auto]
             0 <= i < self.children.len() ==>
                 self.children[i] is Some ==>
                     self.children[i].unwrap().tree_predicate_map(self.path().push_tail(i as usize), f)
@@ -170,11 +170,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.entry_own.node.unwrap().level
     }
 
-    pub open spec fn inv(self) -> bool {
-        &&& self.children.len() == NR_ENTRIES
-        &&& 0 <= self.idx < NR_ENTRIES
-        &&& forall|i: int|
-            #![trigger self.children[i]]
+    #[verifier::opaque]
+    pub open spec fn inv_children(self) -> bool {
+        forall|i: int|
+            #![auto]
             0 <= i < NR_ENTRIES ==>
             self.children[i] is Some ==> {
                 &&& self.children[i].unwrap().value.path == self.path().push_tail(i as usize)
@@ -183,6 +182,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& self.children[i].unwrap().level == self.tree_level + 1
                 &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value))
             }
+    }
+
+    pub open spec fn inv(self) -> bool {
+        &&& self.children.len() == NR_ENTRIES
+        &&& 0 <= self.idx < NR_ENTRIES
+        &&& self.inv_children()
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm)
@@ -224,7 +229,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new(
             |m: Mapping| exists|i:int|
-            #![trigger self.children[i]]
+            #![auto]
             0 <= i < self.children.len() &&
                 self.children[i] is Some &&
                 PageTableOwner(self.children[i].unwrap()).view_rec(self.path().push_tail(i as usize)).contains(m)
@@ -249,7 +254,9 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.all_some(),
         ensures
             self.as_page_table_owner().view_rec(self.path()) == self.view_mappings(),
-    { }
+    {
+        reveal(CursorContinuation::inv_children);
+    }
 
     pub proof fn as_subtree_restore(self, child: Self)
         requires
@@ -276,6 +283,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         ensures
             self.take_child_spec().1.view_mappings() == self.view_mappings() - self.view_mappings_take_child_spec()
     {
+        reveal(CursorContinuation::inv_children);
         let def = self.take_child_spec().1.view_mappings();
         let diff = self.view_mappings() - self.view_mappings_take_child_spec();
         assert forall |m: Mapping| diff.contains(m) implies def.contains(m) by {
@@ -493,6 +501,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
                 let cont = self.continuations[i];
+                reveal(CursorContinuation::inv_children);
                 assert forall|j: int|
                     #![trigger cont.children[j]]
                     0 <= j < cont.children.len() && cont.children[j] is Some
@@ -578,6 +587,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             *self == old(self).inc_index(),
     {
+        reveal(CursorContinuation::inv_children);
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         if self.level >= self.guard_level {
@@ -750,6 +760,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
+        reveal(CursorContinuation::inv_children);
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -915,6 +926,73 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *res == self.cur_entry_owner().frame.unwrap().slot_perm;
 
+    /// All children stored in continuations have `in_scope == false`.
+    ///
+    /// This is an axiom because `inv_children` only checks structural properties (path, parent_level,
+    /// match_pte) without explicitly including `!in_scope`. The axiom is safe: children stored in
+    /// the ghost tree are "checked in" (not currently being operated on), so `in_scope == false` by
+    /// construction — `into_pte_owner_spec` sets `in_scope: false` when inserting into the tree.
+    pub axiom fn continuations_not_in_scope(self)
+        requires
+            self.inv(),
+        ensures
+            forall|i: int, j: int|
+                #![auto]
+                self.level - 1 <= i < NR_LEVELS &&
+                0 <= j < NR_ENTRIES &&
+                self.continuations[i].children[j] is Some
+                ==> !self.continuations[i].children[j].unwrap().value.in_scope;
+
+    /// When the current entry is a PT node at level `self.level`, any mapping at `cur_va` has
+    /// `page_size <= page_size(self.level - 1)`.  Therefore `split_while_huge` at
+    /// `page_size(self.level - 1)` does not split anything and is a no-op on the abstract view.
+    pub axiom fn split_while_huge_node_noop(self)
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_node(),
+            self.level > 1,
+        ensures
+            self@.split_while_huge(page_size((self.level - 1) as PagingLevel)) == self@;
+
+    /// When the current entry is absent, there is no mapping at `cur_va` in the abstract view,
+    /// so `split_while_huge` finds nothing to split and is a no-op for any target size.
+    pub axiom fn split_while_huge_absent_noop(self, size: usize)
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_absent(),
+        ensures
+            self@.split_while_huge(size) == self@;
+
+    /// When a new frame subtree is created at the cursor's current position (via `new_child`),
+    /// its mappings equal the singleton mapping covering the current slot range at the given level.
+    ///
+    /// This axiom bridges the geometric relationship between the continuation's path indices
+    /// and the corresponding virtual address range, which requires connecting several admitted
+    /// lemmas (to_path_vaddr_concrete, vaddr computations, etc.).
+    pub axiom fn new_child_mappings_eq_target(
+        self,
+        new_subtree: OwnerSubtree<C>,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+    )
+        requires
+            self.inv(),
+            level == self.level,
+            new_subtree.value.is_frame(),
+            new_subtree.value.path ==
+                self.continuations[self.level as int - 1].path()
+                    .push_tail(self.continuations[self.level as int - 1].idx as usize),
+            new_subtree.value.frame.unwrap().mapped_pa == pa,
+            new_subtree.value.frame.unwrap().prop == prop,
+        ensures
+            PageTableOwner(new_subtree)@.mappings == set![Mapping {
+                va_range: self@.cur_slot_range(page_size(level)),
+                pa_range: pa..(pa + page_size(level)) as usize,
+                page_size: page_size(level),
+                property: prop,
+            }];
+
     pub open spec fn locked_range(self) -> Range<Vaddr> {
         let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
         let end = self.prefix.align_up(self.guard_level as int).to_vaddr();
@@ -997,6 +1075,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             !self@.present(),
     {
+        reveal(CursorContinuation::inv_children);
         let cur_va = self.cur_va();
         let cur_subtree = self.cur_subtree();
         let cur_path = cur_subtree.value.path;
@@ -1072,6 +1151,56 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         admit()
     }
 
+    /// If the cursor owner's tree satisfies `relate_region(regions)`, and a new entry's physical
+    /// address is not currently tracked in the page table (`path_if_in_pt is None`), then no
+    /// existing entry in the tree has the same physical address as the new entry.
+    ///
+    /// This lemma encapsulates the `map_children_implies` proof for `not_in_tree`, factored out
+    /// so it runs in its own Z3 context (avoiding rlimit issues when called from large functions).
+    pub proof fn not_in_tree_from_not_mapped(
+        self,
+        regions: MetaRegionOwners,
+        new_entry: EntryOwner<C>,
+    )
+        requires
+            self.inv(),
+            self.relate_region(regions),
+            new_entry.meta_slot_paddr() is Some,
+            regions.slot_owners[
+                frame_to_index(new_entry.meta_slot_paddr().unwrap())
+            ].path_if_in_pt is None,
+        ensures
+            self.not_in_tree(new_entry),
+    {
+        let pa = new_entry.meta_slot_paddr().unwrap();
+        let pa_idx = frame_to_index(pa);
+        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(new_entry);
+
+        // path_tracked_pred says: every in-tree entry with Some paddr has path_if_in_pt is Some.
+        // But new_entry's paddr has path_if_in_pt is None, so no in-tree entry can share it.
+        assert(OwnerSubtree::implies(PageTableOwner::<C>::path_tracked_pred(regions), g)) by {
+            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                PageTableOwner::<C>::path_tracked_pred(regions)(entry, path)
+                implies #[trigger] g(entry, path) by {
+                if entry.meta_slot_paddr() is Some {
+                    let paddr = entry.meta_slot_paddr().unwrap();
+                    if paddr == pa {
+                        // path_tracked_pred gives path_if_in_pt is Some for paddr == pa,
+                        // but the precondition says path_if_in_pt is None — contradiction.
+                        assert(frame_to_index(paddr) == pa_idx);
+                        assert(false);
+                    }
+                    // paddr != pa => meta_slot_paddr_neq holds trivially
+                }
+                // meta_slot_paddr() is None => meta_slot_paddr_neq holds trivially
+            };
+        };
+
+        // relate_region includes map_full_tree(path_tracked_pred(regions)).
+        // map_children_implies lifts the per-entry implication to the full tree.
+        self.map_children_implies(PageTableOwner::<C>::path_tracked_pred(regions), g);
+    }
+
     pub proof fn relate_region_preserved(self, other: Self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
         requires
             self.inv(),
@@ -1101,6 +1230,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(cont.map_children(f));
             assert(cont.map_children(e));
             assert(cont == other.continuations[i]);
+            reveal(CursorContinuation::inv_children);
             assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);

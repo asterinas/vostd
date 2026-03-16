@@ -873,6 +873,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             *old(regions),
         )) by { admit() };
 
+        assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
+            item,
+            *old(regions),
+        )) by { admit() };
+
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]

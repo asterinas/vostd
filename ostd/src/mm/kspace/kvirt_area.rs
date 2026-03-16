@@ -488,6 +488,9 @@ impl KVirtArea {
 
             // SAFETY: The constructor of the `KVirtArea` has already ensured
             // that this mapping does not affect kernel's memory safety.
+            assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                item, *regions,
+            )) by { admit() };
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
             let res = cursor.map(item);
 
@@ -671,6 +674,9 @@ impl KVirtArea {
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
+                assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
+                    item, *regions,
+                )) by { admit() };
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 

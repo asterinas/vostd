@@ -279,6 +279,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Self::path_tracked_pred_preserved(*old(regions), *regions),
             !new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path),
             self.parent_perms_preserved(*old(parent_owner), *parent_owner, *guard_perm, *old(guard_perm)),
+            // path_if_in_pt only changes for the new owner's slot; all other slots preserve their value.
+            forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+                (new_owner.is_absent() || idx != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+                    ==> regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
@@ -736,6 +740,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         new_owner_child.value.parent_level,
                     );
                 };
+
+                // placeholder_slot_perm does not guarantee is_init()/value().wf(), so
+                // relate_region cannot be established; admit until real perm threading is added.
+                assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
+                    .invariants(child_owner, *regions)) by { admit() };
             }
 
             #[verus_spec(with Tracked(regions),

@@ -182,6 +182,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner_spec(guard_perm).inv(),
     {
+        reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
         let new_level = (self.level - 1) as u8;
 
@@ -350,6 +351,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner_spec(guard_perm).nodes_locked(guards),
             self.push_level_owner_spec(guard_perm).relate_region(regions),
     {
+        reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
         let new_level = (self.level - 1) as u8;
 
@@ -528,6 +530,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.pop_level_owner_spec().0.inv(),
     {
+        reveal(CursorContinuation::inv_children);
         let child = self.continuations[self.level - 1];
         assert(child.inv());
         assert(forall |i: int| #![trigger child.children[i]]
