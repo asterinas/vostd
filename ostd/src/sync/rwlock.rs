@@ -6,7 +6,7 @@ use vstd::prelude::*;
 use vstd::tokens::frac::{Empty, Frac, FracGhost};
 use vstd_extra::prelude::*;
 use vstd_extra::sum::*;
-use vstd_extra::resource::storage::{excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{excl::*, tokens::*};
 
 use alloc::sync::Arc;
 use core::char::MAX;

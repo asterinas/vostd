@@ -1,5 +1,4 @@
-//! Resource algebras based on PCM and storage-protocol inspired by Iris and Leaf.
-/// Definitions of resource algebras.
+//! Resource algebras based on Iris PCM and Leaf storage-protocol.
+pub mod ghost_resource;
 pub mod pcm;
-/// Resources wrapping the RAs used in proofs.
-pub mod storage;
+pub mod storage_protocol;

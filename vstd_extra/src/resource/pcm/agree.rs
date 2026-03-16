@@ -1,4 +1,4 @@
-//! This module defines the Agreement PCM.
+//! Agreement resource algebra
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/agree.v>

@@ -1,3 +1,4 @@
+//! Product of a PCM and a storage-protocol resource algebra.
 use core::marker::PhantomData;
 use vstd::pcm::PCM;
 use vstd::prelude::*;

@@ -1,4 +1,4 @@
-//! This module defines the real-based fractional permissions PCM.
+//! Fractional resource algebra.
 //!
 //! Unlike the [`FracGhost`](https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html) in vstd,
 //! which requires a compile-time constant TOTAL to define integer-based fractions,

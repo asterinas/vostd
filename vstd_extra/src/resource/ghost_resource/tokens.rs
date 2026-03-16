@@ -1,3 +1,4 @@
+//！ A wrapper around `vstd::tokens::FracGhost` that stores and dispatches fractional access.
 use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{Empty, Frac, FracGhost};
@@ -16,7 +17,7 @@ impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
-        &&& 0<= self.frac() <= TOTAL
+        &&& 0 <= self.frac() <= TOTAL
         &&& self.r is Some ==> {
             &&& self.id == self.r->Some_0.id()
             &&& self.view() == self.r->Some_0@
@@ -137,7 +138,7 @@ impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
                 &&& self@ == old(self)@
                 &&& self.frac() == old(self).frac() + other.frac()
                 &&& self.wf()
-            }
+            },
     {
         if self.is_empty() {
             other.bounded();

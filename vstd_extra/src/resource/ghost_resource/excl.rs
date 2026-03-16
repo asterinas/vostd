@@ -1,3 +1,4 @@
+//！ Exclusive ghost resource.
 use vstd::modes::tracked_swap;
 use vstd::pcm::*;
 use vstd::prelude::*;
@@ -187,7 +188,7 @@ impl<T> ExclusiveGhostStorage<T> {
         &&& self.is_empty() <==> !self.is_full()
         &&& self.is_full() <==> !self.is_empty()
     }
-    
+
     #[verifier::type_invariant]
     pub open spec fn type_inv(self) -> bool {
         self.wf()

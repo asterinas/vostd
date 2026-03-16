@@ -1,4 +1,4 @@
-//! Csum PCM
+//! Csum resource algebra
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/csum.v>
