@@ -5,7 +5,7 @@ use alloc::{boxed::Box, sync::Arc};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-//mod either;
+mod either;
 
 //use core::simd::ptr;
 use core::{marker::PhantomData, mem::ManuallyDrop, ops::Deref, ptr::NonNull};
