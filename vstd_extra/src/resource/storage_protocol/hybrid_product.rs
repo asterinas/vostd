@@ -7,7 +7,7 @@ use vstd::storage_protocol::*;
 verus! {
 
 /// The hybrid product of a PCM and a storage-protocol resource algebra.
-pub tracked struct HybridProduct<P: PCM, S: Protocol<K, V>, K, V> {
+pub ghost struct HybridProduct<P: PCM, S: Protocol<K, V>, K, V> {
     pub pcm: P,
     pub protocol: S,
     /// A Rust compiler restriction.

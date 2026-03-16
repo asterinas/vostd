@@ -15,7 +15,7 @@ verus! {
 
 /// Fractional PCM
 #[verifier::ext_equal]
-pub tracked enum FracR<T> {
+pub ghost enum FracR<T> {
     Unit,
     Frac(real, T),
     Invalid,

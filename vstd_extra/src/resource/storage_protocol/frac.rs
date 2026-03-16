@@ -10,7 +10,7 @@ broadcast use group_map_axioms;
 
 /// The fractional protocol monoid.
 #[verifier::ext_equal]
-pub tracked enum FracP<T> {
+pub ghost enum FracP<T> {
     Unit,
     Frac(real, T),
     Invalid,
