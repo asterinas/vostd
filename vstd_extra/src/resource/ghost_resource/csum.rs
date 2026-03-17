@@ -9,7 +9,7 @@ use crate::sum::*;
 use super::excl::UniqueTokenStorage;
 
 verus! {
-pub tracked struct CsumResource<A, B, const TOTAL:usize> {
+pub tracked struct SumResource<A, B, const TOTAL:usize> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
@@ -21,15 +21,15 @@ pub tracked struct Right<A,B, const TOTAL:usize> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-impl<A, B, const TOTAL:usize> CsumResource<A, B, TOTAL> {
+impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
-    
+
     pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
         self.r.value()
     }
-    
+
     pub open spec fn resource(self) -> Sum<A, B> {
         self.protocol_monoid().resource()
     }
@@ -133,11 +133,11 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
-    
+
     pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
         self.r.value()
     }
-    
+
     pub open spec fn resource(self) -> A {
         self.protocol_monoid().resource()->Left_0
     }
@@ -187,7 +187,7 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         StorageResource::guard(&self.r,map![() => Sum::<A, B>::Left(self.resource())]).tracked_borrow(()).tracked_borrow_left()
     }
 
-    pub proof fn tracked_take_resource(tracked self) -> (tracked res:(Self, A))
+    pub proof fn take_resource(tracked self) -> (tracked res:(Self, A))
         requires
             self.has_resource(),
         ensures
@@ -202,7 +202,7 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         ( Self { r: resource }, s.tracked_remove(()).tracked_take_left() )
     }
 
-    pub proof fn tracked_put_resource(tracked self, tracked a: A) -> (tracked res: Self)
+    pub proof fn put_resource(tracked self, tracked a: A) -> (tracked res: Self)
         requires
             self.has_resource_taken(),
             self.frac() == TOTAL,
@@ -219,5 +219,134 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         let tracked r = self.r.deposit( m, CsumP::<A,B,TOTAL>::Cinl(Some(a), self.frac()));
         Self { r }
     }
+
+    pub proof fn split(tracked self, n:int) -> (tracked res: (Self, Self))
+        requires
+            0 < n < self.frac(),
+        ensures
+            res.0.id() == self.id(),
+            res.0.frac() == self.frac() - n,
+            res.1.id() == self.id(),
+            res.1.frac() == n,
+            res.1.has_resource_taken(),
+            res.0.has_resource() <==> self.has_resource(),
+            res.0.has_resource_taken() <==> self.has_resource_taken(),
+            res.0.has_resource() ==> res.0.resource() == self.resource(),
+    {
+        use_type_invariant(&self);
+        let tracked (r1, r2) = self.r.split(CsumP::Cinl(self.protocol_monoid()->Cinl_0, self.frac() - n), CsumP::Cinl(None,n));
+        ( Self { r: r1 }, Self { r: r2 } )
+    }
 }
+
+impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
+    pub closed spec fn id(self) -> Loc {
+        self.r.loc()
+    }
+
+    pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
+        self.r.value()
+    }
+
+    pub open spec fn resource(self) -> B {
+        self.protocol_monoid().resource()->Right_0
+    }
+
+    #[verifier::type_invariant]
+    pub open spec fn type_invariant(self) -> bool {
+        &&& self.protocol_monoid().is_right()
+        &&& 1 <= self.frac() <= TOTAL
+    }
+
+    pub open spec fn has_resource(self) -> bool {
+        self.protocol_monoid().has_resource()
+    }
+
+    pub open spec fn has_resource_taken(self) -> bool {
+        self.protocol_monoid().has_resource_taken()
+    }
+
+    pub open spec fn frac(self) -> int {
+        self.protocol_monoid().frac()
+    }
+
+    pub proof fn lemma_resource_exclusive(tracked &mut self, tracked other: &Self)
+        requires
+            old(self).has_resource() && other.has_resource()
+        ensures
+            old(self).id() == self.id(),
+            old(self).protocol_monoid() == self.protocol_monoid(),
+            old(self).resource() == self.resource(),
+            old(self).frac() == self.frac(),
+            self.id() != other.id(),
+    {
+        use_type_invariant(&*self);
+        use_type_invariant(other);
+        if self.id() == other.id() {
+            self.r.validate_with_shared(&other.r);
+        }
+    }
+
+    pub proof fn tracked_borrow(tracked &self) -> (tracked res: &B)
+        requires
+            self.has_resource(),
+        ensures
+            *res == self.resource(),
+    {
+        use_type_invariant(&*self);
+        StorageResource::guard(&self.r,map![() => Sum::<A, B>::Right(self.resource())]).tracked_borrow(()).tracked_borrow_right()
+    }
+
+    pub proof fn take_resource(tracked self) -> (tracked res:(Self, B))
+        requires
+            self.has_resource(),
+        ensures
+            res.1 == self.resource(),
+            res.0.id() == self.id(),
+            res.0.has_resource_taken(),
+            res.0.frac() == self.frac(),
+    {
+        use_type_invariant(&self);
+        self.protocol_monoid().lemma_withdraws_right();
+        let tracked (resource, mut s) = self.r.withdraw(CsumP::Cinr(None, self.frac()), map![() => Sum::<A, B>::Right(self.resource())]);
+        ( Self { r: resource }, s.tracked_remove(()).tracked_take_right() )
+    }
+
+    pub proof fn put_resource(tracked self, tracked b: B) -> (tracked res: Self)
+        requires
+            self.has_resource_taken(),
+            self.frac() == TOTAL,
+        ensures
+            res.id() == self.id(),
+            res.protocol_monoid() == CsumP::<A,B,TOTAL>::Cinr(Some(b), self.frac()),
+            res.has_resource(),
+            res.resource() == b,
+    {
+        use_type_invariant(&self);
+        self.protocol_monoid().lemma_deposit_right(b);
+        let tracked mut m = Map::tracked_empty();
+        m.tracked_insert((), Sum::<A, B>::Right(b));
+        let tracked r = self.r.deposit( m, CsumP::<A,B,TOTAL>::Cinr(Some(b), self.frac()));
+        Self { r }
+    }
+
+    pub proof fn split(tracked self, n:int) -> (tracked res: (Self, Self))
+        requires
+            0 < n < self.frac(),
+        ensures
+            res.0.id() == self.id(),
+            res.0.frac() == self.frac() - n,
+            res.1.id() == self.id(),
+            res.1.frac() == n,
+            res.1.has_resource_taken(),
+            res.0.has_resource() <==> self.has_resource(),
+            res.0.has_resource_taken() <==> self.has_resource_taken(),
+            res.0.has_resource() ==> res.0.resource() == self.resource(),
+    {
+        use_type_invariant(&self);
+        let tracked (r1, r2) = self.r.split(CsumP::Cinr(self.protocol_monoid()->Cinr_0, self.frac() - n), CsumP::Cinr(None,n));
+        ( Self { r: r1 }, Self { r: r2 } )
+    }
+}
+
 }

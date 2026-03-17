@@ -74,13 +74,12 @@ impl<L, R> Sum<L, R> {
     }
 
     pub open spec fn lift_map_left<K>(m: Map<K, L>) -> Map<K, Self> {
-        m.map_values(|w| Sum::<L,R>::Left(w))
+        m.map_values(|w| Sum::<L, R>::Left(w))
     }
 
     pub open spec fn lift_map_right<K>(m: Map<K, R>) -> Map<K, Self> {
-        m.map_values(|v| Sum::<L,R>::Right(v))
+        m.map_values(|v| Sum::<L, R>::Right(v))
     }
-    
 }
 
 impl<L: Inv, R: Inv> Inv for Sum<L, R> {
