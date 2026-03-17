@@ -9,15 +9,15 @@ use crate::sum::*;
 use super::excl::UniqueTokenStorage;
 
 verus! {
-pub tracked struct SumResource<A, B, const TOTAL:usize> {
+pub tracked struct SumResource<A, B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-pub tracked struct Left<A,B, const TOTAL:usize> {
+pub tracked struct Left<A,B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-pub tracked struct Right<A,B, const TOTAL:usize> {
+pub tracked struct Right<A,B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
@@ -58,6 +58,7 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
     pub open spec fn type_invariant(self) -> bool {
         &&& TOTAL > 0
         &&& 1 <= self.frac() <= TOTAL
+        &&& self.has_resource() || self.has_resource_taken()
     }
 
     pub proof fn alloc_left(tracked a: A) -> (tracked res: Self)
@@ -127,6 +128,83 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
         StorageResource::guard(&self.r,map![() => self.resource()]).tracked_borrow(()).tracked_borrow_right()
     }
 
+    pub proof fn split_left_with_resource(tracked self, n:int) -> (tracked res: (Self, Left<A,B,TOTAL>))
+        requires
+            self.is_left(),
+            0 < n < self.frac(),
+        ensures
+            res.0.id() == self.id(),
+            res.0.frac() == self.frac() - n,
+            res.1.id() == self.id(),
+            res.1.frac() == n,
+            res.0.has_resource_taken(),
+            res.1.has_resource() <==> self.has_resource(),
+            res.1.has_resource_taken() <==> self.has_resource_taken(),
+            res.1.has_resource() ==> res.1.resource() == self.resource() -> Left_0,
+    {
+        use_type_invariant(&self);
+        let tracked (r1, r2) = self.r.split(CsumP::Cinl(None, self.frac() - n), CsumP::Cinl(self.protocol_monoid()->Cinl_0,n));
+        ( Self { r: r1 }, Left { r: r2 } )
+    }
+
+    pub proof fn split_right_with_resource(tracked self, n:int) -> (tracked res: (Self, Right<A,B,TOTAL>))
+        requires
+            self.is_right(),
+            0 < n < self.frac(),
+        ensures
+            res.0.id() == self.id(),
+            res.0.frac() == self.frac() - n,
+            res.1.id() == self.id(),
+            res.1.frac() == n,
+            res.0.has_resource_taken(),
+            res.1.has_resource() <==> self.has_resource(),
+            res.1.has_resource_taken() <==> self.has_resource_taken(),
+            res.1.has_resource() ==> res.1.resource() == self.resource() -> Right_0,
+    {
+        use_type_invariant(&self);
+        let tracked (r1, r2) = self.r.split(CsumP::Cinr(None, self.frac() - n), CsumP::Cinr(self.protocol_monoid()->Cinr_0,n));
+        ( Self { r: r1 }, Right { r: r2 } )
+    }
+    
+    pub proof fn update_left(tracked self, tracked a: A) -> (tracked res: (Self, Option<Sum<A,B>>))
+        requires
+            self.frac() == TOTAL,
+        ensures
+            res.0.id() == self.id(),
+            res.0.protocol_monoid() == CsumP::<A,B,TOTAL>::Cinl(Some(a), self.frac()),
+            res.0.has_resource(),
+            res.0.resource() == Sum::<A,B>::Left(a),
+            self.has_resource() ==> res.1 == Some(self.resource()),
+            self.has_resource_taken() ==> res.1 == None::<Sum<A,B>>,
+    {
+        use_type_invariant(&self);
+        let tracked mut res = None;
+        let tracked r;
+        if self.has_resource() {
+            if self.is_left() {
+                self.protocol_monoid().lemma_withdraws_left();
+                let tracked (resource, mut s) = self.r.withdraw(CsumP::Cinl(None, self.frac()), map![() => self.resource()]);
+                r = resource;
+                res = Some(s.tracked_remove(()));
+            } else {
+                self.protocol_monoid().lemma_withdraws_right();
+                let tracked (resource, mut s) = self.r.withdraw(CsumP::Cinr(None, self.frac()), map![() => self.resource()]);
+                r = resource;
+                res = Some(s.tracked_remove(()));
+            }
+        } else 
+        {
+            r = self.r;
+        }
+        assert(r.value().has_resource_taken());
+        r.value().lemma_updates_none();
+        let tracked r = r.update(CsumP::<A,B,TOTAL>::Cinl(None, self.frac()));
+        r.value().lemma_deposit_left(a);
+        let tracked mut m = Map::tracked_empty();
+        m.tracked_insert((), Sum::<A,B>::Left(a));
+        let tracked r = r.deposit(m, CsumP::<A,B,TOTAL>::Cinl(Some(a), self.frac()));
+        (Self { r }, res)
+    }
 }
 
 impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
@@ -174,6 +252,17 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         use_type_invariant(other);
         if self.id() == other.id() {
             self.r.validate_with_shared(&other.r);
+        }
+    }
+
+    pub proof fn lemma_resource_exclusive_with_right(tracked &self, tracked other: &Right<A,B,TOTAL>)
+        ensures
+            self.id() != other.id(),
+    {
+        use_type_invariant(&*self);
+        use_type_invariant(other);
+        if self.id() == other.id() {
+            self.r.join_shared(&other.r).validate();        
         }
     }
 
@@ -286,6 +375,18 @@ impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
             self.r.validate_with_shared(&other.r);
         }
     }
+
+    pub proof fn lemma_resource_exclusive_with_left(tracked &self, tracked other: &Left<A,B,TOTAL>)
+        ensures
+            self.id() != other.id(),
+    {
+        use_type_invariant(&*self);
+        use_type_invariant(other);
+        if self.id() == other.id() {
+            self.r.join_shared(&other.r).validate();        
+        }
+    }
+
 
     pub proof fn tracked_borrow(tracked &self) -> (tracked res: &B)
         requires

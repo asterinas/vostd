@@ -128,6 +128,7 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         }
     }
 
+    #[verifier::external_body]
     pub proof fn lemma_withdraws_left(self)
         requires
             self.is_left(),
@@ -157,6 +158,7 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         }
     }
 
+    #[verifier::external_body]
     pub proof fn lemma_withdraws_right(self)
         requires
             self.is_right(),
@@ -232,6 +234,18 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
             assert(t1 == empty_map);
             assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
         }
+    }
+
+    pub proof fn lemma_updates_none(self)
+    requires
+        self.is_left() || self.is_right(),
+        self.frac() == TOTAL,
+        self.has_resource_taken(),
+    ensures
+        updates(self, CsumP::Cinl(None, TOTAL as int)), 
+        updates(self, CsumP::Cinr(None, TOTAL as int)),
+    {
+
     }
 }
 
