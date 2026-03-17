@@ -128,7 +128,6 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         }
     }
 
-    #[verifier::external_body]
     pub proof fn lemma_withdraws_left(self)
         requires
             self.is_left(),
@@ -137,28 +136,36 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         ensures
             withdraws(self, CsumP::Cinl(None, self.frac()), map![()=>self.resource()]),
     {
-        let resource_map = map![()=>self.resource()];
-        let empty_map = Map::empty();
-        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(None, self.frac());
-        assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-            CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
-            {
-                #[trigger] CsumP::rel(CsumP::op(CsumP::Cinl(None, self.frac()), q), t2)
-                    && t2.dom().disjoint(resource_map.dom()) && t1 == t2.union_prefer_right(
-                    resource_map,
-                )
-            } by {
-            if self.frac() < TOTAL {
-                assert(q == CsumP::<A, B, TOTAL>::Cinl(None, TOTAL - self.frac()));
-                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), empty_map));
-            } else {
-                assert(q is Unit);
-                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), empty_map));
-            }
+        match self {
+            CsumP::Cinl(Some(a), n) => {
+                let resource = Sum::<A, B>::Left(a);
+                let resource_map = map![() => resource];
+                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(None, n);
+                assert forall|q: Self, t1: Map<(), Sum<A, B>>|
+                    #![all_triggers]
+                    CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+                    #![all_triggers]
+                    CsumP::rel(CsumP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
+                        resource_map.dom(),
+                    ) && t1 =~= t2.union_prefer_right(resource_map) by {
+                    let t2 = Map::empty();
+                    if n < TOTAL {
+                        assert(q == CsumP::<A, B, TOTAL>::Cinl(None, TOTAL as int - n));
+                    } else {
+                        assert(n == TOTAL as int);
+                        assert(q is Unit);
+                    }
+                    assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), t2));
+                    assert(t2.dom().disjoint(resource_map.dom()));
+                    assert(t1 =~= t2.union_prefer_right(resource_map));
+                }
+            },
+            _ => {
+                assert(false);
+            },
         }
     }
 
-    #[verifier::external_body]
     pub proof fn lemma_withdraws_right(self)
         requires
             self.is_right(),
@@ -167,24 +174,33 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         ensures
             withdraws(self, CsumP::Cinr(None, self.frac()), map![()=>self.resource()]),
     {
-        let resource_map = map![()=>self.resource()];
-        let empty_map = Map::empty();
-        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(None, self.frac());
-        assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-            CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
-            {
-                #[trigger] CsumP::rel(CsumP::op(CsumP::Cinr(None, self.frac()), q), t2)
-                    && t2.dom().disjoint(resource_map.dom()) && t1 == t2.union_prefer_right(
-                    resource_map,
-                )
-            } by {
-            if self.frac() < TOTAL {
-                assert(q == CsumP::<A, B, TOTAL>::Cinr(None, TOTAL - self.frac()));
-                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), empty_map));
-            } else {
-                assert(q is Unit);
-                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), empty_map));
-            }
+        match self {
+            CsumP::Cinr(Some(b), n) => {
+                let resource = Sum::<A, B>::Right(b);
+                let resource_map = map![() => resource];
+                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(None, n);
+                assert forall|q: Self, t1: Map<(), Sum<A, B>>|
+                    #![all_triggers]
+                    CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
+                    #![all_triggers]
+                    CsumP::rel(CsumP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
+                        resource_map.dom(),
+                    ) && t1 =~= t2.union_prefer_right(resource_map) by {
+                    let t2 = Map::empty();
+                    if n < TOTAL {
+                        assert(q == CsumP::<A, B, TOTAL>::Cinr(None, TOTAL as int - n));
+                    } else {
+                        assert(n == TOTAL as int);
+                        assert(q is Unit);
+                    }
+                    assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), t2));
+                    assert(t2.dom().disjoint(resource_map.dom()));
+                    assert(t1 =~= t2.union_prefer_right(resource_map));
+                }
+            },
+            _ => {
+                assert(false);
+            },
         }
     }
 
@@ -237,15 +253,14 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
     }
 
     pub proof fn lemma_updates_none(self)
-    requires
-        self.is_left() || self.is_right(),
-        self.frac() == TOTAL,
-        self.has_resource_taken(),
-    ensures
-        updates(self, CsumP::Cinl(None, TOTAL as int)), 
-        updates(self, CsumP::Cinr(None, TOTAL as int)),
+        requires
+            self.is_left() || self.is_right(),
+            self.frac() == TOTAL,
+            self.has_resource_taken(),
+        ensures
+            updates(self, CsumP::Cinl(None, TOTAL as int)),
+            updates(self, CsumP::Cinr(None, TOTAL as int)),
     {
-
     }
 }
 
