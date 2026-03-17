@@ -9,32 +9,215 @@ use crate::sum::*;
 use super::excl::UniqueTokenStorage;
 
 verus! {
-
-pub tracked struct SumResource<K,A,B,W,V> {
-    pub r: StorageResource<K, Sum<W, V>, CsumP<A, B>>,
+pub tracked struct CsumResource<A, B, const TOTAL:usize> {
+    tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-impl <K,W,V,A:Protocol<K,W>,B:Protocol<K,V>> SumResource<K,A,B,W,V> {
-
-pub open spec fn id(self) -> Loc {
-    self.r.loc()
+pub tracked struct Left<A,B, const TOTAL:usize> {
+    tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-pub open spec fn protocol_monoid(self) -> CsumP<A, B> {
-    self.r.value()
+pub tracked struct Right<A,B, const TOTAL:usize> {
+    tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-pub open spec fn is_empty(self) -> bool {
-    self.protocol_monoid() is Unit
+impl<A, B, const TOTAL:usize> CsumResource<A, B, TOTAL> {
+    pub closed spec fn id(self) -> Loc {
+        self.r.loc()
+    }
+    
+    pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
+        self.r.value()
+    }
+    
+    pub open spec fn resource(self) -> Sum<A, B> {
+        self.protocol_monoid().resource()
+    }
+
+    pub open spec fn is_left(self) -> bool {
+        self.protocol_monoid().is_left()
+    }
+
+    pub open spec fn is_right(self) -> bool {
+        self.protocol_monoid().is_right()
+    }
+
+    pub open spec fn has_resource(self) -> bool {
+        self.protocol_monoid().has_resource()
+    }
+
+    pub open spec fn has_resource_taken(self) -> bool {
+        self.protocol_monoid().has_resource_taken()
+    }
+
+    pub open spec fn frac(self) -> int {
+        self.protocol_monoid().frac()
+    }
+
+    #[verifier::type_invariant]
+    pub open spec fn type_invariant(self) -> bool {
+        &&& TOTAL > 0
+        &&& 1 <= self.frac() <= TOTAL
+    }
+
+    pub proof fn alloc_left(tracked a: A) -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+        ensures
+            res.is_left(),
+            res.has_resource(),
+            res.resource() == Sum::<A,B>::Left(a),
+    {
+        let tracked mut m = Map::tracked_empty();
+        m.tracked_insert((), Sum::<A,B>::Left(a));
+        let tracked r = StorageResource::alloc( CsumP::Cinl(Some(a), TOTAL as int),m);
+        Self { r }
+    }
+
+    pub proof fn alloc_right(tracked b: B) -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+        ensures
+            res.is_right(),
+            res.has_resource(),
+            res.resource() == Sum::<A,B>::Right(b),
+    {
+        let tracked mut m = Map::tracked_empty();
+        m.tracked_insert((), Sum::<A,B>::Right(b));
+        let tracked r = StorageResource::alloc( CsumP::Cinr(Some(b), TOTAL as int),m);
+        Self { r }
+    }
+
+    pub proof fn lemma_resource_exlusive(tracked &mut self, tracked other: &Self)
+        requires
+            {
+                ||| old(self).is_left() && old(self).is_right()
+                ||| other.is_left() && other.is_right()
+                ||| old(self).is_left() && other.is_left() && old(self).has_resource() && other.has_resource()
+                ||| old(self).is_right() && other.is_right() && old(self).has_resource() && other.has_resource()
+            },
+        ensures
+            old(self).id() == self.id(),
+            old(self).protocol_monoid() == self.protocol_monoid(),
+            old(self).resource() == self.resource(),
+            self.id() != other.id(),
+    {
+        if self.id() == other.id() {
+            self.r.validate_with_shared(&other.r);
+        }
+    }
+
+    pub proof fn tracked_borrow_left(tracked &self) -> (tracked res: &A)
+        requires
+            self.is_left(),
+            self.has_resource(),
+        ensures
+            *res == self.resource()->Left_0,
+    {
+        StorageResource::guard(&self.r,map![() => self.resource()]).tracked_borrow(()).tracked_borrow_left()
+    }
+
+    pub proof fn tracked_borrow_right(tracked &self) -> (tracked res: &B)
+        requires
+            self.is_right(),
+            self.has_resource(),
+        ensures
+            *res == self.resource()->Right_0,
+    {
+        StorageResource::guard(&self.r,map![() => self.resource()]).tracked_borrow(()).tracked_borrow_right()
+    }
+
 }
 
-pub open spec fn is_left(self) -> bool {
-    self.protocol_monoid() is Cinl
-}
+impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
+    pub closed spec fn id(self) -> Loc {
+        self.r.loc()
+    }
+    
+    pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
+        self.r.value()
+    }
+    
+    pub open spec fn resource(self) -> A {
+        self.protocol_monoid().resource()->Left_0
+    }
 
-pub open spec fn is_right(self) -> bool {
-    self.protocol_monoid() is Cinr
-}
-}
+    #[verifier::type_invariant]
+    pub open spec fn type_invariant(self) -> bool {
+        &&& self.protocol_monoid().is_left()
+        &&& 1 <= self.frac() <= TOTAL
+    }
 
-} // verus!
+    pub open spec fn has_resource(self) -> bool {
+        self.protocol_monoid().has_resource()
+    }
+
+    pub open spec fn has_resource_taken(self) -> bool {
+        self.protocol_monoid().has_resource_taken()
+    }
+
+    pub open spec fn frac(self) -> int {
+        self.protocol_monoid().frac()
+    }
+
+    pub proof fn lemma_resource_exclusive(tracked &mut self, tracked other: &Self)
+        requires
+            old(self).has_resource() && other.has_resource()
+        ensures
+            old(self).id() == self.id(),
+            old(self).protocol_monoid() == self.protocol_monoid(),
+            old(self).resource() == self.resource(),
+            old(self).frac() == self.frac(),
+            self.id() != other.id(),
+    {
+        use_type_invariant(&*self);
+        use_type_invariant(other);
+        if self.id() == other.id() {
+            self.r.validate_with_shared(&other.r);
+        }
+    }
+
+    pub proof fn tracked_borrow(tracked &self) -> (tracked res: &A)
+        requires
+            self.has_resource(),
+        ensures
+            *res == self.resource(),
+    {
+        use_type_invariant(&*self);
+        StorageResource::guard(&self.r,map![() => Sum::<A, B>::Left(self.resource())]).tracked_borrow(()).tracked_borrow_left()
+    }
+
+    pub proof fn tracked_take_resource(tracked self) -> (tracked res:(Self, A))
+        requires
+            self.has_resource(),
+        ensures
+            res.1 == self.resource(),
+            res.0.id() == self.id(),
+            res.0.has_resource_taken(),
+            res.0.frac() == self.frac(),
+    {
+        use_type_invariant(&self);
+        self.protocol_monoid().lemma_withdraws_left();
+        let tracked (resource, mut s) = self.r.withdraw(CsumP::Cinl(None, self.frac()), map![() => Sum::<A, B>::Left(self.resource())]);
+        ( Self { r: resource }, s.tracked_remove(()).tracked_take_left() )
+    }
+
+    pub proof fn tracked_put_resource(tracked self, tracked a: A) -> (tracked res: Self)
+        requires
+            self.has_resource_taken(),
+            self.frac() == TOTAL,
+        ensures
+            res.id() == self.id(),
+            res.protocol_monoid() == CsumP::<A,B,TOTAL>::Cinl(Some(a), self.frac()),
+            res.has_resource(),
+            res.resource() == a,
+    {
+        use_type_invariant(&self);
+        self.protocol_monoid().lemma_deposit_left(a);
+        let tracked mut m = Map::tracked_empty();
+        m.tracked_insert((), Sum::<A, B>::Left(a));
+        let tracked r = self.r.deposit( m, CsumP::<A,B,TOTAL>::Cinl(Some(a), self.frac()));
+        Self { r }
+    }
+}
+}
