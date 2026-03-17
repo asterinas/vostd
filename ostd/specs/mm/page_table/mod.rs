@@ -263,6 +263,17 @@ impl AbstractVaddr {
         ensures
             self.align_down(level).reflect(nat_align_down(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat) as Vaddr);
 
+    /// `align_down(0)` is not recursively reachable by the spec (defined only for level >= 1),
+    /// so we axiomatize its key properties: it preserves `inv()` and all index values.
+    /// This is consistent with the intended semantics of level-0 "alignment" being a no-op
+    /// on the index array (it would only zero a non-existent sub-page offset).
+    pub axiom fn align_down_zero_properties(self)
+        requires
+            self.inv(),
+        ensures
+            self.align_down(0).inv(),
+            forall|i: int| #![auto] 0 <= i < NR_LEVELS ==> self.align_down(0).index[i] == self.index[i];
+
     pub open spec fn align_up(self, level: int) -> Self {
         let lower_aligned = self.align_down(level - 1);
         lower_aligned.next_index(level)

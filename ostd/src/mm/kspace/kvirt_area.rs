@@ -625,7 +625,7 @@ impl KVirtArea {
                     it.pos < it.elements.len() ==>
                         cursor.map_cursor_requires(cursor_owner, *guards),
                     // PA tracking: element[i].0 == pa_range.start + sum of preceding sizes.
-                    forall |i: int| 0 <= i < it.elements.len() ==>
+                    forall |i: int| #![auto] 0 <= i < it.elements.len() ==>
                         it.elements[i].0 as nat
                             == pa_range.start as nat + sum_page_sizes_spec(it.elements, 0, i),
                     // Remaining PA range is not mapped.

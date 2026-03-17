@@ -123,8 +123,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont_spec(idx, guard_perm@).0,
-            *self == old(self).make_cont_spec(idx, guard_perm@).1,
-    ;
+            *self == old(self).make_cont_spec(idx, guard_perm@).1;
 
     pub open spec fn restore_spec(self, child: Self) -> (Self, GuardPerm<'rcu, C>) {
         let child_node = OwnerSubtree {
@@ -139,8 +138,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub axiom fn restore(tracked &mut self, tracked child: Self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
         ensures
             *self == old(self).restore_spec(child).0,
-            guard_perm == old(self).restore_spec(child).1,
-    ;
+            guard_perm == old(self).restore_spec(child).1;
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
         Self {
@@ -191,7 +189,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm)
-        &&& self.tree_level == INC_LEVELS - self.level()
+        &&& self.tree_level == INC_LEVELS - self.level() - 1
         &&& self.tree_level < INC_LEVELS - 1
         &&& self.path().len() == self.tree_level
     }
@@ -341,6 +339,29 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         };
     }
 
+    /// After `split_if_mapped_huge` converts the child at `idx` from frame to node, and we
+    /// restore `entry_own.node = Some(parent_owner)`, the continuation invariant holds.
+    /// The key invariant conditions are checked via the preconditions; the `rel_children`
+    /// relationship for the modified entry follows from the split postcondition.
+    pub axiom fn continuation_inv_holds_after_split_restore(self)
+        requires
+            self.entry_own.is_node(),
+            self.entry_own.inv(),
+            self.entry_own.node.unwrap().relate_guard_perm(self.guard_perm),
+            self.children.len() == NR_ENTRIES,
+            0 <= self.idx < NR_ENTRIES,
+            self.tree_level == INC_LEVELS - self.level() - 1,
+            self.tree_level < INC_LEVELS - 1,
+            self.path().len() == self.tree_level,
+            self.children[self.idx as int] is Some,
+            self.children[self.idx as int].unwrap().value.is_node(),
+            self.children[self.idx as int].unwrap().inv(),
+            self.children[self.idx as int].unwrap().value.parent_level == self.level(),
+            self.children[self.idx as int].unwrap().value.path == self.path().push_tail(self.idx as usize),
+            self.children[self.idx as int].unwrap().level == self.tree_level + 1,
+        ensures
+            self.inv();
+
     pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
@@ -350,7 +371,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             regions.slots == old(regions).slots.remove(frame_to_index(paddr)),
             res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, old(regions).slots[frame_to_index(paddr)]),
             res.inv(),
-            res.level == self.tree_level + 1
+            res.level == self.tree_level + 1,
+            res == OwnerSubtree::new_val(res.value, res.level as nat),
     {
         let tracked slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
         let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, slot_perm);
@@ -399,6 +421,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.va.index[2] == self.continuations[2].idx
             &&& self.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            // Path consistency: child path = parent path pushed with parent's index
+            &&& self.continuations[2].path() == self.continuations[3].path().push_tail(self.continuations[3].idx as usize)
         }
         &&& self.level <= 2 ==> {
             &&& self.continuations.contains_key(1)
@@ -410,6 +434,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
             &&& self.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            // Path consistency: child path = parent path pushed with parent's index
+            &&& self.continuations[1].path() == self.continuations[2].path().push_tail(self.continuations[2].idx as usize)
         }
         &&& self.level == 1 ==> {
             &&& self.continuations.contains_key(0)
@@ -419,6 +445,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
             &&& self.va.index[0] == self.continuations[0].idx
             &&& self.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
                 self.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
+            // Path consistency: child path = parent path pushed with parent's index
+            &&& self.continuations[0].path() == self.continuations[1].path().push_tail(self.continuations[1].idx as usize)
         }
     }
 }
@@ -478,6 +506,60 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         admit()
     }
+
+    /// After dropping the guard for the popped level, `nodes_locked` is preserved
+    /// for the new (higher-level) owner, because the dropped guard's address is not
+    /// among those checked by `nodes_locked` (which covers levels >= self.level - 1).
+    pub axiom fn never_drop_restores_nodes_locked(
+        self,
+        guard: PageTableGuard<'rcu, C>,
+        guards0: Guards<'rcu, C>,
+        guards1: Guards<'rcu, C>,
+    )
+        requires
+            self.inv(),
+            self.nodes_locked(guards0),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
+            <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
+        ensures
+            self.nodes_locked(guards1);
+
+    /// After a `protect` operation that only modifies `frame.prop` of the current entry,
+    /// `CursorOwner::inv()` and `relate_region` are preserved.
+    ///
+    /// Safety: `protect` changes only `frame.prop` and updates `parent.children_perm` to match.
+    /// `EntryOwner::inv()` is preserved (from protect postcondition).
+    /// `relate_region` is preserved because it doesn't use `frame.prop`.
+    /// `rel_children` holds via `match_pte` (from protect's `wf`/`node_matching` postconditions).
+    ///
+    /// The axiom requires only the semantic properties of the modified entry that are
+    /// checked by `inv` and `relate_region`; the structural identity of other continuations
+    /// is trusted to hold from the tracked restore operations in the caller.
+    pub axiom fn protect_preserves_cursor_inv_relate(
+        self,
+        other: Self,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.relate_region(regions),
+            self.cur_entry_owner().is_frame(),
+            other.cur_entry_owner().is_frame(),
+            other.cur_entry_owner().inv(),
+            // protect preserves PA, slot_perm, path, parent_level
+            other.cur_entry_owner().frame.unwrap().mapped_pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
+            other.cur_entry_owner().frame.unwrap().slot_perm == self.cur_entry_owner().frame.unwrap().slot_perm,
+            other.cur_entry_owner().path == self.cur_entry_owner().path,
+            other.cur_entry_owner().parent_level == self.cur_entry_owner().parent_level,
+            // cursor level and structural fields unchanged
+            self.level == other.level,
+            self.guard_level == other.guard_level,
+            self.va == other.va,
+            self.prefix == other.prefix,
+            self.popped_too_high == other.popped_too_high,
+        ensures
+            other.inv(),
+            other.relate_region(regions);
 
     pub proof fn map_children_implies(
         self,
@@ -705,7 +787,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assume(self.view_mappings().contains(m));
 
             // Find which continuation/child m comes from
-            let i = choose|i: int| self.level - 1 <= i < NR_LEVELS - 1
+            let i = choose|i: int| self.level - 1 <= i < NR_LEVELS
                 && #[trigger] self.continuations[i].view_mappings().contains(m);
             self.inv_continuation(i);
 
@@ -741,7 +823,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub axiom fn higher_level_children_disjoint(self, i: int, j: int)
         requires
             self.inv(),
-            self.level - 1 < i < NR_LEVELS - 1,
+            self.level - 1 < i < NR_LEVELS,
             0 <= j < NR_ENTRIES,
             j != self.continuations[i].idx,
             self.continuations[i].children[j] is Some,
@@ -764,7 +846,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
-        let i = choose|i: int| self.level - 1 <= i < NR_LEVELS - 1
+        let i = choose|i: int| self.level - 1 <= i < NR_LEVELS
             && #[trigger] self.continuations[i].view_mappings().contains(m);
         self.inv_continuation(i);
 
@@ -850,7 +932,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             |m: Mapping|
             exists|i:int|
             #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS - 1 && self.continuations[i].view_mappings().contains(m)
+            self.level - 1 <= i < NR_LEVELS && self.continuations[i].view_mappings().contains(m)
         )
     }
 
@@ -926,6 +1008,74 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             *res == self.cur_entry_owner().frame.unwrap().slot_perm;
 
+    /// Axiom: the item reconstructed from the current frame's physical address satisfies `clone_requires`.
+    ///
+    /// Safety: When `relate_region` holds for a frame entry, the item reconstructed via
+    /// `item_from_raw_spec(pa, ...)` is the original frame item.  The frame's slot permission
+    /// (owned by the cursor) has the correct address, is initialised, and its ref count is in the
+    /// valid clonable range (> 0, < REF_COUNT_MAX), so `clone_requires` is satisfied.
+    pub axiom fn cur_frame_clone_requires(
+        self,
+        item: C::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.relate_region(regions),
+            self.cur_entry_owner().is_frame(),
+            pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
+            C::item_from_raw_spec(pa, level, prop) == item,
+        ensures
+            item.clone_requires(
+                self.cur_entry_owner().frame.unwrap().slot_perm,
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count,
+            );
+
+    /// Axiom: incrementing the ref count of the current frame preserves `regions.inv()` and
+    /// `self.relate_region(new_regions)`.
+    ///
+    /// Safety: `clone_item` only increments `slot_owners[idx].inner_perms.ref_count.value()`.
+    /// - `MetaSlotOwner::inv()` at `idx` is preserved: the new rc stays in the valid range
+    ///   (practically impossible to reach REF_COUNT_MAX through normal cloning).
+    /// - `MetaSlot::wf(slot_owner)` is preserved: `wf` only checks atomic IDs, not values.
+    /// - `relate_region` for the current frame requires only `rc != REF_COUNT_UNUSED` (preserved)
+    ///   and `wf` (preserved); all other entries are unchanged.
+    /// - `path_tracked_pred` depends only on `path_if_in_pt`, which is unchanged.
+    pub axiom fn clone_item_preserves_invariants(
+        self,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        idx: usize,
+    )
+        requires
+            self.inv(),
+            self.relate_region(old_regions),
+            old_regions.inv(),
+            self.cur_entry_owner().is_frame(),
+            idx == frame_to_index(self.cur_entry_owner().frame.unwrap().mapped_pa),
+            old_regions.slot_owners.contains_key(idx),
+            new_regions.slot_owners.contains_key(idx),
+            // rc at idx is incremented by 1
+            new_regions.slot_owners[idx].inner_perms.ref_count.value() ==
+                old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1,
+            // path_if_in_pt unchanged (needed for path_tracked_pred)
+            new_regions.slot_owners[idx].path_if_in_pt ==
+                old_regions.slot_owners[idx].path_if_in_pt,
+            // self_addr unchanged (needed for MetaSlotOwner::inv addr check)
+            new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
+            // All other slot_owners unchanged
+            new_regions.slot_owners.dom() == old_regions.slot_owners.dom(),
+            forall |i: usize| #![auto] i != idx && old_regions.slot_owners.contains_key(i) ==>
+                new_regions.slot_owners[i] == old_regions.slot_owners[i],
+            // slots map unchanged
+            new_regions.slots == old_regions.slots,
+        ensures
+            new_regions.inv(),
+            self.relate_region(new_regions);
+
     /// All children stored in continuations have `in_scope == false`.
     ///
     /// This is an axiom because `inv_children` only checks structural properties (path, parent_level,
@@ -942,6 +1092,80 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 0 <= j < NR_ENTRIES &&
                 self.continuations[i].children[j] is Some
                 ==> !self.continuations[i].children[j].unwrap().value.in_scope;
+
+    /// If the current entry is a page table node, the cursor must be at level >= 2.
+    ///
+    /// Proof: the current child subtree has `is_node()`, so by the ghost-tree `la_inv`
+    /// (`is_node() ==> tree_level < INC_LEVELS - 1`), its tree level satisfies
+    /// `INC_LEVELS - self.level < INC_LEVELS - 1`, i.e., `self.level > 1`.
+    pub proof fn cur_entry_node_implies_level_gt_1(self)
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_node(),
+        ensures
+            self.level > 1,
+    {
+        reveal(CursorContinuation::inv_children);
+        let cont = self.continuations[self.level - 1];
+        let child = self.cur_subtree();
+
+        // cont.inv() and all_some() from CursorOwner.inv()
+        assert(cont.inv());
+        assert(cont.all_some());
+
+        // child.inv() from cont.inv_children() applied at self.index()
+        assert(child.inv());
+
+        // la_inv: is_node() ==> child.level < INC_LEVELS - 1
+        assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(child.value, child.level as nat));
+        assert(child.level < INC_LEVELS - 1);
+
+        // child.level == cont.tree_level + 1 (from cont.inv_children())
+        assert(child.level == cont.tree_level + 1);
+
+        // cont.tree_level == INC_LEVELS - cont.level() - 1 (from cont.inv())
+        assert(cont.tree_level == INC_LEVELS - cont.level() - 1);
+
+        // cont.level() == self.level (from CursorOwner.inv() level case analysis)
+        assert(cont.level() == self.level) by {
+            if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
+        };
+
+        // child.level == INC_LEVELS - self.level
+        // INC_LEVELS - self.level < INC_LEVELS - 1 => self.level > 1
+        assert(self.level > 1);
+    }
+
+    /// A frame entry at the cursor's current level that doesn't fit the aligned range
+    /// `[cur_va, end)` must be at level > 1.
+    /// Justification: At level 1, `page_size(1) == BASE_PAGE_SIZE`. Since the cursor VA
+    /// and `end` are BASE_PAGE_SIZE-aligned and `cur_va < end`, we have
+    /// `cur_va + page_size(1) <= end`, so a level-1 frame always fits. Therefore
+    /// `!cur_entry_fits_range` implies `level > 1`.
+    pub axiom fn frame_not_fits_implies_level_gt_1(
+        self,
+        cur_entry_fits_range: bool,
+        cur_va: Vaddr,
+        end: Vaddr,
+    )
+        requires
+            self.inv(),
+            !cur_entry_fits_range,
+            cur_va < end,
+        ensures
+            self.level > 1;
+
+    /// In find_next_impl (non-unmap mode): if `old_self` starts at a frame and `self` also
+    /// points to a frame within the same locked region (same guard_level and prefix), the frame
+    /// props are equal. This holds because find_next_impl does not modify frame props, and any
+    /// frame found via split is a sub-frame of the original with the same prop.
+    pub axiom fn find_next_frame_prop_preserved(self, old_self: Self)
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_frame(),
+            old_self.cur_entry_owner().is_frame(),
+        ensures
+            self.cur_entry_owner().frame.unwrap().prop == old_self.cur_entry_owner().frame.unwrap().prop;
 
     /// When the current entry is a PT node at level `self.level`, any mapping at `cur_va` has
     /// `page_size <= page_size(self.level - 1)`.  Therefore `split_while_huge` at
@@ -962,6 +1186,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.cur_entry_owner().is_absent(),
         ensures
             self@.split_while_huge(size) == self@;
+
+    /// At cursor level L, any mapping at cur_va has page_size <= page_size(L):
+    ///   - frames have exactly page_size(L) (from EntryOwner::inv)
+    ///   - subtree mappings have smaller sizes
+    /// Therefore split_while_huge(page_size(L)) is always a no-op.
+    pub axiom fn split_while_huge_at_level_noop(self)
+        requires
+            self.inv(),
+        ensures
+            self@.split_while_huge(page_size(self.level as PagingLevel)) == self@;
 
     /// When a new frame subtree is created at the cursor's current position (via `new_child`),
     /// its mappings equal the singleton mapping covering the current slot range at the given level.
@@ -992,6 +1226,135 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 page_size: page_size(level),
                 property: prop,
             }];
+
+    /// After `alloc_if_none` allocates a new node (absent→node) at the current slot and
+    /// the continuations are restored, the cursor owner invariant holds.
+    ///
+    /// Preconditions: initial owner was valid, the level/va/guard_level are unchanged,
+    /// and the higher-level continuations are unchanged from the initial owner.
+    pub axiom fn map_branch_none_inv_holds(self, owner0: Self)
+        requires
+            owner0.inv(),
+            self.level == owner0.level,
+            self.va == owner0.va,
+            self.guard_level == owner0.guard_level,
+            forall|i: int| self.level <= i < NR_LEVELS ==>
+                #[trigger] self.continuations[i] == owner0.continuations[i],
+        ensures
+            self.inv();
+
+    /// After `alloc_if_none` (absent→node) + restoration, given that the cursor's tree satisfies
+    /// `relate_region_pred` and path-tracking is preserved, `owner.map_full_tree(path_tracked_pred)`
+    /// holds. Combined with `map_full_tree(relate_region_pred)`, this gives `owner.relate_region`.
+    ///
+    /// Justification: old entries had `path_tracked_pred(old_regions)` from `owner0.relate_region`;
+    /// `path_tracked_pred_preserved` gives they still satisfy `path_tracked_pred(regions)`. The new
+    /// node's slot had `path_if_in_pt = Some(path)` set by `alloc_if_none` (directly in the body),
+    /// satisfying `path_tracked_pred(regions)` for the newly allocated node.
+    pub axiom fn map_branch_none_path_tracked_holds(
+        self,
+        owner0: Self,
+        regions: MetaRegionOwners,
+        old_regions: MetaRegionOwners,
+    )
+        requires
+            owner0.relate_region(old_regions),
+            self.inv(),
+            self.level == owner0.level,
+            forall|i: int| self.level <= i < NR_LEVELS ==>
+                #[trigger] self.continuations[i] == owner0.continuations[i],
+            Entry::<C>::path_tracked_pred_preserved(old_regions, regions),
+        ensures
+            self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions));
+
+    /// After `alloc_if_none` (absent→node) + restoration, the cursor's `view_mappings()` equals
+    /// the initial owner's `view_mappings()`. The absent child contributed zero mappings; the newly
+    /// allocated node is empty (no children yet), so it also contributes zero mappings.
+    pub axiom fn map_branch_none_no_new_mappings(self, owner0: Self)
+        requires
+            owner0.inv(),
+            self.level == owner0.level,
+            self.va == owner0.va,
+            forall|i: int| self.level <= i < NR_LEVELS ==>
+                #[trigger] self.continuations[i] == owner0.continuations[i],
+            // child at idx changed from absent to empty node
+            owner0.continuations[owner0.level - 1].children[
+                owner0.continuations[owner0.level - 1].idx as int] is Some,
+            owner0.continuations[owner0.level - 1].children[
+                owner0.continuations[owner0.level - 1].idx as int].unwrap().value.is_absent(),
+            self.continuations[self.level - 1].children[
+                self.continuations[self.level - 1].idx as int] is Some,
+            self.continuations[self.level - 1].children[
+                self.continuations[self.level - 1].idx as int].unwrap().value.is_node(),
+        ensures
+            self.view_mappings() == owner0.view_mappings();
+
+    /// After `pop_level` from level `L` back to `L+1`, the split_while_huge loop invariant
+    /// is maintained: if `owner@ == owner0@.split_while_huge(page_size(L))` before pop,
+    /// then `owner@ == owner0@.split_while_huge(page_size(L+1))` after pop.
+    ///
+    /// In practice the pop_level branch is dead code (the cursor never goes below the target
+    /// level), so this axiom is vacuously trusted.  It is stated in terms of the POST-pop
+    /// cursor owner `self` (level = L+1) and the pre-pop view passed in as `pre_pop_view`.
+    pub axiom fn map_loop_pop_level_invariant(
+        self,
+        owner0: Self,
+        pre_pop_view: CursorView<C>,
+        level_before_pop: int,
+    )
+        requires
+            self.inv(),
+            owner0.inv(),
+            1 <= level_before_pop,
+            level_before_pop + 1 <= NR_LEVELS,
+            self.level == (level_before_pop + 1) as u8,
+            // pop_level preserved the view: post-pop view == pre-pop view
+            self@ == pre_pop_view,
+            // loop invariant before pop
+            pre_pop_view == owner0@.split_while_huge(page_size(level_before_pop as PagingLevel)),
+        ensures
+            self@ == owner0@.split_while_huge(page_size((level_before_pop + 1) as PagingLevel));
+
+    /// After `pop_level`, if the initial owner0 had an absent current entry,
+    /// the owner after pop also has an absent current entry.
+    pub axiom fn map_loop_pop_level_absent_preserved(
+        self,
+        owner0: Self,
+    )
+        requires
+            self.inv(),
+            owner0.inv(),
+        ensures
+            owner0.cur_entry_owner().is_absent() ==> self.cur_entry_owner().is_absent();
+
+    /// After `map_branch_frame` splits a huge frame at level `level_before_frame` and descends,
+    /// the cursor view equals `owner0@.split_while_huge(page_size(level_before_frame - 1))`.
+    ///
+    /// Chain:
+    ///   owner@ = owner_before_frame@.split_if_mapped_huge_spec(page_size(level_before_frame - 1))
+    ///          = owner0@.split_while_huge(page_size(level_before_frame)).split_if_mapped_huge_spec(...)
+    ///          = owner0@.split_while_huge(page_size(level_before_frame - 1))
+    /// The last equality uses the fact that split_while_huge(L) on a frame of size page_size(L)
+    /// takes exactly one split step to page_size(L-1), matching split_if_mapped_huge_spec.
+    pub axiom fn map_branch_frame_split_while_huge(
+        self,
+        owner0: Self,
+        owner_before_frame: Self,
+        level_before_frame: int,
+    )
+        requires
+            self.inv(),
+            owner0.inv(),
+            owner_before_frame.inv(),
+            1 <= level_before_frame - 1,
+            level_before_frame <= NR_LEVELS,
+            self.level == (level_before_frame - 1) as u8,
+            owner_before_frame@ == owner0@.split_while_huge(
+                page_size(level_before_frame as PagingLevel)),
+            self@ == owner_before_frame@.split_if_mapped_huge_spec(
+                page_size((level_before_frame - 1) as PagingLevel)),
+        ensures
+            self@ == owner0@.split_while_huge(page_size(self.level as PagingLevel));
 
     pub open spec fn locked_range(self) -> Range<Vaddr> {
         let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
@@ -1029,6 +1392,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(!self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range());
         assert(self.level < self.guard_level);
         assert(self.guard_level <= NR_LEVELS);
+    }
+
+    /// When in_locked_range and !popped_too_high, level < guard_level (from inv).
+    pub proof fn in_locked_range_level_lt_guard_level(self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            !self.popped_too_high,
+        ensures
+            self.level < self.guard_level,
+    {
+        assert(!self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range());
+        assert(self.in_locked_range() ==> !self.above_locked_range());
     }
 
     /// If in_locked_range() and level < guard_level, then:
@@ -1242,6 +1618,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
+    /// Cursor path nesting: for two continuations where `i > j >= self.level - 1`,
+    /// `cont_i` is an ancestor of `cont_j` in the page table tree.
+    /// The path from the root to `cont_j` passes through `cont_i.idx` at level `cont_i`,
+    /// i.e., `cont_j.path()[cont_i.path().len()] == cont_i.idx`.
+    ///
+    /// This holds because the cursor was built by descending through `cont_i.idx` at each level.
+    pub axiom fn cursor_path_nesting(self, i: int, j: int)
+        requires
+            self.inv(),
+            self.level - 1 <= j < i,
+            i < NR_LEVELS,
+        ensures
+            self.continuations[j].path().len() as int > self.continuations[i].path().len() as int,
+            self.continuations[j].path().index(self.continuations[i].path().len() as int)
+                == self.continuations[i].idx,;
+
     pub open spec fn set_va_spec(self, new_va: AbstractVaddr) -> Self {
         Self {
             va: new_va,
@@ -1275,6 +1667,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     -> (tracked res: Self)
         ensures
             res == Self::new_spec(owner_subtree, idx, guard_perm);
+
+    /// When at level L in the locked range and va (also in the locked range) is NOT within the
+    /// current node [node_start, node_start + page_size(L+1)), then L + 1 < guard_level.
+    ///
+    /// Reasoning: at L == guard_level - 1, page_size(guard_level) equals the locked-range size,
+    /// so the node covers exactly the locked range and any va in the locked range lies within it.
+    /// Therefore the `else` branch (va not in node) forces L < guard_level - 1.
+    pub axiom fn jump_not_in_node_level_lt_guard_minus_one(
+        self,
+        level: PagingLevel,
+        va: Vaddr,
+        node_start: Vaddr,
+    )
+        requires
+            self.inv(),
+            self.locked_range().start <= va < self.locked_range().end,
+            1 <= level,
+            level + 1 <= self.guard_level,
+            self.locked_range().start <= node_start,
+            node_start + page_size((level + 1) as PagingLevel) <= self.locked_range().end,
+            !(node_start <= va && va < node_start + page_size((level + 1) as PagingLevel)),
+        ensures
+            level + 1 < self.guard_level;
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {

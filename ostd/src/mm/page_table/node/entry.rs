@@ -194,6 +194,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.parent_perms_preserved(*old(parent_owner), *parent_owner, *old(guard_perm), *guard_perm),
             owner.is_frame(),
             owner.frame.unwrap().mapped_pa == old(owner).frame.unwrap().mapped_pa,
+            owner.frame.unwrap().slot_perm == old(owner).frame.unwrap().slot_perm,
+            owner.path == old(owner).path,
+            owner.parent_level == old(owner).parent_level,
             old(self).pte.is_present() ==> op.ensures((old(owner).frame.unwrap().prop,), owner.frame.unwrap().prop),
     {
         let ghost pte0 = self.pte;
@@ -424,6 +427,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
                 &&& Self::relate_region_neq_preserved(old(owner).value, owner.value, *old(regions), *regions)
                 &&& Self::path_tracked_pred_preserved(*old(regions), *regions)
+                &&& old(regions).slots.contains_key(frame_to_index(owner.value.meta_slot_paddr().unwrap()))
                 &&& owner.tree_predicate_map(owner.value.path,
                     CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
                 &&& owner.tree_predicate_map(owner.value.path, PageTableOwner::<C>::relate_region_pred(*regions))
@@ -515,6 +519,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 owner.children = new_node_owner.children;
 
                 let new_paddr = owner.value.meta_slot_paddr().unwrap();
+                assert(old(regions).slots.contains_key(frame_to_index(new_paddr)));
                 regions.inv_implies_correct_addr(new_paddr);
                 let new_idx = frame_to_index(new_paddr);
                 let tracked mut new_meta_slot = regions.slot_owners.tracked_remove(new_idx);

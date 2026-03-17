@@ -162,6 +162,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
             MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *regions),
+            old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
             owner@.value.relate_region(*regions),
             owner@.value.in_scope,
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),

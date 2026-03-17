@@ -466,6 +466,47 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
+    /// `Node::new(lv)` has all-None children, so `tree_predicate_map` reduces to `f(default(lv), path)`.
+    pub proof fn new_tree_predicate_map(lv: nat, path: TreePath<N>, f: spec_fn(T, TreePath<N>) -> bool)
+        requires lv < L, Self::new(lv).inv(), f(T::default(lv), path),
+        ensures  Self::new(lv).tree_predicate_map(path, f),
+    {
+        // Self::new(lv).children[i] = None for all i, so the forall in tree_predicate_map is vacuous.
+    }
+
+    /// `Node::new_val(val, lv)` has children `Some(Node::new(lv+1))` (absent defaults).
+    /// `tree_predicate_map` holds if `f(val, path)` and `f` is trivially true for all defaults.
+    pub proof fn new_val_tree_predicate_map(
+        self,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool,
+    )
+        requires
+            self.inv(),
+            self == Self::new_val(self.value, self.level),
+            f(self.value, path),
+            forall|lv: nat, p: TreePath<N>| lv < L ==> #[trigger] f(T::default(lv), p),
+        ensures
+            self.tree_predicate_map(path, f),
+    {
+        if self.level < L - 1 {
+            assert forall|j: int|
+                #![auto]
+                0 <= j < self.children.len()
+                    && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
+                path.push_tail(j as usize),
+                f,
+            ) by {
+                // self.children[j] = Some(Self::new(self.level + 1)) by new_val definition
+                assert(self.children[j] == Some(Self::new(self.level + 1)));
+                // child.inv() follows from self.inv() (recursive invariant)
+                assert(self.children[j].unwrap().inv());
+                assert(Self::new(self.level + 1).inv());
+                Self::new_tree_predicate_map(self.level + 1, path.push_tail(j as usize), f);
+            };
+        }
+    }
+
     /// Proves `tree_predicate_map(self, path, g)` from two source predicates `f1`, `f2`,
     /// and the implication `forall |v, p| v.inv() && f1(v, p) && f2(v, p) ==> g(v, p)`.
     pub proof fn map_implies_and(

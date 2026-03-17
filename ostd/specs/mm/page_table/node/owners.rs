@@ -99,7 +99,7 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
         &&& self.level == self.meta_perm.value().metadata.level
-        &&& self.tree_level == INC_LEVELS - self.level
+        &&& self.tree_level == INC_LEVELS - self.level - 1
     }
 }
 

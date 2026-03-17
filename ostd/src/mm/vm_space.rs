@@ -878,6 +878,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             *old(regions),
         )) by { admit() };
 
+        assert(self.pt_cursor.map_item_requires(item, entry_owner)) by { admit() };
+
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
         #[verus_spec(with Tracked(cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]

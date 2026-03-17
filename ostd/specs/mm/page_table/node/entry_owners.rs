@@ -205,6 +205,24 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
+    /// PointsTo uniqueness: if meta slot `free_idx` is in the free pool (`regions.slots`),
+    /// no active page table entry can own a PointsTo at the same slot address.
+    /// Justified by Verus's linear ownership of `PointsTo<MetaSlot>`:
+    /// the slot's PointsTo is either in `regions.slots` OR held by an active entry, never both.
+    pub axiom fn active_entry_not_in_free_pool(
+        entry: Self,
+        regions: MetaRegionOwners,
+        free_idx: usize,
+    )
+        requires
+            regions.inv(),
+            entry.inv(),
+            entry.relate_region(regions),
+            regions.slots.contains_key(free_idx),
+            entry.meta_slot_paddr() is Some,
+        ensures
+            frame_to_index(entry.meta_slot_paddr().unwrap()) != free_idx;
+
     pub axiom fn get_path(self) -> tracked TreePath<NR_ENTRIES>
         returns self.path;
 
@@ -222,6 +240,43 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.meta_slot_paddr() is Some ==>
         other.meta_slot_paddr() is Some ==>
         self.meta_slot_paddr().unwrap() != other.meta_slot_paddr().unwrap()
+    }
+
+    /// `relate_region` only uses `regions.slot_owners`, not `regions.slots`.
+    /// So if two `MetaRegionOwners` have the same `slot_owners`, `relate_region` transfers.
+    pub proof fn relate_region_slot_owners_only(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
+        requires
+            self.relate_region(r0),
+            r0.slot_owners == r1.slot_owners,
+        ensures
+            self.relate_region(r1),
+    {
+        // relate_region is an open spec fn referencing only r.slot_owners[idx],
+        // so equality of slot_owners makes the two predicates equivalent.
+    }
+
+    /// Under `relate_region` + `path_if_in_pt is Some`, two entries with the same physical
+    /// address must have the same path. Equivalently, different paths ↔ different paddrs.
+    /// This is the fundamental paddr-uniqueness invariant: `path_if_in_pt` encodes the
+    /// unique path for each physical address in the page table.
+    pub proof fn same_paddr_implies_same_path(self, other: Self, regions: MetaRegionOwners)
+        requires
+            self.meta_slot_paddr() is Some,
+            self.meta_slot_paddr() == other.meta_slot_paddr(),
+            self.relate_region(regions),
+            other.relate_region(regions),
+            regions.slot_owners[
+                frame_to_index(self.meta_slot_paddr().unwrap())
+            ].path_if_in_pt is Some,
+        ensures
+            self.path == other.path,
+    {
+        let pa = self.meta_slot_paddr().unwrap();
+        let idx = frame_to_index(pa);
+        // relate_region for both self and other: path_if_in_pt is Some => path_if_in_pt == self.path
+        // The precondition gives path_if_in_pt is Some, so the conditional fires.
+        assert(regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path);
+        assert(regions.slot_owners[idx].path_if_in_pt.unwrap() == other.path);
     }
 
     /// Two nodes satisfying relate_region with the same regions have different addresses
