@@ -13,9 +13,9 @@ use vstd::storage_protocol::*;
 verus! {
 
 /// A sum-type protocol monoid that stores a tracked object of either type A or type B.
-/// 
-/// The knowledge of the existence of a specific type of resource can be shared up to TOTAL pieces, 
-/// but only one piece has the exclusive ownership of the resource, 
+///
+/// The knowledge of the existence of a specific type of resource can be shared up to TOTAL pieces,
+/// but only one piece has the exclusive ownership of the resource,
 /// allowing arbitrary withdrawing, depositing, or updating.
 pub ghost enum CsumP<A, B, const TOTAL: usize> {
     /// The unit element, only for technical reasons, not intended to be used directly.
@@ -33,10 +33,9 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
         match (self, other) {
             (CsumP::Unit, x) => x,
             (x, CsumP::Unit) => x,
-            (CsumP::Cinl(ov1, n1,b1), CsumP::Cinl(ov2, n2,b2)) => {
-                if !self.is_valid() || !other.is_valid() 
-                || n1 + n2 > TOTAL || b1 && b2 || ov1 is Some && ov2 is Some
-                {
+            (CsumP::Cinl(ov1, n1, b1), CsumP::Cinl(ov2, n2, b2)) => {
+                if !self.is_valid() || !other.is_valid() || n1 + n2 > TOTAL || b1 && b2
+                    || ov1 is Some && ov2 is Some {
                     CsumP::CsumInvalid
                 } else {
                     CsumP::Cinl(
@@ -51,8 +50,8 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
                 }
             },
             (CsumP::Cinr(ov1, n1, b1), CsumP::Cinr(ov2, n2, b2)) => {
-                if !self.is_valid() || !other.is_valid() 
-                || n1 + n2 > TOTAL || b1 && b2 || ov1 is Some && ov2 is Some {
+                if !self.is_valid() || !other.is_valid() || n1 + n2 > TOTAL || b1 && b2
+                    || ov1 is Some && ov2 is Some {
                     CsumP::CsumInvalid
                 } else {
                     CsumP::Cinr(
@@ -74,15 +73,11 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
         match self {
             CsumP::Unit => s.is_empty(),
             CsumP::Cinl(None, n, true) => 0 <= n <= TOTAL && s.is_empty(),
-            CsumP::Cinl(Some(a), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()] == Sum::<
-                A,
-                B,
-            >::Left(a),
+            CsumP::Cinl(Some(a), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()]
+                == Sum::<A, B>::Left(a),
             CsumP::Cinr(None, n, true) => 0 <= n <= TOTAL && s.is_empty(),
-            CsumP::Cinr(Some(b), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()] == Sum::<
-                A,
-                B,
-            >::Right(b),
+            CsumP::Cinr(Some(b), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()]
+                == Sum::<A, B>::Right(b),
             _ => false,
         }
     }
@@ -94,7 +89,8 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
     proof fn commutative(a: Self, b: Self) {
     }
 
-    proof fn associative(a: Self, b: Self, c: Self) {}
+    proof fn associative(a: Self, b: Self, c: Self) {
+    }
 
     proof fn op_unit(a: Self) {
     }
@@ -120,8 +116,7 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
     }
 
     /// Whether the protocol monoid currently owns a resource, only meaningful when it is the exclusive owner.
-    pub open spec fn has_resource(self) -> bool 
-    {
+    pub open spec fn has_resource(self) -> bool {
         match self {
             CsumP::Cinl(ov, n, true) => ov is Some,
             CsumP::Cinr(ov, n, true) => ov is Some,
@@ -198,7 +193,6 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         }
     }
 
-    
     pub proof fn lemma_withdraws_right(self)
         requires
             self.is_resource_owner(),
@@ -231,7 +225,7 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
             },
         }
     }
-    
+
     pub proof fn lemma_deposit_left(self, a: A)
         requires
             self.is_resource_owner(),
@@ -251,10 +245,10 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                     resource_map.dom(),
                 ) && t1.union_prefer_right(resource_map) == t2
             } by {
-                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
-            }
+            assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
+        }
     }
-    
+
     pub proof fn lemma_deposit_right(self, b: B)
         requires
             self.is_resource_owner(),
@@ -282,6 +276,7 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         requires
             self.is_left() || self.is_right(),
             self.frac() == TOTAL,
+            self.is_resource_owner(),
             self.has_resource_taken(),
         ensures
             updates(self, CsumP::Cinl(None, self.frac(), true)),
