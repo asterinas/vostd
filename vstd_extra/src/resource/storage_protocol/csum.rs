@@ -142,19 +142,13 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                 let resource_map = map![() => resource];
                 let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(None, n);
                 assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-                    #![all_triggers]
+                    #![auto]
                     CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
-                    #![all_triggers]
+                    #![auto]
                     CsumP::rel(CsumP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
                     ) && t1 =~= t2.union_prefer_right(resource_map) by {
                     let t2 = Map::empty();
-                    if n < TOTAL {
-                        assert(q == CsumP::<A, B, TOTAL>::Cinl(None, TOTAL as int - n));
-                    } else {
-                        assert(n == TOTAL as int);
-                        assert(q is Unit);
-                    }
                     assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
                     assert(t1 =~= t2.union_prefer_right(resource_map));
@@ -180,19 +174,13 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                 let resource_map = map![() => resource];
                 let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(None, n);
                 assert forall|q: Self, t1: Map<(), Sum<A, B>>|
-                    #![all_triggers]
+                    #![auto]
                     CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
-                    #![all_triggers]
+                    #![auto]
                     CsumP::rel(CsumP::op(new_protocol_monoid, q), t2) && t2.dom().disjoint(
                         resource_map.dom(),
                     ) && t1 =~= t2.union_prefer_right(resource_map) by {
                     let t2 = Map::empty();
-                    if n < TOTAL {
-                        assert(q == CsumP::<A, B, TOTAL>::Cinr(None, TOTAL as int - n));
-                    } else {
-                        assert(n == TOTAL as int);
-                        assert(q is Unit);
-                    }
                     assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), t2));
                     assert(t2.dom().disjoint(resource_map.dom()));
                     assert(t1 =~= t2.union_prefer_right(resource_map));
@@ -222,8 +210,6 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                     resource_map.dom(),
                 ) && t1.union_prefer_right(resource_map) == t2
             } by {
-            assert(q is Unit);
-            assert(t1 == empty_map);
             assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
         }
     }
@@ -246,8 +232,6 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                     resource_map.dom(),
                 ) && t1.union_prefer_right(resource_map) == t2
             } by {
-            assert(q is Unit);
-            assert(t1 == empty_map);
             assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
         }
     }
