@@ -289,10 +289,41 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
         (Self { r }, res)
     }
 
-    /* proof fn join_left(tracked self, tracked other: Left<A,B,TOTAL>) -> (tracked res: Self)
-        requires
-            self.id() == other.id(),
-        ensures */
+    proof fn join_left(tracked self, tracked other: Left<A,B,TOTAL>) -> (tracked res: Self)
+    requires
+        self.id() == other.id(),
+    ensures
+        res.id() == self.id(),
+        res.has_resource() == self.has_resource() || other.has_resource(),
+        res.has_resource() ==>
+        res.resource() == if self.has_resource() { self.resource() } else { Sum::Left(other.resource()) },
+        res.frac() == self.frac() + other.frac(),
+    {
+        use_type_invariant(&self);
+        use_type_invariant(&other);
+        let tracked mut this = self;
+        this.validate_with_left(&other);
+        let tracked r = StorageResource::join(this.r, other.r);
+        Self { r }
+    }
+
+    pub proof fn join_right(tracked self, tracked other: Right<A,B,TOTAL>) -> (tracked res: Self)
+    requires
+        self.id() == other.id(),
+    ensures
+        res.id() == self.id(),
+        res.has_resource() == self.has_resource() || other.has_resource(),
+        res.has_resource() ==>
+        res.resource() == if self.has_resource() { self.resource() } else { Sum::Right(other.resource()) },
+        res.frac() == self.frac() + other.frac(),
+    {
+        use_type_invariant(&self);
+        use_type_invariant(&other);
+        let tracked mut this = self;
+        this.validate_with_right(&other);
+        let tracked r = StorageResource::join(this.r, other.r);
+        Self { r }
+    }
 }
 
 impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
@@ -553,6 +584,7 @@ impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
         let tracked (r1, r2) = self.r.split(CsumP::Cinr(self.protocol_monoid()->Cinr_0, self.frac() - n), CsumP::Cinr(None,n));
         ( Self { r: r1 }, Self { r: r2 } )
     }
+
 }
 
 }
