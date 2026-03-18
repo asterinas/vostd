@@ -548,11 +548,11 @@ dependencies = [
 
 [[package]]
 name = "verus_builtin"
-version = "0.0.0-2026-03-01-0109"
+version = "0.0.0-2026-03-17-2326"
 
 [[package]]
 name = "verus_builtin_macros"
-version = "0.0.0-2026-03-15-0111"
+version = "0.0.0-2026-03-17-2326"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -603,7 +603,7 @@ checksum = "af8ca9a5d4debca0633e697c88269395493cebf2e10db21ca2dbde37c1356452"
 
 [[package]]
 name = "vstd"
-version = "0.0.0-2026-03-15-0111"
+version = "0.0.0-2026-03-17-2326"
 dependencies = [
  "verus_builtin",
  "verus_builtin_macros",
