@@ -9,47 +9,65 @@ use crate::sum::*;
 use super::excl::UniqueTokenStorage;
 
 verus! {
+/// `SumResource` is a token that maintains access to a resource of either type `A` or type `B`. 
+/// It can be split into up to `TOTAL` fractions, one of which have the exclusive right to access the resource, 
+/// and others shares the knowledge of the resource's existence and type, but not the ability to access it.
 pub tracked struct SumResource<A, B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
+/// `Left` ensures the resource is of type `A`.
 pub tracked struct Left<A,B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
+/// `Right` ensures the resource is of type `B`.
 pub tracked struct Right<A,B, const TOTAL:usize = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
 impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
+    /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
 
+    /// The underlying protocol monoid value for this resource.
     pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
         self.r.value()
     }
 
+    /// Whether this token has the right to access the underlying resource.
+    pub open spec fn is_resource_owner(self) -> bool {
+        self.protocol_monoid().is_resource_owner()
+    }
+
+    /// The resource value, only meaningful if `is_resource_owner` is true.
     pub open spec fn resource(self) -> Sum<A, B> {
         self.protocol_monoid().resource()
     }
 
+    /// Whether this token is a Left variant.
     pub open spec fn is_left(self) -> bool {
         self.protocol_monoid().is_left()
     }
 
+    /// Whether this token is a Right variant.
     pub open spec fn is_right(self) -> bool {
         self.protocol_monoid().is_right()
     }
 
+    /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource(self) -> bool {
         self.protocol_monoid().has_resource()
     }
 
+    /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource_taken(self) -> bool {
         self.protocol_monoid().has_resource_taken()
     }
 
+    /// The fraction this token represents.
     pub open spec fn frac(self) -> int {
         self.protocol_monoid().frac()
     }
@@ -58,7 +76,7 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
     pub open spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
         &&& 1 <= self.frac() <= TOTAL
-        &&& self.has_resource() || self.has_resource_taken()
+        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken())
         &&& self.is_left() || self.is_right()
     }
 
@@ -67,41 +85,53 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
         self.type_inv()
     }
 
+    /// Allocates a new `SumResource` with the resource of type `A`.
     pub proof fn alloc_left(tracked a: A) -> (tracked res: Self)
         requires
             TOTAL > 0,
         ensures
             res.is_left(),
+            res.is_resource_owner(),
             res.has_resource(),
             res.resource() == Sum::<A,B>::Left(a),
+            res.frac() == TOTAL,
     {
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A,B>::Left(a));
-        let tracked r = StorageResource::alloc( CsumP::Cinl(Some(a), TOTAL as int),m);
+        let tracked r = StorageResource::alloc( CsumP::Cinl(Some(a), TOTAL as int, true),m);
         Self { r }
     }
-
+    
+    /// Allocates a new `SumResource` with the resource of type `B`.
     pub proof fn alloc_right(tracked b: B) -> (tracked res: Self)
         requires
             TOTAL > 0,
         ensures
             res.is_right(),
+            res.is_resource_owner(),
             res.has_resource(),
             res.resource() == Sum::<A,B>::Right(b),
+            res.frac() == TOTAL,
     {
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A,B>::Right(b));
-        let tracked r = StorageResource::alloc( CsumP::Cinr(Some(b), TOTAL as int),m);
+        let tracked r = StorageResource::alloc( CsumP::Cinr(Some(b), TOTAL as int, true),m);
         Self { r }
     }
+    
+    /// Validates the internal consistency of this resource token.
+    pub proof fn validate(tracked &self)
+    ensures
+        self.wf(),
+            TOTAL > 0,
+            1 <= self.frac() <= TOTAL,
+            self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+            self.is_left() || self.is_right(),
+    {
+        use_type_invariant(&*self);
+    }
 
-        pub proof fn validate(tracked &self)
-        ensures
-            self.wf()
-        {
-            use_type_invariant(&*self);
-        }
-
+    /*
     pub proof fn validate_with_other(tracked &mut self, tracked other: &Self)
         requires
             {
@@ -323,18 +353,27 @@ impl<A, B, const TOTAL:usize> SumResource<A, B, TOTAL> {
         this.validate_with_right(&other);
         let tracked r = StorageResource::join(this.r, other.r);
         Self { r }
-    }
+    } */
 }
 
 impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
+    
+    /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
 
+    /// The underlying protocol monoid value for this resource.
     pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
         self.r.value()
     }
 
+    /// Whether this token has the right to access the underlying resource.
+    pub open spec fn is_resource_owner(self) -> bool {
+        self.protocol_monoid().is_resource_owner()
+    }
+
+    /// The resource value, only meaningful if `is_resource_owner` is true.
     pub open spec fn resource(self) -> A {
         self.protocol_monoid().resource()->Left_0
     }
@@ -351,25 +390,34 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         self.type_inv()
     }
 
+    /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource(self) -> bool {
         self.protocol_monoid().has_resource()
     }
 
+    /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource_taken(self) -> bool {
         self.protocol_monoid().has_resource_taken()
     }
 
+    /// The fraction this token represents.
     pub open spec fn frac(self) -> int {
         self.protocol_monoid().frac()
     }
 
+    /// Validates the internal consistency of this resource token.
     pub proof fn validate(tracked &self)
     ensures
-        self.wf()
+        self.wf(),
+        TOTAL > 0,
+        1 <= self.frac() <= TOTAL,
+        self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+        self.protocol_monoid().is_left(),
     {
         use_type_invariant(&*self);
     }
 
+    /* 
     pub proof fn validate_with_left(tracked &mut self, tracked other: &Self)
         requires
             old(self).id() == other.id(),
@@ -454,17 +502,26 @@ impl<A, B, const TOTAL:usize> Left<A, B, TOTAL> {
         let tracked (r1, r2) = self.r.split(CsumP::Cinl(self.protocol_monoid()->Cinl_0, self.frac() - n), CsumP::Cinl(None,n));
         ( Self { r: r1 }, Self { r: r2 } )
     }
+    */
 }
 
 impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
+    /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
 
+    /// The underlying protocol monoid value for this resource.
     pub closed spec fn protocol_monoid(self) -> CsumP<A, B, TOTAL> {
         self.r.value()
     }
 
+    /// Whether this token has the right to access the underlying resource.
+    pub open spec fn is_resource_owner(self) -> bool {
+        self.protocol_monoid().is_resource_owner()
+    }
+
+    /// The resource value, only meaningful if `is_resource_owner` is true.
     pub open spec fn resource(self) -> B {
         self.protocol_monoid().resource()->Right_0
     }
@@ -481,25 +538,34 @@ impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
         self.type_inv()
     }
 
+    /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource(self) -> bool {
         self.protocol_monoid().has_resource()
     }
 
+    /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
     pub open spec fn has_resource_taken(self) -> bool {
         self.protocol_monoid().has_resource_taken()
     }
 
+    /// The fraction this token represents.
     pub open spec fn frac(self) -> int {
         self.protocol_monoid().frac()
     }
 
+    /// Validates the internal consistency of this resource token.
     pub proof fn validate(tracked &self)
-        ensures
-            self.wf()
-        {
-            use_type_invariant(&*self);
-        }
+    ensures
+        self.wf(),
+        TOTAL > 0,
+        1 <= self.frac() <= TOTAL,
+        self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+        self.protocol_monoid().is_right(),
+    {
+        use_type_invariant(&*self);
+    }
 
+    /* 
     pub proof fn validate_with_left(tracked &self, tracked other: &Left<A,B,TOTAL>)
         ensures
             self.id() != other.id(),
@@ -584,7 +650,7 @@ impl<A, B, const TOTAL:usize> Right<A, B, TOTAL> {
         let tracked (r1, r2) = self.r.split(CsumP::Cinr(self.protocol_monoid()->Cinr_0, self.frac() - n), CsumP::Cinr(None,n));
         ( Self { r: r1 }, Self { r: r2 } )
     }
-
+    */
 }
 
 }
