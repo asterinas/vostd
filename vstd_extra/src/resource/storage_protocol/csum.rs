@@ -1,8 +1,9 @@
-//! Csum storage protocol.
+//! Sum-type storage protocol.
 use core::panic;
 
 use crate::resource::ghost_resource::excl::UniqueTokenStorage;
 use crate::sum::*;
+use vstd::math::add;
 use vstd::pcm::Loc;
 use vstd::pervasive::arbitrary;
 use vstd::prelude::*;
@@ -11,12 +12,19 @@ use vstd::storage_protocol::*;
 
 verus! {
 
-/// A Csum protocol monoid that stores either an A or a B.
-/// The knowledge of the existence of a resource can be shared up to TOTAL pieces, but the resource itself cannot be shared.
+/// A sum-type protocol monoid that stores a tracked object of either type A or type B.
+/// 
+/// The knowledge of the existence of a specific type of resource can be shared up to TOTAL pieces, 
+/// but only one piece has the exclusive ownership of the resource, 
+/// allowing arbitrary withdrawing, depositing, or updating.
 pub ghost enum CsumP<A, B, const TOTAL: usize> {
+    /// The unit element, only for technical reasons, not intended to be used directly.
     Unit,
-    Cinl(Option<A>, int),
-    Cinr(Option<B>, int),
+    /// The left side of the sum, with an optional resource, a fraction, and a boolean indicating whether it is the exclusive owner of the resource.
+    Cinl(Option<A>, int, bool),
+    /// The right side of the sum, with an optional resource, a fraction, and a boolean indicating whether it is the exclusive owner of the resource.
+    Cinr(Option<B>, int, bool),
+    /// An invalid state, used to represent an invalid combination of resources.
     CsumInvalid,
 }
 
@@ -25,8 +33,10 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
         match (self, other) {
             (CsumP::Unit, x) => x,
             (x, CsumP::Unit) => x,
-            (CsumP::Cinl(ov1, n1), CsumP::Cinl(ov2, n2)) => {
-                if n1 <= 0 || n2 <= 0 || n1 + n2 > TOTAL || ov1 is Some && ov2 is Some {
+            (CsumP::Cinl(ov1, n1,b1), CsumP::Cinl(ov2, n2,b2)) => {
+                if !self.is_valid() || !other.is_valid() 
+                || n1 + n2 > TOTAL || b1 && b2 || ov1 is Some && ov2 is Some
+                {
                     CsumP::CsumInvalid
                 } else {
                     CsumP::Cinl(
@@ -36,11 +46,13 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
                             ov2
                         },
                         n1 + n2,
+                        b1 || b2,
                     )
                 }
             },
-            (CsumP::Cinr(ov1, n1), CsumP::Cinr(ov2, n2)) => {
-                if n1 <= 0 || n2 <= 0 || n1 + n2 > TOTAL || ov1 is Some && ov2 is Some {
+            (CsumP::Cinr(ov1, n1, b1), CsumP::Cinr(ov2, n2, b2)) => {
+                if !self.is_valid() || !other.is_valid() 
+                || n1 + n2 > TOTAL || b1 && b2 || ov1 is Some && ov2 is Some {
                     CsumP::CsumInvalid
                 } else {
                     CsumP::Cinr(
@@ -50,6 +62,7 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
                             ov2
                         },
                         n1 + n2,
+                        b1 || b2,
                     )
                 }
             },
@@ -60,13 +73,13 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
     open spec fn rel(self, s: Map<(), Sum<A, B>>) -> bool {
         match self {
             CsumP::Unit => s.is_empty(),
-            CsumP::Cinl(None, n) => n == TOTAL && s.is_empty(),
-            CsumP::Cinl(Some(a), n) => n == TOTAL && s.contains_key(()) && s[()] == Sum::<
+            CsumP::Cinl(None, n, true) => 0 <= n <= TOTAL && s.is_empty(),
+            CsumP::Cinl(Some(a), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()] == Sum::<
                 A,
                 B,
             >::Left(a),
-            CsumP::Cinr(None, n) => n == TOTAL && s.is_empty(),
-            CsumP::Cinr(Some(b), n) => n == TOTAL && s.contains_key(()) && s[()] == Sum::<
+            CsumP::Cinr(None, n, true) => 0 <= n <= TOTAL && s.is_empty(),
+            CsumP::Cinr(Some(b), n, true) => 0 <= n <= TOTAL && s.contains_key(()) && s[()] == Sum::<
                 A,
                 B,
             >::Right(b),
@@ -81,66 +94,91 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
     proof fn commutative(a: Self, b: Self) {
     }
 
-    proof fn associative(a: Self, b: Self, c: Self) {
-    }
+    proof fn associative(a: Self, b: Self, c: Self) {}
 
     proof fn op_unit(a: Self) {
     }
 }
 
 impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
+    /// Whether the protocol monoid is currently in the left state.
     pub open spec fn is_left(self) -> bool {
         self is Cinl
     }
 
+    /// Whether the protocol monoid is currently in the right state.
     pub open spec fn is_right(self) -> bool {
         self is Cinr
     }
 
-    pub open spec fn has_resource(self) -> bool {
+    /// Whether the protocol monoid is an exclusive owner of a resource.
+    pub open spec fn is_resource_owner(self) -> bool {
         match self {
-            CsumP::Cinl(ov, n) => ov is Some,
-            CsumP::Cinr(ov, n) => ov is Some,
+            CsumP::Cinl(_, _, b) | CsumP::Cinr(_, _, b) => b,
             _ => false,
         }
     }
 
+    /// Whether the protocol monoid currently owns a resource, only meaningful when it is the exclusive owner.
+    pub open spec fn has_resource(self) -> bool 
+    {
+        match self {
+            CsumP::Cinl(ov, n, true) => ov is Some,
+            CsumP::Cinr(ov, n, true) => ov is Some,
+            _ => false,
+        }
+    }
+
+    /// Whether the protocol monoid has had its resource taken, only meaningful when it is the exclusive owner.
     pub open spec fn has_resource_taken(self) -> bool {
         match self {
-            CsumP::Cinl(ov, n) => ov is None,
-            CsumP::Cinr(ov, n) => ov is None,
+            CsumP::Cinl(ov, n, true) => ov is None,
+            CsumP::Cinr(ov, n, true) => ov is None,
             _ => false,
         }
     }
 
+    /// The resource stored in the protocol monoid.
     pub open spec fn resource(self) -> Sum<A, B> {
         match self {
-            CsumP::Cinl(Some(a), n) => Sum::Left(a),
-            CsumP::Cinr(Some(b), n) => Sum::Right(b),
+            CsumP::Cinl(Some(a), n, true) => Sum::Left(a),
+            CsumP::Cinr(Some(b), n, true) => Sum::Right(b),
             _ => arbitrary(),
         }
     }
 
+    /// The fraction of the resource knowledge.
     pub open spec fn frac(self) -> int {
         match self {
-            CsumP::Cinl(_, n) | CsumP::Cinr(_, n) => n,
+            CsumP::Cinl(_, n, _) | CsumP::Cinr(_, n, _) => n,
             _ => 1,
+        }
+    }
+
+    /// The invariant of the protocol monoid.
+    pub open spec fn is_valid(self) -> bool {
+        match self {
+            CsumP::Unit => true,
+            CsumP::Cinl(ov, n, b) => 0 < n <= TOTAL && (ov is Some ==> b),
+            CsumP::Cinr(ov, n, b) => 0 < n <= TOTAL && (ov is Some ==> b),
+            _ => false,
         }
     }
 
     pub proof fn lemma_withdraws_left(self)
         requires
             self.is_left(),
+            self.is_resource_owner(),
             self.has_resource(),
-            1 <= self.frac() <= TOTAL,
+            self.is_valid(),
         ensures
-            withdraws(self, CsumP::Cinl(None, self.frac()), map![()=>self.resource()]),
+            withdraws(self, CsumP::Cinl(None, self.frac(), true), map![()=>self.resource()]),
     {
         match self {
-            CsumP::Cinl(Some(a), n) => {
+            CsumP::Cinl(Some(a), n, true) => {
                 let resource = Sum::<A, B>::Left(a);
                 let resource_map = map![() => resource];
-                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(None, n);
+                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(None, n, true);
                 assert forall|q: Self, t1: Map<(), Sum<A, B>>|
                     #![auto]
                     CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
@@ -160,19 +198,21 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
         }
     }
 
+    
     pub proof fn lemma_withdraws_right(self)
         requires
+            self.is_resource_owner(),
             self.is_right(),
             self.has_resource(),
-            1 <= self.frac() <= TOTAL,
+            self.is_valid(),
         ensures
-            withdraws(self, CsumP::Cinr(None, self.frac()), map![()=>self.resource()]),
+            withdraws(self, CsumP::Cinr(None, self.frac(), true), map![()=>self.resource()]),
     {
         match self {
-            CsumP::Cinr(Some(b), n) => {
+            CsumP::Cinr(Some(b), n, true) => {
                 let resource = Sum::<A, B>::Right(b);
                 let resource_map = map![() => resource];
-                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(None, n);
+                let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(None, n, true);
                 assert forall|q: Self, t1: Map<(), Sum<A, B>>|
                     #![auto]
                     CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
@@ -191,18 +231,19 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
             },
         }
     }
-
+    
     pub proof fn lemma_deposit_left(self, a: A)
         requires
+            self.is_resource_owner(),
             self.is_left(),
             self.has_resource_taken(),
-            self.frac() == TOTAL,
+            self.is_valid(),
         ensures
-            deposits(self, map![()=>Sum::Left(a)], CsumP::Cinl(Some(a), TOTAL as int)),
+            deposits(self, map![()=>Sum::Left(a)], CsumP::Cinl(Some(a), self.frac(), true)),
     {
         let resource_map = map![()=>Sum::Left(a)];
         let empty_map: Map<(), Sum<A, B>> = Map::empty();
-        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(Some(a), TOTAL as int);
+        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true);
         assert forall|q: Self, t1: Map<(), Sum<A, B>>|
             CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
             {
@@ -210,21 +251,22 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
                     resource_map.dom(),
                 ) && t1.union_prefer_right(resource_map) == t2
             } by {
-            assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
-        }
+                assert(CsumP::rel(CsumP::op(new_protocol_monoid, q), resource_map));
+            }
     }
-
+    
     pub proof fn lemma_deposit_right(self, b: B)
         requires
+            self.is_resource_owner(),
             self.is_right(),
             self.has_resource_taken(),
-            self.frac() == TOTAL,
+            self.is_valid(),
         ensures
-            deposits(self, map![()=>Sum::Right(b)], CsumP::Cinr(Some(b), TOTAL as int)),
+            deposits(self, map![()=>Sum::Right(b)], CsumP::Cinr(Some(b), self.frac(), true)),
     {
         let resource_map = map![()=>Sum::Right(b)];
         let empty_map: Map<(), Sum<A, B>> = Map::empty();
-        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(Some(b), TOTAL as int);
+        let new_protocol_monoid = CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true);
         assert forall|q: Self, t1: Map<(), Sum<A, B>>|
             CsumP::rel(CsumP::op(self, q), t1) implies exists|t2: Map<(), Sum<A, B>>|
             {
@@ -242,8 +284,8 @@ impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
             self.frac() == TOTAL,
             self.has_resource_taken(),
         ensures
-            updates(self, CsumP::Cinl(None, TOTAL as int)),
-            updates(self, CsumP::Cinr(None, TOTAL as int)),
+            updates(self, CsumP::Cinl(None, self.frac(), true)),
+            updates(self, CsumP::Cinr(None, self.frac(), true)),
     {
     }
 }
