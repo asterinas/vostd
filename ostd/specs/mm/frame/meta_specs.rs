@@ -56,6 +56,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].path_if_in_pt == pre.slot_owners[idx].path_if_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
+            &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
         }
     }
 

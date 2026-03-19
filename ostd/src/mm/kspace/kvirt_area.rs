@@ -18,7 +18,7 @@ use crate::{
         page_prop::PageProperty,
         Paddr, Vaddr, PAGE_SIZE,
         page_table::{
-            axiom_page_size_ge_page_size, is_valid_range_spec, page_size,
+            is_valid_range_spec, page_size,
             Child, CursorMut, PageTable, PageTableConfig,
         },
     },
@@ -32,7 +32,7 @@ use crate::specs::task::InAtomicMode;
 use crate::specs::mm::page_table::cursor::{CursorOwner, CursorView};
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::mm::page_table::{lemma_va_align_page_size_level_1, PageTableGuard};
+use crate::mm::page_table::PageTableGuard;
 use crate::mm::frame::DynFrame;
 use crate::mm::kspace::AnyFrameMeta;
 use crate::specs::mm::frame::mapping::frame_to_index_spec;

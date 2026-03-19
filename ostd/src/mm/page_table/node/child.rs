@@ -149,10 +149,17 @@ impl<C: PageTableConfig> Child<C> {
                 regions.inv_implies_correct_addr(paddr);
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
+            proof_decl! {
+                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+            }
+
+            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt))]
             let node = PageTableNode::from_raw(paddr);
 
             proof {
+                // raw_count was 1 (node was in a PTE via into_raw), so discharge trivially.
+                from_raw_debt.discharge_bookkeeping();
+
                 entry_own.in_scope = true;
 
                 assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(*old(regions)).slot_owners);
@@ -206,7 +213,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *regions),
-            *regions =~= *old(regions),
+            regions.slot_owners =~= old(regions).slot_owners,
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
     {
         if !pte.is_present() {
             return ChildRef::None;
@@ -221,6 +229,13 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
 
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
+
+            proof {
+                // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
+                // Since raw_count was already 1 (entry is in PTE, in_scope == false),
+                // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
+                assert(regions.slot_owners =~= old(regions).slot_owners);
+            }
 
             return ChildRef::PageTable(node);
         }

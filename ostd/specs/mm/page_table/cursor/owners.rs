@@ -164,6 +164,79 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                     self.children[i].unwrap().tree_predicate_map(self.path().push_tail(i as usize), f)
     }
 
+    /// Lift map_children(f) to map_children(g) when implies(f, g).
+    pub proof fn map_children_lift(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            self.inv(),
+            self.map_children(f),
+            OwnerSubtree::implies(f, g),
+        ensures
+            self.map_children(g),
+    {
+        reveal(CursorContinuation::inv_children);
+        assert forall|j: int|
+            #![auto]
+            0 <= j < self.children.len()
+                && self.children[j] is Some implies
+                self.children[j].unwrap().tree_predicate_map(
+                    self.path().push_tail(j as usize), g)
+        by {
+            OwnerSubtree::map_implies(
+                self.children[j].unwrap(),
+                self.path().push_tail(j as usize),
+                f, g,
+            );
+        };
+    }
+
+    /// Lift map_children from f to g when siblings (j != idx) come from
+    /// cont0 which had map_children(f), and the child at idx (if present)
+    /// already satisfies g.
+    pub proof fn map_children_lift_skip_idx(
+        self,
+        cont0: Self,
+        idx: int,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        g: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            0 <= idx < NR_ENTRIES,
+            OwnerSubtree::implies(f, g),
+            cont0.inv(),
+            cont0.map_children(f),
+            self.path() == cont0.path(),
+            self.children.len() == cont0.children.len(),
+            forall|j: int| #![auto]
+                0 <= j < NR_ENTRIES && j != idx ==>
+                self.children[j] == cont0.children[j],
+            self.children[idx] is Some ==>
+                self.children[idx].unwrap().tree_predicate_map(
+                    self.path().push_tail(idx as usize), g),
+        ensures
+            self.map_children(g),
+    {
+        reveal(CursorContinuation::inv_children);
+        assert forall|j: int|
+            #![auto]
+            0 <= j < self.children.len()
+                && self.children[j] is Some implies
+                self.children[j].unwrap().tree_predicate_map(
+                    self.path().push_tail(j as usize), g)
+        by {
+            if j != idx {
+                OwnerSubtree::map_implies(
+                    cont0.children[j].unwrap(),
+                    cont0.path().push_tail(j as usize),
+                    f, g,
+                );
+            }
+        };
+    }
+
     pub open spec fn level(self) -> PagingLevel {
         self.entry_own.node.unwrap().level
     }
@@ -1327,7 +1400,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             owner0.cur_entry_owner().is_absent() ==> self.cur_entry_owner().is_absent();
 
-    /// After `map_branch_frame` splits a huge frame at level `level_before_frame` and descends,
+    /// After `map_branch_none` (alloc_if_none + push_level), the current entry is absent.
+    ///
+    /// Proof: `alloc_if_none` creates an empty PT node where all children are absent
+    /// (`allocated_empty_node_owner` line 172). `push_level` enters one of these children,
+    /// so `cur_entry_owner().is_absent()` holds.
+    pub proof fn map_branch_none_cur_entry_absent(self)
+        requires
+            self.inv(),
+            // All children of the current continuation are absent (from the empty node)
+            forall|i: int| 0 <= i < NR_ENTRIES ==>
+                #[trigger] self.continuations[self.level - 1].children[i] is Some &&
+                self.continuations[self.level - 1].children[i].unwrap().value.is_absent(),
+        ensures
+            self.cur_entry_owner().is_absent(),
+    {
+        // cur_entry_owner() = continuations[level-1].children[index()].unwrap().value
+        // From inv(): 0 <= index() < NR_ENTRIES, so precondition gives is_absent().
+    }
+
+    /// After `map_branch_none` splits a huge frame at level `level_before_frame` and descends,
     /// the cursor view equals `owner0@.split_while_huge(page_size(level_before_frame - 1))`.
     ///
     /// Chain:
@@ -1618,6 +1710,102 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
+    /// Transfers `relate_region` when only `slot_owners` is preserved (slots may differ).
+    /// This is the common case after `Entry::to_ref` / `ChildRef::from_pte`, which may
+    /// insert a perm into `regions.slots` via `borrow_paddr` but preserves `slot_owners`.
+    pub proof fn relate_region_slot_owners_preserved(self, regions0: MetaRegionOwners, regions1: MetaRegionOwners)
+        requires
+            self.inv(),
+            self.relate_region(regions0),
+            regions0.slot_owners =~= regions1.slot_owners,
+        ensures
+            self.relate_region(regions1),
+    {
+        // Both relate_region_pred and path_tracked_pred only reference
+        // regions.slot_owners, so slot_owners equality gives OwnerSubtree::implies.
+        let f = PageTableOwner::<C>::relate_region_pred(regions0);
+        let g = PageTableOwner::<C>::relate_region_pred(regions1);
+        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
+        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
+        assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
+                entry.relate_region_slot_owners_only(regions0, regions1);
+        };
+        assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            entry.inv() && e(entry, path) implies #[trigger] h(entry, path) by {};
+        self.relate_region_preserved(self, regions0, regions1);
+    }
+
+    /// Transfers `relate_region` when `slot_owners` differs at exactly one index
+    /// where `raw_count` changed from 0 to 1 (as happens after `borrow_paddr`
+    /// on a removed page table node).
+    ///
+    /// ## Justification
+    /// For entries NOT referencing `changed_idx`: `slot_owners` at their index
+    /// is unchanged, so `relate_region` transfers trivially.
+    ///
+    /// For entries referencing `changed_idx`:
+    /// - Frame entries: `relate_region` does not check `raw_count`, only
+    ///   `inner_perms`, `ref_count`, and `path_if_in_pt`, all of which are
+    ///   preserved. So `relate_region` transfers.
+    /// - Node entries with `in_scope == false` (`expected_raw_count == 1`):
+    ///   `relate_region(r0)` requires `r0.raw_count == 1`, but `r0.raw_count == 0`.
+    ///   So `relate_region(r0)` is FALSE → the implication is vacuously true.
+    /// - Node entries with `in_scope == true` (`expected_raw_count == 0`):
+    ///   These do NOT appear in a cursor's ownership tree (all cursor entries
+    ///   are stored in PTE form with `in_scope == false`). The cursor-level
+    ///   `relate_region` only iterates over entries actually in the tree.
+    pub axiom fn relate_region_borrow_slot(
+        self, regions0: MetaRegionOwners, regions1: MetaRegionOwners, changed_idx: usize
+    )
+        requires
+            self.inv(),
+            self.relate_region(regions0),
+            regions1.inv(),
+            regions0.slot_owners[changed_idx].raw_count == 0,
+            regions1.slot_owners[changed_idx].raw_count == 1,
+            // All other fields at changed_idx preserved
+            regions1.slot_owners[changed_idx].inner_perms
+                == regions0.slot_owners[changed_idx].inner_perms,
+            regions1.slot_owners[changed_idx].self_addr
+                == regions0.slot_owners[changed_idx].self_addr,
+            regions1.slot_owners[changed_idx].usage
+                == regions0.slot_owners[changed_idx].usage,
+            regions1.slot_owners[changed_idx].path_if_in_pt
+                == regions0.slot_owners[changed_idx].path_if_in_pt,
+            // All other slots unchanged
+            forall |i: usize| #![trigger regions1.slot_owners[i]]
+                i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
+            regions0.slot_owners.dom() =~= regions1.slot_owners.dom(),
+        ensures
+            self.relate_region(regions1),
+    ;
+
+    /// Continuation entry_owns satisfy `relate_region` and `path_tracked_pred`.
+    ///
+    /// ## Justification
+    /// When the cursor descends into a subtree, each continuation's `entry_own`
+    /// was previously checked by `tree_predicate_map` in the parent's child
+    /// subtree.  After descent, `map_full_tree` only covers the siblings (the
+    /// taken child is `None`), so the path entries' properties are no longer
+    /// covered by `map_full_tree`.  However, `regions` is unchanged since
+    /// descent, so the properties still hold.
+    pub axiom fn cont_entries_relate_region(
+        self, regions: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.relate_region(regions),
+        ensures
+            forall|i: int| #![trigger self.continuations[i]]
+                self.level - 1 <= i < NR_LEVELS ==> {
+                    &&& self.continuations[i].entry_own.relate_region(regions)
+                    &&& PageTableOwner::<C>::path_tracked_pred(regions)(
+                            self.continuations[i].entry_own,
+                            self.continuations[i].path())
+                },
+    ;
+
     /// Cursor path nesting: for two continuations where `i > j >= self.level - 1`,
     /// `cont_i` is an ancestor of `cont_j` in the page table tree.
     /// The path from the root to `cont_j` passes through `cont_i.idx` at level `cont_i`,
@@ -1647,6 +1835,37 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
             *self == old(self).set_va_spec(new_va);
+
+    pub open spec fn set_va_in_node_spec(self, new_va: AbstractVaddr) -> Self {
+        let old_cont = self.continuations[self.level - 1];
+        Self {
+            va: new_va,
+            continuations: self.continuations.insert(
+                self.level - 1,
+                CursorContinuation {
+                    idx: new_va.index[self.level - 1] as usize,
+                    ..old_cont
+                },
+            ),
+            ..self
+        }
+    }
+
+    /// When jumping within the same page-table node, only indices at levels
+    /// >= level are guaranteed to match. The entry-within-node index (level - 1)
+    /// may change, so we update continuations[level-1].idx along with va.
+    pub axiom fn set_va_in_node(tracked &mut self, new_va: AbstractVaddr)
+        requires
+            old(self).inv(),
+            old(self).in_locked_range(),
+            new_va.inv(),
+            forall|i: int| #![auto] old(self).level <= i < NR_LEVELS
+                ==> new_va.index[i] == old(self).va.index[i],
+            old(self).locked_range().start <= new_va.to_vaddr()
+                < old(self).locked_range().end,
+        ensures
+            *self == old(self).set_va_in_node_spec(new_va),
+            self.inv(),;
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
         let va = AbstractVaddr {

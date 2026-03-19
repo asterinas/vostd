@@ -805,10 +805,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
     pub fn next(&mut self) -> Option<Frame<M>> {
         if self.range.start < self.range.end {
             let tracked perm = owner.perms.tracked_remove(0);
+
+            proof_decl! {
+                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+            }
+
             let frame = unsafe {
-                #[verus_spec(with Tracked(regions), Tracked(&perm))]
+                #[verus_spec(with Tracked(regions), Tracked(&perm) => Tracked(from_raw_debt))]
                 Frame::<M>::from_raw(self.range.start)
             };
+
+            proof {
+                // raw_count was 1 (segment was forgotten via into_raw), so discharge trivially.
+                from_raw_debt.discharge_bookkeeping();
+            }
 
             self.range.start = self.range.start + PAGE_SIZE;
             Some(frame)

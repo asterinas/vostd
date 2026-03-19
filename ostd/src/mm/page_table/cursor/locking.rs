@@ -45,6 +45,14 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
+        // Locking only acquires locks on page-table node slots; it does not
+        // modify path_if_in_pt for any slot.
+        forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+            regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+        // Frames that were item_not_mapped before remain so after locking.
+        forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
+            CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
+            CursorMut::<C, A>::item_not_mapped(item, *regions),
 )]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
@@ -105,6 +113,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     assert((*res.1).in_locked_range()) by { admit() };
     assert(res.0.level < res.0.guard_level) by { admit() };
     assert(res.0.va < res.0.barrier_va.end) by { admit() };
+    assert(forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
+        regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt)
+    by { admit() };
+    assert(forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
+        CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
+        CursorMut::<C, A>::item_not_mapped(item, *regions))
+    by { admit() };
     res
 }
 

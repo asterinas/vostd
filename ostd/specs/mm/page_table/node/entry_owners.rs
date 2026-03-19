@@ -255,6 +255,23 @@ impl<C: PageTableConfig> EntryOwner<C> {
         // so equality of slot_owners makes the two predicates equivalent.
     }
 
+    /// If `relate_region(r0)` holds and `r1` differs from `r0` only at one slot index
+    /// that this entry does not reference, then `relate_region(r1)` also holds.
+    pub proof fn relate_region_one_slot_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
+        requires
+            self.relate_region(r0),
+            forall |i: usize| #![trigger r1.slot_owners[i]]
+                i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
+            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            self.meta_slot_paddr() is Some ==>
+                frame_to_index(self.meta_slot_paddr().unwrap()) != changed_idx,
+        ensures
+            self.relate_region(r1),
+    {
+        // relate_region only reads slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())]
+        // which is unchanged since frame_to_index != changed_idx.
+    }
+
     /// Under `relate_region` + `path_if_in_pt is Some`, two entries with the same physical
     /// address must have the same path. Equivalently, different paths ↔ different paddrs.
     /// This is the fundamental paddr-uniqueness invariant: `path_if_in_pt` encodes the

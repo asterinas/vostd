@@ -140,9 +140,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.node_matching(*owner, *parent_owner, *guard_perm),
             !owner.in_scope,
         ensures
-            res.invariants(*owner, *old(regions)),
-            *regions =~= *old(regions),
-            Self::relate_region_preserved(*old(regions), *regions),
+            res.invariants(*owner, *regions),
+            regions.slot_owners =~= old(regions).slot_owners,
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            regions.inv(),
     {
         let guard = self.node.borrow(Tracked(guard_perm));
 
@@ -431,6 +432,21 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& owner.tree_predicate_map(owner.value.path,
                     CursorOwner::<'rcu, C>::node_unlocked_except(*guards, owner.value.node.unwrap().meta_perm.addr()))
                 &&& owner.tree_predicate_map(owner.value.path, PageTableOwner::<C>::relate_region_pred(*regions))
+                // All children of the newly allocated node are absent (empty PT node).
+                &&& forall|i: int| 0 <= i < NR_ENTRIES ==>
+                    #[trigger] owner.children[i] is Some && owner.children[i].unwrap().value.is_absent()
+                // slot_owners unchanged for all indices except the new PT node's index.
+                &&& forall|i: usize| i != frame_to_index(owner.value.meta_slot_paddr().unwrap()) ==>
+                    (#[trigger] regions.slot_owners[i]) == old(regions).slot_owners[i]
+                // slots keys: the new PT node was removed then re-inserted, so all old keys preserved.
+                &&& forall|i: usize| old(regions).slots.contains_key(i)
+                    ==> (#[trigger] regions.slots.contains_key(i))
+                // The new PT node's ref_count is not UNUSED (was set to 1 by get_from_unused).
+                &&& regions.slot_owners[frame_to_index(owner.value.meta_slot_paddr().unwrap())]
+                    .inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                // The allocated slot had ref_count == UNUSED before allocation (from get_from_unused).
+                &&& old(regions).slot_owners[frame_to_index(owner.value.meta_slot_paddr().unwrap())]
+                    .inner_perms.ref_count.value() == REF_COUNT_UNUSED
             },
             !old(owner).value.is_absent() ==> {
                 &&& res is None
@@ -517,6 +533,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 owner.value.parent_level = level as PagingLevel;
                 owner.value.path = old_path;
                 owner.children = new_node_owner.children;
+                // From allocated_empty_node_owner: all children are absent.
+                assert(forall|i: int| 0 <= i < NR_ENTRIES ==>
+                    (#[trigger] owner.children[i]) is Some && owner.children[i].unwrap().value.is_absent());
 
                 let new_paddr = owner.value.meta_slot_paddr().unwrap();
                 assert(old(regions).slots.contains_key(frame_to_index(new_paddr)));
@@ -592,12 +611,28 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& *owner == *old(owner)
             },
             owner.inv(),
+            owner.value.parent_level == old(owner).value.parent_level,
             regions.inv(),
             parent_owner.inv(),
+            parent_owner.level == old(parent_owner).level,
             guard_perm.pptr() == old(guard_perm).pptr(),
             guard_perm.value().inner.inner@.ptr.addr() == old(guard_perm).value().inner.inner@.ptr.addr(),
             forall |i: usize| old(guards).lock_held(i) ==> guards.lock_held(i),
             forall |i: usize| old(guards).unlocked(i) ==> guards.unlocked(i),
+            // slot_owners unchanged for all indices except the new PT node's index.
+            old(owner).value.is_frame() && old(parent_owner).level > 1 ==> {
+                &&& forall|i: usize| i != frame_to_index(meta_to_frame(owner.value.node.unwrap().meta_perm.addr())) ==>
+                    (#[trigger] regions.slot_owners[i]) == old(regions).slot_owners[i]
+                // slots keys preserved (alloc removes then borrow re-inserts).
+                &&& forall|i: usize| old(regions).slots.contains_key(i)
+                    ==> (#[trigger] regions.slots.contains_key(i))
+                // The new PT node's ref_count is not UNUSED.
+                &&& regions.slot_owners[frame_to_index(meta_to_frame(owner.value.node.unwrap().meta_perm.addr()))]
+                    .inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                // The allocated slot had ref_count == UNUSED before allocation.
+                &&& old(regions).slot_owners[frame_to_index(meta_to_frame(owner.value.node.unwrap().meta_perm.addr()))]
+                    .inner_perms.ref_count.value() == REF_COUNT_UNUSED
+            },
     )]
     pub(in crate::mm) fn split_if_mapped_huge<A: InAtomicMode>(&mut self, guard: &'rcu A)
         -> (res: Option<PPtr<PageTableGuard<'rcu, C>>>) {

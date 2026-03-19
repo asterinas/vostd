@@ -274,6 +274,26 @@ impl AbstractVaddr {
             self.align_down(0).inv(),
             forall|i: int| #![auto] 0 <= i < NR_LEVELS ==> self.align_down(0).index[i] == self.index[i];
 
+    /// Two virtual addresses in the same page_size(level+1) aligned block
+    /// have the same from_vaddr().index[i] for all i >= level.
+    ///
+    /// page_size(level + 1) = 2^(12 + 9*level). Being in the same aligned block means
+    /// va / 2^(12 + 9*level) is equal, so (va / 2^(12+9*i)) % 512 is equal for i >= level.
+    pub axiom fn same_node_indices_match(
+        va1: Vaddr, va2: Vaddr, node_start: Vaddr, level: PagingLevel,
+    )
+        requires
+            1 <= level,
+            level < NR_LEVELS,
+            node_start <= va1,
+            va1 < node_start + page_size((level + 1) as PagingLevel),
+            node_start <= va2,
+            va2 < node_start + page_size((level + 1) as PagingLevel),
+            node_start as nat % page_size((level + 1) as PagingLevel) as nat == 0,
+        ensures
+            forall|i: int| #![auto] level as int <= i < NR_LEVELS ==>
+                Self::from_vaddr(va1).index[i] == Self::from_vaddr(va2).index[i];
+
     pub open spec fn align_up(self, level: int) -> Self {
         let lower_aligned = self.align_down(level - 1);
         lower_aligned.next_index(level)

@@ -167,7 +167,6 @@ impl<M: AnyFrameMeta> Inv for Frame<M> {
         &&& self.ptr.addr() % META_SLOT_SIZE == 0
         &&& FRAME_METADATA_RANGE.start <= self.ptr.addr() < FRAME_METADATA_RANGE.start
             + MAX_NR_PAGES * META_SLOT_SIZE
-        &&& self.ptr.addr() < VMALLOC_BASE_VADDR - LINEAR_MAPPING_BASE_VADDR
     }
 }
 
@@ -398,7 +397,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             Tracked(perm): Tracked<&MetaPerm<M>>,
         requires
             old(regions).inv(),
-            old(regions).slot_owners[self.index()].raw_count == 1,
+            old(regions).slot_owners[self.index()].raw_count <= 1,
             old(regions).slot_owners[self.index()].self_addr == self.ptr.addr(),
             perm.points_to.pptr() == self.ptr,
             perm.points_to.value().wf(old(regions).slot_owners[self.index()]),
@@ -407,8 +406,23 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         ensures
             regions.inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
-            regions.slots =~= old(regions).slots,
-            regions.slot_owners =~= old(regions).slot_owners,
+            // raw_count is always 1 after borrow
+            regions.slot_owners[self.index()].raw_count == 1,
+            // All other fields of this slot are preserved
+            regions.slot_owners[self.index()].inner_perms
+                == old(regions).slot_owners[self.index()].inner_perms,
+            regions.slot_owners[self.index()].self_addr
+                == old(regions).slot_owners[self.index()].self_addr,
+            regions.slot_owners[self.index()].usage
+                == old(regions).slot_owners[self.index()].usage,
+            regions.slot_owners[self.index()].path_if_in_pt
+                == old(regions).slot_owners[self.index()].path_if_in_pt,
+            // Other slots are unchanged
+            forall |i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != self.index() ==> regions.slot_owners[i]
+                    == old(regions).slot_owners[i],
+            regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
@@ -516,18 +530,25 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         with
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>,
+            -> debt: Tracked<BorrowDebt>,
         requires
-            Self::from_raw_requires(*old(regions), paddr),
+            Self::from_raw_requires_safety(*old(regions), paddr),
+            old(regions).slot_owners[frame_to_index(paddr)].raw_count <= 1,
             perm.points_to.is_init(),
             perm.points_to.addr() == frame_to_meta(paddr),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
         ensures
             Self::from_raw_ensures(*old(regions), *regions, paddr, r),
             regions.slots == old(regions).slots.insert(frame_to_index(paddr), perm.points_to),
+            debt@.frame_index == frame_to_index(paddr),
+            debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
     pub(in crate::mm) fn from_raw(paddr: Paddr) -> Self {
         let vaddr = frame_to_meta(paddr);
         let ptr = PPtr::from_addr(vaddr);
+
+        let ghost idx = frame_to_index(paddr);
+        let ghost old_raw_count = regions.slot_owners[idx].raw_count;
 
         proof {
             let index = frame_to_index(paddr);
@@ -538,6 +559,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             regions.slot_owners.tracked_insert(index, slot_own);
         }
 
+        proof_with!(|= Tracked(BorrowDebt { frame_index: idx, raw_count_at_issue: old_raw_count }));
         Self { ptr, _marker: PhantomData }
     }
 
