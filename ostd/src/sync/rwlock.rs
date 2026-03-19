@@ -723,6 +723,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
             ghost g => {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
+                assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
@@ -732,6 +733,19 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
                 rem.combine(perm);
                 rem.bounded();
                 g.cell_perm_resource.put_resource_left(rem);
+                let has_writer_bit: bool = (next_usize & WRITER) != 0;
+                let has_upgrade_bit: bool = (next_usize & UPGRADEABLE_READER) != 0;
+                let has_max_reader_bit: bool = (next_usize & MAX_READER) != 0;
+                let total_reader_bits: int = (next_usize & MAX_READER_MASK) as int;
+                let reader_bits: int = if has_max_reader_bit { MAX_READER as int } else { (next_usize & READER_MASK) as int };
+                let active_writer: bool = g.cell_perm_resource.is_right();
+                let remaining_pcell_perms: int = if !active_writer { g.cell_perm_resource.resource()->Left_0.frac() } else { 0 };
+                let total_active_readers: int = if !active_writer { (V_MAX_PERM_FRACS as int) - remaining_pcell_perms } else { 0 };
+                let active_upgrade_guard: bool = g.upreader_guard_token.is_empty();
+                let active_read_guards: int = total_active_readers - if active_upgrade_guard { 1int } else { 0 };
+                let pending_failed_upread_attempt: bool = g.upread_retract_token.is_empty();
+                let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
+                assert(0<= active_read_guards) by {admit();};
             }
         );
     }
