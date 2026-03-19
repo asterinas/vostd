@@ -1,3 +1,5 @@
+use std::f32::consts::E;
+
 use vstd::modes::tracked_swap;
 //！ Sum types for ghost resources.
 use vstd::pcm::Loc;
@@ -514,111 +516,260 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         s.tracked_remove(()).tracked_take_right()
     }
 
-    /// Updates the token with a new resource of type `B`, and returns the old resource if available.
-    ///
-    /// NOTE: This operation can only be done with the full fraction, because there should be no `Left` tokens to witness
-    /// the existence of the old resource after the update.
-    pub proof fn update_left(tracked self, tracked a: A) -> (tracked res: (Self, Option<Sum<A, B>>))
+    /// Puts a resource of type `A` back to the token.
+    pub proof fn put_resource_left(tracked &mut self, tracked a: A)
         requires
-            self.is_resource_owner(),
-            self.frac() == TOTAL,
+            old(self).is_left(),
+            old(self).is_resource_owner(),
+            old(self).has_resource_taken(),
         ensures
-            res.0.id() == self.id(),
-            res.0.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true),
-            res.0.is_left(),
-            res.0.is_resource_owner(),
-            res.0.has_resource(),
-            res.0.resource() == Sum::<A, B>::Left(a),
-            self.has_resource() ==> res.1 == Some(self.resource()),
-            self.has_resource_taken() ==> res.1 == None::<Sum<A, B>>,
+            self.is_left(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == Sum::<A, B>::Left(a),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac(),
     {
-        use_type_invariant(&self);
-        let tracked mut res = None;
-        let tracked r;
-        if self.has_resource() {
-            if self.is_left() {
-                self.protocol_monoid().lemma_withdraws_left();
-                let tracked (resource, mut s) = self.r.withdraw(
-                    CsumP::Cinl(None, self.frac(), true),
-                    map![() => self.resource()],
-                );
-                r = resource;
-                res = Some(s.tracked_remove(()));
-            } else {
-                self.protocol_monoid().lemma_withdraws_right();
-                let tracked (resource, mut s) = self.r.withdraw(
-                    CsumP::Cinr(None, self.frac(), true),
-                    map![() => self.resource()],
-                );
-                r = resource;
-                res = Some(s.tracked_remove(()));
-            }
-        } else {
-            r = self.r;
-        }
-        assert(r.value().has_resource_taken());
-        r.value().lemma_updates_none();
-        let tracked r = r.update(CsumP::<A, B, TOTAL>::Cinl(None, self.frac(), true));
-        r.value().lemma_deposit_left(a);
+        use_type_invariant(&*self);
+        Self::put_resource_left_helper(&mut self.r, a);
+    }
+    
+    proof fn put_resource_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked a: A)
+        requires
+            old(r).value().is_left(),
+            old(r).value().is_resource_owner(),
+            old(r).value().has_resource_taken(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value().is_left(),
+            r.value().is_resource_owner(),
+            r.value().has_resource(),
+            r.value().resource()->Left_0 == a,
+            r.value().frac() == old(r).value().frac(),
+    {
+        let ghost a_ghost = a;
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Left(a));
-        let tracked r = r.deposit(m, CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true));
-        (Self { r }, res)
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        tmp.value().lemma_deposit_left(a);
+        let tracked mut r1 = tmp.deposit(m, CsumP::Cinl(Some(a), tmp.value().frac(), true));
+        tracked_swap(r, &mut r1);
     }
 
-    /// Updates the token with a new resource of type `B`, and returns the old resource if available.
-    ///
-    /// NOTE: This operation can only be done with the full fraction, because there should be no `Left` tokens to witness
-    /// the existence of the old resource after the update.
-    pub proof fn update_right(tracked self, tracked b: B) -> (tracked res: (
-        Self,
-        Option<Sum<A, B>>,
-    ))
+    /// Puts a resource of type `B` back to the token.
+    pub proof fn put_resource_right(tracked &mut self, tracked b: B)
         requires
-            self.is_resource_owner(),
-            self.frac() == TOTAL,
+            old(self).is_right(),
+            old(self).is_resource_owner(),
+            old(self).has_resource_taken(),
         ensures
-            res.0.id() == self.id(),
-            res.0.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true),
-            res.0.is_right(),
-            res.0.is_resource_owner(),
-            res.0.has_resource(),
-            res.0.resource() == Sum::<A, B>::Right(b),
-            self.has_resource() ==> res.1 == Some(self.resource()),
-            self.has_resource_taken() ==> res.1 == None::<Sum<A, B>>,
+            self.is_right(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == Sum::<A, B>::Right(b),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac(),
     {
-        use_type_invariant(&self);
-        let tracked mut res = None;
-        let tracked r;
-        if self.has_resource() {
-            if self.is_left() {
-                self.protocol_monoid().lemma_withdraws_left();
-                let tracked (resource, mut s) = self.r.withdraw(
-                    CsumP::Cinl(None, self.frac(), true),
-                    map![() => self.resource()],
-                );
-                r = resource;
-                res = Some(s.tracked_remove(()));
-            } else {
-                self.protocol_monoid().lemma_withdraws_right();
-                let tracked (resource, mut s) = self.r.withdraw(
-                    CsumP::Cinr(None, self.frac(), true),
-                    map![() => self.resource()],
-                );
-                r = resource;
-                res = Some(s.tracked_remove(()));
-            }
-        } else {
-            r = self.r;
-        }
-        assert(r.value().has_resource_taken());
-        r.value().lemma_updates_none();
-        let tracked r = r.update(CsumP::<A, B, TOTAL>::Cinr(None, self.frac(), true));
-        r.value().lemma_deposit_right(b);
+        use_type_invariant(&*self);
+        Self::put_resource_right_helper(&mut self.r, b);
+    }
+
+    proof fn put_resource_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked b: B)
+        requires
+            old(r).value().is_right(),
+            old(r).value().is_resource_owner(),
+            old(r).value().has_resource_taken(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value().is_right(),
+            r.value().is_resource_owner(),
+            r.value().has_resource(),
+            r.value().resource()->Right_0 == b,
+            r.value().frac() == old(r).value().frac(),
+    {
+        let ghost b_ghost = b;
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Right(b));
-        let tracked r = r.deposit(m, CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true));
-        (Self { r }, res)
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        tmp.value().lemma_deposit_right(b);
+        let tracked mut r1 = tmp.deposit(m, CsumP::Cinr(Some(b), tmp.value().frac(), true));
+        tracked_swap(r, &mut r1);
+    }
+
+    /// Updates the resource of type `A` in the token, when the token is in the left variant and is a resource owner.
+    /// Returns the old resource if available.
+    pub proof fn update_left(tracked &mut self, tracked a: A) -> (tracked res: Option<A>)
+        requires
+            old(self).is_left(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
+        ensures
+            self.is_left(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == Sum::<A, B>::Left(a),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac(),
+            res == Some(old(self).resource_left()),
+    {
+        use_type_invariant(&*self);
+        let tracked mut res = None;
+        if self.has_resource() {
+            let tracked r = Self::take_resource_left_helper(&mut self.r);
+            res = Some(r);
+        }
+        Self::put_resource_left_helper(&mut self.r, a);
+        res
+    }
+
+    /// Updates the resource of type `B` in the token, when the token is in the right variant and is a resource owner.
+    /// Returns the old resource if available.
+    pub proof fn update_right(tracked &mut self, tracked b: B) -> (tracked res: Option<B>)
+        requires
+            old(self).is_right(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
+        ensures
+            self.is_right(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == Sum::<A, B>::Right(b),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac(),
+            res == Some(old(self).resource_right()),
+    {
+        use_type_invariant(&*self);
+        let tracked mut res = None;
+        if self.has_resource() {
+            let tracked r = Self::take_resource_right_helper(&mut self.r);
+            res = Some(r);
+        }
+        Self::put_resource_right_helper(&mut self.r, b);
+        res
+    }
+
+    /// Changes the token to the left invariant with a new resource of type `A`, and returns the old resource if available.
+    ///
+    /// NOTE: Unlike `Self::update_left`, this operation can only be done with the full fraction, because there should be no `Right` tokens to witness
+    /// the existence of the old resource after the update.
+    pub proof fn change_to_left(tracked &mut self, tracked a: A) -> (tracked res: Option<Sum<A, B>>)
+        requires
+            old(self).is_resource_owner(),
+            old(self).frac() == TOTAL,
+        ensures
+            self.id() == old(self).id(),
+            self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), old(self).frac(), true),
+            self.frac() == old(self).frac(),
+            self.is_left(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource_left() == a,
+            old(self).has_resource() ==> res == Some(old(self).resource()),
+            old(self).has_resource_taken() ==> res == None::<Sum<A, B>>,
+    {
+        use_type_invariant(&*self);
+        let tracked res = Self::change_to_left_helper(&mut self.r, a);
+        res
+    }
+
+    proof fn change_to_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked a: A) -> (tracked res: Option<Sum<A, B>>)
+        requires
+            old(r).value().is_resource_owner(),
+            old(r).value().frac() == TOTAL,
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value() == CsumP::<A, B, TOTAL>::Cinl(Some(a), old(r).value().frac(), true),
+            r.value().frac() == old(r).value().frac(),
+            r.value().is_left(),
+            r.value().is_resource_owner(),
+            r.value().has_resource(),
+            r.value().resource()->Left_0 == a,
+            old(r).value().has_resource() ==> res == Some(old(r).value().resource()),
+            old(r).value().has_resource_taken() ==> res == None::<Sum<A, B>>,
+    {
+        let tracked mut res = None;
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        if tmp.value().has_resource() {
+            if tmp.value().is_left() {
+                let tracked ret = Self::take_resource_left_helper(&mut tmp);
+                res = Some(Sum::Left(ret));
+            } else {
+                let tracked ret = Self::take_resource_right_helper(&mut tmp);
+                res = Some(Sum::Right(ret));
+            }
+        }
+        let tracked mut resource = tmp.update(CsumP::<A, B, TOTAL>::Cinl(None, tmp.value().frac(), true));
+        Self::put_resource_left_helper(&mut resource, a);
+        tracked_swap(r, &mut resource);
+        res
+    }
+
+    /// Changes the token to the right invariant with a new resource of type `B`, and returns the old resource if available.
+    /// 
+    /// NOTE: Unlike `Self::update_right`, this operation can only be done with the full fraction, because there should be no `Left` tokens to witness
+    /// the existence of the old resource after the update.
+    pub proof fn change_to_right(tracked &mut self, tracked b: B) -> (tracked res: Option<Sum<A, B>>)
+        requires
+            old(self).is_resource_owner(),
+            old(self).frac() == TOTAL,
+        ensures
+            self.id() == old(self).id(),
+            self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), old(self).frac(), true),
+            self.frac() == old(self).frac(),
+            self.is_right(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource_right() == b,
+            old(self).has_resource() ==> res == Some(old(self).resource()),
+            old(self).has_resource_taken() ==> res == None::<Sum<A, B>>,
+    {
+        use_type_invariant(&*self);
+        let tracked res = Self::change_to_right_helper(&mut self.r, b);
+        res
+    }
+
+    proof fn change_to_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked b: B) -> (tracked res: Option<Sum<A, B>>)
+        requires
+            old(r).value().is_resource_owner(),
+            old(r).value().frac() == TOTAL,
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value() == CsumP::<A, B, TOTAL>::Cinr(Some(b), old(r).value().frac(), true),
+            r.value().frac() == old(r).value().frac(),
+            r.value().is_right(),
+            r.value().is_resource_owner(),
+            r.value().has_resource(),
+            r.value().resource()->Right_0 == b,
+            old(r).value().has_resource() ==> res == Some(old(r).value().resource()),
+            old(r).value().has_resource_taken() ==> res == None::<Sum<A, B>>,
+    {
+        let tracked mut res = None;
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        if tmp.value().has_resource() {
+            if tmp.value().is_left() {
+                let tracked ret = Self::take_resource_left_helper(&mut tmp);
+                res = Some(Sum::Left(ret));
+            } else {
+                let tracked ret = Self::take_resource_right_helper(&mut tmp);
+                res = Some(Sum::Right(ret));
+            }
+        }
+        let tracked mut resource = tmp.update(CsumP::<A, B, TOTAL>::Cinr(None, tmp.value().frac(), true));
+        Self::put_resource_right_helper(&mut resource, b);
+        tracked_swap(r, &mut resource);
+        res
     }
 
     /// Joins this token with another `Left` token with the same id.
@@ -831,23 +982,19 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     }
 
     /// Puts a resource of type `A` back to the token.
-    pub proof fn put_resource(tracked self, tracked a: A) -> (tracked res: Self)
+    pub proof fn put_resource(tracked &mut self, tracked a: A)
         requires
-            self.is_resource_owner(),
-            self.has_resource_taken(),
+            old(self).is_resource_owner(),
+            old(self).has_resource_taken(),
         ensures
-            res.id() == self.id(),
-            res.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true),
-            res.is_resource_owner(),
-            res.has_resource(),
-            res.resource() == a,
+            self.id() == old(self).id(),
+            self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == a,
     {
-        use_type_invariant(&self);
-        self.protocol_monoid().lemma_deposit_left(a);
-        let tracked mut m = Map::tracked_empty();
-        m.tracked_insert((), Sum::<A, B>::Left(a));
-        let tracked r = self.r.deposit(m, CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true));
-        Self { r }
+        use_type_invariant(&*self);
+        SumResource::put_resource_left_helper(&mut self.r, a);
     }
 
     /// Splits this token into two `Left` tokens with the given fraction `n`, given the resource to the new token if available.
@@ -889,44 +1036,27 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     }
 
     /// Updates the token with a new resource of type `A`, and returns the old resource if available.
-    ///
-    /// NOTE: Unlike `SumResource::update_left`, this operation can be done without `TOTAL` fractions,
-    /// because it does not change the resource type.
-    pub proof fn update(tracked self, tracked a: A) -> (tracked res: (Self, Option<A>))
+    pub proof fn update(tracked &mut self, tracked a: A) -> (tracked res: Option<A>)
         requires
-            self.is_resource_owner(),
+            old(self).is_resource_owner(),
         ensures
-            res.0.id() == self.id(),
-            res.0.is_resource_owner(),
-            res.0.has_resource(),
-            res.0.resource() == a,
-            res.1 == if self.has_resource() {
-                Some(self.resource())
+            self.id() == old(self).id(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == a,
+            res == if old(self).has_resource() {
+                Some(old(self).resource())
             } else {
                 None
             },
     {
-        use_type_invariant(&self);
+        use_type_invariant(&*self);
         let tracked mut res = None;
-        let tracked r;
         if self.has_resource() {
-            self.protocol_monoid().lemma_withdraws_left();
-            let tracked (resource, mut s) = self.r.withdraw(
-                CsumP::Cinl(None, self.frac(), true),
-                map![() => Sum::Left(self.resource())],
-            );
-            r = resource;
-            res = Some(s.tracked_remove(()).tracked_take_left());
-        } else {
-            r = self.r;
+            res = Some(self.take_resource());
         }
-        assert(r.value().has_resource_taken());
-        let tracked r = r.update(CsumP::<A, B, TOTAL>::Cinl(None, self.frac(), true));
-        r.value().lemma_deposit_left(a);
-        let tracked mut m = Map::tracked_empty();
-        m.tracked_insert((), Sum::<A, B>::Left(a));
-        let tracked r = r.deposit(m, CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true));
-        (Self { r }, res)
+        self.put_resource(a);
+        res
     }
 }
 
@@ -1049,23 +1179,19 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     }
 
     /// Puts a resource of type `B` back to the token.
-    pub proof fn put_resource(tracked self, tracked b: B) -> (tracked res: Self)
+    pub proof fn put_resource(tracked &mut self, tracked b: B)
         requires
-            self.is_resource_owner(),
-            self.has_resource_taken(),
+            old(self).is_resource_owner(),
+            old(self).has_resource_taken(),
         ensures
-            res.id() == self.id(),
-            res.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true),
-            res.is_resource_owner(),
-            res.has_resource(),
-            res.resource() == b,
+            self.id() == old(self).id(),
+            self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == b,
     {
-        use_type_invariant(&self);
-        self.protocol_monoid().lemma_deposit_right(b);
-        let tracked mut m = Map::tracked_empty();
-        m.tracked_insert((), Sum::<A, B>::Right(b));
-        let tracked r = self.r.deposit(m, CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true));
-        Self { r }
+        use_type_invariant(&*self);
+        SumResource::put_resource_right_helper(&mut self.r, b);
     }
 
     /// Splits this token into two `Right` tokens with the given fraction `n`, given the resource to the new token if available.
@@ -1107,44 +1233,27 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     }
 
     /// Updates the token with a new resource of type `B`, and returns the old resource if available.
-    ///
-    /// NOTE: Unlike `SumResource::update_right`, this operation can be done without `TOTAL` fractions,
-    /// because it does not change the resource type.
-    pub proof fn update(tracked self, tracked b: B) -> (tracked res: (Self, Option<B>))
+    pub proof fn update(tracked &mut self, tracked b: B) -> (tracked res: Option<B>)
         requires
-            self.is_resource_owner(),
+            old(self).is_resource_owner(),
         ensures
-            res.0.id() == self.id(),
-            res.0.is_resource_owner(),
-            res.0.has_resource(),
-            res.0.resource() == b,
-            res.1 == if self.has_resource() {
-                Some(self.resource())
+            self.id() == old(self).id(),
+            self.is_resource_owner(),
+            self.has_resource(),
+            self.resource() == b,
+            res == if old(self).has_resource() {
+                Some(old(self).resource())
             } else {
                 None
             },
     {
-        use_type_invariant(&self);
+        use_type_invariant(&*self);
         let tracked mut res = None;
-        let tracked r;
         if self.has_resource() {
-            self.protocol_monoid().lemma_withdraws_right();
-            let tracked (resource, mut s) = self.r.withdraw(
-                CsumP::Cinr(None, self.frac(), true),
-                map![() => Sum::Right(self.resource())],
-            );
-            r = resource;
-            res = Some(s.tracked_remove(()).tracked_take_right());
-        } else {
-            r = self.r;
+            res = Some(self.take_resource());
         }
-        assert(r.value().has_resource_taken());
-        let tracked r = r.update(CsumP::<A, B, TOTAL>::Cinr(None, self.frac(), true));
-        r.value().lemma_deposit_right(b);
-        let tracked mut m = Map::tracked_empty();
-        m.tracked_insert((), Sum::<A, B>::Right(b));
-        let tracked r = r.deposit(m, CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true));
-        (Self { r }, res)
+        self.put_resource(b);
+        res
     }
 }
 
