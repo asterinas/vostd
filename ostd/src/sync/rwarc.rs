@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::sync::Arc;
-use core::sync::atomic::{fence, AtomicUsize, Ordering};
-
 use vstd::prelude::*;
+use vstd::atomic_ghost::*;
+use vstd_extra::prelude::*;
+
+use alloc::sync::Arc;
+//use core::sync::atomic::{fence, AtomicUsize, Ordering};
+
 
 use super::{PreemptDisabled, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -28,31 +31,39 @@ pub struct RwArc<T>(Arc<Inner<T>>);
 /// the type and method documentation for more details.
 pub struct RoArc<T>(Arc<Inner<T>>);
 
+struct_with_invariants!{
 struct Inner<T> {
     data: RwLock<T, PreemptDisabled>,
-    num_rw: AtomicUsize,
+    num_rw: AtomicUsize<_,int,_>,
+}
+
+closed spec fn wf(&self) -> bool {
+  invariant on num_rw with (data) is (v:usize, g:int) {
+    v == g
+  } 
+}
 }
 
 impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
-    #[verifier::external_body]
     pub fn new(data: T) -> Self {
-        let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
+        //let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
+        let data = RwLock::new(data);
+        let inner = Inner { data, num_rw: AtomicUsize::new(Ghost(data),1,Tracked(1int)) };
         Self(Arc::new(inner))
     }
 
     /// Acquires the read lock for immutable access.
-    #[verifier::external_body]
     pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
         self.0.data.read()
     }
 
     /// Acquires the write lock for mutable access.
-    #[verifier::external_body]
     pub fn write(&self) -> RwLockWriteGuard<T, PreemptDisabled> {
         self.0.data.write()
     }
 
+    /*
     /// Returns an immutable reference if no other `RwArc` points to the same allocation.
     ///
     /// This method is cheap because it does not acquire a lock.
@@ -77,14 +88,14 @@ impl<T> RwArc<T> {
         // reference to the data, so it's okay to create an immutable reference like the one below.
         Some(unsafe { &*data_ptr })
     }
-
+    */
     /// Clones a [`RoArc`] that points to the same allocation.
     #[verifier::external_body]
     pub fn clone_ro(&self) -> RoArc<T> {
         RoArc(self.0.clone())
     }
 }
-
+/*
 // #[verifier::external]
 impl<T> Clone for RwArc<T> {
     #[verifier::external_body]
@@ -116,7 +127,7 @@ impl<T: Clone> RwArc<T> {
         let guard = self.read();
         guard.clone()
     }
-}
+}*/
 
 impl<T> RoArc<T> {
     /// Acquires the read lock for immutable access.
@@ -127,7 +138,8 @@ impl<T> RoArc<T> {
 }
 
 } // verus!
-/* #[cfg(ktest)]
+
+#[cfg(ktest)]
 mod test {
     use super::*;
     use crate::prelude::*;
@@ -146,4 +158,4 @@ mod test {
         drop(rw2);
         assert_eq!(rw1.get(), Some(1).as_ref());
     }
-} */
+}
