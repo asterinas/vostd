@@ -98,16 +98,19 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     pub open spec fn wf(self) -> bool {
         self.type_inv()
     }
-    
+
     spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
         &&& 1 <= r.frac() <= TOTAL
         &&& r.is_valid()
         &&& r.is_resource_owner() ==> (r.has_resource() || r.has_resource_taken())
         &&& r.is_left() || r.is_right()
     }
-    
-    proof fn alloc_unit_storage() -> (tracked res: StorageResource<(), Sum<A,B>, CsumP<A, B, TOTAL>>)
-    {
+
+    proof fn alloc_unit_storage() -> (tracked res: StorageResource<
+        (),
+        Sum<A, B>,
+        CsumP<A, B, TOTAL>,
+    >) {
         StorageResource::alloc(CsumP::Unit, Map::tracked_empty())
     }
 
@@ -233,7 +236,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `Left` token with the given fraction `n`, and gives the resource to that `Left` token if available.
-    pub proof fn split_left_with_resource(tracked &mut self, n: int) -> (tracked res: Left<A, B, TOTAL>)
+    pub proof fn split_left_with_resource(tracked &mut self, n: int) -> (tracked res: Left<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_left(),
             0 < n < old(self).frac(),
@@ -252,7 +259,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Left { r }
     }
 
-    proof fn split_left_with_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn split_left_with_resource_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        n: int,
+    ) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
         requires
             old(r).value().is_left(),
             0 < n < old(r).value().frac(),
@@ -268,8 +278,12 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.value().frac() == n,
             !r.value().is_resource_owner(),
             res.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
-            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(r).value().has_resource()),
-            res.value().has_resource() ==> res.value().resource()->Left_0 == old(r).value().resource()->Left_0,
+            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(
+                r,
+            ).value().has_resource()),
+            res.value().has_resource() ==> res.value().resource()->Left_0 == old(
+                r,
+            ).value().resource()->Left_0,
     {
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
@@ -282,7 +296,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `Left` token with the given fraction `n`, without giving the resource to the `Left` token.
-    pub proof fn split_left_without_resource(tracked &mut self, n: int) -> (tracked res: Left<A, B, TOTAL>)
+    pub proof fn split_left_without_resource(tracked &mut self, n: int) -> (tracked res: Left<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_left(),
             0 < n < old(self).frac(),
@@ -301,7 +319,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Left { r }
     }
 
-    proof fn split_left_without_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn split_left_without_resource_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        n: int,
+    ) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
         requires
             old(r).value().is_left(),
             0 < n < old(r).value().frac(),
@@ -317,13 +338,21 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.value().frac() == n,
             !res.value().is_resource_owner(),
             r.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
-            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(r).value().has_resource()),
-            r.value().has_resource() ==> r.value().resource()->Left_0 == old(r).value().resource()->Left_0,
+            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(
+                r,
+            ).value().has_resource()),
+            r.value().has_resource() ==> r.value().resource()->Left_0 == old(
+                r,
+            ).value().resource()->Left_0,
     {
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
         let tracked (mut r1, r2) = tmp.split(
-            CsumP::Cinl(tmp.value()->Cinl_0, tmp.value().frac() - n, tmp.value().is_resource_owner()),
+            CsumP::Cinl(
+                tmp.value()->Cinl_0,
+                tmp.value().frac() - n,
+                tmp.value().is_resource_owner(),
+            ),
             CsumP::Cinl(None, n, false),
         );
         tracked_swap(r, &mut r1);
@@ -331,7 +360,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `Right` token with the given fraction `n`, and gives the resource to that `Right` token if available.
-    pub proof fn split_right_with_resource(tracked &mut self, n: int) -> (tracked res: Right<A, B, TOTAL>)
+    pub proof fn split_right_with_resource(tracked &mut self, n: int) -> (tracked res: Right<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_right(),
             0 < n < old(self).frac(),
@@ -350,7 +383,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Right { r }
     }
 
-    proof fn split_right_with_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn split_right_with_resource_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        n: int,
+    ) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
         requires
             old(r).value().is_right(),
             0 < n < old(r).value().frac(),
@@ -366,8 +402,12 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.value().frac() == n,
             !r.value().is_resource_owner(),
             res.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
-            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(r).value().has_resource()),
-            res.value().has_resource() ==> res.value().resource()->Right_0 == old(r).value().resource()->Right_0,
+            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(
+                r,
+            ).value().has_resource()),
+            res.value().has_resource() ==> res.value().resource()->Right_0 == old(
+                r,
+            ).value().resource()->Right_0,
     {
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
@@ -380,7 +420,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `Right` token with the given fraction `n`, without giving the resource to the `Right` token.
-    pub proof fn split_right_without_resource(tracked &mut self, n: int) -> (tracked res: Right<A, B, TOTAL>)
+    pub proof fn split_right_without_resource(tracked &mut self, n: int) -> (tracked res: Right<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_right(),
             0 < n < old(self).frac(),
@@ -399,7 +443,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Right { r }
     }
 
-    proof fn split_right_without_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn split_right_without_resource_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        n: int,
+    ) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
         requires
             old(r).value().is_right(),
             0 < n < old(r).value().frac(),
@@ -415,13 +462,21 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.value().frac() == n,
             !res.value().is_resource_owner(),
             r.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
-            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(r).value().has_resource()),
-            r.value().has_resource() ==> r.value().resource()->Right_0 == old(r).value().resource()->Right_0,
+            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(
+                r,
+            ).value().has_resource()),
+            r.value().has_resource() ==> r.value().resource()->Right_0 == old(
+                r,
+            ).value().resource()->Right_0,
     {
         let tracked mut tmp = Self::alloc_unit_storage();
         tracked_swap(r, &mut tmp);
         let tracked (mut r1, r2) = tmp.split(
-            CsumP::Cinr(tmp.value()->Cinr_0, tmp.value().frac() - n, tmp.value().is_resource_owner()),
+            CsumP::Cinr(
+                tmp.value()->Cinr_0,
+                tmp.value().frac() - n,
+                tmp.value().is_resource_owner(),
+            ),
             CsumP::Cinr(None, n, false),
         );
         tracked_swap(r, &mut r1);
@@ -446,7 +501,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self::take_resource_left_helper(&mut self.r)
     }
 
-    proof fn take_resource_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>) -> (tracked res: A)
+    proof fn take_resource_left_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+    ) -> (tracked res: A)
         requires
             old(r).value().is_left(),
             old(r).value().is_resource_owner(),
@@ -466,7 +523,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         tmp.value().lemma_withdraws_left();
         let tracked (mut r1, mut s) = tmp.withdraw(
             CsumP::Cinl(None, tmp.value().frac(), true),
-            map![() => tmp.value().resource()]
+            map![() => tmp.value().resource()],
         );
         tracked_swap(r, &mut r1);
         s.tracked_remove(()).tracked_take_left()
@@ -490,7 +547,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self::take_resource_right_helper(&mut self.r)
     }
 
-    proof fn take_resource_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>) -> (tracked res: B)
+    proof fn take_resource_right_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+    ) -> (tracked res: B)
         requires
             old(r).value().is_right(),
             old(r).value().is_resource_owner(),
@@ -510,7 +569,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         tmp.value().lemma_withdraws_right();
         let tracked (mut r1, mut s) = tmp.withdraw(
             CsumP::Cinr(None, tmp.value().frac(), true),
-            map![() => tmp.value().resource()]
+            map![() => tmp.value().resource()],
         );
         tracked_swap(r, &mut r1);
         s.tracked_remove(()).tracked_take_right()
@@ -533,8 +592,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         use_type_invariant(&*self);
         Self::put_resource_left_helper(&mut self.r, a);
     }
-    
-    proof fn put_resource_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked a: A)
+
+    proof fn put_resource_left_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked a: A,
+    )
         requires
             old(r).value().is_left(),
             old(r).value().is_resource_owner(),
@@ -577,7 +639,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self::put_resource_right_helper(&mut self.r, b);
     }
 
-    proof fn put_resource_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked b: B)
+    proof fn put_resource_right_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked b: B,
+    )
         requires
             old(r).value().is_right(),
             old(r).value().is_resource_owner(),
@@ -678,7 +743,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         res
     }
 
-    proof fn change_to_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked a: A) -> (tracked res: Option<Sum<A, B>>)
+    proof fn change_to_left_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked a: A,
+    ) -> (tracked res: Option<Sum<A, B>>)
         requires
             old(r).value().is_resource_owner(),
             old(r).value().frac() == TOTAL,
@@ -707,17 +775,21 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 res = Some(Sum::Right(ret));
             }
         }
-        let tracked mut resource = tmp.update(CsumP::<A, B, TOTAL>::Cinl(None, tmp.value().frac(), true));
+        let tracked mut resource = tmp.update(
+            CsumP::<A, B, TOTAL>::Cinl(None, tmp.value().frac(), true),
+        );
         Self::put_resource_left_helper(&mut resource, a);
         tracked_swap(r, &mut resource);
         res
     }
 
     /// Changes the token to the right invariant with a new resource of type `B`, and returns the old resource if available.
-    /// 
+    ///
     /// NOTE: Unlike `Self::update_right`, this operation can only be done with the full fraction, because there should be no `Left` tokens to witness
     /// the existence of the old resource after the update.
-    pub proof fn change_to_right(tracked &mut self, tracked b: B) -> (tracked res: Option<Sum<A, B>>)
+    pub proof fn change_to_right(tracked &mut self, tracked b: B) -> (tracked res: Option<
+        Sum<A, B>,
+    >)
         requires
             old(self).is_resource_owner(),
             old(self).frac() == TOTAL,
@@ -737,7 +809,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         res
     }
 
-    proof fn change_to_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked b: B) -> (tracked res: Option<Sum<A, B>>)
+    proof fn change_to_right_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked b: B,
+    ) -> (tracked res: Option<Sum<A, B>>)
         requires
             old(r).value().is_resource_owner(),
             old(r).value().frac() == TOTAL,
@@ -766,7 +841,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 res = Some(Sum::Right(ret));
             }
         }
-        let tracked mut resource = tmp.update(CsumP::<A, B, TOTAL>::Cinr(None, tmp.value().frac(), true));
+        let tracked mut resource = tmp.update(
+            CsumP::<A, B, TOTAL>::Cinr(None, tmp.value().frac(), true),
+        );
         Self::put_resource_right_helper(&mut resource, b);
         tracked_swap(r, &mut resource);
         res
@@ -793,7 +870,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self::join_left_helper(&mut self.r, other.r);
     }
 
-    proof fn join_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn join_left_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+    )
         requires
             Self::type_inv_inner(old(r).value()),
             Self::type_inv_inner(other.value()),
@@ -804,21 +884,23 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_left(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
-            r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
-            r.value().has_resource() == old(r).value().has_resource() || other.value().has_resource(),
+            r.value().is_resource_owner() == old(r).value().is_resource_owner()
+                || other.value().is_resource_owner(),
+            r.value().has_resource() == old(r).value().has_resource()
+                || other.value().has_resource(),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
             },
-        {
-            r.validate_with_shared(&other);
-            let tracked mut tmp = Self::alloc_unit_storage();
-            tracked_swap(r, &mut tmp);
-            let tracked mut joined = StorageResource::join(tmp, other);
-            tracked_swap(r, &mut joined);
-        }
-    
+    {
+        r.validate_with_shared(&other);
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked mut joined = StorageResource::join(tmp, other);
+        tracked_swap(r, &mut joined);
+    }
+
     /// Joins this token with another `Right` token with the same id.
     pub proof fn join_right(tracked &mut self, tracked other: Right<A, B, TOTAL>)
         requires
@@ -840,7 +922,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self::join_right_helper(&mut self.r, other.r);
     }
 
-    proof fn join_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+    proof fn join_right_helper(
+        tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+        tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
+    )
         requires
             Self::type_inv_inner(old(r).value()),
             Self::type_inv_inner(other.value()),
@@ -851,20 +936,22 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_right(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
-            r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
-            r.value().has_resource() == old(r).value().has_resource() || other.value().has_resource(),
+            r.value().is_resource_owner() == old(r).value().is_resource_owner()
+                || other.value().is_resource_owner(),
+            r.value().has_resource() == old(r).value().has_resource()
+                || other.value().has_resource(),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
             },
-        {
-            r.validate_with_shared(&other);
-            let tracked mut tmp = Self::alloc_unit_storage();
-            tracked_swap(r, &mut tmp);
-            let tracked mut joined = StorageResource::join(tmp, other);
-            tracked_swap(r, &mut joined);
-        }
+    {
+        r.validate_with_shared(&other);
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked mut joined = StorageResource::join(tmp, other);
+        tracked_swap(r, &mut joined);
+    }
 }
 
 impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
