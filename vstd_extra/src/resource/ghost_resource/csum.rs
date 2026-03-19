@@ -1,3 +1,4 @@
+use vstd::modes::tracked_swap;
 //！ Sum types for ghost resources.
 use vstd::pcm::Loc;
 use vstd::prelude::*;
@@ -13,21 +14,21 @@ verus! {
 /// `SumResource` is a token that maintains access to a resource of either type `A` or type `B`.
 /// It can be split into up to `TOTAL` fractions, one of which have the exclusive right to access the resource,
 /// and others shares the knowledge of the resource's existence and type, but not the ability to access it.
-pub tracked struct SumResource<A, B, const TOTAL: usize = 2> {
+pub tracked struct SumResource<A, B, const TOTAL: u64 = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
 /// `Left` ensures the resource is of type `A`.
-pub tracked struct Left<A, B, const TOTAL: usize = 2> {
+pub tracked struct Left<A, B, const TOTAL: u64 = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
 /// `Right` ensures the resource is of type `B`.
-pub tracked struct Right<A, B, const TOTAL: usize = 2> {
+pub tracked struct Right<A, B, const TOTAL: u64 = 2> {
     tracked r: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>,
 }
 
-impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
+impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
@@ -46,6 +47,16 @@ impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
     /// The resource value, only meaningful if `is_resource_owner` is true.
     pub open spec fn resource(self) -> Sum<A, B> {
         self.protocol_monoid().resource()
+    }
+
+    /// The resource value if this token is in the left variant, only meaningful if `is_resource_owner` is true.
+    pub open spec fn resource_left(self) -> A {
+        self.resource()->Left_0
+    }
+
+    /// The resource value if this token is in the right variant, only meaningful if `is_resource_owner` is true.
+    pub open spec fn resource_right(self) -> B {
+        self.resource()->Right_0
     }
 
     /// Whether this token is a Left variant.
@@ -84,6 +95,18 @@ impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
     #[verifier::inline]
     pub open spec fn wf(self) -> bool {
         self.type_inv()
+    }
+    
+    spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
+        &&& 1 <= r.frac() <= TOTAL
+        &&& r.is_valid()
+        &&& r.is_resource_owner() ==> (r.has_resource() || r.has_resource_taken())
+        &&& r.is_left() || r.is_right()
+    }
+    
+    proof fn alloc_unit_storage() -> (tracked res: StorageResource<(), Sum<A,B>, CsumP<A, B, TOTAL>>)
+    {
+        StorageResource::alloc(CsumP::Unit, Map::tracked_empty())
     }
 
     /// Allocates a new `SumResource` with the resource of type `A`.
@@ -186,7 +209,7 @@ impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_resource(),
         ensures
-            *res == self.resource()->Left_0,
+            *res == self.resource_left(),
     {
         StorageResource::guard(&self.r, map![() => self.resource()]).tracked_borrow(
             (),
@@ -208,107 +231,287 @@ impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `Left` token with the given fraction `n`, and gives the resource to that `Left` token if available.
-    pub proof fn split_left_with_resource(tracked self, n: int) -> (tracked res: (
-        Self,
-        Left<A, B, TOTAL>,
-    ))
+    pub proof fn split_left_with_resource(tracked &mut self, n: int) -> (tracked res: Left<A, B, TOTAL>)
         requires
-            self.is_left(),
-            0 < n < self.frac(),
+            old(self).is_left(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.0.is_resource_owner(),
-            res.1.is_resource_owner() <==> self.is_resource_owner(),
-            res.1.is_resource_owner() ==> (res.1.has_resource() <==> self.has_resource()),
-            res.1.has_resource() ==> res.1.resource() == self.resource()->Left_0,
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac() - n,
+            res.id() == old(self).id(),
+            res.frac() == n,
+            !self.is_resource_owner(),
+            res.is_resource_owner() <==> old(self).is_resource_owner(),
+            res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
+            res.has_resource() ==> res.resource() == old(self).resource_left(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinl(None, self.frac() - n, false),
-            CsumP::Cinl(self.protocol_monoid()->Cinl_0, n, self.is_resource_owner()),
+        use_type_invariant(&*self);
+        let tracked r = Self::split_left_with_resource_helper(&mut self.r, n);
+        Left { r }
+    }
+
+    proof fn split_left_with_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+        requires
+            old(r).value().is_left(),
+            0 < n < old(r).value().frac(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            Self::type_inv_inner(res.value()),
+            r.loc() == old(r).loc(),
+            r.loc() == res.loc(),
+            r.value().is_left(),
+            r.value().frac() == old(r).value().frac() - n,
+            res.value().is_left(),
+            res.value().frac() == n,
+            !r.value().is_resource_owner(),
+            res.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
+            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(r).value().has_resource()),
+            res.value().has_resource() ==> res.value().resource()->Left_0 == old(r).value().resource()->Left_0,
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked (mut r1, r2) = tmp.split(
+            CsumP::Cinl(None, tmp.value().frac() - n, false),
+            CsumP::Cinl(tmp.value()->Cinl_0, n, tmp.value().is_resource_owner()),
         );
-        (Self { r: r1 }, Left { r: r2 })
+        tracked_swap(r, &mut r1);
+        r2
     }
 
     /// Splits a `Left` token with the given fraction `n`, without giving the resource to the `Left` token.
-    pub proof fn split_left_without_resource(tracked self, n: int) -> (tracked res: (
-        Self,
-        Left<A, B, TOTAL>,
-    ))
+    pub proof fn split_left_without_resource(tracked &mut self, n: int) -> (tracked res: Left<A, B, TOTAL>)
         requires
-            self.is_left(),
-            0 < n < self.frac(),
+            old(self).is_left(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.1.is_resource_owner(),
-            res.0.is_resource_owner() <==> self.is_resource_owner(),
-            res.0.is_resource_owner() ==> (res.0.has_resource() <==> self.has_resource()),
-            res.0.has_resource() ==> res.0.resource() == self.resource(),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac() - n,
+            res.id() == old(self).id(),
+            res.frac() == n,
+            !res.is_resource_owner(),
+            self.is_resource_owner() <==> old(self).is_resource_owner(),
+            self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
+            self.has_resource() ==> self.resource() == old(self).resource(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinl(self.protocol_monoid()->Cinl_0, self.frac() - n, self.is_resource_owner()),
+        use_type_invariant(&*self);
+        let tracked r = Self::split_left_without_resource_helper(&mut self.r, n);
+        Left { r }
+    }
+
+    proof fn split_left_without_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+        requires
+            old(r).value().is_left(),
+            0 < n < old(r).value().frac(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            Self::type_inv_inner(res.value()),
+            r.loc() == old(r).loc(),
+            r.loc() == res.loc(),
+            r.value().is_left(),
+            r.value().frac() == old(r).value().frac() - n,
+            res.value().is_left(),
+            res.value().frac() == n,
+            !res.value().is_resource_owner(),
+            r.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
+            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(r).value().has_resource()),
+            r.value().has_resource() ==> r.value().resource()->Left_0 == old(r).value().resource()->Left_0,
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked (mut r1, r2) = tmp.split(
+            CsumP::Cinl(tmp.value()->Cinl_0, tmp.value().frac() - n, tmp.value().is_resource_owner()),
             CsumP::Cinl(None, n, false),
         );
-        (Self { r: r1 }, Left { r: r2 })
+        tracked_swap(r, &mut r1);
+        r2
     }
 
-    /// Splits a `Right` token with the given fraction `n`, and gives the resource to that new token if available.
-    pub proof fn split_right_with_resource(tracked self, n: int) -> (tracked res: (
-        Self,
-        Right<A, B, TOTAL>,
-    ))
+    /// Splits a `Right` token with the given fraction `n`, and gives the resource to that `Right` token if available.
+    pub proof fn split_right_with_resource(tracked &mut self, n: int) -> (tracked res: Right<A, B, TOTAL>)
         requires
-            self.is_right(),
-            0 < n < self.frac(),
+            old(self).is_right(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.0.is_resource_owner(),
-            res.1.is_resource_owner() <==> self.is_resource_owner(),
-            res.1.is_resource_owner() ==> (res.1.has_resource() <==> self.has_resource()),
-            res.1.has_resource() ==> res.1.resource() == self.resource()->Right_0,
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac() - n,
+            res.id() == old(self).id(),
+            res.frac() == n,
+            !self.is_resource_owner(),
+            res.is_resource_owner() <==> old(self).is_resource_owner(),
+            res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
+            res.has_resource() ==> res.resource() == old(self).resource_right(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinr(None, self.frac() - n, false),
-            CsumP::Cinr(self.protocol_monoid()->Cinr_0, n, self.is_resource_owner()),
+        use_type_invariant(&*self);
+        let tracked r = Self::split_right_with_resource_helper(&mut self.r, n);
+        Right { r }
+    }
+
+    proof fn split_right_with_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+        requires
+            old(r).value().is_right(),
+            0 < n < old(r).value().frac(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            Self::type_inv_inner(res.value()),
+            r.loc() == old(r).loc(),
+            r.loc() == res.loc(),
+            r.value().is_right(),
+            r.value().frac() == old(r).value().frac() - n,
+            res.value().is_right(),
+            res.value().frac() == n,
+            !r.value().is_resource_owner(),
+            res.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
+            res.value().is_resource_owner() ==> (res.value().has_resource() <==> old(r).value().has_resource()),
+            res.value().has_resource() ==> res.value().resource()->Right_0 == old(r).value().resource()->Right_0,
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked (mut r1, r2) = tmp.split(
+            CsumP::Cinr(None, tmp.value().frac() - n, false),
+            CsumP::Cinr(tmp.value()->Cinr_0, n, tmp.value().is_resource_owner()),
         );
-        (Self { r: r1 }, Right { r: r2 })
+        tracked_swap(r, &mut r1);
+        r2
     }
 
-    /// Splits a `Right` token with the given fraction `n`, without giving the resource to the new token.
-    pub proof fn split_right_without_resource(tracked self, n: int) -> (tracked res: (
-        Self,
-        Right<A, B, TOTAL>,
-    ))
+    /// Splits a `Right` token with the given fraction `n`, without giving the resource to the `Right` token.
+    pub proof fn split_right_without_resource(tracked &mut self, n: int) -> (tracked res: Right<A, B, TOTAL>)
         requires
-            self.is_right(),
-            0 < n < self.frac(),
+            old(self).is_right(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.1.is_resource_owner(),
-            res.0.is_resource_owner() <==> self.is_resource_owner(),
-            res.0.is_resource_owner() ==> (res.0.has_resource() <==> self.has_resource()),
-            res.0.has_resource() ==> res.0.resource() == self.resource(),
+            self.id() == old(self).id(),
+            self.frac() == old(self).frac() - n,
+            res.id() == old(self).id(),
+            res.frac() == n,
+            !res.is_resource_owner(),
+            self.is_resource_owner() <==> old(self).is_resource_owner(),
+            self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
+            self.has_resource() ==> self.resource() == old(self).resource(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinr(self.protocol_monoid()->Cinr_0, self.frac() - n, self.is_resource_owner()),
+        use_type_invariant(&*self);
+        let tracked r = Self::split_right_without_resource_helper(&mut self.r, n);
+        Right { r }
+    }
+
+    proof fn split_right_without_resource_helper(tracked r: &mut StorageResource<(), Sum<A, B>,CsumP<A, B, TOTAL>>, n: int) -> (tracked res: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+        requires
+            old(r).value().is_right(),
+            0 < n < old(r).value().frac(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            Self::type_inv_inner(res.value()),
+            r.loc() == old(r).loc(),
+            r.loc() == res.loc(),
+            r.value().is_right(),
+            r.value().frac() == old(r).value().frac() - n,
+            res.value().is_right(),
+            res.value().frac() == n,
+            !res.value().is_resource_owner(),
+            r.value().is_resource_owner() <==> old(r).value().is_resource_owner(),
+            r.value().is_resource_owner() ==> (r.value().has_resource() <==> old(r).value().has_resource()),
+            r.value().has_resource() ==> r.value().resource()->Right_0 == old(r).value().resource()->Right_0,
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        let tracked (mut r1, r2) = tmp.split(
+            CsumP::Cinr(tmp.value()->Cinr_0, tmp.value().frac() - n, tmp.value().is_resource_owner()),
             CsumP::Cinr(None, n, false),
         );
-        (Self { r: r1 }, Right { r: r2 })
+        tracked_swap(r, &mut r1);
+        r2
+    }
+
+    /// Takes the resource out of the token if it is in the left variant.
+    pub proof fn take_resource_left(tracked &mut self) -> (tracked res: A)
+        requires
+            old(self).is_left(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
+        ensures
+            self.is_left(),
+            res == old(self).resource_left(),
+            self.id() == old(self).id(),
+            self.is_resource_owner(),
+            self.has_resource_taken(),
+            self.frac() == old(self).frac(),
+    {
+        use_type_invariant(&*self);
+        Self::take_resource_left_helper(&mut self.r)
+    }
+
+    proof fn take_resource_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>) -> (tracked res: A)
+        requires
+            old(r).value().is_left(),
+            old(r).value().is_resource_owner(),
+            old(r).value().has_resource(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            res == old(r).value().resource()->Left_0,
+            r.loc() == old(r).loc(),
+            r.value().is_left(),
+            r.value().is_resource_owner(),
+            r.value().has_resource_taken(),
+            r.value().frac() == old(r).value().frac(),
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        tmp.value().lemma_withdraws_left();
+        let tracked (mut r1, mut s) = tmp.withdraw(
+            CsumP::Cinl(None, tmp.value().frac(), true),
+            map![() => tmp.value().resource()]
+        );
+        tracked_swap(r, &mut r1);
+        s.tracked_remove(()).tracked_take_left()
+    }
+
+    /// Takes the resource out of the token if it is in the right variant.
+    pub proof fn take_resource_right(tracked &mut self) -> (tracked res: B)
+        requires
+            old(self).is_right(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
+        ensures
+            self.is_right(),
+            res == old(self).resource_right(),
+            self.id() == old(self).id(),
+            self.is_resource_owner(),
+            self.has_resource_taken(),
+            self.frac() == old(self).frac(),
+    {
+        use_type_invariant(&*self);
+        Self::take_resource_right_helper(&mut self.r)
+    }
+
+    proof fn take_resource_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>) -> (tracked res: B)
+        requires
+            old(r).value().is_right(),
+            old(r).value().is_resource_owner(),
+            old(r).value().has_resource(),
+            Self::type_inv_inner(old(r).value()),
+        ensures
+            Self::type_inv_inner(r.value()),
+            res == old(r).value().resource()->Right_0,
+            r.loc() == old(r).loc(),
+            r.value().is_right(),
+            r.value().is_resource_owner(),
+            r.value().has_resource_taken(),
+            r.value().frac() == old(r).value().frac(),
+    {
+        let tracked mut tmp = Self::alloc_unit_storage();
+        tracked_swap(r, &mut tmp);
+        tmp.value().lemma_withdraws_right();
+        let tracked (mut r1, mut s) = tmp.withdraw(
+            CsumP::Cinr(None, tmp.value().frac(), true),
+            map![() => tmp.value().resource()]
+        );
+        tracked_swap(r, &mut r1);
+        s.tracked_remove(()).tracked_take_right()
     }
 
     /// Updates the token with a new resource of type `B`, and returns the old resource if available.
@@ -419,51 +622,97 @@ impl<A, B, const TOTAL: usize> SumResource<A, B, TOTAL> {
     }
 
     /// Joins this token with another `Left` token with the same id.
-    proof fn join_left(tracked self, tracked other: Left<A, B, TOTAL>) -> (tracked res: Self)
+    pub proof fn join_left(tracked &mut self, tracked other: Left<A, B, TOTAL>)
         requires
-            self.id() == other.id(),
+            old(self).id() == other.id(),
         ensures
-            res.id() == self.id(),
-            res.is_resource_owner() == self.is_resource_owner() || other.is_resource_owner(),
-            res.has_resource() ==> res.resource() == if self.has_resource() {
-                self.resource()
+            self.id() == old(self).id(),
+            self.is_left(),
+            self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
+            self.has_resource() ==> self.resource() == if old(self).has_resource() {
+                old(self).resource()
             } else {
                 Sum::Left(other.resource())
             },
-            res.frac() == self.frac() + other.frac(),
+            self.frac() == old(self).frac() + other.frac(),
     {
-        use_type_invariant(&self);
+        use_type_invariant(&*self);
         use_type_invariant(&other);
-        let tracked mut this = self;
-        this.validate_with_left(&other);
-        let tracked r = StorageResource::join(this.r, other.r);
-        Self { r }
+        Self::join_left_helper(&mut self.r, other.r);
     }
 
-    /// Joins this token with another `Right` token with the same id.
-    pub proof fn join_right(tracked self, tracked other: Right<A, B, TOTAL>) -> (tracked res: Self)
+    proof fn join_left_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
         requires
-            self.id() == other.id(),
+            Self::type_inv_inner(old(r).value()),
+            Self::type_inv_inner(other.value()),
+            old(r).loc() == other.loc(),
+            other.value().is_left(),
         ensures
-            res.id() == self.id(),
-            res.is_resource_owner() == self.is_resource_owner() || other.is_resource_owner(),
-            res.has_resource() ==> res.resource() == if self.has_resource() {
-                self.resource()
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value().is_left(),
+            r.value().frac() == old(r).value().frac() + other.value().frac(),
+            r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
+            r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
+                old(r).value().resource()
+            } else {
+                other.value().resource()
+            },
+        {
+            r.validate_with_shared(&other);
+            let tracked mut tmp = Self::alloc_unit_storage();
+            tracked_swap(r, &mut tmp);
+            let tracked mut joined = StorageResource::join(tmp, other);
+            tracked_swap(r, &mut joined);
+        }
+    
+    /// Joins this token with another `Right` token with the same id.
+    pub proof fn join_right(tracked &mut self, tracked other: Right<A, B, TOTAL>)
+        requires
+            old(self).id() == other.id(),
+        ensures
+            self.id() == old(self).id(),
+            self.is_right(),
+            self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
+            self.has_resource() ==> self.resource() == if old(self).has_resource() {
+                old(self).resource()
             } else {
                 Sum::Right(other.resource())
             },
-            res.frac() == self.frac() + other.frac(),
+            self.frac() == old(self).frac() + other.frac(),
     {
-        use_type_invariant(&self);
+        use_type_invariant(&*self);
         use_type_invariant(&other);
-        let tracked mut this = self;
-        this.validate_with_right(&other);
-        let tracked r = StorageResource::join(this.r, other.r);
-        Self { r }
+        Self::join_right_helper(&mut self.r, other.r);
     }
+
+    proof fn join_right_helper(tracked r: &mut StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>, tracked other: StorageResource<(), Sum<A, B>, CsumP<A, B, TOTAL>>)
+        requires
+            Self::type_inv_inner(old(r).value()),
+            Self::type_inv_inner(other.value()),
+            old(r).loc() == other.loc(),
+            other.value().is_right(),
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.loc() == old(r).loc(),
+            r.value().is_right(),
+            r.value().frac() == old(r).value().frac() + other.value().frac(),
+            r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
+            r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
+                old(r).value().resource()
+            } else {
+                other.value().resource()
+            },
+        {
+            r.validate_with_shared(&other);
+            let tracked mut tmp = Self::alloc_unit_storage();
+            tracked_swap(r, &mut tmp);
+            let tracked mut joined = StorageResource::join(tmp, other);
+            tracked_swap(r, &mut joined);
+        }
 }
 
-impl<A, B, const TOTAL: usize> Left<A, B, TOTAL> {
+impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
@@ -565,24 +814,20 @@ impl<A, B, const TOTAL: usize> Left<A, B, TOTAL> {
     }
 
     /// Takes the resource out of the token.
-    pub proof fn take_resource(tracked self) -> (tracked res: (Self, A))
+    pub proof fn take_resource(tracked &mut self) -> (tracked res: A)
         requires
-            self.is_resource_owner(),
-            self.has_resource(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
         ensures
-            res.1 == self.resource(),
-            res.0.id() == self.id(),
-            res.0.is_resource_owner(),
-            res.0.has_resource_taken(),
-            res.0.frac() == self.frac(),
+            self.id() == old(self).id(),
+            res == old(self).resource(),
+            self.is_resource_owner(),
+            self.has_resource_taken(),
+            self.frac() == old(self).frac(),
     {
-        use_type_invariant(&self);
-        self.protocol_monoid().lemma_withdraws_left();
-        let tracked (resource, mut s) = self.r.withdraw(
-            CsumP::Cinl(None, self.frac(), true),
-            map![() => Sum::<A, B>::Left(self.resource())],
-        );
-        (Self { r: resource }, s.tracked_remove(()).tracked_take_left())
+        use_type_invariant(&*self);
+        let tracked r = SumResource::take_resource_left_helper(&mut self.r);
+        r
     }
 
     /// Puts a resource of type `A` back to the token.
@@ -605,26 +850,42 @@ impl<A, B, const TOTAL: usize> Left<A, B, TOTAL> {
         Self { r }
     }
 
-    /// Splits this token into two `Left` tokens with the given fraction `n`, only one of which can be the resource owner.
-    pub proof fn split(tracked self, n: int) -> (tracked res: (Self, Self))
+    /// Splits this token into two `Left` tokens with the given fraction `n`, given the resource to the new token if available.
+    pub proof fn split_with_resource(tracked &mut self, n: int) -> (tracked res: Self)
         requires
-            0 < n < self.frac(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.1.is_resource_owner(),
-            res.0.is_resource_owner() <==> self.is_resource_owner(),
-            res.0.is_resource_owner() ==> (res.0.has_resource() <==> self.has_resource()),
-            res.0.has_resource() ==> res.0.resource() == self.resource(),
+            self.id() == old(self).id(),
+            res.id() == self.id(),
+            self.frac() == old(self).frac() - n,
+            res.frac() == n,
+            !self.is_resource_owner(),
+            res.is_resource_owner() <==> old(self).is_resource_owner(),
+            res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
+            res.has_resource() ==> res.resource() == old(self).resource(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinl(self.protocol_monoid()->Cinl_0, self.frac() - n, self.is_resource_owner()),
-            CsumP::Cinl(None, n, false),
-        );
-        (Self { r: r1 }, Self { r: r2 })
+        use_type_invariant(&*self);
+        let tracked r = SumResource::split_left_with_resource_helper(&mut self.r, n);
+        Self { r }
+    }
+
+    /// Splits this token into two `Left` tokens with the given fraction `n`, without giving the resource to the new token.
+    pub proof fn split_without_resource(tracked &mut self, n: int) -> (tracked res: Self)
+        requires
+            0 < n < old(self).frac(),
+        ensures
+            self.id() == old(self).id(),
+            res.id() == self.id(),
+            self.frac() == old(self).frac() - n,
+            res.frac() == n,
+            !res.is_resource_owner(),
+            self.is_resource_owner() <==> old(self).is_resource_owner(),
+            self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
+            self.has_resource() ==> self.resource() == old(self).resource(),
+    {
+        use_type_invariant(&*self);
+        let tracked r = SumResource::split_left_without_resource_helper(&mut self.r, n);
+        Self { r }
     }
 
     /// Updates the token with a new resource of type `A`, and returns the old resource if available.
@@ -669,7 +930,7 @@ impl<A, B, const TOTAL: usize> Left<A, B, TOTAL> {
     }
 }
 
-impl<A, B, const TOTAL: usize> Right<A, B, TOTAL> {
+impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     /// Returns the unique identifier of this resource token.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
@@ -771,24 +1032,20 @@ impl<A, B, const TOTAL: usize> Right<A, B, TOTAL> {
     }
 
     /// Takes the resource out of the token.
-    pub proof fn take_resource(tracked self) -> (tracked res: (Self, B))
+    pub proof fn take_resource(tracked &mut self) -> (tracked res: B)
         requires
-            self.is_resource_owner(),
-            self.has_resource(),
+            old(self).is_resource_owner(),
+            old(self).has_resource(),
         ensures
-            res.1 == self.resource(),
-            res.0.id() == self.id(),
-            res.0.is_resource_owner(),
-            res.0.has_resource_taken(),
-            res.0.frac() == self.frac(),
+            self.id() == old(self).id(),
+            res == old(self).resource(),
+            self.is_resource_owner(),
+            self.has_resource_taken(),
+            self.frac() == old(self).frac(),
     {
-        use_type_invariant(&self);
-        self.protocol_monoid().lemma_withdraws_right();
-        let tracked (resource, mut s) = self.r.withdraw(
-            CsumP::Cinr(None, self.frac(), true),
-            map![() => Sum::<A, B>::Right(self.resource())],
-        );
-        (Self { r: resource }, s.tracked_remove(()).tracked_take_right())
+        use_type_invariant(&*self);
+        let tracked r = SumResource::take_resource_right_helper(&mut self.r);
+        r
     }
 
     /// Puts a resource of type `B` back to the token.
@@ -811,26 +1068,42 @@ impl<A, B, const TOTAL: usize> Right<A, B, TOTAL> {
         Self { r }
     }
 
-    /// Splits this token into two `Right` tokens with the given fraction `n`, only one of which can be the resource owner.
-    pub proof fn split(tracked self, n: int) -> (tracked res: (Self, Self))
+    /// Splits this token into two `Right` tokens with the given fraction `n`, given the resource to the new token if available.
+    pub proof fn split_with_resource(tracked &mut self, n: int) -> (tracked res: Self)
         requires
-            0 < n < self.frac(),
+            0 < n < old(self).frac(),
         ensures
-            res.0.id() == self.id(),
-            res.0.frac() == self.frac() - n,
-            res.1.id() == self.id(),
-            res.1.frac() == n,
-            !res.1.is_resource_owner(),
-            res.0.is_resource_owner() <==> self.is_resource_owner(),
-            res.0.is_resource_owner() ==> (res.0.has_resource() <==> self.has_resource()),
-            res.0.has_resource() ==> res.0.resource() == self.resource(),
+            self.id() == old(self).id(),
+            res.id() == self.id(),
+            self.frac() == old(self).frac() - n,
+            res.frac() == n,
+            !self.is_resource_owner(),
+            res.is_resource_owner() <==> old(self).is_resource_owner(),
+            res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
+            res.has_resource() ==> res.resource() == old(self).resource(),
     {
-        use_type_invariant(&self);
-        let tracked (r1, r2) = self.r.split(
-            CsumP::Cinr(self.protocol_monoid()->Cinr_0, self.frac() - n, self.is_resource_owner()),
-            CsumP::Cinr(None, n, false),
-        );
-        (Self { r: r1 }, Self { r: r2 })
+        use_type_invariant(&*self);
+        let tracked r = SumResource::split_right_with_resource_helper(&mut self.r, n);
+        Self { r }
+    }
+
+    /// Splits this token into two `Right` tokens with the given fraction `n`, without giving the resource to the new token.
+    pub proof fn split_without_resource(tracked &mut self, n: int) -> (tracked res: Self)
+        requires
+            0 < n < old(self).frac(),
+        ensures
+            self.id() == old(self).id(),
+            res.id() == self.id(),
+            self.frac() == old(self).frac() - n,
+            res.frac() == n,
+            !res.is_resource_owner(),
+            self.is_resource_owner() <==> old(self).is_resource_owner(),
+            self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
+            self.has_resource() ==> self.resource() == old(self).resource(),
+    {
+        use_type_invariant(&*self);
+        let tracked r = SumResource::split_right_without_resource_helper(&mut self.r, n);
+        Self { r }
     }
 
     /// Updates the token with a new resource of type `B`, and returns the old resource if available.

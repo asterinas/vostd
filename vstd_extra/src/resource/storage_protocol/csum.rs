@@ -17,7 +17,7 @@ verus! {
 /// The knowledge of the existence of a specific type of resource can be shared up to TOTAL pieces,
 /// but only one piece has the exclusive ownership of the resource,
 /// allowing arbitrary withdrawing, depositing, or updating.
-pub ghost enum CsumP<A, B, const TOTAL: usize> {
+pub ghost enum CsumP<A, B, const TOTAL: u64> {
     /// The unit element, only for technical reasons, not intended to be used directly.
     Unit,
     /// The left side of the sum, with an optional resource, a fraction, and a boolean indicating whether it is the exclusive owner of the resource.
@@ -28,7 +28,7 @@ pub ghost enum CsumP<A, B, const TOTAL: usize> {
     CsumInvalid,
 }
 
-impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
+impl<A, B, const TOTAL: u64> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
             (CsumP::Unit, x) => x,
@@ -96,7 +96,7 @@ impl<A, B, const TOTAL: usize> Protocol<(), Sum<A, B>> for CsumP<A, B, TOTAL> {
     }
 }
 
-impl<A, B, const TOTAL: usize> CsumP<A, B, TOTAL> {
+impl<A, B, const TOTAL: u64> CsumP<A, B, TOTAL> {
     /// Whether the protocol monoid is currently in the left state.
     pub open spec fn is_left(self) -> bool {
         self is Cinl
