@@ -524,9 +524,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             old(self).has_resource_taken(),
         ensures
             self.is_left(),
-            self.is_resource_owner(),
             self.has_resource(),
-            self.resource() == Sum::<A, B>::Left(a),
+            self.is_resource_owner(),
+            self.resource_left() == a,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
     {
@@ -569,7 +569,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_right(),
             self.is_resource_owner(),
             self.has_resource(),
-            self.resource() == Sum::<A, B>::Right(b),
+            self.resource_right() == b,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
     {
@@ -613,7 +613,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_left(),
             self.is_resource_owner(),
             self.has_resource(),
-            self.resource() == Sum::<A, B>::Left(a),
+            self.resource_left() == a,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
             res == Some(old(self).resource_left()),
@@ -639,7 +639,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_right(),
             self.is_resource_owner(),
             self.has_resource(),
-            self.resource() == Sum::<A, B>::Right(b),
+            self.resource_right() == b,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
             res == Some(old(self).resource_right()),
@@ -780,6 +780,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.id() == old(self).id(),
             self.is_left(),
             self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
+            self.has_resource() == old(self).has_resource() || other.has_resource(),
             self.has_resource() ==> self.resource() == if old(self).has_resource() {
                 old(self).resource()
             } else {
@@ -804,6 +805,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.value().is_left(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
             r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
+            r.value().has_resource() == old(r).value().has_resource() || other.value().has_resource(),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {
@@ -825,6 +827,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.id() == old(self).id(),
             self.is_right(),
             self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
+            self.has_resource() == old(self).has_resource() || other.has_resource(),
             self.has_resource() ==> self.resource() == if old(self).has_resource() {
                 old(self).resource()
             } else {
@@ -849,6 +852,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.value().is_right(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
             r.value().is_resource_owner() == old(r).value().is_resource_owner() || other.value().is_resource_owner(),
+            r.value().has_resource() == old(r).value().has_resource() || other.value().has_resource(),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {
