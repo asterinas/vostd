@@ -96,19 +96,19 @@ pub(crate) enum PageTableFrag<C: PageTableConfig> {
 }
 
 impl<C: PageTableConfig> PageTableFrag<C> {
-    #[cfg(ktest)]
-    pub(crate) fn va_range(&self) -> Range<Vaddr> {
-        match self {
-            PageTableFrag::Mapped { va, item } => {
-                let (pa, level, prop) = C::item_into_raw(item.clone());
+    // #[cfg(ktest)]
+    // pub(crate) fn va_range(&self) -> Range<Vaddr> {
+        // match self {
+            // PageTableFrag::Mapped { va, item } => {
+                // let (pa, level, prop) = C::item_into_raw(item.clone());
                 // SAFETY: All the arguments match those returned from the previous call
                 // to `item_into_raw`, and we are taking ownership of the cloned item.
-                drop(unsafe { C::item_from_raw(pa, level, prop) });
-                *va..*va + page_size::<C>(level)
-            }
-            PageTableFrag::StrayPageTable { va, len, .. } => *va..*va + *len,
-        }
-    }
+                // drop(unsafe { C::item_from_raw(pa, level, prop) });
+                // *va..*va + page_size::<C>(level)
+            // }
+            // PageTableFrag::StrayPageTable { va, len, .. } => *va..*va + *len,
+        // }
+    // }
 }
 
 impl<'rcu, C: PageTableConfig> Cursor<'rcu, C> {

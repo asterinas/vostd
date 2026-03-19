@@ -50,23 +50,23 @@ impl KVirtArea {
         self.range.start..self.range.end
     }
 
-    #[cfg(ktest)]
-    pub fn len(&self) -> usize {
-        self.range.len()
-    }
+    // #[cfg(ktest)]
+    // pub fn len(&self) -> usize {
+        // self.range.len()
+    // }
 
-    #[cfg(ktest)]
-    pub fn query(&self, addr: Vaddr) -> Option<super::MappedItem> {
-        use align_ext::AlignExt;
+    // #[cfg(ktest)]
+    // pub fn query(&self, addr: Vaddr) -> Option<super::MappedItem> {
+        // use align_ext::AlignExt;
 
-        assert!(self.start() <= addr && self.end() >= addr);
-        let start = addr.align_down(PAGE_SIZE);
-        let vaddr = start..start + PAGE_SIZE;
-        let page_table = KERNEL_PAGE_TABLE.get().unwrap();
-        let preempt_guard = disable_preempt();
-        let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
-        cursor.query().unwrap().1
-    }
+        // assert!(self.start() <= addr && self.end() >= addr);
+        // let start = addr.align_down(PAGE_SIZE);
+        // let vaddr = start..start + PAGE_SIZE;
+        // let page_table = KERNEL_PAGE_TABLE.get().unwrap();
+        // let preempt_guard = disable_preempt();
+        // let mut cursor = page_table.cursor(&preempt_guard, &vaddr).unwrap();
+        // cursor.query().unwrap().1
+    // }
 
     /// Create a kernel virtual area and map tracked pages into it.
     ///

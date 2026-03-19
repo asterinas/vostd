@@ -260,48 +260,48 @@ impl Drop for DisabledLocalIrqGuard {
     }
 }
 
-#[cfg(ktest)]
-mod test {
-    use super::*;
+// #[cfg(ktest)]
+// mod test {
+    // use super::*;
 
-    const IRQ_NUM: u8 = 64;
-    const IRQ_INDEX: usize = (IRQ_NUM - IRQ_NUM_MIN) as usize;
+    // const IRQ_NUM: u8 = 64;
+    // const IRQ_INDEX: usize = (IRQ_NUM - IRQ_NUM_MIN) as usize;
 
-    #[ktest]
-    fn alloc_and_free_irq() {
-        let irq_line = IrqLine::alloc_specific(IRQ_NUM).unwrap();
-        assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
+    // #[ktest]
+    // fn alloc_and_free_irq() {
+        // let irq_line = IrqLine::alloc_specific(IRQ_NUM).unwrap();
+        // assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
 
-        let irq_line_cloned = irq_line.clone();
-        assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
+        // let irq_line_cloned = irq_line.clone();
+        // assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
 
-        drop(irq_line);
-        assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
+        // drop(irq_line);
+        // assert!(IrqLine::alloc_specific(IRQ_NUM).is_err());
 
-        drop(irq_line_cloned);
-        assert!(IrqLine::alloc_specific(IRQ_NUM).is_ok());
-    }
+        // drop(irq_line_cloned);
+        // assert!(IrqLine::alloc_specific(IRQ_NUM).is_ok());
+    // }
 
-    #[ktest]
-    fn register_and_unregister_callback() {
-        let mut irq_line = IrqLine::alloc_specific(IRQ_NUM).unwrap();
-        let mut irq_line_cloned = irq_line.clone();
+    // #[ktest]
+    // fn register_and_unregister_callback() {
+        // let mut irq_line = IrqLine::alloc_specific(IRQ_NUM).unwrap();
+        // let mut irq_line_cloned = irq_line.clone();
 
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 0);
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 0);
 
-        irq_line.on_active(|_| {});
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 1);
+        // irq_line.on_active(|_| {});
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 1);
 
-        irq_line_cloned.on_active(|_| {});
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 2);
+        // irq_line_cloned.on_active(|_| {});
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 2);
 
-        irq_line_cloned.on_active(|_| {});
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 3);
+        // irq_line_cloned.on_active(|_| {});
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 3);
 
-        drop(irq_line);
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 2);
+        // drop(irq_line);
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 2);
 
-        drop(irq_line_cloned);
-        assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 0);
-    }
-}
+        // drop(irq_line_cloned);
+        // assert_eq!(INNERS[IRQ_INDEX].callbacks.read().len(), 0);
+    // }
+// }

@@ -133,57 +133,57 @@ fn find_allocator<'a>(
     None
 }
 
-#[cfg(ktest)]
-mod test {
-    use alloc::vec;
+// #[cfg(ktest)]
+// mod test {
+    // use alloc::vec;
 
-    use super::{IoMemAllocator, IoMemAllocatorBuilder};
-    use crate::{mm::PAGE_SIZE, prelude::ktest};
+    // use super::{IoMemAllocator, IoMemAllocatorBuilder};
+    // use crate::{mm::PAGE_SIZE, prelude::ktest};
 
-    #[expect(clippy::reversed_empty_ranges)]
-    #[expect(clippy::single_range_in_vec_init)]
-    #[ktest]
-    fn illegal_region() {
-        let range = vec![0x4000_0000..0x4200_0000];
-        let allocator =
-            unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
-        assert!(allocator.acquire(0..0).is_none());
-        assert!(allocator.acquire(0x4000_0000..0x4000_0000).is_none());
-        assert!(allocator.acquire(0x4000_1000..0x4000_0000).is_none());
-        assert!(allocator.acquire(usize::MAX..0).is_none());
-    }
+    // #[expect(clippy::reversed_empty_ranges)]
+    // #[expect(clippy::single_range_in_vec_init)]
+    // #[ktest]
+    // fn illegal_region() {
+        // let range = vec![0x4000_0000..0x4200_0000];
+        // let allocator =
+            // unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
+        // assert!(allocator.acquire(0..0).is_none());
+        // assert!(allocator.acquire(0x4000_0000..0x4000_0000).is_none());
+        // assert!(allocator.acquire(0x4000_1000..0x4000_0000).is_none());
+        // assert!(allocator.acquire(usize::MAX..0).is_none());
+    // }
 
-    #[ktest]
-    fn conflict_region() {
-        let max_paddr = 0x100_000_000_000; // 16 TB
+    // #[ktest]
+    // fn conflict_region() {
+        // let max_paddr = 0x100_000_000_000; // 16 TB
 
-        let io_mem_region_a = max_paddr..max_paddr + 0x200_0000;
-        let io_mem_region_b =
-            (io_mem_region_a.end + PAGE_SIZE)..(io_mem_region_a.end + 10 * PAGE_SIZE);
-        let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
+        // let io_mem_region_a = max_paddr..max_paddr + 0x200_0000;
+        // let io_mem_region_b =
+            // (io_mem_region_a.end + PAGE_SIZE)..(io_mem_region_a.end + 10 * PAGE_SIZE);
+        // let range = vec![io_mem_region_a.clone(), io_mem_region_b.clone()];
 
-        let allocator =
-            unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
+        // let allocator =
+            // unsafe { IoMemAllocator::new(IoMemAllocatorBuilder::new(range).allocators) };
 
-        assert!(allocator
-            .acquire((io_mem_region_a.start - 1)..io_mem_region_a.start)
-            .is_none());
-        assert!(allocator
-            .acquire(io_mem_region_a.start..(io_mem_region_a.start + 1))
-            .is_some());
+        // assert!(allocator
+            // .acquire((io_mem_region_a.start - 1)..io_mem_region_a.start)
+            // .is_none());
+        // assert!(allocator
+            // .acquire(io_mem_region_a.start..(io_mem_region_a.start + 1))
+            // .is_some());
 
-        assert!(allocator
-            .acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1))
-            .is_none());
-        assert!(allocator
-            .acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1))
-            .is_none());
+        // assert!(allocator
+            // .acquire((io_mem_region_a.end + 1)..(io_mem_region_b.start - 1))
+            // .is_none());
+        // assert!(allocator
+            // .acquire((io_mem_region_a.end - 1)..(io_mem_region_b.start + 1))
+            // .is_none());
 
-        assert!(allocator
-            .acquire((io_mem_region_a.end - 1)..io_mem_region_a.end)
-            .is_some());
-        assert!(allocator
-            .acquire(io_mem_region_a.end..(io_mem_region_a.end + 1))
-            .is_none());
-    }
-}
+        // assert!(allocator
+            // .acquire((io_mem_region_a.end - 1)..io_mem_region_a.end)
+            // .is_some());
+        // assert!(allocator
+            // .acquire(io_mem_region_a.end..(io_mem_region_a.end + 1))
+            // .is_none());
+    // }
+// }

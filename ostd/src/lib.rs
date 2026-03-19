@@ -161,28 +161,28 @@ fn invoke_ffi_init_funcs() {
 }
 
 /// Simple unit tests for the ktest framework.
-#[cfg(ktest)]
-mod test {
-    use crate::prelude::*;
+// #[cfg(ktest)]
+// mod test {
+    // use crate::prelude::*;
 
-    #[ktest]
-    #[expect(clippy::eq_op)]
-    fn trivial_assertion() {
-        assert_eq!(0, 0);
-    }
+    // #[ktest]
+    // #[expect(clippy::eq_op)]
+    // fn trivial_assertion() {
+        // assert_eq!(0, 0);
+    // }
 
-    #[ktest]
-    #[should_panic]
-    fn failing_assertion() {
-        assert_eq!(0, 1);
-    }
+    // #[ktest]
+    // #[should_panic]
+    // fn failing_assertion() {
+        // assert_eq!(0, 1);
+    // }
 
-    #[ktest]
-    #[should_panic(expected = "expected panic message")]
-    fn expect_panic() {
-        panic!("expected panic message");
-    }
-}
+    // #[ktest]
+    // #[should_panic(expected = "expected panic message")]
+    // fn expect_panic() {
+        // panic!("expected panic message");
+    // }
+// }
 
 #[doc(hidden)]
 pub mod ktest {

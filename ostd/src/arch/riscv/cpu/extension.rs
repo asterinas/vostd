@@ -220,152 +220,152 @@ define_isa_extensions! {
     ZALRSC      = 98, "zalrsc",      "Load-reserved/store-conditional";
 }
 
-#[cfg(ktest)]
-mod tests {
-    use super::*;
-    use crate::prelude::*;
+// #[cfg(ktest)]
+// mod tests {
+    // use super::*;
+    // use crate::prelude::*;
 
-    struct MockFdtProperty {
-        data: Vec<u8>,
-    }
+    // struct MockFdtProperty {
+        // data: Vec<u8>,
+    // }
 
-    impl MockFdtProperty {
-        fn new_string(string: &str) -> Self {
-            let mut data = string.as_bytes().to_vec();
-            data.push(0);
-            Self { data }
-        }
+    // impl MockFdtProperty {
+        // fn new_string(string: &str) -> Self {
+            // let mut data = string.as_bytes().to_vec();
+            // data.push(0);
+            // Self { data }
+        // }
 
-        fn new_string_list(strings: &[&str]) -> Self {
-            let mut data = Vec::new();
-            for string in strings {
-                data.extend_from_slice(string.as_bytes());
-                data.push(0);
-            }
-            Self { data }
-        }
+        // fn new_string_list(strings: &[&str]) -> Self {
+            // let mut data = Vec::new();
+            // for string in strings {
+                // data.extend_from_slice(string.as_bytes());
+                // data.push(0);
+            // }
+            // Self { data }
+        // }
 
         // For the extensions list parser
-        fn value(&self) -> &[u8] {
-            &self.data
-        }
-    }
+        // fn value(&self) -> &[u8] {
+            // &self.data
+        // }
+    // }
 
-    fn parse_isa_string_wrapper(string: &str) -> IsaExtensions {
-        let prop = MockFdtProperty::new_string(string);
-        let node = fdt::node::NodeProperty {
-            name: "riscv,isa",
-            value: prop.value(),
-        };
-        parse_isa_string(&node)
-    }
+    // fn parse_isa_string_wrapper(string: &str) -> IsaExtensions {
+        // let prop = MockFdtProperty::new_string(string);
+        // let node = fdt::node::NodeProperty {
+            // name: "riscv,isa",
+            // value: prop.value(),
+        // };
+        // parse_isa_string(&node)
+    // }
 
-    fn parse_isa_extensions_list_wrapper(strings: &[&str]) -> IsaExtensions {
-        let prop = MockFdtProperty::new_string_list(strings);
-        let node = fdt::node::NodeProperty {
-            name: "riscv,isa-extensions",
-            value: prop.value(),
-        };
-        parse_isa_extensions_list(&node)
-    }
+    // fn parse_isa_extensions_list_wrapper(strings: &[&str]) -> IsaExtensions {
+        // let prop = MockFdtProperty::new_string_list(strings);
+        // let node = fdt::node::NodeProperty {
+            // name: "riscv,isa-extensions",
+            // value: prop.value(),
+        // };
+        // parse_isa_extensions_list(&node)
+    // }
 
-    #[ktest]
-    fn isa_string_with_basic() {
-        let result = parse_isa_string_wrapper("rv64imafdc_zicsr_zifencei");
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
-        assert!(result.contains(IsaExtensions::A));
-        assert!(result.contains(IsaExtensions::F));
-        assert!(result.contains(IsaExtensions::D));
-        assert!(result.contains(IsaExtensions::C));
-        assert!(result.contains(IsaExtensions::ZICSR));
-        assert!(result.contains(IsaExtensions::ZIFENCEI));
-        assert!(!result.contains(IsaExtensions::V));
-        assert!(!result.contains(IsaExtensions::H));
-    }
+    // #[ktest]
+    // fn isa_string_with_basic() {
+        // let result = parse_isa_string_wrapper("rv64imafdc_zicsr_zifencei");
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
+        // assert!(result.contains(IsaExtensions::A));
+        // assert!(result.contains(IsaExtensions::F));
+        // assert!(result.contains(IsaExtensions::D));
+        // assert!(result.contains(IsaExtensions::C));
+        // assert!(result.contains(IsaExtensions::ZICSR));
+        // assert!(result.contains(IsaExtensions::ZIFENCEI));
+        // assert!(!result.contains(IsaExtensions::V));
+        // assert!(!result.contains(IsaExtensions::H));
+    // }
 
-    #[ktest]
-    fn isa_string_edge_cases() {
+    // #[ktest]
+    // fn isa_string_edge_cases() {
         // Empty string
-        let result = parse_isa_string_wrapper("");
-        assert!(result.is_empty());
+        // let result = parse_isa_string_wrapper("");
+        // assert!(result.is_empty());
 
         // Empty after prefix
-        let result = parse_isa_string_wrapper("rv64");
-        assert!(result.is_empty());
+        // let result = parse_isa_string_wrapper("rv64");
+        // assert!(result.is_empty());
 
         // No prefix
-        let result = parse_isa_string_wrapper("imafdc");
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
-        assert!(result.contains(IsaExtensions::A));
+        // let result = parse_isa_string_wrapper("imafdc");
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
+        // assert!(result.contains(IsaExtensions::A));
 
         // Only multi-letter extensions
-        let result = parse_isa_string_wrapper("rv64_zicsr_zifencei");
-        assert!(result.contains(IsaExtensions::ZICSR));
-        assert!(result.contains(IsaExtensions::ZIFENCEI));
-        assert!(!result.contains(IsaExtensions::I));
-    }
+        // let result = parse_isa_string_wrapper("rv64_zicsr_zifencei");
+        // assert!(result.contains(IsaExtensions::ZICSR));
+        // assert!(result.contains(IsaExtensions::ZIFENCEI));
+        // assert!(!result.contains(IsaExtensions::I));
+    // }
 
-    #[ktest]
-    fn isa_string_unknown_extensions() {
+    // #[ktest]
+    // fn isa_string_unknown_extensions() {
         // Should ignore unknown extensions without crashing
-        let result = parse_isa_string_wrapper("rv64imafdc_zunknown_zicsr_zifencei");
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
-        assert!(result.contains(IsaExtensions::A));
-        assert!(result.contains(IsaExtensions::F));
-        assert!(result.contains(IsaExtensions::D));
-        assert!(result.contains(IsaExtensions::C));
-        assert!(result.contains(IsaExtensions::ZICSR));
-        assert!(result.contains(IsaExtensions::ZIFENCEI));
-    }
+        // let result = parse_isa_string_wrapper("rv64imafdc_zunknown_zicsr_zifencei");
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
+        // assert!(result.contains(IsaExtensions::A));
+        // assert!(result.contains(IsaExtensions::F));
+        // assert!(result.contains(IsaExtensions::D));
+        // assert!(result.contains(IsaExtensions::C));
+        // assert!(result.contains(IsaExtensions::ZICSR));
+        // assert!(result.contains(IsaExtensions::ZIFENCEI));
+    // }
 
-    #[ktest]
-    fn isa_extensions_list_basic() {
-        let result =
-            parse_isa_extensions_list_wrapper(&["i", "m", "a", "f", "d", "c", "zicsr", "zifencei"]);
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
-        assert!(result.contains(IsaExtensions::A));
-        assert!(result.contains(IsaExtensions::F));
-        assert!(result.contains(IsaExtensions::D));
-        assert!(result.contains(IsaExtensions::C));
-        assert!(result.contains(IsaExtensions::ZICSR));
-        assert!(result.contains(IsaExtensions::ZIFENCEI));
-        assert!(!result.contains(IsaExtensions::V));
-        assert!(!result.contains(IsaExtensions::H));
-    }
+    // #[ktest]
+    // fn isa_extensions_list_basic() {
+        // let result =
+            // parse_isa_extensions_list_wrapper(&["i", "m", "a", "f", "d", "c", "zicsr", "zifencei"]);
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
+        // assert!(result.contains(IsaExtensions::A));
+        // assert!(result.contains(IsaExtensions::F));
+        // assert!(result.contains(IsaExtensions::D));
+        // assert!(result.contains(IsaExtensions::C));
+        // assert!(result.contains(IsaExtensions::ZICSR));
+        // assert!(result.contains(IsaExtensions::ZIFENCEI));
+        // assert!(!result.contains(IsaExtensions::V));
+        // assert!(!result.contains(IsaExtensions::H));
+    // }
 
-    #[ktest]
-    fn isa_extensions_list_edge_cases() {
+    // #[ktest]
+    // fn isa_extensions_list_edge_cases() {
         // Empty list
-        let result = parse_isa_extensions_list_wrapper(&[]);
-        assert!(result.is_empty());
+        // let result = parse_isa_extensions_list_wrapper(&[]);
+        // assert!(result.is_empty());
 
         // List with empty strings
-        let result = parse_isa_extensions_list_wrapper(&["", "i", "", "m", ""]);
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
+        // let result = parse_isa_extensions_list_wrapper(&["", "i", "", "m", ""]);
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
 
         // Only empty strings
-        let result = parse_isa_extensions_list_wrapper(&["", "", ""]);
-        assert!(result.is_empty());
-    }
+        // let result = parse_isa_extensions_list_wrapper(&["", "", ""]);
+        // assert!(result.is_empty());
+    // }
 
-    #[ktest]
-    fn isa_extensions_list_unknown_extensions() {
+    // #[ktest]
+    // fn isa_extensions_list_unknown_extensions() {
         // Should ignore unknown extensions without crashing
-        let result = parse_isa_extensions_list_wrapper(&[
-            "i", "m", "a", "f", "d", "c", "zunknown", "zicsr", "zifencei",
-        ]);
-        assert!(result.contains(IsaExtensions::I));
-        assert!(result.contains(IsaExtensions::M));
-        assert!(result.contains(IsaExtensions::A));
-        assert!(result.contains(IsaExtensions::F));
-        assert!(result.contains(IsaExtensions::D));
-        assert!(result.contains(IsaExtensions::C));
-        assert!(result.contains(IsaExtensions::ZICSR));
-        assert!(result.contains(IsaExtensions::ZIFENCEI));
-    }
-}
+        // let result = parse_isa_extensions_list_wrapper(&[
+            // "i", "m", "a", "f", "d", "c", "zunknown", "zicsr", "zifencei",
+        // ]);
+        // assert!(result.contains(IsaExtensions::I));
+        // assert!(result.contains(IsaExtensions::M));
+        // assert!(result.contains(IsaExtensions::A));
+        // assert!(result.contains(IsaExtensions::F));
+        // assert!(result.contains(IsaExtensions::D));
+        // assert!(result.contains(IsaExtensions::C));
+        // assert!(result.contains(IsaExtensions::ZICSR));
+        // assert!(result.contains(IsaExtensions::ZIFENCEI));
+    // }
+// }

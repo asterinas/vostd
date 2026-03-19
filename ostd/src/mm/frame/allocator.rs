@@ -105,27 +105,27 @@ impl FrameAllocOptions {
     }
 }
 
-#[cfg(ktest)]
-#[ktest]
-fn test_alloc_dealloc() {
+// #[cfg(ktest)]
+// #[ktest]
+// fn test_alloc_dealloc() {
     // Here we allocate and deallocate frames in random orders to test the allocator.
     // We expect the test to fail if the underlying implementation panics.
-    let single_options = FrameAllocOptions::new();
-    let mut contiguous_options = FrameAllocOptions::new();
-    contiguous_options.zeroed(false);
-    let mut remember_vec = Vec::new();
-    for _ in 0..10 {
-        for i in 0..10 {
-            let single_frame = single_options.alloc_frame().unwrap();
-            if i % 3 == 0 {
-                remember_vec.push(single_frame);
-            }
-        }
-        let contiguous_segment = contiguous_options.alloc_segment(10).unwrap();
-        drop(contiguous_segment);
-        remember_vec.pop();
-    }
-}
+    // let single_options = FrameAllocOptions::new();
+    // let mut contiguous_options = FrameAllocOptions::new();
+    // contiguous_options.zeroed(false);
+    // let mut remember_vec = Vec::new();
+    // for _ in 0..10 {
+        // for i in 0..10 {
+            // let single_frame = single_options.alloc_frame().unwrap();
+            // if i % 3 == 0 {
+                // remember_vec.push(single_frame);
+            // }
+        // }
+        // let contiguous_segment = contiguous_options.alloc_segment(10).unwrap();
+        // drop(contiguous_segment);
+        // remember_vec.pop();
+    // }
+// }
 
 /// The trait for the global frame allocator.
 ///

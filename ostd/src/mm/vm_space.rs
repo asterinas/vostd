@@ -411,10 +411,10 @@ cpu_local_cell! {
     static ACTIVATED_VM_SPACE: *const VmSpace = core::ptr::null();
 }
 
-#[cfg(ktest)]
-pub(super) fn get_activated_vm_space() -> *const VmSpace {
-    ACTIVATED_VM_SPACE.load()
-}
+// #[cfg(ktest)]
+// pub(super) fn get_activated_vm_space() -> *const VmSpace {
+    // ACTIVATED_VM_SPACE.load()
+// }
 
 /// The item that can be mapped into the [`VmSpace`].
 pub type MappedItem = (UFrame, PageProperty);

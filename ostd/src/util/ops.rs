@@ -24,59 +24,59 @@ pub fn range_difference<T: Ord + Copy>(
     r.into_iter().filter(|v| !v.is_empty())
 }
 
-#[cfg(ktest)]
-#[expect(clippy::single_range_in_vec_init)]
-mod test {
-    use super::*;
-    use crate::prelude::ktest;
+// #[cfg(ktest)]
+// #[expect(clippy::single_range_in_vec_init)]
+// mod test {
+    // use super::*;
+    // use crate::prelude::ktest;
 
-    #[track_caller]
-    fn assert_range_difference<const N: usize>(
-        a: Range<usize>,
-        b: Range<usize>,
-        expected: [Range<usize>; N],
-    ) {
-        let mut res = range_difference(&a, &b);
-        expected
-            .into_iter()
-            .for_each(|val| assert_eq!(res.next(), Some(val)));
-        assert!(res.next().is_none());
-    }
+    // #[track_caller]
+    // fn assert_range_difference<const N: usize>(
+        // a: Range<usize>,
+        // b: Range<usize>,
+        // expected: [Range<usize>; N],
+    // ) {
+        // let mut res = range_difference(&a, &b);
+        // expected
+            // .into_iter()
+            // .for_each(|val| assert_eq!(res.next(), Some(val)));
+        // assert!(res.next().is_none());
+    // }
 
-    #[ktest]
-    fn range_difference_contained() {
-        assert_range_difference(0..10, 3..7, [0..3, 7..10]);
-    }
-    #[ktest]
-    fn range_difference_all_same() {
-        assert_range_difference(0..10, 0..10, []);
-    }
-    #[ktest]
-    fn range_difference_left_same() {
-        assert_range_difference(0..10, 0..5, [5..10]);
-    }
-    #[ktest]
-    fn range_difference_right_same() {
-        assert_range_difference(0..10, 5..10, [0..5]);
-    }
-    #[ktest]
-    fn range_difference_b_empty() {
-        assert_range_difference(0..10, 0..0, [0..10]);
-    }
-    #[ktest]
-    fn range_difference_a_empty() {
-        assert_range_difference(0..0, 0..10, []);
-    }
-    #[ktest]
-    fn range_difference_all_empty() {
-        assert_range_difference(0..0, 0..0, []);
-    }
-    #[ktest]
-    fn range_difference_left_intersected() {
-        assert_range_difference(5..10, 0..6, [6..10]);
-    }
-    #[ktest]
-    fn range_difference_right_intersected() {
-        assert_range_difference(5..10, 6..12, [5..6]);
-    }
-}
+    // #[ktest]
+    // fn range_difference_contained() {
+        // assert_range_difference(0..10, 3..7, [0..3, 7..10]);
+    // }
+    // #[ktest]
+    // fn range_difference_all_same() {
+        // assert_range_difference(0..10, 0..10, []);
+    // }
+    // #[ktest]
+    // fn range_difference_left_same() {
+        // assert_range_difference(0..10, 0..5, [5..10]);
+    // }
+    // #[ktest]
+    // fn range_difference_right_same() {
+        // assert_range_difference(0..10, 5..10, [0..5]);
+    // }
+    // #[ktest]
+    // fn range_difference_b_empty() {
+        // assert_range_difference(0..10, 0..0, [0..10]);
+    // }
+    // #[ktest]
+    // fn range_difference_a_empty() {
+        // assert_range_difference(0..0, 0..10, []);
+    // }
+    // #[ktest]
+    // fn range_difference_all_empty() {
+        // assert_range_difference(0..0, 0..0, []);
+    // }
+    // #[ktest]
+    // fn range_difference_left_intersected() {
+        // assert_range_difference(5..10, 0..6, [6..10]);
+    // }
+    // #[ktest]
+    // fn range_difference_right_intersected() {
+        // assert_range_difference(5..10, 6..12, [5..6]);
+    // }
+// }

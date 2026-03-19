@@ -272,13 +272,13 @@ impl<E: PageTableEntryTrait, C: PagingConstsTrait> BootPageTable<E, C> {
         E::new_pt(frame_paddr)
     }
 
-    #[cfg(ktest)]
-    pub(super) fn new(root_pt: FrameNumber) -> Self {
-        Self {
-            root_pt,
-            _pretend_to_use: core::marker::PhantomData,
-        }
-    }
+    // #[cfg(ktest)]
+    // pub(super) fn new(root_pt: FrameNumber) -> Self {
+        // Self {
+            // root_pt,
+            // _pretend_to_use: core::marker::PhantomData,
+        // }
+    // }
 }
 
 /// A helper function to walk on the page table frames.

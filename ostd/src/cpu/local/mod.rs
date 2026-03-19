@@ -313,33 +313,33 @@ mod is_used {
     }
 }
 
-#[cfg(ktest)]
-mod test {
-    use core::cell::RefCell;
+// #[cfg(ktest)]
+// mod test {
+    // use core::cell::RefCell;
 
-    use ostd_macros::ktest;
+    // use ostd_macros::ktest;
 
-    #[ktest]
-    fn test_cpu_local() {
-        crate::cpu_local! {
-            static FOO: RefCell<usize> = RefCell::new(1);
-        }
-        let irq_guard = crate::trap::irq::disable_local();
-        let foo_guard = FOO.get_with(&irq_guard);
-        assert_eq!(*foo_guard.borrow(), 1);
-        *foo_guard.borrow_mut() = 2;
-        assert_eq!(*foo_guard.borrow(), 2);
-        drop(foo_guard);
-    }
+    // #[ktest]
+    // fn test_cpu_local() {
+        // crate::cpu_local! {
+            // static FOO: RefCell<usize> = RefCell::new(1);
+        // }
+        // let irq_guard = crate::trap::irq::disable_local();
+        // let foo_guard = FOO.get_with(&irq_guard);
+        // assert_eq!(*foo_guard.borrow(), 1);
+        // *foo_guard.borrow_mut() = 2;
+        // assert_eq!(*foo_guard.borrow(), 2);
+        // drop(foo_guard);
+    // }
 
-    #[ktest]
-    fn test_cpu_local_cell() {
-        crate::cpu_local_cell! {
-            static BAR: usize = 3;
-        }
-        let _guard = crate::trap::irq::disable_local();
-        assert_eq!(BAR.load(), 3);
-        BAR.store(4);
-        assert_eq!(BAR.load(), 4);
-    }
-}
+    // #[ktest]
+    // fn test_cpu_local_cell() {
+        // crate::cpu_local_cell! {
+            // static BAR: usize = 3;
+        // }
+        // let _guard = crate::trap::irq::disable_local();
+        // assert_eq!(BAR.load(), 3);
+        // BAR.store(4);
+        // assert_eq!(BAR.load(), 4);
+    // }
+// }

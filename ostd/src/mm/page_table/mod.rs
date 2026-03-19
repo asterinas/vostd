@@ -406,11 +406,11 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Note that this function may fail reflect an accurate result if there are
     /// cursors concurrently accessing the same virtual address range, just like what
     /// happens for the hardware MMU walk.
-    #[cfg(ktest)]
-    pub fn page_walk(&self, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
+    // #[cfg(ktest)]
+    // pub fn page_walk(&self, vaddr: Vaddr) -> Option<(Paddr, PageProperty)> {
         // SAFETY: The root node is a valid page table node so the address is valid.
-        unsafe { page_walk::<C>(self.root_paddr(), vaddr) }
-    }
+        // unsafe { page_walk::<C>(self.root_paddr(), vaddr) }
+    // }
 
     /// Create a new cursor exclusively accessing the virtual address range for mapping.
     ///
@@ -469,42 +469,42 @@ impl<C: PageTableConfig> PageTable<C> {
 ///
 /// For the software page walk, we only need to disable preemption at the beginning
 /// since the page table nodes won't be recycled in the RCU critical section.
-#[cfg(ktest)]
-pub(super) unsafe fn page_walk<C: PageTableConfig>(
-    root_paddr: Paddr,
-    vaddr: Vaddr,
-) -> Option<(Paddr, PageProperty)> {
-    use super::paddr_to_vaddr;
+// #[cfg(ktest)]
+// pub(super) unsafe fn page_walk<C: PageTableConfig>(
+    // root_paddr: Paddr,
+    // vaddr: Vaddr,
+// ) -> Option<(Paddr, PageProperty)> {
+    // use super::paddr_to_vaddr;
 
-    let _rcu_guard = disable_preempt();
+    // let _rcu_guard = disable_preempt();
 
-    let mut pt_addr = paddr_to_vaddr(root_paddr);
-    for cur_level in (1..=C::NR_LEVELS).rev() {
-        let offset = pte_index::<C>(vaddr, cur_level);
+    // let mut pt_addr = paddr_to_vaddr(root_paddr);
+    // for cur_level in (1..=C::NR_LEVELS).rev() {
+        // let offset = pte_index::<C>(vaddr, cur_level);
         // SAFETY:
         //  - The page table node is alive because (1) the root node is alive and
         //    (2) all child nodes cannot be recycled because we're in the RCU critical section.
         //  - The index is inside the bound, so the page table entry is valid.
         //  - All page table entries are aligned and accessed with atomic operations only.
-        let cur_pte = unsafe { load_pte((pt_addr as *mut C::E).add(offset), Ordering::Acquire) };
+        // let cur_pte = unsafe { load_pte((pt_addr as *mut C::E).add(offset), Ordering::Acquire) };
 
-        if !cur_pte.is_present() {
-            return None;
-        }
+        // if !cur_pte.is_present() {
+            // return None;
+        // }
 
-        if cur_pte.is_last(cur_level) {
-            debug_assert!(cur_level <= C::HIGHEST_TRANSLATION_LEVEL);
-            return Some((
-                cur_pte.paddr() + (vaddr & (page_size::<C>(cur_level) - 1)),
-                cur_pte.prop(),
-            ));
-        }
+        // if cur_pte.is_last(cur_level) {
+            // debug_assert!(cur_level <= C::HIGHEST_TRANSLATION_LEVEL);
+            // return Some((
+                // cur_pte.paddr() + (vaddr & (page_size::<C>(cur_level) - 1)),
+                // cur_pte.prop(),
+            // ));
+        // }
 
-        pt_addr = paddr_to_vaddr(cur_pte.paddr());
-    }
+        // pt_addr = paddr_to_vaddr(cur_pte.paddr());
+    // }
 
-    unreachable!("All present PTEs at the level 1 must be last-level PTEs");
-}
+    // unreachable!("All present PTEs at the level 1 must be last-level PTEs");
+// }
 
 /// A trait that abstracts architecture-specific page table entries (PTEs).
 ///
