@@ -148,7 +148,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self { r }
     }
 
-    /// Every `SumResource` satisfies the well-formedness invariant.
+    /// `SumResource` satisfies its type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
@@ -1025,7 +1025,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
         self.protocol_monoid().frac()
     }
 
-    /// Every `Left` token should satisfy the type invariant.
+    /// `Left` token satisfies the type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
@@ -1228,7 +1228,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
         self.protocol_monoid().frac()
     }
 
-    /// Validates the internal consistency of this resource token.
+    /// `Right` token satisfies the type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
