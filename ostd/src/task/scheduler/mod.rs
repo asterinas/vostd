@@ -63,25 +63,28 @@
 //! Violating this invariant—e.g., running the same task on two CPUs concurrently—
 //! can have catastrophic consequences,
 //! as the task's stack and internal state may be corrupted by concurrent modifications.
-mod fifo_scheduler;
-pub mod info;
+// mod fifo_scheduler;
+// pub mod info;
 
+use alloc::sync::Arc;
 use spin::Once;
 
-use super::{preempt::cpu_local, processor, Task};
-use crate::{
-    cpu::{CpuId, CpuSet, PinCurrentCpu},
-    prelude::*,
-    task::disable_preempt,
-    timer,
-};
+// use super::{preempt::cpu_local, processor, Task};
+use super::Task;
+// use crate::{
+//     cpu::{CpuId, CpuSet, PinCurrentCpu},
+//     prelude::*,
+//     task::disable_preempt,
+//     timer,
+// };
+use crate::specs::mm::cpu::CpuId;
 
 /// Injects a custom implementation of task scheduler into OSTD.
 ///
 /// This function can only be called once and must be called during the initialization phase of kernel,
 /// before any [`Task`]-related APIs are invoked.
 pub fn inject_scheduler(scheduler: &'static dyn Scheduler<Task>) {
-    SCHEDULER.call_once(|| scheduler);
+    /* SCHEDULER.call_once(|| scheduler);
 
     timer::register_callback(|| {
         SCHEDULER.get().unwrap().mut_local_rq_with(&mut |local_rq| {
@@ -90,7 +93,7 @@ pub fn inject_scheduler(scheduler: &'static dyn Scheduler<Task>) {
                 cpu_local::set_need_preempt();
             }
         })
-    });
+    }); */
 }
 
 static SCHEDULER: Once<&'static dyn Scheduler<Task>> = Once::new();
@@ -380,6 +383,7 @@ pub enum UpdateFlags {
 /// Preempts the current task.
 #[track_caller]
 pub(crate) fn might_preempt() {
+    /*
     if !cpu_local::should_preempt() {
         return;
     }
@@ -391,6 +395,7 @@ pub(crate) fn might_preempt() {
             ReschedAction::DoNothing
         }
     })
+    */
 }
 
 /// Blocks the current task unless `has_unparked()` returns `true`.
@@ -447,7 +452,7 @@ pub(crate) fn unpark_target(runnable: Arc<Task>) {
         .unwrap()
         .enqueue(runnable, EnqueueFlags::Wake);
     if let Some(preempt_cpu_id) = preempt_cpu {
-        set_need_preempt(preempt_cpu_id);
+        // set_need_preempt(preempt_cpu_id);
     }
 }
 
@@ -455,6 +460,7 @@ pub(crate) fn unpark_target(runnable: Arc<Task>) {
 ///
 /// Note that the new task is not guaranteed to run at once.
 #[track_caller]
+/*
 pub(super) fn run_new_task(runnable: Arc<Task>) {
     // FIXME: remove this check for `SCHEDULER`.
     // Currently OSTD cannot know whether its user has injected a scheduler.
@@ -472,7 +478,9 @@ pub(super) fn run_new_task(runnable: Arc<Task>) {
 
     might_preempt();
 }
+*/
 
+/*
 fn set_need_preempt(cpu_id: CpuId) {
     let preempt_guard = disable_preempt();
 
@@ -484,11 +492,13 @@ fn set_need_preempt(cpu_id: CpuId) {
         });
     }
 }
+*/
 
 /// Dequeues the current task from its runqueue.
 ///
 /// This should only be called if the current is to exit.
 #[track_caller]
+/*
 pub(super) fn exit_current() -> ! {
     let mut is_first_try = true;
 
@@ -511,9 +521,11 @@ pub(super) fn exit_current() -> ! {
 
     unreachable!()
 }
+*/
 
 /// Yields execution.
 #[track_caller]
+/*
 pub(super) fn yield_now() {
     reschedule(|local_rq| {
         let should_pick_next = local_rq.update_current(UpdateFlags::Yield);
@@ -525,6 +537,7 @@ pub(super) fn yield_now() {
         }
     })
 }
+*/
 
 /// Do rescheduling by acting on the scheduling decision (`ReschedAction`) made by a
 /// user-given closure.
@@ -537,7 +550,7 @@ where
 {
     // Even if the decision below is `DoNothing`, we should clear this flag. Meanwhile, to avoid
     // race conditions, we should do this before making the decision.
-    cpu_local::clear_need_preempt();
+    // cpu_local::clear_need_preempt();
 
     let next_task = loop {
         let mut action = ReschedAction::DoNothing;
@@ -564,7 +577,7 @@ where
     // FIXME: The scheduler decision and context switching are not atomic, which can lead to some
     // strange behavior even if the scheduler is implemented correctly. See "Problem 2" at
     // <https://github.com/asterinas/asterinas/issues/1633> for details.
-    processor::switch_to_task(next_task);
+    // processor::switch_to_task(next_task);
 }
 
 /// Possible actions of a rescheduling.

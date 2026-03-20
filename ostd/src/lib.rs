@@ -53,9 +53,9 @@ pub mod prelude;
 pub mod smp;*/
 pub mod sync;
 pub mod task;
-/* pub mod timer;
+// pub mod timer;
 pub mod trap;
-pub mod user;*/
+// pub mod user;
 #[path = "../specs/lib.rs"]
 pub mod specs;
 pub mod util;

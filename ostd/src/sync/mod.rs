@@ -20,7 +20,7 @@ pub use self::{
                                                                                      RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard,
                                                                                  },*/
     spin::{SpinLock, SpinLockGuard},
-    //wait::{WaitQueue, Waiter, Waker},
+    wait::{WaitQueue, Waiter, Waker},
 };
 /*
 pub(crate) fn init() {
