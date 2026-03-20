@@ -85,19 +85,19 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     #[verifier::type_invariant]
-    pub open spec fn type_inv(self) -> bool {
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
+    /// Type invariant.
+    pub open spec fn wf(self) -> bool {
         &&& 1 <= self.frac() <= TOTAL
         &&& self.protocol_monoid().is_valid()
         &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
         &&& self.is_left() || self.is_right()
     }
 
-    #[verifier::inline]
-    pub open spec fn wf(self) -> bool {
-        self.type_inv()
-    }
-
-    spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
+    closed spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
         &&& 1 <= r.frac() <= TOTAL
         &&& r.is_valid()
         &&& r.is_resource_owner() ==> (r.has_resource() || r.has_no_resource())
@@ -122,6 +122,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.has_resource(),
             res.resource() == Sum::<A, B>::Left(a),
             res.frac() == TOTAL,
+            res.wf(),
     {
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Left(a));
@@ -139,6 +140,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.has_resource(),
             res.resource() == Sum::<A, B>::Right(b),
             res.frac() == TOTAL,
+            res.wf(),
     {
         let tracked mut m = Map::tracked_empty();
         m.tracked_insert((), Sum::<A, B>::Right(b));
@@ -146,14 +148,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         Self { r }
     }
 
-    /// Validates the internal consistency of this resource token.
+    /// Every `SumResource` satisfies the well-formedness invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
-            1 <= self.frac() <= TOTAL,
-            self.protocol_monoid().is_valid(),
-            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
-            self.is_left() || self.is_right(),
     {
         use_type_invariant(&*self);
     }
@@ -169,7 +167,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             *old(self) == *self,
             self.id() != other.id(),
+            self.wf(),
+            other.wf(),
     {
+        use_type_invariant(&*self);
+        use_type_invariant(other);
         if self.id() == other.id() {
             self.r.validate_with_shared(&other.r);
         }
@@ -184,6 +186,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_left(),
             !(self.is_resource_owner() && other.is_resource_owner()),
             self.frac() + other.frac() <= TOTAL,
+            self.wf(),
+            other.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -199,6 +203,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_right(),
             !(self.is_resource_owner() && other.is_resource_owner()),
             self.frac() + other.frac() <= TOTAL,
+            self.wf(),
+            other.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -251,6 +257,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.is_resource_owner() <==> old(self).is_resource_owner(),
             res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
             res.has_resource() ==> res.resource() == old(self).resource_left(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = Self::split_left_with_resource_helper(&mut self.r, n);
@@ -311,6 +319,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_resource_owner() <==> old(self).is_resource_owner(),
             self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
             self.has_resource() ==> self.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = Self::split_left_without_resource_helper(&mut self.r, n);
@@ -375,6 +385,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.is_resource_owner() <==> old(self).is_resource_owner(),
             res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
             res.has_resource() ==> res.resource() == old(self).resource_right(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = Self::split_right_with_resource_helper(&mut self.r, n);
@@ -435,6 +447,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_resource_owner() <==> old(self).is_resource_owner(),
             self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
             self.has_resource() ==> self.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = Self::split_right_without_resource_helper(&mut self.r, n);
@@ -494,6 +508,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_no_resource(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         Self::take_resource_left_helper(&mut self.r)
@@ -540,6 +555,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_no_resource(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         Self::take_resource_right_helper(&mut self.r)
@@ -586,6 +602,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.resource_left() == a,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         Self::put_resource_left_helper(&mut self.r, a);
@@ -632,6 +649,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.resource_right() == b,
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         Self::put_resource_right_helper(&mut self.r, b);
@@ -680,6 +698,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
             res == Some(old(self).resource_left()),
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked mut res = None;
@@ -706,6 +725,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.id() == old(self).id(),
             self.frac() == old(self).frac(),
             res == Some(old(self).resource_right()),
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked mut res = None;
@@ -735,6 +755,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.resource_left() == a,
             old(self).has_resource() ==> res == Some(old(self).resource()),
             old(self).has_no_resource() ==> res == None::<Sum<A, B>>,
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked res = Self::change_to_left_helper(&mut self.r, a);
@@ -801,6 +822,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.resource_right() == b,
             old(self).has_resource() ==> res == Some(old(self).resource()),
             old(self).has_no_resource() ==> res == None::<Sum<A, B>>,
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked res = Self::change_to_right_helper(&mut self.r, b);
@@ -862,6 +884,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 Sum::Left(other.resource())
             },
             self.frac() == old(self).frac() + other.frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(&other);
@@ -914,6 +937,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 Sum::Right(other.resource())
             },
             self.frac() == old(self).frac() + other.frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(&other);
@@ -974,16 +998,16 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     }
 
     #[verifier::type_invariant]
-    pub open spec fn type_inv(self) -> bool {
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
+    /// Type invariant.
+    pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_left()
         &&& self.protocol_monoid().is_valid()
         &&& 1 <= self.frac() <= TOTAL
         &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
-    }
-
-    #[verifier::inline]
-    pub open spec fn wf(self) -> bool {
-        self.type_inv()
     }
 
     /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
@@ -1001,14 +1025,10 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
         self.protocol_monoid().frac()
     }
 
-    /// Validates the internal consistency of this resource token.
+    /// Every `Left` token should satisfy the type invariant.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
-            1 <= self.frac() <= TOTAL,
-            self.protocol_monoid().is_valid(),
-            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
-            self.protocol_monoid().is_left(),
     {
         use_type_invariant(&*self);
     }
@@ -1021,6 +1041,8 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             *old(self) == *self,
             !(self.is_resource_owner() && other.is_resource_owner()),
             self.frac() + other.frac() <= TOTAL,
+            self.wf(),
+            other.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -1031,6 +1053,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     pub proof fn validate_with_right(tracked &self, tracked other: &Right<A, B, TOTAL>)
         ensures
             self.id() != other.id(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -1064,6 +1087,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_no_resource(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::take_resource_left_helper(&mut self.r);
@@ -1081,6 +1105,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_resource(),
             self.resource() == a,
+            self.wf(),
     {
         use_type_invariant(&*self);
         SumResource::put_resource_left_helper(&mut self.r, a);
@@ -1099,6 +1124,8 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             res.is_resource_owner() <==> old(self).is_resource_owner(),
             res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
             res.has_resource() ==> res.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::split_left_with_resource_helper(&mut self.r, n);
@@ -1118,6 +1145,8 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             self.is_resource_owner() <==> old(self).is_resource_owner(),
             self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
             self.has_resource() ==> self.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::split_left_without_resource_helper(&mut self.r, n);
@@ -1138,6 +1167,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             } else {
                 None
             },
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked mut res = None;
@@ -1171,16 +1201,16 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     }
 
     #[verifier::type_invariant]
-    pub open spec fn type_inv(self) -> bool {
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
+    /// Type invariant.
+    pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_right()
         &&& self.protocol_monoid().is_valid()
         &&& 1 <= self.frac() <= TOTAL
         &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
-    }
-
-    #[verifier::inline]
-    pub open spec fn wf(self) -> bool {
-        self.type_inv()
     }
 
     /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
@@ -1202,10 +1232,6 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
-            self.protocol_monoid().is_valid(),
-            1 <= self.frac() <= TOTAL,
-            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
-            self.protocol_monoid().is_right(),
     {
         use_type_invariant(&*self);
     }
@@ -1230,6 +1256,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             *old(self) == *self,
             !(self.is_resource_owner() && other.is_resource_owner()),
             self.frac() + other.frac() <= TOTAL,
+            self.wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -1261,6 +1288,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_no_resource(),
             self.frac() == old(self).frac(),
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::take_resource_right_helper(&mut self.r);
@@ -1278,6 +1306,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             self.is_resource_owner(),
             self.has_resource(),
             self.resource() == b,
+            self.wf(),
     {
         use_type_invariant(&*self);
         SumResource::put_resource_right_helper(&mut self.r, b);
@@ -1296,6 +1325,8 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             res.is_resource_owner() <==> old(self).is_resource_owner(),
             res.is_resource_owner() ==> (res.has_resource() <==> old(self).has_resource()),
             res.has_resource() ==> res.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::split_right_with_resource_helper(&mut self.r, n);
@@ -1315,6 +1346,8 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             self.is_resource_owner() <==> old(self).is_resource_owner(),
             self.is_resource_owner() ==> (self.has_resource() <==> old(self).has_resource()),
             self.has_resource() ==> self.resource() == old(self).resource(),
+            self.wf(),
+            res.wf(),
     {
         use_type_invariant(&*self);
         let tracked r = SumResource::split_right_without_resource_helper(&mut self.r, n);
@@ -1335,6 +1368,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             } else {
                 None
             },
+            self.wf(),
     {
         use_type_invariant(&*self);
         let tracked mut res = None;
