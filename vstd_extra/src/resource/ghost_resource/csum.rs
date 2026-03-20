@@ -31,7 +31,7 @@ pub tracked struct Right<A, B, const TOTAL: u64 = 2> {
 }
 
 impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
-    /// Returns the unique identifier of this resource token.
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
@@ -955,7 +955,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
 }
 
 impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
-    /// Returns the unique identifier of this resource token.
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
@@ -1152,7 +1152,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
 }
 
 impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
-    /// Returns the unique identifier of this resource token.
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }

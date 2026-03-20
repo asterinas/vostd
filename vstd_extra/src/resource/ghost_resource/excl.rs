@@ -11,198 +11,128 @@ pub type UniqueTokenStorage = ExclusiveGhostResource<()>;
 
 pub type UniqueToken = ExclusiveGhost<()>;
 
-/// A wrapper around `Resource<ExclR<T>>` that provides (optional) exclusive ownership of a value of type `T`.
-/// For actual usage, we recommend `ExclusiveGhostResource` and `ExclusiveGhost`.
-pub tracked struct ExclusiveGhostCarrier<T> {
-    tracked r: Resource<ExclR<T>>,
-}
-
-impl<T> ExclusiveGhostCarrier<T> {
-    pub closed spec fn id(self) -> Loc {
-        self.r.loc()
-    }
-
-    pub closed spec fn value(self) -> T {
-        self.r.value().value()
-    }
-
-    pub open spec fn view(self) -> T {
-        self.value()
-    }
-
-    pub closed spec fn pcm(self) -> ExclR<T> {
-        self.r.value()
-    }
-
-    pub open spec fn is_empty(self) -> bool {
-        self.pcm() is Unit
-    }
-
-    pub open spec fn is_full(self) -> bool {
-        self.pcm() is Excl
-    }
-
-    pub proof fn alloc(value: T) -> (tracked res: Self)
-        ensures
-            res.view() == value,
-            res.is_full(),
-    {
-        Self { r: Resource::<ExclR<T>>::alloc(ExclR::Excl(value)) }
-    }
-
-    pub proof fn validate(tracked &self)
-        ensures
-            self.is_empty() || self.is_full(),
-            self.is_empty() <==> !self.is_full(),
-            self.is_full() <==> !self.is_empty(),
-    {
-        self.r.validate();
-    }
-
-    pub proof fn is_exclusive(tracked &mut self, tracked other: &Self)
-        ensures
-            self.is_full() && other.is_full() ==> self.id() != other.id(),
-            *old(self) == *self,
-    {
-        if self.is_full() && other.is_full() {
-            if self.id() == other.id() {
-                self.r.validate_2(&other.r);
-            }
-        }
-    }
-
-    pub proof fn take(tracked &mut self) -> (tracked res: Self)
-        requires
-            old(self).is_full(),
-        ensures
-            res == *old(self),
-            old(self).id() == self.id(),
-            self.is_empty(),
-    {
-        let tracked mut empty = Resource::<ExclR<T>>::create_unit(self.id());
-        tracked_swap(&mut self.r, &mut empty);
-        Self { r: empty }
-    }
-
-    pub proof fn join(tracked &mut self, tracked other: Self)
-        requires
-            old(self).is_empty(),
-            other.is_full(),
-            old(self).id() == other.id(),
-        ensures
-            *self == other,
-    {
-        let tracked mut other = other;
-        tracked_swap(&mut self.r, &mut other.r);
-    }
-
-    pub proof fn update(tracked &mut self, value: T)
-        requires
-            old(self).is_full(),
-        ensures
-            self.is_full(),
-            self.id() == old(self).id(),
-            self.view() == value,
-    {
-        let tracked mut resource = self.take();
-        let tracked r = resource.r;
-        let tracked r = r.update(ExclR::Excl(value));
-        self.join(Self { r });
-    }
-}
-
-/// An `ExclusiveGhost` always provides exclusive ownership of a value of type `T`.
-pub tracked struct ExclusiveGhost<T>(ExclusiveGhostCarrier<T>);
+/// `ExclusiveGhost` is a token that always provides exclusive access to a ghost value of type `T`.
+pub tracked struct ExclusiveGhost<T>(Resource<ExclR<T>>);
 
 impl<T> ExclusiveGhost<T> {
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
-        self.0.id()
+        self.0.loc()
     }
 
-    pub closed spec fn value(self) -> T {
+    /// Returns the underlying `ExclR<T>` PCM element.
+    pub closed spec fn pcm(self) -> ExclR<T> {
         self.0.value()
     }
 
+    /// Returns the ghost value of type `T`.
+    pub open spec fn value(self) -> T {
+        self.pcm().value()
+    }
+
+    /// Returns the ghost value of type `T`, an alias of `Self::value()`.
     pub open spec fn view(self) -> T {
         self.value()
     }
 
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
-        self.0.is_full()
+        self.pcm() is Excl
     }
 
+    /// Allocates a new `ExclusiveGhost` with the given value。
     pub proof fn alloc(value: T) -> (tracked res: Self)
         ensures
             res.view() == value,
     {
-        Self(ExclusiveGhostCarrier::alloc(value))
+        Self(Resource::<ExclR<T>>::alloc(ExclR::Excl(value)))
     }
 
-    pub proof fn update(tracked &mut self, value: T)
+    /// Updates the ghost value and returns the old value.
+    pub proof fn update(tracked &mut self, value: T) -> (res: T)
         ensures
             self.id() == old(self).id(),
             self.view() == value,
     {
         use_type_invariant(&*self);
-        self.0.update(value);
+        ExclusiveGhostResource::update_helper(&mut self.0, value)
     }
 
-    proof fn is_exclusive(tracked &mut self, tracked other: &Self)
+    /// The existence of two `ExclusiveGhost` tokens ensures that they do not have the same id.
+    pub proof fn validate_with_other(tracked &mut self, tracked other: &Self)
         ensures
             *old(self) == *self,
             self.id() != other.id(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
-        self.0.is_exclusive(&other.0);
+        if self.id() == other.id() {
+            self.0.validate_2(&other.0);
+        }
     }
 }
 
-// An `ExclusiveGhostResource` can split and join `ExclusiveGhost`, it can be empty or full.
-pub tracked struct ExclusiveGhostResource<T>(ExclusiveGhostCarrier<T>);
+// `ExclusiveGhostResource` is a token that can split and join `ExclusiveGhost`, it can be empty.
+pub tracked struct ExclusiveGhostResource<T>(Resource<ExclR<T>>);
 
 impl<T> ExclusiveGhostResource<T> {
+    /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
-        self.0.id()
+        self.0.loc()
     }
 
-    pub closed spec fn value(self) -> T {
+    /// Returns the underlying `ExclR<T>` PCM element.
+    pub closed spec fn pcm(self) -> ExclR<T> {
         self.0.value()
     }
 
+    /// Returns the ghost value of type `T`, only meaningful if `Self::is_full()` is true.
+    pub open spec fn value(self) -> T {
+        self.pcm().value()
+    }
+
+    /// Returns the ghost value of type `T`, an alias of `Self::value()`.
+    #[verifier::inline]
     pub open spec fn view(self) -> T {
         self.value()
     }
 
-    pub closed spec fn is_empty(self) -> bool {
-        self.0.is_empty()
+    /// Whether the exclusive ownership has been taken.
+    pub open spec fn is_empty(self) -> bool {
+        self.pcm() is Unit
     }
 
-    pub closed spec fn is_full(self) -> bool {
-        self.0.is_full()
+    /// Whether the exclusive ownership is available.
+    pub open spec fn is_full(self) -> bool {
+        self.pcm() is Excl
     }
 
     pub open spec fn wf(self) -> bool {
         &&& self.is_empty() || self.is_full()
         &&& self.is_empty() <==> !self.is_full()
-        &&& self.is_full() <==> !self.is_empty()
     }
 
     #[verifier::type_invariant]
-    pub open spec fn type_inv(self) -> bool {
+    pub closed spec fn type_inv(self) -> bool {
         self.wf()
     }
 
+    closed spec fn type_inv_inner(r: ExclR<T>) -> bool {
+        &&& r is Unit || r is Excl
+        &&& r is Unit <==> r !is Excl
+    }
+
+    /// Allocates a new `ExclusiveGhostResource` with the given value.
     pub proof fn alloc(value: T) -> (tracked res: Self)
         ensures
             res.view() == value,
             res.is_full(),
             res.wf(),
     {
-        Self(ExclusiveGhostCarrier::alloc(value))
+        Self(Resource::<ExclR<T>>::alloc(ExclR::Excl(value)))
     }
 
+    /// Takes the exclusive ownership, returning an `ExclusiveGhost` token.
     pub proof fn take(tracked &mut self) -> (tracked res: ExclusiveGhost<T>)
         requires
             old(self).is_full(),
@@ -213,20 +143,48 @@ impl<T> ExclusiveGhostResource<T> {
             res.view() == old(self).view(),
             self.wf(),
     {
-        let tracked r = self.0.take();
+        use_type_invariant(&*self);
+        let tracked r = Self::take_helper(&mut self.0);
         ExclusiveGhost(r)
     }
 
-    pub proof fn is_exclusive(tracked &mut self, tracked other: &ExclusiveGhost<T>)
+    proof fn take_helper(tracked r: &mut Resource<ExclR<T>>) -> (tracked res: Resource<ExclR<T>>)
+        requires
+            Self::type_inv_inner(old(r).value()),
+            old(r).value() is Excl,
+        ensures
+            Self::type_inv_inner(r.value()),
+            Self::type_inv_inner(res.value()),
+            r.value() is Unit,
+            res.value() is Excl,
+            old(r).loc() == r.loc(),
+            old(r).loc() == res.loc(),
+            res.value().value() == old(r).value().value(),
+    {
+        let tracked mut tmp = Resource::<ExclR<T>>::alloc(ExclR::Unit);
+        tracked_swap(r, &mut tmp);
+        let tracked (mut r1,r2) = tmp.split(ExclR::Unit, tmp.value());
+        tracked_swap(r, &mut r1);
+        r2
+    }
+
+    /// The existence of an `ExclusiveGhost` token ensures that either there is no resource in this `ExclusiveGhostResource`, 
+    /// or they do not have the same id.
+    pub proof fn validate_with_exclusive(tracked &mut self, tracked other: &ExclusiveGhost<T>)
         ensures
             self.is_full() ==> self.id() != other.id(),
             *old(self) == *self,
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
-        self.0.is_exclusive(&other.0);
+        if self.is_full() {
+            if self.id() == other.id() {
+                self.0.validate_2(&other.0);
+            }
+        }
     }
-
+    
+    /// Joins an `ExclusiveGhost` token back to this `ExclusiveGhostResource`.
     pub proof fn join(tracked &mut self, tracked other: ExclusiveGhost<T>)
         requires
             old(self).id() == other.id(),
@@ -239,15 +197,68 @@ impl<T> ExclusiveGhostResource<T> {
             },
             old(self).is_full() ==> false,
     {
+        use_type_invariant(&*self);
         use_type_invariant(&other);
         if self.is_full() {
-            self.0.is_exclusive(&other.0);
+            self.validate_with_exclusive(&other)
         } else {
-            self.validate();
-            self.0.join(other.0);
+            Self::join_helper(&mut self.0, other.0);
         }
     }
 
+    proof fn join_helper(tracked r1: &mut Resource<ExclR<T>>, tracked r2: Resource<ExclR<T>>)
+        requires
+            Self::type_inv_inner(old(r1).value()),
+            Self::type_inv_inner(r2.value()),
+            old(r1).value() is Unit,
+            r2.value() is Excl,
+            old(r1).loc() == r2.loc(),
+        ensures
+            Self::type_inv_inner(r1.value()),
+            r1.value() is Excl,
+            r1.loc() == r2.loc(),
+            r1.value().value() == r2.value().value(),
+    {
+            let tracked mut tmp = Resource::<ExclR<T>>::alloc(ExclR::Unit);
+            tracked_swap(r1, &mut tmp);
+            let tracked mut r = tmp.join(r2);
+            tracked_swap(r1, &mut r);
+    }
+    
+    /// Updates the ghost value and returns the old value, requires that the exclusive ownership is available.
+    pub proof fn update(tracked &mut self, value: T) -> (res: T)
+        requires
+            old(self).is_full(),
+        ensures
+            res == old(self).view(),
+            self.id() == old(self).id(),
+            self.view() == value,
+            self.is_full(),
+    {
+        use_type_invariant(&*self);
+        Self::update_helper(&mut self.0, value)
+    }
+
+    proof fn update_helper(tracked r: &mut Resource<ExclR<T>>, value: T) -> (res: T)
+        requires
+            Self::type_inv_inner(old(r).value()),
+            old(r).value() is Excl,
+        ensures
+            Self::type_inv_inner(r.value()),
+            r.value() is Excl,
+            r.loc() == old(r).loc(),
+            res == old(r).value().value(),
+            r.value().value() == value,
+    {
+        let ghost res = r.value().value();
+        let tracked mut tmp = Resource::<ExclR<T>>::alloc(ExclR::Unit);
+        tracked_swap(r, &mut tmp);
+        let tracked mut r1 = tmp.update(ExclR::Excl(value));
+        tracked_swap(r, &mut r1);
+        res
+    }
+
+    /// Validates the internal consistency of this resource token.
     pub proof fn validate(tracked &self)
         ensures
             self.wf(),
