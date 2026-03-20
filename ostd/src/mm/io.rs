@@ -1000,102 +1000,112 @@ type Result<T> = core::result::Result<T, Error>;
 ///
 /// `P` is the type of the permission/ownership token used to track the state of the VM object.
 pub trait VmIo<P: Sized>: Send + Sync + Sized {
-    // spec fn reader_inv_with_owner(self, owner: VmIoOwner<'_>) -> bool;
-    /// If this returns true then the `requires` clause of `read` will be active.
-    spec fn obeys_vmio_read_requires() -> bool;
+    spec fn obeys_vmio_spec() -> bool;
 
-    /// If this returns true then the `ensures` clause of `read` will be active.
-    spec fn obeys_vmio_read_ensures() -> bool;
+    spec fn obeys_vmio_read_spec() -> bool
+        recommends
+            Self::obeys_vmio_spec(),
+    ;
 
-    /// If this returns true then the `requires` clause of `write` will be active.
-    spec fn obeys_vmio_write_requires() -> bool;
+    spec fn obeys_vmio_write_spec() -> bool
+        recommends
+            Self::obeys_vmio_spec(),
+    ;
 
-    /// If this returns true then the `ensures` clause of `write` will be active.
-    spec fn obeys_vmio_write_ensures() -> bool;
+    spec fn read_spec(
+        self,
+        offset: usize,
+        old_writer: VmWriter<'_>,
+        new_writer: VmWriter<'_>,
+        old_writer_own: VmIoOwner<'_>,
+        new_writer_own: VmIoOwner<'_>,
+        old_owner: P,
+        new_owner: P,
+        r: Result<()>,
+    ) -> bool;
 
-    /// Checks whether the preconditions for `read` are met.
-    spec fn vmio_read_requires(self, owner: P, offset: usize) -> bool;
+    spec fn write_spec(
+        self,
+        offset: usize,
+        old_reader: VmReader<'_>,
+        new_reader: VmReader<'_>,
+        old_writer_own: VmIoOwner<'_>,
+        new_writer_own: VmIoOwner<'_>,
+        old_owner: P,
+        new_owner: P,
+        r: Result<()>,
+    ) -> bool;
 
-    /// Checks whether the postconditions for `read` are met.
-    spec fn vmio_read_ensures(self, owner: P, offset: usize, new_owner: P, r: Result<()>) -> bool;
-
-    /// Checks whether the preconditions for `write` are met.
-    spec fn vmio_write_requires(self, owner: P, offset: usize) -> bool;
-
-    /// Checks whether the postconditions for `write` are met.
-    spec fn vmio_write_ensures(self, owner: P, offset: usize, new_owner: P, r: Result<()>) -> bool;
-
-    fn read_slice<T: Pod, const N: usize>(
+    /// Reads requested data at a specified offset into a given [`VmWriter`].
+    ///
+    /// # No short reads
+    ///
+    /// On success, the `writer` must be written with the requested data
+    /// completely. If, for any reason, the requested data is only partially
+    /// available, then the method shall return an error.
+    fn read(
         &self,
         offset: usize,
-        slice: ArrayPtr<T, N>,
-        Tracked(slice_owner): Tracked<&mut PointsToArray<u8, N>>,
+        writer: &mut VmWriter<'_>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>);
+    ) -> (r: Result<()>)
+        ensures
+            Self::obeys_vmio_read_spec() ==> Self::read_spec(
+                *self,
+                offset,
+                *old(writer),
+                *writer,
+                *old(writer_own),
+                *writer_own,
+                *old(owner),
+                *owner,
+                r,
+            ),
+    ;
 
-    fn write_bytes<const N: usize>(
+    /// Writes all data from a given `VmReader` at a specified offset.
+    ///
+    /// # No short writes
+    ///
+    /// On success, the data from the `reader` must be read to the VM object entirely.
+    /// If, for any reason, the input data can only be written partially,
+    /// then the method shall return an error.
+    fn write(
+        &self,
+        offset: usize,
+        reader: &mut VmReader,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(owner): Tracked<&mut P>,
+    ) -> (r: Result<()>)
+        ensures
+            Self::obeys_vmio_write_spec() ==> Self::write_spec(
+                *self,
+                offset,
+                *old(reader),
+                *reader,
+                *old(writer_own),
+                *writer_own,
+                *old(owner),
+                *owner,
+                r,
+            ),
+    ;
+
+    /// Reads a specified number of bytes at a specified offset into a given buffer.
+    ///
+    /// # No short reads
+    ///
+    /// Similar to [`read`].
+    ///
+    /// [`read`]: VmIo::read
+    fn read_byte<const N: usize>(
         &self,
         offset: usize,
         bytes: ArrayPtr<u8, N>,
         Tracked(bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
         Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
-    // requires
-    //     Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
-    //         *self,
-    //         *old(owner),
-    //         offset,
-    //     ),
-    // ensures
-    //     Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
-    //         *self,
-    //         *old(owner),
-    //         offset,
-    //         *owner,
-    //         r,
-    //     ),
-    ;
-
-    fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
-        Result<()>)
-    // requires
-    //     Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
-    //         *self,
-    //         *old(owner),
-    //         offset,
-    //     ),
-    // ensures
-    //     Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
-    //         *self,
-    //         *old(owner),
-    //         offset,
-    //         *owner,
-    //         r,
-    //     ),
-    ;
-
-    fn write_slice<T: Pod, const N: usize>(
-        &self,
-        offset: usize,
-        slice: ArrayPtr<T, N>,
-        Tracked(slice_owner): Tracked<&mut PointsToArray<T, N>>,
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
-        requires
-            Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
-                *self,
-                *old(owner),
-                offset,
-            ),
-        ensures
-            Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
-                *self,
-                *old(owner),
-                offset,
-                *owner,
-                r,
-            ),
-    ;
+    ) -> (r: Result<()>);
 }
 
 /// A trait that enables reading/writing data from/to a VM object using one non-tearing memory

@@ -69,4 +69,47 @@ pub trait PodOnce: Pod {
 
 }
 
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "riscv64",
+    target_arch = "loongarch64",
+))]
+#[verusfmt::skip]
+mod pod_once_impls {
+    use super::PodOnce;
+
+    // impl PodOnce for u8 {}
+    // impl PodOnce for u16 {}
+    // impl PodOnce for u32 {}
+    // impl PodOnce for u64 {}
+    // impl PodOnce for usize {}
+    // impl PodOnce for i8 {}
+    // impl PodOnce for i16 {}
+    // impl PodOnce for i32 {}
+    // impl PodOnce for i64 {}
+    // impl PodOnce for isize {}
+
+    /// Checks whether the memory operation created by [`core::ptr::read_volatile`] and
+    /// [`core::ptr::write_volatile`] doesn't tear.
+    ///
+    /// Note that the Rust documentation makes no such guarantee, and even the wording in the LLVM
+    /// LangRef is ambiguous. But this is unlikely to break in practice because the Linux kernel
+    /// also uses "volatile" semantics to implement `READ_ONCE`/`WRITE_ONCE`.
+    ///
+    /// # Verified Properties
+    /// ## Postconditions
+    /// Returns `true` if and only if the memory operation created by [`core::ptr::read_volatile`] and
+    /// [`core::ptr::write_volatile`] doesn't tear for type `T` (size <= 8 bytes).
+    pub(super) const fn is_non_tearing<T: PodOnce>() -> bool
+        returns
+            core::mem::size_of::<T>() == 1
+            || core::mem::size_of::<T>() == 2
+            || core::mem::size_of::<T>() == 4
+            || core::mem::size_of::<T>() == 8,
+    {
+        let size = core::mem::size_of::<T>();
+        size == 1 || size == 2 || size == 4 || size == 8
+    }
+}
+
 } // verus!
