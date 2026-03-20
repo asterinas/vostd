@@ -3,7 +3,7 @@
 mod guard;
 //mod mutex;
 mod rcu;
-//mod rwarc;
+mod rwarc;
 mod rwlock;
 //mod rwmutex;
 mod spin;
@@ -13,12 +13,12 @@ pub use self::{
     guard::{GuardTransfer, LocalIrqDisabled, PreemptDisabled, SpinGuardian, /*WriteIrqDisabled*/},
     //mutex::{ArcMutexGuard, Mutex, MutexGuard},
     rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
-    //rwarc::{RoArc, RwArc},
-    rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard}, /*
-                                                                                 rwmutex::{
-                                                                                     ArcRwMutexReadGuard, ArcRwMutexUpgradeableGuard, ArcRwMutexWriteGuard, RwMutex,
-                                                                                     RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard,
-                                                                                 },*/
+    rwarc::{RoArc, RwArc},
+    rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},
+    /*rwmutex::{
+        ArcRwMutexReadGuard, ArcRwMutexUpgradeableGuard, ArcRwMutexWriteGuard, RwMutex,
+        RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard,
+    },*/
     spin::{SpinLock, SpinLockGuard},
     //wait::{WaitQueue, Waiter, Waker},
 };
