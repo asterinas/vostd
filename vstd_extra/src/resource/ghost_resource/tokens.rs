@@ -7,13 +7,13 @@ verus! {
 
 /// A struct that stores and dispatches `FracGhost<T>`.
 /// Unlike `FracGhost`, it provides an `empty` state.
-pub tracked struct FracGhostStorage<T, const TOTAL: u64> {
+pub tracked struct FracGhostResource<T, const TOTAL: u64> {
     tracked r: Option<FracGhost<T, TOTAL>>,
     ghost snapshot: T,
     ghost id: Loc,
 }
 
-impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
+impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         &&& TOTAL > 0
@@ -42,12 +42,12 @@ impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
         self.frac() == TOTAL
     }
 
-    /// Returns the `FracGhost<T,TOTAL>` stored in this `FracGhostStorage`.
+    /// Returns the `FracGhost<T,TOTAL>` stored in this `FracGhostResource`.
     pub closed spec fn storage(self) -> FracGhost<T, TOTAL> {
         self.r->Some_0
     }
 
-    /// Returns the `T` stored in this `FracGhostStorage`.
+    /// Returns the `T` stored in this `FracGhostResource`.
     pub closed spec fn view(self) -> T {
         self.snapshot
     }
@@ -192,7 +192,7 @@ impl<T, const TOTAL: u64> FracGhostStorage<T, TOTAL> {
     }
 }
 
-pub type TokenStorage<const TOTAL: u64> = FracGhostStorage<(), TOTAL>;
+pub type TokenStorage<const TOTAL: u64> = FracGhostResource<(), TOTAL>;
 
 pub type Token<const TOTAL: u64> = FracGhost<(), TOTAL>;
 
