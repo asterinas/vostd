@@ -9,8 +9,6 @@ use vstd::storage_protocol::*;
 use crate::resource::storage_protocol::csum::*;
 use crate::sum::*;
 
-use super::excl::UniqueTokenStorage;
-
 verus! {
 
 /// `SumResource` is a token that maintains access to a resource of either type `A` or type `B`.
@@ -77,8 +75,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
-    pub open spec fn has_resource_taken(self) -> bool {
-        self.protocol_monoid().has_resource_taken()
+    pub open spec fn has_no_resource(self) -> bool {
+        self.protocol_monoid().has_no_resource()
     }
 
     /// The fraction this token represents.
@@ -90,7 +88,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     pub open spec fn type_inv(self) -> bool {
         &&& 1 <= self.frac() <= TOTAL
         &&& self.protocol_monoid().is_valid()
-        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken())
+        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
         &&& self.is_left() || self.is_right()
     }
 
@@ -102,7 +100,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
         &&& 1 <= r.frac() <= TOTAL
         &&& r.is_valid()
-        &&& r.is_resource_owner() ==> (r.has_resource() || r.has_resource_taken())
+        &&& r.is_resource_owner() ==> (r.has_resource() || r.has_no_resource())
         &&& r.is_left() || r.is_right()
     }
 
@@ -154,7 +152,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.wf(),
             1 <= self.frac() <= TOTAL,
             self.protocol_monoid().is_valid(),
-            self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
             self.is_left() || self.is_right(),
     {
         use_type_invariant(&*self);
@@ -494,7 +492,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res == old(self).resource_left(),
             self.id() == old(self).id(),
             self.is_resource_owner(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.frac() == old(self).frac(),
     {
         use_type_invariant(&*self);
@@ -515,7 +513,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_left(),
             r.value().is_resource_owner(),
-            r.value().has_resource_taken(),
+            r.value().has_no_resource(),
             r.value().frac() == old(r).value().frac(),
     {
         let tracked mut tmp = Self::alloc_unit_storage();
@@ -540,7 +538,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res == old(self).resource_right(),
             self.id() == old(self).id(),
             self.is_resource_owner(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.frac() == old(self).frac(),
     {
         use_type_invariant(&*self);
@@ -561,7 +559,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_right(),
             r.value().is_resource_owner(),
-            r.value().has_resource_taken(),
+            r.value().has_no_resource(),
             r.value().frac() == old(r).value().frac(),
     {
         let tracked mut tmp = Self::alloc_unit_storage();
@@ -580,7 +578,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         requires
             old(self).is_left(),
             old(self).is_resource_owner(),
-            old(self).has_resource_taken(),
+            old(self).has_no_resource(),
         ensures
             self.is_left(),
             self.has_resource(),
@@ -600,7 +598,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         requires
             old(r).value().is_left(),
             old(r).value().is_resource_owner(),
-            old(r).value().has_resource_taken(),
+            old(r).value().has_no_resource(),
             Self::type_inv_inner(old(r).value()),
         ensures
             Self::type_inv_inner(r.value()),
@@ -626,7 +624,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         requires
             old(self).is_right(),
             old(self).is_resource_owner(),
-            old(self).has_resource_taken(),
+            old(self).has_no_resource(),
         ensures
             self.is_right(),
             self.is_resource_owner(),
@@ -646,7 +644,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         requires
             old(r).value().is_right(),
             old(r).value().is_resource_owner(),
-            old(r).value().has_resource_taken(),
+            old(r).value().has_no_resource(),
             Self::type_inv_inner(old(r).value()),
         ensures
             Self::type_inv_inner(r.value()),
@@ -736,7 +734,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.has_resource(),
             self.resource_left() == a,
             old(self).has_resource() ==> res == Some(old(self).resource()),
-            old(self).has_resource_taken() ==> res == None::<Sum<A, B>>,
+            old(self).has_no_resource() ==> res == None::<Sum<A, B>>,
     {
         use_type_invariant(&*self);
         let tracked res = Self::change_to_left_helper(&mut self.r, a);
@@ -761,7 +759,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.value().has_resource(),
             r.value().resource()->Left_0 == a,
             old(r).value().has_resource() ==> res == Some(old(r).value().resource()),
-            old(r).value().has_resource_taken() ==> res == None::<Sum<A, B>>,
+            old(r).value().has_no_resource() ==> res == None::<Sum<A, B>>,
     {
         let tracked mut res = None;
         let tracked mut tmp = Self::alloc_unit_storage();
@@ -802,7 +800,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.has_resource(),
             self.resource_right() == b,
             old(self).has_resource() ==> res == Some(old(self).resource()),
-            old(self).has_resource_taken() ==> res == None::<Sum<A, B>>,
+            old(self).has_no_resource() ==> res == None::<Sum<A, B>>,
     {
         use_type_invariant(&*self);
         let tracked res = Self::change_to_right_helper(&mut self.r, b);
@@ -827,7 +825,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.value().has_resource(),
             r.value().resource()->Right_0 == b,
             old(r).value().has_resource() ==> res == Some(old(r).value().resource()),
-            old(r).value().has_resource_taken() ==> res == None::<Sum<A, B>>,
+            old(r).value().has_no_resource() ==> res == None::<Sum<A, B>>,
     {
         let tracked mut res = None;
         let tracked mut tmp = Self::alloc_unit_storage();
@@ -980,7 +978,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
         &&& self.protocol_monoid().is_left()
         &&& self.protocol_monoid().is_valid()
         &&& 1 <= self.frac() <= TOTAL
-        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken())
+        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
     }
 
     #[verifier::inline]
@@ -994,8 +992,8 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     }
 
     /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
-    pub open spec fn has_resource_taken(self) -> bool {
-        self.protocol_monoid().has_resource_taken()
+    pub open spec fn has_no_resource(self) -> bool {
+        self.protocol_monoid().has_no_resource()
     }
 
     /// The fraction this token represents.
@@ -1009,7 +1007,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             self.wf(),
             1 <= self.frac() <= TOTAL,
             self.protocol_monoid().is_valid(),
-            self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
             self.protocol_monoid().is_left(),
     {
         use_type_invariant(&*self);
@@ -1064,7 +1062,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             self.id() == old(self).id(),
             res == old(self).resource(),
             self.is_resource_owner(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.frac() == old(self).frac(),
     {
         use_type_invariant(&*self);
@@ -1076,7 +1074,7 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
     pub proof fn put_resource(tracked &mut self, tracked a: A)
         requires
             old(self).is_resource_owner(),
-            old(self).has_resource_taken(),
+            old(self).has_no_resource(),
         ensures
             self.id() == old(self).id(),
             self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), self.frac(), true),
@@ -1177,7 +1175,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
         &&& self.protocol_monoid().is_right()
         &&& self.protocol_monoid().is_valid()
         &&& 1 <= self.frac() <= TOTAL
-        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken())
+        &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
     }
 
     #[verifier::inline]
@@ -1191,8 +1189,8 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     }
 
     /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
-    pub open spec fn has_resource_taken(self) -> bool {
-        self.protocol_monoid().has_resource_taken()
+    pub open spec fn has_no_resource(self) -> bool {
+        self.protocol_monoid().has_no_resource()
     }
 
     /// The fraction this token represents.
@@ -1206,7 +1204,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             self.wf(),
             self.protocol_monoid().is_valid(),
             1 <= self.frac() <= TOTAL,
-            self.is_resource_owner() ==> (self.has_resource() || self.has_resource_taken()),
+            self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource()),
             self.protocol_monoid().is_right(),
     {
         use_type_invariant(&*self);
@@ -1261,7 +1259,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             self.id() == old(self).id(),
             res == old(self).resource(),
             self.is_resource_owner(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.frac() == old(self).frac(),
     {
         use_type_invariant(&*self);
@@ -1273,7 +1271,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     pub proof fn put_resource(tracked &mut self, tracked b: B)
         requires
             old(self).is_resource_owner(),
-            old(self).has_resource_taken(),
+            old(self).has_no_resource(),
         ensures
             self.id() == old(self).id(),
             self.protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), self.frac(), true),

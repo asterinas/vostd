@@ -3,7 +3,7 @@ use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::storage_protocol::*;
 
-verus!{
+verus! {
 
 pub ghost enum ExclP<A> {
     Unit,
@@ -13,7 +13,7 @@ pub ghost enum ExclP<A> {
     ExclInvalid,
 }
 
-impl<A> Protocol<(),A> for ExclP<A> {
+impl<A> Protocol<(), A> for ExclP<A> {
     open spec fn op(self, other: Self) -> Self {
         match (self, other) {
             (ExclP::Unit, x) => x,
@@ -21,7 +21,6 @@ impl<A> Protocol<(),A> for ExclP<A> {
             _ => ExclP::ExclInvalid,
         }
     }
-
 
     open spec fn rel(self, s: Map<(), A>) -> bool {
         match self {
@@ -54,4 +53,4 @@ impl<A> ExclP<A> {
     }
 }
 
-}
+} // verus!

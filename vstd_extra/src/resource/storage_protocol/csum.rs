@@ -1,7 +1,6 @@
 //! Sum-type storage protocol.
 use core::panic;
 
-use crate::resource::ghost_resource::excl::UniqueTokenStorage;
 use crate::sum::*;
 use vstd::math::add;
 use vstd::pcm::Loc;
@@ -125,7 +124,7 @@ impl<A, B, const TOTAL: u64> CsumP<A, B, TOTAL> {
     }
 
     /// Whether the protocol monoid has had its resource taken, only meaningful when it is the exclusive owner.
-    pub open spec fn has_resource_taken(self) -> bool {
+    pub open spec fn has_no_resource(self) -> bool {
         match self {
             CsumP::Cinl(ov, n, true) => ov is None,
             CsumP::Cinr(ov, n, true) => ov is None,
@@ -230,7 +229,7 @@ impl<A, B, const TOTAL: u64> CsumP<A, B, TOTAL> {
         requires
             self.is_resource_owner(),
             self.is_left(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.is_valid(),
         ensures
             deposits(self, map![()=>Sum::Left(a)], CsumP::Cinl(Some(a), self.frac(), true)),
@@ -253,7 +252,7 @@ impl<A, B, const TOTAL: u64> CsumP<A, B, TOTAL> {
         requires
             self.is_resource_owner(),
             self.is_right(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
             self.is_valid(),
         ensures
             deposits(self, map![()=>Sum::Right(b)], CsumP::Cinr(Some(b), self.frac(), true)),
@@ -277,7 +276,7 @@ impl<A, B, const TOTAL: u64> CsumP<A, B, TOTAL> {
             self.is_left() || self.is_right(),
             self.frac() == TOTAL,
             self.is_resource_owner(),
-            self.has_resource_taken(),
+            self.has_no_resource(),
         ensures
             updates(self, CsumP::Cinl(None, self.frac(), true)),
             updates(self, CsumP::Cinr(None, self.frac(), true)),
