@@ -60,10 +60,6 @@ impl<A> ExclR<A> {
             _ => arbitrary(),
         }
     }
-
-    pub open spec fn new(value: A) -> ExclR<A> {
-        ExclR::Excl(value)
-    }
 }
 
 } // verus!

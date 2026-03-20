@@ -7,17 +7,17 @@ use super::super::pcm::excl::*;
 
 verus! {
 
-pub type UniqueTokenStorage = ExclusiveGhostStorage<()>;
+pub type UniqueTokenStorage = ExclusiveGhostResource<()>;
 
 pub type UniqueToken = ExclusiveGhost<()>;
 
 /// A wrapper around `Resource<ExclR<T>>` that provides (optional) exclusive ownership of a value of type `T`.
-/// For actual usage, we recommend `ExclusiveGhostStorage` and `ExclusiveGhost`.
-pub tracked struct ExclusiveGhostResource<T> {
+/// For actual usage, we recommend `ExclusiveGhostResource` and `ExclusiveGhost`.
+pub tracked struct ExclusiveGhostCarrier<T> {
     tracked r: Resource<ExclR<T>>,
 }
 
-impl<T> ExclusiveGhostResource<T> {
+impl<T> ExclusiveGhostCarrier<T> {
     pub closed spec fn id(self) -> Loc {
         self.r.loc()
     }
@@ -47,7 +47,7 @@ impl<T> ExclusiveGhostResource<T> {
             res.view() == value,
             res.is_full(),
     {
-        Self { r: Resource::<ExclR<T>>::alloc(ExclR::new(value)) }
+        Self { r: Resource::<ExclR<T>>::alloc(ExclR::Excl(value)) }
     }
 
     pub proof fn validate(tracked &self)
@@ -106,13 +106,13 @@ impl<T> ExclusiveGhostResource<T> {
     {
         let tracked mut resource = self.take();
         let tracked r = resource.r;
-        let tracked r = r.update(ExclR::new(value));
+        let tracked r = r.update(ExclR::Excl(value));
         self.join(Self { r });
     }
 }
 
 /// An `ExclusiveGhost` always provides exclusive ownership of a value of type `T`.
-pub tracked struct ExclusiveGhost<T>(ExclusiveGhostResource<T>);
+pub tracked struct ExclusiveGhost<T>(ExclusiveGhostCarrier<T>);
 
 impl<T> ExclusiveGhost<T> {
     pub closed spec fn id(self) -> Loc {
@@ -136,7 +136,7 @@ impl<T> ExclusiveGhost<T> {
         ensures
             res.view() == value,
     {
-        Self(ExclusiveGhostResource::alloc(value))
+        Self(ExclusiveGhostCarrier::alloc(value))
     }
 
     pub proof fn update(tracked &mut self, value: T)
@@ -159,10 +159,10 @@ impl<T> ExclusiveGhost<T> {
     }
 }
 
-// An `ExclusiveGhostStorage` can split and join `ExclusiveGhost`, it can be empty or full.
-pub tracked struct ExclusiveGhostStorage<T>(ExclusiveGhostResource<T>);
+// An `ExclusiveGhostResource` can split and join `ExclusiveGhost`, it can be empty or full.
+pub tracked struct ExclusiveGhostResource<T>(ExclusiveGhostCarrier<T>);
 
-impl<T> ExclusiveGhostStorage<T> {
+impl<T> ExclusiveGhostResource<T> {
     pub closed spec fn id(self) -> Loc {
         self.0.id()
     }
@@ -200,7 +200,7 @@ impl<T> ExclusiveGhostStorage<T> {
             res.is_full(),
             res.wf(),
     {
-        Self(ExclusiveGhostResource::alloc(value))
+        Self(ExclusiveGhostCarrier::alloc(value))
     }
 
     pub proof fn take(tracked &mut self) -> (tracked res: ExclusiveGhost<T>)
