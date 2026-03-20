@@ -1,18 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
-mod dma_coherent;
+// mod dma_coherent;
 mod dma_stream;
 #[cfg(ktest)]
 mod test;
 
-use alloc::collections::BTreeSet;
+use vstd::prelude::*;
 
-pub use dma_coherent::DmaCoherent;
-pub use dma_stream::{DmaDirection, DmaStream, DmaStreamSlice};
-use inherit_methods_macro::inherit_methods;
-use spin::Once;
-
-use super::Paddr;
-use crate::{arch::iommu::has_dma_remapping, mm::PAGE_SIZE, sync::SpinLock};
+verus! {
 
 /// The device address.
 ///
@@ -40,6 +34,21 @@ pub trait HasDaddr {
     /// device address space.
     fn daddr(&self) -> Daddr;
 }
+
+} // verus!
+/*
+use alloc::collections::BTreeSet;
+
+pub use dma_coherent::DmaCoherent;
+pub use dma_stream::{DmaDirection, DmaStream, DmaStreamSlice};
+use inherit_methods_macro::inherit_methods;
+use spin::Once;
+
+use super::Paddr;
+use crate::{arch::iommu::has_dma_remapping, mm::PAGE_SIZE, sync::SpinLock};
+
+
+
 
 #[inherit_methods(from = "(**self)")]
 impl<T: HasDaddr> HasDaddr for &T {
@@ -90,3 +99,4 @@ fn remove_dma_mapping(start_paddr: Paddr, num_pages: usize) {
         mapping_set.remove(&paddr);
     }
 }
+*/

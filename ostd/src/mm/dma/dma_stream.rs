@@ -1,35 +1,65 @@
 // SPDX-License-Identifier: MPL-2.0
-use alloc::sync::Arc;
-use core::ops::Range;
+use vstd::{predicate::Predicate, prelude::*};
+use vstd_extra::ownership::Inv;
 
-use super::{check_and_insert_dma_mapping, remove_dma_mapping, DmaError, HasDaddr};
 use crate::{
-    arch::iommu,
-    error::Error,
-    mm::{
-        dma::{dma_type, Daddr, DmaType},
-        HasPaddr, Infallible, Paddr, USegment, UntypedMem, VmIo, VmReader, VmWriter, PAGE_SIZE,
-    },
+    mm::{dma::Daddr, frame::segment::USegment},
+    sync::{AtomicDataWithOwner, RwArc},
 };
+
+use super::HasDaddr;
+
+verus! {
 
 /// A streaming DMA mapping. Users must synchronize data
 /// before reading or after writing to ensure consistency.
 ///
 /// The mapping is automatically destroyed when this object
 /// is dropped.
-#[derive(Debug, Clone)]
 pub struct DmaStream {
-    inner: Arc<DmaStreamInner>,
+    pub inner: RwArc<DmaStreanInnerAtomic>,
 }
 
-#[derive(Debug)]
-struct DmaStreamInner {
-    segment: USegment,
-    start_daddr: Daddr,
+impl Inv for DmaStream {
+    open spec fn inv(self) -> bool {
+        true
+    }
+}
+
+impl DmaStream {
+
+}
+
+/// The inner part of a [`DmaStream`].
+pub struct DmaStreamInner {
+    // pub segment: USegment,
+    pub start_daddr: Daddr,
     /// TODO: remove this field when on x86.
     #[expect(unused)]
-    is_cache_coherent: bool,
-    direction: DmaDirection,
+    pub is_cache_coherent: bool,
+    pub direction: DmaDirection,
+}
+
+pub tracked struct DmaStreaInnerOwner {}
+
+pub type DmaStreanInnerAtomic = AtomicDataWithOwner<DmaStreamInner, DmaStreaInnerOwner>;
+
+// impl HasDaddr for DmaStream {
+//     #[verus_spec(
+//         returns
+//             self.inner.start_daddr
+//     )]
+//     fn daddr(&self) -> Daddr {
+//         self.inner.read().start_daddr
+//     }
+// }
+
+impl Predicate<DmaStreamInner> for DmaStreaInnerOwner {
+    #[verifier::inline]
+    open spec fn predicate(&self, v: DmaStreamInner) -> bool {
+        // placeholder for now.
+        true
+    }
 }
 
 /// `DmaDirection` limits the data flow direction of [`DmaStream`] and
@@ -43,6 +73,21 @@ pub enum DmaDirection {
     /// Data flows both from and to the device
     Bidirectional,
 }
+
+} // verus!
+/* use alloc::sync::Arc;
+use core::ops::Range;
+
+use super::{check_and_insert_dma_mapping, remove_dma_mapping, DmaError, HasDaddr};
+use crate::{
+    arch::iommu,
+    error::Error,
+    mm::{
+        dma::{dma_type, Daddr, DmaType},
+        HasPaddr, Infallible, Paddr, USegment, UntypedMem, VmIo, VmReader, VmWriter, PAGE_SIZE,
+    },
+};
+
 
 impl DmaStream {
     /// Establishes DMA stream mapping for a given [`USegment`].
@@ -158,12 +203,6 @@ impl DmaStream {
                 Ok(())
             }
         }
-    }
-}
-
-impl HasDaddr for DmaStream {
-    fn daddr(&self) -> Daddr {
-        self.inner.start_daddr
     }
 }
 
@@ -352,3 +391,4 @@ impl<Dma: AsRef<DmaStream> + Clone> Clone for DmaStreamSlice<Dma> {
         }
     }
 }
+*/

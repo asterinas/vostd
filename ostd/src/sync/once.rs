@@ -25,28 +25,6 @@ pub tracked enum OnceState<V: 'static> {
     Init(&'static PointsTo<Option<V>>),
 }
 
-/// A structure that combines some data with a permission to access it.
-///
-/// For example, in `aster_common` we can see a lot of structs with
-/// its `owner` associated. E.g., `MetaSlotOwner` is the owner of
-/// `MetaSlot`. This struct can be used to represent such a combination
-/// because now the permission is no longer exclusively owner by some
-/// specific CPU and is "shared" among multiple threads via atomic
-/// operations.
-///
-/// This struct is especially useful when used in conjunction with
-/// synchronization primitives like [`Once`], where we want to ensure that
-/// the data is initialized only once and the permission is preserved
-/// throughout the lifetime of the data.
-#[repr(transparent)]
-#[allow(repr_transparent_non_zst_fields)]
-pub struct AtomicDataWithOwner<V, Own> {
-    /// The underlying data.
-    pub data: V,
-    /// The permission to access the data.
-    pub permission: Tracked<Own>,
-}
-
 impl<U, Own> View for AtomicDataWithOwner<U, Own> {
     type V = U;
 
