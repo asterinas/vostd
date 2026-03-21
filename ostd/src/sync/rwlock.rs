@@ -39,7 +39,7 @@ type RwFrac<T> = Frac<PointsTo<T>, V_MAX_PERM_FRACS>;
 
 type NoPerm<T> = Empty<PointsTo<T>, V_MAX_PERM_FRACS>;
 
-type ReadRetractToken = TokenStorage<V_MAX_READ_RETRACT_FRACS>;
+type ReadRetractToken = TokenResource<V_MAX_READ_RETRACT_FRACS>;
 
 spec const V_MAX_PERM_FRACS_SPEC: u64 = (MAX_READER + 2) as u64;
 
@@ -98,7 +98,7 @@ tracked struct RwPerms<T> {
     /// Tracks whether there is a live `RwLockUpgradeableGuard`.
     upreader_guard_token: Option<UniqueToken>,
     /// Tracks the number of live `RwLockReadGuard`s.
-    read_guard_token: TokenStorage<V_MAX_READ_GUARDS>,
+    read_guard_token: TokenResource<V_MAX_READ_GUARDS>,
 }
 
 ghost struct RwId {
@@ -358,10 +358,10 @@ impl<T, G> RwLock<T, G> {
         let ghost frac_id = frac_perm.id();
         let tracked cell_perm_resource = SumResource::alloc_left(frac_perm);
         proof_decl!{
-            let tracked read_retract_token = TokenStorage::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+            let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
             let tracked upread_retract_token = UniqueToken::alloc(());
             let tracked upreader_guard_token = UniqueToken::alloc(());
-            let tracked read_guard_token = TokenStorage::<V_MAX_READ_GUARDS>::alloc(());
+            let tracked read_guard_token = TokenResource::<V_MAX_READ_GUARDS>::alloc(());
         }
         let ghost v_id = RwId {
             frac_id,
