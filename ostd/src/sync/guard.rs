@@ -3,7 +3,7 @@ use vstd::prelude::*;
 
 use crate::{
     task::{/* atomic_mode::AsAtomicModeGuard, */ disable_preempt, DisabledPreemptGuard},
-    //trap::irq::{disable_local, DisabledLocalIrqGuard},
+    trap::irq::{disable_local, DisabledLocalIrqGuard},
 };
 
 /// A guardian that denotes the guard behavior for holding a spin-based lock.
@@ -76,14 +76,17 @@ pub enum LocalIrqDisabled {}
 #[verifier::external_body]
 pub struct ExLocalIrqDisabled(LocalIrqDisabled);
 
-/*
+#[verus_verify]
+#[verifier::external]
 impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledLocalIrqGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::Guard {
         disable_local()
     }
@@ -101,17 +104,24 @@ impl SpinGuardian for LocalIrqDisabled {
 ///
 /// [`RwLock`]: super::RwLock
 /// [`SpinLock`]: super::SpinLock
+#[verifier::external]
 pub enum WriteIrqDisabled {}
 
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExWriteIrqDisabled(WriteIrqDisabled);
+
+#[verus_verify]
 impl SpinGuardian for WriteIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledPreemptGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::ReadGuard {
         disable_preempt()
     }
 }
-*/

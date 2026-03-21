@@ -445,14 +445,17 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
 }
 }
 
-/*
-impl<T: ?Sized, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
+impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.inner.val.get() }
+        // unsafe { &mut *self.lock.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.lock.inner.val as *const PCell<T>).cast();
+            &mut *(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
+/* impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
     fn drop(&mut self) {
         self.lock.release_lock();
     }

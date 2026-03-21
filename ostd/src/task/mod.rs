@@ -5,9 +5,9 @@ use vstd::prelude::*;
 /* pub mod atomic_mode;
 mod kernel_stack; */
 mod preempt;
-/* mod processor;
+// mod processor;
 pub mod scheduler;
-mod utils;
+/* mod utils;
 
 use core::{
     any::Any,
@@ -19,10 +19,9 @@ use core::{
 };
 
 use kernel_stack::KernelStack;
-use processor::current_task;
+use processor::current_task;*/
 use spin::Once;
-use utils::ForceSync;
-*/
+// use utils::ForceSync;
 pub use self::{
     preempt::{disable_preempt, DisabledPreemptGuard},
     /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */

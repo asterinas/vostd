@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
 //! IRQ line and IRQ guards.
+use vstd::prelude::*;
+
 use core::{fmt::Debug, ops::Deref};
 
-use id_alloc::IdAlloc;
-use spin::Once;
+// use id_alloc::IdAlloc;
+// use spin::Once;
 
 use crate::{
     arch::{
-        irq::{self, IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN},
-        trap::TrapFrame,
+        irq::{self/* , IrqRemapping, IRQ_NUM_MAX, IRQ_NUM_MIN */},
+        /* trap::TrapFrame, */
     },
     prelude::*,
-    sync::{GuardTransfer, RwLock, SpinLock, WriteIrqDisabled},
-    task::atomic_mode::InAtomicMode,
-    Error,
+    sync::{GuardTransfer, RwLock, SpinLock, /* WriteIrqDisabled */},
+    // task::atomic_mode::InAtomicMode,
+    // Error,
 };
-
+/*
 /// A type alias for the IRQ callback function.
 pub type IrqCallbackFunction = dyn Fn(&TrapFrame) + Sync + Send + 'static;
 
@@ -189,10 +191,10 @@ pub(super) fn process_top_half(trap_frame: &TrapFrame, irq_num: usize) {
     for callback in &*inner.callbacks.read() {
         callback(trap_frame);
     }
-}
+}*/
 
 // ####### IRQ Guards #######
-
+verus! {
 /// Disables all IRQs on the current CPU (i.e., locally).
 ///
 /// This function returns a guard object, which will automatically enable local IRQs again when
@@ -230,9 +232,9 @@ impl !Send for DisabledLocalIrqGuard {}
 
 // SAFETY: The guard disables local IRQs, which meets the first
 // sufficient condition for atomic mode.
-unsafe impl InAtomicMode for DisabledLocalIrqGuard {}
-
+/* unsafe impl InAtomicMode for DisabledLocalIrqGuard {} */
 impl DisabledLocalIrqGuard {
+    #[verifier::external_body]
     fn new() -> Self {
         let was_enabled = irq::is_local_enabled();
         if was_enabled {
@@ -243,20 +245,21 @@ impl DisabledLocalIrqGuard {
 }
 
 impl GuardTransfer for DisabledLocalIrqGuard {
+    #[verifier::external_body]
     fn transfer_to(&mut self) -> Self {
         let was_enabled = self.was_enabled;
         self.was_enabled = false;
         Self { was_enabled }
     }
 }
-
-impl Drop for DisabledLocalIrqGuard {
+}
+/*impl Drop for DisabledLocalIrqGuard {
     fn drop(&mut self) {
         if self.was_enabled {
             irq::enable_local();
         }
     }
-}
+} */
 
 #[cfg(ktest)]
 mod test {
