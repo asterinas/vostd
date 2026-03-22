@@ -243,6 +243,7 @@ closed spec fn wf(self) -> bool {
             &&& perm.id() == v_id@.frac_id
             &&& perm.resource().id() == val.id()
             &&& !g.core_token.is_resource_owner()
+            &&& g.core_token.frac() == 1
         }
         &&& g.core_token.is_right() ==> {
             let empty = g.core_token.resource_right();
@@ -505,7 +506,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
             None
         }
-    }
+    }*/
 
     /// Attempts to acquire a write lock.
     ///
@@ -514,7 +515,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
             let tracked mut perm: Option<PointsTo<T>> = None;
-            let tracked mut right_token: Option<Right<RwFrac<T>, NoPerm<T>, V_MAX_PERM_FRACS>> = None;
+            let tracked mut right_token: Option<Right<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -531,6 +532,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             returning res;
             ghost g => {
                 if res is Ok {
+                    let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
+                    g.join_left(upreader_guard_token);
                     let tracked full_frac_perm = g.core_token.take_resource_left();
                     let tracked (pointsto, empty) = full_frac_perm.take_resource();
                     perm = Some(pointsto);
@@ -539,12 +542,12 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 }
             }
         ).is_ok() {
-            Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(perm.tracked_unwrap()), v_cell_token: Tracked(right_token.tracked_unwrap()) })
+            Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(perm.tracked_unwrap()), v_token: Tracked(right_token.tracked_unwrap()) })
         } else {
             None
         }
     }
-    
+    /* 
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
@@ -612,8 +615,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
         }
         None
-    }
-    */
+    }*/
 }
 } // verus!
 
