@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*};
 use vstd::prelude::*;
 
@@ -7,27 +8,57 @@ use core::{
     cell::UnsafeCell,
     fmt,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
 };
 
 use super::WaitQueue;
 
 verus! {
 
+struct_with_invariants! {
+
 /// A mutex with waitqueue.
 pub struct Mutex<T  /* : ?Sized */ > {
-    lock: AtomicBool,
+    lock: AtomicBool<_, Option<PointsTo<T>>, _>,
     queue: WaitQueue,
     // val: UnsafeCell<T>,
     val: PCell<T>,
 }
 
+closed spec fn wf(self) -> bool {
+    invariant on lock with (val) is (v: bool, g: Option<PointsTo<T>>) {
+        match g {
+            None => v,
+            Some(perm) => {
+                &&& !v
+                &&& perm.id() == val.id()
+            },
+        }
+    }
+}
+}
+
 impl<T> Mutex<T> {
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.val.id()
+    }
+
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
     /// Creates a new mutex.
-    #[verifier::external_body]
-    pub const fn new(val: T) -> Self {
+    pub const fn new(val: T) -> (r: Self)
+        ensures
+            r.type_inv(),
+    {
         let (val, Tracked(perm)) = PCell::new(val);
-        Self { lock: AtomicBool::new(false), queue: WaitQueue::new(), val: val }
+        Self {
+            lock: AtomicBool::new(Ghost(val), false, Tracked(Some(perm))),
+            queue: WaitQueue::new(),
+            val: val,
+        }
     }
 }
 
@@ -54,12 +85,19 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     }
 
     /// Tries Acquire the mutex immediately.
-    #[verifier::external_body]
+    #[verus_spec]
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
         // SAFETY: The lock is successfully acquired when creating the guard.
-        self.acquire_lock().then(|| unsafe { MutexGuard::new(self) })
+        proof_decl! {
+            let tracked mut perm: Option<PointsTo<T>> = None;
+        }
+        if #[verus_spec(with => Tracked(perm))] self.acquire_lock() {
+            Some(unsafe { MutexGuard::new(self, Tracked(perm.tracked_unwrap())) })
+        } else {
+            None
+        }
     }
 
     /// Tries acquire the mutex through an [`Arc`].
@@ -68,9 +106,16 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     /// for compile-time checked lifetimes of the mutex guard.
     ///
     /// [`try_lock`]: Self::try_lock
-    #[verifier::external_body]
+    #[verus_spec]
     pub fn try_lock_arc(self: &Arc<Self>) -> Option<ArcMutexGuard<T>> {
-        self.acquire_lock().then(|| ArcMutexGuard { mutex: self.clone() })
+        proof_decl! {
+            let tracked mut perm: Option<PointsTo<T>> = None;
+        }
+        if #[verus_spec(with => Tracked(perm))] self.acquire_lock() {
+            Some(ArcMutexGuard { mutex: self.clone(), v_perm: Tracked(perm.tracked_unwrap()) })
+        } else {
+            None
+        }
     }
 
     /* /// Returns a mutable reference to the underlying data.
@@ -89,14 +134,48 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         self.queue.wake_one();
     }
 
-    #[verifier::external_body]
+    #[verus_spec(ret =>
+        with
+            -> perm: Tracked<Option<PointsTo<T>>>,
+        ensures
+            ret && perm@ is Some && perm@->Some_0.id() == self.cell_id()
+                || !ret && perm@ is None,
+    )]
     fn acquire_lock(&self) -> bool {
-        self.lock.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_ok()
+        proof_decl! {
+            let tracked mut perm: Option<PointsTo<T>> = None;
+        }
+        proof! {
+            use_type_invariant(self);
+        }
+        proof_with! { |= Tracked(perm) }
+        atomic_with_ghost! {
+            self.lock => compare_exchange(false, true);
+            returning res;
+            ghost cell_perm => {
+                if res is Ok {
+                    perm = Some(cell_perm.tracked_take());
+                }
+            }
+        }.is_ok()
     }
 
-    #[verifier::external_body]
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
+        requires
+            perm.id() == self.cell_id(),
+    )]
     fn release_lock(&self) {
-        self.lock.store(false, Ordering::Release);
+        proof! {
+            use_type_invariant(self);
+        }
+        atomic_with_ghost! {
+            self.lock => store(false);
+            ghost cell_perm => {
+                cell_perm = Some(perm);
+            }
+        }
     }
 }
 
@@ -113,45 +192,65 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {} */
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct MutexGuard_<T  /* : ?Sized */ , R: Deref<Target = Mutex<T>>> {
-    mutex: R,
+pub struct MutexGuard<'a, T  /* : ?Sized */ > {
+    mutex: &'a Mutex<T>,
+    v_perm: Tracked<PointsTo<T>>,
 }
-
-/// A guard that provides exclusive access to the data protected by a [`Mutex`].
-pub type MutexGuard<'a, T> = MutexGuard_<T, &'a Mutex<T>>;
 
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     /// # Safety
     ///
     /// The caller must ensure that the given reference of [`Mutex`] lock has been successfully acquired
     /// in the current context. When the created [`MutexGuard`] is dropped, it will unlock the [`Mutex`].
-    #[verifier::external_body]
-    unsafe fn new(mutex: &'a Mutex<T>) -> MutexGuard<'a, T> {
-        MutexGuard { mutex }
+    unsafe fn new(mutex: &'a Mutex<T>, Tracked(perm): Tracked<PointsTo<T>>) -> (r: MutexGuard<'a, T>)
+        requires
+            perm.id() == mutex.cell_id(),
+        ensures
+            r.type_inv(),
+    {
+        MutexGuard { mutex, v_perm: Tracked(perm) }
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.v_perm@.id() == self.mutex.cell_id()
     }
 }
 
 /// An guard that provides exclusive access to the data protected by a `Arc<Mutex>`.
-pub type ArcMutexGuard<T> = MutexGuard_<T, Arc<Mutex<T>>>;
+#[verifier::reject_recursive_types(T)]
+#[clippy::has_significant_drop]
+#[must_use]
+pub struct ArcMutexGuard<T  /* : ?Sized */ > {
+    mutex: Arc<Mutex<T>>,
+    v_perm: Tracked<PointsTo<T>>,
+}
 
-/* impl<T/* : ?Sized */, R: Deref<Target = Mutex<T>>> Deref for MutexGuard_<T, R> {
+impl<T> ArcMutexGuard<T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.v_perm@.id() == self.mutex.cell_id()
+    }
+}
+
+/* impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
     #[verifier::external_body]
     fn deref(&self) -> &Self::Target {
         // unsafe { &*self.mutex.val.get() }
-        self.inner.val.borrow(Tracked(read_perm))
+        self.mutex.val.borrow(Tracked(read_perm))
     }
 }
 
-impl<T/* : ?Sized */, R: Deref<Target = Mutex<T>>> DerefMut for MutexGuard_<T, R> {
+impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     #[verifier::external_body]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mutex.val.get() }
     }
 } */
 
-impl<T  /* : ?Sized */ , R: Deref<Target = Mutex<T>>> Drop for MutexGuard_<T, R> {
+impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     #[verifier::external_body]
     fn drop(&mut self)
         opens_invariants none
@@ -161,16 +260,28 @@ impl<T  /* : ?Sized */ , R: Deref<Target = Mutex<T>>> Drop for MutexGuard_<T, R>
     }
 }
 
-/* impl<T: /* ?Sized + */ fmt::Debug, R: Deref<Target = Mutex<T>>> fmt::Debug for MutexGuard_<T, R> {
+impl<T> Drop for ArcMutexGuard<T> {
+    #[verifier::external_body]
+    fn drop(&mut self)
+        opens_invariants none
+        no_unwind
+    {
+        self.mutex.unlock();
+    }
+}
+
+/* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     #[verifier::external_body]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 } */
 
-impl<T  /* : ?Sized */ , R: Deref<Target = Mutex<T>>> !Send for MutexGuard_<T, R> {}
+impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
 
-// unsafe impl<T: ?Sized + Sync, R: Deref<Target = Mutex<T>> + Sync> Sync for MutexGuard_<T, R> {}
+impl<T> !Send for ArcMutexGuard<T> {}
+
+// unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     #[verifier::external_body]
     pub fn get_lock(guard: &MutexGuard<'a, T>) -> &'a Mutex<T> {
