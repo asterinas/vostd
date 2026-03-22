@@ -3,8 +3,8 @@ use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*};
 use vstd::pcm::Loc;
 use vstd::prelude::*;
-use vstd::tokens::frac::{Empty, Frac, FracGhost};
-use vstd_extra::prelude::*;
+use vstd::tokens::frac::{self, Empty, Frac, FracGhost};
+use vstd_extra::{prelude::*, resource};
 use vstd_extra::resource::ghost_resource::{csum::*,excl::*, tokens::*};
 use vstd_extra::sum::*;
 
@@ -53,16 +53,16 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 /// The token reserved in the lock when the write permission is given out.
 type NoPerm<T> = Empty<PointsTo<T>>;
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
-type HalfPerm<T> = Exclusive<Frac<PointsTo<T>>>;
+type HalfPerm<T> = Frac<PointsTo<T>>;
 /// The permission for read access can be further split into `MAX_READER` pieces.
-type ReadPerm<T> = Frac<HalfPerm<T>, MAX_READER_U64>;
+type ReadPerm<T> = (HalfPerm<T>,Left<HalfPerm<T>,NoPerm<T>,3>);
 
 tracked struct RwPerms<T> {
     /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that 
     /// there are active readers because the existence of `HalfPerm` resource for read access.
     /// If it is `Right`, we know there is an active writer and there is no active reader, because there is a `NoPerm` 
     /// indicating the absence of `PointsTo<T>`.   
-    write_indicator_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
+    core_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
     /// `RwLockReadGuard`s (created and ongoing creation that will succeed) represented by `read_guard_token`.
@@ -72,18 +72,17 @@ tracked struct RwPerms<T> {
     /// The permission to retract the set of `UPGRADEABLE_READER` bit.
     upread_retract_token: Option<UniqueToken>,
     /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
-    upreader_guard_token: Option<Exclusive<HalfPerm<T>>>,
+    upreader_guard_token: Option<Left<HalfPerm<T>,NoPerm<T>,3>>,
     /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
     /// If it is `Right`, it stores an empty token indicating the permission has been given out.
-    read_guard_token: Sum<TokenResource<HalfPerm<T>,MAX_READER_U64>, Empty<HalfPerm<T>, MAX_READER_U64>>,
+    read_guard_token: Sum<FracResource<ReadPerm<T>,MAX_READER_U64>, Empty<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 ghost struct RwId {
-    write_indicator_token_id: Loc,
+    core_token_id: Loc,
     frac_id: Loc,
-    upread_retract_token_id: Loc,
-    upreader_guard_token_id: Loc,
     read_retract_token_id: Loc,
+    upread_retract_token_id: Loc,
     read_guard_token_id: Loc,
 }
 
@@ -202,6 +201,7 @@ closed spec fn wf(self) -> bool {
         // NOTE: This does not mean there are actually this number of active `RwLockReadGuard`s. The actual number of successfully
         // created/creating `RwLockReadGuard`s can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
         let reader_bits: int = if has_max_reader_bit { MAX_READER as int } else { (v & READER_MASK) as int };
+        
         // ACTUAL NUMBER OF ACTIVE GUARDS.
         // The number is tracked by the ghost resources remained in the lock.
         // By active, we mean from the perspective the lock, the permissions for these guards are given out.
@@ -209,55 +209,75 @@ closed spec fn wf(self) -> bool {
         // This invariant maintains the consistency between the ghost resources and the lock atomic value.
 
         // Whether there is an active writer
-        let active_writer: bool = g.write_indicator_token.is_right();
-        // Remaining fractional permissions in the lock to access the protected data.
-        let remaining_pcell_perms: int = if !active_writer { g.write_indicator_token.resource()->Left_0.frac() } else { 0 };
-        // The number of active readers, including both `RwLockReadGuard`s and `RwLockUpgradeableGuard`s.
-        let total_active_readers: int = if !active_writer { (V_MAX_PERM_FRACS as int) - remaining_pcell_perms } else { 0 };
+        let active_writer: bool = g.core_token.is_right();
         // The number of active `RwLockUpgradeableGuard`, which can only be 0 or 1.
-        let active_upgrade_guard: bool = g.upreader_guard_token is None;
+        let active_upgrade_guard: bool = !active_writer && g.upreader_guard_token is None;
         // The number of active `RwLockReadGuard`s.
-        let active_read_guards: int = MAX_READER_U64 - g.read_guard_token.frac();
+        let active_read_guards: int = MAX_READER_U64 - g.read_guard_token.left().frac();
         // The first `try_upread` that fails, which has not returned yet.
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
         // The number of `try_read` attempts that will fail.
         let failed_reader_attempts: int = V_MAX_READ_RETRACT_FRACS - g.read_retract_token.frac();
 
+        &&& if g.core_token.is_left() {
+            g.read_guard_token is Left
+        } else {
+            &&& g.upreader_guard_token is None
+            &&& g.read_guard_token is Right
+        }
         // The `UPGRADEABLE_READER` bit is set iff there is an active `RwLockUpgradeableGuard` or a pending failed `try_upread` attempt.
         &&& has_upgrade_bit <==> (active_upgrade_guard || pending_failed_upread_attempt)
         // An active `RwLockUpgradeableGuard` cannot coexist with a pending failed `try_upread` attempt.
         &&& !(active_upgrade_guard && pending_failed_upread_attempt)
-        // Active readers are split into plain readers plus at most one upgradeable reader.
-        &&& total_active_readers == active_read_guards + if active_upgrade_guard { 1int } else { 0 }
-        // The `READER` bits count the number of all active readers and pending failed `try_read` attempts.
-        &&& total_reader_bits + if active_upgrade_guard { 1int } else {0} == total_active_readers +  failed_reader_attempts
+        // The `READER` bits count the number of all active read guards and pending failed `try_read` attempts.
+        &&& total_reader_bits == active_read_guards + failed_reader_attempts
         // There is an active `RwLockWriteGuard` iff the `WRITER` bit is set.
         &&& active_writer <==> has_writer_bit
         // The number of active `RwLockReadGaurd`s is less than or equal to the `READER` bits.
         &&& 0 <= active_read_guards <= reader_bits <= total_reader_bits
         // The core invariant of `RwLock`: there are no simultaneous active writers and readers.
-        &&& !(active_writer && total_active_readers > 0)
-        &&& g.read_retract_token.wf()
-        &&& g.write_indicator_token.wf()
-        &&& g.read_guard_token.wf()
-        &&& g.write_indicator_token.is_resource_owner() 
-        &&& g.write_indicator_token.has_resource()
-        &&& g.write_indicator_token.is_left() ==> {
-            let perm = g.write_indicator_token.resource()->Left_0;
+        &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
+        &&& g.core_token.id() == v_id@.core_token_id
+        &&& g.core_token.is_left() ==> {
+            let perm = g.core_token.resource_left();
             &&& perm.id() == v_id@.frac_id
             &&& perm.resource().id() == val.id()
-            &&& g.write_indicator_token.frac() == remaining_pcell_perms
+            &&& !g.core_token.is_resource_owner()
         }
-        &&& g.write_indicator_token.is_right() ==> {
-            let empty = g.write_indicator_token.resource()->Right_0;
+        &&& g.core_token.is_right() ==> {
+            let empty = g.core_token.resource_right();
             &&& empty.id() == v_id@.frac_id
-            &&& g.write_indicator_token.frac() == V_MAX_PERM_FRACS - 1
+            &&& g.core_token.frac() == 2
+            &&& g.core_token.is_resource_owner()
+            &&& g.core_token.has_resource()
         }
-        &&& g.upread_retract_token is Some ==> {g.upread_retract_token->Some_0.id() == v_id@.upread_retract_token_id && g.upread_retract_token->Some_0.wf()}
-        &&& g.upreader_guard_token is Some ==> {g.upreader_guard_token->Some_0.id() == v_id@.upreader_guard_token_id && g.upreader_guard_token->Some_0.wf()}
-        &&& v_id@.read_retract_token_id == g.read_retract_token.id()
-        &&& v_id@.read_guard_token_id == g.read_guard_token.id()
-        &&& v_id@.write_indicator_token_id == g.write_indicator_token.id()
+        &&& g.read_retract_token.wf()
+        &&& g.read_retract_token.id() == v_id@.read_retract_token_id
+        &&& g.upread_retract_token is Some ==> 
+            { 
+                let token = g.upread_retract_token->Some_0;
+                &&& token.wf()
+                &&& token.id() == v_id@.upread_retract_token_id
+            }
+        &&& g.upreader_guard_token is Some ==> {
+            let token = g.upreader_guard_token->Some_0;
+            &&& token.id() == v_id@.core_token_id
+            &&& token.wf()
+        }
+        
+        &&& match g.read_guard_token {
+            Sum::Left(token) => {
+                &&& token.wf()
+                &&& token.id() == v_id@.read_guard_token_id
+                &&& token.resource().0.id() == v_id@.frac_id
+                &&& token.resource().0.resource().id() == val.id()
+                &&& token.resource().1.id() == v_id@.core_token_id
+            },
+            Sum::Right(empty) => {
+                &&& empty.id() == v_id@.read_guard_token_id
+            },
+        }
+        
     }
 }
 
@@ -295,8 +315,8 @@ impl<T, G> RwLock<T, G> {
         self.val.id()
     }
 
-    pub closed spec fn write_indicator_token_id(self) -> Loc {
-        self.v_id@.write_indicator_token_id
+    pub closed spec fn core_token_id(self) -> Loc {
+        self.v_id@.core_token_id
     }
 
     pub closed spec fn frac_id(self) -> Loc {
@@ -305,10 +325,6 @@ impl<T, G> RwLock<T, G> {
 
     pub closed spec fn upread_retract_token_id(self) -> Loc {
         self.v_id@.upread_retract_token_id
-    }
-
-    pub closed spec fn upreader_guard_token_id(self) -> Loc {
-        self.v_id@.upreader_guard_token_id
     }
 
     pub closed spec fn read_guard_token_id(self) -> Loc {
@@ -334,7 +350,7 @@ impl<T, G> RwLock<T, G> {
         proof {lemma_consts_properties();}
         let tracked frac_perm = RwFrac::<T>::new(perm);
         let ghost frac_id = frac_perm.id();
-        let tracked write_indicator_token = SumResource::alloc_left(frac_perm);
+        let tracked core_token = SumResource::alloc_left(frac_perm);
         proof_decl!{
             let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
             let tracked upread_retract_token = UniqueToken::alloc(());
@@ -343,14 +359,14 @@ impl<T, G> RwLock<T, G> {
         }
         let ghost v_id = RwId {
             frac_id,
-            write_indicator_token_id: write_indicator_token.id(),
+            core_token_id: core_token.id(),
             upread_retract_token_id: upread_retract_token.id(),
             upreader_guard_token_id: upreader_guard_token.id(),
             read_retract_token_id: read_retract_token.id(),
             read_guard_token_id: read_guard_token.id(),
         };
         let tracked perms = RwPerms {
-            write_indicator_token,
+            core_token,
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
@@ -455,10 +471,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    let tracked mut tmp = g.write_indicator_token.take_resource_left();
+                    let tracked mut tmp = g.core_token.take_resource_left();
                     perm = Some(tmp.split(1int));
-                    g.write_indicator_token.put_resource_left(tmp);
-                    left_token = Some(g.write_indicator_token.split_left_without_resource(1int));
+                    g.core_token.put_resource_left(tmp);
+                    left_token = Some(g.core_token.split_left_without_resource(1int));
                     read_guard_token = Some(g.read_guard_token.split_one());
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
@@ -515,11 +531,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             returning res;
             ghost g => {
                 if res is Ok {
-                    let tracked full_frac_perm = g.write_indicator_token.take_resource_left();
+                    let tracked full_frac_perm = g.core_token.take_resource_left();
                     let tracked (pointsto, empty) = full_frac_perm.take_resource();
                     perm = Some(pointsto);
-                    g.write_indicator_token.change_to_right(empty);
-                    right_token = Some(g.write_indicator_token.split_right_without_resource(1int));
+                    g.core_token.change_to_right(empty);
+                    right_token = Some(g.core_token.split_right_without_resource(1int));
                 }
             }
         ).is_ok() {
@@ -554,11 +570,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_value(prev);
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-                    let tracked mut tmp = g.write_indicator_token.take_resource_left();
+                    let tracked mut tmp = g.core_token.take_resource_left();
                     perm = Some(tmp.split(1int));
-                    g.write_indicator_token.put_resource_left(tmp);
+                    g.core_token.put_resource_left(tmp);
                     upreader_guard_token = Some(g.upreader_guard_token.tracked_take());
-                    left_token = Some(g.write_indicator_token.split_left_without_resource(1int));
+                    left_token = Some(g.core_token.split_left_without_resource(1int));
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
@@ -659,9 +675,7 @@ unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockUpgradeableGua
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    v_perm: Tracked<RwFrac<T>>,
-    v_cell_token: Tracked<Left<RwFrac<T>,NoPerm<T>,V_MAX_PERM_FRACS>>,
-    v_read_token: Tracked<Token<MAX_READER_U64>>,
+    v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
 }
 
 /*
@@ -677,14 +691,15 @@ verus! {
 impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        &&& self.inner.write_indicator_token_id() == self.v_cell_token@.id()
-        &&& self.inner.frac_id() == self.v_perm@.id()
-        &&& self.inner.cell_id() == self.v_perm@.resource().id()
-        &&& self.inner.read_guard_token_id() == self.v_read_token@.id()
-        &&& self.v_perm@.frac() == 1
-        &&& self.v_cell_token@.frac() == 1
-        &&& self.v_read_token@.frac() == 1
-        &&& !self.v_cell_token@.is_resource_owner()
+        let resource = self.v_token@.resource();
+        let read_frac_perm = resource.0;
+        let mode_knowledge = resource.1;
+        &&& self.inner.core_token_id() == mode_knowledge.id()
+        &&& self.inner.frac_id() == read_frac_perm.id()
+        &&& self.inner.cell_id() == read_frac_perm.resource().id()
+        &&& read_frac_perm.frac() == 1
+        &&& self.v_token@.frac() == 1
+        &&& !mode_knowledge.is_resource_owner()
     }
 }
 
@@ -747,12 +762,12 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 g.read_guard_token.combine(read_token);
-                g.write_indicator_token.validate_with_left(&token);
-                g.write_indicator_token.join_left(token);
-                let tracked mut rem = g.write_indicator_token.take_resource_left();
+                g.core_token.validate_with_left(&token);
+                g.core_token.join_left(token);
+                let tracked mut rem = g.core_token.take_resource_left();
                 rem.combine(perm);
                 rem.bounded();
-                g.write_indicator_token.put_resource_left(rem);
+                g.core_token.put_resource_left(rem);
             }
         );
     }*/
@@ -775,7 +790,7 @@ pub struct RwLockWriteGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
     v_perm: Tracked<PointsTo<T>>,
-    v_cell_token: Tracked<Right<RwFrac<T>,NoPerm<T>,V_MAX_PERM_FRACS>>
+    v_token: Tracked<Right<HalfPerm<T>,NoPerm<T>,3>>
 }
 
 verus! {
@@ -784,9 +799,9 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
         &&& self.inner.cell_id() == self.v_perm@.id()
-        &&& self.inner.write_indicator_token_id() == self.v_cell_token@.id()
-        &&& !self.v_cell_token@.is_resource_owner()
-        &&& self.v_cell_token@.frac() == 1
+        &&& self.inner.core_token_id() == self.v_token@.id()
+        &&& !self.v_token@.is_resource_owner()
+        &&& self.v_token@.frac() == 1
     }
 }
 
@@ -853,11 +868,11 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockWriteGuard<'_, T, G>
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
-                g.write_indicator_token.validate_with_right(&token);
-                g.write_indicator_token.join_right(token);
-                let tracked empty = g.write_indicator_token.take_resource_right();
+                g.core_token.validate_with_right(&token);
+                g.core_token.join_right(token);
+                let tracked empty = g.core_token.take_resource_right();
                 let tracked full = empty.put_resource(perm);
-                g.write_indicator_token.change_to_left(full);
+                g.core_token.change_to_left(full);
             }
         };
     }*/
@@ -879,9 +894,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 pub struct RwLockUpgradeableGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
-    v_perm: Tracked<RwFrac<T>>,
-    v_guard_token: Tracked<UniqueToken>,
-    v_cell_perm_token: Tracked<Left<RwFrac<T>,NoPerm<T>,V_MAX_PERM_FRACS>>,
+    v_token: Tracked<Left<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_, T, G> {
@@ -895,13 +908,16 @@ verus! {
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        &&& self.inner.write_indicator_token_id() == self.v_cell_perm_token@.id()
-        &&& self.inner.frac_id() == self.v_perm@.id()
-        &&& self.inner.cell_id() == self.v_perm@.resource().id()
-        &&& self.v_perm@.frac() == 1
-        &&& self.v_cell_perm_token@.frac() == 1
-        &&& self.inner.upreader_guard_token_id() == self.v_guard_token@.id()
-        &&& self.v_guard_token@.wf()
+        let frac_perm = self.v_token@.resource();
+        let cell_perm = frac_perm.resource();
+        &&& self.inner.core_token_id() == self.v_token@.id()
+        &&& self.v_token@.is_resource_owner()
+        &&& self.v_token@.has_resource()
+        &&& frac_perm.id() == self.inner.frac_id()
+        &&& cell_perm.id() == self.inner.cell_id()
+        &&& frac_perm.frac() == 1
+        &&& self.v_token@.frac() == 1
+        &&& self.v_token@.wf()
     }
 }
 
@@ -991,14 +1007,14 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
                     }
                     g.upreader_guard_token = Some(guard_token);
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
-                    g.write_indicator_token.validate_with_left(left_token.tracked_borrow());
-                    g.write_indicator_token.join_left(left_token.tracked_unwrap());
-                    let tracked mut rem = g.write_indicator_token.take_resource_left();
+                    g.core_token.validate_with_left(left_token.tracked_borrow());
+                    g.core_token.join_left(left_token.tracked_unwrap());
+                    let tracked mut rem = g.core_token.take_resource_left();
                     rem.combine(guard_perm.tracked_unwrap());
                     let tracked (full_perm, empty) = rem.take_resource();
                     write_perm = Some(full_perm);
-                    g.write_indicator_token.change_to_right(empty);
-                    right_token = Some(g.write_indicator_token.split_right_without_resource(1int));
+                    g.core_token.change_to_right(empty);
+                    right_token = Some(g.core_token.split_right_without_resource(1int));
                     
                 } else {
                     err_guard_perm = guard_perm;
@@ -1099,11 +1115,11 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
                     assert(false);
                 } else {
                     g.upreader_guard_token= Some(guard_token);
-                    g.write_indicator_token.validate_with_left(&cell_perm_token);
-                    let tracked mut rem = g.write_indicator_token.take_resource_left();
+                    g.core_token.validate_with_left(&cell_perm_token);
+                    let tracked mut rem = g.core_token.take_resource_left();
                     rem.combine(perm);
-                    g.write_indicator_token.put_resource_left(rem);
-                    g.write_indicator_token.join_left(cell_perm_token);
+                    g.core_token.put_resource_left(rem);
+                    g.core_token.join_left(cell_perm_token);
                 }
             }
         );

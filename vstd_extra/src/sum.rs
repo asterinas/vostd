@@ -11,6 +11,14 @@ pub tracked enum Sum<L, R> {
 }
 
 impl<L, R> Sum<L, R> {
+    pub open spec fn left(self) -> L {
+        self -> Left_0
+    }
+
+    pub open spec fn right(self) -> R {
+        self -> Right_0
+    }
+
     pub proof fn new_left(tracked left: L) -> (tracked res: Self)
         returns
             Self::Left(left),
