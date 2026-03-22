@@ -70,6 +70,14 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
     pub closed spec fn id(self) -> Loc {
         self.id
     }
+    
+    /// Create an arbitrary `FracGhostResource`. Useful as a placeholder.
+    pub proof fn arbitrary() -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+    {
+        Self { r: None, snapshot: arbitrary(), id: arbitrary() }
+    }
 
     /// Allocates a new `FracGhostResource` with the full fraction and the given value.
     pub proof fn alloc(value: T) -> (tracked res: Self)
@@ -280,6 +288,14 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.id
+    }
+
+    /// Create an arbitrary `FracResource`. Useful as a placeholder.
+    pub proof fn arbitrary() -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+    {
+        Self { r: None, snapshot: arbitrary(), id: arbitrary() }
     }
 
     /// Allocates a new `FracResource` with the given tracked object.
