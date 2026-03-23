@@ -421,7 +421,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 core::hint::spin_loop();
             }
         }
-    }
+    }*/
 
     /// Acquires a write lock and spin-wait until it can be acquired.
     ///
@@ -439,7 +439,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         }
     }
-
+    /*
     /// Acquires an upreader and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no other writers,
@@ -569,7 +569,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     guard_perm = Some(pointsto);
                     let tracked f = g.core_token.change_to_right(empty);
                     guard_token = Some(g.core_token.split_one_right_knowledge());
-
                 }
             }
         ).is_ok() {
