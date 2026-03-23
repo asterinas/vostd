@@ -158,7 +158,7 @@ impl<C: PageTableConfig> CursorView<C> {
         if self.present() {
             let m = self.query_mapping();
             if m.page_size > size {
-                let new_size = m.page_size.ilog2() as usize;
+                let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 proof {
                     assert(new_self.present()) by { admit() };
@@ -181,7 +181,7 @@ impl<C: PageTableConfig> CursorView<C> {
         if self.present() {
             let m = self.query_mapping();
             if m.page_size > size {
-                let new_size = m.page_size.ilog2() as usize;
+                let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 // split_if_mapped_huge_spec preserves cur_va (it's in the struct literal)
                 assert(new_self.cur_va == self.cur_va);
@@ -234,11 +234,23 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// Unmaps a range of virtual addresses from the current address up to `len` bytes.
     /// It returns the number of mappings that were removed.
+    ///
+    /// Because the implementation may split huge pages that straddle the range
+    /// boundaries, the spec first applies `split_while_huge` at both `cur_va`
+    /// and `cur_va + len` to obtain a "base" set of mappings where all boundary
+    /// entries are at the finest granularity.  Mappings whose `va_range.start`
+    /// falls in `[cur_va, cur_va + len)` are then removed from this base.
     pub open spec fn unmap_spec(self, len: usize, new_view: Self, num_unmapped: usize) -> bool {
-        let taken = self.mappings.filter(|m: Mapping|
+        // Split the mapping at the start boundary
+        let after_start_split = self.split_while_huge(PAGE_SIZE);
+        // Split the mapping at the end boundary
+        let at_end = CursorView { cur_va: (self.cur_va + len) as Vaddr, ..after_start_split };
+        let after_both_splits = at_end.split_while_huge(PAGE_SIZE);
+        let base = CursorView { cur_va: self.cur_va, ..after_both_splits };
+        let taken = base.mappings.filter(|m: Mapping|
             self.cur_va <= m.va_range.start < self.cur_va + len);
             &&& new_view.cur_va >= (self.cur_va + len) as Vaddr
-            &&& new_view.mappings == self.mappings - taken
+            &&& new_view.mappings == base.mappings - taken
             &&& num_unmapped == taken.len() as usize
     }
 
@@ -264,13 +276,36 @@ impl<C: PageTableConfig> CursorView<C> {
         self.split_while_huge_compose(size, size);
     }
 
-    pub open spec fn protect_spec(self, len: usize, op: impl Fn(PageProperty) -> PageProperty) -> (Self, Option<Range<Vaddr>>) {
-        let (cursor, next) = self.find_next_impl_spec(len, false, true);
+    /// Models `protect_next`: find the next mapping in range, split it to
+    /// `target_page_size` if it is a huge page, then update its property via `op`.
+    ///
+    /// `target_page_size` corresponds to the cursor level after `find_next_impl`
+    /// with `split_huge = true` — this is determined by the page table structure
+    /// and cannot be derived from the abstract view alone.
+    pub open spec fn protect_spec(self, len: usize, op: spec_fn(PageProperty) -> PageProperty, target_page_size: usize) -> (Self, Option<Range<Vaddr>>) {
+        let (find_cursor, next) = self.find_next_impl_spec(len, false, true);
         if next is Some {
-            // TODO: Model props in here
-            (cursor, Some(next.unwrap().va_range))
+            let found = next.unwrap();
+            // Position cursor at the found mapping and split to target size
+            let at_found = CursorView {
+                cur_va: found.va_range.start as Vaddr,
+                ..self
+            };
+            let split_view = at_found.split_while_huge(target_page_size);
+            // The mapping at cur_va in the split view is the one to protect
+            let split_mapping = split_view.query_mapping();
+            let new_mapping = Mapping {
+                property: op(split_mapping.property),
+                ..split_mapping
+            };
+            let new_cursor = CursorView {
+                cur_va: split_mapping.va_range.end,
+                mappings: split_view.mappings - set![split_mapping] + set![new_mapping],
+                ..self
+            };
+            (new_cursor, Some(split_mapping.va_range))
         } else {
-            (cursor, None)
+            (find_cursor, None)
         }
     }
 }

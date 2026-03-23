@@ -538,7 +538,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
         ensures
             self.pop_level_owner_spec().0.inv(),
     {
@@ -573,12 +572,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
             self.children_not_locked(guards),
             self.nodes_locked(guards),
             self.relate_region(regions),
         ensures
-            self.pop_level_owner_spec().0.in_locked_range(),
             self.pop_level_owner_spec().0.inv(),
             self.pop_level_owner_spec().0.only_current_locked(guards),
             self.pop_level_owner_spec().0.nodes_locked(guards),
@@ -777,7 +774,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
         ensures
             self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
         decreases NR_LEVELS - self.level

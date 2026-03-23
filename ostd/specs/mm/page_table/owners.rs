@@ -309,6 +309,21 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.view_rec(path) =~= set![],
     { }
 
+    /// A node with nr_children == 0 has no present PTEs, so all children are absent
+    /// and the subtree contributes no mappings.
+    ///
+    /// Axiom: the link between `nr_children` and the count of present PTEs is maintained
+    /// by `Entry::replace` / `Entry::new` but not yet formalised as a `NodeOwner` invariant.
+    pub axiom fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value.is_node(),
+            self.0.value.node.unwrap().meta_own.nr_children.value() == 0,
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+        ensures
+            self.view_rec(path) =~= set![];
+
     pub open spec fn relate_region_pred(regions: MetaRegionOwners)
         -> (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions)

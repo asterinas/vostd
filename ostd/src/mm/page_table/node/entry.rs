@@ -593,6 +593,9 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& guards.guards[res.unwrap().addr()].unwrap().pptr() == res.unwrap()
                 &&& owner.value.node.unwrap().relate_guard_perm(guards.guards[res.unwrap().addr()].unwrap())
                 &&& owner.value.node.unwrap().meta_perm.addr() == res.unwrap().addr()
+                // All children of the new node subtree are frames (from the split loop).
+                &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
+                    (#[trigger] owner.children[j]).unwrap().value.is_frame()
                 &&& owner.value.path == old(owner).value.path
                 &&& owner.value.relate_region(*regions)
                 &&& OwnerSubtree::implies(
@@ -707,6 +710,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     &&& new_owner.children[j].unwrap().value.is_absent()
                     &&& !new_owner.children[j].unwrap().value.in_scope
                     &&& new_owner.value.node.unwrap().children_perm.value()[j] == C::E::new_absent_spec()
+                },
+                // Children [0, i) have been replaced with frames.
+                forall|j: int| #![auto] 0 <= j < i ==> {
+                    new_owner.children[j].unwrap().value.is_frame()
                 },
                 new_page.ptr.addr() == new_owner_meta_addr,
         {

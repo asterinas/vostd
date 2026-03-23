@@ -468,6 +468,8 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& self.va.inv()
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.guard_level <= NR_LEVELS
+        // The cursor's VA is always at or above the start of the locked range.
+        &&& self.in_locked_range() || self.above_locked_range()
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
         // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
         &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
@@ -634,6 +636,33 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.inv(),
             other.relate_region(regions);
 
+    /// After a `protect` operation that only modifies `frame.prop`, the abstract
+    /// view's mappings change by replacing the property of the mapping at `cur_va`.
+    ///
+    /// The old mapping `self@.query_mapping()` is removed and a new mapping with
+    /// updated `property` is inserted. All other fields (va_range, pa_range, page_size)
+    /// and all other mappings are unchanged.
+    pub axiom fn protect_updates_view_mappings(self, other: Self)
+        requires
+            self.inv(),
+            other.inv(),
+            self.cur_entry_owner().is_frame(),
+            other.cur_entry_owner().is_frame(),
+            other.cur_entry_owner().frame.unwrap().mapped_pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
+            other.cur_entry_owner().path == self.cur_entry_owner().path,
+            other.cur_entry_owner().parent_level == self.cur_entry_owner().parent_level,
+            self.level == other.level,
+            self.va == other.va,
+            self.prefix == other.prefix,
+            self.guard_level == other.guard_level,
+            self.popped_too_high == other.popped_too_high,
+            forall|i: int| self.level <= i < NR_LEVELS ==>
+                #[trigger] self.continuations[i] == other.continuations[i],
+        ensures
+            self@.present(),
+            other@.mappings =~= self@.mappings - set![self@.query_mapping()]
+                + set![Mapping { property: other.cur_entry_owner().frame.unwrap().prop, ..self@.query_mapping() }];
+
     pub proof fn map_children_implies(
         self,
         f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
@@ -737,7 +766,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
-            old(self).in_locked_range(),
         ensures
             self.inv(),
             *self == old(self).inc_index(),
@@ -758,6 +786,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
+        // Incrementing an index only increases the VA, so it stays >= locked_range().start.
+        assert(self.in_locked_range() || self.above_locked_range()) by { admit() };
     }
 
     pub proof fn inc_and_zero_increases_va(self)
@@ -1362,44 +1392,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.view_mappings() == owner0.view_mappings();
 
-    /// After `pop_level` from level `L` back to `L+1`, the split_while_huge loop invariant
-    /// is maintained: if `owner@ == owner0@.split_while_huge(page_size(L))` before pop,
-    /// then `owner@ == owner0@.split_while_huge(page_size(L+1))` after pop.
-    ///
-    /// In practice the pop_level branch is dead code (the cursor never goes below the target
-    /// level), so this axiom is vacuously trusted.  It is stated in terms of the POST-pop
-    /// cursor owner `self` (level = L+1) and the pre-pop view passed in as `pre_pop_view`.
-    pub axiom fn map_loop_pop_level_invariant(
-        self,
-        owner0: Self,
-        pre_pop_view: CursorView<C>,
-        level_before_pop: int,
-    )
-        requires
-            self.inv(),
-            owner0.inv(),
-            1 <= level_before_pop,
-            level_before_pop + 1 <= NR_LEVELS,
-            self.level == (level_before_pop + 1) as u8,
-            // pop_level preserved the view: post-pop view == pre-pop view
-            self@ == pre_pop_view,
-            // loop invariant before pop
-            pre_pop_view == owner0@.split_while_huge(page_size(level_before_pop as PagingLevel)),
-        ensures
-            self@ == owner0@.split_while_huge(page_size((level_before_pop + 1) as PagingLevel));
-
-    /// After `pop_level`, if the initial owner0 had an absent current entry,
-    /// the owner after pop also has an absent current entry.
-    pub axiom fn map_loop_pop_level_absent_preserved(
-        self,
-        owner0: Self,
-    )
-        requires
-            self.inv(),
-            owner0.inv(),
-        ensures
-            owner0.cur_entry_owner().is_absent() ==> self.cur_entry_owner().is_absent();
-
     /// After `map_branch_none` (alloc_if_none + push_level), the current entry is absent.
     ///
     /// Proof: `alloc_if_none` creates an empty PT node where all children are absent
@@ -1857,7 +1849,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub axiom fn set_va_in_node(tracked &mut self, new_va: AbstractVaddr)
         requires
             old(self).inv(),
-            old(self).in_locked_range(),
             new_va.inv(),
             forall|i: int| #![auto] old(self).level <= i < NR_LEVELS
                 ==> new_va.index[i] == old(self).va.index[i],
@@ -1952,6 +1943,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Inv for Cursor<'rcu, C, A> {
         &&& 1 <= self.level <= NR_LEVELS
         &&& self.level <= self.guard_level <= NR_LEVELS
 //        &&& forall|i: int| 0 <= i < self.guard_level - self.level ==> self.path[i] is Some
+        &&& self.va >= self.barrier_va.start
+        &&& self.va % PAGE_SIZE == 0
     }
 }
 

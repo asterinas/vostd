@@ -64,7 +64,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     pub open spec fn jump_panic_condition(self, va: Vaddr) -> bool {
-        va % PAGE_SIZE == 0
+        va % PAGE_SIZE != 0
+    }
+
+    pub open spec fn find_next_panic_condition(self, len: usize) -> bool {
+        ||| len % C::BASE_PAGE_SIZE() != 0
+        ||| self.va + len > self.barrier_va.end
     }
 }
 
@@ -72,11 +77,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
-        &&& self.inner.va < self.inner.barrier_va.end
-        &&& C::item_into_raw(item).1 <= C::HIGHEST_TRANSLATION_LEVEL()
-        &&& !C::TOP_LEVEL_CAN_UNMAP_spec() ==> C::item_into_raw(item).1 < NR_LEVELS
-        &&& self.inner.va % page_size(C::item_into_raw(item).1) == 0
-        &&& self.inner.va + page_size(C::item_into_raw(item).1) <= self.inner.barrier_va.end
+        ||| self.inner.va >= self.inner.barrier_va.end
+        ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
+        ||| self.inner.va % page_size(C::item_into_raw(item).1) != 0
+        ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
     }
 
     pub open spec fn map_cursor_requires(

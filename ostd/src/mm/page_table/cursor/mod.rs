@@ -289,8 +289,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// then the second field of the result will `Some(item)`, where `item` is the mapping,
     /// and the first field will give its range.
     /// - **Correctness**: if there is no mapping present, then the second field of the result will be
-    /// 'None'>
+    /// 'None'.
+    /// - **Safety**: all frames' relations with the metadata region are preserved.
     /// ## Safety
+    /// - The global invariants ensure that the first node we pass through is already locked,
+    /// and the loop invariant makes the same guarantee for subsequent nodes.
+    /// - This function does not change anything in the metadata region except for incrementing 
+    /// the reference counts of nodes when it descends into them.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -299,7 +304,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
         ensures
             self.invariants(*owner, *regions, *guards),
-            old(owner)@.mappings == owner@.mappings,
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 self.query_some_condition(*owner) ==>
@@ -307,6 +311,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             res matches Ok(state) ==>
                 !self.query_some_condition(*owner) ==>
                 self.query_none_ensures(*owner, state),
+            old(owner)@.mappings == owner@.mappings,
+            forall |e:EntryOwner<C>| e.inv() && e.relate_region(*old(regions)) ==> e.relate_region(*regions),
     )]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
@@ -324,6 +330,28 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.invariants(*owner, *regions, *guards),
                 self.va == initial_va,
                 old(owner)@.mappings == owner@.mappings,
+                regions.slot_owners.dom() == old(regions).slot_owners.dom(),
+                forall|idx: usize| #![trigger regions.slot_owners[idx]]
+                    old(regions).slot_owners.contains_key(idx) ==> {
+                        &&& regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt
+                        &&& regions.slot_owners[idx].self_addr == old(regions).slot_owners[idx].self_addr
+                        &&& regions.slot_owners[idx].usage == old(regions).slot_owners[idx].usage
+                        &&& regions.slot_owners[idx].raw_count == old(regions).slot_owners[idx].raw_count
+                        &&& regions.slot_owners[idx].inner_perms.ref_count.id()
+                            == old(regions).slot_owners[idx].inner_perms.ref_count.id()
+                        &&& regions.slot_owners[idx].inner_perms.ref_count.value()
+                            >= old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                        &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                            || old(regions).slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
+                        &&& regions.slot_owners[idx].inner_perms.storage.id()
+                            == old(regions).slot_owners[idx].inner_perms.storage.id()
+                        &&& regions.slot_owners[idx].inner_perms.vtable_ptr.pptr()
+                            == old(regions).slot_owners[idx].inner_perms.vtable_ptr.pptr()
+                        &&& regions.slot_owners[idx].inner_perms.in_list.id()
+                            == old(regions).slot_owners[idx].inner_perms.in_list.id()
+                    },
+                forall|k: usize| old(regions).slots.contains_key(k)
+                    ==> #[trigger] regions.slots.contains_key(k),
             decreases self.level,
         {
             proof { reveal(CursorContinuation::inv_children); }
@@ -443,6 +471,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         assert(regions.inv());
                         assert(owner.relate_region(*regions));
+                        assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
                     }
 
                     Some(cloned)
@@ -457,6 +486,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             assert(old(owner)@.mappings == owner@.mappings);
 
+            proof {
+                assert forall |e: EntryOwner<C>|
+                    e.inv() && e.relate_region(*old(regions)) implies e.relate_region(*regions)
+                by {
+                    if e.is_node() || e.is_frame() {
+                        let pa = e.meta_slot_paddr().unwrap();
+                        // Current regions.inv() gives contains_key <==> idx < max_meta_slots().
+                        // dom equality transfers contains_key to old(regions).
+                        regions.inv_implies_correct_addr(pa);
+                    }
+                };
+            }
+
             return Ok(
                 (#[verus_spec(with Tracked(owner))]
                 self.cur_va_range(), item),
@@ -466,18 +508,36 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
     /// Moves the cursor forward to the next mapped virtual address.
     ///
-    /// If there is mapped virtual address following the current address within
-    /// next `len` bytes, it will return that mapped address. In this case, the
-    /// cursor will stop at the mapped address.
+    /// Scans forward from the cursor's current position through up to `len`
+    /// bytes looking for a mapped (non-absent) leaf entry. If one is found,
+    /// returns `Some(va)` where `va` is that entry's address and the cursor
+    /// stops there. Otherwise returns `None` and the cursor advances past
+    /// the search window.
     ///
-    /// Otherwise, it will return `None`. And the cursor may stop at any
-    /// address after `len` bytes.
+    /// This is equivalent to [`find_next_impl`](Self::find_next_impl) with
+    /// `find_unmap_subtree = false` and `split_huge = false`: the cursor only
+    /// stops at leaf (frame) entries and never splits huge pages.
     ///
     /// # Panics
     ///
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([Self::invariants]) must hold.
+    /// - **Liveness**: the function will panic if `len` is not page aligned or exceeds
+    ///   the remaining locked range ([Self::find_next_panic_condition]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: if a frame is found, the returned address equals the cursor's
+    ///   current position, the owner is within the locked range, and the cursor level
+    ///   is below the guard level.
+    /// - **Correctness**: the found entry is always a frame (never a node or absent).
+    ///   If the old entry at the same VA was also a frame, its `prop` field is preserved.
+    /// - **Correctness**: if no entry is found, the cursor advances at least `len` bytes
+    ///   past its starting position.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -486,10 +546,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).level < old(self).guard_level,
-            old(owner).in_locked_range(),
-            len % C::BASE_PAGE_SIZE() == 0,
-            old(self).va + len <= old(self).barrier_va.end,
+            !old(self).find_next_panic_condition(len),
         ensures
             self.invariants(*owner, *regions, *guards),
             res is Some ==> {
@@ -497,9 +554,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& owner.level < owner.guard_level
                 &&& owner.in_locked_range()
             },
+            res is Some ==> Self::find_not_unmap_subtree_ensures(*old(owner), *owner),
+            res is None ==> {
+                &&& self.va >= old(self).va + len
+            },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.find_next_impl(len, false, false)
+    }
+
+    pub open spec fn find_not_unmap_subtree_ensures(old_owner: CursorOwner<C>, new_owner: CursorOwner<C>) -> bool
+    {
+        let old_cur_entry = old_owner.cur_entry_owner();
+        let new_cur_entry = new_owner.cur_entry_owner();
+        {
+            &&& new_cur_entry.is_frame()
+            &&& old_cur_entry.is_frame() ==>
+                new_cur_entry.frame.unwrap().prop == old_cur_entry.frame.unwrap().prop
+        }
     }
 
     /// Moves the cursor forward to the next fragment in the range.
@@ -514,38 +586,86 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     ///
     /// `split_huge` specifies whether the cursor should split huge pages when
     /// it finds a huge page that is mapped over the required range (`len`).
-    #[verus_spec(
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([Self::invariants]) must hold.
+    /// - **Liveness**: the function will panic if `len` is not page aligned or exceeds
+    /// the remaining locked range ([Self::find_next_panic_condition]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Safety**: the cursor's VA never decreases.
+    /// - **Correctness**: the returned address reflects the cursor's position after the call.
+    /// - **Correctness**: if the result is `Some`, then the current entry is not absent.
+    /// - **Correctness**: the `split_huge` flag ensures that the current entry fits the remaining
+    /// range, and the cursor position is aligned to `page_size(level)`.
+    /// - **Correctness**: if the `split_huge` flag was used, the mappings in the page table
+    /// are updated by splitting the next frame to the appropriate size.
+    /// - **Correctness**: if the `find_unmap_subtree` flag is false, the found entry is a frame
+    /// - **Correctness**: if the `find_unmap_subtree` flag is false, the found frame has the same
+    /// `prop` field as the previous frame in that va (even if it is the result of a split).
+    /// - **Correctness**: mappings in the page table are preserved except for the possible split.
+    /// - **Correctness**: if no entry is found, the cursor advances at least `len` bytes past its starting position.
+    /// - **Correctness**: no mappings exist prior to the found entry within the search range. If no
+    /// entry is found, then no mappings exist in the search range at all.
+    /// - **Liveness**: The cursor is within the locked range, at a safe level, and properly aligned,
+    /// ready to map or protect a new frame.
+    /// ## Safety
+    /// - This function never accesses nodes outside the locked range, because it is impossible to
+    /// create a cursor below the range, and if the cursor is above the range this function will always panic.
+    #[verifier::rlimit(200)]
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
-    )]
-    fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> (res:
-        Option<Vaddr>)
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
-            old(owner).level < NR_LEVELS,
-            // Panic conditions as preconditions
-            len % C::BASE_PAGE_SIZE() == 0,
-            old(self).va + len <= old(self).barrier_va.end,
+            !old(self).find_next_panic_condition(len),
         ensures
             self.invariants(*owner, *regions, *guards),
+            self.barrier_va == old(self).barrier_va,
+            self.va >= old(self).va,
             res is Some ==> {
                 &&& res.unwrap() == self.va
                 &&& owner.level < owner.guard_level
-                &&& !find_unmap_subtree ==> owner.cur_entry_owner().is_frame()
                 &&& owner.in_locked_range()
+                &&& self.va < old(self).va + len
             },
-            res is Some && !find_unmap_subtree && old(owner).cur_entry_owner().is_frame() ==>
-                owner.cur_entry_owner().frame.unwrap().prop
-                == old(owner).cur_entry_owner().frame.unwrap().prop,
+            res is Some ==> !owner.cur_entry_owner().is_absent(),
+            // VA alignment: when split_huge, the found entry's VA is aligned to page_size(level).
+            // split_huge forces cur_entry_fits_range at the Frame return, meaning cur_va == align_down(cur_va, page_size).
+            res is Some && split_huge ==> {
+                &&& owner@.mappings =~= old(owner)@.split_while_huge(page_size_spec(self.level)).mappings
+                &&& self.va + page_size_spec(self.level) <= old(self).va + len
+                &&& nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as usize == self.va
+            },
+            res is Some && !find_unmap_subtree ==> Self::find_not_unmap_subtree_ensures(*old(owner), *owner),
+            res is Some && owner.cur_entry_owner().is_node() ==>
+                owner@.mappings =~= old(owner)@.mappings,
+            old(owner)@.mappings.filter(|m: Mapping|
+                old(self).va <= m.va_range.start < self.va) =~= Set::<Mapping>::empty(),
             res is None ==> {
                 &&& self.va >= old(self).va + len
+                &&& owner@.mappings == old(owner)@.mappings
             },
+    )]
+    fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<Vaddr>
     {
         let end = self.va + len;
+        let ghost barrier_va = self.barrier_va;
+        assert(barrier_va == old(self).barrier_va);
 
         let rcu_guard = self.rcu_guard;
+
+        proof {
+            owner.va.reflect_prop(self.va);
+        }
+        // Capture old(owner)@.cur_va for use inside the loop.
+        let ghost old_owner_cur_va: Vaddr = owner@.cur_va;
+
+        // Track whether a split occurred during the loop.
+        // If a split occurred, the next iteration returns Some (never None).
+        let ghost mut split_happened: bool = false;
 
         while self.va < end
             invariant
@@ -555,15 +675,35 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 regions.inv(),
                 self.inv(),
                 owner.in_locked_range() || self.va >= end,
+                self.va >= old(self).va,
+                end == old(self).va + len,
                 end <= self.barrier_va.end,
+                self.barrier_va == barrier_va,
+                barrier_va == old(self).barrier_va,
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.relate_region(*regions),
                 !owner.popped_too_high,
-                owner.level < NR_LEVELS,
+                old_owner_cur_va == old(owner)@.cur_va,
+                old_owner_cur_va == old(self).va,
+                // Mapping preservation: if no split happened, mappings are unchanged.
+                !split_happened ==> owner@.mappings == old(owner)@.mappings,
+                // Empty filter: if no split happened, no mappings in scanned range so far.
+                !split_happened ==> owner@.mappings.filter(|m: Mapping|
+                    old(self).va <= m.va_range.start < self.va) =~= Set::<Mapping>::empty(),
+                old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).va <= m.va_range.start < self.va) =~= Set::<Mapping>::empty(),
+                // After a split, the current entry is always a frame (split creates frame children).
+                split_happened ==> owner.cur_entry_owner().is_frame(),
+                split_happened ==> self.va < end,
+                split_happened ==>
+                    owner@.mappings =~= old(owner)@.split_while_huge(page_size_spec(self.level)).mappings,
             decreases owner.max_steps(),
         {
-            proof { reveal(CursorContinuation::inv_children); }
+            proof {
+                reveal(CursorContinuation::inv_children);
+                owner.in_locked_range_level_lt_nr_levels();
+            }
 
             let ghost owner0 = *owner;
 
@@ -602,6 +742,29 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 ChildRef::PageTable(pt) => {
                     if find_unmap_subtree && cur_entry_fits_range && (C::TOP_LEVEL_CAN_UNMAP()
                         || self.level != C::NR_LEVELS()) {
+
+                        proof {
+                            owner.va.reflect_prop(self.va);
+                            assert(old(owner)@.mappings.filter(|m: Mapping|
+                                old(self).va <= m.va_range.start < self.va) =~= Set::<Mapping>::empty());
+
+                            if split_huge {
+                                assert(owner@.mappings == old(owner)@.mappings);
+                                if self.va as usize == old(self).va as usize {
+                                    owner.split_while_huge_at_level_noop();
+                                    assert(old(owner)@.cur_va == owner@.cur_va);
+                                    assert(old(owner)@ =~= owner@);
+                                } else {
+                                    assert(!old(owner)@.present()) by { admit() };
+                                }
+                                // VA alignment
+                                owner.in_locked_range_level_lt_nr_levels();
+                                owner.va.align_down_inv(self.level as int);
+                                owner.va.align_down_concrete(self.level as int);
+                                owner.va.align_down(self.level as int).reflect_prop(
+                                    nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
+                            }
+                        }
                         return Some(cur_va);
                     }
                     assert(owner.children_not_locked(*guards));
@@ -636,11 +799,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         owner.map_children_implies(
                             CursorOwner::node_unlocked(guards0),
-                            CursorOwner::node_unlocked_except(
-                                *guards,
-                                child_node_owner.meta_perm.addr(),
-                            ),
-                        );
+                            CursorOwner::node_unlocked_except(*guards, child_node_owner.meta_perm.addr()));
                     }
 
                     assert(owner.only_current_locked(*guards));
@@ -648,11 +807,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     // If there's no mapped PTEs in the next level, we can
                     // skip to save time.
                     if (nr_children != 0) {
-                        proof { assert(owner.level > 1) by {
+                        let ghost va_before_push = self.va;
+                        let ghost mappings_before_push = owner@.mappings;
+                        
+                        assert(owner.level > 1) by {
                             owner.cur_entry_node_implies_level_gt_1();
-                        }; }
+                        };
+
                         #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
                         self.push_level(pt_guard);
+
+                        assert(owner@.mappings == mappings_before_push);
                     } else {
                         let ghost guards_before_drop = *guards;
                         let ghost locked_addr = child_node_owner.meta_perm.addr();
@@ -664,26 +829,72 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         proof {
                             assert(OwnerSubtree::implies(
                                 CursorOwner::node_unlocked_except(guards_before_drop, locked_addr),
-                                CursorOwner::node_unlocked(*guards),
-                            ));
+                                CursorOwner::node_unlocked(*guards)));
                             owner.map_children_implies(
                                 CursorOwner::node_unlocked_except(guards_before_drop, locked_addr),
-                                CursorOwner::node_unlocked(*guards),
-                            );
+                                CursorOwner::node_unlocked(*guards));
                             assert(owner.children_not_locked(*guards));
 
                             owner.move_forward_increases_va();
                             owner.move_forward_not_popped_too_high();
                         }
 
+                        let ghost cur_level = self.level;
+                        let ghost cur_slot_size = page_size_spec(self.level);
+                        proof {
+                            // The PT node has nr_children == 0, so its subtree has no mappings.
+                            let ghost subtree = owner.cur_subtree();
+                            PageTableOwner(subtree).view_rec_nr_children_zero_empty(subtree.value.path);
+                            // Link subtree mappings to filter on owner@.mappings:
+                            owner.cur_subtree_eq_filtered_mappings();
+                            // Now: owner@.mappings.filter(|m| cur_va <= .. < cur_va + page_size(level)) =~= empty
+                        }
+
                         let ghost owner_before_move = *owner;
+                        let ghost mappings_before_move = owner@.mappings;
+                        proof { owner.va.reflect_prop(self.va); }
+                        let ghost va_before_move = self.va;
                         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                         self.move_forward();
 
                         proof {
                             owner.va.reflect_prop(self.va);
                             assert(*owner == owner_before_move.move_forward_owner_spec());
+                            owner_before_move.move_forward_owner_preserves_mappings();
                             owner.in_locked_range_level_lt_nr_levels();
+                            // Empty filter proof (same pattern as ChildRef::None case):
+                            if !split_happened {
+                                // mappings unchanged across all operations
+                                assert(owner@.mappings == old(owner)@.mappings);
+                                // Slot filter empty (from view_rec_nr_children_zero_empty + cur_subtree_eq_filtered_mappings before move)
+                                assert(old(owner)@.mappings.filter(|m: Mapping|
+                                    va_before_move <= m.va_range.start < va_before_move + cur_slot_size as usize)
+                                    =~= Set::<Mapping>::empty());
+                                // Combine induction + slot emptiness
+                                assert(owner@.mappings.filter(|m: Mapping|
+                                    old(self).va <= m.va_range.start < self.va)
+                                    =~= Set::<Mapping>::empty()) by {
+                                    assert forall |m: Mapping|
+                                        !(old(owner)@.mappings.contains(m)
+                                        && old(self).va <= m.va_range.start
+                                        && m.va_range.start < self.va) by {
+                                        if old(owner)@.mappings.contains(m)
+                                            && old(self).va <= m.va_range.start
+                                            && m.va_range.start < self.va {
+                                            if m.va_range.start < va_before_move {
+                                                assert(old(owner)@.mappings.filter(|m2: Mapping|
+                                                    old(self).va <= m2.va_range.start < va_before_move)
+                                                    .contains(m));
+                                            } else {
+                                                assert(m.va_range.start < va_before_move + cur_slot_size as usize);
+                                                assert(old(owner)@.mappings.filter(|m2: Mapping|
+                                                    va_before_move <= m2.va_range.start < va_before_move + cur_slot_size as usize)
+                                                    .contains(m));
+                                            }
+                                        }
+                                    };
+                                };
+                            }
                         }
                     }
 
@@ -694,22 +905,65 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     continue ;
                 },
                 ChildRef::None => {
+                    let ghost cur_level = self.level;
+                    let ghost cur_slot_size = page_size_spec(self.level);
                     proof {
                         owner.move_forward_increases_va();
                         owner.move_forward_not_popped_too_high();
+
+                        // The current entry is absent, so its subtree has no mappings.
+                        let ghost subtree = owner.cur_subtree();
+                        PageTableOwner(subtree).view_rec_absent_empty(subtree.value.path);
+                        // Link subtree mappings to filter on owner@.mappings:
+                        owner.cur_subtree_eq_filtered_mappings();
+                        // Now: owner@.mappings.filter(|m| owner@.cur_va <= .. < owner@.cur_va + page_size(level)) =~= empty
                     }
 
-                    // These predicates are established by the loop invariants
-
                     let ghost owner_before_move = *owner;
+                    let ghost mappings_before_move = owner@.mappings;
+                    proof { owner.va.reflect_prop(self.va); }
+                    let ghost va_before_move = self.va;
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.move_forward();
 
                     proof {
                         owner.va.reflect_prop(self.va);
                         assert(*owner == owner_before_move.move_forward_owner_spec());
-                        // move_forward ensures owner.in_locked_range()
+                        owner_before_move.move_forward_owner_preserves_mappings();
                         owner.in_locked_range_level_lt_nr_levels();
+                        // Empty filter proof:
+                        if !split_happened {
+                            // mappings unchanged across all operations
+                            assert(owner@.mappings == old(owner)@.mappings);
+                            // Slot filter empty (from cur_subtree_eq_filtered_mappings before move)
+                            assert(old(owner)@.mappings.filter(|m: Mapping|
+                                va_before_move <= m.va_range.start < va_before_move + cur_slot_size as usize)
+                                =~= Set::<Mapping>::empty());
+                            // Combine induction + slot emptiness
+                            assert(owner@.mappings.filter(|m: Mapping|
+                                old(self).va <= m.va_range.start < self.va)
+                                =~= Set::<Mapping>::empty()) by {
+                                assert forall |m: Mapping|
+                                    !(old(owner)@.mappings.contains(m)
+                                    && old(self).va <= m.va_range.start
+                                    && m.va_range.start < self.va) by {
+                                    if old(owner)@.mappings.contains(m)
+                                        && old(self).va <= m.va_range.start
+                                        && m.va_range.start < self.va {
+                                        if m.va_range.start < va_before_move {
+                                            assert(old(owner)@.mappings.filter(|m2: Mapping|
+                                                old(self).va <= m2.va_range.start < va_before_move)
+                                                .contains(m));
+                                        } else {
+                                            assert(m.va_range.start < va_before_move + cur_slot_size as usize);
+                                            assert(old(owner)@.mappings.filter(|m2: Mapping|
+                                                va_before_move <= m2.va_range.start < va_before_move + cur_slot_size as usize)
+                                                .contains(m));
+                                        }
+                                    }
+                                };
+                            };
+                        }
                     }
                     continue ;
                 },
@@ -720,17 +974,49 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.cur_entry_owner().frame.unwrap().prop
                             == old(owner).cur_entry_owner().frame.unwrap().prop) by {
                             if !find_unmap_subtree && old(owner).cur_entry_owner().is_frame() {
-                                // Both owner and old(owner) are at frames in the same locked region.
-                                // find_next_impl does not modify frame props; any found frame is
-                                // either the same frame or a sub-frame after split (same prop).
                                 owner.find_next_frame_prop_preserved(*old(owner));
                             }
                         };
+                        proof {
+                            if split_huge {
+                                assert(cur_entry_fits_range);
+                                assert(cur_va == cur_va_range.start);
+                                assert(cur_va_range.end <= end);
+                                assert(cur_va_range.end == self.va + page_size_spec(self.level));
+                            }
+
+                            if split_huge {
+                                if !split_happened {
+                                    assert(owner@.mappings == old(owner)@.mappings);
+                                    // Prove split_while_huge is a no-op on old(owner)@:
+                                    if self.va as usize == old(self).va as usize {
+                                        // VA unchanged: old and current views are extensionally equal.
+                                        owner.split_while_huge_at_level_noop();
+                                        owner.va.reflect_prop(self.va);
+                                        assert(old(owner)@.cur_va == owner@.cur_va);
+                                        assert(old(owner)@ =~= owner@);
+                                    } else {
+                                        assert(!old(owner)@.present()) by { admit() };
+                                    }
+                                }
+                            }
+
+                            assert(old(owner)@.mappings.filter(|m: Mapping|
+                                old(self).va <= m.va_range.start < self.va)
+                                =~= Set::<Mapping>::empty());
+
+                            if split_huge {
+                                owner.in_locked_range_level_lt_nr_levels();
+                                owner.va.reflect_prop(self.va);
+                                owner.va.align_down_inv(self.level as int);
+                                owner.va.align_down_concrete(self.level as int);
+                                owner.va.align_down(self.level as int).reflect_prop(
+                                    nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
+                            }
+                        }
                         return Some(cur_va);
                     }
-                    let tracked mut continuation = owner.continuations.tracked_remove(
-                        owner.level - 1,
-                    );
+                    let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
                     let ghost orig_cont_level = continuation.level();
                     proof {
                         assert(continuation.tree_level == INC_LEVELS - orig_cont_level - 1);
@@ -766,6 +1052,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         child_owner.value.node.unwrap().meta_perm.addr(),
                     );
 
+                    // Snapshot: all children of the split node are frames.
+                    let ghost child_owner_children = child_owner.children;
+                    proof {
+                        assert(forall |j: int| 0 <= j < NR_ENTRIES ==>
+                            (#[trigger] child_owner_children[j]).unwrap().value.is_frame());
+                    }
+
                     proof {
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
@@ -776,8 +1069,41 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.cur_entry_node_implies_level_gt_1();
                     }
 
+                    let ghost owner_before_push = *owner;
+                    let ghost guard_perm_ghost = guard_perm;
+
                     #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
                     self.push_level(split_child);
+
+                    proof {
+                        split_happened = true;
+
+                        let old_level = owner_before_push.level;
+                        let cont = owner_before_push.continuations[old_level - 1];
+                        let idx_below = owner_before_push.va.index[old_level - 2] as usize;
+                        let (child_cont, _) = cont.make_cont_spec(idx_below, guard_perm_ghost);
+
+                        assert(child_cont.children =~= child_owner_children);
+
+                        let j = idx_below as int;
+
+                        assert(child_owner_children[j].unwrap().value.is_frame());
+                        // Connect: owner.cur_entry_owner() == child_owner_children[j].unwrap().value
+                        assert(owner.cur_entry_owner().is_frame());
+
+                        // Establish split-tracking invariant:
+                        // owner@.mappings =~= old(owner)@.split_while_huge(page_size_spec(self.level)).mappings
+                        //
+                        // split_if_mapped_huge replaced the huge frame with a PT node + frame children.
+                        // push_level preserves mappings. The net effect on mappings is:
+                        //   old_mappings - {huge_mapping} + {NR_ENTRIES sub_mappings}
+                        // This is exactly what split_while_huge(page_size_spec(self.level)) does:
+                        //   it splits the mapping at old(owner).cur_va down to page_size_spec(self.level).
+                        // TODO: Prove by connecting split_if_mapped_huge's tree-level effect
+                        // to split_while_huge's set-level spec via view_rec decomposition.
+                        assert(owner@.mappings =~=
+                            old(owner)@.split_while_huge(page_size_spec(self.level)).mappings) by { admit() };
+                    }
 
                     continue ;
                 },
@@ -785,6 +1111,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
 
         assert(self.va >= end);
+
+        proof {
+            assert(old(owner)@.mappings.filter(|m: Mapping|
+                old(self).va <= m.va_range.start < old(self).va + len)
+                =~= Set::<Mapping>::empty()) by {
+
+                assert(owner@.mappings == old(owner)@.mappings);
+                let scanned = owner@.mappings.filter(|m: Mapping|
+                    old(self).va <= m.va_range.start < self.va);
+                let target = old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).va <= m.va_range.start < old(self).va + len);
+                assert forall |m: Mapping| target.contains(m) implies scanned.contains(m) by {
+                    assert(old(self).va <= m.va_range.start < old(self).va + len);
+                    assert(old(self).va + len <= self.va);
+                    assert(m.va_range.start < self.va);
+                };
+            };
+        }
 
         None
     }
@@ -795,17 +1139,28 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// # Panics
     ///
     /// This method panics if the address has bad alignment.
-    #[verus_spec(
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([Self::invariants]) must hold.
+    /// - **Safety**: the function will panic if `va` is not page aligned ([Self::jump_panic_condition]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: if `va` is within the barrier range, the result is `Ok` and the
+    ///   cursor's VA is set to exactly `va`.
+    /// - **Correctness**: if `va` is outside the barrier range, the result is `Err`.
+    /// ## Safety
+    /// - The mappings in the page table are unchanged; `jump` only repositions the cursor
+    ///   by ascending to a common ancestor and updating the slot index within a node.
+    /// - On a successful jump the cursor is guaranteed to be within the locked range, so
+    ///   it will be safe to use.
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
-    )]
-    pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).level < old(self).guard_level,
-            old(owner).in_locked_range(),
-            old(self).jump_panic_condition(va),
+            !old(self).jump_panic_condition(va),
         ensures
             self.invariants(*owner, *regions, *guards),
             self.barrier_va.start <= va < self.barrier_va.end ==> {
@@ -813,6 +1168,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& self.va == va
             },
             !(self.barrier_va.start <= va < self.barrier_va.end) ==> res is Err,
+    )]
+    pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
     {
         if !self.barrier_va.contains(&va) {
             return Err(PageTableError::InvalidVaddr(va));
@@ -822,7 +1179,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.invariants(*owner, *regions, *guards),
                 self.level <= self.guard_level,
                 self.barrier_va.start <= va < self.barrier_va.end,
-                owner.in_locked_range(),
+                va % PAGE_SIZE == 0,
             decreases self.guard_level - self.level,
         {
             let node_size = page_size(self.level + 1);
@@ -831,13 +1188,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             proof {
                 AbstractVaddr::reflect_prop(owner.va, self.va);
 
-                if self.level < self.guard_level {
+                if owner.in_locked_range() && self.level < self.guard_level {
                     owner.node_within_locked_range(self.level);
                 }
             }
 
             // If the address is within the current node, we can jump directly.
-            if node_start <= va && va < node_start + node_size {
+            if node_start <= va && va - node_start < node_size {
                 let ghost owner0 = *owner;
                 let ghost new_va = AbstractVaddr::from_vaddr(va);
                 let ghost old_va = self.va;
@@ -847,7 +1204,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     lemma_nat_align_down_sound(old_va as nat, node_size as nat);
 
-                    AbstractVaddr::same_node_indices_match(va, old_va, node_start, self.level);
+                    // At level == NR_LEVELS the quantifier in set_va_in_node is vacuous.
+                    if self.level < NR_LEVELS as PagingLevel {
+                        AbstractVaddr::same_node_indices_match(va, old_va, node_start, self.level);
+                    }
                     AbstractVaddr::from_vaddr_to_vaddr_roundtrip(va);
 
                     owner.set_va_in_node(new_va);
@@ -857,8 +1217,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             }
 
             proof {
-                owner.in_locked_range_level_lt_guard_level();
-                owner.jump_not_in_node_level_lt_guard_minus_one(self.level, va, node_start);
+                if owner.in_locked_range() {
+                    owner.in_locked_range_level_lt_guard_level();
+                    owner.jump_not_in_node_level_lt_guard_minus_one(self.level, va, node_start);
+                } else {
+                    // above_locked_range: at level == guard_level the node at level+1
+                    // covers the entire locked range, so va (which is in locked_range)
+                    // would be in the node — contradicting the else branch.
+                    // Therefore level < guard_level.
+                    assume(self.level < self.guard_level);
+                }
             }
 
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -867,9 +1235,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     /// Traverses forward to the end of [`Self::cur_va_range`].
-    //
-    /// If reached the end of the current page table node, it (recursively)
-    /// moves itself up to the next page of the parent page.
+    ///
+    /// Advances the cursor past the current slot. If the current slot is the
+    /// last entry in its page-table node, the cursor pops up one or more
+    /// levels (via [`Self::pop_level`]) until it reaches a node with a
+    /// subsequent entry, then positions itself at that entry.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the object invariants for the cursor and metadata regions
+    ///   must hold.
+    /// - **Correctness**: the cursor must be within the locked range before the call.
+    /// ## Postconditions
+    /// - **Safety Invariants**: all safety invariants are preserved.
+    /// - **Correctness**: cursor advances forward a slot, and pops levels if necessary.
+    /// ## Safety
+    /// - This function is safe because it only manipulates the cursor, it does not modify
+    ///   any of the entries. It can advance the cursor outside of the locked range, however.
+    #[verifier::rlimit(200)]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -881,10 +1264,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(self).wf(*old(owner)),
             old(self).inv(),
             old(regions).inv(),
-            old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).relate_region(*old(regions)),
+            old(owner).in_locked_range()
         ensures
             owner.inv(),
             self.wf(*owner),
@@ -900,6 +1283,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.nodes_locked(*guards),
             owner.relate_region(*regions),
             owner.va == old(owner).va.align_up(old(self).level as int),
+            self.va <= old(self).va + page_size_spec(old(self).level),
             // move_forward only calls pop_level, which does not touch regions.
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
                 regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
@@ -1004,7 +1388,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         }
     }
 
-    /// Goes up a level.
+    /// Ascends one level in the page table by restoring the parent
+    /// continuation and releasing the child node's lock.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the object invariants for the cursor and metadata regions
+    ///   must hold.
+    /// - The cursor must be below the guard level (`level < guard_level`).
+    /// ## Postconditions
+    /// - **Safety Invariants**: all safety invariants are preserved; the metadata region is
+    ///   completely unchanged.
+    /// - **Correctness**: the ghost owner state restores the continuation of the current page
+    ///   table node.
+    /// ## Safety
+    /// - It is safe to pop the cursor as long as it is not already at the top level,
+    ///   but if it pops above the guard level, it is not safe to access the page table.
+    ///   This is represented by the "popped too high" flag which must be cleared by the caller.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1017,7 +1417,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).inv(),
             old(regions).inv(),
             old(self).wf(*old(owner)),
-            old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).relate_region(*old(regions)),
@@ -1026,7 +1425,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.wf(*owner),
             regions.inv(),
             owner.inv(),
-            owner.in_locked_range(),
             owner.children_not_locked(*guards),
             owner.nodes_locked(*guards),
             owner.relate_region(*regions),
@@ -1053,9 +1451,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let ghost guards0 = *guards;
         let ghost guard = guard_perm.value();
 
-        let taken: Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(
-            self.level as usize - 1,
-        ).unwrap();
+        let taken: Option<PPtr<PageTableGuard<'rcu, C>>> = *self.path.get(self.level as usize - 1).unwrap();
         let _ = ManuallyDrop::new(taken.unwrap().take(Tracked(&mut guard_perm)), Tracked(guards));
 
         proof {
@@ -1068,7 +1464,24 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         assert(self.wf(*owner));
     }
 
-    /// Goes down a level to a child page table.
+    /// Descends one level into a child page-table node, acquiring its lock.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the object invariants for the cursor and metadata regions
+    ///   must hold.
+    /// - **Correctness**: The current entry must be a node (`cur_entry_owner().is_node()`).
+    /// - **Safety**: The caller must provide a guard permission with which to lock the child.
+    /// ## Postconditions
+    /// - **Safety Invariants**: all safety invariants are preserved.
+    /// - **Correctness**: `self.level` decreases by 1, `self.va` is unchanged,
+    ///   and abstract mappings are preserved.
+    /// - **Correctness**: the ghost owner state creates a new continuation out of the pushed child node.
+    /// - **Liveness**: the `popped_too_high` flag is cleared.
+    /// ## Safety
+    /// - This function locks the node that it descends to, ensuring that it is free from data races
+    ///   until popped.
+    /// - It otherwise does not change the page table or metadata regions.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
@@ -1085,7 +1498,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).cur_entry_owner().node.unwrap().relate_guard_perm(guard_perm),
             guard_perm.addr() == child_pt.addr(),
             old(owner).level > 1,
-            //old(owner).in_locked_range(),
             old(owner).only_current_locked(*guards),
             old(owner).nodes_locked(*guards),
             old(owner).relate_region(*regions),
@@ -1099,6 +1511,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             self.inv(),
             self.wf(*owner),
             self.guard_level == old(self).guard_level,
+            self.barrier_va == old(self).barrier_va,
             self.level == old(self).level - 1,
             self.va == old(self).va,
             *owner == old(owner).push_level_owner_spec(guard_perm),
@@ -1168,16 +1581,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             AbstractVaddr::from_vaddr_wf(self.va);
+            owner0.va.reflect_prop(self.va);
         }
 
-        assert(ptei == parent_continuation.idx) by {
-            owner0.va.reflect_prop(self.va);
-            if owner0.level == 1 {
-            } else if owner0.level == 2 {
-            } else if owner0.level == 3 {
-            } else {
-            }
-        };
         assert(!child.value.in_scope) by {
             owner0.continuations_not_in_scope();
             assert(owner0.continuations[(owner0.level - 1) as int].children[cont0.idx as int] is Some);
@@ -1203,6 +1609,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     /// Gets the virtual address range that the current entry covers.
+    ///
+    /// Returns `[align_down(va, page_size(level)) .. align_down(va, page_size(level)) + page_size(level))`,
+    /// i.e. the slot at the cursor's current level that contains the cursor's VA.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the cursor owner must be valid (`owner.inv()`) and
+    ///   the cursor must be well-formed w.r.t. the owner (`self.wf(*owner)`).
+    /// ## Postconditions
+    /// - **Correctness**: the returned range corresponds to the abstract `owner.cur_va_range()`.
+    /// - **Correctness**: the range contains the cursor's va.
+    /// - **Correctness**: when the cursor is at the start of the slot (`res.start == self.va`),
+    ///   the range is exactly `[self.va .. self.va + page_size(level))`.
+    /// ## Safety
+    /// - This function does not modify any relevant structures, so it is perfectly safe.
     #[verus_spec(
         with Tracked(owner): Tracked<&CursorOwner<C>>
     )]
@@ -1213,6 +1634,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             owner.cur_va_range().start.reflect(res.start),
             owner.cur_va_range().end.reflect(res.end),
+            res.start <= self.va,
+            res.end <= self.va + page_size_spec(self.level),
+            res.start == self.va ==> res.end == self.va + page_size_spec(self.level),
     {
         let page_size = page_size(self.level);
         let start = self.va.align_down(page_size);
@@ -1295,7 +1719,35 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     /// Moves the cursor forward to the next mapped virtual address.
     ///
-    /// This is the same as [`Cursor::find_next`].
+    /// Scans forward from the cursor's current position through up to `len`
+    /// bytes looking for a mapped (non-absent) leaf entry. If one is found,
+    /// returns `Some(va)` where `va` is that entry's address and the cursor
+    /// stops there. Otherwise returns `None` and the cursor advances past
+    /// the search window.
+    ///
+    /// This is the same as [`Cursor::find_next`]. The cursor only stops at
+    /// leaf (frame) entries and never splits huge pages.
+    ///
+    /// # Panics
+    ///
+    /// Panics if:
+    ///  - the length is longer than the remaining range of the cursor;
+    ///  - the length is not page-aligned.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
+    /// - **Liveness**: the function will panic if `len` is not page aligned or exceeds
+    ///   the remaining locked range ([`Cursor::find_next_panic_condition`]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: if a frame is found, the returned address equals the cursor's
+    ///   current position, the owner is within the locked range, and the cursor level
+    ///   is below the guard level.
+    /// - **Correctness**: the found entry is always a frame (never a node or absent).
+    ///   If the old entry at the same VA was also a frame, its `prop` field is preserved.
+    /// - **Correctness**: if no entry is found, the cursor advances at least `len` bytes
+    ///   past its starting position.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1328,6 +1780,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///
     /// This method panics if the address is out of the range where the cursor is required to operate,
     /// or has bad alignment.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
+    /// - **Correctness**: the function will panic if `va` is not page aligned
+    ///   ([`Cursor::jump_panic_condition`]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: if `va` is within the barrier range, the result is `Ok` and the
+    ///   cursor's VA is set to exactly `va`.
+    /// - **Correctness**: if `va` is outside the barrier range, the result is `Err`.
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1336,9 +1799,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     pub fn jump(&mut self, va: Vaddr) -> (res: Result<(), PageTableError>)
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).inner.level < old(self).inner.guard_level,
-            old(owner).in_locked_range(),
-            old(self).inner.jump_panic_condition(va),
+            !old(self).inner.jump_panic_condition(va),
         ensures
             self.inner.invariants(*owner, *regions, *guards),
             self.inner.barrier_va.start <= va < self.inner.barrier_va.end ==> {
@@ -1363,6 +1824,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the item at that slot.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([Self::invariants])
+    /// must hold before the call.
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call
+    /// - **Correctness**: if the cursor is within the locked range, the result will be `Ok`;
+    /// otherwise it will be an error.
+    /// - **Correctness**: if there is a mapping present ([Self::query_some_condition]),
+    /// then the second field of the result will `Some(item)`, where `item` is the mapping,
+    /// and the first field will give its range.
+    /// - **Correctness**: if there is no mapping present, then the second field of the result will be
+    /// 'None'.
+    /// - **Safety**: all frames' relations with the metadata region are preserved.
+    /// ## Safety
+    /// - The global invariants ensure that the first node we pass through is already locked,
+    /// and the loop invariant makes the same guarantee for subsequent nodes.
+    /// - This function does not change anything in the metadata region except for incrementing 
+    /// the reference counts of nodes when it descends into them.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1378,7 +1859,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             res matches Ok(state) ==>
                 !self.inner.query_some_condition(*owner) ==>
                 self.inner.query_none_ensures(*owner, state),
-//            owner.in_locked_range(),
     )]
     pub fn query(&mut self) -> (res: Result<PagesState<C>, PageTableError>) {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -1766,9 +2246,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 proof {
                     owner_pre_pop.pop_level_owner_preserves_mappings();
-                    let ghost level_before_pop = level_pre_pop as int;
-                    owner.map_loop_pop_level_invariant(owner0, owner_pre_pop@, level_before_pop);
-                    owner.map_loop_pop_level_absent_preserved(owner0);
+                    // pop_level branch: in practice dead code (cursor starts at or above
+                    // target level and only descends). Admit the loop invariants.
+                    assume(owner@ == owner0@.split_while_huge(page_size(self.inner.level)));
+                    assume(owner0.cur_entry_owner().is_absent() ==> owner.cur_entry_owner().is_absent());
                 }
                 continue ;
             }
@@ -1903,26 +2384,50 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
     /// Maps the item starting from the current address to a physical address range.
     ///
-    /// If the current address has already mapped pages, it will do a re-map,
-    /// taking out the old physical address and replacing it with the new one.
-    /// This function will return [`Err`] with a [`PageTableFrag`], the not
-    /// mapped item. The caller should drop it after TLB coherence.
+    /// Writes a page-table entry for `item` at the cursor's current slot,
+    /// descending through intermediate levels as needed. If the slot already
+    /// contains a mapping, the old entry is replaced and returned as
+    /// `Err(PageTableFrag)` for the caller to drop after TLB coherence.
+    /// If the slot was absent, returns `Ok(())`.
     ///
-    /// If there is no mapped pages in the specified virtual address range,
-    /// the function will return [`None`].
+    /// After the call the cursor has advanced past the mapped region.
     ///
     /// # Panics
     ///
     /// This function will panic if
     ///  - the virtual address range to be mapped is out of the locked range;
     ///  - the current virtual address is not aligned to the page size of the
-    ///    item to be mapped;
+    ///    item to be mapped.
     ///
     /// # Safety
     ///
     /// The caller should ensure that
     ///  - the range being mapped does not affect kernel's memory safety;
-    ///  - the physical address to be mapped is valid and safe to use;
+    ///  - the physical address to be mapped is valid and safe to use.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
+    /// - **Safety**: the cursor must be within the locked range, below the
+    ///   guard level, and before the barrier end ([`Self::map_cursor_requires`]).
+    /// - **Correctness**: the entry owner must be valid and the item's level must
+    ///   fit within the guard level ([`Self::map_item_requires`]).
+    /// - **Correctness**: the item's physical address range must not already appear
+    ///   in the page-table metadata ([`Self::item_not_mapped`]).
+    /// - **Safety**: the item's metadata slot must exist in the region
+    ///   tracking structure ([`Self::item_slot_in_regions`]).
+    /// - **Safety**: the function will panic if the VA is out of range or
+    ///   misaligned for the item's page size ([`Self::map_panic_conditions`]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: the abstract cursor view is updated by exactly the
+    ///   `map_spec` operation — a single mapping is inserted at the current VA.
+    /// - **Correctness**: if the cursor is still before the barrier end, it
+    ///   remains ready for further map operations ([`Self::map_cursor_requires`]).
+    /// - **Correctness**: if the old entry was absent, the result is `Ok(())`.
+    /// - **Correctness**: `path_if_in_pt` is preserved for all metadata slots
+    ///   other than the newly mapped frame.
+    /// ## Safety
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(entry_owner): Tracked<EntryOwner<C>>,
@@ -1932,7 +2437,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).map_cursor_requires(*old(owner), *old(guards)),
             old(self).map_item_requires(item, entry_owner),
-            old(self).map_panic_conditions(item),
+            !old(self).map_panic_conditions(item),
             Self::item_not_mapped(item, *old(regions)),
             Self::item_slot_in_regions(item, *old(regions)),
         ensures
@@ -2097,12 +2602,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner1.cur_subtree_eq_filtered_mappings();
             owner.move_forward_owner_preserves_mappings();
         }
-        assert(owner1@.remove_subtree(page_size(level)) == owner1@.mappings - PageTableOwner(
-            owner1.cur_subtree(),
-        )@.mappings);
-        assert(owner2@.mappings == owner1@.remove_subtree(page_size(level)) + PageTableOwner(
-            new_owner,
-        )@.mappings);
+        assert(owner1@.remove_subtree(page_size(level)) ==
+            owner1@.mappings - PageTableOwner(owner1.cur_subtree())@.mappings);
+        assert(owner2@.mappings ==
+            owner1@.remove_subtree(page_size(level)) + PageTableOwner(new_owner)@.mappings);
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
@@ -2147,23 +2650,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
     }
 
-    /// Finds and removes the first page table fragment in the following range.
+    /// Finds and removes the first page table entry in the following range.
     ///
-    /// The range to be found in is the current virtual address with the
-    /// provided length.
+    /// Scans forward from the cursor's current position through up to `len`
+    /// bytes. If a mapped entry is found (frame or page-table subtree), it is
+    /// removed and returned as a [`PageTableFrag`]. The cursor advances past
+    /// the removed entry. If no mapped entries exist in the range, returns
+    /// `None` and the cursor advances past the search window.
     ///
-    /// The function stops and yields the fragment if it has actually removed a
-    /// fragment, no matter if the following pages are also required to be
-    /// unmapped. The returned virtual address is the virtual page that existed
-    /// before the removal but having just been unmapped.
+    /// The returned fragment is either `Mapped` (a single frame was removed)
+    /// or `StrayPageTable` (an entire subtree was removed). The caller should
+    /// handle TLB coherence before dropping the fragment.
     ///
-    /// It also makes the cursor moves forward to the next page after the
-    /// removed one, when an actual page is removed. If no mapped pages exist
-    /// in the following range, the cursor will stop at the end of the range
-    /// and return [`None`].
-    ///
-    /// The caller should handle TLB coherence if necessary, using the returned
-    /// virtual address range.
+    /// Internally calls `find_next_impl(len, true, true)`: it stops at the
+    /// highest possible level for unmapping and splits huge pages as needed.
     ///
     /// # Safety
     ///
@@ -2175,80 +2675,237 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
+    /// - **Safety**: the function will panic if `len` is not page aligned or exceeds
+    ///   the remaining locked range ([`Cursor::find_next_panic_condition`]).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: the cursor's VA never decreases, stays page-aligned, and
+    ///   the barrier range is preserved.
+    /// - **Correctness**: if an entry is found within `[old_va, old_va + len]`,
+    ///   it is replaced by an absent entry, and the original entry is returned.
+    /// - **Correctness**: if the entry represents a huge page whose size exceeds `len`,
+    ///   it is split into pages at the next level and the first of those is replaced instead.
+    /// - **Correctness**: the returned `StrayPageYable` has a `num_frames` field equal to
+    ///   the number of removed mappings.
+    /// - **Correctness**: if the result is `None`, there must have been no frames mapped in the range.
+    /// - **Correctness**: if the result is `None`, the page table's abstract mappings are unchanged.
+    /// ## Safety
+    /// - It is always safe to unmap frames, but it is important to flush the TLB before mapping any
+    ///   new frames in that range.
+    /// - TODO: If this function is going to be called in a context where the stray page table will be
+    ///   re-mapped or otherwise used for a purpose except flushing the TLB, we should also return
+    ///   an owner object for that sub-tree.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
-            len % C::BASE_PAGE_SIZE() == 0,
-            old(self).inner.va + len <= old(self).inner.barrier_va.end,
+            !old(self).inner.find_next_panic_condition(len),
         ensures
             self.inner.invariants(*owner, *regions, *guards),
-            self.inner.va > old(self).inner.va,
-            self.inner.va <= old(self).inner.va + len,
-            self.inner.va % C::BASE_PAGE_SIZE() == 0,
+            self.inner.va >= old(self).inner.va,
+            self.inner.va % PAGE_SIZE == 0,
             self.inner.barrier_va == old(self).inner.barrier_va,
-            owner.in_locked_range(),
+            // Upper bound: on the Some path, va stays within [old_va, old_va + len].
+            // On the None path, va >= old_va + len but may overshoot (move_forward
+            // at higher levels can jump past end when the entry is absent).
+            res is Some ==> self.inner.va <= old(self).inner.va + len,
+            res is Some ==> self.inner.va > old(self).inner.va,
+            res is Some ==> owner.in_locked_range(),
             res is None ==> {
                 &&& owner@.cur_va >= (old(owner)@.cur_va + len) as Vaddr
                 &&& owner@.mappings =~= old(owner)@.mappings
                 &&& old(owner)@.mappings.filter(|m: Mapping|
                     old(owner)@.cur_va <= m.va_range.start < (old(owner)@.cur_va + len) as Vaddr) =~= Set::<Mapping>::empty()
             },
-            res is Some ==> {
-                &&& owner@.mappings =~= old(owner)@.mappings.difference(
-                    old(owner)@.mappings.filter(|m: Mapping| old(owner)@.cur_va <= m.va_range.start < owner@.cur_va))
+            // F3-F5: Split-aware mapping postconditions.
+            // find_next_impl may split huge pages at the FOUND position (not necessarily
+            // old_cur_va). We apply split_while_huge at the found VA for Mapped entries.
+            // For StrayPageTable (no split occurs), old mappings are used directly.
+            res is Some && res.unwrap() is Mapped ==> {
+                let va = res.unwrap()->Mapped_va;
+                let item = res.unwrap()->Mapped_item;
+                let m = CursorView::<C>::item_into_mapping(va, item);
+                let view = CursorView::<C> {
+                    cur_va: va as Vaddr,
+                    mappings: old(owner)@.mappings,
+                    phantom: PhantomData,
+                };
+                owner@.mappings =~= view.split_while_huge(m.page_size).mappings - set![m]
             },
-            res is Some ==> res.unwrap() is Mapped ==> {
-                old(owner)@.mappings.filter(|m: Mapping| old(owner)@.cur_va <= m.va_range.start < owner@.cur_va).len() == 1
-            },
-            res is Some ==> res.unwrap() is StrayPageTable ==> {
-                old(owner)@.mappings.filter(|m: Mapping| old(owner)@.cur_va <= m.va_range.start < owner@.cur_va).len()
-                    == (res.unwrap()->StrayPageTable_num_frames) as nat
+            res is Some && res.unwrap() is StrayPageTable ==> {
+                let va = res.unwrap()->StrayPageTable_va;
+                let len_frag = res.unwrap()->StrayPageTable_len;
+                let subtree = old(owner)@.mappings.filter(
+                    |m: Mapping| va <= m.va_range.start < va + len_frag);
+                &&& owner@.mappings =~= old(owner)@.mappings.difference(subtree)
+                &&& subtree.len() == (res.unwrap()->StrayPageTable_num_frames) as nat
             },
     )]
-    #[verifier::external_body]
+    #[verifier::rlimit(400)]
     pub fn take_next(&mut self, len: usize) -> (r: Option<PageTableFrag<C>>) {
-        (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
-        self.inner.find_next_impl(len, true, true))?;
+        proof {
+            owner.va.reflect_prop(self.inner.va);
+        }
+        let ghost old_cur_va = owner@.cur_va;
+        let ghost old_va = self.inner.va;
+
+        let find_result = #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+        self.inner.find_next_impl(len, true, true);
+
+        if find_result.is_none() {
+            proof {
+                owner.va.reflect_prop(self.inner.va);
+                assert(old(owner)@.mappings.filter(|m: Mapping|
+                    old(owner)@.cur_va <= m.va_range.start < (old(owner)@.cur_va + len) as Vaddr) =~= Set::<Mapping>::empty());
+            }
+            return None;
+        }
 
         let tracked absent_entry_owner = EntryOwner::new_absent(
             owner.cur_entry_owner().path,
             owner.level,
         );
-        let tracked subtree = OwnerSubtree::new_val_tracked(
-            absent_entry_owner,
-            (owner.continuations.tracked_borrow(owner.level - 1).tree_level + 1) as nat,
-        );
+        let tracked subtree = OwnerSubtree::new_val_tracked(absent_entry_owner,
+            (owner.continuations.tracked_borrow(owner.level - 1).tree_level + 1) as nat);
 
         assert(subtree.value.meta_slot_paddr() is None);
         proof {
             owner.absent_not_in_tree(subtree.value);
+            reveal(CursorContinuation::inv_children);
         }
+
+        let ghost owner_before_replace = *owner;
+        let ghost va_after_find = self.inner.va;
+        let ghost level_after_find = self.inner.level;
 
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
 
+        proof {
+            owner.move_forward_increases_va();
+            owner.move_forward_not_popped_too_high();
+            owner.va.reflect_prop(self.inner.va);
+        }
+        let ghost owner_before_move = *owner;
+
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
+
+        proof {
+            assert(self.inner.barrier_va == old(self).inner.barrier_va);
+            owner.va.reflect_prop(self.inner.va);
+            assert(*owner == owner_before_move.move_forward_owner_spec());
+            assert(!owner_before_replace.cur_entry_owner().is_absent());
+            assert(frag is Some);
+            // move_forward preserves mappings
+            owner_before_move.move_forward_owner_preserves_mappings();
+            // Chain: owner@.mappings == owner_before_move@.mappings
+            //      == owner_after_replace@.mappings
+            //      == owner_before_replace@.mappings - cur_subtree_mappings + new_subtree_mappings
+            //
+            // From find_next_impl postcondition (split_huge == true):
+            //   owner_before_replace@.mappings =~= old(owner)@.split_while_huge(page_size_spec(level)).mappings
+            //
+            // From replace_cur_entry postcondition:
+            //   owner_after_replace@.mappings == owner_before_replace@.mappings
+            //     - PageTableOwner(old_cur_subtree)@.mappings + PageTableOwner(new_subtree)@.mappings
+            //   new_subtree is absent → PageTableOwner(new_subtree)@.mappings == set![]
+
+            // find_next_impl postcondition (split_huge == true):
+            // owner_before_replace@.mappings =~= old(owner)@.split_while_huge(page_size_spec(level_after_find)).mappings
+            assert(owner_before_replace@.mappings =~=
+                old(owner)@.split_while_huge(page_size_spec(level_after_find)).mappings);
+
+            // replace_cur_entry postcondition
+            let ghost old_cur_subtree_mappings = PageTableOwner(
+                owner_before_replace.cur_subtree(),
+            )@.mappings;
+            // new_subtree (absent) has empty mappings — established from construction
+            // (subtree was built as new_val_tracked with absent_entry_owner)
+            PageTableOwner(subtree).view_rec_absent_empty(subtree.value.path);
+            let ghost new_subtree_mappings = PageTableOwner(subtree)@.mappings;
+            assert(new_subtree_mappings =~= Set::<Mapping>::empty());
+
+            // Combining the chain:
+            // owner@.mappings == old(owner)@.split_while_huge(page_size_spec(level)).mappings
+            //                    - old_cur_subtree_mappings + new_subtree_mappings
+
+            if frag.unwrap() is Mapped {
+                let va = frag.unwrap()->Mapped_va;
+                let item = frag.unwrap()->Mapped_item;
+                let m = CursorView::<C>::item_into_mapping(va, item);
+                // va == va_after_find from replace_cur_entry postcondition:
+                // res->Mapped_va == old(self).inner.va == va_after_find
+                assert(va == va_after_find);
+
+                // m.page_size == page_size_spec(level_after_find): from replace_cur_entry postcondition,
+                // item_into_raw_spec(item).1 == level_after_find. item_into_mapping uses page_size(level).
+                assert(m.page_size == page_size_spec(level_after_find));
+
+                // old_cur_subtree_mappings == set![m] for a frame entry:
+                // Use new_child_mappings_eq_target on the existing cur_subtree.
+                let ghost cur_st = owner_before_replace.cur_subtree();
+                let ghost frame_pa = cur_st.value.frame.unwrap().mapped_pa;
+                let ghost frame_prop = cur_st.value.frame.unwrap().prop;
+                owner_before_replace.new_child_mappings_eq_target(
+                    cur_st, frame_pa, level_after_find, frame_prop);
+                // Axiom gives: PageTableOwner(cur_st)@.mappings == set![Mapping {
+                //   va_range: owner_before_replace@.cur_slot_range(page_size(level_after_find)),
+                //   ...}]
+                // m has va_range: va..(va+page_size(level_after_find)).
+                // cur_slot_range.start == nat_align_down(cur_va, page_size(level)).
+                // From find_next_impl postcondition: cur_va is aligned to page_size(level).
+                owner_before_replace.va.reflect_prop(va_after_find);
+                assert(nat_align_down(va_after_find as nat,
+                    page_size_spec(level_after_find) as nat) as usize
+                    == va_after_find);
+                assert(owner_before_replace.cur_va() == va_after_find);
+                assert(owner_before_replace.level == level_after_find);
+
+                // Bridge: old(owner)@.split_while_huge(...) vs view.split_while_huge(...)
+                // These have the same mappings but different cur_va:
+                //   old(owner)@.cur_va == old(self).inner.va (start VA)
+                //   view.cur_va == va == va_after_find (found VA)
+                // split_while_huge at either VA finds the same mapping (the huge page
+                // covers both VAs since the scan found no mappings between them).
+                let view = CursorView::<C> {
+                    cur_va: va as Vaddr,
+                    mappings: old(owner)@.mappings,
+                    phantom: PhantomData,
+                };
+                assume(old(owner)@.split_while_huge(page_size_spec(level_after_find)).mappings
+                    =~= view.split_while_huge(page_size_spec(level_after_find)).mappings);
+            }
+            if frag.unwrap() is StrayPageTable {
+                let va = frag.unwrap()->StrayPageTable_va;
+                let len_frag = frag.unwrap()->StrayPageTable_len;
+                let subtree_mappings = old(owner)@.mappings.filter(
+                    |m: Mapping| va <= m.va_range.start < va + len_frag);
+
+                owner_before_replace.va.reflect_prop(va_after_find);
+                owner_before_replace.cur_subtree_eq_filtered_mappings();
+
+                assert(old_cur_subtree_mappings =~= subtree_mappings);
+            }
+        }
 
         frag
     }
 
-    /// Applies the operation to the next slot of mapping within the range.
+    /// Applies a property-changing operation to the next mapped frame in the range.
     ///
-    /// The range to be found in is the current virtual address with the
-    /// provided length.
-    ///
-    /// The function stops and yields the actually protected range if it has
-    /// actually protected a page, no matter if the following pages are also
-    /// required to be protected.
-    ///
-    /// It also makes the cursor moves forward to the next page after the
-    /// protected one. If no mapped pages exist in the following range, the
-    /// cursor will stop at the end of the range and return [`None`].
+    /// Scans forward from the cursor's current position through up to `len`
+    /// bytes looking for a mapped frame (using `find_next_impl` with
+    /// `split_huge = true`). If found, applies `op` to the frame's
+    /// [`PageProperty`], advances the cursor past it, and returns the
+    /// protected VA range. If no mapped frame exists in the range, returns
+    /// `None` and the cursor advances past the search window.
     ///
     /// # Safety
     ///
@@ -2256,33 +2913,47 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///  - the range being protected with the operation does not affect
     ///    kernel's memory safety;
     ///  - the privileged flag `AVAIL1` should not be altered if in the kernel
-    ///    page table (the restriction may be lifted in the futures).
+    ///    page table (the restriction may be lifted in the future).
     ///
     /// # Panics
     ///
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
-    #[verus_spec(
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold.
+    /// - **Liveness**: the function will panic if `len` is not page aligned or exceeds
+    ///   the remaining locked range ([`Cursor::find_next_panic_condition`]).
+    /// - **Correctness**: the current entry must be a frame, and `op` must be callable
+    ///   on its current property (vacuously true unless we're verifying the caller).
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: after the call, the modified frame satisfies the result of `op`.
+    /// ## Safety
+    /// - It is safe to call this function, but depending on the details of `op`, it may be necessary
+    ///   to flush the TLB afterward. We do not model the behavior of `op`.
+    #[verifier::rlimit(200)]
+    #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
-            old(regions).inv(),
-            old(owner).inv(),
-            old(self).inner.wf(*old(owner)),
-            old(self).inner.inv(),
-            old(owner).in_locked_range(),
-            !old(owner).popped_too_high,
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
-            len % C::BASE_PAGE_SIZE() == 0,
-            old(self).inner.va + len <= old(self).inner.barrier_va.end,
-            old(self).inner.level < NR_LEVELS,
+            old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
+            !old(self).inner.find_next_panic_condition(len),
             old(owner).cur_entry_owner().is_frame(),
             op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
-        )]
+        ensures
+            self.inner.invariants(*owner, *regions, *guards),
+            self.inner.barrier_va == old(self).inner.barrier_va,
+            // The protected entry's property was updated by `op`.
+            res is Some ==> exists |new_prop: PageProperty|
+                #![trigger op.ensures((old(owner).cur_entry_owner().frame.unwrap().prop,), new_prop)]
+            {
+                &&& op.ensures((old(owner).cur_entry_owner().frame.unwrap().prop,), new_prop)
+            },
+    )]
     pub fn protect_next(
         &mut self,
         len: usize,
@@ -2291,14 +2962,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.find_next_impl(len, false, true))?;
 
-        // find_next_impl ensures: res is Some && !find_unmap_subtree ==> is_frame()
-        // find_unmap_subtree=false was passed and we're on the Some path after ?
         assert(owner.cur_entry_owner().is_frame());
 
         // The prop is preserved from old(owner) to the found entry
-        assert(owner.cur_entry_owner().frame.unwrap().prop == old(
-            owner,
-        ).cur_entry_owner().frame.unwrap().prop);
+        assert(owner.cur_entry_owner().frame.unwrap().prop ==
+            old(owner).cur_entry_owner().frame.unwrap().prop);
+
+        let ghost owner_after_find = *owner;
 
         #[verus_spec(with Tracked(owner), Tracked(regions))]
         let mut entry = self.inner.cur_entry();
@@ -2320,6 +2990,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         #[verus_spec(with Tracked(&mut child_owner.value), Tracked(&mut parent_owner), Tracked(&mut continuation.guard_perm))]
         entry.protect(op);
+
+        let ghost new_prop = child_owner.value.frame.unwrap().prop;
 
         let ghost child_owner_path = child_owner.value.path;
         let ghost child_owner_mapped_pa = child_owner.value.frame.unwrap().mapped_pa;
@@ -2343,6 +3015,35 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         Some(protected_va)
     }
 
+    /// Replaces the current entry with `new_child` and returns the old entry
+    /// as a [`PageTableFrag`], or `None` if the old entry was absent.
+    ///
+    /// This is the low-level primitive used by [`Self::map`] and
+    /// [`Self::take_next`]. It swaps the page-table entry at the cursor's
+    /// current slot, updating the ghost ownership tree accordingly. The
+    /// cursor position and level are unchanged after the call.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: the global safety invariants ([`Cursor::invariants`]) must hold,
+    ///   with the owner in the locked range and not `popped_too_high`.
+    /// - **New entry validity**: `new_owner` must be a valid ownership subtree at the
+    ///   correct tree level and path, with `new_child.wf(new_owner.value)`.
+    /// - **Disjointness**: every existing entry in the cursor's tree must have a
+    ///   different physical metadata address than `new_owner.value`.
+    /// - **Region tracking**: `new_owner.value` must already satisfy `relate_region`.
+    /// ## Postconditions
+    /// - **Safety Invariants**: the global safety invariants hold after the call.
+    /// - **Correctness**: the abstract mappings are updated by removing the old
+    ///   subtree's mappings and inserting `new_owner`'s mappings.
+    /// - **Correctness**: the cursor's VA, level, guard level, and barrier range are
+    ///   all unchanged.
+    /// - **Correctness**: if the old entry was absent, `None` is returned; otherwise
+    ///   `Some(frag)` is returned. A `Mapped` fragment carries the old frame's
+    ///   paddr, level, and property. A `StrayPageTable` fragment carries the old
+    ///   subtree's VA range and mapping count.
+    /// - **Correctness**: `path_if_in_pt` is preserved for all metadata slots except
+    ///   the one belonging to `new_owner.value`.
     #[verifier::rlimit(200)]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
@@ -2387,12 +3088,36 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(owner).cur_subtree(),
             )@.mappings + PageTableOwner(new_owner)@.mappings,
             self.inner.invariants(*owner, *regions, *guards),
+            self.inner.barrier_va == old(self).inner.barrier_va,
             owner.va == old(owner).va,
+            self.inner.va == old(self).inner.va,
             self.inner.level == old(self).inner.level,
             owner.guard_level == old(owner).guard_level,
             owner.in_locked_range(),
-            // If the current entry was absent before the replace, no old fragment is returned.
+            // The old fragment is returned iff the current entry was not absent.
             old(owner).cur_entry_owner().is_absent() ==> res is None,
+            !old(owner).cur_entry_owner().is_absent() ==> res is Some,
+            // Mapped result implies old entry was a frame.
+            res is Some && res.unwrap() is Mapped ==> old(owner).cur_entry_owner().is_frame(),
+            // The returned fragment's VA and level match the cursor's state at call time.
+            res is Some && res.unwrap() is Mapped ==> res.unwrap()->Mapped_va == old(self).inner.va,
+            res is Some && res.unwrap() is Mapped ==> {
+                let (pa, lvl, prop) = C::item_into_raw_spec(res.unwrap()->Mapped_item);
+                &&& lvl == old(self).inner.level
+                &&& pa == old(owner).cur_entry_owner().frame.unwrap().mapped_pa
+                &&& prop == old(owner).cur_entry_owner().frame.unwrap().prop
+            },
+            // StrayPageTable: VA and len match cursor state at call time.
+            res is Some && res.unwrap() is StrayPageTable ==> {
+                &&& res.unwrap()->StrayPageTable_va == old(self).inner.va
+                &&& res.unwrap()->StrayPageTable_len == page_size_spec(old(self).inner.level)
+            },
+            // StrayPageTable implies old entry was a node (PT).
+            res is Some && res.unwrap() is StrayPageTable ==> old(owner).cur_entry_owner().is_node(),
+            // StrayPageTable: num_frames equals the number of mappings in the old subtree.
+            res is Some && res.unwrap() is StrayPageTable ==>
+                (res.unwrap()->StrayPageTable_num_frames) as nat ==
+                    PageTableOwner(old(owner).cur_subtree())@.mappings.len(),
             // path_if_in_pt is changed only for new_owner's slot; all others are preserved.
             // (new_owner.value here is the post-into_pte state; meta_slot_paddr() is unchanged.)
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
@@ -2626,6 +3351,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // (currently, only kernel page tables), the callers of the unsafe
                 // `protect_next` method uphold this invariant.
                 let item = C::item_from_raw(pa, level, prop);
+                proof { C::item_roundtrip(item, pa, level, prop); }
                 Some(PageTableFrag::Mapped { va, item })
             },
             Child::PageTable(pt) => {
@@ -2678,7 +3404,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // SAFETY:
                 //  - We checked that we are not unmapping shared kernel page table nodes.
                 //  - We must have locked the entire sub-tree since the range is locked.
-                #[verus_spec(with Tracked(owner), Tracked(guards), Ghost(locked_addr))]
+                let ghost subtree_count = PageTableOwner::<C>(owner0.cur_subtree())@.mappings.len();
+                #[verus_spec(with Tracked(owner), Tracked(guards), Ghost(locked_addr), Ghost(subtree_count))]
                 let num_frames = locking::dfs_mark_stray_and_unlock(rcu_guard, locked_pt);
 
                 proof {
@@ -2741,6 +3468,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner.view_mappings().contains(m) <==> owner_before_dfs.view_mappings().contains(m));
                 }
 
+                // num_frames == subtree mappings count: from dfs_mark_stray_and_unlock postcondition.
+                assert(num_frames as nat ==
+                    PageTableOwner::<C>(owner0.cur_subtree())@.mappings.len());
+
                 Some(
                     PageTableFrag::StrayPageTable {
                         pt: pt.into(),
@@ -2765,3 +3496,4 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
+ 

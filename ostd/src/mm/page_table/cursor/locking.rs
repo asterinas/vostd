@@ -430,12 +430,16 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
 #[verus_spec(res =>
     with Tracked(owner): Tracked<&mut CursorOwner<'a, C>>,
         Tracked(guards): Tracked<&mut Guards<'a, C>>,
-        Ghost(locked_addr): Ghost<usize>
+        Ghost(locked_addr): Ghost<usize>,
+        Ghost(subtree_mappings_count): Ghost<nat>
     requires
         old(owner).inv(),
         // The locked_addr must be the address that was locked (held in guards)
         old(guards).lock_held(locked_addr),
     ensures
+        // The return value equals the number of mappings in the subtree.
+        // This connects the physical DFS frame count to the ghost view_rec mappings count.
+        res as nat == subtree_mappings_count,
         owner.inv(),
         owner.guard_level == old(owner).guard_level,
         owner.level == old(owner).level,
