@@ -494,13 +494,12 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             self.lock => fetch_add(READER);
             update prev -> next;
             ghost g => {
-                let prev_usize = #[verifier::truncate] (prev as usize);
-                let next_usize = #[verifier::truncate] (next as usize);
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
                 assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    assert(g.read_guard_token is Left);
                     let tracked mut tmp = g.read_guard_token.tracked_take_left();
                     read_token = Some(tmp.split_one());
                     g.read_guard_token = Sum::Left(tmp);
@@ -523,12 +522,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 self.lock => fetch_sub(READER);
                 update prev -> next;
                 ghost g => {
-                    let prev_usize = #[verifier::truncate] (prev as usize);
-                    let next_usize = #[verifier::truncate] (next as usize);
+                    let prev_usize = prev as usize;
+                    let next_usize = next as usize;
                     lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
-                    let tracked token = retract_read_token.tracked_unwrap();
-                    g.read_retract_token.combine(token);
+                    g.read_retract_token.combine(retract_read_token.tracked_unwrap());
                 }
             );
             None
@@ -748,16 +746,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
 
     #[verus_spec]
     fn deref(&self) -> &T {
-        proof_decl! {
-            let tracked read_perm = self.v_token.borrow().borrow().0.borrow();
-        }
         proof!{
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(read_perm))
+        self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
     }
 }
 
@@ -787,16 +782,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
             self.inner.lock => fetch_sub(READER);
             update prev -> next;
             ghost g => {
-                let prev_usize = #[verifier::truncate] (prev as usize);
-                let next_usize = #[verifier::truncate] (next as usize);
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
                 assume (no_max_reader_overflow(prev_usize));
-                lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
-                assert(g.read_guard_token is Left);
                 let tracked mut tmp = g.read_guard_token.tracked_take_left();
-                assert(tmp.id() == token.id());
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
             }
@@ -846,16 +838,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
 
     #[verus_spec]
     fn deref(&self) -> &T {
-        proof_decl! {
-            let tracked read_perm = self.v_perm.borrow();
-        }
         proof!{
             use_type_invariant(self);
         }
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(read_perm))
+        self.inner.val.borrow(Tracked(self.v_perm.borrow()))
     }
 }
 
@@ -891,10 +880,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
             self.inner.lock => fetch_and(!WRITER);
             update prev -> next;
             ghost g => {
-                let prev_usize = #[verifier::truncate] (prev as usize);
-                let next_usize = #[verifier::truncate] (next as usize);
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_value(next_usize);
                 g.core_token.validate_with_one_right_knowledge(&token);
                 g.core_token.join_one_right_knowledge(token);
@@ -910,8 +898,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
                     read_guard_empty,
                     (read_half_cell_perm, left_token),
                 );
-                assert(read_guard_token.is_full());
-                read_guard_token.validate_full();
                 g.read_guard_token = Sum::Left(read_guard_token);
             }
         };
@@ -967,15 +953,14 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::exec_allows_no_decreases_clause]
     pub fn upgrade(  /* mut */ self) -> RwLockWriteGuard<'a, T, G> {
         let mut this = self;
-        let lock = this.inner;
         proof! {
             use_type_invariant(&this);
-            use_type_invariant(lock);
+            use_type_invariant(&this.inner);
             lemma_consts_properties();
         }
         // self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
         atomic_with_ghost!(
-            &lock.lock => fetch_or(BEING_UPGRADED);
+            this.inner.lock => fetch_or(BEING_UPGRADED);
             update prev -> next;
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
@@ -1004,8 +989,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let RwLockUpgradeableGuard { mut guard, inner, v_token: Tracked(upread_guard_token) } =
-            self;
+        let mut this = self;
+        let Tracked(upread_guard_token) = this.v_token;
         proof_decl! {
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -1021,7 +1006,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         // );
         let res =
             atomic_with_ghost!(
-            inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
+            this.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
             ghost g => {
@@ -1050,7 +1035,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             }
         );
         if res.is_ok() {
-            let guard = guard.transfer_to();
+            let inner = this.inner;
+            let guard = this.guard.transfer_to();
             // drop(self);
             atomic_with_ghost!(
                 inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1078,8 +1064,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
         } else {
             Err(
                 RwLockUpgradeableGuard {
-                    inner,
-                    guard,
+                    inner: this.inner,
+                    guard: this.guard,
                     v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )
@@ -1096,13 +1082,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, 
         proof!{
             use_type_invariant(self);
         }
-        proof_decl! {
-            let tracked read_perm = self.v_token.borrow().tracked_borrow().borrow();
-        }
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
-        self.inner.val.borrow(Tracked(read_perm))
+        self.inner.val.borrow(Tracked(self.v_token.borrow().tracked_borrow().borrow()))
     }
 }
 
@@ -1135,11 +1118,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
                 let next_usize = next as usize;
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
+                g.core_token.validate_with_one_left_owner(&guard_token);
                 if g.upreader_guard_token is Some {
                     guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     assert(false);
                 } else {
-                    g.core_token.validate_with_one_left_owner(&guard_token);
                     g.upreader_guard_token= Some(guard_token);
                 }
             }

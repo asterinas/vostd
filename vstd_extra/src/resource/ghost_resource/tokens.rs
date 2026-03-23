@@ -431,11 +431,11 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     }
 
     pub proof fn validate_with_frac(tracked &self, tracked frac: &Frac<T, TOTAL>)
-    requires
-        self.id() == frac.id(),
-        self.frac() > 0,
-    ensures
-        self.resource() == frac.resource(),
+        requires
+            self.id() == frac.id(),
+            self.frac() > 0,
+        ensures
+            self.resource() == frac.resource(),
     {
         use_type_invariant(self);
         frac.agree(self.r.tracked_borrow());
@@ -452,7 +452,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         use_type_invariant(&self);
         let tracked r = self.r.tracked_unwrap();
         r.take_resource()
-    }/*
+    }
+
     /// Updates the resource stored in this `FracResource` and retunrs the old resource if it exists.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, tracked value: T) -> (tracked res: T)
@@ -466,21 +467,11 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     {
         use_type_invariant(&*self);
         let tracked mut r = self.r.tracked_take();
-        let tracked res = Self::update_helper(r);
+        let tracked (res, empty) = r.take_resource();
+        let tracked r = empty.put_resource(value);
         self.r = Some(r);
         res
     }
-
-    proof fn update_helper(tracked r: Frac<T, TOTAL>) -> (tracked res: (Frac<T, TOTAL>, T))
-        requires
-            r.frac() == TOTAL,
-        ensures
-            res.1 == r.resource(),
-    {
-        r.update(r.resource());
-        r.resource()
-    }*/
-
 }
 
 } // verus!
