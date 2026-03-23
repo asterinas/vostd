@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*};
+use vstd::cell::{self, pcell::*, CellId};
 use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{self, Empty, Frac, FracGhost};
@@ -238,6 +238,7 @@ closed spec fn wf(self) -> bool {
         // The core invariant of `RwLock`: there are no simultaneous active writers and readers.
         &&& !(active_writer && (active_read_guards + if active_upgrade_guard { 1int } else { 0 }) > 0)
         &&& g.core_token.id() == v_id@.core_token_id
+        &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
             let perm = g.core_token.resource_left();
             &&& perm.id() == v_id@.frac_id
@@ -249,7 +250,6 @@ closed spec fn wf(self) -> bool {
             let empty = g.core_token.resource_right();
             &&& empty.id() == v_id@.frac_id
             &&& g.core_token.frac() == 2
-            &&& g.core_token.is_resource_owner()
             &&& g.core_token.has_resource()
         }
         &&& g.read_retract_token.wf()
@@ -262,15 +262,7 @@ closed spec fn wf(self) -> bool {
             }
         &&& g.upreader_guard_token is Some ==> {
             let token = g.upreader_guard_token->Some_0;
-            let half_cell_perm = token.resource();
-            &&& token.id() == v_id@.core_token_id
-            &&& half_cell_perm.id() == v_id@.frac_id
-            &&& half_cell_perm.resource().id() == val.id()
-            &&& token.is_resource_owner()
-            &&& token.has_resource()
-            &&& half_cell_perm.frac() == 1
-            &&& token.frac() == 1
-            &&& token.wf()
+            wf_upgradeable_guard_token(v_id@.core_token_id, v_id@.frac_id, val.id(), token)
         }
         
         &&& match g.read_guard_token {
@@ -285,6 +277,7 @@ closed spec fn wf(self) -> bool {
                 &&& token.id() == v_id@.read_guard_token_id
                 &&& read_half_cell_perm.frac() == 1
                 &&& mode_knowledge.frac() == 1
+                &&& !mode_knowledge.is_resource_owner()
             },
             Sum::Right(empty) => {
                 &&& empty.id() == v_id@.read_guard_token_id
@@ -350,6 +343,19 @@ impl<T, G> RwLock<T, G> {
         self.wf()
     }
 }
+
+closed spec fn wf_upgradeable_guard_token<T>(core_token_id: Loc, frac_id: Loc, cell_id: CellId, token: Left<HalfPerm<T>,NoPerm<T>,3>) -> bool {
+        let half_cell_perm = token.resource();
+        &&& token.id() == core_token_id
+        &&& half_cell_perm.id() == frac_id
+        &&& half_cell_perm.resource().id() == cell_id
+        &&& token.is_resource_owner()
+        &&& token.has_resource()
+        &&& half_cell_perm.frac() == 1
+        &&& token.frac() == 1
+        &&& token.wf()
+    }
+
 /* 
 #[verus_verify]
 impl<T, G> RwLock<T, G> {
@@ -526,8 +532,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     #[verus_spec]
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
-            let tracked mut perm: Option<PointsTo<T>> = None;
-            let tracked mut right_token: Option<Right<HalfPerm<T>, NoPerm<T>, 3>> = None;
+            let tracked mut guard_perm: Option<PointsTo<T>> = None;
+            let tracked mut guard_token: Option<Right<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -552,19 +558,20 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     g.core_token.join_left(left_token);
                     // Retract the fractional permission for upgradeable reader.
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
-                    assert(upreader_guard_token.is_resource_owner());
+                    let old_resource = upreader_guard_token.resource();
                     g.core_token.join_left(upreader_guard_token);
-                    assert(g.core_token.is_resource_owner());
+                    // Combine the two halves of the permission for read access to get the full permission and give it out.
                     let tracked mut pointsto = g.core_token.take_resource_left();
                     pointsto.combine(read_half_cell_perm);
                     let tracked (pointsto, empty) = pointsto.take_resource();
-                    perm = Some(pointsto);
-                    g.core_token.change_to_right(empty);
-                    right_token = Some(g.core_token.split_right_without_resource(1int));
+                    guard_perm = Some(pointsto);
+                    let tracked f = g.core_token.change_to_right(empty);
+                    guard_token = Some(g.core_token.split_right_without_resource(1int));
+
                 }
             }
         ).is_ok() {
-            Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(perm.tracked_unwrap()), v_token: Tracked(right_token.tracked_unwrap()) })
+            Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(guard_perm.tracked_unwrap()), v_token: Tracked(guard_token.tracked_unwrap()) })
         } else {
             None
         }
@@ -934,15 +941,7 @@ verus! {
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        let half_cell_perm = self.v_token@.resource();
-        &&& self.inner.core_token_id() == self.v_token@.id()
-        &&& half_cell_perm.id() == self.inner.frac_id()
-        &&& half_cell_perm.resource().id() == self.inner.cell_id()
-        &&& self.v_token@.is_resource_owner()
-        &&& self.v_token@.has_resource()
-        &&& half_cell_perm.frac() == 1
-        &&& self.v_token@.frac() == 1
-        &&& self.v_token@.wf()
+        wf_upgradeable_guard_token(self.inner.core_token_id(), self.inner.frac_id(), self.inner.cell_id(), self.v_token@)
     }
 }
 

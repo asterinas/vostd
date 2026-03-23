@@ -69,14 +69,16 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         self.protocol_monoid().is_right()
     }
 
-    /// Whether the resource is currently stored, only meaningful if `is_resource_owner` is true.
+    /// Whether the resource is currently stored, returns `false` if this token is not the resource owner.
     pub open spec fn has_resource(self) -> bool {
-        self.protocol_monoid().has_resource()
+        let p = self.protocol_monoid();
+        p.is_resource_owner() && p.has_resource()
     }
 
-    /// Whether the resource has been taken, only meaningful if `is_resource_owner` is true.
+    /// Whether the resource has been taken, returns `false` if this token is not the resource owner.
     pub open spec fn has_no_resource(self) -> bool {
-        self.protocol_monoid().has_no_resource()
+        let p = self.protocol_monoid();
+        p.is_resource_owner() && p.has_no_resource()
     }
 
     /// The fraction this token represents.
@@ -878,7 +880,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_left(),
             self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
             self.has_resource() == (old(self).has_resource() || other.has_resource()),
-            self.has_resource() ==> self.resource() == if old(self).has_resource() {
+            self.has_resource() ==> self.resource() == if old(self).is_resource_owner() {
                 old(self).resource()
             } else {
                 Sum::Left(other.resource())
@@ -909,7 +911,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 || other.value().is_resource_owner()),
             r.value().has_resource() == (old(r).value().has_resource()
                 || other.value().has_resource()),
-            r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
+            r.value().has_resource() ==> r.value().resource() == if old(r).value().is_resource_owner() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
@@ -931,7 +933,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.is_right(),
             self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
             self.has_resource() == (old(self).has_resource() || other.has_resource()),
-            self.has_resource() ==> self.resource() == if old(self).has_resource() {
+            self.has_resource() ==> self.resource() == if old(self).is_resource_owner() {
                 old(self).resource()
             } else {
                 Sum::Right(other.resource())
@@ -962,7 +964,7 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 || other.value().is_resource_owner()),
             r.value().has_resource() == (old(r).value().has_resource()
                 || other.value().has_resource()),
-            r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
+            r.value().has_resource() ==> r.value().resource() == if old(r).value().is_resource_owner() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
