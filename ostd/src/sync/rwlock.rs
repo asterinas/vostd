@@ -268,18 +268,19 @@ closed spec fn wf(self) -> bool {
             let token = g.upreader_guard_token->Some_0;
             wf_upgradeable_guard_token(v_id@.core_token_id, v_id@.frac_id, val.id(), token)
         }
-        
         &&& match g.read_guard_token {
             Sum::Left(token) => {
-                let resource = token.resource();
-                let read_half_cell_perm = resource.0;
-                let mode_knowledge = resource.1;
                 &&& token.wf()
-                &&& mode_knowledge.id() == v_id@.core_token_id
-                &&& read_half_cell_perm.id() == v_id@.frac_id
-                &&& read_half_cell_perm.resource().id() == val.id()
                 &&& token.id() == v_id@.read_guard_token_id
-                &&& read_half_cell_perm.frac() == 1
+                &&& token.not_empty() ==> {
+                    let resource = token.resource();
+                    let read_half_cell_perm = resource.0;
+                    let mode_knowledge = resource.1;
+                    &&& mode_knowledge.id() == v_id@.core_token_id
+                    &&& read_half_cell_perm.id() == v_id@.frac_id
+                    &&& read_half_cell_perm.resource().id() == val.id()
+                    &&& read_half_cell_perm.frac() == 1
+                }
             },
             Sum::Right(empty) => {
                 &&& empty.id() == v_id@.read_guard_token_id
@@ -481,12 +482,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             self.lock => fetch_add(READER);
             update prev -> next;
             ghost g => {
-                let prev_usize = prev as usize;
-                let next_usize = next as usize;
+                let prev_usize = #[verifier::truncate] (prev as usize);
+                let next_usize = #[verifier::truncate] (next as usize);
                 assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+                    assert(g.read_guard_token is Left);
                     let tracked mut tmp = g.read_guard_token.tracked_take_left();
                     read_token = Some(tmp.split_one());
                     g.read_guard_token = Sum::Left(tmp);
@@ -507,8 +509,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 self.lock => fetch_sub(READER);
                 update prev -> next;
                 ghost g => {
-                    let prev_usize = prev as usize;
-                    let next_usize = next as usize;
+                    let prev_usize = #[verifier::truncate] (prev as usize);
+                    let next_usize = #[verifier::truncate] (next as usize);
                     lemma_consts_properties_value(next_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     let tracked token = retract_read_token.tracked_unwrap();
@@ -768,14 +770,16 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
             self.inner.lock => fetch_sub(READER);
             update prev -> next;
             ghost g => {
-                let prev_usize = prev as usize;
-                let next_usize = next as usize;
+                let prev_usize = #[verifier::truncate] (prev as usize);
+                let next_usize = #[verifier::truncate] (next as usize);
                 assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
+                assert(g.read_guard_token is Left);
                 let tracked mut tmp = g.read_guard_token.tracked_take_left();
+                assert(tmp.id() == token.id());
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
             }
