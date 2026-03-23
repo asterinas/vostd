@@ -714,6 +714,7 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
         &&& self.inner.core_token_id() == mode_knowledge.id()
         &&& self.inner.frac_id() == read_half_cell_perm.id()
         &&& self.inner.cell_id() == read_half_cell_perm.resource().id()
+        &&& self.inner.cell_id() == read_half_cell_perm.resource()
         &&& self.v_token@.id() == self.inner.read_guard_token_id()
         &&& read_half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
@@ -753,7 +754,6 @@ verus!{
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
 {
-    /* 
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     fn drop(self)
@@ -763,30 +763,25 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(perm) = self.v_perm;
-        let Tracked(token) = self.v_cell_token;
-        let Tracked(read_token) = self.v_read_token;
+        let Tracked(token) = self.v_token;
         // self.inner.lock.fetch_sub(READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
             update prev -> next;
             ghost g => {
-                let prev_usize = #[verifier::truncate] (prev as usize);
-                let next_usize = #[verifier::truncate] (next as usize);
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
                 assume (no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_value(next_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                g.read_guard_token.combine(read_token);
-                g.core_token.validate_with_left(&token);
-                g.core_token.join_left(token);
-                let tracked mut rem = g.core_token.take_resource_left();
-                rem.combine(perm);
-                rem.bounded();
-                g.core_token.put_resource_left(rem);
+                g.core_token.validate_with_one_left_knowledge(&token.borrow().1);
+                let tracked mut tmp = g.read_guard_token.tracked_take_left();
+                tmp.combine(token);
+                g.read_guard_token = Sum::Left(tmp);
             }
         );
-    }*/
+    }
 }
 }
 
@@ -1083,7 +1078,6 @@ verus! {
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
 {
-    /* 
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
@@ -1092,9 +1086,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(perm) = self.v_perm;
-        let Tracked(guard_token) = self.v_guard_token;
-        let Tracked(cell_perm_token) = self.v_cell_perm_token;
+        let Tracked(guard_token) = self.v_token;
         //self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);
@@ -1105,19 +1097,15 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if g.upreader_guard_token is Some {
-                    guard_token.validate_with_other(g.upreader_guard_token.tracked_borrow());
+                    guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     assert(false);
                 } else {
+                    g.core_token.validate_with_one_left_owner(&guard_token);
                     g.upreader_guard_token= Some(guard_token);
-                    g.core_token.validate_with_left(&cell_perm_token);
-                    let tracked mut rem = g.core_token.take_resource_left();
-                    rem.combine(perm);
-                    g.core_token.put_resource_left(rem);
-                    g.core_token.join_left(cell_perm_token);
                 }
             }
         );
-    }*/
+    }
 }
 }
 
