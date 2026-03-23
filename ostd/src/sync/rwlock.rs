@@ -244,9 +244,6 @@ closed spec fn wf(self) -> bool {
         &&& g.core_token.id() == v_id@.core_token_id
         &&& g.core_token.wf()
         &&& g.core_token.is_left() ==> {
-            let perm = g.core_token.resource_left();
-            &&& perm.id() == v_id@.frac_id
-            &&& perm.resource().id() == val.id()
             &&& !g.core_token.is_resource_owner()
             &&& g.core_token.frac() == 1
         }
@@ -863,7 +860,6 @@ verus!{
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> RwLockWriteGuard<'_, T, G>
 {
-    /* 
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
@@ -873,21 +869,37 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockWriteGuard<'_, T, G>
             lemma_consts_properties();
         }
         let Tracked(mut perm) = self.v_perm;
-        let Tracked(token) = self.v_cell_token;
+        let Tracked(token) = self.v_token;
         //self.inner.lock.fetch_and(!WRITER, Release);
         atomic_with_ghost!{
             self.inner.lock => fetch_and(!WRITER);
             update prev -> next;
             ghost g => {
-                lemma_consts_properties_prev_next(prev, next);
-                g.core_token.validate_with_right(&token);
-                g.core_token.join_right(token);
+                let prev_usize = #[verifier::truncate] (prev as usize);
+                let next_usize = #[verifier::truncate] (next as usize);
+                lemma_consts_properties_prev_next(prev_usize, next_usize);
+                lemma_consts_properties_value(prev_usize);
+                lemma_consts_properties_value(next_usize);
+                g.core_token.validate_with_one_right_knowledge(&token);
+                g.core_token.join_one_right_knowledge(token);
                 let tracked empty = g.core_token.take_resource_right();
-                let tracked full = empty.put_resource(perm);
+                let tracked mut full = empty.put_resource(perm);
+                let tracked read_half_cell_perm = full.split(1int);
                 g.core_token.change_to_left(full);
+                let tracked upreader_guard_token = g.core_token.split_one_left_owner();
+                g.upreader_guard_token = Some(upreader_guard_token);
+                let tracked left_token = g.core_token.split_one_left_knowledge();
+                let tracked read_guard_empty = g.read_guard_token.tracked_take_right();
+                let tracked read_guard_token = FracResource::alloc_from_empty(
+                    read_guard_empty,
+                    (read_half_cell_perm, left_token),
+                );
+                assert(read_guard_token.is_full());
+                read_guard_token.validate_full();
+                g.read_guard_token = Sum::Left(read_guard_token);
             }
         };
-    }*/
+    }
 }
 }
 
