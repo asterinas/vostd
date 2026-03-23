@@ -438,7 +438,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         }
     }
-    /*
+    
     /// Acquires an upreader and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no other writers,
@@ -458,7 +458,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 core::hint::spin_loop();
             }
         }
-    }*/
+    }
 
     /// Attempts to acquire a read lock.
     ///
@@ -570,17 +570,15 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             None
         }
     }
-    /* 
+    
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
     #[verus_spec]
     pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<T, G>> {
         proof_decl!{
-            let tracked mut perm: Option<RwFrac<T>> = None;
-            let tracked mut upreader_guard_token: Option<UniqueToken> = None;
+            let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
-            let tracked mut left_token = None;
         }
         proof!{
             use_type_invariant(self);
@@ -596,11 +594,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_value(prev);
                 lemma_consts_properties_prev_next(prev, next);
                 if prev & (WRITER | UPGRADEABLE_READER) == 0 {
-                    let tracked mut tmp = g.core_token.take_resource_left();
-                    perm = Some(tmp.split(1int));
-                    g.core_token.put_resource_left(tmp);
-                    upreader_guard_token = Some(g.upreader_guard_token.tracked_take());
-                    left_token = Some(g.core_token.split_left_without_resource(1int));
+                    upgrade_guard_token = Some(g.upreader_guard_token.tracked_take());
                 }
                 else if prev & (WRITER | UPGRADEABLE_READER) == WRITER {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
@@ -612,9 +606,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockUpgradeableGuard {
                     inner: self,
                     guard,
-                    v_perm: Tracked(perm.tracked_unwrap()),
-                    v_guard_token: Tracked(upreader_guard_token.tracked_unwrap()),
-                    v_cell_perm_token: Tracked(left_token.tracked_unwrap()),
+                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
                 },
             );
         } else if lock == WRITER {
@@ -638,7 +630,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
         }
         None
-    }*/
+    }
 }
 } // verus!
 
