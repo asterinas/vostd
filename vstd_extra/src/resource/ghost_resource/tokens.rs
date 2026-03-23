@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 //！ A wrapper around `vstd::tokens::FracGhost` that stores and dispatches fractional access.
 use crate::sum::*;
 use vstd::pcm::Loc;
@@ -388,6 +390,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
                 &&& self.resource() == other.resource()
                 &&& self.frac() == old(self).frac() + other.frac()
                 &&& self.wf()
+                &&& old(self).frac() > 0 ==> self@ == old(self)@
             },
     {
         if self.is_empty() {
@@ -395,6 +398,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             self.r = Some(other);
         } else {
             use_type_invariant(&*self);
+            self.validate_with_frac(&other);
             let tracked mut r = self.r.tracked_take();
             r.combine(other);
             r.bounded();
@@ -424,6 +428,17 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             assert(TOTAL > 0);
             assert(false);
         }
+    }
+
+    pub proof fn validate_with_frac(tracked &self, tracked frac: &Frac<T, TOTAL>)
+    requires
+        self.id() == frac.id(),
+        self.frac() > 0,
+    ensures
+        self.resource() == frac.resource(),
+    {
+        use_type_invariant(self);
+        frac.agree(self.r.tracked_borrow());
     }
 
     /// Consumes the token and takes out the resource.
