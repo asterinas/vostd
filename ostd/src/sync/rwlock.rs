@@ -560,7 +560,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     pointsto.combine(read_half_cell_perm);
                     let tracked (pointsto, empty) = pointsto.take_resource();
                     guard_perm = Some(pointsto);
-                    let tracked f = g.core_token.change_to_right(empty);
+                    g.core_token.change_to_right(empty);
                     guard_token = Some(g.core_token.split_one_right_knowledge());
                 }
             }
@@ -929,7 +929,6 @@ impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
 #[verus_verify]
 impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
 {
-    /* 
     /// Upgrades this upread guard to a write guard atomically.
     ///
     /// After calling this method, subsequent readers will be blocked
@@ -978,20 +977,13 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
         let RwLockUpgradeableGuard {
             mut guard,
             inner,
-            v_perm: Tracked(guard_perm0),
-            v_guard_token: Tracked(guard_token0),
-            v_cell_perm_token: Tracked(cell_perm_token0),
+            v_token: Tracked(upread_guard_token),
         } = self;
         proof_decl! {
             let tracked mut write_perm: Option<PointsTo<T>> = None;
-            let tracked mut guard_perm: Option<RwFrac<T>> = Some(guard_perm0);
-            let tracked mut err_guard_perm: Option<RwFrac<T>> = None;
-            let tracked mut guard_token: UniqueToken = guard_token0;
-            let tracked mut err_guard_token: Option<UniqueToken> = None;
+            let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
-            let tracked mut left_token: Option<Left<RwFrac<T>,NoPerm<T>,V_MAX_PERM_FRACS>> = Some(cell_perm_token0);
-            let tracked mut err_left_token: Option<Left<RwFrac<T>,NoPerm<T>,V_MAX_PERM_FRACS>> = None;
-            let tracked mut right_token = None;
+            let tracked mut write_guard_token = None;
         }
 
         // let res = self.inner.lock.compare_exchange(
@@ -1007,24 +999,25 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
             ghost g => {
                 lemma_consts_properties_prev_next(prev, next);
                 if res is Ok {
+                    g.core_token.validate_with_one_left_owner(&upread_guard_token);
                     if g.upreader_guard_token is Some {
-                        guard_token.validate_with_other(g.upreader_guard_token.tracked_borrow());
+                        upread_guard_token.validate_with_one_left_owner(g.upreader_guard_token.tracked_borrow());
                     }
-                    g.upreader_guard_token = Some(guard_token);
-                    retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
-                    g.core_token.validate_with_left(left_token.tracked_borrow());
-                    g.core_token.join_left(left_token.tracked_unwrap());
-                    let tracked mut rem = g.core_token.take_resource_left();
-                    rem.combine(guard_perm.tracked_unwrap());
-                    let tracked (full_perm, empty) = rem.take_resource();
-                    write_perm = Some(full_perm);
+                    g.core_token.join_one_left_owner(upread_guard_token);
+                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
+                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
+                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked (read_half_cell_perm, left_token) = read_resource;
+                    g.core_token.join_one_left_knowledge(left_token);
+                    let tracked mut pointsto = g.core_token.take_resource_left();
+                    pointsto.combine(read_half_cell_perm);
+                    let tracked (pointsto, empty) = pointsto.take_resource();
+                    write_perm = Some(pointsto);
                     g.core_token.change_to_right(empty);
-                    right_token = Some(g.core_token.split_right_without_resource(1int));
-                    
+                    write_guard_token = Some(g.core_token.split_one_right_knowledge());     
+                    retract_upgrade_token = Some(g.upread_retract_token.tracked_take());       
                 } else {
-                    err_guard_perm = guard_perm;
-                    err_guard_token = Some(guard_token);
-                    err_left_token = left_token;
+                    err_upread_guard_token = Some(upread_guard_token);
                 }
             }
         );
@@ -1040,25 +1033,21 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
                     lemma_consts_properties_value(prev_usize);
                     lemma_consts_properties_prev_next(prev_usize, next_usize);
                     let tracked mut token = retract_upgrade_token.tracked_unwrap();
-                    let tracked mut perm = write_perm.tracked_unwrap();
                     if g.upread_retract_token is Some {
                         token.validate_with_other(g.upread_retract_token.tracked_borrow());
                     }
                     g.upread_retract_token = Some(token);
-                    write_perm = Some(perm);
                 }
             );
-            Ok(RwLockWriteGuard { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()), v_cell_token: Tracked(right_token.tracked_unwrap()) })
+            Ok(RwLockWriteGuard { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()), v_token: Tracked(write_guard_token.tracked_unwrap()) })
         } else {
             Err(RwLockUpgradeableGuard {
                 inner,
                 guard,
-                v_perm: Tracked(err_guard_perm.tracked_unwrap()),
-                v_guard_token: Tracked(err_guard_token.tracked_unwrap()),
-                v_cell_perm_token: Tracked(err_left_token.tracked_unwrap()),
+                v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
             })
         }
-    }*/
+    }
 
 }
 
