@@ -213,7 +213,11 @@ closed spec fn wf(self) -> bool {
         // The number of active `RwLockUpgradeableGuard`, which can only be 0 or 1.
         let active_upgrade_guard: bool = !active_writer && g.upreader_guard_token is None;
         // The number of active `RwLockReadGuard`s.
-        let active_read_guards: int = MAX_READER_U64 - g.read_guard_token.left().frac();
+        let active_read_guards: int = if g.read_guard_token is Left {
+            MAX_READER_U64 - g.read_guard_token.left().frac()
+        } else {
+            0
+        };
         // The first `try_upread` that fails, which has not returned yet.
         let pending_failed_upread_attempt: bool = g.upread_retract_token is None;
         // The number of `try_read` attempts that will fail.
@@ -547,18 +551,31 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         //     .is_ok()
         if atomic_with_ghost!(
             self.lock => compare_exchange(0, WRITER);
+            update prev -> next;
             returning res;
             ghost g => {
+                let prev_usize = prev as usize;
+                let next_usize = next as usize;
+                lemma_consts_properties_value(prev_usize);
+                lemma_consts_properties_value(next_usize);
+                lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if res is Ok {
+                    assert(prev_usize == 0);
+                    assert(next_usize == WRITER);
+                    assert(g.core_token.is_left());
+                    assert(g.read_guard_token is Left);
+                    assert(g.upreader_guard_token is Some);
+                    assert(g.upread_retract_token is Some);
                     // Retract the fractional permission for read access.
-                    let tracked mut read_guard_token = g.read_guard_token.tracked_swap_left(FracResource::arbitrary());
+                    let tracked read_guard_token = g.read_guard_token.tracked_take_left();
                     let tracked (read_resource, read_empty) = read_guard_token.take_resource();
                     g.read_guard_token = Sum::Right(read_empty);
                     let tracked (read_half_cell_perm, left_token) = read_resource;
+                    g.core_token.validate_with_left(&left_token);
                     g.core_token.join_left(left_token);
                     // Retract the fractional permission for upgradeable reader.
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
-                    let old_resource = upreader_guard_token.resource();
+                    g.core_token.validate_with_left(&upreader_guard_token);
                     g.core_token.join_left(upreader_guard_token);
                     // Combine the two halves of the permission for read access to get the full permission and give it out.
                     let tracked mut pointsto = g.core_token.take_resource_left();
