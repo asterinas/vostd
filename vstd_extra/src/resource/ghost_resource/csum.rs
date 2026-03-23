@@ -94,14 +94,14 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         &&& 1 <= self.frac() <= TOTAL
         &&& self.protocol_monoid().is_valid()
         &&& self.is_resource_owner() ==> (self.has_resource() || self.has_no_resource())
-        &&& self.is_left() || self.is_right()
+        &&& (self.is_left() || self.is_right())
     }
 
     closed spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
         &&& 1 <= r.frac() <= TOTAL
         &&& r.is_valid()
         &&& r.is_resource_owner() ==> (r.has_resource() || r.has_no_resource())
-        &&& r.is_left() || r.is_right()
+        &&& (r.is_left() || r.is_right())
     }
 
     proof fn alloc_unit_storage() -> (tracked res: StorageResource<
@@ -876,8 +876,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.is_left(),
-            self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
-            self.has_resource() == old(self).has_resource() || other.has_resource(),
+            self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
+            self.has_resource() == (old(self).has_resource() || other.has_resource()),
             self.has_resource() ==> self.resource() == if old(self).has_resource() {
                 old(self).resource()
             } else {
@@ -905,10 +905,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_left(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
-            r.value().is_resource_owner() == old(r).value().is_resource_owner()
-                || other.value().is_resource_owner(),
-            r.value().has_resource() == old(r).value().has_resource()
-                || other.value().has_resource(),
+            r.value().is_resource_owner() == (old(r).value().is_resource_owner()
+                || other.value().is_resource_owner()),
+            r.value().has_resource() == (old(r).value().has_resource()
+                || other.value().has_resource()),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {
@@ -929,8 +929,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.is_right(),
-            self.is_resource_owner() == old(self).is_resource_owner() || other.is_resource_owner(),
-            self.has_resource() == old(self).has_resource() || other.has_resource(),
+            self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
+            self.has_resource() == (old(self).has_resource() || other.has_resource()),
             self.has_resource() ==> self.resource() == if old(self).has_resource() {
                 old(self).resource()
             } else {
@@ -958,10 +958,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             r.loc() == old(r).loc(),
             r.value().is_right(),
             r.value().frac() == old(r).value().frac() + other.value().frac(),
-            r.value().is_resource_owner() == old(r).value().is_resource_owner()
-                || other.value().is_resource_owner(),
-            r.value().has_resource() == old(r).value().has_resource()
-                || other.value().has_resource(),
+            r.value().is_resource_owner() == (old(r).value().is_resource_owner()
+                || other.value().is_resource_owner()),
+            r.value().has_resource() == (old(r).value().has_resource()
+                || other.value().has_resource()),
             r.value().has_resource() ==> r.value().resource() == if old(r).value().has_resource() {
                 old(r).value().resource()
             } else {

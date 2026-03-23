@@ -262,17 +262,29 @@ closed spec fn wf(self) -> bool {
             }
         &&& g.upreader_guard_token is Some ==> {
             let token = g.upreader_guard_token->Some_0;
+            let half_cell_perm = token.resource();
             &&& token.id() == v_id@.core_token_id
+            &&& half_cell_perm.id() == v_id@.frac_id
+            &&& half_cell_perm.resource().id() == val.id()
+            &&& token.is_resource_owner()
+            &&& token.has_resource()
+            &&& half_cell_perm.frac() == 1
+            &&& token.frac() == 1
             &&& token.wf()
         }
         
         &&& match g.read_guard_token {
             Sum::Left(token) => {
+                let resource = token.resource();
+                let read_half_cell_perm = resource.0;
+                let mode_knowledge = resource.1;
                 &&& token.wf()
+                &&& mode_knowledge.id() == v_id@.core_token_id
+                &&& read_half_cell_perm.id() == v_id@.frac_id
+                &&& read_half_cell_perm.resource().id() == val.id()
                 &&& token.id() == v_id@.read_guard_token_id
-                &&& token.resource().0.id() == v_id@.frac_id
-                &&& token.resource().0.resource().id() == val.id()
-                &&& token.resource().1.id() == v_id@.core_token_id
+                &&& read_half_cell_perm.frac() == 1
+                &&& mode_knowledge.frac() == 1
             },
             Sum::Right(empty) => {
                 &&& empty.id() == v_id@.read_guard_token_id
@@ -532,10 +544,20 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             returning res;
             ghost g => {
                 if res is Ok {
+                    // Retract the fractional permission for read access.
+                    let tracked mut read_guard_token = g.read_guard_token.tracked_swap_left(FracResource::arbitrary());
+                    let tracked (read_resource, read_empty) = read_guard_token.take_resource();
+                    g.read_guard_token = Sum::Right(read_empty);
+                    let tracked (read_half_cell_perm, left_token) = read_resource;
+                    g.core_token.join_left(left_token);
+                    // Retract the fractional permission for upgradeable reader.
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
-                    g.join_left(upreader_guard_token);
-                    let tracked full_frac_perm = g.core_token.take_resource_left();
-                    let tracked (pointsto, empty) = full_frac_perm.take_resource();
+                    assert(upreader_guard_token.is_resource_owner());
+                    g.core_token.join_left(upreader_guard_token);
+                    assert(g.core_token.is_resource_owner());
+                    let tracked mut pointsto = g.core_token.take_resource_left();
+                    pointsto.combine(read_half_cell_perm);
+                    let tracked (pointsto, empty) = pointsto.take_resource();
                     perm = Some(pointsto);
                     g.core_token.change_to_right(empty);
                     right_token = Some(g.core_token.split_right_without_resource(1int));
@@ -694,13 +716,15 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         let resource = self.v_token@.resource();
-        let read_frac_perm = resource.0;
+        let read_half_cell_perm = resource.0;
         let mode_knowledge = resource.1;
         &&& self.inner.core_token_id() == mode_knowledge.id()
-        &&& self.inner.frac_id() == read_frac_perm.id()
-        &&& self.inner.cell_id() == read_frac_perm.resource().id()
-        &&& read_frac_perm.frac() == 1
+        &&& self.inner.frac_id() == read_half_cell_perm.id()
+        &&& self.inner.cell_id() == read_half_cell_perm.resource().id()
+        &&& self.v_token@.id() == self.inner.read_guard_token_id()
+        &&& read_half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
+        &&& mode_knowledge.frac() == 1
         &&& !mode_knowledge.is_resource_owner()
     }
 }
@@ -910,14 +934,13 @@ verus! {
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        let frac_perm = self.v_token@.resource();
-        let cell_perm = frac_perm.resource();
+        let half_cell_perm = self.v_token@.resource();
         &&& self.inner.core_token_id() == self.v_token@.id()
+        &&& half_cell_perm.id() == self.inner.frac_id()
+        &&& half_cell_perm.resource().id() == self.inner.cell_id()
         &&& self.v_token@.is_resource_owner()
         &&& self.v_token@.has_resource()
-        &&& frac_perm.id() == self.inner.frac_id()
-        &&& cell_perm.id() == self.inner.cell_id()
-        &&& frac_perm.frac() == 1
+        &&& half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
         &&& self.v_token@.wf()
     }
