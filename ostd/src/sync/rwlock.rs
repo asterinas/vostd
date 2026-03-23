@@ -4,9 +4,9 @@ use vstd::cell::{self, pcell::*, CellId};
 use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{self, Empty, Frac, FracGhost};
-use vstd_extra::{prelude::*, resource};
-use vstd_extra::resource::ghost_resource::{csum::*,excl::*, tokens::*};
+use vstd_extra::resource::ghost_resource::{csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
+use vstd_extra::{prelude::*, resource};
 
 use alloc::sync::Arc;
 use core::char::MAX;
@@ -29,7 +29,7 @@ use super::{
 
 verus! {
 
-axiom fn is_exclusive<T>(tracked value: &mut PointsTo<T>, tracked other: & PointsTo<T>)
+axiom fn is_exclusive<T>(tracked value: &mut PointsTo<T>, tracked other: &PointsTo<T>)
     ensures
         *value == *old(value),
         value.id() != other.id(),
@@ -52,16 +52,18 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 
 /// The token reserved in the lock when the write permission is given out.
 type NoPerm<T> = Empty<PointsTo<T>>;
+
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
 type HalfPerm<T> = Frac<PointsTo<T>>;
+
 /// The permission for read access can be further split into `MAX_READER` pieces.
-type ReadPerm<T> = (HalfPerm<T>,OneLeftKnowledge<HalfPerm<T>,NoPerm<T>,3>);
+type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
 
 tracked struct RwPerms<T> {
-    /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that 
+    /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that
     /// there are active readers because the existence of `HalfPerm` resource for read access.
-    /// If it is `Right`, we know there is an active writer and there is no active reader, because there is a `NoPerm` 
-    /// indicating the absence of `PointsTo<T>`.   
+    /// If it is `Right`, we know there is an active writer and there is no active reader, because there is a `NoPerm`
+    /// indicating the absence of `PointsTo<T>`.
     core_token: SumResource<HalfPerm<T>, NoPerm<T>, 3>,
     /// The permission to retract a `READER` count. Its total quantity tracks the gap between
     /// the number of `try_read` increments recorded in the lock atomic and the number of active
@@ -72,10 +74,13 @@ tracked struct RwPerms<T> {
     /// The permission to retract the set of `UPGRADEABLE_READER` bit.
     upread_retract_token: Option<UniqueToken>,
     /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
-    upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>,NoPerm<T>,3>>,
+    upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
     /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
     /// If it is `Right`, it stores an empty token indicating the permission has been given out.
-    read_guard_token: Sum<FracResource<ReadPerm<T>,MAX_READER_U64>, Empty<ReadPerm<T>, MAX_READER_U64>>,
+    read_guard_token: Sum<
+        FracResource<ReadPerm<T>, MAX_READER_U64>,
+        Empty<ReadPerm<T>, MAX_READER_U64>,
+    >,
 }
 
 ghost struct RwId {
@@ -201,7 +206,7 @@ closed spec fn wf(self) -> bool {
         // NOTE: This does not mean there are actually this number of active `RwLockReadGuard`s. The actual number of successfully
         // created/creating `RwLockReadGuard`s can be smaller than this number, because previously created `RwLockReadGuard`s may be dropped.
         let reader_bits: int = if has_max_reader_bit { MAX_READER as int } else { (v & READER_MASK) as int };
-        
+
         // ACTUAL NUMBER OF ACTIVE GUARDS.
         // The number is tracked by the ghost resources remained in the lock.
         // By active, we mean from the perspective the lock, the permissions for these guards are given out.
@@ -255,8 +260,8 @@ closed spec fn wf(self) -> bool {
         }
         &&& g.read_retract_token.wf()
         &&& g.read_retract_token.id() == v_id@.read_retract_token_id
-        &&& g.upread_retract_token is Some ==> 
-            { 
+        &&& g.upread_retract_token is Some ==>
+            {
                 let token = g.upread_retract_token->Some_0;
                 &&& token.wf()
                 &&& token.id() == v_id@.upread_retract_token_id
@@ -283,15 +288,18 @@ closed spec fn wf(self) -> bool {
                 &&& empty.id() == v_id@.read_guard_token_id
             },
         }
-        
+
     }
 }
 
 }
 
 const READER: usize = 1;
+
 const WRITER: usize = 1 << (usize::BITS - 1);
+
 const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
+
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 
 /// This bit is reserved as an overflow sentinel.
@@ -312,6 +320,7 @@ const MAX_READER: usize = 1 << (usize::BITS - 4);
 
 /// Used only in verification. Excluding the `MAX_READER` bit.
 const READER_MASK: usize = usize::MAX >> 4;
+
 /// Used only in verification. Including the `MAX_READER` bit.
 const MAX_READER_MASK: usize = usize::MAX >> 3;
 
@@ -344,26 +353,32 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
-closed spec fn wf_upgradeable_guard_token<T>(core_token_id: Loc, frac_id: Loc, cell_id: CellId, token: OneLeftOwner<HalfPerm<T>,NoPerm<T>,3>) -> bool {
-        let half_cell_perm = token.resource();
-        &&& token.id() == core_token_id
-        &&& half_cell_perm.id() == frac_id
-        &&& half_cell_perm.resource().id() == cell_id
-        &&& token.has_resource()
-        &&& half_cell_perm.frac() == 1
-        &&& token.wf()
-    }
+closed spec fn wf_upgradeable_guard_token<T>(
+    core_token_id: Loc,
+    frac_id: Loc,
+    cell_id: CellId,
+    token: OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>,
+) -> bool {
+    let half_cell_perm = token.resource();
+    &&& token.id() == core_token_id
+    &&& half_cell_perm.id() == frac_id
+    &&& half_cell_perm.resource().id() == cell_id
+    &&& token.has_resource()
+    &&& half_cell_perm.frac() == 1
+    &&& token.wf()
+}
 
 #[verus_verify]
 impl<T, G> RwLock<T, G> {
-    
     /// Creates a new spin-based read-write lock with an initial value.
-     #[verus_verify]
+    #[verus_verify]
     pub const fn new(val: T) -> Self {
         let (val, Tracked(perm)) = PCell::new(val);
 
         // Proof code
-        proof {lemma_consts_properties();}
+        proof {
+            lemma_consts_properties();
+        }
         let tracked mut frac_perm = Frac::<PointsTo<T>>::new(perm);
         let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
@@ -373,7 +388,7 @@ impl<T, G> RwLock<T, G> {
         let tracked upreader_guard_token = core_token.split_one_left_owner();
         let tracked left_token = core_token.split_one_left_knowledge();
         let tracked read_guard_token = FracResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
-            (read_half_cell_perm, left_token)
+            (read_half_cell_perm, left_token),
         );
         let ghost v_id = RwId {
             frac_id,
@@ -495,11 +510,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-            Some(RwLockReadGuard {
-                inner: self,
-                guard,
-                v_token: Tracked(read_token.tracked_unwrap()),
-            })
+            Some(
+                RwLockReadGuard {
+                    inner: self,
+                    guard,
+                    v_token: Tracked(read_token.tracked_unwrap()),
+                },
+            )
         } else {
             // self.lock.fetch_sub(READER, Release);
             atomic_with_ghost!(
@@ -564,12 +581,19 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 }
             }
         ).is_ok() {
-            Some(RwLockWriteGuard { inner: self, guard, v_perm: Tracked(guard_perm.tracked_unwrap()), v_token: Tracked(guard_token.tracked_unwrap()) })
+            Some(
+                RwLockWriteGuard {
+                    inner: self,
+                    guard,
+                    v_perm: Tracked(guard_perm.tracked_unwrap()),
+                    v_token: Tracked(guard_token.tracked_unwrap()),
+                },
+            )
         } else {
             None
         }
     }
-    
+
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
@@ -599,7 +623,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
                 }
             }
-        ) & (WRITER | UPGRADEABLE_READER);
+        )
+            & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
             return Some(
                 RwLockUpgradeableGuard {
@@ -631,8 +656,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         None
     }
 }
-} // verus!
 
+} // verus!
 /*
 impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
@@ -651,36 +676,34 @@ impl<T, G: SpinGuardian> RwLock<T, G> {
         self.val.get()
     }
 }*/
-
 /* the trait `core::fmt::Debug` is not implemented for `vstd::cell::pcell::PCell<T>`
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for RwLock<T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
 }*/
-
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Send, G> Send for RwLock<T, G> {}
+unsafe impl<T: Send, G> Send for RwLock<T, G> {}
 
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Send + Sync, G> Sync for RwLock<T, G> {}
-
-#[verus_verify]
-impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
-#[verifier::external]
-unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
+unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {}
 
 #[verus_verify]
-impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
+impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
 #[verus_verify]
-impl<T: /*?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
+impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
+
+#[verus_verify]
+impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
+#[verifier::external]
+unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
 
 /// A guard that provides immutable data access.
 #[clippy::has_significant_drop]
@@ -720,8 +743,7 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
 }
 
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     type Target = T;
 
     #[verus_spec]
@@ -738,8 +760,8 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
         self.inner.val.borrow(Tracked(read_perm))
     }
 }
-}
 
+} // verus!
 /* impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockReadGuard_<T, R, G>
 {
@@ -747,15 +769,13 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
         self.inner.lock.fetch_sub(READER, Release);
     }
 } */
+verus! {
 
-verus!{
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
-    fn drop(self)
-    {
+    fn drop(self) {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
@@ -783,25 +803,24 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockReadGuard<'_, T, G>
         );
     }
 }
-}
 
+} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }*/
-
 /// A guard that provides mutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct RwLockWriteGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
+pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
     v_perm: Tracked<PointsTo<T>>,
-    v_token: Tracked<OneRightKnowledge<HalfPerm<T>,NoPerm<T>,3>>
+    v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
 verus! {
@@ -814,7 +833,6 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     }
 }
 
-
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G> {
     fn as_atomic_mode_guard(&self) -> &dyn crate::task::atomic_mode::InAtomicMode {
@@ -823,8 +841,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G
 }*/
 
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     type Target = T;
 
     #[verus_spec]
@@ -841,8 +858,8 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G>
         self.inner.val.borrow(Tracked(read_perm))
     }
 }
-} // verus!
 
+} // verus!
 /*
 impl<T: ?Sized, G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -855,11 +872,10 @@ impl<T: ?Sized, G: SpinGuardian> Drop for RwLockWriteGuard<'_, T, G> {
         self.inner.lock.fetch_and(!WRITER, Release);
     }
 }*/
+verus! {
 
-verus!{
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> RwLockWriteGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
@@ -901,21 +917,20 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockWriteGuard<'_, T, G>
         };
     }
 }
-}
 
-/* 
+} // verus!
+/*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }*/
-
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
 #[verus_verify]
-pub struct RwLockUpgradeableGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
+pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
@@ -932,13 +947,17 @@ verus! {
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
-        wf_upgradeable_guard_token(self.inner.core_token_id(), self.inner.frac_id(), self.inner.cell_id(), self.v_token@)
+        wf_upgradeable_guard_token(
+            self.inner.core_token_id(),
+            self.inner.frac_id(),
+            self.inner.cell_id(),
+            self.v_token@,
+        )
     }
 }
 
 #[verus_verify]
-impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
-{
+impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     /// Upgrades this upread guard to a write guard atomically.
     ///
     /// After calling this method, subsequent readers will be blocked
@@ -946,7 +965,7 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
     /// will spin-wait until previous readers finish.
     #[verus_spec]
     #[verifier::exec_allows_no_decreases_clause]
-    pub fn upgrade(/* mut */ self) -> RwLockWriteGuard<'a, T, G> {
+    pub fn upgrade(  /* mut */ self) -> RwLockWriteGuard<'a, T, G> {
         let mut this = self;
         let lock = this.inner;
         proof! {
@@ -964,7 +983,8 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
         );
         loop {
             // self = match self.try_upgrade() {
-            this = match this.try_upgrade() {
+            this =
+            match this.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -978,17 +998,14 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
     /// This function is not exposed publicly because the `BEING_UPGRADED` bit
     /// is set only in [`Self::upgrade`].
     #[verus_spec]
-    fn try_upgrade(/* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
+    fn try_upgrade(  /* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let RwLockUpgradeableGuard {
-            mut guard,
-            inner,
-            v_token: Tracked(upread_guard_token),
-        } = self;
+        let RwLockUpgradeableGuard { mut guard, inner, v_token: Tracked(upread_guard_token) } =
+            self;
         proof_decl! {
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -1002,7 +1019,8 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
         //     AcqRel,
         //     Relaxed,
         // );
-        let res = atomic_with_ghost!(
+        let res =
+            atomic_with_ghost!(
             inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
@@ -1024,8 +1042,8 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
                     let tracked (pointsto, empty) = pointsto.take_resource();
                     write_perm = Some(pointsto);
                     g.core_token.change_to_right(empty);
-                    write_guard_token = Some(g.core_token.split_one_right_knowledge());     
-                    retract_upgrade_token = Some(g.upread_retract_token.tracked_take());       
+                    write_guard_token = Some(g.core_token.split_one_right_knowledge());
+                    retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
                 } else {
                     err_upread_guard_token = Some(upread_guard_token);
                 }
@@ -1049,21 +1067,28 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
                     g.upread_retract_token = Some(token);
                 }
             );
-            Ok(RwLockWriteGuard { inner, guard, v_perm: Tracked(write_perm.tracked_unwrap()), v_token: Tracked(write_guard_token.tracked_unwrap()) })
+            Ok(
+                RwLockWriteGuard {
+                    inner,
+                    guard,
+                    v_perm: Tracked(write_perm.tracked_unwrap()),
+                    v_token: Tracked(write_guard_token.tracked_unwrap()),
+                },
+            )
         } else {
-            Err(RwLockUpgradeableGuard {
-                inner,
-                guard,
-                v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
-            })
+            Err(
+                RwLockUpgradeableGuard {
+                    inner,
+                    guard,
+                    v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
+                },
+            )
         }
     }
-
 }
 
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G> {
     type Target = T;
 
     #[verus_spec]
@@ -1080,19 +1105,18 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G>
         self.inner.val.borrow(Tracked(read_perm))
     }
 }
-} // verus!
 
+} // verus!
 /*
 impl<T: ?Sized, G: SpinGuardian> Drop for RwLockUpgradeableGuard<'_, T, G> {
     fn drop(&mut self) {
         self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
     }
 }*/
-
 verus! {
+
 #[verus_verify]
-impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
-{
+impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     #[verus_spec]
     pub fn drop(self) {
@@ -1122,8 +1146,8 @@ impl<T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G>
         );
     }
 }
-}
 
+} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1131,7 +1155,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGu
     }
 }
 */
-
 verus! {
 
 proof fn lemma_consts_properties()
@@ -1208,13 +1231,16 @@ proof fn lemma_consts_properties()
     assert(BEING_UPGRADED & MAX_READER_MASK == 0) by (compute_only);
     assert(BEING_UPGRADED & MAX_READER == 0) by (compute_only);
     assert((UPGRADEABLE_READER | BEING_UPGRADED) & WRITER == 0) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & UPGRADEABLE_READER == UPGRADEABLE_READER) by (compute_only);
-    assert((UPGRADEABLE_READER | BEING_UPGRADED) & BEING_UPGRADED == BEING_UPGRADED) by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & UPGRADEABLE_READER == UPGRADEABLE_READER)
+        by (compute_only);
+    assert((UPGRADEABLE_READER | BEING_UPGRADED) & BEING_UPGRADED == BEING_UPGRADED)
+        by (compute_only);
     assert((UPGRADEABLE_READER | BEING_UPGRADED) & READER_MASK == 0) by (compute_only);
     assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER_MASK == 0) by (compute_only);
     assert((UPGRADEABLE_READER | BEING_UPGRADED) & MAX_READER == 0) by (compute_only);
     assert((WRITER | UPGRADEABLE_READER) & WRITER == WRITER) by (compute_only);
-    assert((WRITER | UPGRADEABLE_READER) & UPGRADEABLE_READER == UPGRADEABLE_READER) by (compute_only);
+    assert((WRITER | UPGRADEABLE_READER) & UPGRADEABLE_READER == UPGRADEABLE_READER)
+        by (compute_only);
     assert((WRITER | UPGRADEABLE_READER) & BEING_UPGRADED == 0) by (compute_only);
     assert((WRITER | UPGRADEABLE_READER) & READER_MASK == 0) by (compute_only);
     assert((WRITER | UPGRADEABLE_READER) & MAX_READER_MASK == 0) by (compute_only);
@@ -1224,15 +1250,14 @@ proof fn lemma_consts_properties()
 proof fn lemma_consts_properties_value(prev: usize)
     ensures
         no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
-        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==>
-        {
+        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==> {
             &&& prev & WRITER == 0
             &&& prev & BEING_UPGRADED == 0
             &&& prev & MAX_READER == 0
         },
         prev & (WRITER | UPGRADEABLE_READER) == 0 ==> {
-                &&& prev & WRITER == 0
-                &&& prev & UPGRADEABLE_READER == 0
+            &&& prev & WRITER == 0
+            &&& prev & UPGRADEABLE_READER == 0
         },
         prev & MAX_READER == 0 ==> prev & READER_MASK == prev & MAX_READER_MASK,
         prev & MAX_READER != 0 ==> prev & MAX_READER_MASK >= MAX_READER,
@@ -1244,7 +1269,7 @@ proof fn lemma_consts_properties_value(prev: usize)
         prev & UPGRADEABLE_READER == 0 ==> {
             ||| prev & (WRITER | UPGRADEABLE_READER) == 0
             ||| prev & (WRITER | UPGRADEABLE_READER) == WRITER
-        }
+        },
 {
     if no_max_reader_overflow(prev) {
         assert(prev + READER <= usize::MAX) by (bit_vector)
@@ -1301,7 +1326,8 @@ proof fn lemma_consts_properties_value(prev: usize)
         ;
     }
     if prev & UPGRADEABLE_READER == 0 {
-        assert(prev & (WRITER | UPGRADEABLE_READER) == 0 || prev & (WRITER | UPGRADEABLE_READER) == WRITER) by (bit_vector)
+        assert(prev & (WRITER | UPGRADEABLE_READER) == 0 || prev & (WRITER | UPGRADEABLE_READER)
+            == WRITER) by (bit_vector)
             requires
                 prev & UPGRADEABLE_READER == 0,
         ;
@@ -1372,7 +1398,7 @@ proof fn lemma_consts_properties_prev_next(prev: usize, next: usize)
             &&& next & MAX_READER_MASK == prev & MAX_READER_MASK
             &&& next & MAX_READER == prev & MAX_READER
             &&& next & BEING_UPGRADED == prev & BEING_UPGRADED
-        }
+        },
 {
     assert(prev & READER_MASK < MAX_READER) by (bit_vector);
     if next == prev | UPGRADEABLE_READER {
