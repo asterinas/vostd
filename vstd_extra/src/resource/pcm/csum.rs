@@ -1,4 +1,4 @@
-//! Csum PCM
+//! Csum resource algebra.
 //!
 //! For Iris definition, see:
 //! <https://gitlab.mpi-sws.org/iris/iris/-/blob/master/iris/algebra/csum.v>
@@ -11,7 +11,7 @@ verus! {
 ///
 /// In modern Iris, it uses CMRA instead of PCM, which uses a core for every element instead of a unit element.
 /// Here we add a unit element to stick to the PCM definition.
-pub tracked enum CsumR<A, B> {
+pub ghost enum CsumR<A, B> {
     Unit,
     Cinl(A),
     Cinr(B),

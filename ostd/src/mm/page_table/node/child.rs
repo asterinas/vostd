@@ -108,7 +108,6 @@ impl<C: PageTableConfig> Child<C> {
         }
     }
 
-
     /// Converts a `PTE` to a `Child`.
     ///
     /// # Verified Properties
@@ -138,7 +137,9 @@ impl<C: PageTableConfig> Child<C> {
             *regions == entry_own.from_pte_regions_spec(*old(regions)),
     {
         if !pte.is_present() {
-            proof { entry_own.in_scope = true; }
+            proof {
+                entry_own.in_scope = true;
+            }
             return Child::None;
         }
         let paddr = pte.paddr();
@@ -168,7 +169,9 @@ impl<C: PageTableConfig> Child<C> {
 
             return Child::PageTable(node);
         }
-        proof { entry_own.in_scope = true; }
+        proof {
+            entry_own.in_scope = true;
+        }
         Child::Frame(paddr, level, pte.prop())
     }
 }

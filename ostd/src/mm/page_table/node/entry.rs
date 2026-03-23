@@ -17,7 +17,7 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{INC_LEVELS, PageTableOwner};
+use crate::specs::mm::page_table::{PageTableOwner, INC_LEVELS};
 use crate::specs::task::InAtomicMode;
 
 use core::marker::PhantomData;
@@ -117,7 +117,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             parent_owner.relate_guard_perm(*guard_perm),
             parent_owner.inv(),
             parent_owner.level == owner.parent_level,
-        returns owner.is_node(),
+        returns
+            owner.is_node(),
     {
         let guard = self.node.borrow(Tracked(guard_perm));
 
@@ -364,7 +365,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 new_meta_slot.path_if_in_pt = Some(new_owner.get_path());
                 regions.slot_owners.tracked_insert(new_idx, new_meta_slot);
             }
-
             owner.in_scope = true;
         }
 
@@ -788,8 +788,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     );
                 };
 
-                // placeholder_slot_perm does not guarantee is_init()/value().wf(), so
-                // relate_region cannot be established; admit until real perm threading is added.
                 assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
                     .invariants(child_owner, *regions)) by { admit() };
             }

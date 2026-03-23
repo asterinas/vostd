@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::prelude::*;
 
+use crate::{
+    task::{/* atomic_mode::AsAtomicModeGuard, */ disable_preempt, DisabledPreemptGuard},
+    trap::irq::{disable_local, DisabledLocalIrqGuard},
+};
+
 /// A guardian that denotes the guard behavior for holding a spin-based lock.
 ///
 /// It at least ensures that the atomic mode is maintained while the lock is held.
 #[verus_verify]
 pub trait SpinGuardian {
     /// The guard type for holding a spin lock or a spin-based write lock.
-    //type Guard: AsAtomicModeGuard + GuardTransfer;
-    type Guard;
+    type Guard: GuardTransfer;
     /// The guard type for holding a spin-based read lock.
-    //type ReadGuard: AsAtomicModeGuard + GuardTransfer;
-    type ReadGuard;
+    type ReadGuard: GuardTransfer;
 
     /// Creates a new guard.
     fn guard() -> Self::Guard;
@@ -19,33 +22,46 @@ pub trait SpinGuardian {
     fn read_guard() -> Self::ReadGuard;
 }
 
-/*
+verus! {
+
 /// The Guard can be transferred atomically.
-pub trait GuardTransfer {
+#[verus_verify]
+pub trait GuardTransfer: Sized {
     /// Atomically transfers the current guard to a new instance.
     ///
     /// This function ensures that there are no 'gaps' between the destruction of the old guard and
     /// the creation of the new guard, thereby maintaining the atomicity of guard transitions.
     ///
     /// The original guard must be dropped immediately after calling this method.
-    fn transfer_to(&mut self) -> Self;
+    fn transfer_to(&mut self) -> Self
+        no_unwind
+    ;
 }
 
+} // verus!
 /// A guardian that disables preemption while holding a lock.
+#[verifier::external]
 pub enum PreemptDisabled {}
 
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExPreemptDisabled(PreemptDisabled);
+
+#[verus_verify]
 impl SpinGuardian for PreemptDisabled {
     type Guard = DisabledPreemptGuard;
     type ReadGuard = DisabledPreemptGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_preempt()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::Guard {
         disable_preempt()
     }
 }
-*/
+
 /// A guardian that disables IRQs while holding a lock.
 ///
 /// This guardian would incur a certain time overhead over
@@ -53,15 +69,24 @@ impl SpinGuardian for PreemptDisabled {
 /// IRQ handlers are allowed to get executed while holding the
 /// lock. For example, if a lock is never used in the interrupt
 /// context, then it is ok not to use this guardian in the process context.
+#[verifier::external]
 pub enum LocalIrqDisabled {}
-/*
+
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExLocalIrqDisabled(LocalIrqDisabled);
+
+#[verus_verify]
+#[verifier::external]
 impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledLocalIrqGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::Guard {
         disable_local()
     }
@@ -79,17 +104,24 @@ impl SpinGuardian for LocalIrqDisabled {
 ///
 /// [`RwLock`]: super::RwLock
 /// [`SpinLock`]: super::SpinLock
+#[verifier::external]
 pub enum WriteIrqDisabled {}
 
+#[verifier::external_type_specification]
+#[verifier::external_body]
+pub struct ExWriteIrqDisabled(WriteIrqDisabled);
+
+#[verus_verify]
 impl SpinGuardian for WriteIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledPreemptGuard;
 
+    #[verifier::external_body]
     fn guard() -> Self::Guard {
         disable_local()
     }
+    #[verifier::external_body]
     fn read_guard() -> Self::ReadGuard {
         disable_preempt()
     }
 }
-*/

@@ -104,9 +104,9 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    /// Returns a NodeOwner with children_perm updated at the given index.
-    /// Used to specify the state after storing a new PTE for an allocated child.
-    pub open spec fn set_children_perm(self, idx: usize, pte: C::E) -> Self;
+    // TODO: this is a bizzare structure; `set_children_perm` needs to actually be
+    // defined to satisfy the axiom, which can then be deleted.
+    pub uninterp spec fn set_children_perm(self, idx: usize, pte: C::E) -> Self;
 
     #[verifier::external_body]
     pub axiom fn set_children_perm_axiom(self, idx: usize, pte: C::E)

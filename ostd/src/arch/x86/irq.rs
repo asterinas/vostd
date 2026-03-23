@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Interrupts.
-use spin::Once;
+use vstd::prelude::*;
+
+/* use spin::Once;
 use x86_64::registers::rflags::{self, RFlags};
 
 use super::iommu::{alloc_irt_entry, has_interrupt_remapping, IrtEntryHandle};
@@ -79,18 +81,20 @@ pub(crate) fn enable_local_and_halt() {
         // interrupts won't occur between enabling the local IRQs and halting the CPU.
         core::arch::asm!("sti", "hlt", options(nomem, nostack, preserves_flags),)
     };
-}
+} */
 
 pub(crate) fn disable_local() {
-    x86_64::instructions::interrupts::disable();
+    // x86_64::instructions::interrupts::disable();
+    unimplemented!()
 }
 
 pub(crate) fn is_local_enabled() -> bool {
-    (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
+    // (rflags::read_raw() & RFlags::INTERRUPT_FLAG.bits()) != 0
+    unimplemented!()
 }
 
 // ####### Inter-Processor Interrupts (IPIs) #######
-
+/* 
 /// Hardware-specific, architecture-dependent CPU ID.
 ///
 /// This is the Local APIC ID in the x86_64 architecture.
@@ -131,4 +135,4 @@ pub(crate) unsafe fn send_ipi(hw_cpu_id: HwCpuId, irq_num: u8, guard: &dyn PinCu
     // SAFETY: The ICR is valid to generate the request IPI. Generating the request IPI is safe
     // as guaranteed by the caller.
     unsafe { apic.send_ipi(icr) };
-}
+} */

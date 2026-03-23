@@ -4,7 +4,6 @@ use vstd::cell::{self, pcell::*};
 use vstd::prelude::*;
 use vstd_extra::prelude::*;
 
-use alloc::sync::Arc;
 use core::{
     cell::UnsafeCell,
     fmt,
@@ -31,7 +30,7 @@ use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 /// [`LocalIrqDisabled`] using the [`disable_irq`] method.
 ///
 /// [`disable_irq`]: Self::disable_irq
-/// 
+///
 /// # Verified Properties
 /// ## Verification Design
 /// To verify the correctness of spin lock, we use a ghost permission (i.e., not present in executable Rust). Only the owner of this permission can access the protected data in the cell.
@@ -340,11 +339,24 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         0
     }
 
-    /*
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
+        requires
+            perm.id() == self.inner.val.id(),
+    )]
     fn release_lock(&self) {
-        self.inner.lock.store(false, Ordering::Release);
+        proof!{
+            use_type_invariant(self);
+        }
+        //self.inner.lock.store(false, Ordering::Release);
+        atomic_with_ghost!{
+            self.inner.lock => store(false);
+            ghost cell_perm => {
+                cell_perm = Some(perm);
+            }
+        }
     }
-    */
 }
 }
 
@@ -357,9 +369,9 @@ impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
 
 // SAFETY: Only a single lock holder is permitted to access the inner data of Spinlock.
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Send, G> Send for SpinLock<T, G> {}
+unsafe impl<T: Send, G> Send for SpinLock<T, G> {}
 #[verifier::external]
-unsafe impl<T: /*?Sized +*/ Send, G> Sync for SpinLock<T, G> {}
+unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 
 /// A guard that provides exclusive access to the data protected by a [`SpinLock`].
 ///
@@ -393,7 +405,7 @@ pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     lock: &'a SpinLock<T, G>,
     /// Ghost permission for verification
-    v_perm: Tracked<PointsTo<T>>, 
+    v_perm: Tracked<PointsTo<T>>,
 }
 
 verus! {
@@ -412,7 +424,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
     }
 }*/
 
-verus!{
+verus! {
 #[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
@@ -433,14 +445,17 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
 }
 }
 
-/*
-impl<T: ?Sized, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
+impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.lock.inner.val.get() }
+        // unsafe { &mut *self.lock.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.lock.inner.val as *const PCell<T>).cast();
+            &mut *(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
+/* impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {
     fn drop(&mut self) {
         self.lock.release_lock();
     }
@@ -458,4 +473,4 @@ impl<T: ?Sized, G: SpinGuardian> !Send for SpinLockGuard<'_, T, G> {}
 #[verifier::external]
 // SAFETY: `SpinLockGuard` can be shared between tasks/threads in same CPU.
 // As `lock()` is only called when there are no race conditions caused by interrupts.
-unsafe impl<T: /*?Sized +*/ Sync, G: SpinGuardian> Sync for SpinLockGuard<'_, T, G> {}
+unsafe impl<T: Sync, G: SpinGuardian> Sync for SpinLockGuard<'_, T, G> {}

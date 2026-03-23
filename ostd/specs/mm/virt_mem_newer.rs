@@ -360,10 +360,12 @@ impl MemView {
     ///
     /// ## Preconditions
     /// - `this.split_spec(vaddr, len) == (lhs, rhs)`.
+    /// - Every mapping in `this` starts at or after `vaddr`.
+    /// - Every physical frame tracked by `this.memory` is reachable from some
+    ///   virtual address at or after `vaddr`.
     ///
     /// ## Postconditions
-    /// - `this == lhs.join_spec(rhs)`.
-    #[verifier::external_body]
+    /// - `lhs.join_spec(rhs)` has the same mappings and memory contents as `this`.
     pub proof fn lemma_split_join_identity(
         this: MemView,
         lhs: MemView,
@@ -373,10 +375,15 @@ impl MemView {
     )
         requires
             this.split_spec(vaddr, len) == (lhs, rhs),
+            forall|m: Mapping|
+                #[trigger] this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
+            forall|pa: Paddr|
+                #[trigger] this.memory.contains_key(pa) ==> exists|va: usize|
+                    vaddr <= va && #[trigger] this.is_mapped(va, pa),
         ensures
-            this == lhs.join_spec(rhs),
+            this.mappings =~= lhs.join_spec(rhs).mappings,
+            this.memory =~= lhs.join_spec(rhs).memory,
     {
-        // Auto.
     }
 }
 

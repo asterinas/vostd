@@ -42,7 +42,10 @@ use crate::mm::frame::Frame;
 use crate::mm::page_table::*;
 use crate::mm::{Paddr, Vaddr, MAX_NR_LEVELS, MAX_PADDR};
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
-use crate::specs::mm::frame::mapping::{frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::mm::frame::mapping::{
+    frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots,
+    meta_addr, meta_to_frame, META_SLOT_SIZE
+};
 use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
@@ -2379,7 +2382,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 },
             }
         }
-        assert(old(owner).cur_entry_owner().is_absent() ==> owner.cur_entry_owner().is_absent()) by {};
+        assert(old(owner).cur_entry_owner().is_absent() ==> owner.cur_entry_owner().is_absent());
     }
 
     /// Maps the item starting from the current address to a physical address range.
@@ -3164,6 +3167,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner0.continuations_not_in_scope();
             assert(owner0.continuations[(owner0.level - 1) as int].children[cont0.idx as int] is Some);
         };
+
+        let ghost pre_new_owner_value = new_owner.value;
+
+        assert(!old_child_owner.value.in_scope) by { admit() };
 
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),

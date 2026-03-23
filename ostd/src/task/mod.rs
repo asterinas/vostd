@@ -3,11 +3,11 @@
 use vstd::prelude::*;
 
 /* pub mod atomic_mode;
-mod kernel_stack;
+mod kernel_stack; */
 mod preempt;
-mod processor;
+// mod processor;
 pub mod scheduler;
-mod utils;
+/* mod utils;
 
 use core::{
     any::Any,
@@ -19,14 +19,14 @@ use core::{
 };
 
 use kernel_stack::KernelStack;
-use processor::current_task;
+use processor::current_task;*/
 use spin::Once;
-use utils::ForceSync;
-
+// use utils::ForceSync;
 pub use self::{
-    preempt::{disable_preempt, halt_cpu, DisabledPreemptGuard},
-    scheduler::info::{AtomicCpuId, TaskScheduleInfo},
+    preempt::{disable_preempt, DisabledPreemptGuard},
+    /* scheduler::info::{AtomicCpuId, TaskScheduleInfo}, */
 };
+/*
 pub(crate) use crate::arch::task::{context_switch, TaskContext};
 use crate::{cpu::context::UserContext, prelude::*, trap::in_interrupt_context};
 
