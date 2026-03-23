@@ -18,7 +18,6 @@ verus! {
 
 tracked struct MutexPerms<T> {
     cell_perm: Option<PointsTo<T>>,
-    guard_token: Option<UniqueToken>,
 }
 
 struct_with_invariants! {
@@ -33,11 +32,9 @@ pub struct Mutex<T  /* : ?Sized */ > {
 
 closed spec fn wf(self) -> bool {
     invariant on lock with (val) is (v: bool, g: MutexPerms<T>) {
-        let active_guard = g.guard_token is None;
+        let active_guard = g.cell_perm is None;
         &&& v <==> active_guard
-        &&& active_guard <==> g.cell_perm is None
         &&& g.cell_perm is Some ==> g.cell_perm->Some_0.id() == val.id()
-        &&& g.guard_token is Some ==> g.guard_token->Some_0.wf()
     }
 }
 }
@@ -58,14 +55,11 @@ impl<T> Mutex<T> {
             r.type_inv(),
     {
         let (val, Tracked(perm)) = PCell::new(val);
-        proof_decl! {
-            let tracked guard_token = UniqueToken::alloc(());
-        }
         Self {
             lock: AtomicBool::new(
                 Ghost(val),
                 false,
-                Tracked(MutexPerms { cell_perm: Some(perm), guard_token: Some(guard_token) }),
+                Tracked(MutexPerms { cell_perm: Some(perm) }),
             ),
             queue: WaitQueue::new(),
             val: val,
@@ -90,18 +84,14 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         // guard will cause an unexpected unlock.
         // SAFETY: The lock is successfully acquired when creating the guard.
         proof_decl! {
-            let tracked mut locked_state: Option<(PointsTo<T>, UniqueToken)> = None;
+            let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         if #[verus_spec(with => Tracked(locked_state))] self.acquire_lock() {
             proof_decl! {
-                let tracked (perm, guard_token) = locked_state.tracked_unwrap();
+                let tracked perm = locked_state.tracked_unwrap();
             }
             Some(unsafe {
-                MutexGuard::new(
-                    self,
-                    Tracked(perm),
-                    Tracked(guard_token),
-                )
+                MutexGuard::new(self, Tracked(perm))
             })
         } else {
             None
@@ -126,14 +116,14 @@ impl<T  /* : ?Sized */ > Mutex<T> {
 
     #[verus_spec(ret =>
         with
-            -> locked_state: Tracked<Option<(PointsTo<T>, UniqueToken)>>,
+            -> locked_state: Tracked<Option<PointsTo<T>>>,
         ensures
-            ret ==> locked_state@ is Some && locked_state@->Some_0.0.id() == self.cell_id(),
+            ret ==> locked_state@ is Some && locked_state@->Some_0.id() == self.cell_id(),
             !ret ==> locked_state@ is None,
     )]
     fn acquire_lock(&self) -> bool {
         proof_decl! {
-            let tracked mut locked_state: Option<(PointsTo<T>, UniqueToken)> = None;
+            let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         proof! {
             use_type_invariant(self);
@@ -145,8 +135,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             ghost perms => {
                 if res is Ok {
                     let tracked perm = perms.cell_perm.tracked_take();
-                    let tracked guard_token = perms.guard_token.tracked_take();
-                    locked_state = Some((perm, guard_token));
+                    locked_state = Some(perm);
                 }
             }
         }.is_ok()
@@ -155,10 +144,8 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     #[verus_spec(
         with
             Tracked(perm): Tracked<PointsTo<T>>,
-            Tracked(guard_token): Tracked<UniqueToken>,
         requires
             perm.id() == self.cell_id(),
-            guard_token.wf(),
     )]
     fn release_lock(&self) {
         proof! {
@@ -167,7 +154,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         atomic_with_ghost! {
             self.lock => store(false);
             ghost perms => {
-                perms = MutexPerms { cell_perm: Some(perm), guard_token: Some(guard_token) };
+                perms = MutexPerms { cell_perm: Some(perm) };
             }
         }
     }
@@ -190,7 +177,6 @@ unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {} */
 pub struct MutexGuard<'a, T  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
     v_perm: Tracked<PointsTo<T>>,
-    v_guard_token: Tracked<UniqueToken>,
 }
 
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
@@ -201,14 +187,13 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     unsafe fn new(
         mutex: &'a Mutex<T>,
         Tracked(perm): Tracked<PointsTo<T>>,
-        Tracked(guard_token): Tracked<UniqueToken>,
     ) -> (r: MutexGuard<'a, T>)
         requires
             perm.id() == mutex.cell_id(),
         ensures
             r.type_inv(),
     {
-        MutexGuard { mutex, v_perm: Tracked(perm), v_guard_token: Tracked(guard_token) }
+        MutexGuard { mutex, v_perm: Tracked(perm) }
     }
 
     #[verifier::type_invariant]
@@ -224,7 +209,6 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 pub struct ArcMutexGuard<T  /* : ?Sized */ > {
     mutex: Arc<Mutex<T>>,
     v_perm: Tracked<PointsTo<T>>,
-    v_guard_token: Tracked<UniqueToken>,
 }
 
 impl<T> ArcMutexGuard<T> {
