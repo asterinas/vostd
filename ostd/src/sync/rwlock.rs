@@ -438,7 +438,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         }
     }
-    
+
     /// Acquires an upreader and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no other writers,
@@ -720,7 +720,6 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     }
 }
 
-/* 
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
 {
@@ -729,7 +728,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
     #[verus_spec]
     fn deref(&self) -> &T {
         proof_decl! {
-            let tracked read_perm = self.v_perm.borrow().borrow();
+            let tracked read_perm = self.v_token.borrow().borrow().0.borrow();
         }
         proof!{
             use_type_invariant(self);
@@ -739,7 +738,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G>
         // and here we verify that we have the permission to call `borrow`.
         self.inner.val.borrow(Tracked(read_perm))
     }
-}*/
+}
 }
 
 /* impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
@@ -827,7 +826,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G
         self.guard.as_atomic_mode_guard()
     }
 }*/
-/* 
+
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G>
 {
@@ -846,7 +845,7 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G>
         // and here we verify that we have the permission to call `borrow`.
         self.inner.val.borrow(Tracked(read_perm))
     }
-}*/
+}
 } // verus!
 
 /*
@@ -1062,7 +1061,7 @@ impl<'a, T /*: ?Sized*/, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G>
     }*/
 
 }
-/* 
+
 #[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G>
 {
@@ -1070,18 +1069,18 @@ impl<T /*: ?Sized*/, G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G>
 
     #[verus_spec]
     fn deref(&self) -> &T {
-        proof_decl! {
-            let tracked read_perm = self.v_perm.borrow().borrow();
-        }
         proof!{
             use_type_invariant(self);
+        }
+        proof_decl! {
+            let tracked read_perm = self.v_token.borrow().tracked_borrow().borrow();
         }
         // unsafe { &*self.inner.val.get() }
         // The internal implementation of `PCell<T>::borrow` is exactly unsafe { &(*(*self.ucell).get()) },
         // and here we verify that we have the permission to call `borrow`.
         self.inner.val.borrow(Tracked(read_perm))
     }
-}*/
+}
 } // verus!
 
 /*
