@@ -117,14 +117,14 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     pub open spec fn wf(self) -> bool {
         &&& 1 <= self.frac() <= TOTAL
         &&& self.protocol_monoid().is_valid()
-        &&& self.is_resource_owner() ==> (self.has_resource()<==> !self.has_no_resource())
+        &&& self.is_resource_owner() ==> (self.has_resource() <==> !self.has_no_resource())
         &&& (self.is_left() <==> !self.is_right())
     }
 
     closed spec fn type_inv_inner(r: CsumP<A, B, TOTAL>) -> bool {
         &&& 1 <= r.frac() <= TOTAL
         &&& r.is_valid()
-        &&& r.is_resource_owner() ==> (r.has_resource()<==> !r.has_no_resource())
+        &&& r.is_resource_owner() ==> (r.has_resource() <==> !r.has_no_resource())
         &&& (r.is_left() <==> !r.is_right())
     }
 
@@ -230,10 +230,13 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         use_type_invariant(&*self);
         use_type_invariant(other);
         self.r.validate_with_shared(&other.r);
-    } 
+    }
 
     /// The existence of a `OneLeftOwner` token with the same id ensures this token is a Left token that is not the resource owner.
-    pub proof fn validate_with_one_left_owner(tracked &mut self, tracked other: &OneLeftOwner<A, B, TOTAL>)
+    pub proof fn validate_with_one_left_owner(
+        tracked &mut self,
+        tracked other: &OneLeftOwner<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -249,7 +252,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// The existence of a `OneRightOwner` token with the same id ensures this token is a Right token that is not the resource owner.
-    pub proof fn validate_with_one_right_owner(tracked &mut self, tracked other: &OneRightOwner<A, B, TOTAL>)
+    pub proof fn validate_with_one_right_owner(
+        tracked &mut self,
+        tracked other: &OneRightOwner<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -265,7 +271,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// The existence of a `OneLeftKnowledge` token with the same id ensures this token is a Left token.
-    pub proof fn validate_with_one_left_knowledge(tracked &mut self, tracked other: &OneLeftKnowledge<A, B, TOTAL>)
+    pub proof fn validate_with_one_left_knowledge(
+        tracked &mut self,
+        tracked other: &OneLeftKnowledge<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -280,7 +289,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// The existence of a `OneRightKnowledge` token with the same id ensures this token is a Right token.
-    pub proof fn validate_with_one_right_knowledge(tracked &mut self, tracked other: &OneRightKnowledge<A, B, TOTAL>)
+    pub proof fn validate_with_one_right_knowledge(
+        tracked &mut self,
+        tracked other: &OneRightKnowledge<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -601,7 +613,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `OneRightOwner`, giving it the resource.
-    pub proof fn split_one_right_owner(tracked &mut self) -> (tracked res: OneRightOwner<A, B, TOTAL>)
+    pub proof fn split_one_right_owner(tracked &mut self) -> (tracked res: OneRightOwner<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_right(),
             old(self).is_resource_owner(),
@@ -623,7 +639,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Splits a `OneLeftKnowledge`, without giving it the resource.
-    pub proof fn split_one_left_knowledge(tracked &mut self) -> (tracked res: OneLeftKnowledge<A, B, TOTAL>)
+    pub proof fn split_one_left_knowledge(tracked &mut self) -> (tracked res: OneLeftKnowledge<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_left(),
             old(self).frac() > 1,
@@ -637,14 +657,18 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.has_resource() ==> self.resource() == old(self).resource(),
             res.id() == old(self).id(),
             res.wf(),
-        {
-            use_type_invariant(&*self);
-            let tracked r = Self::split_left_without_resource_helper(&mut self.r, 1);
-            OneLeftKnowledge { r: Left { r } }
-        }
-    
+    {
+        use_type_invariant(&*self);
+        let tracked r = Self::split_left_without_resource_helper(&mut self.r, 1);
+        OneLeftKnowledge { r: Left { r } }
+    }
+
     /// Splits a `OneRightKnowledge`, without giving it the resource.
-    pub proof fn split_one_right_knowledge(tracked &mut self) -> (tracked res: OneRightKnowledge<A, B, TOTAL>)
+    pub proof fn split_one_right_knowledge(tracked &mut self) -> (tracked res: OneRightKnowledge<
+        A,
+        B,
+        TOTAL,
+    >)
         requires
             old(self).is_right(),
             old(self).frac() > 1,
@@ -658,11 +682,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             self.has_resource() ==> self.resource() == old(self).resource(),
             res.id() == old(self).id(),
             res.wf(),
-        {
-            use_type_invariant(&*self);
-            let tracked r = Self::split_right_without_resource_helper(&mut self.r, 1);
-            OneRightKnowledge { r: Right { r } }
-        }
+    {
+        use_type_invariant(&*self);
+        let tracked r = Self::split_right_without_resource_helper(&mut self.r, 1);
+        OneRightKnowledge { r: Right { r } }
+    }
 
     /// Takes the resource out of the token if it is in the left variant.
     pub proof fn take_resource_left(tracked &mut self) -> (tracked res: A)
@@ -1045,7 +1069,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.is_left(),
-            self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
+            self.is_resource_owner() == (old(self).is_resource_owner()
+                || other.is_resource_owner()),
             self.has_resource() == (old(self).has_resource() || other.has_resource()),
             self.has_resource() ==> self.resource() == if old(self).is_resource_owner() {
                 old(self).resource()
@@ -1078,7 +1103,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 || other.value().is_resource_owner()),
             r.value().has_resource() == (old(r).value().has_resource()
                 || other.value().has_resource()),
-            r.value().has_resource() ==> r.value().resource() == if old(r).value().is_resource_owner() {
+            r.value().has_resource() ==> r.value().resource() == if old(
+                r,
+            ).value().is_resource_owner() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
@@ -1098,7 +1125,8 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.is_right(),
-            self.is_resource_owner() == (old(self).is_resource_owner() || other.is_resource_owner()),
+            self.is_resource_owner() == (old(self).is_resource_owner()
+                || other.is_resource_owner()),
             self.has_resource() == (old(self).has_resource() || other.has_resource()),
             self.has_resource() ==> self.resource() == if old(self).is_resource_owner() {
                 old(self).resource()
@@ -1131,7 +1159,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
                 || other.value().is_resource_owner()),
             r.value().has_resource() == (old(r).value().has_resource()
                 || other.value().has_resource()),
-            r.value().has_resource() ==> r.value().resource() == if old(r).value().is_resource_owner() {
+            r.value().has_resource() ==> r.value().resource() == if old(
+                r,
+            ).value().is_resource_owner() {
                 old(r).value().resource()
             } else {
                 other.value().resource()
@@ -1183,7 +1213,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Joins a `OneLeftKnowledge` token.
-    pub proof fn join_one_left_knowledge(tracked &mut self, tracked other: OneLeftKnowledge<A, B, TOTAL>)
+    pub proof fn join_one_left_knowledge(
+        tracked &mut self,
+        tracked other: OneLeftKnowledge<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -1202,7 +1235,10 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
     }
 
     /// Joins a `OneRightKnowledge` token.
-    pub proof fn join_one_right_knowledge(tracked &mut self, tracked other: OneRightKnowledge<A, B, TOTAL>)
+    pub proof fn join_one_right_knowledge(
+        tracked &mut self,
+        tracked other: OneRightKnowledge<A, B, TOTAL>,
+    )
         requires
             old(self).id() == other.id(),
         ensures
@@ -1628,7 +1664,7 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
     }
 }
 
-impl <A, B, const TOTAL: u64> OneLeftOwner<A,B,TOTAL> {
+impl<A, B, const TOTAL: u64> OneLeftOwner<A, B, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.id()
@@ -1663,7 +1699,7 @@ impl <A, B, const TOTAL: u64> OneLeftOwner<A,B,TOTAL> {
     closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-    
+
     /// Type invariant.
     pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_left()
@@ -1750,7 +1786,7 @@ impl <A, B, const TOTAL: u64> OneLeftOwner<A,B,TOTAL> {
     }
 }
 
-impl <A,B,const TOTAL: u64> OneRightOwner<A,B,TOTAL> {
+impl<A, B, const TOTAL: u64> OneRightOwner<A, B, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.id()
@@ -1785,7 +1821,7 @@ impl <A,B,const TOTAL: u64> OneRightOwner<A,B,TOTAL> {
     closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-    
+
     /// Type invariant.
     pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_right()
@@ -1872,7 +1908,7 @@ impl <A,B,const TOTAL: u64> OneRightOwner<A,B,TOTAL> {
     }
 }
 
-impl <A, B, const TOTAL: u64> OneLeftKnowledge<A,B,TOTAL> {
+impl<A, B, const TOTAL: u64> OneLeftKnowledge<A, B, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.id()
@@ -1892,7 +1928,7 @@ impl <A, B, const TOTAL: u64> OneLeftKnowledge<A,B,TOTAL> {
     closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-    
+
     /// Type invariant.
     pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_left()
@@ -1909,9 +1945,12 @@ impl <A, B, const TOTAL: u64> OneLeftKnowledge<A,B,TOTAL> {
     {
         use_type_invariant(&*self);
     }
-    
+
     /// The existence of `OneRightKnowledge` token ensures they can not have the same id.
-    pub proof fn validate_with_one_right_knowledge(tracked & self, tracked other: &OneRightKnowledge<A, B, TOTAL>)
+    pub proof fn validate_with_one_right_knowledge(
+        tracked &self,
+        tracked other: &OneRightKnowledge<A, B, TOTAL>,
+    )
         ensures
             self.id() != other.id(),
     {
@@ -1923,7 +1962,10 @@ impl <A, B, const TOTAL: u64> OneLeftKnowledge<A,B,TOTAL> {
     }
 
     /// The existence of `OneRightOwner` token ensures they can not have the same id.
-    pub proof fn validate_with_one_right_owner(tracked & self, tracked other: &OneRightOwner<A, B, TOTAL>)
+    pub proof fn validate_with_one_right_owner(
+        tracked &self,
+        tracked other: &OneRightOwner<A, B, TOTAL>,
+    )
         ensures
             self.id() != other.id(),
     {
@@ -1935,8 +1977,7 @@ impl <A, B, const TOTAL: u64> OneLeftKnowledge<A,B,TOTAL> {
     }
 }
 
-
-impl <A, B, const TOTAL: u64> OneRightKnowledge<A,B,TOTAL> {
+impl<A, B, const TOTAL: u64> OneRightKnowledge<A, B, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.r.id()
@@ -1956,7 +1997,7 @@ impl <A, B, const TOTAL: u64> OneRightKnowledge<A,B,TOTAL> {
     closed spec fn type_inv(self) -> bool {
         self.wf()
     }
-    
+
     /// Type invariant.
     pub open spec fn wf(self) -> bool {
         &&& self.protocol_monoid().is_right()
@@ -1975,7 +2016,10 @@ impl <A, B, const TOTAL: u64> OneRightKnowledge<A,B,TOTAL> {
     }
 
     /// The existence of `OneLeftKnowledge` token ensures they can not have the same id.
-    pub proof fn validate_with_one_left_knowledge(tracked & self, tracked other: &OneLeftKnowledge<A, B, TOTAL>)
+    pub proof fn validate_with_one_left_knowledge(
+        tracked &self,
+        tracked other: &OneLeftKnowledge<A, B, TOTAL>,
+    )
         ensures
             self.id() != other.id(),
     {
@@ -1987,7 +2031,10 @@ impl <A, B, const TOTAL: u64> OneRightKnowledge<A,B,TOTAL> {
     }
 
     /// The existence of `OneLeftOwner` token ensures they can not have the same id.
-    pub proof fn validate_with_one_left_owner(tracked & self, tracked other: &OneLeftOwner<A, B, TOTAL>)
+    pub proof fn validate_with_one_left_owner(
+        tracked &self,
+        tracked other: &OneLeftOwner<A, B, TOTAL>,
+    )
         ensures
             self.id() != other.id(),
     {
@@ -1998,4 +2045,5 @@ impl <A, B, const TOTAL: u64> OneRightKnowledge<A,B,TOTAL> {
         }
     }
 }
+
 } // verus!

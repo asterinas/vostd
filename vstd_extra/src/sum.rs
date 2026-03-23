@@ -12,11 +12,11 @@ pub tracked enum Sum<L, R> {
 
 impl<L, R> Sum<L, R> {
     pub open spec fn left(self) -> L {
-        self -> Left_0
+        self->Left_0
     }
 
     pub open spec fn right(self) -> R {
-        self -> Right_0
+        self->Right_0
     }
 
     pub proof fn new_left(tracked left: L) -> (tracked res: Self)
@@ -93,7 +93,7 @@ impl<L, R> Sum<L, R> {
         requires
             *old(self) is Left,
         ensures
-            res == old(self) -> Left_0,
+            res == old(self)->Left_0,
             *self is Left,
             self->Left_0 == new_left,
     {
@@ -106,7 +106,7 @@ impl<L, R> Sum<L, R> {
         requires
             *old(self) is Right,
         ensures
-            res == old(self) -> Right_0,
+            res == old(self)->Right_0,
             *self is Right,
             self->Right_0 == new_right,
     {
