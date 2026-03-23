@@ -354,7 +354,6 @@ closed spec fn wf_upgradeable_guard_token<T>(core_token_id: Loc, frac_id: Loc, c
         &&& token.wf()
     }
 
-/* 
 #[verus_verify]
 impl<T, G> RwLock<T, G> {
     
@@ -365,20 +364,21 @@ impl<T, G> RwLock<T, G> {
 
         // Proof code
         proof {lemma_consts_properties();}
-        let tracked frac_perm = RwFrac::<T>::new(perm);
+        let tracked mut frac_perm = Frac::<PointsTo<T>>::new(perm);
+        let tracked read_half_cell_perm = frac_perm.split(1int);
         let ghost frac_id = frac_perm.id();
-        let tracked core_token = SumResource::alloc_left(frac_perm);
-        proof_decl!{
-            let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
-            let tracked upread_retract_token = UniqueToken::alloc(());
-            let tracked upreader_guard_token = UniqueToken::alloc(());
-            let tracked read_guard_token = TokenResource::<MAX_READER_U64>::alloc(());
-        }
+        let tracked mut core_token = SumResource::alloc_left(frac_perm);
+        let tracked read_retract_token = TokenResource::<V_MAX_READ_RETRACT_FRACS>::alloc(());
+        let tracked upread_retract_token = UniqueToken::alloc(());
+        let tracked upreader_guard_token = core_token.split_one_left_owner();
+        let tracked left_token = core_token.split_one_left_knowledge();
+        let tracked read_guard_token = FracResource::<ReadPerm<T>, MAX_READER_U64>::alloc(
+            (read_half_cell_perm, left_token)
+        );
         let ghost v_id = RwId {
             frac_id,
             core_token_id: core_token.id(),
             upread_retract_token_id: upread_retract_token.id(),
-            upreader_guard_token_id: upreader_guard_token.id(),
             read_retract_token_id: read_retract_token.id(),
             read_guard_token_id: read_guard_token.id(),
         };
@@ -387,7 +387,7 @@ impl<T, G> RwLock<T, G> {
             read_retract_token,
             upread_retract_token: Some(upread_retract_token),
             upreader_guard_token: Some(upreader_guard_token),
-            read_guard_token,
+            read_guard_token: Sum::Left(read_guard_token),
         };
 
         Self {
@@ -400,7 +400,7 @@ impl<T, G> RwLock<T, G> {
         }
     }
 }
-*/
+
 #[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Acquires a read lock and spin-wait until it can be acquired.
