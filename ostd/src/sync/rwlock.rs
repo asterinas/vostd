@@ -714,7 +714,6 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
         &&& self.inner.core_token_id() == mode_knowledge.id()
         &&& self.inner.frac_id() == read_half_cell_perm.id()
         &&& self.inner.cell_id() == read_half_cell_perm.resource().id()
-        &&& self.inner.cell_id() == read_half_cell_perm.resource()
         &&& self.v_token@.id() == self.inner.read_guard_token_id()
         &&& read_half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
