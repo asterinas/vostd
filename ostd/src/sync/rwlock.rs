@@ -405,7 +405,6 @@ impl<T, G> RwLock<T, G> {
 */
 #[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
-    /* 
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
     /// The calling thread will spin-wait until there are no writers or
@@ -421,7 +420,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 core::hint::spin_loop();
             }
         }
-    }*/
+    }
 
     /// Acquires a write lock and spin-wait until it can be acquired.
     ///
@@ -459,7 +458,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 core::hint::spin_loop();
             }
         }
-    }
+    }*/
 
     /// Attempts to acquire a read lock.
     ///
@@ -467,10 +466,8 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         proof_decl!{
-            let tracked mut perm: Option<RwFrac<T>> = None;
+            let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
             let tracked mut retract_read_token: Option<Token<V_MAX_READ_RETRACT_FRACS>> = None;
-            let tracked mut left_token = None;
-            let tracked mut read_guard_token: Option<Token<MAX_READER_U64>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -490,11 +487,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
-                    let tracked mut tmp = g.core_token.take_resource_left();
-                    perm = Some(tmp.split(1int));
-                    g.core_token.put_resource_left(tmp);
-                    left_token = Some(g.core_token.split_left_without_resource(1int));
-                    read_guard_token = Some(g.read_guard_token.split_one());
+                    let tracked mut tmp = g.read_guard_token.tracked_take_left();
+                    read_token = Some(tmp.split_one());
+                    g.read_guard_token = Sum::Left(tmp);
                 } else {
                     retract_read_token = Some(g.read_retract_token.split_one());
                 }
@@ -504,9 +499,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             Some(RwLockReadGuard {
                 inner: self,
                 guard,
-                v_perm: Tracked(perm.tracked_unwrap()),
-                v_cell_token: Tracked(left_token.tracked_unwrap()),
-                v_read_token: Tracked(read_guard_token.tracked_unwrap()),
+                v_token: Tracked(read_token.tracked_unwrap()),
             })
         } else {
             // self.lock.fetch_sub(READER, Release);
@@ -524,7 +517,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             );
             None
         }
-    }*/
+    }
 
     /// Attempts to acquire a write lock.
     ///
