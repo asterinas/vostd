@@ -691,17 +691,17 @@ unsafe impl<T: Send, G> Send for RwLock<T, G> {}
 unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {}
 
 #[verus_verify]
-impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
+impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
 #[verus_verify]
-impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
+impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
 
 #[verus_verify]
-impl<T /*?Sized*/,, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
+impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
 
