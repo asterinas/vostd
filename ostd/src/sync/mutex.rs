@@ -79,23 +79,11 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     /// This method runs in a block way until the mutex can be acquired.
     #[track_caller]
     #[verifier::external_body]
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         self.queue.wait_until(|| self.try_lock())
     }
 
-    /// Acquires the mutex through an [`Arc`].
-    ///
-    /// The method is similar to [`lock`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the mutex guard.
-    ///
-    /// [`lock`]: Self::lock
-    #[track_caller]
-    #[verifier::external_body]
-    pub fn lock_arc(self: &Arc<Self>) -> ArcMutexGuard<T> {
-        self.queue.wait_until(|| self.try_lock_arc())
-    }
-
-    /// Tries Acquire the mutex immediately.
+    /// Tries to acquire the mutex immediately.
     #[verus_spec]
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
@@ -114,31 +102,6 @@ impl<T  /* : ?Sized */ > Mutex<T> {
                     Tracked(perm),
                     Tracked(guard_token),
                 )
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Tries acquire the mutex through an [`Arc`].
-    ///
-    /// The method is similar to [`try_lock`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the mutex guard.
-    ///
-    /// [`try_lock`]: Self::try_lock
-    #[verus_spec]
-    pub fn try_lock_arc(self: &Arc<Self>) -> Option<ArcMutexGuard<T>> {
-        proof_decl! {
-            let tracked mut locked_state: Option<(PointsTo<T>, UniqueToken)> = None;
-        }
-        if #[verus_spec(with => Tracked(locked_state))] self.acquire_lock() {
-            proof_decl! {
-                let tracked (perm, guard_token) = locked_state.tracked_unwrap();
-            }
-            Some(ArcMutexGuard {
-                mutex: self.clone(),
-                v_perm: Tracked(perm),
-                v_guard_token: Tracked(guard_token),
             })
         } else {
             None
@@ -220,6 +183,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
 unsafe impl<T: ?Sized + Send> Send for Mutex<T> {}
 unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {} */
 
+/// A guard that provides exclusive access to the data protected by a [`Mutex`].
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
@@ -320,6 +284,7 @@ impl<T> !Send for ArcMutexGuard<T> {}
 
 // unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+    /// Returns the [`Mutex`] associated with this guard.
     #[verifier::external_body]
     pub fn get_lock(guard: &MutexGuard<'a, T>) -> &'a Mutex<T> {
         guard.mutex
