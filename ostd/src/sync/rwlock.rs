@@ -55,7 +55,7 @@ type NoPerm<T> = Empty<PointsTo<T>>;
 /// Half of the permission for read access, one for `RwLockUpgradeableGuard` and the other for all `RwLockReadGuard`s.
 type HalfPerm<T> = Frac<PointsTo<T>>;
 /// The permission for read access can be further split into `MAX_READER` pieces.
-type ReadPerm<T> = (HalfPerm<T>,Left<HalfPerm<T>,NoPerm<T>,3>);
+type ReadPerm<T> = (HalfPerm<T>,OneLeftKnowledge<HalfPerm<T>,NoPerm<T>,3>);
 
 tracked struct RwPerms<T> {
     /// This token tracks whether the write permission is given out. If it is `Left`, it stores the knowledge that 
@@ -72,7 +72,7 @@ tracked struct RwPerms<T> {
     /// The permission to retract the set of `UPGRADEABLE_READER` bit.
     upread_retract_token: Option<UniqueToken>,
     /// Tracks whether there is a live `RwLockUpgradeableGuard`, also stores half of the permission for read access.
-    upreader_guard_token: Option<Left<HalfPerm<T>,NoPerm<T>,3>>,
+    upreader_guard_token: Option<OneLeftOwner<HalfPerm<T>,NoPerm<T>,3>>,
     /// Tracks the number of live `RwLockReadGuard`s. If it is `Left`, it stores the remaining read permissions.
     /// If it is `Right`, it stores an empty token indicating the permission has been given out.
     read_guard_token: Sum<FracResource<ReadPerm<T>,MAX_READER_U64>, Empty<ReadPerm<T>, MAX_READER_U64>>,
@@ -280,8 +280,6 @@ closed spec fn wf(self) -> bool {
                 &&& read_half_cell_perm.resource().id() == val.id()
                 &&& token.id() == v_id@.read_guard_token_id
                 &&& read_half_cell_perm.frac() == 1
-                &&& mode_knowledge.frac() == 1
-                &&& !mode_knowledge.is_resource_owner()
             },
             Sum::Right(empty) => {
                 &&& empty.id() == v_id@.read_guard_token_id
@@ -348,15 +346,13 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
-closed spec fn wf_upgradeable_guard_token<T>(core_token_id: Loc, frac_id: Loc, cell_id: CellId, token: Left<HalfPerm<T>,NoPerm<T>,3>) -> bool {
+closed spec fn wf_upgradeable_guard_token<T>(core_token_id: Loc, frac_id: Loc, cell_id: CellId, token: OneLeftOwner<HalfPerm<T>,NoPerm<T>,3>) -> bool {
         let half_cell_perm = token.resource();
         &&& token.id() == core_token_id
         &&& half_cell_perm.id() == frac_id
         &&& half_cell_perm.resource().id() == cell_id
-        &&& token.is_resource_owner()
         &&& token.has_resource()
         &&& half_cell_perm.frac() == 1
-        &&& token.frac() == 1
         &&& token.wf()
     }
 
@@ -537,7 +533,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
-            let tracked mut guard_token: Option<Right<HalfPerm<T>, NoPerm<T>, 3>> = None;
+            let tracked mut guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
         proof!{
             use_type_invariant(self);
@@ -556,34 +552,23 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             ghost g => {
                 let prev_usize = prev as usize;
                 let next_usize = next as usize;
-                lemma_consts_properties_value(prev_usize);
-                lemma_consts_properties_value(next_usize);
-                lemma_consts_properties_prev_next(prev_usize, next_usize);
                 if res is Ok {
-                    assert(prev_usize == 0);
-                    assert(next_usize == WRITER);
-                    assert(g.core_token.is_left());
-                    assert(g.read_guard_token is Left);
-                    assert(g.upreader_guard_token is Some);
-                    assert(g.upread_retract_token is Some);
                     // Retract the fractional permission for read access.
                     let tracked read_guard_token = g.read_guard_token.tracked_take_left();
                     let tracked (read_resource, read_empty) = read_guard_token.take_resource();
                     g.read_guard_token = Sum::Right(read_empty);
                     let tracked (read_half_cell_perm, left_token) = read_resource;
-                    g.core_token.validate_with_left(&left_token);
-                    g.core_token.join_left(left_token);
+                    g.core_token.join_one_left_knowledge(left_token);
                     // Retract the fractional permission for upgradeable reader.
                     let tracked upreader_guard_token = g.upreader_guard_token.tracked_take();
-                    g.core_token.validate_with_left(&upreader_guard_token);
-                    g.core_token.join_left(upreader_guard_token);
+                    g.core_token.join_one_left_owner(upreader_guard_token);
                     // Combine the two halves of the permission for read access to get the full permission and give it out.
                     let tracked mut pointsto = g.core_token.take_resource_left();
                     pointsto.combine(read_half_cell_perm);
                     let tracked (pointsto, empty) = pointsto.take_resource();
                     guard_perm = Some(pointsto);
                     let tracked f = g.core_token.change_to_right(empty);
-                    guard_token = Some(g.core_token.split_right_without_resource(1int));
+                    guard_token = Some(g.core_token.split_one_right_knowledge());
 
                 }
             }
@@ -748,8 +733,6 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
         &&& self.v_token@.id() == self.inner.read_guard_token_id()
         &&& read_half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
-        &&& mode_knowledge.frac() == 1
-        &&& !mode_knowledge.is_resource_owner()
     }
 }
 
@@ -840,7 +823,7 @@ pub struct RwLockWriteGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
     v_perm: Tracked<PointsTo<T>>,
-    v_token: Tracked<Right<HalfPerm<T>,NoPerm<T>,3>>
+    v_token: Tracked<OneRightKnowledge<HalfPerm<T>,NoPerm<T>,3>>
 }
 
 verus! {
@@ -850,8 +833,6 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     spec fn type_inv(self) -> bool {
         &&& self.inner.cell_id() == self.v_perm@.id()
         &&& self.inner.core_token_id() == self.v_token@.id()
-        &&& !self.v_token@.is_resource_owner()
-        &&& self.v_token@.frac() == 1
     }
 }
 
@@ -944,7 +925,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 pub struct RwLockUpgradeableGuard<'a, T/*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
-    v_token: Tracked<Left<HalfPerm<T>, NoPerm<T>, 3>>,
+    v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_, T, G> {
