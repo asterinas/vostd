@@ -459,8 +459,8 @@ pub(crate) fn unpark_target(runnable: Arc<Task>) {
 /// Enqueues a newly built task.
 ///
 /// Note that the new task is not guaranteed to run at once.
-#[track_caller]
 /*
+#[track_caller]
 pub(super) fn run_new_task(runnable: Arc<Task>) {
     // FIXME: remove this check for `SCHEDULER`.
     // Currently OSTD cannot know whether its user has injected a scheduler.
@@ -497,8 +497,8 @@ fn set_need_preempt(cpu_id: CpuId) {
 /// Dequeues the current task from its runqueue.
 ///
 /// This should only be called if the current is to exit.
-#[track_caller]
 /*
+#[track_caller]
 pub(super) fn exit_current() -> ! {
     let mut is_first_try = true;
 
@@ -524,8 +524,8 @@ pub(super) fn exit_current() -> ! {
 */
 
 /// Yields execution.
-#[track_caller]
 /*
+#[track_caller]
 pub(super) fn yield_now() {
     reschedule(|local_rq| {
         let should_pick_next = local_rq.update_current(UpdateFlags::Yield);

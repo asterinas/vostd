@@ -315,7 +315,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 !self.query_some_condition(*owner) ==>
                 self.query_none_ensures(*owner, state),
             old(owner)@.mappings == owner@.mappings,
-            forall |e:EntryOwner<C>| e.inv() && e.relate_region(*old(regions)) ==> e.relate_region(*regions),
+            forall |e:EntryOwner<C>| #[trigger] e.inv() && e.relate_region(*old(regions)) ==> e.relate_region(*regions),
     )]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
@@ -491,7 +491,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             proof {
                 assert forall |e: EntryOwner<C>|
-                    e.inv() && e.relate_region(*old(regions)) implies e.relate_region(*regions)
+                    #[trigger] e.inv() && e.relate_region(*old(regions)) implies e.relate_region(*regions)
                 by {
                     if e.is_node() || e.is_frame() {
                         let pa = e.meta_slot_paddr().unwrap();
@@ -878,7 +878,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     old(self).va <= m.va_range.start < self.va)
                                     =~= Set::<Mapping>::empty()) by {
                                     assert forall |m: Mapping|
-                                        !(old(owner)@.mappings.contains(m)
+                                        !(#[trigger] old(owner)@.mappings.contains(m)
                                         && old(self).va <= m.va_range.start
                                         && m.va_range.start < self.va) by {
                                         if old(owner)@.mappings.contains(m)
@@ -947,7 +947,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 old(self).va <= m.va_range.start < self.va)
                                 =~= Set::<Mapping>::empty()) by {
                                 assert forall |m: Mapping|
-                                    !(old(owner)@.mappings.contains(m)
+                                    !(#[trigger] old(owner)@.mappings.contains(m)
                                     && old(self).va <= m.va_range.start
                                     && m.va_range.start < self.va) by {
                                     if old(owner)@.mappings.contains(m)

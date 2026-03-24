@@ -77,7 +77,6 @@ pub enum LocalIrqDisabled {}
 pub struct ExLocalIrqDisabled(LocalIrqDisabled);
 
 #[verus_verify]
-#[verifier::external]
 impl SpinGuardian for LocalIrqDisabled {
     type Guard = DisabledLocalIrqGuard;
     type ReadGuard = DisabledLocalIrqGuard;
