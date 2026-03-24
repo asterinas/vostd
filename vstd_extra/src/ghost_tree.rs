@@ -467,9 +467,17 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     }
 
     /// `Node::new(lv)` has all-None children, so `tree_predicate_map` reduces to `f(default(lv), path)`.
-    pub proof fn new_tree_predicate_map(lv: nat, path: TreePath<N>, f: spec_fn(T, TreePath<N>) -> bool)
-        requires lv < L, Self::new(lv).inv(), f(T::default(lv), path),
-        ensures  Self::new(lv).tree_predicate_map(path, f),
+    pub proof fn new_tree_predicate_map(
+        lv: nat,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool,
+    )
+        requires
+            lv < L,
+            Self::new(lv).inv(),
+            f(T::default(lv), path),
+        ensures
+            Self::new(lv).tree_predicate_map(path, f),
     {
         // Self::new(lv).children[i] = None for all i, so the forall in tree_predicate_map is vacuous.
     }
@@ -494,9 +502,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 #![auto]
                 0 <= j < self.children.len()
                     && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
-                path.push_tail(j as usize),
-                f,
-            ) by {
+            path.push_tail(j as usize), f) by {
                 // self.children[j] = Some(Self::new(self.level + 1)) by new_val definition
                 assert(self.children[j] == Some(Self::new(self.level + 1)));
                 // child.inv() follows from self.inv() (recursive invariant)
@@ -945,6 +951,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
             self.lemma_recursive_insert_path_len_1(path, node);
+            assert(self.insert(path.index(0), node).level == self.level);
         } else {
             self.lemma_recursive_insert_path_len_step(path, node);
             let (hd, tl) = path.pop_head();
@@ -952,15 +959,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             if self.child(hd) is Some {
                 let c = self.child(hd)->Some_0;
                 self.child_some_properties(hd);
-                admit();
-                c.lemma_recursive_insert_preserves_level(tl, node);
+                assert(self.insert(hd, c.recursive_insert(tl, node)).level == self.level);
             } else {
                 let c = Node::new(self.level + 1);
-                admit();
-                Self::new_preserves_inv(self.level + 1);
-                if forall|i: int| 0 <= i < N ==> self.value.rel_children(i, Some(c.value)) {
-                    c.lemma_recursive_insert_preserves_level(tl, node);
-                }
+                assert(self.insert(hd, c.recursive_insert(tl, node)).level == self.level);
             }
         }
     }
