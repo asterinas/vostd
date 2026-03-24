@@ -27,10 +27,15 @@ use core::marker::PhantomData;
 verus! {
 
 impl MetaSlot {
-
-    pub open spec fn get_from_unused_inner_perms_spec(as_unique: bool, perms: MetadataInnerPerms) -> bool
-    {
-        &&& perms.ref_count.value() == (if as_unique { REF_COUNT_UNIQUE as u64 } else { 1u64 })
+    pub open spec fn get_from_unused_inner_perms_spec(
+        as_unique: bool,
+        perms: MetadataInnerPerms,
+    ) -> bool {
+        &&& perms.ref_count.value() == (if as_unique {
+            REF_COUNT_UNIQUE as u64
+        } else {
+            1u64
+        })
         &&& perms.in_list.value() == 0
         &&& perms.storage.is_init()
         &&& perms.vtable_ptr.is_init()
@@ -50,7 +55,10 @@ impl MetaSlot {
         let idx = frame_to_index(paddr);
         {
             &&& post.slots =~= pre.slots.remove(idx)
-            &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, post.slot_owners[idx].inner_perms)
+            &&& MetaSlot::get_from_unused_inner_perms_spec(
+                as_unique,
+                post.slot_owners[idx].inner_perms,
+            )
             &&& post.slot_owners[idx].usage == PageUsage::Frame
             &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
@@ -69,6 +77,8 @@ impl MetaSlot {
     ) -> bool {
         &&& ptr.addr() == frame_to_meta(paddr)
         &&& perm.addr() == frame_to_meta(paddr)
+        &&& perm.is_init()
+        &&& perm.wf(&perm.inner_perms)
         &&& MetaSlot::get_from_unused_inner_perms_spec(as_unique, perm.inner_perms)
     }
 
@@ -87,7 +97,11 @@ impl MetaSlot {
         pre_perms + 1 >= REF_COUNT_MAX
     }
 
-    pub open spec fn get_from_in_use_success(paddr: Paddr, pre: MetaRegionOwners, post: MetaRegionOwners) -> bool
+    pub open spec fn get_from_in_use_success(
+        paddr: Paddr,
+        pre: MetaRegionOwners,
+        post: MetaRegionOwners,
+    ) -> bool
         recommends
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
@@ -97,10 +111,14 @@ impl MetaSlot {
         let pre_perms = pre.slot_owners[idx].inner_perms.ref_count.value();
         {
             &&& post.slot_owners[idx].inner_perms.ref_count.value() == pre_perms + 1
-            &&& post.slot_owners[idx].inner_perms.ref_count.id() == pre.slot_owners[idx].inner_perms.ref_count.id()
-            &&& post.slot_owners[idx].inner_perms.storage == pre.slot_owners[idx].inner_perms.storage
-            &&& post.slot_owners[idx].inner_perms.vtable_ptr == pre.slot_owners[idx].inner_perms.vtable_ptr
-            &&& post.slot_owners[idx].inner_perms.in_list == pre.slot_owners[idx].inner_perms.in_list
+            &&& post.slot_owners[idx].inner_perms.ref_count.id()
+                == pre.slot_owners[idx].inner_perms.ref_count.id()
+            &&& post.slot_owners[idx].inner_perms.storage
+                == pre.slot_owners[idx].inner_perms.storage
+            &&& post.slot_owners[idx].inner_perms.vtable_ptr
+                == pre.slot_owners[idx].inner_perms.vtable_ptr
+            &&& post.slot_owners[idx].inner_perms.in_list
+                == pre.slot_owners[idx].inner_perms.in_list
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
@@ -110,8 +128,8 @@ impl MetaSlot {
     }
 
     pub open spec fn drop_last_in_place_safety_cond(owner: MetaSlotOwner) -> bool {
-        &&& (owner.inner_perms.ref_count.value() == 0
-            || owner.inner_perms.ref_count.value() == REF_COUNT_UNIQUE)
+        &&& (owner.inner_perms.ref_count.value() == 0 || owner.inner_perms.ref_count.value()
+            == REF_COUNT_UNIQUE)
         &&& owner.inner_perms.storage.is_init()
         &&& owner.inner_perms.in_list.value() == 0
         &&& owner.raw_count == 0
