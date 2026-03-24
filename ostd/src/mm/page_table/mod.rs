@@ -258,7 +258,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
             0 < Self::BASE_PAGE_SIZE_spec(),
             is_pow2(Self::BASE_PAGE_SIZE_spec() as int),
     {
-        admit()
+        C::C::lemma_BASE_PAGE_SIZE_properties();
     }
 
     proof fn lemma_PTE_SIZE_properties()
@@ -266,7 +266,7 @@ impl<C: PageTableConfig> PagingConstsTrait for C {
             0 < Self::PTE_SIZE_spec() <= Self::BASE_PAGE_SIZE(),
             is_pow2(Self::PTE_SIZE_spec() as int),
     {
-        admit()
+        C::C::lemma_PTE_SIZE_properties();
     }
 }
 
