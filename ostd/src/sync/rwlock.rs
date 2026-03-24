@@ -738,6 +738,16 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
         &&& read_half_cell_perm.frac() == 1
         &&& self.v_token@.frac() == 1
     }
+
+    /// The value stored in the lock.
+    pub closed spec fn value(self) -> T {
+        *self.v_token@.resource().0.resource().value()
+    }
+
+    /// The value stored in the lock. It is an alias of `Self::value`.
+    pub open spec fn view(self) -> T {
+        self.value()
+    }
 }
 
 #[verus_verify]
@@ -822,6 +832,16 @@ impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     spec fn type_inv(self) -> bool {
         &&& self.inner.cell_id() == self.v_perm@.id()
         &&& self.inner.core_token_id() == self.v_token@.id()
+    }
+
+    /// The value stored in the lock.
+    pub closed spec fn value(self) -> T {
+        *self.v_perm@.value()
+    }
+
+    /// The value stored in the lock. It is an alias of `Self::value`.
+    pub open spec fn view(self) -> T {
+        self.value()
     }
 }
 
@@ -939,6 +959,16 @@ impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             self.inner.cell_id(),
             self.v_token@,
         )
+    }
+
+    /// The value stored in the lock.
+    pub closed spec fn value(self) -> T {
+        *self.v_token@.resource().resource().value()
+    }
+
+    /// The value stored in the lock. It is an alias of `Self::value`.
+    pub open spec fn view(self) -> T {
+        self.value()
     }
 }
 
