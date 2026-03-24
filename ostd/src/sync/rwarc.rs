@@ -45,6 +45,18 @@ closed spec fn wf(&self) -> bool {
 }
 
 impl<T> RwArc<T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
+    pub closed spec fn wf(self) -> bool {
+        &&& self.0.wf()
+        &&& self.0.num_rw.well_formed()
+    }
+}
+
+impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
     pub fn new(data: T) -> Self {
         //let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
@@ -95,13 +107,17 @@ impl<T> RwArc<T> {
     }
 }
 
+#[verus_verify]
 impl<T> Clone for RwArc<T> {
-    fn clone(&self) -> (res: Self) 
-        ensures
-            res == *self,
+    #[verus_spec]
+    fn clone(&self) -> Self 
+        returns
+            self,
     {
+        proof!{
+            use_type_invariant(self);
+        }
         let inner = self.0.clone();
-        assume(inner.num_rw.well_formed());
         // Note that overflowing the counter will make it unsound. But not to worry: the above
         // `Arc::clone` must have already aborted the kernel before this happens.
         // inner.num_rw.fetch_add(1, Ordering::Relaxed);
