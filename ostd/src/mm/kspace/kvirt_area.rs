@@ -169,17 +169,17 @@ fn collect_largest_pages(
     len: usize,
 ) -> (res: alloc::vec::Vec<(Paddr, u8)>)
     ensures
-        forall |i: int| 0 <= i < res@.len() ==> res@[i].0 % PAGE_SIZE == 0,
-        forall |i: int| 0 <= i < res@.len() ==> 1 <= res@[i].1 && res@[i].1 <= NR_LEVELS,
+        forall |i: int| 0 <= i < res@.len() ==> (#[trigger] res@[i]).0 % PAGE_SIZE == 0,
+        forall |i: int| 0 <= i < res@.len() ==> 1 <= (#[trigger] res@[i]).1 <= NR_LEVELS,
         forall |i: int| 0 <= i < res@.len() ==>
-            res@[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+            (#[trigger] res@[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
         sum_page_sizes_spec(res@, 0, res@.len() as int) == len as nat,
         forall |i: int| 0 <= i < res@.len() ==>
-            (va as nat + sum_page_sizes_spec(res@, 0, i))
+            (va as nat + #[trigger] sum_page_sizes_spec(res@, 0, i))
                 % page_size(res@[i].1) as nat == 0,
         // PA tracking: each element's physical address equals pa + sum of preceding page sizes.
         forall |i: int| 0 <= i < res@.len() ==>
-            res@[i].0 as nat == pa as nat + sum_page_sizes_spec(res@, 0, i),
+            (#[trigger] res@[i]).0 as nat == pa as nat + sum_page_sizes_spec(res@, 0, i),
 {
     largest_pages::<KernelPtConfig>(va, pa, len).collect()
 }
@@ -375,17 +375,17 @@ impl KVirtArea {
             area_size <= usize::MAX / 2,
             old(entry_owners).len() == frames.len(),
             frames.len() as int * PAGE_SIZE as int + map_offset as int <= area_size as int,
-            forall |i: int| 0 <= i < old(entry_owners).len() ==> old(entry_owners)[i].inv(),
+            forall |i: int| 0 <= i < old(entry_owners).len() ==> (#[trigger] old(entry_owners)[i]).inv(),
             forall |i: int| 0 <= i < frames.len() ==>
-                frame_entry_wf(frames[i], prop, old(entry_owners)[i]),
+                frame_entry_wf(frames[i], prop, #[trigger] old(entry_owners)[i]),
             forall |i: int| 0 <= i < frames.len() ==>
                 CursorMut::<'a, KernelPtConfig, A>::item_not_mapped(
-                    MappedItem::Tracked(frame_as_dynframe(frames[i]), prop),
+                    MappedItem::Tracked(frame_as_dynframe(#[trigger] frames[i]), prop),
                     *old(regions),
                 ),
             // Frames have distinct physical addresses (follows from linearity of slot_perm ownership).
             forall |i: int, j: int| 0 <= i < j < frames.len() ==>
-                old(entry_owners)[i].frame.unwrap().mapped_pa != old(entry_owners)[j].frame.unwrap().mapped_pa,
+                (#[trigger] old(entry_owners)[i]).frame.unwrap().mapped_pa != (#[trigger] old(entry_owners)[j]).frame.unwrap().mapped_pa,
     {
         proof {
             kvirt_alloc_succeeds(area_size);            
@@ -430,7 +430,7 @@ impl KVirtArea {
                 cursor.inner.invariants(cursor_owner, *regions, *guards),
                 forall |entry: EntryOwner<KernelPtConfig>| entry_owners.contains(entry) ==>
                     cursor.map_cursor_requires(cursor_owner, *guards),
-                forall |i: int| 0 <= i < entry_owners.len() ==> entry_owners[i].inv(),
+                forall |i: int| 0 <= i < entry_owners.len() ==> (#[trigger]entry_owners[i]).inv(),
                 cursor.inner.va % PAGE_SIZE == 0,
                 cursor.inner.va as int + entry_owners.len() as int * PAGE_SIZE as int
                     <= cursor.inner.barrier_va.end as int,
@@ -447,7 +447,7 @@ impl KVirtArea {
                     regions.slot_owners[frame_to_index_spec(entry_owners[j].frame.unwrap().mapped_pa)].path_if_in_pt is None,
                 // Remaining frames have distinct physical addresses
                 forall |i: int, j: int| 0 <= i < j < it.elements.len() - it.pos ==>
-                    entry_owners[i].frame.unwrap().mapped_pa != entry_owners[j].frame.unwrap().mapped_pa,
+                    (#[trigger]entry_owners[i]).frame.unwrap().mapped_pa != (#[trigger] entry_owners[j]).frame.unwrap().mapped_pa,
         {
             proof {
                 assert(entry_owners.contains(entry_owners[0]));
@@ -606,14 +606,14 @@ impl KVirtArea {
             for (pa, level) in it: pages.into_iter()
                 invariant
                     cursor.inner.invariants(cursor_owner, *regions, *guards),
-                    forall |i: int| 0 <= i < it.elements.len() ==> it.elements[i].0 % PAGE_SIZE == 0,
+                    forall |i: int| 0 <= i < it.elements.len() ==> (#[trigger] it.elements[i]).0 % PAGE_SIZE == 0,
                     forall |i: int| 0 <= i < it.elements.len() ==>
-                        1 <= it.elements[i].1 && it.elements[i].1 <= NR_LEVELS,
+                        1 <= (#[trigger] it.elements[i]).1<= NR_LEVELS,
                     forall |i: int| 0 <= i < it.elements.len() ==>
-                        it.elements[i].1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
+                        (#[trigger] it.elements[i]).1 <= KernelPtConfig::HIGHEST_TRANSLATION_LEVEL(),
                     sum_page_sizes_spec(it.elements, 0, it.elements.len() as int) == len as nat,
                     forall |i: int| 0 <= i < it.elements.len() ==>
-                        (va_range.start as nat + sum_page_sizes_spec(it.elements, 0, i))
+                        (va_range.start as nat + #[trigger] sum_page_sizes_spec(it.elements, 0, i))
                             % page_size(it.elements[i].1) as nat == 0,
                     // VA tracking invariant: cursor has advanced past sum of processed pages.
                     cursor.inner.va as nat
