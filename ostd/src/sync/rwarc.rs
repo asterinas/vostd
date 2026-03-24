@@ -96,13 +96,12 @@ impl<T> RwArc<T> {
 }
 
 impl<T> Clone for RwArc<T> {
-    #[verifier::external_body]
     fn clone(&self) -> (res: Self) 
         ensures
             res == *self,
     {
         let inner = self.0.clone();
-
+        assume(inner.num_rw.well_formed());
         // Note that overflowing the counter will make it unsound. But not to worry: the above
         // `Arc::clone` must have already aborted the kernel before this happens.
         // inner.num_rw.fetch_add(1, Ordering::Relaxed);
