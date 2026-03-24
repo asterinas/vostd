@@ -97,9 +97,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
         let frame = Frame::from_raw(raw);
 
         proof {
-            Frame::lemma_from_raw_manuallydrop_general(
-                raw, frame, *old(regions), *regions, debt,
-            );
+            Frame::lemma_from_raw_manuallydrop_general(raw, frame, *old(regions), *regions, debt);
         }
 
         Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }
@@ -121,7 +119,7 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
 /// raw pointers.
 ///
 /// [`Rcu`]: super::Rcu
-pub unsafe trait NonNullPtr: 'static + Sized {
+pub unsafe trait NonNullPtr: 'static + Sized + TrackDrop<State = MetaRegionOwners> {
     /// The target type that this pointer refers to.
     // TODO: Support `Target: ?Sized`.
     type Target;
@@ -140,7 +138,10 @@ pub unsafe trait NonNullPtr: 'static + Sized {
     /// The lower [`Self::ALIGN_BITS`] of the raw pointer is guaranteed to
     /// be zero. In other words, the pointer is guaranteed to be aligned to
     /// `1 << Self::ALIGN_BITS`.
-    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>;
+    fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target>
+        requires
+            self.constructor_requires(*old(regions)),
+    ;
 
     /// Converts back from a raw pointer.
     ///
@@ -195,7 +196,7 @@ unsafe impl<M: AnyFrameMeta + ?Sized + 'static> NonNullPtr for Frame<M> {
 
     fn into_raw(self, Tracked(regions): Tracked<&mut MetaRegionOwners>) -> PPtr<Self::Target> {
         let ptr = self.ptr;
-        assert(self.constructor_requires(*old(regions))) by { admit() };
+        assert(self.constructor_requires(*old(regions)));
         let _ = ManuallyDrop::new(self, Tracked(regions));
         PPtr::<Self::Target>::from_addr(ptr.addr())
     }
