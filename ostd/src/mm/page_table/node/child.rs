@@ -2,9 +2,9 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
-use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::frame::Frame;
+use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::page_table::*;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -70,9 +70,8 @@ impl<C: PageTableConfig> Child<C> {
             owner.pte_invariants(res, *regions),
             *regions == old(owner).into_pte_regions_spec(*old(regions)),
             *owner == old(owner).into_pte_owner_spec(),
-            old(owner).node is Some ==> res == C::E::new_pt_spec(
-                meta_to_frame(old(owner).node.unwrap().meta_perm.addr()),
-            ),
+            old(owner).node is Some ==>
+                res == C::E::new_pt_spec(meta_to_frame(old(owner).node.unwrap().meta_perm.addr())),
     {
         proof {
             C::E::new_properties();
@@ -99,15 +98,11 @@ impl<C: PageTableConfig> Child<C> {
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof {
-                    owner.in_scope = false;
-                }
+                proof { owner.in_scope = false; }
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {
-                proof {
-                    owner.in_scope = false;
-                }
+                proof { owner.in_scope = false; }
                 C::E::new_absent()
             },
         }
@@ -152,19 +147,23 @@ impl<C: PageTableConfig> Child<C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
                 regions.inv_implies_correct_addr(paddr);
             }
 
-            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm))]
+            proof_decl! {
+                let tracked from_raw_debt: crate::specs::mm::frame::frame_specs::BorrowDebt;
+            }
+
+            #[verus_spec(with Tracked(regions), Tracked(&entry_own.node.tracked_borrow().meta_perm) => Tracked(from_raw_debt))]
             let node = PageTableNode::from_raw(paddr);
 
             proof {
+                // raw_count was 1 (node was in a PTE via into_raw), so discharge trivially.
+                from_raw_debt.discharge_bookkeeping();
+
                 entry_own.in_scope = true;
 
-                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(
-                    *old(regions),
-                ).slot_owners);
+                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(*old(regions)).slot_owners);
                 assert(regions.slots =~= entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
@@ -217,7 +216,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             level == entry_owner.parent_level,
         ensures
             res.invariants(*entry_owner, *regions),
-            *regions =~= *old(regions),
+            regions.slot_owners =~= old(regions).slot_owners,
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
     {
         if !pte.is_present() {
             return ChildRef::None;
@@ -227,12 +227,18 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
                 regions.inv_implies_correct_addr(paddr);
             }
 
             #[verus_spec(with Tracked(regions), Tracked(&entry_owner.node.tracked_borrow().meta_perm))]
             let node = PageTableNodeRef::borrow_paddr(paddr);
+
+            proof {
+                // borrow_paddr postcondition gives raw_count == 1 and field-by-field preservation.
+                // Since raw_count was already 1 (entry is in PTE, in_scope == false),
+                // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
+                assert(regions.slot_owners =~= old(regions).slot_owners);
+            }
 
             return ChildRef::PageTable(node);
         }

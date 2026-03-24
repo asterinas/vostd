@@ -72,6 +72,16 @@ pub trait Predicate<V> {
     spec fn inv(self, v: V) -> bool;
 }
 
+/// A trivial predicate that holds for any value.
+/// Use with [`OnceImpl`] when no invariant is needed.
+pub struct TrivialPred;
+
+impl<V> Predicate<V> for TrivialPred {
+    open spec fn inv(self, v: V) -> bool {
+        true
+    }
+}
+
 struct_with_invariants! {
 /// A synchronization primitive which can nominally be written to only once.
 ///

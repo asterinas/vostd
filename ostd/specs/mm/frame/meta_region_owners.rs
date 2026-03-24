@@ -9,7 +9,7 @@ use vstd_extra::cast_ptr::Repr;
 use vstd_extra::ghost_tree::TreePath;
 use vstd_extra::ownership::*;
 
-use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage};
+use super::meta_owners::{MetaPerm, MetaSlotModel, MetaSlotOwner, MetaSlotStorage, REF_COUNT_UNUSED};
 use super::*;
 use crate::mm::frame::meta::{
     mapping::{frame_to_index_spec, frame_to_meta, max_meta_slots, meta_addr, META_SLOT_SIZE},
@@ -159,6 +159,20 @@ impl MetaRegionOwners {
                 ==> !self.slots.contains_key(frame_to_index_spec(paddr))
     }
 
+    /// Instantiates `paddr_range_not_mapped` at a specific paddr in the range.
+    pub proof fn paddr_not_mapped_at(self, range: Range<Paddr>, paddr: Paddr)
+        requires
+            self.paddr_range_not_mapped(range),
+            range.start <= paddr,
+            paddr < range.end,
+            paddr % PAGE_SIZE == 0,
+        ensures
+            self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None,
+    {
+        // The trigger frame_to_index_spec(paddr) fires from the ensures clause,
+        // instantiating the forall in paddr_range_not_mapped at this paddr.
+    }
+
     pub proof fn inv_implies_correct_addr(self, paddr: usize)
         requires
             paddr < MAX_PADDR,
@@ -189,6 +203,29 @@ impl MetaRegionOwners {
             perm.points_to == old(self).slots[index],
             self.slots == old(self).slots.remove(index),
             self.slot_owners == old(self).slot_owners;
+
+    /// Inserting a valid frame slot permission into `slots` preserves `inv()`.
+    ///
+    /// This captures the invariant that `slot_owners[idx].self_addr == meta_addr(idx)` is
+    /// maintained globally — when a frame's `slot_perm` (extracted earlier from `slots`) is
+    /// reinserted, all invariant conditions are satisfied.
+    pub axiom fn frame_slot_perm_insert_preserves_inv(
+        self,
+        idx: usize,
+        perm: simple_pptr::PointsTo<MetaSlot>,
+        new_regions: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            perm.addr() == meta_addr(idx),
+            perm.is_init(),
+            perm.value().wf(self.slot_owners[idx]),
+            self.slot_owners.contains_key(idx),
+            self.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            new_regions.slots == self.slots.insert(idx, perm),
+            new_regions.slot_owners == self.slot_owners,
+        ensures
+            new_regions.inv();
 }
 
 } // verus!

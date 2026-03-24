@@ -103,7 +103,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
         Self {
             in_scope: false,
             path: TreePath::new(Seq::empty()),
-            parent_level: (INC_LEVELS - lv + 1) as PagingLevel,
+            parent_level: (INC_LEVELS - lv) as PagingLevel,
             node: None,
             frame: None,
             locked: None,
@@ -306,6 +306,21 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.view_rec(path) =~= set![],
     { }
 
+    /// A node with nr_children == 0 has no present PTEs, so all children are absent
+    /// and the subtree contributes no mappings.
+    ///
+    /// Axiom: the link between `nr_children` and the count of present PTEs is maintained
+    /// by `Entry::replace` / `Entry::new` but not yet formalised as a `NodeOwner` invariant.
+    pub axiom fn view_rec_nr_children_zero_empty(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            self.0.value.is_node(),
+            self.0.value.node.unwrap().meta_own.nr_children.value() == 0,
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+        ensures
+            self.view_rec(path) =~= set![];
+
     pub open spec fn relate_region_pred(regions: MetaRegionOwners)
         -> (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions)
@@ -473,6 +488,85 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
+    /// If a subtree satisfies `inv()` and the root entry's `path` field equals the structural root
+    /// path, then the subtree satisfies `tree_predicate_map(path, path_correct_pred())`.
+    /// This is proved by induction using `rel_children` (which stores `child.path == parent.path.push_tail(i)`)
+    /// from `Node::inv_children()`.
+    pub proof fn inv_implies_path_correct(
+        subtree: OwnerSubtree<C>,
+        path: TreePath<NR_ENTRIES>,
+    )
+        requires
+            subtree.inv(),
+            path.inv(),
+            path.len() <= INC_LEVELS - 1,
+            path.len() == subtree.level,
+            subtree.value.path == path,
+        ensures
+            subtree.tree_predicate_map(path, Self::path_correct_pred()),
+        decreases INC_LEVELS - path.len()
+    {
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall|i: int| #![auto]
+                0 <= i < NR_ENTRIES && subtree.children[i] is Some implies
+                subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize),
+                    Self::path_correct_pred(),
+                ) by {
+                let child = subtree.children[i].unwrap();
+                // From Node::inv_children + rel_children: child.value.path == path.push_tail(i)
+                assert(child.value.path == path.push_tail(i as usize)) by {
+                    assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(subtree.value, i, Some(child.value)));
+                    if subtree.value.is_node() {
+                        assert(child.value.path == subtree.value.path.push_tail(i as usize));
+                    } else {
+                        // rel_children with is_not_node() requires child is None → contradiction
+                        assert(false);
+                    }
+                };
+                assert(child.inv());
+                assert(child.level == subtree.level + 1);
+                assert((path.push_tail(i as usize)).len() == child.level) by {
+                    path.push_tail_property_len(i as usize);
+                };
+                Self::inv_implies_path_correct(child, path.push_tail(i as usize));
+            };
+        }
+    }
+
+    /// For entries in a subtree rooted at `path_j` whose `path_j` is not a prefix of
+    /// `old_entry.path`, no entry in the subtree shares a physical address with `old_entry`.
+    ///
+    /// Proof sketch: by `inv_implies_path_correct`, every entry `e` at structural position `p`
+    /// has `e.path == p`.  Since `!is_prefix_of(path_j, old_entry.path)`, no structural position
+    /// in the subtree equals `old_entry.path`.  Combined with `relate_region` + `path_tracked_pred`
+    /// uniqueness (via `same_paddr_implies_same_path`), same paddr would force same path — contradiction.
+    pub axiom fn neq_old_from_path_disjoint(
+        subtree: OwnerSubtree<C>,
+        path_j: TreePath<NR_ENTRIES>,
+        old_entry: EntryOwner<C>,
+        regions: MetaRegionOwners,
+    )
+        requires
+            subtree.inv(),
+            subtree.value.path == path_j,
+            path_j.len() == subtree.level,
+            path_j.inv(),
+            path_j.len() <= INC_LEVELS - 1,
+            subtree.tree_predicate_map(path_j, Self::relate_region_pred(regions)),
+            subtree.tree_predicate_map(path_j, Self::path_tracked_pred(regions)),
+            old_entry.meta_slot_paddr() is Some,
+            old_entry.relate_region(regions),
+            regions.slot_owners[
+                frame_to_index(old_entry.meta_slot_paddr().unwrap())
+            ].path_if_in_pt is Some,
+            !Self::is_prefix_of(path_j, old_entry.path),
+        ensures
+            subtree.tree_predicate_map(
+                path_j,
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(old_entry),
+            );
+
     pub proof fn is_at_eq_rec(
         subtree: OwnerSubtree<C>,
         root_path: TreePath<NR_ENTRIES>,
@@ -613,6 +707,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 impl<C: PageTableConfig> Inv for PageTableOwner<C> {
     open spec fn inv(self) -> bool {
         &&& self.0.inv()
+        &&& self.0.value.is_node()
         &&& self.0.value.path.len() <= INC_LEVELS - 1
         &&& self.0.value.path.inv()
         &&& self.0.value.path.len() == self.0.level

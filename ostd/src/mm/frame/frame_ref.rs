@@ -11,6 +11,7 @@ use crate::mm::frame::meta::{has_safe_slot, AnyFrameMeta, MetaSlot};
 use crate::mm::frame::MetaPerm;
 use crate::mm::{Paddr, PagingLevel, Vaddr};
 use crate::specs::arch::mm::{MAX_PADDR, PAGE_SIZE};
+use crate::specs::mm::frame::frame_specs::BorrowDebt;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 
 use super::Frame;
@@ -41,8 +42,11 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
     /// # Verified Properties
     /// ## Preconditions
     /// The raw frame address must be well-formed (`has_safe_slot(raw)`).
+    /// The slot's `raw_count` must be `<= 1`.
     /// ## Postconditions
-    /// The result points to the frame at the physical address, and the metadata region is unchanged.
+    /// The result points to the frame at the physical address.
+    /// `raw_count` is 1 after the call (from_raw sets to 0, ManuallyDrop::new adds 1).
+    /// All other slot fields are preserved.
     /// ## Safety
     /// By providing a borrowed `MetaPerm` of the appropriate type, the caller ensures that the frame
     /// has that type and that the `FrameRef` will be useless if it outlives the frame.
@@ -51,31 +55,51 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(perm): Tracked<&MetaPerm<M>>
         requires
-            old(regions).inv(),
-            has_safe_slot(raw),
-            old(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
-            old(regions).slot_owners[frame_to_index(raw)].self_addr == frame_to_meta(raw),
+            Frame::<M>::from_raw_requires_safety(*old(regions), raw),
+            old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
             perm.points_to.is_init(),
             perm.points_to.addr() == frame_to_meta(raw),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
         ensures
             regions.inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
-            regions.slots =~= old(regions).slots,
-            regions.slot_owners =~= old(regions).slot_owners,
+            // raw_count is always 1 after borrow (from_raw → 0, ManuallyDrop::new → 1)
+            regions.slot_owners[frame_to_index(raw)].raw_count == 1,
+            // All other fields of this slot are preserved
+            regions.slot_owners[frame_to_index(raw)].inner_perms
+                == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
+            regions.slot_owners[frame_to_index(raw)].self_addr
+                == old(regions).slot_owners[frame_to_index(raw)].self_addr,
+            regions.slot_owners[frame_to_index(raw)].usage
+                == old(regions).slot_owners[frame_to_index(raw)].usage,
+            regions.slot_owners[frame_to_index(raw)].path_if_in_pt
+                == old(regions).slot_owners[frame_to_index(raw)].path_if_in_pt,
+            // Other slots are unchanged
+            forall |i: usize|
+                #![trigger regions.slot_owners[i]]
+                i != frame_to_index(raw) ==> regions.slot_owners[i]
+                    == old(regions).slot_owners[i],
+            regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            // Slots: from_raw inserts perm, ManuallyDrop::new preserves
+            regions.slots == old(regions).slots.insert(frame_to_index(raw), perm.points_to),
     )]
     pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
-
             old(regions).inv_implies_correct_addr(raw);
         }
 
-        #[verus_spec(with Tracked(regions), Tracked(perm))]
+        proof_decl! {
+            let tracked debt: BorrowDebt;
+        }
+
+        #[verus_spec(with Tracked(regions), Tracked(perm) => Tracked(debt))]
         let frame = Frame::from_raw(raw);
 
         proof {
-            Frame::lemma_from_raw_manuallydrop_inverse(raw, frame, *old(regions), *regions);
+            Frame::lemma_from_raw_manuallydrop_general(
+                raw, frame, *old(regions), *regions, debt,
+            );
         }
 
         Self { inner: ManuallyDrop::new(frame, Tracked(regions)), _marker: PhantomData }

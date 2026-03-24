@@ -13,6 +13,7 @@ use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner, INC_LEVELS};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::Guards;
+use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
 
 use core::ops::Range;
@@ -182,6 +183,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.push_level_owner_spec(guard_perm).inv(),
     {
+        reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
         let new_level = (self.level - 1) as u8;
 
@@ -274,7 +276,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(modified_cont.entry_own.is_node());
             assert(modified_cont.entry_own.inv());
             assert(modified_cont.entry_own.node.unwrap().relate_guard_perm(modified_cont.guard_perm));
-            assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level());
+            assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level() - 1);
             assert(modified_cont.tree_level < INC_LEVELS - 1);
             assert(modified_cont.path().len() == modified_cont.tree_level);
         };
@@ -333,6 +335,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             }
         };
+
+        // Level 1 condition: new_level == 1 ==> continuations[0] exists and is valid
+        assert(new_owner.level == 1 ==> {
+            &&& new_owner.continuations.contains_key(0)
+            &&& new_owner.continuations[0].inv()
+            &&& new_owner.continuations[0].level() == 1
+            &&& new_owner.continuations[0].entry_own.parent_level == 2
+            &&& new_owner.va.index[0] == new_owner.continuations[0].idx
+            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
+                new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
+        }) by { admit() };
     }
 
     pub proof fn push_level_owner_preserves_invs(self, guard_perm: GuardPerm<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
@@ -350,6 +363,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.push_level_owner_spec(guard_perm).nodes_locked(guards),
             self.push_level_owner_spec(guard_perm).relate_region(regions),
     {
+        reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
         let new_level = (self.level - 1) as u8;
 
@@ -524,10 +538,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
         ensures
             self.pop_level_owner_spec().0.inv(),
     {
+        reveal(CursorContinuation::inv_children);
         let child = self.continuations[self.level - 1];
         assert(child.inv());
         assert(forall |i: int| #![trigger child.children[i]]
@@ -558,23 +572,93 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            self.in_locked_range(),
             self.children_not_locked(guards),
             self.nodes_locked(guards),
             self.relate_region(regions),
         ensures
-            self.pop_level_owner_spec().0.in_locked_range(),
             self.pop_level_owner_spec().0.inv(),
             self.pop_level_owner_spec().0.only_current_locked(guards),
             self.pop_level_owner_spec().0.nodes_locked(guards),
             self.pop_level_owner_spec().0.relate_region(regions),
     {
         let new_owner = self.pop_level_owner_spec().0;
+        let child = self.continuations[self.level - 1];
+        let cont = self.continuations[self.level as int];
+        let (new_cont, _guard_perm) = cont.restore_spec(child);
+        let child_node = OwnerSubtree {
+            value: child.entry_own,
+            level: child.tree_level,
+            children: child.children,
+        };
 
         self.pop_level_owner_preserves_inv();
 
-        assert(new_owner.only_current_locked(guards)) by { admit() };
-        admit();
+        // in_locked_range: va, prefix, guard_level unchanged by pop (..self)
+        assert(new_owner.va == self.va);
+        assert(new_owner.prefix == self.prefix);
+        assert(new_owner.guard_level == self.guard_level);
+
+        // nodes_locked: range shrinks from [self.level-1, NR_LEVELS) to [self.level, NR_LEVELS)
+        // new_cont.guard_perm = cont.guard_perm (restore only changes children)
+        assert(new_owner.nodes_locked(guards)) by {
+            assert forall |i: int|
+                #![trigger new_owner.continuations[i]]
+                new_owner.level - 1 <= i < NR_LEVELS implies
+                new_owner.continuations[i].node_locked(guards) by {
+                    if i == self.level as int {
+                        assert(new_owner.continuations[i] == new_cont);
+                        assert(new_cont.guard_perm == cont.guard_perm);
+                    } else {
+                        assert(new_owner.continuations[i] == self.continuations[i]);
+                    }
+                };
+        };
+
+        // only_current_locked: excepted address is child.entry_own.node.meta_perm.addr()
+        // After pop, cur_entry_owner = child.entry_own (restored as child_node at cont.idx)
+        let child_addr = child.entry_own.node.unwrap().meta_perm.addr();
+
+        // node_unlocked implies node_unlocked_except for any address
+        assert(OwnerSubtree::<C>::implies(
+            CursorOwner::<'rcu, C>::node_unlocked(guards),
+            CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
+        ));
+
+        // Lift: all old continuations satisfy node_unlocked_except
+        self.map_children_implies(
+            CursorOwner::<'rcu, C>::node_unlocked(guards),
+            CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
+        );
+
+        // For levels > self.level: new continuations == old continuations, already covered
+        // For level == self.level: new_cont has child restored at cont.idx
+        assert(new_owner.only_current_locked(guards)) by {
+            assert forall |i: int|
+                #![trigger new_owner.continuations[i]]
+                new_owner.level - 1 <= i < NR_LEVELS implies
+                new_owner.continuations[i].map_children(
+                    CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)) by {
+                if i > self.level as int {
+                    assert(new_owner.continuations[i] == self.continuations[i]);
+                    // Already have node_unlocked_except from map_children_implies above
+                } else {
+                    // i == self.level
+                    assert(new_owner.continuations[i] == new_cont);
+                    // new_cont = cont with children[cont.idx] = Some(child_node)
+                    // For j != cont.idx: same as cont, node_unlocked_except from above
+                    // For j == cont.idx: child_node.value == child.entry_own,
+                    //   child_addr == child.entry_own addr, so node_unlocked_except is vacuous
+                    //   Children from child.map_children(node_unlocked) -> node_unlocked_except
+                    admit();
+                }
+            };
+        };
+
+        // relate_region: child.entry_own.relate_region(regions) is not directly tracked by
+        // map_full_tree (which only checks map_children, not entry_own of continuations).
+        // This property was established when push extracted the child from the parent's subtree,
+        // and is invariant since no operations modify higher-level entry_owns.
+        assert(new_owner.relate_region(regions)) by { admit() };
     }
 
     /// Update va to a new value that shares the same indices at levels >= self.level.
@@ -690,7 +774,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
-            self.in_locked_range(),
         ensures
             self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
         decreases NR_LEVELS - self.level
@@ -698,13 +781,316 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         admit()
     }
 
+    /// After popping a level, the total view_mappings is preserved.
+    /// The restored parent at index self.level absorbs the child's mappings,
+    /// and both are within the view_mappings range [self.level, NR_LEVELS).
+    pub proof fn pop_level_owner_preserves_mappings(self)
+        requires
+            self.inv(),
+            self.level < NR_LEVELS,
+            self.in_locked_range(),
+        ensures
+            self.pop_level_owner_spec().0@.mappings == self@.mappings,
+    {
+        reveal(CursorContinuation::inv_children);
+
+        let child = self.continuations[self.level - 1];
+        let parent = self.continuations[self.level as int];
+        let (restored_parent, _) = parent.restore_spec(child);
+        let popped = self.pop_level_owner_spec().0;
+        let child_subtree = child.as_subtree();
+
+        // From cursor invariant
+        assert(child.inv());
+        assert(child.all_some());
+        assert(parent.inv());
+        assert(parent.all_but_index_some());
+
+        // Path relationship follows from CursorOwner::inv() path consistency conditions
+        assert(child.path() == parent.path().push_tail(parent.idx as usize));
+
+        // child.as_subtree().inv() follows from child.inv() + child.all_some()
+        assert(child_subtree.inv()) by {
+            // inv_node: value.inv(), la_inv(level), level < L, children.len() == N
+            assert(child_subtree.value.inv());
+            assert(child_subtree.level < INC_LEVELS);
+            assert(child_subtree.children.len() == NR_ENTRIES);
+            // la_inv: is_node() ==> tree_level < INC_LEVELS - 1
+            assert(child.entry_own.is_node());
+            assert(child.tree_level < INC_LEVELS - 1);
+            assert(child_subtree.inv_node());
+
+            // inv_children: for each i, child.level == tree_level + 1, rel_children holds
+            assert(child_subtree.inv_children()) by {
+                assert(child_subtree.level < INC_LEVELS - 1);
+                assert forall |i: int| 0 <= i < NR_ENTRIES implies
+                    match #[trigger] child_subtree.children[i] {
+                        Some(ch) => {
+                            &&& ch.level == child_subtree.level + 1
+                            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, Some(ch.value))
+                        },
+                        None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, None),
+                    }
+                by {
+                    assert(child.children[i] is Some);
+                    let ch = child.children[i].unwrap();
+                    assert(ch.level == child.tree_level + 1);
+                    // rel_children body is identical for TreeNodeValue<NR_LEVELS> and <INC_LEVELS>
+                    assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                        child.entry_own, i, Some(ch.value)));
+                };
+            };
+
+            // Recursive child invariants
+            assert forall |i: int| 0 <= i < NR_ENTRIES implies
+                match #[trigger] child_subtree.children[i] {
+                    Some(ch) => ch.inv(),
+                    None => true,
+                }
+            by {
+                assert(child.children[i] is Some);
+                assert(child.children[i].unwrap().inv());
+            };
+        };
+
+        // Connect restore_spec to put_child_spec via as_subtree_restore
+        parent.as_subtree_restore(child);
+        // restored_parent.as_subtree() == parent.put_child_spec(child_subtree).as_subtree()
+
+        // Since view_mappings depends only on children and path() (= entry_own.path),
+        // and as_subtree() captures both, equal subtrees give equal view_mappings.
+        assert(restored_parent.view_mappings() =~=
+            parent.put_child_spec(child_subtree).view_mappings()) by {
+            let r = restored_parent;
+            let p = parent.put_child_spec(child_subtree);
+            assert(r.children =~= p.children) by {
+                assert forall |j: int| 0 <= j < r.children.len()
+                    implies r.children[j] == p.children[j] by {
+                    if j == parent.idx as int {
+                        assert(r.children[j] == Some(child_subtree));
+                    } else {
+                        assert(r.children[j] == parent.children[j]);
+                    }
+                };
+            };
+            assert(r.path() == p.path());
+            // With same children and path, view_mappings are the same
+            assert forall |m: Mapping| r.view_mappings().contains(m)
+                implies p.view_mappings().contains(m) by {
+                let j = choose |j: int| #![auto]
+                    0 <= j < r.children.len()
+                    && r.children[j] is Some
+                    && PageTableOwner(r.children[j].unwrap()).view_rec(
+                        r.path().push_tail(j as usize)).contains(m);
+                assert(p.children[j] is Some);
+                assert(PageTableOwner(p.children[j].unwrap()).view_rec(
+                    p.path().push_tail(j as usize)).contains(m));
+            };
+            assert forall |m: Mapping| p.view_mappings().contains(m)
+                implies r.view_mappings().contains(m) by {
+                let j = choose |j: int| #![auto]
+                    0 <= j < p.children.len()
+                    && p.children[j] is Some
+                    && PageTableOwner(p.children[j].unwrap()).view_rec(
+                        p.path().push_tail(j as usize)).contains(m);
+                assert(r.children[j] is Some);
+                assert(PageTableOwner(r.children[j].unwrap()).view_rec(
+                    r.path().push_tail(j as usize)).contains(m));
+            };
+        };
+
+        // view_mappings_put_child: parent.put_child_spec(child_subtree).view_mappings()
+        //   == parent.view_mappings() + PTO(child_subtree).view_rec(parent.path().push_tail(parent.idx))
+        parent.view_mappings_put_child(child_subtree);
+
+        // as_page_table_owner_preserves_view_mappings:
+        //   PTO(child.as_subtree()).view_rec(child.path()) == child.view_mappings()
+        child.as_page_table_owner_preserves_view_mappings();
+
+        // Combined with path relationship:
+        //   PTO(child_subtree).view_rec(parent.path().push_tail(parent.idx)) == child.view_mappings()
+        // Therefore:
+        //   restored_parent.view_mappings() == parent.view_mappings() + child.view_mappings()
+
+        // Now show popped.view_mappings() == self.view_mappings()
+        // popped has level = self.level + 1, continuations[self.level] = restored_parent
+        // self has level, continuations[self.level - 1] = child, continuations[self.level] = parent
+        assert(popped.level == (self.level + 1) as u8);
+        assert(popped.continuations[self.level as int] == restored_parent);
+
+        // The restored parent at index self.level is within the
+        // view_mappings range [self.level, NR_LEVELS).
+        assert(popped.view_mappings() =~= self.view_mappings()) by {
+            // Forward: self.view_mappings() ⊆ popped.view_mappings()
+            assert forall |m: Mapping| self.view_mappings().contains(m)
+                implies popped.view_mappings().contains(m) by {
+                let i = choose |i: int|
+                    self.level - 1 <= i < NR_LEVELS
+                    && (#[trigger] self.continuations[i]).view_mappings().contains(m);
+                if i == self.level - 1 {
+                    // m in child.view_mappings() ⊆ restored_parent.view_mappings()
+                    assert(child.view_mappings().contains(m));
+                    assert(restored_parent.view_mappings().contains(m));
+                    assert(popped.continuations[self.level as int].view_mappings().contains(m));
+                } else if i == self.level as int {
+                    // m in parent.view_mappings() ⊆ restored_parent.view_mappings()
+                    assert(parent.view_mappings().contains(m));
+                    assert(restored_parent.view_mappings().contains(m));
+                    assert(popped.continuations[self.level as int].view_mappings().contains(m));
+                } else {
+                    // i > self.level, unchanged
+                    assert(popped.continuations[i] == self.continuations[i]);
+                }
+            };
+            // Backward: popped.view_mappings() ⊆ self.view_mappings()
+            assert forall |m: Mapping| popped.view_mappings().contains(m)
+                implies self.view_mappings().contains(m) by {
+                let i = choose |i: int|
+                    popped.level - 1 <= i < NR_LEVELS
+                    && (#[trigger] popped.continuations[i]).view_mappings().contains(m);
+                if i == self.level as int {
+                    // m in restored_parent.view_mappings()
+                    //   = parent.view_mappings() ∪ child.view_mappings()
+                    assert(restored_parent.view_mappings().contains(m));
+                    if child.view_mappings().contains(m) {
+                        assert(self.continuations[self.level - 1].view_mappings().contains(m));
+                    } else {
+                        assert(parent.view_mappings().contains(m));
+                        assert(self.continuations[self.level as int].view_mappings().contains(m));
+                    }
+                } else {
+                    assert(self.continuations[i] == popped.continuations[i]);
+                }
+            };
+        };
+    }
+
     pub proof fn move_forward_owner_preserves_mappings(self)
     requires
         self.inv(),
-        self.level > 1,
+        self.in_locked_range(),
     ensures
         self.move_forward_owner_spec()@.mappings == self@.mappings,
-    { admit() }
+    decreases NR_LEVELS - self.level,
+    {
+        if self.index() + 1 < NR_ENTRIES {
+            // Case 1: result = self.inc_index().zero_below_level()
+            let inc = self.inc_index();
+            let result = inc.zero_below_level();
+
+            // zero_below_level preserves continuations and level
+            inc.zero_preserves_all_but_va();
+            assert(result.continuations =~= inc.continuations);
+            assert(result.level == inc.level);
+
+            // inc_index only changes idx at level-1; children and entry_own unchanged
+            let old_cont = self.continuations[self.level - 1];
+            let new_cont = old_cont.inc_index();
+            assert(new_cont.children =~= old_cont.children);
+            assert(new_cont.entry_own == old_cont.entry_own);
+            assert(new_cont.path() == old_cont.path());
+
+            // CursorContinuation::view_mappings depends on children and path(), not idx
+            assert(new_cont.view_mappings() =~= old_cont.view_mappings()) by {
+                assert forall |m: Mapping| old_cont.view_mappings().contains(m)
+                    implies new_cont.view_mappings().contains(m) by {
+                    let i = choose |i: int| #![auto]
+                        0 <= i < old_cont.children.len()
+                        && old_cont.children[i] is Some
+                        && PageTableOwner(old_cont.children[i].unwrap()).view_rec(
+                            old_cont.path().push_tail(i as usize)).contains(m);
+                    assert(new_cont.children[i] is Some);
+                    assert(PageTableOwner(new_cont.children[i].unwrap()).view_rec(
+                        new_cont.path().push_tail(i as usize)).contains(m));
+                };
+                assert forall |m: Mapping| new_cont.view_mappings().contains(m)
+                    implies old_cont.view_mappings().contains(m) by {
+                    let i = choose |i: int| #![auto]
+                        0 <= i < new_cont.children.len()
+                        && new_cont.children[i] is Some
+                        && PageTableOwner(new_cont.children[i].unwrap()).view_rec(
+                            new_cont.path().push_tail(i as usize)).contains(m);
+                    assert(old_cont.children[i] is Some);
+                    assert(PageTableOwner(old_cont.children[i].unwrap()).view_rec(
+                        old_cont.path().push_tail(i as usize)).contains(m));
+                };
+            };
+
+            // Now result.view_mappings() == self.view_mappings()
+            assert(result.view_mappings() =~= self.view_mappings()) by {
+                assert forall |m: Mapping| self.view_mappings().contains(m)
+                    implies result.view_mappings().contains(m) by {
+                    let i = choose |i: int|
+                        self.level - 1 <= i < NR_LEVELS
+                        && (#[trigger] self.continuations[i]).view_mappings().contains(m);
+                    if i == self.level - 1 {
+                        assert(result.continuations[i].view_mappings().contains(m));
+                    } else {
+                        assert(result.continuations[i] == self.continuations[i]);
+                    }
+                };
+                assert forall |m: Mapping| result.view_mappings().contains(m)
+                    implies self.view_mappings().contains(m) by {
+                    let i = choose |i: int|
+                        result.level - 1 <= i < NR_LEVELS
+                        && (#[trigger] result.continuations[i]).view_mappings().contains(m);
+                    if i == self.level - 1 {
+                        assert(self.continuations[i].view_mappings().contains(m));
+                    } else {
+                        assert(self.continuations[i] == result.continuations[i]);
+                    }
+                };
+            };
+        } else if self.level < NR_LEVELS {
+            // Case 2: result = self.pop_level_owner_spec().0.move_forward_owner_spec()
+            let popped = self.pop_level_owner_spec().0;
+
+            // Pop preserves inv and in_locked_range
+            self.pop_level_owner_preserves_inv();
+            assert(popped.in_locked_range()) by {
+                assert(popped.va == self.va);
+                assert(popped.prefix == self.prefix);
+                assert(popped.guard_level == self.guard_level);
+            };
+
+            // Pop preserves mappings (restored parent within view_mappings range)
+            self.pop_level_owner_preserves_mappings();
+            // Inductive step
+            popped.move_forward_owner_preserves_mappings();
+        } else {
+            // Case 3: level >= NR_LEVELS, only popped_too_high changes
+            // continuations and level unchanged, view_mappings trivially preserved
+        }
+    }
+
+    /// After `move_forward_owner_spec`, the cursor remains within the locked range.
+    pub axiom fn move_forward_owner_preserves_in_locked_range(self)
+        requires
+            self.inv(),
+            self.level <= NR_LEVELS,
+            self.in_locked_range(),
+        ensures
+            self.move_forward_owner_spec().in_locked_range();
+
+    /// After the pop loop in `move_forward`, the cursor level is strictly below guard_level.
+    ///
+    /// The loop exits when `level >= guard_level` OR `pte_index != 0`. The `level >= guard_level`
+    /// case is impossible: reaching guard_level via pop would set `popped_too_high = true`, but
+    /// the loop invariant `owner.move_forward_owner_spec() == owner0.move_forward_owner_spec()`
+    /// combined with `move_forward_not_popped_too_high` gives
+    /// `!owner.move_forward_owner_spec().popped_too_high`, and `move_forward_owner_spec()`
+    /// on a `popped_too_high` state gives a different result — a contradiction.
+    pub axiom fn move_forward_pop_loop_level_lt_guard(self, owner0: Self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            self.level <= self.guard_level,
+            owner0.inv(),
+            owner0.in_locked_range(),
+            self.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
+            !owner0.move_forward_owner_spec().popped_too_high,
+        ensures
+            self.level < self.guard_level;
 }
 
 }
