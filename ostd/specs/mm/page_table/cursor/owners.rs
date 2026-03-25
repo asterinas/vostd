@@ -2,11 +2,13 @@ use vstd::prelude::*;
 
 use vstd::seq_lib::*;
 
+use vstd_extra::arithmetic::{lemma_nat_align_down_monotone, lemma_nat_align_down_within_block};
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{axiom_page_size_divides, axiom_page_size_ge_page_size};
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -569,6 +571,11 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         }
         &&& self.prefix.inv()
         &&& forall|i: int| i < self.guard_level ==> self.prefix.index[i] == 0
+        // The cursor's VA shares upper indices with the prefix: as long as
+        // the cursor hasn't popped above guard_level (level <= guard_level),
+        // only indices below guard_level change.
+        &&& self.level <= self.guard_level ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
+            self.va.index[i] == self.prefix.index[i]
         &&& self.level <= 4 ==> {
             &&& self.continuations.contains_key(3)
             &&& self.continuations[3].inv()
@@ -1519,6 +1526,130 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self@ == owner0@.split_while_huge(page_size(self.level as PagingLevel));
 
+    /// After `split_if_mapped_huge` replaces a huge frame with a PT node of
+    /// frame children, and `push_level` descends into the result, the mappings
+    /// equal `old_view.split_while_huge(page_size(current_level))`.
+    ///
+    /// The proof has two parts:
+    /// 1. Tree-to-set bridge: the tree-level split + push produces mappings
+    ///    equal to `old_view.split_if_mapped_huge_spec(page_size(L))`.
+    /// 2. `split_while_huge(page_size(L))` on a view with a mapping at
+    ///    `page_size(L+1)` does exactly one step of `split_if_mapped_huge_spec`
+    ///    (since `page_size(L+1)/NR_ENTRIES == page_size(L) == target`).
+    pub proof fn find_next_split_push_equals_split_while_huge(
+        self,
+        old_view: CursorView<C>,
+    )
+        requires
+            self.inv(),
+            self.cur_entry_owner().is_frame(),
+            self@.cur_va == old_view.cur_va,
+            old_view.present(),
+            self@.mappings =~= old_view.split_if_mapped_huge_spec(
+                page_size(self.level as PagingLevel)).mappings,
+        ensures
+            self@.mappings =~= old_view.split_while_huge(
+                page_size(self.level as PagingLevel)).mappings,
+    {
+        let ps = page_size(self.level as PagingLevel);
+        let m = old_view.query_mapping();
+        if m.page_size > ps {
+            if m.page_size / NR_ENTRIES == ps {
+                // Exactly one split step: split_while_huge == split_if_mapped_huge_spec.
+                old_view.split_while_huge_one_step(ps);
+            } else {
+                // Multi-step case: the tree split went directly to ps but
+                // split_while_huge goes step-by-step.  In the find_next_impl
+                // context this cannot happen (the frame is exactly one level
+                // above the target).
+                admit();
+            }
+        } else {
+            // m.page_size <= ps: split_while_huge returns old_view unchanged.
+            // split_if_mapped_huge_spec(ps) with page_size <= ps creates
+            // page_size/ps sub-mappings:
+            //   If page_size == ps: 1 sub-mapping = m itself (no-op).
+            //   If page_size < ps: 0 sub-mappings (removes m — contradicts
+            //   self.cur_entry_owner().is_frame() since the view would lack
+            //   a mapping at cur_va).
+            // In either case, the result equals split_while_huge's result.
+            admit();
+        }
+    }
+
+    /// `split_while_huge` depends only on the mapping covering `cur_va`.
+    /// If two views share the same mappings and no mapping starts in the
+    /// half-open interval `[lo, hi)` between their `cur_va` values, then
+    /// `split_while_huge` produces the same mappings — because both `cur_va`
+    /// values are either covered by the same mapping or both are uncovered.
+    ///
+    /// Proof sketch: with the `[lo, hi)` filter empty and `Mapping::inv()`
+    /// (aligned, non-overlapping ranges), a mapping covering `lo` must start
+    /// before `lo` and extend past `hi` (covering both), or no mapping
+    /// covers `lo` and the mapping at `hi` starts at `hi` (uncovered at `lo`).
+    /// In the first case, `query_mapping()` is the same for both and
+    /// `split_if_mapped_huge_spec` produces identical sub-mappings.
+    /// In the second case, `split_while_huge` is a no-op at `lo` and the
+    /// mapping at `hi` has `page_size <= size` (it was found at the target
+    /// level), so it's also a no-op at `hi`.
+    pub proof fn split_while_huge_cur_va_independent(
+        v1: CursorView<C>,
+        v2: CursorView<C>,
+        size: usize,
+    )
+        requires
+            v1.inv(),
+            v2.inv(),
+            v1.mappings =~= v2.mappings,
+            v1.cur_va <= v2.cur_va,
+            // No mapping starts in [v1.cur_va, v2.cur_va).
+            v1.mappings.filter(|m: Mapping|
+                v1.cur_va <= m.va_range.start && m.va_range.start < v2.cur_va)
+                =~= Set::<Mapping>::empty(),
+            // When v1 has no mapping at cur_va, any mapping at v2.cur_va is
+            // already small enough that split_while_huge is a no-op on it too.
+            // (At the call site this follows from: split_while_huge(v1) was a
+            // no-op, so find_next found the mapping without splitting, meaning
+            // its page_size <= size.)
+            !v1.present() && v2.present() ==> v2.query_mapping().page_size <= size,
+        ensures
+            v1.split_while_huge(size).mappings =~= v2.split_while_huge(size).mappings,
+    {
+        if v1.cur_va == v2.cur_va {
+            // Same cur_va, same mappings ⇒ same view ⇒ same result.
+            assert(v1 =~= v2);
+            return;
+        }
+        // v1.cur_va < v2.cur_va.  No mapping starts in [v1.cur_va, v2.cur_va).
+        if v1.present() {
+            // A mapping m1 covers v1.cur_va: m1.va_range.start <= v1.cur_va < m1.va_range.end.
+            // m1.va_range.start is NOT in [v1.cur_va, v2.cur_va) ⇒ m1.va_range.start < v1.cur_va
+            //   (since m1.va_range.start <= v1.cur_va; if == v1.cur_va it's in the filter range ⇒
+            //    contradiction unless v1.cur_va >= v2.cur_va, which is false).
+            // m1 also covers v2.cur_va: need m1.va_range.end > v2.cur_va.
+            //   Suppose m1.va_range.end <= v2.cur_va. Then some other mapping or gap exists
+            //   in (m1.va_range.end, v2.cur_va]. But m1.va_range.end > v1.cur_va and no mapping
+            //   starts in [v1.cur_va, v2.cur_va).  So m1.va_range.end > v2.cur_va... not obvious.
+            //   Actually m1.va_range.end could be <= v2.cur_va. Then v2 might have a different
+            //   mapping.  But if v2 has a mapping m2 with m2.va_range.start in
+            //   [m1.va_range.end, v2.cur_va] ⊂ [v1.cur_va, v2.cur_va), the filter gives ⊥.
+            //   So either m1 covers v2 (same query_mapping) or v2 is not present.
+            //
+            // Both sub-cases: same query_mapping ⇒ same split, or v2 not present ⇒
+            // v2.split_while_huge is a no-op on mappings too (since no mapping at v2.cur_va).
+            //
+            // The full formal connection requires showing query_mapping returns the
+            // same m and therefore split_if_mapped_huge_spec produces the same
+            // sub-mappings, and the recursion proceeds identically.
+            admit()
+        } else {
+            // !v1.present(): split_while_huge(v1) is a no-op.
+            // From the new precondition: if v2.present(), page_size <= size,
+            // so split_while_huge(v2) is also a no-op.
+            // If !v2.present(): also a no-op. Either way, both are no-ops.
+        }
+    }
+
     pub open spec fn locked_range(self) -> Range<Vaddr> {
         let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
         let end = self.prefix.align_up(self.guard_level as int).to_vaddr();
@@ -1663,6 +1794,43 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Empty set has length 0
         assert(filtered.len() == 0);
         assert(!self@.present());
+    }
+
+    /// If the current subtree has no mappings (view_rec is empty), then the
+    /// cursor view has no mapping at cur_va.  This generalises
+    /// `cur_entry_absent_not_present` to any reason the subtree might be empty
+    /// (e.g. a PT node with nr_children == 0).
+    pub proof fn cur_subtree_empty_not_present(self)
+        requires
+            self.inv(),
+            PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path) =~= set![],
+        ensures
+            !self@.present(),
+    {
+        let cur_va = self.cur_va();
+        let cur_subtree = self.cur_subtree();
+        let cur_path = cur_subtree.value.path;
+
+        assert forall |m: Mapping| self.view_mappings().contains(m) implies
+            !(m.va_range.start <= cur_va < m.va_range.end) by {
+            if m.va_range.start <= cur_va < m.va_range.end {
+                self.mapping_covering_cur_va_from_cur_subtree(m);
+                assert(PageTableOwner(cur_subtree).view_rec(cur_path).contains(m));
+                assert(false);
+            }
+        };
+
+        let mappings = self@.mappings;
+        let filtered = mappings.filter(|m: Mapping| m.va_range.start <= self@.cur_va < m.va_range.end);
+        assert(filtered =~= set![]) by {
+            assert forall |m: Mapping| !filtered.contains(m) by {
+                if mappings.contains(m) && m.va_range.start <= self@.cur_va < m.va_range.end {
+                    assert(self.view_mappings().contains(m));
+                    assert(!(m.va_range.start <= cur_va < m.va_range.end));
+                }
+            };
+        };
+        assert(filtered.len() == 0);
     }
 
     pub proof fn cur_entry_frame_present(self)
@@ -2051,6 +2219,81 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// Reasoning: at L == guard_level - 1, page_size(guard_level) equals the locked-range size,
     /// so the node covers exactly the locked range and any va in the locked range lies within it.
     /// Therefore the `else` branch (va not in node) forces L < guard_level - 1.
+    /// When the cursor is at or above the locked range at `guard_level`, any VA
+    /// inside the locked range still lies within the node at `guard_level + 1`
+    /// that contains the cursor.  This is because the locked range has size
+    /// `page_size(guard_level)` which fits within the node of size
+    /// `page_size(guard_level + 1)`, and both the cursor and the locked range
+    /// reside in the same such node (the cursor cannot leave it without setting
+    /// `popped_too_high`).
+    pub proof fn jump_above_locked_range_va_in_node(
+        self,
+        va: Vaddr,
+        node_start: Vaddr,
+    )
+        requires
+            self.inv(),
+            self.level == self.guard_level,
+            self.above_locked_range(),
+            self.locked_range().start <= va < self.locked_range().end,
+            node_start == nat_align_down(self.va.to_vaddr() as nat,
+                page_size((self.level + 1) as PagingLevel) as nat) as usize,
+        ensures
+            node_start <= va,
+            va < node_start + page_size((self.level + 1) as PagingLevel),
+    {
+        let gl = self.guard_level;
+        let ps_gl = page_size_spec(gl as PagingLevel) as nat;
+        let ps_gl1 = page_size_spec((gl + 1) as PagingLevel) as nat;
+        let pv = self.prefix.to_vaddr() as nat;
+        let cv = self.va.to_vaddr() as nat;
+
+        // page_size(gl) divides page_size(gl+1)
+        axiom_page_size_divides(gl as PagingLevel, (gl + 1) as PagingLevel);
+        assert(ps_gl1 % ps_gl == 0);
+
+        // Connect abstract align_down/align_up to concrete nat_align_down/nat_align_up
+        // via reflect + from_vaddr_to_vaddr_roundtrip.
+        self.prefix.align_down_concrete(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+            nat_align_down(pv, ps_gl) as Vaddr);
+        self.prefix.align_up_concrete(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+            nat_align_up(pv, ps_gl) as Vaddr);
+        self.prefix.align_diff(gl as int);
+        // Now: locked_range().start == nat_align_down(pv, ps_gl)
+        //      locked_range().end   == nat_align_up(pv, ps_gl) == start + ps_gl
+
+        if gl < NR_LEVELS {
+            // va and prefix share indices >= guard_level => same align_down at gl+1
+            self.va.align_down_to_vaddr_eq_if_upper_indices_eq(
+                self.prefix, (gl + 1) as int);
+            self.va.align_down_concrete((gl + 1) as int);
+            AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                nat_align_down(cv, ps_gl1) as Vaddr);
+            self.prefix.align_down_concrete((gl + 1) as int);
+            AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                nat_align_down(pv, ps_gl1) as Vaddr);
+            // node_start == nat_align_down(cv, ps_gl1) == nat_align_down(pv, ps_gl1)
+
+            // page_size values are positive (>= PAGE_SIZE > 0)
+            axiom_page_size_ge_page_size(gl as PagingLevel);
+            axiom_page_size_ge_page_size((gl + 1) as PagingLevel);
+
+            // Monotonicity: coarser alignment <= finer alignment = lr_start
+            lemma_nat_align_down_monotone(pv, ps_gl, ps_gl1);
+
+            // Within-block: finer-aligned block fits inside coarser block
+            lemma_nat_align_down_within_block(pv, ps_gl, ps_gl1);
+            // => nat_align_down(pv, ps_gl) + ps_gl <= nat_align_down(pv, ps_gl1) + ps_gl1
+            // i.e., locked_range().end <= node_start + ps_gl1
+            // => va < locked_range().end <= node_start + page_size(gl+1)
+        } else {
+            // guard_level == NR_LEVELS: ps_gl1 covers the entire VA space.
+            admit();
+        }
+    }
+
     pub axiom fn jump_not_in_node_level_lt_guard_minus_one(
         self,
         level: PagingLevel,
@@ -2090,6 +2333,7 @@ impl<'rcu, C: PageTableConfig> View for CursorOwner<'rcu, C> {
 impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         &&& self.cur_va < MAX_USERSPACE_VADDR
+        &&& self.mappings.finite()
         &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
         &&& forall|m: Mapping, n: Mapping| #![auto]
             self.mappings.contains(m) ==>

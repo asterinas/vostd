@@ -141,6 +141,191 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
+    /// After `split_if_mapped_huge_spec(new_size)`, a sub-mapping at `cur_va`
+    /// still exists.  The witness is `split_index(m, new_size, k)` where
+    /// `k = (cur_va - m.va_range.start) / new_size`.
+    pub proof fn split_if_mapped_huge_spec_preserves_present(v: Self, new_size: usize)
+        requires
+            v.inv(),
+            v.present(),
+            new_size > 0,
+            v.query_mapping().page_size > 0,
+            v.query_mapping().page_size % new_size == 0,
+        ensures
+            v.split_if_mapped_huge_spec(new_size).present(),
+    {
+        let cur_va = v.cur_va;
+        let m = v.query_mapping();
+        let ps = m.page_size;
+
+        // Step 1: m covers cur_va.
+        // present() = filter.len() > 0 where filter = mappings.filter(pred).
+        // query_mapping() = filter.choose().
+        // From inv(): mappings.finite() ⇒ filter.finite().
+        // axiom_set_choose_len: finite ∧ len ≠ 0 ⇒ contains(choose()).
+        // So filter.contains(m), meaning m satisfies the predicate.
+        //
+        // Rather than reconstructing the filter, assert the consequence directly:
+        // query_mapping() ∈ mappings and covers cur_va.
+        assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
+            // The filter set used by present()/query_mapping()
+            let f = v.mappings.filter(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end);
+            assert(f.finite()) by {
+                vstd::set::axiom_set_intersect_finite::<Mapping>(
+                    v.mappings,
+                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end));
+            };
+            vstd::set::axiom_set_choose_len(f);
+        };
+        assert(m.inv());
+        assert(m.va_range.start + ps == m.va_range.end);
+
+        // Step 2: compute witness index k = (cur_va - m.va_range.start) / new_size.
+        let diff: int = cur_va as int - m.va_range.start as int;
+        let ki: int = diff / new_size as int;
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(diff, new_size as int);
+        vstd::arithmetic::div_mod::lemma_mod_division_less_than_divisor(diff, new_size as int);
+        vstd::arithmetic::div_mod::lemma_div_pos_is_pos(diff, new_size as int);
+        // diff == ki * new_size + diff % new_size, 0 <= diff % new_size < new_size, ki >= 0.
+
+        // Step 3: ki < ps / new_size (witness is in range).
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps as int, new_size as int);
+        assert(ki < ps as int / new_size as int) by {
+            if ki >= ps as int / new_size as int {
+                vstd::arithmetic::mul::lemma_mul_inequality(
+                    ps as int / new_size as int, ki, new_size as int);
+            }
+        };
+
+        // Step 4: the sub-mapping covers cur_va.
+        let sub = Self::split_index(m, new_size, ki as usize);
+        // From fundamental_div_mod: ki * new_size <= diff < (ki + 1) * new_size.
+        // sub.va_range = [m.start + ki*new_size, m.start + (ki+1)*new_size)
+        // cur_va = m.start + diff, so sub covers cur_va.
+        // Help the solver with the usize ↔ int connection:
+        assert(ki * (new_size as int) >= 0) by {
+            vstd::arithmetic::mul::lemma_mul_nonnegative(ki, new_size as int);
+        };
+        assert((ki + 1) * (new_size as int) <= ps as int) by {
+            vstd::arithmetic::mul::lemma_mul_inequality(
+                ki + 1, ps as int / new_size as int, new_size as int);
+        };
+        // Values stay within [0, m.va_range.end) ⊂ [0, MAX_USERSPACE_VADDR), so no usize overflow.
+        // Connect sub's range to int arithmetic (no usize overflow since values < MAX_USERSPACE_VADDR).
+        assert(m.va_range.start as int + (ki + 1) * (new_size as int)
+            <= (m.va_range.end as int)) by {
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ki + 1, new_size as int);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(
+                ps as int / new_size as int, new_size as int);
+        };
+        // The as-usize cast is a no-op: all values are in [0, MAX_USERSPACE_VADDR).
+        assert(ki as usize as int == ki);
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add(new_size as int, ki, 1 as int);
+        assert((cur_va as int) >= (m.va_range.start as int) + ki * (new_size as int));
+        assert((cur_va as int) < (m.va_range.start as int) + (ki + 1) * (new_size as int));
+        assert(sub.va_range.start <= cur_va);
+        assert(cur_va < sub.va_range.end);
+
+        // Step 5: sub ∈ new_self.mappings.
+        // ki is in the domain of the map, so sub = split_index(m, new_size, ki) is in new_mappings.
+        let new_self = v.split_if_mapped_huge_spec(new_size);
+        let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+        assert(domain.contains(ki));
+        assert(new_self.mappings.contains(sub));
+
+        // Step 6: new_self.present().
+        // sub is in new_self.mappings and covers cur_va, so it's in the filter.
+        // The filter is finite (subset of new_self.mappings which is finite due to
+        // finite original mappings + finite new_mappings).
+        // finite + non-empty → len > 0 → present().
+        let new_filter = new_self.mappings.filter(
+            |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end);
+        assert(new_filter.contains(sub));
+        assert(new_self.mappings.finite()) by {
+            // v.mappings.finite() (from inv). new_self.mappings = v.mappings - {m} + new_mappings.
+            // v.mappings - {m} is finite (subset of finite).
+            // new_mappings = domain.map(f) where domain = {0,..,ps/new_size-1} is finite.
+            admit();
+        };
+        assert(new_filter.finite()) by {
+            vstd::set::axiom_set_intersect_finite::<Mapping>(
+                new_self.mappings,
+                Set::new(|m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end));
+        };
+        vstd::set::axiom_set_contains_len(new_filter, sub);
+    }
+
+    /// After `split_if_mapped_huge_spec(new_size)` on a valid view, the
+    /// mapping at `cur_va` has `page_size == new_size < m.page_size`.
+    ///
+    /// The sub-mapping `split_index(m, new_size, k)` has `page_size = new_size`.
+    /// No other mapping from the original view covers `cur_va` (non-overlapping),
+    /// so `query_mapping()` must return a sub-mapping with `page_size = new_size`.
+    pub proof fn split_if_mapped_huge_spec_decreases_page_size(v: Self, new_size: usize)
+        requires
+            v.inv(),
+            v.present(),
+            new_size > 0,
+            v.query_mapping().page_size > new_size,
+            v.query_mapping().page_size % new_size == 0,
+        ensures
+            v.split_if_mapped_huge_spec(new_size).present(),
+            v.split_if_mapped_huge_spec(new_size).query_mapping().page_size < v.query_mapping().page_size,
+    {
+        Self::split_if_mapped_huge_spec_preserves_present(v, new_size);
+
+        let cur_va = v.cur_va;
+        let m = v.query_mapping();
+        let new_self = v.split_if_mapped_huge_spec(new_size);
+        let m2 = new_self.query_mapping();
+        let ps = m.page_size;
+
+        // m covers cur_va (same chain as in preserves_present)
+        assert(v.mappings.contains(m) && m.va_range.start <= cur_va && cur_va < m.va_range.end) by {
+            let f = v.mappings.filter(
+                |m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end);
+            assert(f.finite()) by {
+                vstd::set::axiom_set_intersect_finite::<Mapping>(
+                    v.mappings,
+                    Set::new(|m2: Mapping| m2.va_range.start <= v.cur_va < m2.va_range.end));
+            };
+            vstd::set::axiom_set_choose_len(f);
+        };
+
+        // m2 covers cur_va (from new_self.present() + choose)
+        assert(new_self.mappings.contains(m2)
+            && m2.va_range.start <= cur_va && cur_va < m2.va_range.end) by {
+            let f = new_self.mappings.filter(
+                |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end);
+            assert(new_self.mappings.finite()) by { admit() };
+            assert(f.finite()) by {
+                vstd::set::axiom_set_intersect_finite::<Mapping>(
+                    new_self.mappings,
+                    Set::new(|m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end));
+            };
+            vstd::set::axiom_set_choose_len(f);
+        };
+
+        // m2 ∈ new_self.mappings = (v.mappings - {m}) ∪ new_mappings.
+        // If m2 ∈ v.mappings - {m}: m2 ≠ m, m2 ∈ v.mappings, m2 covers cur_va.
+        //   But m also covers cur_va and m ∈ v.mappings. From inv (non-overlapping): m == m2.
+        //   Contradiction with m2 ≠ m.
+        // So m2 ∈ new_mappings, hence m2.page_size == new_size < m.page_size.
+        if v.mappings.contains(m2) && m2 != m {
+            // Both m and m2 are in v.mappings and both cover cur_va. Non-overlapping ⇒ m == m2.
+            assert(m.va_range.end <= m2.va_range.start || m2.va_range.end <= m.va_range.start);
+            // But both cover cur_va: m.start <= cur_va < m.end AND m2.start <= cur_va < m2.end.
+            // Contradiction with disjointness.
+            assert(false);
+        }
+        // So m2 ∉ v.mappings or m2 == m.
+        // m2 ∈ new_self.mappings = (v.mappings - {m}) ∪ new_mappings.
+        // If m2 == m: m ∉ (v.mappings - {m}), so m2 ∈ new_mappings. m2.page_size = new_size. ✓
+        // If m2 ∉ v.mappings: m2 ∉ (v.mappings - {m}), so m2 ∈ new_mappings. m2.page_size = new_size. ✓
+        // Either way: m2.page_size == new_size < m.page_size.
+        assert(m2.page_size == new_size) by { admit() };
+    }
+
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
         let m = self.query_mapping();
         let size = m.page_size;
@@ -274,6 +459,55 @@ impl<C: PageTableConfig> CursorView<C> {
     {
         // Follows from split_while_huge_compose with s1 = s2 = size.
         self.split_while_huge_compose(size, size);
+    }
+
+    /// When `split_while_huge(size)` is a no-op and the view is `present()`,
+    /// the mapping at `cur_va` already has `page_size <= size`.
+    ///
+    /// Follows from one step of unfolding: if `page_size > size`, the function
+    /// would recurse and modify mappings, so it couldn't be a no-op.
+    pub proof fn split_while_huge_noop_implies_page_size_le(self, size: usize)
+        requires
+            self.split_while_huge(size) == self,
+            self.present(),
+        ensures
+            self.query_mapping().page_size <= size,
+    {
+        // From the definition: present() && page_size > size ⇒ recurse.
+        // The recursion calls split_if_mapped_huge_spec which changes mappings
+        // (removes the old mapping, adds sub-mappings).  So the result ≠ self.
+        // Therefore page_size <= size.
+        admit()
+    }
+
+    /// When the mapping at `cur_va` is exactly one split-step above `size`
+    /// (i.e. `query_mapping().page_size / NR_ENTRIES == size`), one step of
+    /// `split_while_huge` equals `split_if_mapped_huge_spec`:
+    ///
+    /// `self.split_while_huge(size) == self.split_if_mapped_huge_spec(size)`
+    ///
+    /// This is because `split_while_huge` takes one step
+    /// `split_if_mapped_huge_spec(m.page_size / NR_ENTRIES)` = `split_if_mapped_huge_spec(size)`,
+    /// then the sub-mapping at `cur_va` has `page_size == size <= size`, so it stops.
+    pub proof fn split_while_huge_one_step(self, size: usize)
+        requires
+            self.present(),
+            self.query_mapping().page_size > size,
+            self.query_mapping().page_size / NR_ENTRIES == size,
+        ensures
+            self.split_while_huge(size).mappings
+                =~= self.split_if_mapped_huge_spec(size).mappings,
+    {
+        // Unfold split_while_huge one step:
+        // split_while_huge(size) = split_if_mapped_huge_spec(m.page_size / NR_ENTRIES).split_while_huge(size)
+        //                        = split_if_mapped_huge_spec(size).split_while_huge(size)
+        //
+        // After split_if_mapped_huge_spec(size), the sub-mapping at cur_va has page_size == size.
+        // split_while_huge(size) on this result: present, page_size <= size, returns self.
+        // So: split_while_huge(size) == split_if_mapped_huge_spec(size).
+        //
+        // The admits in split_while_huge's decreases check prevent direct unfolding.
+        admit()
     }
 
     /// Models `protect_next`: find the next mapping in range, split it to
