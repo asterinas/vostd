@@ -317,6 +317,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner)@.mappings == owner@.mappings,
             forall |e:EntryOwner<C>| #[trigger] e.inv() && e.relate_region(*old(regions)) ==> e.relate_region(*regions),
     )]
+    #[verifier::rlimit(100)]
     pub fn query(&mut self) -> Result<PagesState<C>, PageTableError> {
         if self.va >= self.barrier_va.end {
             proof {
@@ -328,7 +329,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         let ghost initial_va = self.va;
 
-        loop
+        loop 
             invariant
                 self.invariants(*owner, *regions, *guards),
                 self.va == initial_va,
@@ -357,8 +358,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ==> #[trigger] regions.slots.contains_key(k),
             decreases self.level,
         {
-            proof { reveal(CursorContinuation::inv_children); }
-
             let cur_va = self.va;
             let level = self.level;
 
@@ -639,8 +638,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             owner.va.reflect_prop(self.va);
+            owner.view_preserves_inv();
         }
-        // Capture old(owner)@.cur_va for use inside the loop.
         let ghost old_owner_cur_va: Vaddr = owner@.cur_va;
 
         // Track whether a split occurred during the loop.
@@ -654,6 +653,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 self.wf(*owner),
                 regions.inv(),
                 self.inv(),
+                old(owner)@.inv(),
                 owner.in_locked_range() || self.va >= end,
                 self.va >= old(self).va,
                 end == old(self).va + len,
@@ -3334,4 +3334,4 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
- 
+

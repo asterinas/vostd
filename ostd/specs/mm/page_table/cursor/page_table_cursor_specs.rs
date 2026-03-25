@@ -242,10 +242,17 @@ impl<C: PageTableConfig> CursorView<C> {
             |m2: Mapping| m2.va_range.start <= new_self.cur_va < m2.va_range.end);
         assert(new_filter.contains(sub));
         assert(new_self.mappings.finite()) by {
-            // v.mappings.finite() (from inv). new_self.mappings = v.mappings - {m} + new_mappings.
-            // v.mappings - {m} is finite (subset of finite).
-            // new_mappings = domain.map(f) where domain = {0,..,ps/new_size-1} is finite.
-            admit();
+            // v.mappings - {m} is finite (remove from finite).
+            vstd::set::axiom_set_remove_finite(v.mappings, m);
+            // new_mappings = domain.map(f) where domain = int::range_set(0, ps/new_size) is finite.
+            let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+            assert(domain =~= int::range_set(0int, ps as int / new_size as int));
+            vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
+            domain.lemma_map_finite(|n:int| Self::split_index(m, new_size, n as usize));
+            // (v.mappings - {m}) ∪ new_mappings: union of two finite sets.
+            vstd::set::axiom_set_union_finite(
+                v.mappings.remove(m),
+                domain.map(|n:int| Self::split_index(m, new_size, n as usize)));
         };
         assert(new_filter.finite()) by {
             vstd::set::axiom_set_intersect_finite::<Mapping>(
@@ -297,7 +304,16 @@ impl<C: PageTableConfig> CursorView<C> {
             && m2.va_range.start <= cur_va && cur_va < m2.va_range.end) by {
             let f = new_self.mappings.filter(
                 |m3: Mapping| m3.va_range.start <= new_self.cur_va < m3.va_range.end);
-            assert(new_self.mappings.finite()) by { admit() };
+            assert(new_self.mappings.finite()) by {
+                vstd::set::axiom_set_remove_finite(v.mappings, m);
+                let domain = Set::<int>::new(|n:int| 0 <= n < ps as int / new_size as int);
+                assert(domain =~= int::range_set(0int, ps as int / new_size as int));
+                vstd::set_lib::range_set_properties::<int>(0int, ps as int / new_size as int);
+                domain.lemma_map_finite(|n:int| Self::split_index(m, new_size, n as usize));
+                vstd::set::axiom_set_union_finite(
+                    v.mappings.remove(m),
+                    domain.map(|n:int| Self::split_index(m, new_size, n as usize)));
+            };
             assert(f.finite()) by {
                 vstd::set::axiom_set_intersect_finite::<Mapping>(
                     new_self.mappings,
@@ -323,7 +339,16 @@ impl<C: PageTableConfig> CursorView<C> {
         // If m2 == m: m ∉ (v.mappings - {m}), so m2 ∈ new_mappings. m2.page_size = new_size. ✓
         // If m2 ∉ v.mappings: m2 ∉ (v.mappings - {m}), so m2 ∈ new_mappings. m2.page_size = new_size. ✓
         // Either way: m2.page_size == new_size < m.page_size.
-        assert(m2.page_size == new_size) by { admit() };
+        // m2 ∉ (v.mappings - {m}), so m2 ∈ new_mappings.
+        // All elements of new_mappings have page_size == new_size.
+        assert(!v.mappings.remove(m).contains(m2));
+        let new_mappings = Set::<int>::new(
+            |n:int| 0 <= n < ps as int / new_size as int
+        ).map(|n:int| Self::split_index(m, new_size, n as usize));
+        assert(new_mappings.contains(m2));
+        let k = choose|k: int| 0 <= k < ps as int / new_size as int
+            && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+        assert(m2.page_size == new_size);
     }
 
     pub open spec fn split_if_mapped_huge_spec(self, new_size: usize) -> Self {
@@ -338,7 +363,7 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     pub open spec fn split_while_huge(self, size: usize) -> Self
-        decreases self.query_mapping().page_size
+        decreases self.query_mapping().page_size when self.inv()
     {
         if self.present() {
             let m = self.query_mapping();
@@ -346,8 +371,20 @@ impl<C: PageTableConfig> CursorView<C> {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
                 proof {
-                    assert(new_self.present()) by { admit() };
-                    assert(new_self.query_mapping().page_size < m.page_size) by { admit() };
+                    let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                    vstd::set::axiom_set_intersect_finite::<Mapping>(
+                        self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                    vstd::set::axiom_set_choose_len(f);
+                    assert(self.mappings.contains(m));
+                    assert(m.inv());
+                    assert(NR_ENTRIES == 512);
+                    assert(m.page_size % (m.page_size / 512usize) == 0) by {
+                        if m.page_size == 4096 { assert(4096usize % (4096usize / 512usize) == 0); }
+                        else if m.page_size == 2097152 { assert(2097152usize % (2097152usize / 512usize) == 0); }
+                        else { assert(1073741824usize % (1073741824usize / 512usize) == 0); }
+                    };
+                    Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
+                    Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 }
                 new_self.split_while_huge(size)
             } else {
@@ -360,6 +397,7 @@ impl<C: PageTableConfig> CursorView<C> {
 
     /// `split_while_huge` only modifies `mappings`, not `cur_va`.
     pub broadcast proof fn lemma_split_while_huge_preserves_cur_va(self, size: usize)
+        requires self.inv(),
         ensures #[trigger] self.split_while_huge(size).cur_va == self.cur_va
         decreases self.query_mapping().page_size
     {
@@ -368,11 +406,19 @@ impl<C: PageTableConfig> CursorView<C> {
             if m.page_size > size {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
-                // split_if_mapped_huge_spec preserves cur_va (it's in the struct literal)
                 assert(new_self.cur_va == self.cur_va);
-                // Use the same admits as in split_while_huge itself
-                assert(new_self.present()) by { admit() };
-                assert(new_self.query_mapping().page_size < m.page_size) by { admit() };
+                assert(new_self.inv()) by { admit() }; // split_if_mapped_huge_spec preserves inv
+                // Decreases: new_self.query_mapping().page_size < m.page_size
+                let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+                vstd::set::axiom_set_intersect_finite::<Mapping>(
+                    self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+                vstd::set::axiom_set_choose_len(f);
+                assert(m.inv());
+                assert(NR_ENTRIES == 512);
+                assert(m.page_size % (m.page_size / 512usize) == 0) by {
+                    if m.page_size == 4096 {} else if m.page_size == 2097152 {} else {}
+                };
+                Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 Self::lemma_split_while_huge_preserves_cur_va(new_self, size);
             }
         }

@@ -3,7 +3,7 @@
 use vstd::prelude::*;
 
 use vstd_extra::arithmetic::nat_align_down;
-use vstd_extra::ownership::{ModelOf, OwnerOf};
+use vstd_extra::ownership::{InvView, ModelOf, OwnerOf};
 use vstd_extra::prelude::Inv;
 
 use core::marker::PhantomData;
@@ -471,6 +471,7 @@ impl KVirtArea {
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor.inner.model(cursor_owner);
             let ghost old_cursor_owner_va = cursor_owner.va;
             proof {
+                cursor_owner.view_preserves_inv(); // old_cursor_model.inv()
                 cursor_owner.va.reflect_prop(cursor.inner.va);
                 let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
                 KernelPtConfig::item_into_raw_spec_level_bounds(item);
@@ -660,6 +661,7 @@ impl KVirtArea {
                 let ghost old_va: nat = cursor.inner.va as nat;
 
                 proof {
+                    cursor_owner.view_preserves_inv(); // old_cursor_model.inv()
                     cursor_owner.va.reflect_prop(cursor.inner.va);
 
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
