@@ -546,6 +546,7 @@ impl AbstractVaddr {
     }
 
     /// The vaddr of the path from this abstract vaddr equals the aligned vaddr at that level.
+    #[verifier::rlimit(400)]
     pub proof fn to_path_vaddr(self, level: int)
         requires
             self.inv(),
@@ -580,6 +581,9 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(aligned.compute_vaddr() == aligned.rec_compute_vaddr(0));
+            assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
+                + aligned.rec_compute_vaddr(1)) as Vaddr);
         } else if level == 2 {
             let aligned = self.align_down(3);
             self.align_down_shape(3);
@@ -894,6 +898,13 @@ impl AbstractVaddr {
         if path.len() == 0 {
             let aligned = self.align_down(5);
             self.align_down_shape(4);
+            // align_down(5) zeroes index[3] on top of align_down(4), so all indices + offset are 0.
+            assert(aligned.index[3] == 0) by {
+                assert(aligned == AbstractVaddr {
+                    index: self.align_down(4).index.insert(3, 0),
+                    ..self.align_down(4)
+                });
+            };
             assert(aligned.rec_compute_vaddr(4) == 0);
             assert(aligned.rec_compute_vaddr(3) == 0) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
@@ -904,6 +915,8 @@ impl AbstractVaddr {
                     + aligned.rec_compute_vaddr(3)) as Vaddr);
             };
             assert(aligned.rec_compute_vaddr(1) == 0) by {
+                assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
+                    + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
         } else {
             let level = (NR_LEVELS - path.len()) as int;
