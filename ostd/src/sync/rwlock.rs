@@ -648,7 +648,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         None
     }
 }
-} // verus!
+
 /*
 impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
@@ -681,17 +681,14 @@ unsafe impl<T: Send, G> Send for RwLock<T, G> {}
 #[verifier::external]
 unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
@@ -699,7 +696,6 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 /// A guard that provides immutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 #[clippy::has_significant_drop]
 #[must_use]
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
@@ -716,7 +712,6 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockReadGuard<'_, T, G>
 }
 */
 
-verus! {
 impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
@@ -755,7 +750,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
     }
 }
-} // verus!
 /* impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockReadGuard_<T, R, G>
 {
@@ -763,7 +757,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         self.inner.lock.fetch_sub(READER, Release);
     }
 } */
-verus! {
+
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
     fn drop(self) {
@@ -791,7 +785,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
         );
     }
 }
-} // verus!
 
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_, T, G> {
@@ -802,7 +795,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_,
 /// A guard that provides mutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
@@ -810,8 +802,6 @@ pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     v_perm: Tracked<PointsTo<T>>,
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
-
-verus! {
 
 impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     #[verifier::type_invariant]
@@ -903,7 +893,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
         };
     }
 }
-} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -914,7 +903,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
@@ -926,8 +914,6 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_
         self.guard.as_atomic_mode_guard()
     }
 }*/
-
-verus! {
 
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
