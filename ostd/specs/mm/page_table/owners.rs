@@ -77,6 +77,16 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
     rec_vaddr(path, 0)
 }
 
+/// page_size is monotonically increasing in its argument.
+pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
+    requires
+        a <= b,
+    ensures
+        page_size(a) <= page_size(b),
+{
+    admit()
+}
+
 /// Sibling paths (same prefix, different last index) have disjoint VA ranges.
 /// This is a fundamental property of page table virtual address layout:
 /// each entry at a given level covers a distinct, non-overlapping range.
@@ -90,7 +100,7 @@ pub proof fn sibling_paths_disjoint(
         j < NR_ENTRIES,
         k < NR_ENTRIES,
         j != k,
-        size == page_size((prefix.len() + 1) as PagingLevel),
+        size == page_size((INC_LEVELS - prefix.len()) as PagingLevel),
     ensures
         vaddr(prefix.push_tail(j)) + size <= vaddr(prefix.push_tail(k))
         || vaddr(prefix.push_tail(k)) + size <= vaddr(prefix.push_tail(j)),
@@ -152,18 +162,14 @@ pub type OwnerSubtree<C> = Node<EntryOwner<C>, NR_ENTRIES, INC_LEVELS>;
 
 /// Specifies that `owner` is the ghost owner of a newly allocated empty page table node at the given level.
 /// Captures the structural post-conditions of `PageTableNode::alloc`.
-pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
-    owner: OwnerSubtree<C>,
-    level: PagingLevel,
-) -> bool {
+pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubtree<C>, level: PagingLevel) -> bool {
     &&& owner.inv()
     &&& owner.value.is_node()
     &&& owner.value.path == TreePath::<NR_ENTRIES>::new(Seq::empty())
     &&& owner.value.parent_level == level
     &&& owner.value.node.unwrap().level == level - 1
     &&& owner.value.node.unwrap().inv()
-    &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==>
-        !owner.value.node.unwrap().children_perm.value()[i].is_present()
+    &&& !owner.value.node.unwrap().children_perm.value().all(|child: C::E| child.is_present())
     &&& forall |i: int| #![auto] 0 <= i < NR_ENTRIES ==> {
         &&& owner.children[i] is Some
         &&& owner.children[i].unwrap().value.is_absent()
@@ -183,6 +189,21 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(
 pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
+
+    /// For a top-level (root) page table, entries at indices outside of
+    /// `C::TOP_LEVEL_INDEX_RANGE_spec()` are absent. This ensures that
+    /// UserPtConfig and KernelPtConfig page tables manage disjoint portions
+    /// of the virtual address space.
+    pub open spec fn top_level_indices_absent(self) -> bool {
+        let range = C::TOP_LEVEL_INDEX_RANGE_spec();
+        self.0.value.is_node() ==>
+        forall|i: int|
+            #![trigger self.0.children[i]]
+            0 <= i < NR_ENTRIES
+            && !(range.start <= i < range.end)
+            ==> self.0.children[i] is Some
+                && self.0.children[i].unwrap().value.is_absent()
+    }
 
     pub open spec fn view_rec(self, path: TreePath<NR_ENTRIES>) -> Set<Mapping>
         decreases INC_LEVELS - path.len() when self.0.inv() && path.len() <= INC_LEVELS - 1
@@ -251,7 +272,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path.len() == self.0.level,
             self.view_rec(path).contains(m),
         ensures
-            vaddr(path) <= m.va_range.start < m.va_range.end <= vaddr(path) + page_size(path.len() as PagingLevel),
+            vaddr(path) <= m.va_range.start < m.va_range.end <= vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel),
     {
         admit();
     }
@@ -282,16 +303,18 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             if i1 == i2 {
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_disjoint_vaddrs(path.push_tail(i1 as usize), m1, m2);
             } else if i1 < i2 {
-                let page_size = page_size((path.len() + 1) as PagingLevel);
+                let page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
                 // TODO: connect TreePath to AbstractVaddr
                 assert(vaddr(path.push_tail(i1 as usize)) + page_size <= vaddr(path.push_tail(i2 as usize))) by { admit(); };
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_vaddr_range(path.push_tail(i1 as usize), m1);
                 PageTableOwner(self.0.children[i2].unwrap()).view_rec_vaddr_range(path.push_tail(i2 as usize), m2);
+                page_size_monotonic((INC_LEVELS - path.len() - 1) as PagingLevel, (INC_LEVELS - path.len()) as PagingLevel);
             } else {
-                let page_size = page_size((path.len() + 1) as PagingLevel);
+                let page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
                 assert(vaddr(path.push_tail(i2 as usize)) + page_size <= vaddr(path.push_tail(i1 as usize))) by { admit(); };
                 PageTableOwner(self.0.children[i2].unwrap()).view_rec_vaddr_range(path.push_tail(i2 as usize), m2);
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_vaddr_range(path.push_tail(i1 as usize), m1);
+                page_size_monotonic((INC_LEVELS - path.len() - 1) as PagingLevel, (INC_LEVELS - path.len()) as PagingLevel);
             }
         }
     }

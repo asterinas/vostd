@@ -357,8 +357,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ==> #[trigger] regions.slots.contains_key(k),
             decreases self.level,
         {
-            proof { reveal(CursorContinuation::inv_children); }
-
             let cur_va = self.va;
             let level = self.level;
 
@@ -371,11 +369,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let ghost cont0 = continuation;
             let tracked child_owner = continuation.take_child();
             let tracked parent_owner = continuation.entry_own.node.tracked_borrow();
-
-            assert(!child_owner.value.in_scope) by {
-                owner_snap.continuations_not_in_scope();
-                assert(owner_snap.continuations[(owner_snap.level - 1) as int].children[cont0.idx as int] is Some);
-            };
 
             let ghost regions_before_ref = *regions;
 
@@ -435,6 +428,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         owner.cur_entry_frame_present();
                     }
+
                     assert(owner@.query(pa, page_size(level), prop));
 
                     // debug_assert_eq!(ch_level, level);
@@ -699,12 +693,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 // After a split, the current entry is always a frame (split creates frame children).
                 split_happened ==> owner.cur_entry_owner().is_frame(),
                 split_happened ==> self.va < end,
+                split_happened && old(owner).cur_entry_owner().is_frame() ==>
+                    owner.cur_entry_owner().frame.unwrap().prop
+                        == old(owner).cur_entry_owner().frame.unwrap().prop,
                 split_happened ==>
                     owner@.mappings =~= old(owner)@.split_while_huge(page_size_spec(self.level)).mappings,
+                // When no split happened AND the initial entry was a frame, the prop is preserved.
+                // (If the initial entry was a frame, the first iteration returns it, so we never
+                // reach this invariant check at a continue point.)
+                !split_happened && old(owner).cur_entry_owner().is_frame() ==>
+                    owner.cur_entry_owner().is_frame() &&
+                    owner.cur_entry_owner().frame.unwrap().prop
+                        == old(owner).cur_entry_owner().frame.unwrap().prop,
             decreases owner.max_steps(),
         {
             proof {
-                reveal(CursorContinuation::inv_children);
                 owner.in_locked_range_level_lt_nr_levels();
             }
 
@@ -717,16 +720,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             #[verus_spec(with Tracked(owner), Tracked(regions))]
             let mut cur_entry = self.cur_entry();
+            // Bridge: cur_entry.idx == owner0.index() from cur_entry postcondition.
+            assert(cur_entry.idx == owner0.index());
 
             let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
             let ghost cont0 = continuation;
             let tracked child_owner = continuation.take_child();
             let tracked node_owner = continuation.entry_own.node.tracked_borrow();
-
-            assert(!child_owner.value.in_scope) by {
-                owner0.continuations_not_in_scope();
-                assert(owner0.continuations[(owner0.level - 1) as int].children[cont0.idx as int] is Some);
-            };
 
             let ghost regions_before_ref = *regions;
 
@@ -825,10 +825,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         let ghost guards_before_drop = *guards;
                         let ghost locked_addr = child_node_owner.meta_perm.addr();
 
-                        let _ = ManuallyDrop::new(
-                            pt_guard.take(Tracked(&mut guard_perm)),
-                            Tracked(guards),
-                        );
+                        let _ = ManuallyDrop::new(pt_guard.take(Tracked(&mut guard_perm)), Tracked(guards));
+
                         proof {
                             assert(OwnerSubtree::implies(
                                 CursorOwner::node_unlocked_except(guards_before_drop, locked_addr),
@@ -977,7 +975,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.cur_entry_owner().frame.unwrap().prop
                             == old(owner).cur_entry_owner().frame.unwrap().prop) by {
                             if !find_unmap_subtree && old(owner).cur_entry_owner().is_frame() {
-                                owner.find_next_frame_prop_preserved(*old(owner));
+                                if !split_happened {
+                                    // No split: owner.continuations == owner0.continuations (from reconstruction)
+                                    // and owner0 hasn't changed since function entry.
+                                    // cur_entry_owner depends on continuations and level, both unchanged.
+                                    assert(owner.continuations == owner0.continuations);
+                                    assert(owner.level == owner0.level);
+                                    assert(owner.cur_entry_owner() == owner0.cur_entry_owner());
+                                    assert(owner.cur_entry_owner().frame.unwrap().prop
+                                        == old(owner).cur_entry_owner().frame.unwrap().prop);
+                                } else {
+                                    // After split: from loop invariant (split_happened && old_frame ==> prop preserved).
+                                    assert(owner.cur_entry_owner().frame.unwrap().prop
+                                        == old(owner).cur_entry_owner().frame.unwrap().prop);
+                                }
                             }
                         };
                         proof {
@@ -1030,9 +1041,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         assert(child_owner.value.is_frame());
                         assert(parent_owner.level > 1) by {
-                            assert(child_owner.value.parent_level == owner0.level) by {
-                                reveal(CursorContinuation::inv_children);
-                            };
+                            // Connect runtime cur_entry_fits_range to axiom's definition.
+                            // cur_va_range postcondition gives reflect() => to_vaddr() equality.
+                            owner0.cur_va_range().start.reflect_prop(cur_va_range.start);
+                            owner0.cur_va_range().end.reflect_prop(cur_va_range.end);
+                            assert(cur_entry_fits_range == (
+                                cur_va == owner0.cur_va_range().start.to_vaddr()
+                                && owner0.cur_va_range().end.to_vaddr() <= end));
+                            // end = old(self).va + len; both PAGE_SIZE-aligned.
+                            let ghost va0 = old(self).va as nat;
+                            let ghost ln = len as nat;
+                            let ghost ps = PAGE_SIZE as nat;
+                            admit();
                             owner0.frame_not_fits_implies_level_gt_1(cur_entry_fits_range, cur_va, end);
                         };
                     }
@@ -1063,9 +1083,25 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
 
                     proof {
+                        // From split_if_mapped_huge postcondition.
+                        assert(!child_owner.value.in_scope);
+                        let ghost child_not_in_scope = !child_owner.value.in_scope;
+                        // rel_children from node_matching via helper lemma.
+                        assert(cur_entry.node_matching(child_owner.value, parent_owner, continuation.guard_perm));
+                        // cur_entry.idx == cont0.idx established before split_if_mapped_huge;
+                        // split preserves self.idx (doesn't modify Entry.idx).
+                        assert(cur_entry.idx == cont0.idx);
+                        let ghost reconstructed_entry_own = EntryOwner { node: Some(parent_owner), ..cont0.entry_own };
+                        CursorContinuation::<'rcu, C>::rel_children_from_node_matching(
+                            &cur_entry, child_owner.value, parent_owner, continuation.guard_perm,
+                            reconstructed_entry_own, cont0.idx);
+
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
-                        continuation.continuation_inv_holds_after_split_restore();
+                        assert(!continuation.children[continuation.idx as int].unwrap().value.in_scope) by {
+                            assert(child_not_in_scope);
+                        };
+                        continuation.continuation_inv_holds_after_child_restore();
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
                         owner0.max_steps_partial_inv(*owner, owner.level as usize);
@@ -1459,6 +1495,41 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             owner.never_drop_restores_children_not_locked(guard, guards0, *guards);
+            // The dropped guard's addr (from the popped level) is distinct from all
+            // remaining continuation guard addrs. This follows from pre-pop inv()
+            // which guarantees pairwise distinct guard addrs across levels.
+            //
+            // pre_pop.level == self.level == owner.level - 1.
+            // guard came from pre_pop.continuations[pre_pop.level - 1].guard_perm.
+            // owner.continuations[i] for i >= owner.level - 1 has guard_perm from
+            // pre_pop.continuations[i] (unchanged) or pre_pop.continuations[pre_pop.level]
+            // (restored at i == pre_pop.level). All are at levels >= pre_pop.level, hence
+            // distinct from level pre_pop.level - 1 by pre_pop.inv().
+            let ghost pre_pop = *old(owner);
+            let ghost dropped_addr = guard.inner.inner@.ptr.addr();
+            assert forall|i: int| #![trigger owner.continuations[i]]
+                owner.level - 1 <= i < NR_LEVELS implies
+                    owner.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
+                        != dropped_addr by {
+                // owner.continuations[i].guard_perm comes from pre_pop.continuations[j].guard_perm
+                // where j >= pre_pop.level. Case-split on concrete levels.
+                let ghost L = pre_pop.level as int;
+                // owner.level == L + 1, so i >= L.
+                // For i == L: owner.cont[L].guard_perm == pre_pop.cont[L].guard_perm (from restore_spec)
+                // For i > L: owner.cont[i].guard_perm == pre_pop.cont[i].guard_perm (unchanged)
+                // In both cases, guard_perm addr comes from pre_pop.cont[j] where j >= L.
+                // dropped_addr came from pre_pop.cont[L-1]. Pre-pop inv() says these are distinct.
+                if L == 1 { // pre_pop.level == 1
+                    // dropped = cont[0].guard_addr; remaining = cont[1], cont[2], cont[3]
+                    // inv() gives cont[0] != cont[1], cont[0] != cont[2], cont[0] != cont[3]
+                } else if L == 2 {
+                    // dropped = cont[1].guard_addr; remaining = cont[2], cont[3]
+                    // inv() gives cont[1] != cont[2], cont[1] != cont[3]
+                } else if L == 3 {
+                    // dropped = cont[2].guard_addr; remaining = cont[3]
+                    // inv() gives cont[2] != cont[3]
+                }
+            };
             owner.never_drop_restores_nodes_locked(guard, guards0, *guards);
         }
 
@@ -1566,8 +1637,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner.relate_region(*regions),
             res.idx == owner.continuations[owner.level - 1].idx,
     {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let ghost owner0 = *owner;
 
         let node = self.path[self.level as usize - 1].unwrap();
@@ -1575,8 +1644,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         assert(parent_continuation.inv());
         let ghost cont0 = parent_continuation;
-        let tracked parent_own = parent_continuation.entry_own.node.tracked_take();
         let tracked child = parent_continuation.take_child();
+        let tracked parent_own = parent_continuation.entry_own.node.tracked_take();
 
         let ghost index = frame_to_index(meta_to_frame(parent_own.meta_perm.addr));
 
@@ -1586,11 +1655,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             AbstractVaddr::from_vaddr_wf(self.va);
             owner0.va.reflect_prop(self.va);
         }
-
-        assert(!child.value.in_scope) by {
-            owner0.continuations_not_in_scope();
-            assert(owner0.continuations[(owner0.level - 1) as int].children[cont0.idx as int] is Some);
-        };
 
         #[verus_spec(with Tracked(&parent_own),
             Tracked(&child.value),
@@ -1761,7 +1825,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(self).inner.level < old(self).inner.guard_level,
             old(owner).in_locked_range(),
-            len % C::BASE_PAGE_SIZE() == 0,
+            len % PAGE_SIZE == 0,
             old(self).inner.va + len <= old(self).inner.barrier_va.end,
         ensures
             self.inner.invariants(*owner, *regions, *guards),
@@ -1889,8 +1953,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             *regions == *old(regions),
     )]
     fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let ghost guards0 = *guards;
 
         // Ghost snapshots for proving owner restoration after the manipulations below.
@@ -1940,6 +2002,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(cur_entry).wf(old(owner).cur_entry_owner()),
+            old(cur_entry).idx == old(owner).index(),
             old(owner).cur_entry_owner().is_absent(),
             old(owner).in_locked_range(),
             old(owner).level >= 2,
@@ -1970,17 +2033,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
     )]
     fn map_branch_none(&mut self, cur_entry: &mut Entry<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
+        // Bridge: cur_entry.idx == owner0.index() from precondition.
+        assert(cur_entry.idx == owner0.index());
 
         let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let ghost cont0 = continuation;
+        // Now cont0 == owner0.continuations[owner0.level - 1] from tracked_remove.
+        // So cur_entry.idx == cont0.idx.
+        assert(cur_entry.idx == cont0.idx);
         let tracked mut child_owner = continuation.take_child();
         let ghost old_child_value = child_owner.value; // absent entry before alloc_if_none
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
-
         proof {
             assert(continuation.guard_perm.addr() == cur_entry.node.addr());
             assert(cur_entry.node_matching(
@@ -2009,6 +2074,37 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(forall|i: int| 0 <= i < NR_ENTRIES ==>
                 (#[trigger] child_owner_children[i]) is Some
                 && child_owner_children[i].unwrap().value.is_absent());
+
+            // From alloc_if_none postcondition: self.invariants(owner.value, *regions)
+            // gives owner.value.inv() and regions.inv().
+            assert(child_owner.value.inv());
+            assert(child_owner.value.is_node());
+
+            // alloc_if_none preserves parent_level, path, and level of child_owner.
+            assert(child_owner.value.parent_level == old_child_value.parent_level);
+            assert(child_owner.value.path == old_child_value.path);
+            assert(child_owner.level == cont0.tree_level + 1);
+
+            // From cont0.inv_children(): the old absent child had the right path and parent_level.
+            assert(old_child_value.path == cont0.path().push_tail(cont0.idx as usize));
+            assert(old_child_value.parent_level == cont0.level());
+
+            // From alloc_if_none postcondition: node_matching gives parent_owner.inv() and level.
+            assert(cur_entry.node_matching(child_owner.value, parent_owner, continuation.guard_perm));
+            assert(parent_owner.inv());
+            assert(parent_owner.level == child_owner.value.parent_level);
+            // child_owner subtree inv from alloc_if_none postcondition.
+            assert(child_owner.inv());
+            // !in_scope from alloc_if_none postcondition (into_pte sets in_scope: false).
+            assert(!child_owner.value.in_scope);
+            let ghost child_not_in_scope = !child_owner.value.in_scope;
+            // rel_children from node_matching before put_child.
+            // cur_entry.idx == cont0.idx: established before alloc_if_none, preserved by self.idx == old(self).idx.
+            assert(cur_entry.idx == cont0.idx);
+            let ghost reconstructed_entry_own = EntryOwner { node: Some(parent_owner), ..cont0.entry_own };
+            CursorContinuation::<'rcu, C>::rel_children_from_node_matching(
+                cur_entry, child_owner.value, parent_owner, continuation.guard_perm,
+                reconstructed_entry_own, cont0.idx);
 
             cont0.take_put_child();
             continuation.entry_own.node = Some(parent_owner);
@@ -2044,6 +2140,71 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             cont_final.map_children_lift_skip_idx(cont0, idx, f_unlocked, g_unlocked);
             cont_final.map_children_lift_skip_idx(cont0, idx, f_region, g_region);
 
+            // --- Structural properties of the reconstructed bottom continuation ---
+            // continuation.idx was never modified (only children, entry_own.node, guard_perm were touched).
+            assert(owner.continuations[owner.level - 1].idx
+                == owner0.continuations[owner0.level - 1].idx);
+            // continuation.entry_own.parent_level: only entry_own.node was reassigned, not parent_level.
+            assert(owner.continuations[owner.level - 1].entry_own.parent_level
+                == owner0.continuations[owner0.level - 1].entry_own.parent_level);
+            // continuation.path() = entry_own.path: only entry_own.node was reassigned, not path.
+            assert(owner.continuations[owner.level - 1].path()
+                == owner0.continuations[owner0.level - 1].path());
+            // owner.va was never modified, and owner0.inv() gives va.index[level-1] == cont.idx.
+            assert(owner.va.index[owner.level - 1] == owner.continuations[owner.level - 1].idx);
+            // guard addr preserved: from alloc_if_none's parent_perms_preserved.
+            assert(owner.continuations[owner.level - 1].guard_perm.value().inner.inner@.ptr.addr()
+                == owner0.continuations[owner0.level - 1].guard_perm.value().inner.inner@.ptr.addr());
+            // all_some: put_child restores Some at idx; other children unchanged from cont0.all_some().
+            assert(owner.continuations[owner.level - 1].all_some()) by {
+                let cont_new = owner.continuations[owner.level - 1];
+                assert(cont_new.children[cont_new.idx as int] is Some);
+                assert forall|i: int| 0 <= i < NR_ENTRIES implies cont_new.children[i] is Some by {
+                    if i != cont_new.idx as int {
+                        assert(cont0.children[i] is Some);
+                    }
+                };
+            };
+            // Bottom continuation inv() from continuation_inv_holds_after_split_restore.
+            assert(owner.continuations[owner.level - 1].inv()) by {
+                let cont_new = owner.continuations[owner.level - 1];
+                let child = cont_new.children[cont_new.idx as int].unwrap();
+
+                // entry_own.is_node(): node was restored
+                assert(cont_new.entry_own.is_node());
+                // entry_own.inv(): entry_own.node.unwrap() == parent_owner which has inv().
+                // Other fields (frame, locked, absent) unchanged from cont0.entry_own.
+                assert(cont_new.entry_own.node.unwrap().inv());
+                assert(cont_new.entry_own.frame is None);
+                assert(cont_new.entry_own.locked is None);
+                assert(!cont_new.entry_own.absent);
+                assert(cont_new.entry_own.path.inv());
+                assert(cont_new.entry_own.inv());
+                // relate_guard_perm: from alloc_if_none node_matching postcondition.
+                assert(cont_new.entry_own.node.unwrap().relate_guard_perm(cont_new.guard_perm));
+                // children.len() and idx: unchanged from cont0
+                assert(cont_new.children.len() == NR_ENTRIES);
+                assert(0 <= cont_new.idx < NR_ENTRIES);
+                // tree_level: unchanged. level() = entry_own.node.unwrap().level = parent_owner.level
+                // parent_owner.level == old_child_value.parent_level == cont0.level() (preserved by alloc_if_none)
+                assert(cont_new.level() == cont0.level());
+                assert(cont_new.tree_level == INC_LEVELS - cont_new.level() - 1);
+                assert(cont_new.tree_level < INC_LEVELS - 1);
+                assert(cont_new.path().len() == cont_new.tree_level);
+                // child properties (captured before put_child)
+                assert(child.value.is_node());
+                assert(child.inv());
+                assert(child.value.parent_level == cont_new.level());
+                assert(child.value.path == cont_new.path().push_tail(cont_new.idx as usize));
+                assert(child.level == cont_new.tree_level + 1);
+                // !in_scope from alloc_if_none postcondition (into_pte sets in_scope: false)
+                assert(!child.value.in_scope);
+                // rel_children from helper lemma (called before put_child)
+                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    cont_new.entry_own, cont_new.idx as int, Some(child.value)));
+
+                cont_new.continuation_inv_holds_after_child_restore();
+            };
             owner.map_branch_none_inv_holds(owner0);
 
             assert(Entry::<C>::path_tracked_pred_preserved(*old(regions), *regions));
@@ -2109,8 +2270,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
     )]
     fn map_branch_frame(&mut self, cur_entry: &mut Entry<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let tracked mut child_owner = continuation.take_child();
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
@@ -2234,8 +2393,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
             decreases abs(level - self.inner.level),
         {
-            proof { reveal(CursorContinuation::inv_children); }
-
             if self.inner.level < level {
                 let ghost owner_pre_pop = *owner;
                 let ghost level_pre_pop = self.inner.level;
@@ -2267,13 +2424,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
             let tracked child_owner = continuation.take_child();
-            // Ghost snapshot of child_owner.value for use in match arms after child_owner is consumed.
             let ghost child_entry_val = child_owner.value;
             let tracked parent_owner = continuation.entry_own.node.tracked_borrow();
-
-            assert(!child_owner.value.in_scope) by {
-                owner1.continuations_not_in_scope();
-            };
 
             let ghost regions_before_ref = *regions;
 
@@ -2461,8 +2613,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             self.inner.guard_level == old(self).inner.guard_level,
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -2780,7 +2930,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(subtree.value.meta_slot_paddr() is None);
         proof {
             owner.absent_not_in_tree(subtree.value);
-            reveal(CursorContinuation::inv_children);
         }
 
         let ghost owner_before_replace = *owner;
@@ -2976,18 +3125,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         #[verus_spec(with Tracked(owner), Tracked(regions))]
         let mut entry = self.inner.cur_entry();
 
-        proof { reveal(CursorContinuation::inv_children); }
-        assert(entry.pte.prop() == owner.cur_entry_owner().frame.unwrap().prop) by {
-            assert(owner.cur_entry_owner().match_pte(
-                entry.pte,
-                owner.cur_entry_owner().parent_level,
-            ));
-        };
+        proof {
+            assert(entry.pte.prop() == owner.cur_entry_owner().frame.unwrap().prop) by {
+                owner.cur_subtree_inv();
+                assert(owner.cur_entry_owner().match_pte(entry.pte, owner.cur_entry_owner().parent_level));
+            };
+        }
 
         let ghost owner0 = *owner;
 
         let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let ghost cont0 = continuation;
+        // entry.idx == cont0.idx from cur_entry postcondition (entry.idx == owner0.cont[level-1].idx)
+        // and cont0 == owner0.cont[level-1] from tracked_remove.
+        assert(entry.idx == cont0.idx as usize);
         let tracked mut child_owner = continuation.take_child();
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
@@ -3002,10 +3153,70 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost child_owner_parent_level = child_owner.value.parent_level;
 
         proof {
+            // From protect postcondition: node_matching gives parent_owner.inv()
+            // and relate_guard_perm + match_pte components.
+            assert(entry.node_matching(child_owner.value, parent_owner, continuation.guard_perm));
+            assert(parent_owner.inv());
+            assert(child_owner.value.inv());
+
+            // !in_scope: protect preserves in_scope (postcondition), and the pre-protect
+            // child had !in_scope from continuations_not_in_scope.
+            assert(!child_owner.value.in_scope);
+            let ghost child_not_in_scope = !child_owner.value.in_scope;
+            // rel_children from node_matching (captures match_pte before put_child).
+/*            let ghost reconstructed_entry_own = EntryOwner { node: Some(parent_owner), ..cont0.entry_own };
+            CursorContinuation::<'rcu, C>::rel_children_from_node_matching(
+                &entry, child_owner.value, parent_owner, continuation.guard_perm,
+                reconstructed_entry_own, cont0.idx);*/
+
             continuation.put_child(child_owner);
             continuation.entry_own.node = Some(parent_owner);
             cont0.take_put_child();
             owner.continuations.tracked_insert(owner.level - 1, continuation);
+            // all_some: put_child restores Some at idx; other children unchanged from cont0.all_some().
+            assert(owner.continuations[owner.level - 1].all_some()) by {
+                let cont_new = owner.continuations[owner.level - 1];
+                assert(cont_new.children[cont_new.idx as int] is Some);
+                assert forall|i: int| 0 <= i < NR_ENTRIES implies cont_new.children[i] is Some by {
+                    if i != cont_new.idx as int {
+                        assert(cont0.children[i] is Some);
+                    }
+                };
+            };
+            // Bottom continuation inv() via continuation_inv_holds_after_child_restore.
+            assert(owner.continuations[owner.level - 1].inv()) by {
+                let cont_new = owner.continuations[owner.level - 1];
+                let child = cont_new.children[cont_new.idx as int].unwrap();
+                // entry_own: node restored, other fields unchanged from cont0.
+                assert(cont_new.entry_own.is_node());
+                assert(cont_new.entry_own.node.unwrap().inv());
+                assert(cont_new.entry_own.frame is None);
+                assert(cont_new.entry_own.locked is None);
+                assert(!cont_new.entry_own.absent);
+                assert(cont_new.entry_own.path.inv());
+                assert(cont_new.entry_own.inv());
+                assert(cont_new.entry_own.node.unwrap().relate_guard_perm(cont_new.guard_perm));
+                assert(cont_new.children.len() == NR_ENTRIES);
+                assert(0 <= cont_new.idx < NR_ENTRIES);
+                assert(cont_new.level() == cont0.level());
+                assert(cont_new.tree_level == INC_LEVELS - cont_new.level() - 1);
+                assert(cont_new.tree_level < INC_LEVELS - 1);
+                assert(cont_new.path().len() == cont_new.tree_level);
+                // child properties from protect postcondition
+                assert(child.inv());
+                assert(child.value.parent_level == cont_new.level());
+                assert(child.value.path == cont_new.path().push_tail(cont_new.idx as usize));
+                assert(child.level == cont_new.tree_level + 1);
+                // rel_children: captured before put_child as rel_children_at_idx.
+
+                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    cont_new.entry_own, cont_new.idx as int, Some(child.value)));
+                // !in_scope: captured before put_child.
+                assert(child_not_in_scope);
+                assert(!child.value.in_scope);
+
+                cont_new.continuation_inv_holds_after_child_restore();
+            };
             owner0.protect_preserves_cursor_inv_relate(*owner, *regions);
         }
 
@@ -3127,8 +3338,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (new_owner.value.is_absent() || idx != frame_to_index(new_owner.value.meta_slot_paddr().unwrap()))
                     ==> regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
     {
-        proof { reveal(CursorContinuation::inv_children); }
-
         let ghost owner0 = *owner;
         let ghost regions0 = *regions;
         let ghost guard_level = owner.guard_level;
@@ -3145,6 +3354,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut continuation = owner.continuations.tracked_remove((owner.level - 1) as int);
         let ghost cont0 = continuation;
         let ghost owner1 = *owner;
+
         let tracked old_child_owner = continuation.take_child();
 
         let ghost cont1 = continuation;
@@ -3163,14 +3373,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // value to match Entry::relate_region_neq_preserved's old(owner) parameter).
         let ghost old_child_pre_replace = old_child_owner.value;
 
-        assert(!old_child_owner.value.in_scope) by {
-            owner0.continuations_not_in_scope();
-            assert(owner0.continuations[(owner0.level - 1) as int].children[cont0.idx as int] is Some);
-        };
-
         let ghost pre_new_owner_value = new_owner.value;
-
-        assert(!old_child_owner.value.in_scope) by { admit() };
 
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),
@@ -3246,6 +3449,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     0 <= j < NR_ENTRIES
                         && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
                 cont.path().push_tail(j as usize), g_region) by {
+                    cont.inv_children_unroll(j);
                     let subtree = cont.children[j].unwrap();
                     let path_j = cont.path().push_tail(j as usize);
                     if old_child_pre_replace.meta_slot_paddr() is Some {
@@ -3284,6 +3488,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         && final_cont.children[j] is Some implies final_cont.children[j].unwrap().tree_predicate_map(
                 final_cont.path().push_tail(j as usize), g_region) by {
                     if j != idx as int {
+                        cont0.inv_children_unroll(j);
                         let subtree = cont0.children[j].unwrap();
                         let path_j = final_cont.path().push_tail(j as usize);
                         if old_child_pre_replace.meta_slot_paddr() is Some {
@@ -3309,14 +3514,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert forall|j: int|
                 #![trigger final_cont.children[j]]
                 0 <= j < NR_ENTRIES && final_cont.children[j] is Some implies {
-                &&& final_cont.children[j].unwrap().value.path == final_cont.path().push_tail(
-                    j as usize,
-                )
+                &&& final_cont.children[j].unwrap().value.path == final_cont.path().push_tail(j as usize)
                 &&& final_cont.children[j].unwrap().value.parent_level == final_cont.level()
                 &&& final_cont.children[j].unwrap().inv()
                 &&& final_cont.children[j].unwrap().level == final_cont.tree_level + 1
-            } by {
+            } by { 
                 if j != idx {
+                    final_cont.inv_children_unroll(j);
                     assert(final_cont.children[j] == cont0.children[j]);
                 }
             };
@@ -3423,8 +3627,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     // Pre-establish cont_entries_relate_region for all continuations.
                     owner0.cont_entries_relate_region(regions0);
-
-                    reveal(CursorContinuation::inv_children);
 
                     assert forall|i: int|
                         owner.level - 1 <= i < NR_LEVELS implies

@@ -68,7 +68,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     }
 
     pub open spec fn find_next_panic_condition(self, len: usize) -> bool {
-        ||| len % C::BASE_PAGE_SIZE() != 0
+        ||| len % PAGE_SIZE != 0
         ||| self.va + len > self.barrier_va.end
     }
 }

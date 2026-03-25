@@ -199,6 +199,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.frame.unwrap().slot_perm == old(owner).frame.unwrap().slot_perm,
             owner.path == old(owner).path,
             owner.parent_level == old(owner).parent_level,
+            owner.in_scope == old(owner).in_scope,
+            self.idx == old(self).idx,
             old(self).pte.is_present() ==> op.ensures((old(owner).frame.unwrap().prop,), owner.frame.unwrap().prop),
     {
         let ghost pte0 = self.pte;
@@ -412,6 +414,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         ensures
             self.invariants(owner.value, *regions),
             self.parent_perms_preserved(*old(parent_owner), *parent_owner, *old(parent_guard_perm), *parent_guard_perm),
+            self.idx == old(self).idx,
+            old(owner).value.is_absent() && old(parent_owner).level > 1 ==> {
+                // node_matching preserved: parent_owner still matches the child after allocation.
+                &&& self.node_matching(owner.value, *parent_owner, *parent_guard_perm)
+                // OwnerSubtree inv (recursive tree invariant, not just value.inv()).
+                &&& owner.inv()
+                // After into_pte, the entry has in_scope == false.
+                &&& !owner.value.in_scope
+            },
             old(owner).value.is_absent() && old(parent_owner).level > 1 ==> {
                 &&& res is Some
                 &&& owner.value.is_node()
@@ -593,9 +604,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 &&& guards.guards[res.unwrap().addr()].unwrap().pptr() == res.unwrap()
                 &&& owner.value.node.unwrap().relate_guard_perm(guards.guards[res.unwrap().addr()].unwrap())
                 &&& owner.value.node.unwrap().meta_perm.addr() == res.unwrap().addr()
-                // All children of the new node subtree are frames (from the split loop).
+                // All children of the new node subtree are frames with the same prop (from the split loop).
                 &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
                     (#[trigger] owner.children[j]).unwrap().value.is_frame()
+                &&& forall |j: int| 0 <= j < NR_ENTRIES ==>
+                    (#[trigger] owner.children[j]).unwrap().value.frame.unwrap().prop
+                        == old(owner).value.frame.unwrap().prop
                 &&& owner.value.path == old(owner).value.path
                 &&& owner.value.relate_region(*regions)
                 &&& OwnerSubtree::implies(
@@ -615,6 +629,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             },
             owner.inv(),
             owner.value.parent_level == old(owner).value.parent_level,
+            self.idx == old(self).idx,
+            old(owner).value.is_frame() && old(parent_owner).level > 1 ==> !owner.value.in_scope,
+            old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
+                self.node_matching(owner.value, *parent_owner, *guard_perm),
             regions.inv(),
             parent_owner.inv(),
             parent_owner.level == old(parent_owner).level,
