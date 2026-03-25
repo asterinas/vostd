@@ -162,11 +162,10 @@ impl AbstractVaddr {
     /// If two AbstractVaddrs reflect the same va, they are equal.
     pub broadcast proof fn reflect_eq(self, other: Self, va: Vaddr)
         requires
-            self.reflect(va),
-            other.reflect(va),
+            #[trigger] self.reflect(va),
+            #[trigger] other.reflect(va),
         ensures
-            #![auto]
-            (self == other),
+            self == other,
     {
     }
 
@@ -462,8 +461,7 @@ impl AbstractVaddr {
             };
             next_va.next_index_preserves_lower_indices(start_level + 1, lower_level);
         } else if next_index == NR_ENTRIES && start_level == NR_LEVELS {
-        } else {
-        }
+        } 
     }
 
     pub proof fn next_index_wrap_condition(self, level: int)
@@ -482,8 +480,7 @@ impl AbstractVaddr {
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);
-            } else {
-            }
+            } 
         } else {
             assert(self.index.contains_key(level - 1));
         }
@@ -913,7 +910,7 @@ impl AbstractVaddr {
             assert(0 <= level < NR_LEVELS);
             self.to_path_inv(level);
             self.to_path_len(level);
-            assert forall|i: int| 0 <= i < path.len() implies path.index(i) == self.to_path(
+            assert forall|i: int| 0 <= i < path.len() implies #[trigger]path.index(i) == self.to_path(
                 level,
             ).index(i) by {
                 self.to_path_index(level, i);
