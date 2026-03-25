@@ -15,6 +15,7 @@ use core::{
 use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 //use crate::task::atomic_mode::AsAtomicModeGuard;
 
+verus! {
 /// A spin lock.
 ///
 /// # Guard behavior
@@ -81,7 +82,6 @@ use super::{guard::SpinGuardian, LocalIrqDisabled /*, PreemptDisabled*/};
 ///
 /// [`type_inv`]: Self::type_inv
 #[repr(transparent)]
-#[verus_verify]
 //pub struct SpinLock<T: ?Sized, G = PreemptDisabled> {
 pub struct SpinLock<T, G> {
     phantom: PhantomData<G>,
@@ -89,8 +89,6 @@ pub struct SpinLock<T, G> {
     /// That's why SpinLockInner is put in the last field.
     inner: SpinLockInner<T>,
 }
-
-verus! {
 
 struct_with_invariants! {
 struct SpinLockInner<T> {
@@ -117,7 +115,6 @@ impl<T> SpinLockInner<T>
     }
 }
 
-#[verus_verify]
 impl<T, G> SpinLock<T, G> {
     /// Creates a new spin lock.
     ///
@@ -157,7 +154,6 @@ impl<T,G> SpinLock<T,G>
         self.inner.type_inv()
     }
 }
-}
 
 /*
 impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
@@ -174,10 +170,7 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     }
 }*/
 
-verus! {
-//impl<T: ?Sized, G: SpinGuardian> SpinLock<T, G> {
-impl<T, G: SpinGuardian> SpinLock<T, G> {
-
+impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// Acquires the spin lock.
     ///
     /// # Verified Properties
@@ -232,7 +225,6 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
     /// If `Some(guard)` is returned, it satisfies its type invariant:
     /// - An exclusive permission to access the protected data is held by the guard.
     /// - The guard's permission matches the lock's internal cell ID.
-    #[verus_spec]
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
@@ -358,7 +350,7 @@ impl<T, G: SpinGuardian> SpinLock<T, G> {
         }
     }
 }
-}
+
 
 /*
 impl<T: ?Sized + fmt::Debug, G> fmt::Debug for SpinLock<T, G> {
@@ -398,7 +390,6 @@ unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 /// It internally holds at all steps during the method executions and is **NOT** exposed in the public APIs' pre- and post-conditions.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 #[clippy::has_significant_drop]
 #[must_use]
 pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
@@ -408,14 +399,12 @@ pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     v_perm: Tracked<PointsTo<T>>,
 }
 
-verus! {
 impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
 {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool{
         self.lock.cell_id() == self.v_perm@.id()
     }
-}
 }
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
@@ -424,12 +413,9 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
     }
 }*/
 
-verus! {
-#[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
 
-    #[verus_spec]
     fn deref(&self) -> &T {
         proof_decl! {
             let tracked read_perm = self.v_perm.borrow();
