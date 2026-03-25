@@ -689,6 +689,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 !owner.popped_too_high,
                 old_owner_cur_va == old(owner)@.cur_va,
                 old_owner_cur_va == old(self).va,
+                !split_happened && self.va > old(self).va ==> !old(owner)@.present(),
                 // Mapping preservation: if no split happened, mappings are unchanged.
                 !split_happened ==> owner@.mappings == old(owner)@.mappings,
                 // Empty filter: if no split happened, no mappings in scanned range so far.
@@ -757,8 +758,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                     owner.split_while_huge_at_level_noop();
                                     assert(old(owner)@.cur_va == owner@.cur_va);
                                     assert(old(owner)@ =~= owner@);
-                                } else {
-                                    assert(!old(owner)@.present()) by { admit() };
                                 }
                                 // VA alignment
                                 owner.in_locked_range_level_lt_nr_levels();
@@ -865,6 +864,34 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(*owner == owner_before_move.move_forward_owner_spec());
                             owner_before_move.move_forward_owner_preserves_mappings();
                             owner.in_locked_range_level_lt_nr_levels();
+                            if !split_happened && va_before_move == old(self).va {
+                                let ghost subtree = owner_before_move.cur_subtree();
+                                let ghost cur_path = subtree.value.path;
+                                let ghost cur_va0 = owner_before_move.cur_va();
+                                PageTableOwner(subtree).view_rec_nr_children_zero_empty(cur_path);
+                                assert(PageTableOwner(subtree).view_rec(cur_path) =~= set![]);
+                                assert forall |m: Mapping| owner_before_move.view_mappings().contains(m) implies
+                                    !(m.va_range.start <= cur_va0 < m.va_range.end) by {
+                                    if m.va_range.start <= cur_va0 < m.va_range.end {
+                                        owner_before_move.mapping_covering_cur_va_from_cur_subtree(m);
+                                        assert(PageTableOwner(subtree).view_rec(cur_path).contains(m));
+                                        assert(PageTableOwner(subtree).view_rec(cur_path) =~= set![]);
+                                        assert(false);
+                                    }
+                                };
+                                let ghost filtered = old(owner)@.mappings.filter(|m: Mapping|
+                                    m.va_range.start <= old(owner)@.cur_va < m.va_range.end);
+                                assert(filtered =~= set![]) by {
+                                    assert forall |m: Mapping| !filtered.contains(m) by {
+                                        if filtered.contains(m) {
+                                            assert(owner_before_move.view_mappings().contains(m));
+                                            assert(!(m.va_range.start <= cur_va0 < m.va_range.end));
+                                        }
+                                    };
+                                };
+                                assert(filtered.len() == 0);
+                                assert(!old(owner)@.present());
+                            }
                             // Empty filter proof (same pattern as ChildRef::None case):
                             if !split_happened {
                                 // mappings unchanged across all operations
@@ -934,6 +961,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         assert(*owner == owner_before_move.move_forward_owner_spec());
                         owner_before_move.move_forward_owner_preserves_mappings();
                         owner.in_locked_range_level_lt_nr_levels();
+                        if !split_happened && va_before_move == old(self).va {
+                            assert(owner_before_move.cur_entry_owner().is_absent());
+                            owner_before_move.cur_entry_absent_not_present();
+                            assert(!old(owner)@.present());
+                        }
                         // Empty filter proof:
                         if !split_happened {
                             // mappings unchanged across all operations
@@ -999,7 +1031,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                         assert(old(owner)@.cur_va == owner@.cur_va);
                                         assert(old(owner)@ =~= owner@);
                                     } else {
-                                        assert(!old(owner)@.present()) by { admit() };
+                                        assert(!old(owner)@.present());
                                     }
                                 }
                             }
@@ -3169,8 +3201,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         };
 
         let ghost pre_new_owner_value = new_owner.value;
-
-        assert(!old_child_owner.value.in_scope) by { admit() };
 
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),

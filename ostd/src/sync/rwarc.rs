@@ -45,6 +45,18 @@ closed spec fn wf(&self) -> bool {
 }
 
 impl<T> RwArc<T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
+    pub closed spec fn wf(self) -> bool {
+        &&& self.0.wf()
+        &&& self.0.num_rw.well_formed()
+    }
+}
+
+impl<T> RwArc<T> {
     /// Creates a new `RwArc<T>`.
     pub fn new(data: T) -> Self {
         //let inner = Inner { data: RwLock::new(data), num_rw: AtomicUsize::new(1) };
@@ -90,26 +102,38 @@ impl<T> RwArc<T> {
     }
     */
     /// Clones a [`RoArc`] that points to the same allocation.
-    #[verifier::external_body]
     pub fn clone_ro(&self) -> RoArc<T> {
         RoArc(self.0.clone())
     }
 }
-/*
-// #[verifier::external]
-impl<T> Clone for RwArc<T> {
-    #[verifier::external_body]
-    fn clone(&self) -> Self {
-        let inner = self.0.clone();
 
+#[verus_verify]
+impl<T> Clone for RwArc<T> {
+    #[verus_spec]
+    fn clone(&self) -> Self 
+        returns
+            self,
+    {
+        proof!{
+            use_type_invariant(self);
+        }
+        let inner = self.0.clone();
         // Note that overflowing the counter will make it unsound. But not to worry: the above
         // `Arc::clone` must have already aborted the kernel before this happens.
-        inner.num_rw.fetch_add(1, Ordering::Relaxed);
+        // inner.num_rw.fetch_add(1, Ordering::Relaxed);
+        atomic_with_ghost! {
+            inner.num_rw => fetch_add(1);
+            ghost g => {
+                assume(g < usize::MAX);
+                g = g + 1;
+            }
+        };
 
         Self(inner)
     }
 }
 
+/*
 impl<T> Drop for RwArc<T> {
     #[verifier::external_body]
     fn drop(&mut self)
@@ -118,20 +142,18 @@ impl<T> Drop for RwArc<T> {
     {
         self.0.num_rw.fetch_sub(1, Ordering::Release);
     }
-}
+}*/
 
 impl<T: Clone> RwArc<T> {
     /// Returns the contained value by cloning it.
-    #[verifier::external_body]
     pub fn get_cloned(&self) -> T {
         let guard = self.read();
         guard.clone()
     }
-}*/
+}
 
 impl<T> RoArc<T> {
     /// Acquires the read lock for immutable access.
-    #[verifier::external_body]
     pub fn read(&self) -> RwLockReadGuard<T, PreemptDisabled> {
         self.0.data.read()
     }

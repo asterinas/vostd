@@ -157,12 +157,12 @@ pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
     spec fn vtable_ptr(&self) -> usize;
 }
 
-//global layout MetaSlot is size == 64, align == 8;
+global layout MetaSlot is size == 64, align == 8;
 pub broadcast proof fn lemma_meta_slot_size()
     ensures
         #[trigger] size_of::<MetaSlot>() == META_SLOT_SIZE,
 {
-    admit()
+    size_of_meta_slot();
 }
 
 pub proof fn size_of_meta_slot()
@@ -170,7 +170,6 @@ pub proof fn size_of_meta_slot()
         size_of::<MetaSlot>() == 64,
         align_of::<MetaSlot>() == 8,
 {
-    admit()
 }
 
 #[inline(always)]
