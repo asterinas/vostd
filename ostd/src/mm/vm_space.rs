@@ -983,7 +983,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 adjusted_base.finite(),
             invariant_except_break
                 self.pt_cursor.inner.va <= end_va,
-                self.pt_cursor.inner.va < end_va,
                 cursor_owner.in_locked_range(),
             ensures
                 self.pt_cursor.inner.va >= end_va,

@@ -1115,7 +1115,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         continuation.put_child(child_owner);
                         continuation.entry_own.node = Some(parent_owner);
-                        continuation.continuation_inv_holds_after_split_restore();
+                        continuation.continuation_inv_holds_after_child_restore();
                         owner.continuations.tracked_insert(owner.level - 1, continuation);
 
                         owner0.max_steps_partial_inv(*owner, owner.level as usize);
