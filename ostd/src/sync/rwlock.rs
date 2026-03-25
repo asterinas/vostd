@@ -368,10 +368,8 @@ closed spec fn wf_upgradeable_guard_token<T>(
     &&& token.wf()
 }
 
-#[verus_verify]
 impl<T, G> RwLock<T, G> {
     /// Creates a new spin-based read-write lock with an initial value.
-    #[verus_verify]
     pub const fn new(val: T) -> Self {
         let (val, Tracked(perm)) = PCell::new(val);
 
@@ -416,7 +414,6 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
@@ -476,7 +473,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a read lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         proof_decl!{
             let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
@@ -536,7 +532,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a write lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    #[verus_spec]
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
@@ -595,7 +590,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire an upread lock.
     ///
     /// This function will never spin-wait and will return immediately.
-    #[verus_spec]
     pub fn try_upread(&self) -> Option<RwLockUpgradeableGuard<T, G>> {
         proof_decl!{
             let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -655,7 +649,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     }
 }
 
-} // verus!
 /*
 impl<T, G: SpinGuardian> RwLock<T, G> {
     /// Returns a mutable reference to the underlying data.
@@ -688,27 +681,23 @@ unsafe impl<T: Send, G> Send for RwLock<T, G> {}
 #[verifier::external]
 unsafe impl<T: Send + Sync, G> Sync for RwLock<T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockWriteGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockWriteGuard<'_, T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockReadGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockReadGuard<'_, T, G> {}
 
-#[verus_verify]
 impl<T /*: ?Sized*/, G: SpinGuardian> !Send for RwLockUpgradeableGuard<'_, T, G> {}
 #[verifier::external]
 unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> {}
 
 /// A guard that provides immutable data access.
-#[clippy::has_significant_drop]
-#[must_use]
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
+#[clippy::has_significant_drop]
+#[must_use]
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
@@ -722,8 +711,6 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockReadGuard<'_, T, G>
     }
 }
 */
-
-verus! {
 
 impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     #[verifier::type_invariant]
@@ -750,11 +737,9 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
     }
 }
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     type Target = T;
 
-    #[verus_spec]
     fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
@@ -765,8 +750,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         self.inner.val.borrow(Tracked(self.v_token.borrow().borrow().0.borrow()))
     }
 }
-
-} // verus!
 /* impl<T: ?Sized, R: Deref<Target = RwLock<T, G>> + Clone, G: SpinGuardian> Drop
     for RwLockReadGuard_<T, R, G>
 {
@@ -774,12 +757,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
         self.inner.lock.fetch_sub(READER, Release);
     }
 } */
-verus! {
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
-    #[verus_spec]
     fn drop(self) {
         proof! {
             use_type_invariant(&self);
@@ -806,7 +786,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     }
 }
 
-} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -816,7 +795,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockReadGuard<'_,
 /// A guard that provides mutable data access.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
@@ -824,8 +802,6 @@ pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     v_perm: Tracked<PointsTo<T>>,
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
-
-verus! {
 
 impl<'a, T, G: SpinGuardian> RwLockWriteGuard<'a, T, G> {
     #[verifier::type_invariant]
@@ -852,11 +828,9 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G
     }
 }*/
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     type Target = T;
 
-    #[verus_spec]
     fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
@@ -868,7 +842,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     }
 }
 
-} // verus!
 /*
 impl<T: ?Sized, G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
@@ -881,12 +854,9 @@ impl<T: ?Sized, G: SpinGuardian> Drop for RwLockWriteGuard<'_, T, G> {
         self.inner.lock.fetch_and(!WRITER, Release);
     }
 }*/
-verus! {
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
-    #[verus_spec]
     pub fn drop(self) {
         proof!{
             use_type_invariant(&self);
@@ -923,8 +893,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
         };
     }
 }
-
-} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -935,7 +903,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 /// upgraded to `RwLockWriteGuard`.
 #[verifier::reject_recursive_types(T)]
 #[verifier::reject_recursive_types(G)]
-#[verus_verify]
 pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
@@ -947,8 +914,6 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockUpgradeableGuard<'_
         self.guard.as_atomic_mode_guard()
     }
 }*/
-
-verus! {
 
 impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     #[verifier::type_invariant]
@@ -972,14 +937,12 @@ impl<'a, T, G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     }
 }
 
-#[verus_verify]
 impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     /// Upgrades this upread guard to a write guard atomically.
     ///
     /// After calling this method, subsequent readers will be blocked
     /// while previous readers remain unaffected. The calling thread
     /// will spin-wait until previous readers finish.
-    #[verus_spec]
     #[verifier::exec_allows_no_decreases_clause]
     pub fn upgrade(  /* mut */ self) -> RwLockWriteGuard<'a, T, G> {
         let mut this = self;
@@ -1012,7 +975,6 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     ///
     /// This function is not exposed publicly because the `BEING_UPGRADED` bit
     /// is set only in [`Self::upgrade`].
-    #[verus_spec]
     fn try_upgrade(  /* mut */ self) -> Result<RwLockWriteGuard<'a, T, G>, Self> {
         proof! {
             use_type_invariant(&self);
@@ -1103,11 +1065,9 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
     }
 }
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G> {
     type Target = T;
 
-    #[verus_spec]
     fn deref(&self) -> &T {
         proof!{
             use_type_invariant(self);
@@ -1119,19 +1079,15 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, 
     }
 }
 
-} // verus!
 /*
 impl<T: ?Sized, G: SpinGuardian> Drop for RwLockUpgradeableGuard<'_, T, G> {
     fn drop(&mut self) {
         self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
     }
 }*/
-verus! {
 
-#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
-    #[verus_spec]
     pub fn drop(self) {
         proof! {
             use_type_invariant(&self);
@@ -1160,7 +1116,6 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
     }
 }
 
-} // verus!
 /*
 impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGuard<'_, T, G> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1168,7 +1123,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockUpgradeableGu
     }
 }
 */
-verus! {
 
 proof fn lemma_consts_properties()
     ensures
