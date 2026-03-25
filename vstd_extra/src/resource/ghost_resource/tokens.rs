@@ -1,8 +1,10 @@
+use std::borrow::Borrow;
+
 //！ A wrapper around `vstd::tokens::FracGhost` that stores and dispatches fractional access.
+use crate::sum::*;
 use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{Empty, Frac, FracGhost};
-use crate::sum::*;
 
 verus! {
 
@@ -33,7 +35,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
     }
 
     /// Whether this `FracGhostResource` is empty, i.e., has no fraction.
-    pub open spec fn is_empty(self) -> bool {   
+    pub open spec fn is_empty(self) -> bool {
         self.frac() == 0
     }
 
@@ -69,6 +71,14 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
     /// Returns the unique identifier.
     pub closed spec fn id(self) -> Loc {
         self.id
+    }
+
+    /// Create an arbitrary `FracGhostResource`. Useful as a placeholder.
+    pub proof fn arbitrary() -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+    {
+        Self { r: None, snapshot: arbitrary(), id: arbitrary() }
     }
 
     /// Allocates a new `FracGhostResource` with the full fraction and the given value.
@@ -187,7 +197,7 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         }
     }
 
-    /// Updates the value stored in this `FracGhostResource`. 
+    /// Updates the value stored in this `FracGhostResource`.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, value: T)
         requires
@@ -212,10 +222,8 @@ pub type Token<const TOTAL: u64> = FracGhost<(), TOTAL>;
 
 /// A struct that stores and dispatches `Frac<T>`.
 /// Unlike `Frac`, it provides an `empty` state.
-/// It also remembers the value even it is empty.
 pub tracked struct FracResource<T, const TOTAL: u64> {
-    tracked r: Option<Frac<T,TOTAL>>,
-    ghost snapshot: T,
+    tracked r: Option<Frac<T, TOTAL>>,
     ghost id: Loc,
 }
 
@@ -225,10 +233,10 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         &&& TOTAL > 0
         &&& 0 <= self.frac() <= TOTAL
         &&& match self.r {
-                Some(frac) => self.id == frac.id() && self.view() == frac.resource(),
-                None => true,
-            }
+            Some(frac) => self.id == frac.id(),
+            None => true,
         }
+    }
 
     /// Returns the `Frac<T,TOTAL>` stored in this `FracResource`.
     pub closed spec fn storage(self) -> Frac<T, TOTAL> {
@@ -259,7 +267,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
 
     /// Returns the value of type `T` stored in this `FracResource`.
     pub closed spec fn resource(self) -> T {
-        self.snapshot
+        self.storage().resource()
     }
 
     /// Returns the value of type `T` stored in this `FracResource`. It is an alias of `Self::resource`.
@@ -282,6 +290,14 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         self.id
     }
 
+    /// Create an arbitrary `FracResource`. Useful as a placeholder.
+    pub proof fn arbitrary() -> (tracked res: Self)
+        requires
+            TOTAL > 0,
+    {
+        Self { r: None, id: arbitrary() }
+    }
+
     /// Allocates a new `FracResource` with the given tracked object.
     pub proof fn alloc(tracked value: T) -> (tracked res: Self)
         requires
@@ -293,11 +309,12 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             res.wf(),
     {
         let tracked r = Frac::new(value);
-        Self { r: Some(r), snapshot: value, id: r.id() }
+        Self { r: Some(r), id: r.id() }
     }
 
     /// Allocates a new `FracResource` from an `Empty<T,TOTAL>` with the given tracked object.
-    pub proof fn alloc_from_empty(tracked empty: Empty<T,TOTAL>, tracked value: T) -> (tracked res: Self)
+    pub proof fn alloc_from_empty(tracked empty: Empty<T, TOTAL>, tracked value: T) -> (tracked res:
+        Self)
         requires
             TOTAL > 0,
         ensures
@@ -306,9 +323,8 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             res.view() == value,
             res.wf(),
     {
-        let ghost g = value;
-        let tracked r =  empty.put_resource(value);
-        Self { r: Some(r), snapshot: g, id: r.id() }
+        let tracked r = empty.put_resource(value);
+        Self { r: Some(r), id: r.id() }
     }
 
     /// Splits a `Frac` with fraction 1.
@@ -318,10 +334,10 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.frac() + 1 == old(self).frac(),
-            self@ == old(self)@,
+            old(self).frac() > 1 ==> self@ == old(self)@,
             res.frac() == 1,
             res.id() == self.id(),
-            res.resource() == self@,
+            res.resource() == old(self)@,
             old(self).frac() == 1 ==> self.is_empty(),
             self.wf(),
     {
@@ -344,10 +360,10 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         ensures
             self.id() == old(self).id(),
             self.frac() + n == old(self).frac(),
-            self@ == old(self)@,
+            old(self).frac() > n ==> self@ == old(self)@,
             res.frac() == n,
             res.id() == self.id(),
-            res.resource() == self@,
+            res.resource() == old(self)@,
             old(self).frac() == n ==> self.is_empty(),
             self.wf(),
     {
@@ -367,14 +383,14 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     pub proof fn combine(tracked &mut self, tracked other: Frac<T, TOTAL>)
         requires
             old(self).id() == other.id(),
-            other.resource() == old(self).resource(),
         ensures
             old(self).frac() + other.frac() > TOTAL ==> false,
             old(self).frac() + other.frac() <= TOTAL ==> {
                 &&& self.id() == old(self).id()
-                &&& self.resource() == old(self).resource()
+                &&& self.resource() == other.resource()
                 &&& self.frac() == old(self).frac() + other.frac()
                 &&& self.wf()
+                &&& old(self).frac() > 0 ==> self@ == old(self)@
             },
     {
         if self.is_empty() {
@@ -382,6 +398,7 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
             self.r = Some(other);
         } else {
             use_type_invariant(&*self);
+            self.validate_with_frac(&other);
             let tracked mut r = self.r.tracked_take();
             r.combine(other);
             r.bounded();
@@ -413,8 +430,19 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         }
     }
 
+    pub proof fn validate_with_frac(tracked &self, tracked frac: &Frac<T, TOTAL>)
+        requires
+            self.id() == frac.id(),
+            self.frac() > 0,
+        ensures
+            self.resource() == frac.resource(),
+    {
+        use_type_invariant(self);
+        frac.agree(self.r.tracked_borrow());
+    }
+
     /// Consumes the token and takes out the resource.
-    pub proof fn take_resource(tracked self) -> (tracked res: (T,Empty<T, TOTAL>))
+    pub proof fn take_resource(tracked self) -> (tracked res: (T, Empty<T, TOTAL>))
         requires
             self.is_full(),
         ensures
@@ -426,7 +454,6 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         r.take_resource()
     }
 
-    /* 
     /// Updates the resource stored in this `FracResource` and retunrs the old resource if it exists.
     /// The fraction must be full before the update.
     pub proof fn update(tracked &mut self, tracked value: T) -> (tracked res: T)
@@ -440,20 +467,11 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     {
         use_type_invariant(&*self);
         let tracked mut r = self.r.tracked_take();
-        let tracked res = Self::update_helper(r);
+        let tracked (res, empty) = r.take_resource();
+        let tracked r = empty.put_resource(value);
         self.r = Some(r);
         res
     }
-
-    proof fn update_helper(tracked r: Frac<T, TOTAL>) -> (tracked res: (Frac<T, TOTAL>, T))
-        requires
-            r.frac() == TOTAL,
-        ensures
-            res.1 == r.resource(),
-    {
-        r.update(r.resource());
-        r.resource()
-    }*/
 }
 
 } // verus!

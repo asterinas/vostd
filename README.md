@@ -12,7 +12,7 @@ This work is ongoing. Our current focus is on verifying OSTD’s *memory managem
 
 ## Project Structure
 
-Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `aster_common` and `ostd` directories, while specifications are located under `specs`.
+Implementation code from the OSTD [mainline](https://github.com/asterinas/asterinas), together with its accompanying proofs, resides in the `ostd` directory, while specifications are located under `specs`.
 
 This repository currently contains verification code for `ostd/src/mm` and `ostd/src/sync`. It is independent of the concurrency proofs presented in our [SOSP paper](https://dl.acm.org/doi/10.1145/3731569.3764836) — *“CortenMM: Efficient Memory Management with Strong Correctness Guarantees.”*  For the SOSP artifact, please refer to the [func-correct](https://github.com/asterinas/vostd/tree/func-correct) branch for verification code, and to [this repo](https://github.com/TELOS-syslab/CortenMM-Artifact) for the complete artifact.
 

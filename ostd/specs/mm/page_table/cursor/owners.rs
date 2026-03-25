@@ -696,9 +696,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.nodes_locked(guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_requires(guard, guards0),
             <PageTableGuard<'rcu, C> as TrackDrop>::constructor_ensures(guard, guards0, guards1),
-            // The dropped guard's address is distinct from all continuation guard addresses.
-            // This holds because the guard comes from the popped level, and inv() guarantees
-            // pairwise distinct guard addresses across levels.
             forall|i: int| #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS ==>
                     self.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
@@ -771,6 +768,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies self.continuations[i].map_children(g) by {
                 let cont = self.continuations[i];
+                reveal(CursorContinuation::inv_children);
                 assert forall|j: int|
                     #![trigger cont.children[j]]
                     0 <= j < cont.children.len() && cont.children[j] is Some
@@ -860,6 +858,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             *self == old(self).inc_index(),
     {
+        reveal(CursorContinuation::inv_children);
         self.popped_too_high = false;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         if self.level >= self.guard_level {
@@ -1034,6 +1033,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
+        reveal(CursorContinuation::inv_children);
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -1947,6 +1947,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(cont.map_children(f));
             assert(cont.map_children(e));
             assert(cont == other.continuations[i]);
+            reveal(CursorContinuation::inv_children);
             assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
                     cont.inv_children_unroll(j);
@@ -2213,19 +2214,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             res == Self::new_spec(owner_subtree, idx, guard_perm);
 
-    /// When at level L in the locked range and va (also in the locked range) is NOT within the
-    /// current node [node_start, node_start + page_size(L+1)), then L + 1 < guard_level.
-    ///
-    /// Reasoning: at L == guard_level - 1, page_size(guard_level) equals the locked-range size,
-    /// so the node covers exactly the locked range and any va in the locked range lies within it.
-    /// Therefore the `else` branch (va not in node) forces L < guard_level - 1.
-    /// When the cursor is at or above the locked range at `guard_level`, any VA
-    /// inside the locked range still lies within the node at `guard_level + 1`
-    /// that contains the cursor.  This is because the locked range has size
-    /// `page_size(guard_level)` which fits within the node of size
-    /// `page_size(guard_level + 1)`, and both the cursor and the locked range
-    /// reside in the same such node (the cursor cannot leave it without setting
-    /// `popped_too_high`).
     pub proof fn jump_above_locked_range_va_in_node(
         self,
         va: Vaddr,

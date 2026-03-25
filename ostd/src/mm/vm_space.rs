@@ -1089,7 +1089,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assume(num_unmapped as nat == adjusted_base.filter(
                     |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
                 ).len());
-                assert(self.pt_cursor.inner.va < end_va) by { admit() };
             }
         }
 

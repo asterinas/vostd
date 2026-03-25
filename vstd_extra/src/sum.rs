@@ -11,6 +11,14 @@ pub tracked enum Sum<L, R> {
 }
 
 impl<L, R> Sum<L, R> {
+    pub open spec fn left(self) -> L {
+        self->Left_0
+    }
+
+    pub open spec fn right(self) -> R {
+        self->Right_0
+    }
+
     pub proof fn new_left(tracked left: L) -> (tracked res: Self)
         returns
             Self::Left(left),
@@ -79,6 +87,32 @@ impl<L, R> Sum<L, R> {
 
     pub open spec fn lift_map_right<K>(m: Map<K, R>) -> Map<K, Self> {
         m.map_values(|v| Sum::<L, R>::Right(v))
+    }
+
+    pub proof fn tracked_swap_left(tracked &mut self, tracked new_left: L) -> (tracked res: L)
+        requires
+            *old(self) is Left,
+        ensures
+            res == old(self)->Left_0,
+            *self is Left,
+            self->Left_0 == new_left,
+    {
+        let tracked mut tmp = Self::new_left(new_left);
+        tracked_swap(self, &mut tmp);
+        tmp.tracked_take_left()
+    }
+
+    pub proof fn tracked_swap_right(tracked &mut self, tracked new_right: R) -> (tracked res: R)
+        requires
+            *old(self) is Right,
+        ensures
+            res == old(self)->Right_0,
+            *self is Right,
+            self->Right_0 == new_right,
+    {
+        let tracked mut tmp = Self::new_right(new_right);
+        tracked_swap(self, &mut tmp);
+        tmp.tracked_take_right()
     }
 }
 

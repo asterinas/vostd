@@ -39,7 +39,7 @@ pub tracked enum OnceState<V: 'static> {
 /// the data is initialized only once and the permission is preserved
 /// throughout the lifetime of the data.
 #[repr(transparent)]
-#[allow(repr_transparent_external_private_fields)]
+#[allow(repr_transparent_non_zst_fields)]
 pub struct AtomicDataWithOwner<V, Own> {
     /// The underlying data.
     pub data: V,

@@ -467,9 +467,17 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     }
 
     /// `Node::new(lv)` has all-None children, so `tree_predicate_map` reduces to `f(default(lv), path)`.
-    pub proof fn new_tree_predicate_map(lv: nat, path: TreePath<N>, f: spec_fn(T, TreePath<N>) -> bool)
-        requires lv < L, Self::new(lv).inv(), f(T::default(lv), path),
-        ensures  Self::new(lv).tree_predicate_map(path, f),
+    pub proof fn new_tree_predicate_map(
+        lv: nat,
+        path: TreePath<N>,
+        f: spec_fn(T, TreePath<N>) -> bool,
+    )
+        requires
+            lv < L,
+            Self::new(lv).inv(),
+            f(T::default(lv), path),
+        ensures
+            Self::new(lv).tree_predicate_map(path, f),
     {
         // Self::new(lv).children[i] = None for all i, so the forall in tree_predicate_map is vacuous.
     }
@@ -494,9 +502,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
                 #![auto]
                 0 <= j < self.children.len()
                     && self.children[j] is Some implies self.children[j].unwrap().tree_predicate_map(
-                path.push_tail(j as usize),
-                f,
-            ) by {
+            path.push_tail(j as usize), f) by {
                 // self.children[j] = Some(Self::new(self.level + 1)) by new_val definition
                 assert(self.children[j] == Some(Self::new(self.level + 1)));
                 // child.inv() follows from self.inv() (recursive invariant)
@@ -945,6 +951,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         } else if path.len() == 1 {
             path.index_satisfies_elem_inv(0);
             self.lemma_recursive_insert_path_len_1(path, node);
+            assert(self.insert(path.index(0), node).level == self.level);
         } else {
             self.lemma_recursive_insert_path_len_step(path, node);
             let (hd, tl) = path.pop_head();
@@ -952,15 +959,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
             if self.child(hd) is Some {
                 let c = self.child(hd)->Some_0;
                 self.child_some_properties(hd);
-                admit();
-                c.lemma_recursive_insert_preserves_level(tl, node);
+                assert(self.insert(hd, c.recursive_insert(tl, node)).level == self.level);
             } else {
                 let c = Node::new(self.level + 1);
-                admit();
-                Self::new_preserves_inv(self.level + 1);
-                if forall|i: int| 0 <= i < N ==> self.value.rel_children(i, Some(c.value)) {
-                    c.lemma_recursive_insert_preserves_level(tl, node);
-                }
+                assert(self.insert(hd, c.recursive_insert(tl, node)).level == self.level);
             }
         }
     }
@@ -1361,20 +1363,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     {
     }
 
-    // pub broadcast proof fn lemma_recursive_visit_step(self, path: TreePath<N>)
-    //     requires
-    //         self.inv(),
-    //         path.inv(),
-    //         path.len() < L - self.level,
-    //         path.len() > 1,
-    //         self.recursive_visit(path).len() == path.len(),
-    //     ensures
-    //         #[trigger]
-    //         self.recursive_visit(path.pop_tail().1) =~= self.recursive_visit(path).drop_last(),
-    //         self.recursive_visit(path.pop_tail().1).last().child(path.pop_tail().0) == Some(self.recursive_visit(path).last()),
-    // {
-    //     admit();
-    // }
     pub open spec fn on_subtree(self, node: Self) -> bool
         recommends
             self.inv(),
@@ -1454,88 +1442,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         self.insert(key, node).lemma_child_on_subtree(key);
     }
 
-    // pub broadcast proof fn lemma_remove_not_on_subtree(self, key: usize, node: Self)
-    //     requires
-    //         0 <= key < Self::size(),
-    //         self.inv(),
-    //         node.inv(),
-    //         node.level == self.level + 1,
-    //         self.child(key) == Some(node),
-    //     ensures
-    //         !#[trigger] self.remove(key).on_subtree(node),
-    // {
-    //     admit();  // TODO
-    // }
-    // pub broadcast proof fn lemma_recursive_insert_on_subtree(self, path: TreePath<N>, node: Self)
-    //     requires
-    //         self.inv(),
-    //         path.inv(),
-    //         node.inv(),
-    //         path.len() < L - self.level,
-    //         node.level == self.level + path.len() as nat,
-    //     ensures
-    //         #[trigger] self.recursive_insert(path, node).on_subtree(node),
-    //     decreases path.len(),
-    // {
-    //     admit();  // TODO
-    // }
-    // pub broadcast proof fn lemma_recursive_remove_not_on_subtree(
-    //     self,
-    //     path: TreePath<N>,
-    //     node: Self,
-    // )
-    //     requires
-    //         self.inv(),
-    //         path.inv(),
-    //         node.inv(),
-    //         path.len() < L - self.level,
-    //         node.level == self.level + path.len() as nat,
-    //         self.recursive_visit(path).last() == node,
-    //     ensures
-    //         !#[trigger] self.recursive_remove(path).on_subtree(node),
-    //     decreases path.len(),
-    // {
-    //     admit();  // TODO
-    // }
-    // pub broadcast proof fn lemma_recursive_visit_on_subtree(self, path: TreePath<N>)
-    //     requires
-    //         self.inv(),
-    //         path.inv(),
-    //         path.len() < L - self.level,
-    //         path.len() > 0,
-    //         #[trigger] self.recursive_visit(path).len() > 0,
-    //     ensures
-    //         forall|i: int|
-    //             0 <= i < self.recursive_visit(path).len() ==> #[trigger] self.on_subtree(
-    //                 self.recursive_visit(path)[i],
-    //             ),
-    // {
-    //     admit();  // TODO
-    // }
-    // pub proof fn level_increases(self)
-    //     requires
-    //         self.inv(),
-    //         self.level < L,
-    //     ensures
-    //         forall|i: int|
-    //             0 <= i < Self::size() && #[trigger] self.children[i] is Some
-    //                 ==> self.children[i]->Some_0.level > self.level,
-    // {
-    //     if self.level == Self::max_depth() - 1 {
-    //         assert(self.is_leaf());
-    //     }
-    // }
-    // pub broadcast proof fn remaining_level_decreases(self)
-    //     requires
-    //         #[trigger] self.inv(),
-    //         #[trigger] self.level < L,
-    //     ensures
-    //         forall|i: int|
-    //             0 <= i < Self::size() && #[trigger] self.children[i] is Some ==> (L
-    //                 - self.children[i]->Some_0.level) < (L - self.level),
-    // {
-    //     self.level_increases();
-    // }
     /// Remove the tree node at the end of the path
     /// If the path is empty or any node in the path is absent,
     /// return the original tree node (no change)
