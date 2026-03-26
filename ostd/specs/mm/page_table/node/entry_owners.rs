@@ -296,6 +296,32 @@ impl<C: PageTableConfig> EntryOwner<C> {
         assert(regions.slot_owners[idx].path_if_in_pt.unwrap() == other.path);
     }
 
+    /// `relate_region` is preserved when only `ref_count.value()` changes at this entry's slot.
+    pub proof fn relate_region_rc_value_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
+        requires
+            self.relate_region(r0),
+            self.meta_slot_paddr() is Some,
+            ({
+                let idx = frame_to_index(self.meta_slot_paddr().unwrap());
+                &&& r1.slot_owners[idx].inner_perms.ref_count.id()
+                    == r0.slot_owners[idx].inner_perms.ref_count.id()
+                &&& r1.slot_owners[idx].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                &&& r1.slot_owners[idx].inner_perms.storage
+                    == r0.slot_owners[idx].inner_perms.storage
+                &&& r1.slot_owners[idx].inner_perms.vtable_ptr
+                    == r0.slot_owners[idx].inner_perms.vtable_ptr
+                &&& r1.slot_owners[idx].inner_perms.in_list
+                    == r0.slot_owners[idx].inner_perms.in_list
+                &&& r1.slot_owners[idx].path_if_in_pt == r0.slot_owners[idx].path_if_in_pt
+                &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
+                &&& r1.slot_owners[idx].raw_count == r0.slot_owners[idx].raw_count
+            }),
+        ensures
+            self.relate_region(r1),
+    {
+    }
+
     /// Two nodes satisfying relate_region with the same regions have different addresses
     /// if and only if they have different paths.
     pub proof fn nodes_different_paths_different_addrs(

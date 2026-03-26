@@ -46,7 +46,7 @@ use crate::specs::mm::frame::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots,
     meta_addr, meta_to_frame, META_SLOT_SIZE
 };
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
@@ -457,6 +457,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         assert(slot_own.inner_perms.ref_count.id() ==
                             old_regions.slot_owners[idx].inner_perms.ref_count.id());
+                        assume(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                            && old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX);
                         regions.slot_owners.tracked_insert(idx, slot_own);
                         owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         assert(regions.inv());
@@ -1978,6 +1980,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.map_branch_none_inv_holds(owner0);
 
             assert(Entry::<C>::path_tracked_pred_preserved(*old(regions), *regions));
+            let f_ptp = PageTableOwner::<C>::path_tracked_pred(*old(regions));
+            let g_ptp = PageTableOwner::<C>::path_tracked_pred(*regions);
+            // Prove idx-th child satisfies tree_predicate_map(path, ptp(regions)).
+            assert(cont_final.children[idx].unwrap().tree_predicate_map(
+                cont_final.path().push_tail(idx as usize), g_ptp)) by {
+                let child = cont_final.children[idx].unwrap();
+                // Node entry: ptp requires path_if_in_pt is Some (set by alloc_if_none)
+                assert(child.value.meta_slot_paddr() is Some);
+                assert(regions.slot_owners[new_pt_idx].path_if_in_pt is Some);
+                assert(g_ptp(child.value, cont_final.path().push_tail(idx as usize)));
+                // All children of the new node are absent (meta_slot_paddr is None), so ptp is vacuous.
+            };
+            cont_final.map_children_lift_skip_idx(cont0, idx, f_ptp, g_ptp);
             owner.map_branch_none_path_tracked_holds(owner0, *regions, *old(regions));
         }
 

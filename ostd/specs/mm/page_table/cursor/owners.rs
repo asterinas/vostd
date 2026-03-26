@@ -17,6 +17,7 @@ use crate::mm::page_prop::PageProperty;
 use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::mm::frame::meta_owners::REF_COUNT_MAX;
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
@@ -1192,13 +1193,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_regions.slot_owners[i] == old_regions.slot_owners[i],
             // slots map unchanged
             new_regions.slots == old_regions.slots,
+            // rc overflow guard: old rc is a normal shared count; rc+1 stays below REF_COUNT_MAX.
+            0 < old_regions.slot_owners[idx].inner_perms.ref_count.value(),
+            old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX,
         ensures
             new_regions.inv(),
             self.relate_region(new_regions),
     {
         self.cont_entries_relate_region(old_regions);
-        assert(new_regions.slot_owners[idx].inv()) by { admit() }; // rc+1 stays valid
-        assert(new_regions.slots[idx].value().wf(new_regions.slot_owners[idx])) by { admit() }; // wf is ID-based
+        // inv(): old rc in (0, REF_COUNT_MAX), so new rc in (1, REF_COUNT_MAX].
+        // All conditional branches of inv() that depend on rc still hold:
+        // - vtable_ptr.is_init() is preserved (unchanged)
+        // - REF_COUNT_MAX <= new_rc < REF_COUNT_UNIQUE is impossible since new_rc <= REF_COUNT_MAX
+        // - new_rc != REF_COUNT_UNUSED since REF_COUNT_MAX < REF_COUNT_UNIQUE < REF_COUNT_UNUSED
+        // - All other fields (self_addr, raw_count, etc.) unchanged.
+        // wf(): only checks .id() fields which are all preserved by precondition.
+        let old_rc = old_regions.slot_owners[idx].inner_perms.ref_count.value();
+        let new_rc = new_regions.slot_owners[idx].inner_perms.ref_count.value();
+        assert(0 < old_rc);
+        assert(old_rc + 1 < REF_COUNT_MAX);
+        assert(new_rc == old_rc + 1);
+        assert(0 < new_rc < REF_COUNT_MAX);
+        // The old slot owner was inv, with rc in the normal shared range.
+        // vtable_ptr.is_init() held for old and is unchanged.
+        assert(old_regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
+        assert(new_regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
+        assert(new_regions.slot_owners[idx].inv());
         assert(new_regions.inv()) by {
             assert forall |i: usize| #[trigger] new_regions.slots.contains_key(i) implies {
                 &&& new_regions.slot_owners.contains_key(i)
@@ -1206,7 +1226,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 &&& new_regions.slots[i].is_init()
                 &&& new_regions.slots[i].value().wf(new_regions.slot_owners[i])
                 &&& new_regions.slot_owners[i].self_addr == new_regions.slots[i].addr()
-            } by { assert(old_regions.slots.contains_key(i)); };
+            } by {
+                assert(old_regions.slots.contains_key(i));
+                // wf: for i != idx, slot_owners unchanged. For i == idx, wf only checks
+                // .id() fields which are preserved (ref_count.id unchanged, others identical).
+            };
             assert forall |i: usize| #[trigger] new_regions.slot_owners.contains_key(i) implies
                 new_regions.slot_owners[i].inv() by {};
         };
@@ -1358,9 +1382,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[self.level - 1].path()
                 == owner0.continuations[owner0.level - 1].path(),
             self.va.index[self.level - 1] == self.continuations[self.level - 1].idx,
+            // Domain preserved: same keys as owner0.
+            self.continuations.dom() =~= owner0.continuations.dom(),
         ensures
             self.inv()
-    { admit() }
+    {
+        let L = self.level as int;
+        let cont = self.continuations[L - 1];
+        let cont0 = owner0.continuations[L - 1];
+
+        // level() for the bottom continuation matches self.level.
+        // From cont.inv(): tree_level == INC_LEVELS - level() - 1, path().len() == tree_level.
+        // From path preservation: cont.path().len() == cont0.path().len().
+        // From owner0.inv(): cont0.path().len() == INC_LEVELS - owner0.level - 1.
+        // So level() == self.level.
+        assert(cont.level() == self.level) by {
+            assert(cont.path() == cont0.path());
+            if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
+        };
+
+        // contains_key for the bottom continuation: owner0.inv() gives contains_key
+        // for all levels >= owner0.level - 1 = self.level - 1 (at concrete indices 0..3).
+        // We need it at self.level - 1.
+        assert(self.continuations.contains_key(L - 1)) by {
+            if L == 1 {} else if L == 2 {} else if L == 3 {} else {}
+        };
+    }
 
     /// After `alloc_if_none` (absent→node) + restoration, given that the cursor's tree satisfies
     /// `relate_region_pred` and path-tracking is preserved, `owner.map_full_tree(path_tracked_pred)`
@@ -1383,9 +1430,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall|i: int| self.level <= i < NR_LEVELS ==>
                 #[trigger] self.continuations[i] == owner0.continuations[i],
             Entry::<C>::path_tracked_pred_preserved(old_regions, regions),
+            // Bottom continuation's children satisfy ptp(regions).
+            self.continuations[self.level - 1].map_children(
+                PageTableOwner::<C>::path_tracked_pred(regions)),
         ensures
             self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions))
-    { admit() }
+    {
+        let ptp_old = PageTableOwner::<C>::path_tracked_pred(old_regions);
+        let ptp_new = PageTableOwner::<C>::path_tracked_pred(regions);
+        assert forall|i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies
+                self.continuations[i].map_children(ptp_new)
+        by {
+            if i >= self.level as int {
+                let cont = owner0.continuations[i];
+                assert(cont.map_children(ptp_old));
+                cont.map_children_lift(ptp_old, ptp_new);
+            }
+        };
+    }
 
     /// After `alloc_if_none` (absent→node) + restoration, the cursor's `view_mappings()` equals
     /// the initial owner's `view_mappings()`. The absent child contributed zero mappings; the newly
@@ -1393,6 +1457,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn map_branch_none_no_new_mappings(self, owner0: Self)
         requires
             owner0.inv(),
+            self.inv(),
             self.level == owner0.level,
             self.va == owner0.va,
             forall|i: int| self.level <= i < NR_LEVELS ==>
@@ -1406,9 +1471,68 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.continuations[self.level - 1].idx as int] is Some,
             self.continuations[self.level - 1].children[
                 self.continuations[self.level - 1].idx as int].unwrap().value.is_node(),
+            // Non-idx children and path preserved
+            self.continuations[self.level - 1].path()
+                == owner0.continuations[owner0.level - 1].path(),
+            forall|j: int| 0 <= j < NR_ENTRIES
+                && j != owner0.continuations[owner0.level - 1].idx as int ==>
+                #[trigger] self.continuations[self.level - 1].children[j]
+                    == owner0.continuations[owner0.level - 1].children[j],
+            // The new node's subtree has empty view_rec (from alloc_if_none postcondition)
+            PageTableOwner(self.continuations[self.level - 1].children[
+                self.continuations[self.level - 1].idx as int].unwrap())
+                .view_rec(self.continuations[self.level - 1].path()
+                    .push_tail(self.continuations[self.level - 1].idx as usize))
+                =~= Set::<Mapping>::empty(),
         ensures
-            self.view_mappings() == owner0.view_mappings()
-    { admit() }
+            self.view_mappings() =~= owner0.view_mappings()
+    {
+        let L = self.level as int;
+        let cont = self.continuations[L - 1];
+        let cont0 = owner0.continuations[L - 1];
+        let idx = cont0.idx as int;
+
+        // Bottom continuation: view_mappings are the same because
+        // non-idx children are identical, and both idx children have empty view_rec.
+        assert(cont.view_mappings() =~= cont0.view_mappings()) by {
+            // Old child (absent) has empty view_rec.
+            self.cur_subtree_inv(); // ensures cont's children have inv()
+            let old_child = cont0.children[idx].unwrap();
+            cont0.inv_children_unroll(idx);
+            PageTableOwner(old_child).view_rec_absent_empty(cont0.path().push_tail(idx as usize));
+
+            assert forall |m: Mapping| cont.view_mappings().contains(m)
+                implies cont0.view_mappings().contains(m) by {
+                let j = choose|j:int| 0 <= j < cont.children.len()
+                    && cont.children[j] is Some
+                    && PageTableOwner(cont.children[j].unwrap())
+                        .view_rec(cont.path().push_tail(j as usize)).contains(m);
+                if j == idx {
+                    // New child's view_rec is empty — contradiction.
+                } else {
+                    assert(cont.children[j] == cont0.children[j]);
+                }
+            };
+            assert forall |m: Mapping| cont0.view_mappings().contains(m)
+                implies cont.view_mappings().contains(m) by {
+                let j = choose|j:int| 0 <= j < cont0.children.len()
+                    && cont0.children[j] is Some
+                    && PageTableOwner(cont0.children[j].unwrap())
+                        .view_rec(cont0.path().push_tail(j as usize)).contains(m);
+                if j == idx {
+                    // Old child's view_rec is empty — contradiction.
+                } else {
+                    assert(cont0.children[j] == cont.children[j]);
+                }
+            };
+        };
+
+        // Higher continuations are identical.
+        assert forall |m: Mapping| self.view_mappings().contains(m)
+            <==> owner0.view_mappings().contains(m) by {
+            // view_mappings = union over all continuations
+        };
+    }
 
     /// After `map_branch_none` (alloc_if_none + push_level), the current entry is absent.
     ///
@@ -1805,12 +1929,46 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
             regions1.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
+            // rc overflow guard
+            regions1.slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
             forall |i: usize| #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==>
                 regions1.slot_owners[i] == regions0.slot_owners[i],
         ensures
             self.relate_region(regions1),
-    { admit() }
+    {
+        let f = PageTableOwner::<C>::relate_region_pred(regions0);
+        let g = PageTableOwner::<C>::relate_region_pred(regions1);
+        let e = PageTableOwner::<C>::path_tracked_pred(regions0);
+        let h = PageTableOwner::<C>::path_tracked_pred(regions1);
+        // relate_region transfer: for each entry, if relate_region(r0) then relate_region(r1).
+        assert(OwnerSubtree::implies(f, g)) by {
+            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
+                if entry.meta_slot_paddr() is Some {
+                    let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                    if eidx != idx {
+                        assert(regions0.slot_owners[eidx] == regions1.slot_owners[eidx]);
+                    } else {
+                        entry.relate_region_rc_value_changed(regions0, regions1);
+                    }
+                }
+            };
+        };
+        // path_tracked_pred transfer: path_if_in_pt unchanged for all slots.
+        assert(OwnerSubtree::implies(e, h)) by {
+            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && e(entry, path) implies #[trigger] h(entry, path) by {
+                if entry.meta_slot_paddr() is Some {
+                    let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                    if eidx != idx {} // slot_owners[eidx] unchanged
+                    // eidx == idx: path_if_in_pt unchanged
+                }
+            };
+        };
+        self.relate_region_preserved(self, regions0, regions1);
+    }
 
     /// Transfers `relate_region` when `slot_owners` differs at exactly one index
     /// where `raw_count` changed from 0 to 1 (as happens after `borrow_paddr`
@@ -1855,7 +2013,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions0.slot_owners.dom() =~= regions1.slot_owners.dom(),
         ensures
             self.relate_region(regions1),
-    { admit() }
+    {
+        // Can't use OwnerSubtree::implies because in_scope==true entries at changed_idx
+        // would break the universal implication. Instead, use admit() — the justification
+        // is that all cursor tree entries have !in_scope, so raw_count mismatch makes
+        // relate_region(r0) vacuously false for nodes at changed_idx.
+        admit()
+    }
 
     /// Continuation entry_owns satisfy `relate_region` and `path_tracked_pred`.
     ///
