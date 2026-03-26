@@ -44,15 +44,13 @@ jobs:
         with:
           path: tools/verus
           key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
-          restore-keys: |
-            ${{ runner.os }}-verus-
 
       - name: Bootstrap Verus (if needed)
         run: |
-          if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ] && [ -x tools/verus/target/release/verus ]; then
+          if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
             echo "Using cached Verus"
           else
-            echo "Cache miss or incomplete cache, rebuilding Verus..."
+            echo "Cache miss, bootstrapping Verus..."
             rm -rf tools/verus
             cargo dv bootstrap
           fi
