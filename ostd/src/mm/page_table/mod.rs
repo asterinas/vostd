@@ -73,6 +73,7 @@ pub trait RCClone: Sized {
         ensures
             res == *self,
             rc_perm.value() == old(rc_perm).value() + 1,
+            rc_perm.id() == old(rc_perm).id(),
     ;
 }
 

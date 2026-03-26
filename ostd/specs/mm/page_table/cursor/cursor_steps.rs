@@ -1040,13 +1040,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// After `move_forward_owner_spec`, the cursor remains within the locked range.
-    pub axiom fn move_forward_owner_preserves_in_locked_range(self)
+    pub proof fn move_forward_owner_preserves_in_locked_range(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
             self.in_locked_range(),
         ensures
-            self.move_forward_owner_spec().in_locked_range();
+            self.move_forward_owner_spec().in_locked_range(),
+        decreases NR_LEVELS - self.level,
+    {
+        if self.index() + 1 < NR_ENTRIES {
+            // inc_index + zero_below_level: VA advances within the current node.
+            // The node fits within the locked range, so the new VA is still in range.
+            admit();
+        } else if self.level < NR_LEVELS {
+            // Pop + recurse: pop preserves VA (and thus in_locked_range),
+            // then the recursive call preserves it.
+            self.pop_level_owner_preserves_inv();
+            let popped = self.pop_level_owner_spec().0;
+            // pop preserves va, prefix, guard_level, so in_locked_range is preserved.
+            assert(popped.in_locked_range());
+            popped.move_forward_owner_preserves_in_locked_range();
+        } else {
+            // level == NR_LEVELS: unreachable (in_locked_range + inv ==> level < guard_level <= NR_LEVELS,
+            // but level <= NR_LEVELS, so level == NR_LEVELS means guard_level == NR_LEVELS too)
+        }
+    }
 
     /// After the pop loop in `move_forward`, the cursor level is strictly below guard_level.
     ///
@@ -1056,7 +1075,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// combined with `move_forward_not_popped_too_high` gives
     /// `!owner.move_forward_owner_spec().popped_too_high`, and `move_forward_owner_spec()`
     /// on a `popped_too_high` state gives a different result — a contradiction.
-    pub axiom fn move_forward_pop_loop_level_lt_guard(self, owner0: Self)
+    pub proof fn move_forward_pop_loop_level_lt_guard(self, owner0: Self)
         requires
             self.inv(),
             self.in_locked_range(),
@@ -1066,7 +1085,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
             !owner0.move_forward_owner_spec().popped_too_high,
         ensures
-            self.level < self.guard_level;
+            self.level < self.guard_level,
+    {
+        // From inv: !popped_too_high ==> level < guard_level || above_locked_range.
+        // in_locked_range ==> !above_locked_range.
+        // So !popped_too_high ==> level < guard_level.
+        if !self.popped_too_high {
+            assert(self.in_locked_range() ==> !self.above_locked_range());
+        } else {
+            // popped_too_high: from inv, level >= guard_level.
+            // With level <= guard_level: level == guard_level.
+            // Need contradiction from move_forward_owner_spec preconditions.
+            // popped_too_high at guard_level + in_locked_range is a valid state,
+            // but move_forward_owner_spec on such a state advances past the locked
+            // range, setting popped_too_high = false but above_locked_range.
+            // owner0 starts in_locked_range with !popped_too_high (from its own inv),
+            // so owner0.move_forward_owner_spec() != self.move_forward_owner_spec()
+            // in this case — contradicting the precondition.
+            admit();
+        }
+    }
 }
 
 }

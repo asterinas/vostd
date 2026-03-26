@@ -206,6 +206,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             res == *item,
             rc_perm.value() == old(rc_perm).value() + 1,
+            rc_perm.id() == old(rc_perm).id(),
     {
         item.clone(Tracked(slot_perm), Tracked(rc_perm))
     }
@@ -454,6 +455,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let cloned = Self::clone_item(&item);
 
                     proof {
+                        assert(slot_own.inner_perms.ref_count.id() ==
+                            old_regions.slot_owners[idx].inner_perms.ref_count.id());
                         regions.slot_owners.tracked_insert(idx, slot_own);
                         owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         assert(regions.inv());

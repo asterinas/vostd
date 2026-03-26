@@ -527,6 +527,7 @@ impl MetaSlot {
             !Self::inc_ref_count_panic_cond(*old(rc_perm)),
         ensures
             rc_perm.value() == old(rc_perm).value() + 1,
+            rc_perm.id() == old(rc_perm).id(),
     {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
 
