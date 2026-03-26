@@ -46,6 +46,13 @@ jobs:
           path: tools/verus
           key: ${{ runner.os }}-verus-${{ env.VERUS_COMMIT }}
 
+      - name: Cache verusfmt
+        id: cache-verusfmt
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/verusfmt
+          key: ${{ runner.os }}-verusfmt-${{ env.VERUS_COMMIT }}
+
       - name: Bootstrap Verus (if needed)
         run: |
           if [ "${{ steps.cache-verus.outputs.cache-hit }}" = "true" ]; then
@@ -55,6 +62,12 @@ jobs:
             rm -rf tools/verus
             cargo dv bootstrap
           fi
+
+          if ! command -v verusfmt >/dev/null 2>&1; then
+            echo "verusfmt not found, installing via cargo dv bootstrap..."
+            cargo dv bootstrap
+          fi
+          verusfmt --version
 
       - name: Run verification
         run: make
