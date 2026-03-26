@@ -5,6 +5,8 @@ use vstd::{
     prelude::*,
 };
 
+use super::AtomicDataWithOwner;
+
 verus! {
 
 pub const UNINIT: u64 = 0;
@@ -23,14 +25,6 @@ pub tracked enum OnceState<V: 'static> {
     /// The cell is initialized with a value and extended with
     /// static lifetime.
     Init(&'static PointsTo<Option<V>>),
-}
-
-impl<U, Own> View for AtomicDataWithOwner<U, Own> {
-    type V = U;
-
-    open spec fn view(&self) -> Self::V {
-        self.data
-    }
 }
 
 impl<V, Own> AtomicDataWithOwner<V, Own> {
