@@ -708,17 +708,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         self.children[key as int]
     }
 
-    #[verifier::returns(proof)]
-    #[verifier::external_body]
-    pub proof fn tracked_child(self, key: usize) -> (res: Option<Self>)
-        requires
-            0 <= key < Self::size(),
-        ensures
-            res == self.child(key),
-    {
-        self.children[key as int]
-    }
-
     pub broadcast proof fn child_property(self, key: usize)
         requires
             0 <= key < Self::size(),
@@ -1311,7 +1300,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    // #[verifier::external_body]
     pub broadcast proof fn lemma_recursive_visit_induction(self, path: TreePath<N>)
         requires
             self.inv(),
