@@ -592,7 +592,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         Node { value: val, level: lv, children: Seq::new(N as nat, |i| Some(Self::new(lv + 1))) }
     }
 
-    pub axiom fn new_val_tracked(tracked val: T, tracked lv: nat) -> (tracked res: Self)
+    pub axiom fn new_val_tracked(tracked val: T, lv: nat) -> (tracked res: Self)
         requires
             0 <= lv < L,
             N > 0,

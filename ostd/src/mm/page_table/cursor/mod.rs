@@ -2807,7 +2807,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.level,
         );
         let tracked subtree = OwnerSubtree::new_val_tracked(absent_entry_owner,
-            (owner.continuations.tracked_borrow(owner.level - 1).tree_level + 1) as nat);
+            (owner.continuations[owner.level - 1].tree_level + 1) as nat);
 
         assert(subtree.value.meta_slot_paddr() is None);
         proof {
