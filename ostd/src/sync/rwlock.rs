@@ -740,7 +740,10 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     type Target = T;
 
-    fn deref(&self) -> &T {
+    fn deref(&self) -> &T
+        returns
+            self.view(),
+    {
         proof!{
             use_type_invariant(self);
         }
@@ -831,7 +834,10 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     type Target = T;
 
-    fn deref(&self) -> &T {
+    fn deref(&self) -> &T
+        returns
+            self.view(),
+    {
         proof!{
             use_type_invariant(self);
         }
