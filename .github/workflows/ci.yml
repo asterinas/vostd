@@ -51,6 +51,16 @@ jobs:
             ~/.rustup/tmp
           key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_VERSION }}
 
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Get Verus commit
         id: verus
         run: |
