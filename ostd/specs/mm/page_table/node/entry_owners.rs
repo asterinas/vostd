@@ -101,9 +101,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
     /// Produces a slot permission for a frame address without requiring it from `regions.slots`.
     /// Used as a placeholder in cases (e.g. huge-page split) where the sub-frame slot perms
     /// are not yet fully tracked.  Replace with real perm threading when the split path is verified.
-    pub axiom fn placeholder_slot_perm(paddr: Paddr) -> (tracked res: PointsTo<MetaSlot>)
+    pub axiom fn placeholder_slot_perm(paddr: Paddr, tracked regions: &MetaRegionOwners) -> (tracked res: PointsTo<MetaSlot>)
+        requires
+            regions.inv(),
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
         ensures
-            res.addr() == meta_addr(frame_to_index(paddr));
+            res.addr() == meta_addr(frame_to_index(paddr)),
+            res.is_init(),
+            res.value().wf(regions.slot_owners[frame_to_index(paddr)]),
+            regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
+            regions.slot_owners[frame_to_index(paddr)].path_if_in_pt is None;
 
     pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
         returns Self::new_node_spec(node, path);
@@ -140,7 +148,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& pte.paddr() % PAGE_SIZE == 0
         &&& pte.paddr() < MAX_PADDR
         &&& !pte.is_present() ==> {
-            self.is_absent()
+            &&& self.is_absent()
+            &&& parent_level > 1 ==> !pte.is_last(parent_level)
         }
         &&& pte.is_present() && !pte.is_last(parent_level) ==> {
             &&& self.is_node()
@@ -165,6 +174,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
         C::E::new_properties();
         assert(!pte.is_present());
+        if parent_level > 1 {
+            assert(!pte.is_last(parent_level));
+        }
         if pte.is_present() && !pte.is_last(parent_level) {
             assert(pte.is_present());
             assert(!pte.is_present());
@@ -173,6 +185,98 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(pte.is_present());
             assert(!pte.is_present());
         }
+    }
+
+    pub proof fn last_pte_implies_frame_match(self, pte: C::E, parent_level: PagingLevel)
+        requires
+            self.inv(),
+            self.match_pte(pte, parent_level),
+            1 < parent_level,
+            pte.is_last(parent_level),
+        ensures
+            self.is_frame(),
+            self.frame.unwrap().mapped_pa == pte.paddr(),
+            self.frame.unwrap().prop == pte.prop(),
+    {
+        if !pte.is_present() {
+            assert(self.is_absent());
+            assert(!pte.is_last(parent_level));
+            assert(false);
+        }
+        assert(self.is_frame());
+        assert(self.frame.unwrap().mapped_pa == pte.paddr());
+        assert(self.frame.unwrap().prop == pte.prop());
+    }
+
+    pub proof fn huge_frame_split_child_at(self, regions: MetaRegionOwners, idx: usize)
+        requires
+            self.inv(),
+            self.is_frame(),
+            regions.inv(),
+            1 < self.parent_level < NR_LEVELS,
+            idx < NR_ENTRIES,
+        ensures
+            self.frame.unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel) < MAX_PADDR,
+            ((self.frame.unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr)
+                % page_size((self.parent_level - 1) as PagingLevel) == 0,
+            ((self.frame.unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr)
+                + page_size((self.parent_level - 1) as PagingLevel) <= MAX_PADDR,
+            ((self.frame.unwrap().mapped_pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr) % PAGE_SIZE == 0,
+    {
+        let pa = self.frame.unwrap().mapped_pa;
+        let child_pa = (pa + idx * page_size((self.parent_level - 1) as PagingLevel)) as Paddr;
+        assert(self.parent_level == 2 || self.parent_level == 3);
+        assert(NR_ENTRIES == 512) by {
+            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        };
+        assert(crate::mm::nr_subpage_per_huge::<PagingConsts>() == 512usize) by {
+            crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        };
+        vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
+        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_spec_level1();
+        assert(512usize.ilog2() == 9);
+        assert(crate::mm::nr_subpage_per_huge::<PagingConsts>().ilog2() == 512usize.ilog2());
+        vstd::arithmetic::power2::lemma2_to64();
+        if self.parent_level == 2 {
+            assert(page_size_spec(1) == 4096);
+            assert(page_size_spec(2) == (PAGE_SIZE * pow2((512usize.ilog2() * 1usize) as nat)) as usize);
+            assert(page_size_spec(2) == (4096 * pow2(9)) as usize);
+            assert(page_size_spec(2) == 2097152);
+            assert(pa % page_size(2) == 0);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::axiom_page_size_divides(1, 2);
+            assert(child_pa % page_size(1) == 0);
+            assert(child_pa + page_size(1) <= MAX_PADDR) by {
+                assert(idx < 512);
+                assert(idx * 4096 + 4096 <= 2097152);
+                assert(child_pa + page_size(1) <= pa + page_size(2));
+            };
+        } else {
+            assert(self.parent_level == 3);
+            assert(page_size_spec(2) == (PAGE_SIZE * pow2((512usize.ilog2() * 1usize) as nat)) as usize);
+            assert(page_size_spec(2) == (4096 * pow2(9)) as usize);
+            assert(page_size_spec(2) == 2097152);
+            assert(page_size_spec(3) == (PAGE_SIZE * pow2((512usize.ilog2() * 2usize) as nat)) as usize);
+            assert(page_size_spec(3) == (4096 * pow2(18)) as usize);
+            assert(page_size_spec(3) == 1073741824);
+            assert(pa % page_size(3) == 0);
+            assert(pa % PAGE_SIZE == 0);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_va_align_page_size(pa, 2);
+            assert(child_pa == pa + idx * page_size(2));
+            vstd::arithmetic::div_mod::lemma_mod_multiples_basic(idx as int, page_size(2) as int);
+            vstd::arithmetic::div_mod::lemma_add_mod_noop(
+                pa as int,
+                (idx * page_size(2)) as int,
+                page_size(2) as int,
+            );
+            assert(child_pa % page_size(2) == 0);
+            assert(child_pa + page_size(2) <= MAX_PADDR) by {
+                assert(idx < 512);
+                assert(idx * 2097152 + 2097152 <= 1073741824);
+                assert(child_pa + page_size(2) <= pa + page_size(3));
+            };
+        }
+        assert(child_pa < MAX_PADDR);
+        assert(child_pa % PAGE_SIZE == 0);
     }
 
     pub open spec fn expected_raw_count(self) -> usize {
@@ -344,6 +448,8 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& self.frame.unwrap().mapped_pa % PAGE_SIZE == 0
             &&& self.frame.unwrap().mapped_pa < MAX_PADDR
             &&& self.frame.unwrap().size == page_size(self.parent_level)
+            &&& self.frame.unwrap().mapped_pa % page_size(self.parent_level) == 0
+            &&& self.frame.unwrap().mapped_pa + page_size(self.parent_level) <= MAX_PADDR
         }
         &&& self.locked is Some ==> {
             &&& self.frame is None
