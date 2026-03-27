@@ -896,7 +896,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.flusher.dispatch_tlb_flush();
             },
             PageTableFrag::StrayPageTable { .. } => {
-                assert(false) by { admit() };
+                assert(false) by {
+                    assert(UserPtConfig::item_into_raw(item).1 == 1);
+                };
                 //panic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }
@@ -1233,7 +1235,9 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = MappedItem;
 
-    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        (item.frame.paddr(), 1, item.prop)
+    }
 
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {

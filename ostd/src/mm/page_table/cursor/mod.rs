@@ -2345,6 +2345,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.map_cursor_requires(*owner, *guards),
             (C::item_into_raw(item).1 <= old(self).inner.level
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),
+            res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw(item).1 > 1,
             // For non-UNUSED indices other than the mapped frame, path_if_in_pt is preserved.
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
                 idx != frame_to_index(C::item_into_raw(item).0) &&
@@ -2520,6 +2521,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
 
         if let Some(frag) = frag {
+            proof {
+                if frag is StrayPageTable {
+                    assert(owner1.cur_entry_owner().is_node());
+                    owner1.cur_entry_node_implies_level_gt_1();
+                    assert(level == owner1.level);
+                    assert(level > 1);
+                }
+            }
             Err(frag)
         } else {
             Ok(())
@@ -3334,4 +3343,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
-
