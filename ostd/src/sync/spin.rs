@@ -405,6 +405,16 @@ impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
     spec fn type_inv(self) -> bool{
         self.lock.cell_id() == self.v_perm@.id()
     }
+
+    /// The value stored in the lock.
+    pub closed spec fn value(self) -> T {
+        *self.v_perm@.value()
+    }
+
+    /// The value stored in the lock. It is an alias of `Self::value()`.
+    pub open spec fn view(self) -> T {
+        self.value()
+    }
 }
 /*
 impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {

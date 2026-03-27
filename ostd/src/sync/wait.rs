@@ -177,6 +177,13 @@ pub struct Waiter {
 impl !Send for Waiter {}
 impl !Sync for Waiter {}
 
+impl Waiter {
+    /// Checks if the input waker is the associated waker of the current waiter.
+    pub closed spec fn rel_waker(self, waker: Arc<Waker>) -> bool {
+        self.waker == waker
+    }
+}
+
 /// A waker that can wake up the associated [`Waiter`].
 ///
 /// A waker can be created by calling [`Waiter::new_pair`]. This method creates an `Arc<Waker>` that can
@@ -186,10 +193,15 @@ pub struct Waker {
     task: Arc<Task>,
 }
 
+#[verus_verify]
 impl Waiter {
     /// Creates a waiter and its associated [`Waker`].
-    #[verifier::external_body]
-    pub fn new_pair() -> (Self, Arc<Waker>) {
+    #[verus_spec(ret =>
+        ensures
+            ret.0.rel_waker(ret.1)
+    )]
+    pub fn new_pair() -> (Self, Arc<Waker>)
+    {
         let waker = Arc::new(Waker {
             has_woken: AtomicBool::new(false),
             // task: Task::current().unwrap().cloned(),
@@ -208,7 +220,6 @@ impl Waiter {
     /// to this method (or since the waiter was created, if this method has not been called
     /// before). Otherwise, it puts the current thread to sleep until the waiter is woken up.
     #[track_caller]
-    #[verifier::external_body]
     pub fn wait(&self) {
         self.waker.do_wait();
     }
@@ -245,8 +256,12 @@ impl Waiter {
     }
 
     /// Gets the associated [`Waker`] of the current waiter.
-    #[verifier::external_body]
-    pub fn waker(&self) -> Arc<Waker> {
+    #[verus_spec(ret =>
+        ensures
+            self.rel_waker(ret)
+    )]
+    pub fn waker(&self) -> Arc<Waker> 
+    {
         self.waker.clone()
     }
 
