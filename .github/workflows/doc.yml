@@ -62,14 +62,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Cache build artifacts
-        uses: actions/cache@v5
-        with:
-          path: target
-          key: ${{ runner.os }}-build-${{ env.RUST_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.RUST_VERSION }}-
-
       - name: Get Verus commit
         id: verus
         run: |
