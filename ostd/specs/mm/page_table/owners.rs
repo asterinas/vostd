@@ -386,6 +386,68 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
+    pub open spec fn not_in_scope_pred()
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
+    {
+        |entry: EntryOwner<C>, _path: TreePath<NR_ENTRIES>| !entry.in_scope
+    }
+
+    /// Every entry in an OwnerSubtree has `!in_scope`.
+    /// Follows from `EntryOwner::inv()` including `!in_scope`, propagated through the tree.
+    pub proof fn tree_not_in_scope(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
+        requires
+            subtree.inv(),
+        ensures
+            subtree.tree_predicate_map(path, Self::not_in_scope_pred()),
+        decreases INC_LEVELS - subtree.level,
+    {
+        // subtree.inv() => inv_node() => value.inv() => !value.in_scope
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                0 <= i < subtree.children.len()
+                && (#[trigger] subtree.children[i]) is Some implies
+                subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize), Self::not_in_scope_pred())
+            by {
+                Self::tree_not_in_scope(
+                    subtree.children[i].unwrap(), path.push_tail(i as usize));
+            };
+        }
+    }
+
+    /// All mappings in a subtree's `view_rec` have `page_size <= page_size(pt_level)`
+    /// where `pt_level = INC_LEVELS - path.len()` (the paging level of the subtree root).
+    ///
+    /// For frames: the mapping has exactly `page_size(pt_level)`.
+    /// For nodes: children have longer paths, so their mappings have strictly smaller page sizes.
+    pub proof fn view_rec_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
+        requires
+            self.0.inv(),
+            path.len() <= INC_LEVELS - 1,
+            self.view_rec(path).contains(m),
+        ensures
+            m.page_size <= page_size((INC_LEVELS - path.len()) as PagingLevel),
+        decreases INC_LEVELS - path.len(),
+    {
+        admit()
+    }
+
+    /// For a node subtree, all mappings have `page_size < page_size(pt_level)`, i.e.,
+    /// `page_size <= page_size(pt_level - 1)`.  This is because node mappings come from
+    /// children whose paths are one level deeper.
+    pub proof fn view_rec_node_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
+        requires
+            self.0.inv(),
+            self.0.value.is_node(),
+            path.len() < INC_LEVELS - 1,
+            self.view_rec(path).contains(m),
+        ensures
+            m.page_size <= page_size(((INC_LEVELS - path.len()) - 1) as PagingLevel),
+        decreases INC_LEVELS - path.len(),
+    {
+        admit()
+    }
+
     /// Spec function: path1 is a prefix of path2
     pub open spec fn is_prefix_of<const N: usize>(
         prefix: TreePath<N>,

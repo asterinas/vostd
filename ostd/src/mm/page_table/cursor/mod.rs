@@ -1994,6 +1994,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
             cont_final.map_children_lift_skip_idx(cont0, idx, f_ptp, g_ptp);
             owner.map_branch_none_path_tracked_holds(owner0, *regions, *old(regions));
+
         }
 
         let ghost owner_pre_push = *owner;

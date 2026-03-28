@@ -821,6 +821,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
             proof {
                 new_owner.value.node = Some(new_owner_node);
+                new_owner_child.value.in_scope = false;
+                child_owner.in_scope = false;
                 OwnerSubtree::set_value_property(new_owner_child, child_owner);
                 new_owner_child.value = child_owner;
                 new_owner.children.tracked_insert(i as int, Some(new_owner_child));

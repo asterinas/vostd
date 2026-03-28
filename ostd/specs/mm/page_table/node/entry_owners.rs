@@ -355,8 +355,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
     }
 }
 
-impl<C: PageTableConfig> Inv for EntryOwner<C> {
-    open spec fn inv(self) -> bool {
+impl<C: PageTableConfig> EntryOwner<C> {
+    /// Structural invariant without `!in_scope`. Used by `Child::invariants`
+    /// for entries that have been taken out of the tree (`in_scope == true`).
+    pub open spec fn inv_base(self) -> bool {
         &&& self.node is Some ==> {
             &&& self.frame is None
             &&& self.locked is None
@@ -377,6 +379,13 @@ impl<C: PageTableConfig> Inv for EntryOwner<C> {
             &&& !self.absent
         }
         &&& self.path.inv()
+    }
+}
+
+impl<C: PageTableConfig> Inv for EntryOwner<C> {
+    open spec fn inv(self) -> bool {
+        &&& !self.in_scope
+        &&& self.inv_base()
     }
 }
 
