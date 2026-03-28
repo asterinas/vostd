@@ -517,16 +517,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
                         assert(f(child_subtree.value, child_cont.path()));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            child_subtree.children[j] is Some ==> child_subtree.children[j].unwrap().tree_predicate_map(
-                                child_cont.path().push_tail(j as usize), f) by {
+                            match #[trigger] child_subtree.children[j] {
+                                Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), f),
+                                None => true,
+                            }
+                        by {
                             child_subtree.map_unroll_once(child_cont.path(), f, j);
                         };
                     };
                     assert(child_subtree.tree_predicate_map(child_cont.path(), g)) by {
                         assert(g(child_subtree.value, child_cont.path()));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            child_subtree.children[j] is Some ==> child_subtree.children[j].unwrap().tree_predicate_map(
-                                child_cont.path().push_tail(j as usize), g) by {
+                            match #[trigger] child_subtree.children[j] {
+                                Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), g),
+                                None => true,
+                            }
+                        by {
                             child_subtree.map_unroll_once(child_cont.path(), g, j);
                         };
                     };
@@ -765,9 +771,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             cont.path().push_tail(cont.idx as usize),
                         ));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            child_subtree.children[j] is Some ==> child_subtree.children[j].unwrap().tree_predicate_map(
-                                cont.path().push_tail(cont.idx as usize).push_tail(j as usize),
-                                CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)) by {
+                            match #[trigger] child_subtree.children[j] {
+                                Some(ch) => ch.tree_predicate_map(
+                                    cont.path().push_tail(cont.idx as usize).push_tail(j as usize),
+                                    CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
+                                ),
+                                None => true,
+                            }
+                        by {
                             child_subtree.map_unroll_once(
                                 cont.path().push_tail(cont.idx as usize),
                                 CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
@@ -853,16 +864,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(child_subtree.tree_predicate_map(child.path(), f)) by {
                         assert(f(child_subtree.value, child.path()));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            child_subtree.children[j] is Some ==> child_subtree.children[j].unwrap().tree_predicate_map(
-                                child.path().push_tail(j as usize), f) by {
+                            match #[trigger] child_subtree.children[j] {
+                                Some(ch) => ch.tree_predicate_map(child.path().push_tail(j as usize), f),
+                                None => true,
+                            }
+                        by {
                             child_subtree.map_unroll_once(child.path(), f, j);
                         };
                     };
                     assert(child_subtree.tree_predicate_map(child.path(), g)) by {
                         assert(g(child_subtree.value, child.path()));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            child_subtree.children[j] is Some ==> child_subtree.children[j].unwrap().tree_predicate_map(
-                                child.path().push_tail(j as usize), g) by {
+                            match #[trigger] child_subtree.children[j] {
+                                Some(ch) => ch.tree_predicate_map(child.path().push_tail(j as usize), g),
+                                None => true,
+                            }
+                        by {
                             child_subtree.map_unroll_once(child.path(), g, j);
                         };
                     };
