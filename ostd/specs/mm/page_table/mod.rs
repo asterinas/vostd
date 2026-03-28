@@ -1016,7 +1016,7 @@ impl AbstractVaddr {
         let start = vaddr(self.to_path(level));
 
         assert(page_size((level + 1) as PagingLevel) >= PAGE_SIZE) by {
-            axiom_page_size_ge_page_size((level + 1) as PagingLevel);
+            lemma_page_size_ge_page_size((level + 1) as PagingLevel);
         };
         lemma_nat_align_down_sound(cur, size as nat);
     }

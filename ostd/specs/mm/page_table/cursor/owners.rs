@@ -8,7 +8,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{axiom_page_size_divides, axiom_page_size_ge_page_size};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_page_size};
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -2000,7 +2000,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cv = self.va.to_vaddr() as nat;
 
         // page_size(gl) divides page_size(gl+1)
-        axiom_page_size_divides(gl as PagingLevel, (gl + 1) as PagingLevel);
+        lemma_page_size_divides(gl as PagingLevel, (gl + 1) as PagingLevel);
         assert(ps_gl1 % ps_gl == 0);
 
         // Connect abstract align_down/align_up to concrete nat_align_down/nat_align_up
@@ -2028,8 +2028,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // node_start == nat_align_down(cv, ps_gl1) == nat_align_down(pv, ps_gl1)
 
             // page_size values are positive (>= PAGE_SIZE > 0)
-            axiom_page_size_ge_page_size(gl as PagingLevel);
-            axiom_page_size_ge_page_size((gl + 1) as PagingLevel);
+            lemma_page_size_ge_page_size(gl as PagingLevel);
+            lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
 
             // Monotonicity: coarser alignment <= finer alignment = lr_start
             lemma_nat_align_down_monotone(pv, ps_gl, ps_gl1);
