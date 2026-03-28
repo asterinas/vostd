@@ -284,17 +284,36 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         }
     }
 
-    pub open spec fn inv_children_rel(self) -> bool {
-        forall|i: int|
-            #![auto]
-            0 <= i < NR_ENTRIES ==>
-            self.children[i] is Some ==> {
-                &&& self.children[i].unwrap().value.parent_level == self.level()
-                &&& self.children[i].unwrap().level == self.tree_level + 1
-                &&& !self.children[i].unwrap().value.in_scope
-                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value))
-                &&& self.children[i].unwrap().value.path == self.path().push_tail(i as usize)
+    pub open spec fn inv_children_rel_pred(self) -> spec_fn(int, Option<OwnerSubtree<C>>) -> bool {
+        |i: int, child: Option<OwnerSubtree<C>>| {
+            child is Some ==> {
+                &&& child.unwrap().value.parent_level == self.level()
+                &&& child.unwrap().level == self.tree_level + 1
+                &&& !child.unwrap().value.in_scope
+                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(child.unwrap().value))
+                &&& child.unwrap().value.path == self.path().push_tail(i as usize)
             }
+        }
+    }
+
+    pub open spec fn inv_children_rel(self) -> bool {
+        vstd_extra::seq_extra::forall_seq(self.children, self.inv_children_rel_pred())
+    }
+
+    pub proof fn inv_children_rel_unroll(self, i: int)
+        requires
+            self.inv_children_rel(),
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+        ensures
+            self.children[i].unwrap().value.parent_level == self.level(),
+            self.children[i].unwrap().level == self.tree_level + 1,
+            !self.children[i].unwrap().value.in_scope,
+            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value)),
+            self.children[i].unwrap().value.path == self.path().push_tail(i as usize),
+    {
+        vstd_extra::seq_extra::lemma_forall_seq_index(
+            self.children, self.inv_children_rel_pred(), i);
     }
 
     pub open spec fn inv(self) -> bool {
