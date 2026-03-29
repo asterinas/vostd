@@ -722,35 +722,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     //   child_addr == child.entry_own addr, so node_unlocked_except is vacuous
                     //   Children from child.map_children(node_unlocked) -> node_unlocked_except
                     let child_subtree = child.as_subtree();
-                    assert(cont.map_children(CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)));
-                    assert(child.map_children(CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)));
-                    assert(child.path() == cont.path().push_tail(cont.idx as usize));
-                    assert(child.entry_own.node.unwrap().meta_perm.addr() == child_addr);
                     assert(child_subtree.inv()) by {
                         assert(child_subtree.value.inv());
                         assert(child_subtree.level < INC_LEVELS);
                         assert(child_subtree.children.len() == NR_ENTRIES);
-                        assert(child.entry_own.is_node());
-                        assert(child.tree_level < INC_LEVELS - 1);
-                        assert(child_subtree.inv_node());
-                        assert(child_subtree.inv_children()) by {
-                            assert(child_subtree.level < INC_LEVELS - 1);
-                            assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                                match #[trigger] child_subtree.children[j] {
-                                    Some(ch) => {
-                                        &&& ch.level == child_subtree.level + 1
-                                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
-                                    },
-                                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
-                                }
-                            by {
-                                assert(child.children[j] is Some);
-                                let ch = child.children[j].unwrap();
-                                assert(ch.level == child.tree_level + 1);
-                                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                                    child.entry_own, j, Some(ch.value)));
-                            };
-                        };
                         assert forall |j: int| 0 <= j < NR_ENTRIES implies
                             match #[trigger] child_subtree.children[j] {
                                 Some(ch) => ch.inv(),
@@ -758,34 +733,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             }
                         by {
                             child.inv_children_unroll(j);
-                            assert(child.children[j] is Some);
-                            assert(child.children[j].unwrap().inv());
-                        };
-                    };
-                    assert(child_subtree.tree_predicate_map(
-                        cont.path().push_tail(cont.idx as usize),
-                        CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
-                    )) by {
-                        assert(CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)(
-                            child.entry_own,
-                            cont.path().push_tail(cont.idx as usize),
-                        ));
-                        assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.tree_predicate_map(
-                                    cont.path().push_tail(cont.idx as usize).push_tail(j as usize),
-                                    CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
-                                ),
-                                None => true,
-                            }
-                        by {
-                            child_subtree.map_unroll_once(
-                                cont.path().push_tail(cont.idx as usize),
-                                CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
-                                j,
-                            );
-                            assert(child.path().push_tail(j as usize)
-                                == cont.path().push_tail(cont.idx as usize).push_tail(j as usize));
                         };
                     };
                     new_cont.map_children_lift_skip_idx(
@@ -814,42 +761,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     &&& new_owner.continuations[i].map_children(g)
                 } by {
                 if i > self.level as int {
-                    assert(new_owner.continuations[i] == self.continuations[i]);
                 } else {
-                    assert(i == self.level as int);
-                    assert(new_owner.continuations[i] == new_cont);
-                    assert(cont.map_children(f));
-                    assert(cont.map_children(g));
-                    assert(child.map_children(f));
-                    assert(child.map_children(g));
-                    assert(child.path() == cont.path().push_tail(cont.idx as usize));
-                    assert(f(child.entry_own, child.path()));
-                    assert(g(child.entry_own, child.path()));
                     assert(child_subtree.inv()) by {
-                        assert(child_subtree.value.inv());
-                        assert(child_subtree.level < INC_LEVELS);
-                        assert(child_subtree.children.len() == NR_ENTRIES);
-                        assert(child.entry_own.is_node());
-                        assert(child.tree_level < INC_LEVELS - 1);
-                        assert(child_subtree.inv_node());
-                        assert(child_subtree.inv_children()) by {
-                            assert(child_subtree.level < INC_LEVELS - 1);
-                            assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                                match #[trigger] child_subtree.children[j] {
-                                    Some(ch) => {
-                                        &&& ch.level == child_subtree.level + 1
-                                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
-                                    },
-                                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
-                                }
-                            by {
-                                assert(child.children[j] is Some);
-                                let ch = child.children[j].unwrap();
-                                assert(ch.level == child.tree_level + 1);
-                                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                                    child.entry_own, j, Some(ch.value)));
-                            };
-                        };
                         assert forall |j: int| 0 <= j < NR_ENTRIES implies
                             match #[trigger] child_subtree.children[j] {
                                 Some(ch) => ch.inv(),
@@ -857,30 +770,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             }
                         by {
                             child.inv_children_unroll(j);
-                            assert(child.children[j] is Some);
-                            assert(child.children[j].unwrap().inv());
-                        };
-                    };
-                    assert(child_subtree.tree_predicate_map(child.path(), f)) by {
-                        assert(f(child_subtree.value, child.path()));
-                        assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.tree_predicate_map(child.path().push_tail(j as usize), f),
-                                None => true,
-                            }
-                        by {
-                            child_subtree.map_unroll_once(child.path(), f, j);
-                        };
-                    };
-                    assert(child_subtree.tree_predicate_map(child.path(), g)) by {
-                        assert(g(child_subtree.value, child.path()));
-                        assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.tree_predicate_map(child.path().push_tail(j as usize), g),
-                                None => true,
-                            }
-                        by {
-                            child_subtree.map_unroll_once(child.path(), g, j);
                         };
                     };
                     new_cont.map_children_lift_skip_idx(cont, cont.idx as int, f, f);
