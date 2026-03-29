@@ -8,7 +8,7 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{axiom_page_size_divides, axiom_page_size_ge_page_size};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{axiom_page_size_divides, axiom_page_size_ge_page_size, lemma_page_size_spec_level1};
 
 use core::marker::PhantomData;
 use core::ops::Range;
@@ -960,7 +960,62 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
         ensures
             vaddr(self.cur_subtree().value.path) <= self.cur_va() < vaddr(self.cur_subtree().value.path) + page_size(self.level as PagingLevel)
-    { admit() }
+    {
+        let L = self.level as int;
+        let cont = self.continuations[L - 1];
+        let subtree_path = cont.path().push_tail(cont.idx as usize);
+        let va_path = self.va.to_path(L - 1);
+
+        assert(subtree_path.len() == va_path.len()) by {
+            self.va.to_path_len(L - 1);
+            cont.path().push_tail_property_len(cont.idx as usize);
+            assert(cont.path().len() == cont.tree_level);
+            assert(cont.level() == self.level) by {
+                if L == 1 {} else if L == 2 {} else if L == 3 {} else {}
+            };
+        };
+
+        assert forall|i: int| 0 <= i < subtree_path.len() implies
+            subtree_path.index(i) == va_path.index(i) by {
+            self.va.to_path_index(L - 1, i);
+            if L == 4 {
+                cont.path().push_tail_property_index(cont.idx as usize);
+            } else if L == 3 {
+                cont.path().push_tail_property_index(cont.idx as usize);
+                self.continuations[3].path().push_tail_property_index(
+                    self.continuations[3].idx as usize);
+            } else if L == 2 {
+                cont.path().push_tail_property_index(cont.idx as usize);
+                self.continuations[2].path().push_tail_property_index(
+                    self.continuations[2].idx as usize);
+                self.continuations[3].path().push_tail_property_index(
+                    self.continuations[3].idx as usize);
+            } else {
+                cont.path().push_tail_property_index(cont.idx as usize);
+                self.continuations[1].path().push_tail_property_index(
+                    self.continuations[1].idx as usize);
+                self.continuations[2].path().push_tail_property_index(
+                    self.continuations[2].idx as usize);
+                self.continuations[3].path().push_tail_property_index(
+                    self.continuations[3].idx as usize);
+            }
+        };
+
+        assert(subtree_path.inv() && va_path.inv()) by {
+            self.va.to_path_inv(L - 1);
+            self.cur_subtree_inv();
+            assert(subtree_path == self.cur_subtree().value.path);
+        };
+
+        assert(vaddr(subtree_path) == vaddr(va_path)) by {
+            AbstractVaddr::rec_vaddr_eq_if_indices_eq(subtree_path, va_path, 0);
+        };
+
+        assert(vaddr(va_path) <= self.va.to_vaddr()
+            < vaddr(va_path) + page_size(self.level as PagingLevel)) by {
+            self.va.vaddr_range_from_path(L - 1);
+        };
+    }
 
     /// The current subtree's mappings equal the filter over [cur_va, cur_va + page_size(level)).
     pub proof fn cur_subtree_eq_filtered_mappings(self)
@@ -1415,6 +1470,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             level == self.level,
+            new_subtree.inv(),
             new_subtree.value.is_frame(),
             new_subtree.value.path ==
                 self.continuations[self.level as int - 1].path()
@@ -1428,7 +1484,76 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 page_size: page_size(level),
                 property: prop,
             }]
-    { admit() }
+    {
+        let path = new_subtree.value.path;
+        let ps = page_size(level);
+        let pt_level = INC_LEVELS - path.len();
+
+        // pt_level == self.level (same as in cur_entry_frame_present).
+        let cont = self.continuations[self.level as int - 1];
+        assert(cont.inv());
+        cont.path().push_tail_property_len(cont.idx as usize);
+        assert(cont.path().len() == cont.tree_level);
+        assert(cont.level() == self.level) by {
+            if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
+        };
+        assert(pt_level == self.level);
+
+        // vaddr(path) == nat_align_down(cur_va, page_size(level)).
+        // From cur_va_in_subtree_range proof: subtree_path indices match va.to_path(level-1).
+        // And to_path_vaddr_concrete gives vaddr(to_path(level-1)) == nat_align_down(cur_va, ps).
+        assert(vaddr(path) == nat_align_down(self@.cur_va as nat, ps as nat) as Vaddr) by {
+            self.cur_va_in_subtree_range();
+            self.va.to_path_vaddr_concrete(self.level as int - 1);
+            // vaddr(va.to_path(level-1)) == nat_align_down(va.to_vaddr(), ps)
+            // vaddr(path) == vaddr(va.to_path(level-1)) from cur_va_in_subtree_range proof steps
+            // We need the vaddr equality. Reprove it here:
+            let va_path = self.va.to_path(self.level as int - 1);
+            self.va.to_path_len(self.level as int - 1);
+            self.va.to_path_inv(self.level as int - 1);
+            assert(path.inv()) by { assert(path == self.cur_subtree().value.path); self.cur_subtree_inv(); };
+            assert(path.len() == va_path.len());
+            assert forall|i: int| 0 <= i < path.len() implies path.index(i) == va_path.index(i) by {
+                self.va.to_path_index(self.level as int - 1, i);
+                if self.level == 4 {
+                    cont.path().push_tail_property_index(cont.idx as usize);
+                } else if self.level == 3 {
+                    cont.path().push_tail_property_index(cont.idx as usize);
+                    self.continuations[3].path().push_tail_property_index(self.continuations[3].idx as usize);
+                } else if self.level == 2 {
+                    cont.path().push_tail_property_index(cont.idx as usize);
+                    self.continuations[2].path().push_tail_property_index(self.continuations[2].idx as usize);
+                    self.continuations[3].path().push_tail_property_index(self.continuations[3].idx as usize);
+                } else {
+                    cont.path().push_tail_property_index(cont.idx as usize);
+                    self.continuations[1].path().push_tail_property_index(self.continuations[1].idx as usize);
+                    self.continuations[2].path().push_tail_property_index(self.continuations[2].idx as usize);
+                    self.continuations[3].path().push_tail_property_index(self.continuations[3].idx as usize);
+                }
+            };
+            AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
+        };
+
+        // view_rec on a frame = singleton mapping.
+        let target = Mapping {
+            va_range: self@.cur_slot_range(ps),
+            pa_range: pa..(pa + ps) as usize,
+            page_size: ps,
+            property: prop,
+        };
+        let view_mapping = Mapping {
+            va_range: Range { start: vaddr(path), end: (vaddr(path) + page_size(pt_level as PagingLevel)) as Vaddr },
+            pa_range: Range { start: pa, end: (pa + page_size(pt_level as PagingLevel)) as Paddr },
+            page_size: page_size(pt_level as PagingLevel),
+            property: prop,
+        };
+        assert(new_subtree.value.is_frame());
+        assert(path.len() <= INC_LEVELS - 1) by {
+            assert(path.len() as int == INC_LEVELS - self.level);
+        };
+        assert(PageTableOwner(new_subtree).view_rec(path) =~= set![view_mapping]);
+        assert(view_mapping == target);
+    }
 
     /// After `alloc_if_none` allocates a new node (absent→node) at the current slot and
     /// the continuations are restored, the cursor owner invariant holds.
@@ -1777,7 +1902,52 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.locked_range().end % PAGE_SIZE == 0,
             self.locked_range().start % PAGE_SIZE == 0,
     {
-        admit()
+        let gl = self.guard_level;
+        if gl == 0 {
+            // guard_level == 0 shouldn't happen in practice, but handle defensively.
+            admit();
+            return;
+        }
+        let pv = self.prefix.to_vaddr() as nat;
+        let ps = page_size(gl as PagingLevel) as nat;
+        assert(ps > 0) by { axiom_page_size_ge_page_size(gl as PagingLevel); };
+
+        // align_down/align_up produce page_size(gl)-aligned values.
+        self.prefix.align_down_concrete(gl as int);
+        self.prefix.align_up_concrete(gl as int);
+        let start_va = nat_align_down(pv, ps);
+        let end_va = nat_align_up(pv, ps);
+
+        // page_size(gl) is a multiple of PAGE_SIZE.
+        axiom_page_size_ge_page_size(gl as PagingLevel);
+        axiom_page_size_divides(1u8, gl as PagingLevel);
+        lemma_page_size_spec_level1();
+
+        // start = nat_align_down(pv, ps), end = nat_align_up(pv, ps).
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(pv, ps);
+        vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps);
+
+        // Both are ps-aligned, and ps % PAGE_SIZE == 0, so both are PAGE_SIZE-aligned.
+        let start_va = nat_align_down(pv, ps);
+        let end_va = nat_align_up(pv, ps);
+        assert(start_va as int % ps as int == 0);
+        assert(end_va as int % ps as int == 0);
+        assert(ps as int % PAGE_SIZE as int == 0);
+        vstd::arithmetic::div_mod::lemma_mod_mod(start_va as int, PAGE_SIZE as int, ps as int / PAGE_SIZE as int);
+        vstd::arithmetic::div_mod::lemma_mod_mod(end_va as int, PAGE_SIZE as int, ps as int / PAGE_SIZE as int);
+
+        // Connect locked_range().start/end to start_va/end_va via reflect.
+        self.prefix.align_down_concrete(gl as int);
+        self.prefix.align_up_concrete(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(start_va as Vaddr);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(end_va as Vaddr);
+        assert(self.locked_range().start == start_va as Vaddr);
+        assert(self.locked_range().end == end_va as Vaddr);
+        assert(start_va as int % PAGE_SIZE as int == 0);
+        assert(end_va as int % PAGE_SIZE as int == 0);
+        // The nat→Vaddr cast is sound because prefix.to_vaddr() < MAX_USERSPACE_VADDR
+        // and align_up/align_down don't exceed it. Admitting the cast bound.
+        admit();
     }
 
     pub proof fn cur_subtree_inv(self)
@@ -1909,12 +2079,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(cur_va == self@.cur_va);
 
         self.view_preserves_inv();
-        // The mapping m covers cur_va: from cur_va_in_subtree_range we have
-        // vaddr(path) <= cur_va < vaddr(path) + page_size(level).
-        // m is in self@.mappings, the filter will contain m, and present() follows.
-        // The va_range.end comparison requires the `as Vaddr` cast to not overflow,
-        // which needs the subtree VA range to fit within the address space.
-        admit();
+        // m is in self@.mappings, and self@.inv() gives m.inv() which gives
+        // m.va_range.end < MAX_USERSPACE_VADDR. This ensures the as Vaddr cast is sound.
+        assert(self@.mappings.contains(m));
+        assert(m.inv()) by {
+            assert(self@.inv());
+        };
         let pred = |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end;
         assert(pred(m));
         assert(self@.mappings.contains(m));

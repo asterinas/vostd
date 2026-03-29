@@ -584,6 +584,7 @@ impl AbstractVaddr {
             assert(aligned.compute_vaddr() == aligned.rec_compute_vaddr(0));
             assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
                 + aligned.rec_compute_vaddr(1)) as Vaddr);
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else if level == 2 {
             let aligned = self.align_down(3);
             self.align_down_shape(3);
@@ -608,6 +609,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else if level == 1 {
             let aligned = self.align_down(2);
             self.align_down_shape(2);
@@ -642,6 +644,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else {
             let aligned = self.align_down(1);
             self.align_down_shape(1);
@@ -691,6 +694,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
                     + aligned.rec_compute_vaddr(1)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr());
         }
     }
 
