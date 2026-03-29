@@ -243,7 +243,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(page_size_spec(2) == (4096 * pow2(9)) as usize);
             assert(page_size_spec(2) == 2097152);
             assert(pa % page_size(2) == 0);
-            crate::specs::mm::page_table::cursor::page_size_lemmas::axiom_page_size_divides(1, 2);
+            crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_divides(1, 2);
             assert(child_pa % page_size(1) == 0);
             assert(child_pa + page_size(1) <= MAX_PADDR) by {
                 assert(idx < 512);
