@@ -141,7 +141,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.parent_level == parent_level,
             res.path.inv(),
             res.in_scope,
-            res.inv(),
+            res.inv_base(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
@@ -485,6 +485,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& !self.absent
         }
         &&& self.path.inv()
+    }
+
+    pub open spec fn set_in_scope(self, in_scope: bool) -> Self {
+        EntryOwner { in_scope, ..self }
     }
 }
 

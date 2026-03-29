@@ -19,7 +19,7 @@ use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_table::*;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{nr_subpage_per_huge, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::{MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::arch::mm::{MAX_PADDR, MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
@@ -540,16 +540,22 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         requires
             self.inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
+            paddr % PAGE_SIZE == 0,
+            paddr < MAX_PADDR,
+            paddr % page_size(self.level()) == 0,
+            paddr + page_size(self.level()) <= MAX_PADDR,
+            self.path().push_tail(self.idx as usize).inv(),
         ensures
             regions.slot_owners == old(regions).slot_owners,
             regions.slots == old(regions).slots.remove(frame_to_index(paddr)),
-            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, old(regions).slots[frame_to_index(paddr)]),
+            res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, old(regions).slots[frame_to_index(paddr)]).set_in_scope(false),
             res.inv(),
             res.level == self.tree_level + 1,
             res == OwnerSubtree::new_val(res.value, res.level as nat),
     {
         let tracked slot_perm = regions.slots.tracked_remove(frame_to_index(paddr));
-        let tracked owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, slot_perm);
+        let tracked mut owner = EntryOwner::<C>::new_frame(paddr, self.path().push_tail(self.idx as usize), self.level(), prop, slot_perm);
+        owner.in_scope = false;
         OwnerSubtree::new_val_tracked(owner, self.tree_level + 1)
     }
 

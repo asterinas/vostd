@@ -159,6 +159,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             1 <= res.1 <= NR_LEVELS,
             res == Self::item_into_raw_spec(item),
+            res.0 % crate::specs::arch::mm::PAGE_SIZE == 0,
+            res.0 < crate::specs::arch::mm::MAX_PADDR,
+            res.0 % crate::mm::page_table::cursor::page_size(res.1) == 0,
+            res.0 + crate::mm::page_table::cursor::page_size(res.1) <= crate::specs::arch::mm::MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
