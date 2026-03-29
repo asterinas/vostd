@@ -1,5 +1,5 @@
-use vstd::prelude::*;
 use vstd::arithmetic::power2::pow2;
+use vstd::prelude::*;
 
 use vstd::seq_lib::*;
 
@@ -12,17 +12,19 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{lemma_page_size_divides, lemma_page_size_ge_page_size};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{
+    lemma_page_size_divides, lemma_page_size_ge_page_size,
+};
 
 use core::marker::PhantomData;
 use core::ops::Range;
 
+use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{nr_subpage_per_huge, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
 use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
-use crate::mm::frame::meta::mapping::frame_to_index;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::*;
@@ -252,7 +254,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn inv_children(self) -> bool {
         self.children.all(
-            |child: Option<OwnerSubtree<C>>| 
+            |child: Option<OwnerSubtree<C>>|
             child is Some ==> child.unwrap().inv()
         )
     }
@@ -1674,27 +1676,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             property: prop,
         };
 
-        assert(cont.level() == self.level);
-        assert(cur_subtree.level == cont.tree_level + 1);
-        assert(cont.tree_level == INC_LEVELS - cont.level() - 1);
-        assert(cur_subtree.level == INC_LEVELS - self.level);
-        assert(path.len() == cur_subtree.level);
-        assert(INC_LEVELS - path.len() == self.level);
-        assert(size == page_size(self.level as PagingLevel));
         lemma_page_size_ge_page_size(self.level as PagingLevel);
-        assert(size > 0);
-
-        assert(PageTableOwner(cur_subtree).view_rec(path).contains(m));
-        assert(cont.view_mappings().contains(m)) by {
-            assert(0 <= cont.idx < NR_ENTRIES);
-            assert(cont.children[cont.idx as int] is Some);
-            assert(PageTableOwner(cont.children[cont.idx as int].unwrap())
-                .view_rec(cont.path().push_tail(cont.idx as usize)).contains(m));
-        };
-        assert(self.view_mappings().contains(m)) by {
-            assert(self.level - 1 <= self.level - 1 < NR_LEVELS);
-            assert(self.continuations[self.level - 1].view_mappings().contains(m));
-        };
 
         assert forall|i: int| 0 <= i < path.len() implies #[trigger] path.index(i)
             == self.va.index[NR_LEVELS - 1 - i] by {
@@ -1728,42 +1710,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 size as nat,
             ) as Vaddr,
         );
-        assert(vaddr(path) == nat_align_down(self.va.to_vaddr() as nat, size as nat) as usize);
         lemma_nat_align_down_sound(
             self.va.to_vaddr() as nat,
             size as nat,
         );
-        assert(m.va_range.start == nat_align_down(self.va.to_vaddr() as nat, size as nat) as usize);
         assert(m.inv());
-        assert(self@.cur_va == self.va.to_vaddr());
-        assert((self.va.to_vaddr() as nat) - nat_align_down(self.va.to_vaddr() as nat, size as nat) < size as nat);
-        assert((self.va.to_vaddr() as nat) < nat_align_down(self.va.to_vaddr() as nat, size as nat) + size as nat);
-        assert(m.va_range.end == m.va_range.start + m.page_size);
-        assert(m.va_range.start <= self@.cur_va < m.va_range.end);
 
         let filtered = self@.mappings.filter(
             |m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
         assert(filtered.contains(m));
-        assert(filtered.finite()) by {
-            vstd::set::axiom_set_intersect_finite::<Mapping>(
-                self@.mappings,
-                Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end),
-            );
-        };
         vstd::set::axiom_set_contains_len(filtered, m);
-        assert(filtered.len() > 0);
 
         let q = self@.query_mapping();
-        assert(self@.mappings.contains(q) && q.va_range.start <= self@.cur_va < q.va_range.end) by {
-            vstd::set::axiom_set_choose_len(filtered);
-        };
         if q != m {
-            assert(q.va_range.end <= m.va_range.start || m.va_range.end <= q.va_range.start);
-            assert(false);
         }
-        assert(q.pa_range.start == pa);
-        assert(q.page_size == size);
-        assert(q.property == prop);
     }
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
@@ -2114,11 +2074,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ps_gl1 = page_size_spec((gl + 1) as PagingLevel) as nat;
         let pv = self.prefix.to_vaddr() as nat;
         let cv = self.va.to_vaddr() as nat;
-        assert(gl >= 1);
         lemma_page_size_ge_page_size(gl as PagingLevel);
         lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
-        assert(ps_gl > 0);
-        assert(ps_gl1 > 0);
         lemma_nat_align_down_sound(pv, ps_gl);
         lemma_nat_align_up_sound(pv, ps_gl);
         lemma_nat_align_down_sound(cv, ps_gl1);
@@ -2136,14 +2093,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
             nat_align_up(pv, ps_gl) as Vaddr);
         self.prefix.align_diff(gl as int);
-        assert(self.locked_range().start == nat_align_down(pv, ps_gl) as Vaddr);
-        assert(self.locked_range().end == nat_align_up(pv, ps_gl) as Vaddr);
         // Now: locked_range().start == nat_align_down(pv, ps_gl)
         //      locked_range().end   == nat_align_up(pv, ps_gl) == start + ps_gl
 
         if gl < NR_LEVELS {
             // va and prefix share indices >= guard_level => same align_down at gl+1
-            assert(forall|i: int| gl <= i < NR_LEVELS ==> self.va.index[i] == self.prefix.index[i]);
             self.va.align_down_to_vaddr_eq_if_upper_indices_eq(
                 self.prefix, (gl + 1) as int);
             self.va.align_down_concrete((gl + 1) as int);
@@ -2152,85 +2106,36 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.prefix.align_down_concrete((gl + 1) as int);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
                 nat_align_down(pv, ps_gl1) as Vaddr);
-            assert(self.va.align_down((gl + 1) as int).to_vaddr() == nat_align_down(cv, ps_gl1) as Vaddr);
-            assert(self.prefix.align_down((gl + 1) as int).to_vaddr() == nat_align_down(pv, ps_gl1) as Vaddr);
-            assert((nat_align_down(cv, ps_gl1) as Vaddr) == (nat_align_down(pv, ps_gl1) as Vaddr));
-            assert(node_start == nat_align_down(pv, ps_gl1) as Vaddr);
             // node_start == nat_align_down(cv, ps_gl1) == nat_align_down(pv, ps_gl1)
 
             // Monotonicity: coarser alignment <= finer alignment = lr_start
             lemma_nat_align_down_monotone(pv, ps_gl, ps_gl1);
-            assert(node_start <= self.locked_range().start);
-            assert(node_start <= va);
 
             // Within-block: finer-aligned block fits inside coarser block
             lemma_nat_align_down_within_block(pv, ps_gl, ps_gl1);
-            assert(self.locked_range().end == nat_align_down(pv, ps_gl) + ps_gl);
-            assert(self.locked_range().end <= nat_align_down(pv, ps_gl1) + ps_gl1);
-            assert(va < self.locked_range().end);
-            assert(va < node_start + page_size((self.level + 1) as PagingLevel));
             // => nat_align_down(pv, ps_gl) + ps_gl <= nat_align_down(pv, ps_gl1) + ps_gl1
             // i.e., locked_range().end <= node_start + ps_gl1
             // => va < locked_range().end <= node_start + page_size(gl+1)
         } else {
             // guard_level == NR_LEVELS: ps_gl1 covers the entire VA space.
-            assert(gl == NR_LEVELS);
-            assert(NR_LEVELS == 4) by (compute_only);
-            assert(gl == 4);
             crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             vstd::arithmetic::power2::lemma2_to64();
             vstd::arithmetic::power2::lemma2_to64_rest();
-            assert(PAGE_SIZE == 4096);
-            assert(nr_subpage_per_huge::<PagingConsts>() == 512usize);
-            assert(512usize.ilog2() == 9);
-            assert(nr_subpage_per_huge::<PagingConsts>().ilog2() == 9);
-            assert(page_size_spec(5) == (PAGE_SIZE * pow2((512usize.ilog2() * 4usize) as nat)) as usize);
-            assert(page_size_spec(5) == (4096 * pow2(36nat)) as usize);
-            assert(page_size_spec(5) == (pow2(12nat) * pow2(36nat)) as usize) by {
-                assert(pow2(12nat) == 4096);
-            };
             assert(page_size_spec(5) == pow2(48nat) as usize) by {
                 vstd::arithmetic::power2::lemma_pow2_adds(12nat, 36nat);
             };
-            assert(page_size(5) == page_size_spec(5));
-            assert(ps_gl1 == page_size(5) as nat);
             self.va.to_vaddr_bounded();
             self.va.to_vaddr_indices_gap_bound(0);
-            assert(cv < ps_gl1) by {
-                assert(self.va.to_vaddr() as int == self.va.offset + self.va.to_vaddr_indices(0));
-                assert(0 <= self.va.offset + self.va.to_vaddr_indices(0) < usize::MAX);
-                assert(self.va.to_vaddr_indices(0) + pow2((12 + 9 * 0) as nat) as int <= pow2((12 + 9 * NR_LEVELS) as nat) as int);
-                assert(pow2((12 + 9 * NR_LEVELS) as nat) == pow2(48nat)) by (compute_only);
-                assert(page_size_spec(5) as int == pow2(48nat) as int);
-            };
             assert(node_start == 0) by {
                 if nat_align_down(cv, ps_gl1) != 0 {
-                    assert(nat_align_down(cv, ps_gl1) < ps_gl1);
                     vstd::arithmetic::div_mod::lemma_small_mod(
                         nat_align_down(cv, ps_gl1),
                         ps_gl1,
                     );
-                    assert(nat_align_down(cv, ps_gl1) % ps_gl1 == nat_align_down(cv, ps_gl1));
-                    assert(nat_align_down(cv, ps_gl1) % ps_gl1 == 0);
-                    assert(false);
                 }
             };
-            assert(0 <= va);
-            assert(node_start <= va);
-            assert(self.locked_range().end == nat_align_up(pv, ps_gl) as Vaddr);
             self.prefix.to_vaddr_indices_gap_bound(0);
-            assert(pv < ps_gl1) by {
-                self.prefix.to_vaddr_bounded();
-                assert(self.prefix.to_vaddr() as int == self.prefix.offset + self.prefix.to_vaddr_indices(0));
-                assert(0 <= self.prefix.offset + self.prefix.to_vaddr_indices(0) < usize::MAX);
-                assert(self.prefix.to_vaddr_indices(0) + pow2((12 + 9 * 0) as nat) as int <= pow2((12 + 9 * NR_LEVELS) as nat) as int);
-                assert(pow2((12 + 9 * NR_LEVELS) as nat) == pow2(48nat)) by (compute_only);
-                assert(page_size_spec(5) as int == pow2(48nat) as int);
-            };
-            assert(self.locked_range().end <= ps_gl1);
-            assert(va < self.locked_range().end);
-            assert(va < node_start + page_size((self.level + 1) as PagingLevel));
         }
     }
 
