@@ -1,7 +1,7 @@
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
-
 use vstd::seq_lib::*;
+use vstd::set::{axiom_set_choose_len, axiom_set_contains_len, axiom_set_intersect_finite};
 
 use vstd_extra::arithmetic::{
     lemma_nat_align_down_monotone, lemma_nat_align_down_sound, lemma_nat_align_down_within_block,
@@ -10,19 +10,20 @@ use vstd_extra::arithmetic::{
 use vstd_extra::drop_tracking::*;
 use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
-
-use crate::mm::page_table::*;
-use crate::specs::mm::page_table::cursor::page_size_lemmas::{axiom_page_size_divides, axiom_page_size_ge_page_size, lemma_page_size_spec_level1};
+use vstd_extra::seq_extra::{forall_seq, lemma_forall_seq_index};
 
 use core::marker::PhantomData;
 use core::ops::Range;
 
 use crate::mm::frame::meta::mapping::frame_to_index;
+use crate::mm::page_table::*;
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{nr_subpage_per_huge, Paddr, PagingConstsTrait, PagingLevel, Vaddr};
-use crate::specs::arch::mm::MAX_USERSPACE_VADDR;
-use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
-use crate::specs::mm::frame::meta_owners::REF_COUNT_MAX;
+use crate::specs::arch::mm::{MAX_USERSPACE_VADDR, NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
+use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{
+    lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_level1,
+};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::node::GuardPerm;
@@ -301,7 +302,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 
     pub open spec fn inv_children_rel(self) -> bool {
-        vstd_extra::seq_extra::forall_seq(self.children, self.inv_children_rel_pred())
+        forall_seq(self.children, self.inv_children_rel_pred())
     }
 
     pub proof fn inv_children_rel_unroll(self, i: int)
@@ -316,7 +317,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value)),
             self.children[i].unwrap().value.path == self.path().push_tail(i as usize),
     {
-        vstd_extra::seq_extra::lemma_forall_seq_index(
+        lemma_forall_seq_index(
             self.children, self.inv_children_rel_pred(), i);
     }
 
@@ -1331,9 +1332,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(qm),
     {
         let f = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
+        axiom_set_intersect_finite::<Mapping>(
             self@.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end));
-        vstd::set::axiom_set_choose_len(f);
+        axiom_set_choose_len(f);
         self.mapping_covering_cur_va_from_cur_subtree(qm);
     }
 
@@ -1769,11 +1770,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
         let pv = self.prefix.to_vaddr() as nat;
         let ps = page_size(gl as PagingLevel) as nat;
-        axiom_page_size_ge_page_size(gl as PagingLevel);
-        axiom_page_size_divides(1u8, gl as PagingLevel);
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        lemma_page_size_divides(1u8, gl as PagingLevel);
         lemma_page_size_spec_level1();
-        vstd_extra::arithmetic::lemma_nat_align_down_sound(pv, ps);
-        vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps);
+        lemma_nat_align_down_sound(pv, ps);
+        lemma_nat_align_up_sound(pv, ps);
         let start_va = nat_align_down(pv, ps);
         let end_va = nat_align_up(pv, ps);
         vstd::arithmetic::div_mod::lemma_mod_mod(start_va as int, PAGE_SIZE as int, ps as int / PAGE_SIZE as int);
@@ -1889,9 +1890,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(m.inv());
 
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
-        vstd::set::axiom_set_intersect_finite::<Mapping>(
+        axiom_set_intersect_finite::<Mapping>(
             self@.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end));
-        vstd::set::axiom_set_contains_len(filtered, m);
+        axiom_set_contains_len(filtered, m);
     }
 
     pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
@@ -2059,7 +2060,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             regions1.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
             regions1.slot_owners[idx].inner_perms.ref_count.value()
-                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                != REF_COUNT_UNUSED,
             forall |i: usize| #![trigger regions1.slot_owners[i]]
                 i != idx && regions0.slot_owners.contains_key(i) ==>
                 regions1.slot_owners[i] == regions0.slot_owners[i],
@@ -2378,7 +2379,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         lemma_nat_align_up_sound(pv, ps_gl);
         lemma_nat_align_down_sound(cv, ps_gl1);
 
-        axiom_page_size_divides(gl as PagingLevel, (gl + 1) as PagingLevel);
+        lemma_page_size_divides(gl as PagingLevel, (gl + 1) as PagingLevel);
         self.prefix.align_down_concrete(gl as int);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps_gl) as Vaddr);
         self.prefix.align_up_concrete(gl as int);
@@ -2391,8 +2392,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cv, ps_gl1) as Vaddr);
             self.prefix.align_down_concrete((gl + 1) as int);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(pv, ps_gl1) as Vaddr);
-            axiom_page_size_ge_page_size(gl as PagingLevel);
-            axiom_page_size_ge_page_size((gl + 1) as PagingLevel);
+            lemma_page_size_ge_page_size(gl as PagingLevel);
+            lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
             lemma_nat_align_down_monotone(pv, ps_gl, ps_gl1);
             lemma_nat_align_down_within_block(pv, ps_gl, ps_gl1);
         } else {
