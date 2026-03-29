@@ -698,7 +698,7 @@ impl KVirtArea {
                         page_size(level_raw) as nat,
                     );
                     
-                    axiom_page_size_ge_page_size(level_raw);
+                    lemma_page_size_ge_page_size(level_raw);
 
                     vstd_extra::arithmetic::lemma_nat_align_up_sound(
                         old_cursor_owner_va.to_vaddr() as nat,
@@ -716,7 +716,7 @@ impl KVirtArea {
                         let next_level = it.elements[pos@ + 1].1;
                         sum_page_sizes_extend_right(it.elements, 0, pos@ + 1);
                         sum_page_sizes_mono(it.elements, 0, pos@ + 2, it.elements.len() as int);
-                        axiom_page_size_ge_page_size(next_level);
+                        lemma_page_size_ge_page_size(next_level);
                     }
                 }
             }

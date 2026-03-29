@@ -2211,7 +2211,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.map_branch_pt(pt, rcu_guard);
 
                     proof {
-                        axiom_page_size_monotone(self.inner.level, level_pre_pt);
+                        lemma_page_size_monotone(self.inner.level, level_pre_pt);
                         owner0@.split_while_huge_compose(page_size(level_pre_pt), page_size(self.inner.level));
                         owner_pre_pt.split_while_huge_node_noop();
                         assert(child_entry_val == owner1.cur_entry_owner());
@@ -2228,7 +2228,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.map_branch_none(&mut cur_entry, rcu_guard);
 
                     proof {
-                        axiom_page_size_monotone(self.inner.level, level_pre_none);
+                        lemma_page_size_monotone(self.inner.level, level_pre_none);
                         owner0@.split_while_huge_compose(page_size(level_pre_none), page_size(self.inner.level));
                         owner_pre_none.split_while_huge_absent_noop(page_size(self.inner.level));
                         assert(owner@ == owner0@.split_while_huge(page_size(self.inner.level)));
@@ -2364,6 +2364,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.map_cursor_requires(*owner, *guards),
             (C::item_into_raw(item).1 <= old(self).inner.level
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),
+            res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw(item).1 > 1,
             // For non-UNUSED indices other than the mapped frame, path_if_in_pt is preserved.
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
                 idx != frame_to_index(C::item_into_raw(item).0) &&
@@ -2433,12 +2434,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // Therefore slot_owners[frame_to_index(pa)].path_if_in_pt is None.
             let ghost pa_idx = frame_to_index(pa);
             // Size is positive so pa is strictly below pa+size.
-            axiom_page_size_ge_page_size(level);
+            lemma_page_size_ge_page_size(level);
             assert(regions_before_new_child.slot_owners[pa_idx].path_if_in_pt is None) by {
                 assert(Self::item_slot_in_regions(item, *old(regions)));
                 assert(regions_before_new_child.slot_owners[pa_idx] == old(regions).slot_owners[pa_idx]);
                 assert(Self::item_not_mapped(item, *old(regions)));
-                axiom_pa_plus_page_size_no_overflow(pa, level);
+                lemma_pa_plus_page_size_no_overflow(pa, level);
                 let ghost range = pa..(pa + size) as usize;
                 old(regions).paddr_not_mapped_at(range, pa);
             };
@@ -2539,6 +2540,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
 
         if let Some(frag) = frag {
+            proof {
+                if frag is StrayPageTable {
+                    assert(owner1.cur_entry_owner().is_node());
+                    owner1.cur_entry_node_implies_level_gt_1();
+                    assert(level == owner1.level);
+                    assert(level > 1);
+                }
+            }
             Err(frag)
         } else {
             Ok(())
@@ -3353,4 +3362,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
-

@@ -672,6 +672,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         let pa = self.pte.paddr();
         let prop = self.pte.prop();
 
+        proof {
+            EntryOwner::last_pte_implies_frame_match(owner.value, self.pte, level);
+        }
+
         proof_decl!{
             let tracked mut new_owner: OwnerSubtree<C>;
         }
@@ -681,9 +685,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         #[verus_spec(with Tracked(&new_owner.value.node.tracked_borrow().meta_perm.points_to))]
         let paddr = new_page.start_paddr();
-
-        // This is a fudge because the `new_page` should be wrapped in an `RcuDrop` similar to a `NeverDrop`
-        assert(regions.slot_owners[frame_to_index(paddr)].raw_count == 1) by { admit() };
 
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
@@ -708,6 +709,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             invariant
                 1 < level < NR_LEVELS,
                 owner.inv(),
+                owner.value.is_frame(),
+                owner.value.parent_level == level,
+                owner.value.frame.unwrap().mapped_pa == pa,
+                owner.value.frame.unwrap().prop == prop,
+                pa % page_size(level) == 0,
+                pa + page_size(level) <= MAX_PADDR,
                 regions.inv(),
                 parent_owner.inv(),
                 new_owner.value.is_node(),
@@ -764,12 +771,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 let ghost old_children_perm = new_owner_node.children_perm;
             }
 
-            assert(pa + i * page_size((level - 1) as u8) < MAX_PADDR) by { admit() };
+            proof {
+                EntryOwner::huge_frame_split_child_at(owner.value, *regions, i as usize);
+            }
+
             let small_pa = pa + i * page_size(level - 1);
 
-            assert(small_pa % PAGE_SIZE == 0) by { admit() };
+            assert(small_pa % PAGE_SIZE == 0);
 
-            let tracked split_slot_perm = EntryOwner::<C>::placeholder_slot_perm(small_pa);
+            let tracked split_slot_perm = EntryOwner::<C>::placeholder_slot_perm(small_pa, regions);
             let tracked child_owner = EntryOwner::new_frame(
                 small_pa,
                 new_owner.value.path.push_tail(i as usize),
@@ -795,7 +805,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 ));
 
                 let idx = frame_to_index(small_pa);
-                assert(regions.slot_owners[idx].path_if_in_pt is None) by { admit() };
+                assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                assert(regions.slot_owners[idx].path_if_in_pt is None);
 
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, new_guard_perm)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
@@ -809,7 +820,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 };
 
                 assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
-                    .invariants(child_owner, *regions)) by { admit() };
+                    .invariants(child_owner, *regions));
             }
 
             #[verus_spec(with Tracked(regions),
