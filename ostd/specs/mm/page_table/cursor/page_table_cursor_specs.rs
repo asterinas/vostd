@@ -406,7 +406,6 @@ impl<C: PageTableConfig> CursorView<C> {
             if m.page_size > size {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
-
                 assert(new_self.inv()) by { admit() }; // split_if_mapped_huge_spec preserves inv
                 // Decreases: new_self.query_mapping().page_size < m.page_size
                 let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
@@ -445,7 +444,6 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    ///
     pub open spec fn map_simple(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let new = Mapping {
             va_range: self.cur_slot_range(size),

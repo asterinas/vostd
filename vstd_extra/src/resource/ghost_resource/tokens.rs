@@ -442,12 +442,12 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
     }
 
     /// Consumes the token and takes out the resource.
-    pub proof fn take_resource(tracked self) -> (tracked res: (T, Empty<T, TOTAL>))
+    pub proof fn take_resource(tracked self) -> (tracked (res, empty): (T, Empty<T, TOTAL>))
         requires
             self.is_full(),
         ensures
-            res.0 == self@,
-            res.1.id() == self.id(),
+            res == self@,
+            empty.id() == self.id(),
     {
         use_type_invariant(&self);
         let tracked r = self.r.tracked_unwrap();

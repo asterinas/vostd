@@ -31,7 +31,8 @@ impl<const N: usize> TreePath<N> {
     }
 
     pub open spec fn inv(self) -> bool {
-        forall|i: int| 0 <= i < self.len() ==> Self::elem_inv(#[trigger] self.index(i))
+        &&& N > 0
+        &&& forall|i: int| 0 <= i < self.len() ==> Self::elem_inv(#[trigger] self.index(i))
     }
 
     pub broadcast proof fn inv_property(self)
@@ -57,6 +58,7 @@ impl<const N: usize> TreePath<N> {
 
     pub broadcast proof fn empty_satisfies_inv(self)
         requires
+            N > 0,
             #[trigger] self.is_empty(),
         ensures
             #[trigger] self.inv(),
@@ -317,6 +319,7 @@ impl<const N: usize> TreePath<N> {
 
     pub broadcast proof fn new_preserves_inv(path: Seq<usize>)
         requires
+            N > 0,
             forall|i: int| 0 <= i < path.len() ==> Self::elem_inv(#[trigger] path[i]),
         ensures
             #[trigger] Self::new(path).inv(),
@@ -324,6 +327,8 @@ impl<const N: usize> TreePath<N> {
     }
 
     pub broadcast proof fn new_empty_preserves_inv()
+        requires
+            N > 0,
         ensures
             #[trigger] Self::new(Seq::empty()).inv(),
     {
@@ -385,16 +390,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     {
         &self.value
     }
-
-    pub axiom fn axiom_size_positive()
-        ensures
-            Self::size() > 0,
-    ;
-
-    pub axiom fn axiom_max_depth_positive()
-        ensures
-            Self::max_depth() > 0,
-    ;
 
     pub open spec fn tree_predicate_map(
         self,
@@ -569,6 +564,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
     pub open spec fn inv(self) -> bool
         decreases (L - self.level),
     {
+        &&& L > 0
+        &&& N > 0
         &&& self.inv_node()
         &&& self.inv_children()
         &&& if L - self.level == 1 {
@@ -595,10 +592,10 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         Node { value: val, level: lv, children: Seq::new(N as nat, |i| Some(Self::new(lv + 1))) }
     }
 
-    #[verifier::returns(proof)]
-    pub axiom fn new_val_tracked(tracked val: T, tracked lv: nat) -> (res: Self)
+    pub axiom fn new_val_tracked(tracked val: T, lv: nat) -> (tracked res: Self)
         requires
-            lv < L,
+            0 <= lv < L,
+            N > 0,
         ensures
             res.inv(),
         returns
@@ -607,7 +604,8 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
 
     pub broadcast proof fn new_preserves_inv(lv: nat)
         requires
-            lv < L,
+            0 <= lv < L,
+            N > 0,
             forall|i: int| 0 <= i < N ==> #[trigger] T::default(lv).rel_children(i, None),
         ensures
             #[trigger] Self::new(lv).inv(),
@@ -706,17 +704,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         recommends
             0 <= key < Self::size(),
             self.inv(),
-    {
-        self.children[key as int]
-    }
-
-    #[verifier::returns(proof)]
-    #[verifier::external_body]
-    pub proof fn tracked_child(self, key: usize) -> (res: Option<Self>)
-        requires
-            0 <= key < Self::size(),
-        ensures
-            res == self.child(key),
     {
         self.children[key as int]
     }
@@ -1313,7 +1300,6 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         }
     }
 
-    // #[verifier::external_body]
     pub broadcast proof fn lemma_recursive_visit_induction(self, path: TreePath<N>)
         requires
             self.inv(),
@@ -1604,17 +1590,9 @@ pub tracked struct Tree<T: TreeNodeValue<L>, const N: usize, const L: usize> {
 }
 
 impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
-    pub axiom fn axiom_depth_positive()
-        ensures
-            L > 0,
-    ;
-
-    pub axiom fn axiom_size_positive()
-        ensures
-            N > 0,
-    ;
-
     pub open spec fn inv(self) -> bool {
+        &&& L > 0
+        &&& N > 0
         &&& self.root.inv()
         &&& self.root.level == 0
     }
@@ -1625,12 +1603,13 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Tree<T, N, L> {
 
     pub broadcast proof fn new_preserves_inv()
         requires
+            N > 0,
+            L > 0,
             forall|i: int| 0 <= i < N ==> #[trigger] T::default(0).rel_children(i, None),
         ensures
             #[trigger] Self::new().inv(),
     {
         let t = Self::new();
-        Self::axiom_depth_positive();
         Node::<T, N, L>::new_preserves_inv(0);
     }
 

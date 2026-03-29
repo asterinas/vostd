@@ -740,7 +740,9 @@ impl<'a, T, G: SpinGuardian> RwLockReadGuard<'a, T, G> {
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     type Target = T;
 
-    fn deref(&self) -> &T {
+    #[verus_spec(returns self.view())]
+    fn deref(&self) -> &T
+    {
         proof!{
             use_type_invariant(self);
         }
@@ -831,7 +833,9 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for RwLockWriteGuard<'_, T, G
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     type Target = T;
 
-    fn deref(&self) -> &T {
+    #[verus_spec(returns self.view())]
+    fn deref(&self) -> &T
+    {
         proof!{
             use_type_invariant(self);
         }
@@ -1068,7 +1072,9 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
 impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockUpgradeableGuard<'_, T, G> {
     type Target = T;
 
-    fn deref(&self) -> &T {
+    #[verus_spec(returns self.view())]
+    fn deref(&self) -> &T
+    {
         proof!{
             use_type_invariant(self);
         }

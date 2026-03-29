@@ -530,13 +530,13 @@ pub exec fn layout_for_array_is_valid<V: Sized, const N: usize>()
 }
 
 impl<V, const N: usize> ArrayPtr<V, N> {
-    pub exec fn empty() -> (res: (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
+    pub exec fn empty() -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>))
         requires
             layout::size_of::<[V; N]>() > 0,
         ensures
-            res.1@.wf(),
-            res.1@.is_pptr(res.0),
-            res.1@.is_uninit_all(),
+            perm@.wf(),
+            perm@.is_pptr(res),
+            perm@.is_uninit_all(),
     {
         layout_for_array_is_valid::<V, N>();
         let (p, Tracked(raw_perm), Tracked(dealloc)) = raw_ptr::allocate(
@@ -582,14 +582,14 @@ impl<V, const N: usize> ArrayPtr<V, N> {
         ptr_mut_fill(ptr, Tracked(&mut perm.points_to), value);
     }
 
-    pub exec fn new(dft: V) -> (res: (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where V: Copy
+    pub exec fn new(dft: V) -> ((res, perm): (ArrayPtr<V, N>, Tracked<PointsTo<V, N>>)) where V: Copy
         requires
             layout::size_of::<[V; N]>() > 0,
         ensures
-            res.1@.wf(),
-            res.1@.is_pptr(res.0),
+            perm@.wf(),
+            perm@.is_pptr(res),
             forall|i: int|
-                0 <= i < N ==> #[trigger] res.1@.opt_value()[i] == raw_ptr::MemContents::Init(dft),
+                0 <= i < N ==> #[trigger] perm@.opt_value()[i] == raw_ptr::MemContents::Init(dft),
     {
         let (p, Tracked(perm)) = ArrayPtr::empty();
         proof {

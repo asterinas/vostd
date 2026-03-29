@@ -1025,7 +1025,22 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             PageTableOwner(self.cur_subtree())@.mappings ==
                 self@.mappings.filter(|m: Mapping| self@.cur_va <= m.va_range.start < self@.cur_va + page_size(self.level)),
     {
-        admit()
+        let cur_subtree = self.cur_subtree();
+        let cur_path = cur_subtree.value.path;
+        let cur_va = self.cur_va();
+        let size = page_size(self.level);
+
+        let subtree_mappings = PageTableOwner(cur_subtree)@.mappings;
+        let filtered = self@.mappings.filter(|m: Mapping| cur_va <= m.va_range.start < cur_va + size);
+
+        assert forall |m: Mapping| subtree_mappings.contains(m) implies filtered.contains(m) by {
+            admit();
+        };
+        assert forall |m: Mapping| filtered.contains(m) implies subtree_mappings.contains(m) by {
+            admit();
+        };
+
+        assert(subtree_mappings =~= filtered);
     }
 
     /// Subtrees at different indices have disjoint VA ranges.
@@ -1065,7 +1080,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             PageTableOwner(self.cur_subtree()).view_rec(self.cur_subtree().value.path).contains(m),
     {
-        reveal(CursorContinuation::inv_children);
         let cur_va = self.cur_va();
 
         // m comes from some continuation level i
@@ -1276,21 +1290,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.relate_region(new_regions),
     {
         self.cont_entries_relate_region(old_regions);
-        // inv(): old rc in (0, REF_COUNT_MAX), so new rc in (1, REF_COUNT_MAX].
-        // All conditional branches of inv() that depend on rc still hold:
-        // - vtable_ptr.is_init() is preserved (unchanged)
-        // - REF_COUNT_MAX <= new_rc < REF_COUNT_UNIQUE is impossible since new_rc <= REF_COUNT_MAX
-        // - new_rc != REF_COUNT_UNUSED since REF_COUNT_MAX < REF_COUNT_UNIQUE < REF_COUNT_UNUSED
-        // - All other fields (self_addr, raw_count, etc.) unchanged.
-        // wf(): only checks .id() fields which are all preserved by precondition.
         let old_rc = old_regions.slot_owners[idx].inner_perms.ref_count.value();
         let new_rc = new_regions.slot_owners[idx].inner_perms.ref_count.value();
-        assert(0 < old_rc);
-        assert(old_rc + 1 < REF_COUNT_MAX);
-        assert(new_rc == old_rc + 1);
-        assert(0 < new_rc < REF_COUNT_MAX);
-        // The old slot owner was inv, with rc in the normal shared range.
-        // vtable_ptr.is_init() held for old and is unchanged.
         assert(old_regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
         assert(new_regions.slot_owners[idx].inner_perms.vtable_ptr.is_init());
         assert(new_regions.slot_owners[idx].inv());

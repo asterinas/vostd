@@ -53,12 +53,12 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// `1 << Self::ALIGN_BITS`.
     /// VERUS LIMITATION: the #[verus_spec] attribute does not support `with` in trait yet.
     /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
-    fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<SmartPtrPointsTo<Self::Target>>))
+    fn into_raw(self) -> ((ret,perm): (NonNull<Self::Target>, Tracked<SmartPtrPointsTo<Self::Target>>))
         ensures
-            ptr_mut_from_nonnull(ret.0) == self.ptr_mut_spec(),
-            ptr_mut_from_nonnull(ret.0) == ret.1@.ptr(),
-            ret.1@.inv(),
-            Self::match_points_to_type(ret.1@),
+            ptr_mut_from_nonnull(ret) == self.ptr_mut_spec(),
+            ptr_mut_from_nonnull(ret) == perm@.ptr(),
+            perm@.inv(),
+            Self::match_points_to_type(perm@),
     ;
 
     /// Converts back from a raw pointer.
@@ -226,16 +226,16 @@ unsafe impl<T: 'static> NonNullPtr for Box<T> {
     }
 }
 
-pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> (ret: (
+pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> ((ret,perm): (
     NonNull<T>,
     Tracked<&BoxPointsTo<T>>,
 ))
     ensures
-        ret.0 == nonnull_from_ptr_mut(ptr_ref.ptr()),
-        ret.1@.ptr().addr() != 0,
-        ret.1@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
-        ret.1@.inv(),
+        ret == nonnull_from_ptr_mut(ptr_ref.ptr()),
+        perm@.ptr().addr() != 0,
+        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.ptr() == ptr_mut_from_nonnull(ret),
+        perm@.inv(),
 {
     proof!{
         use_type_invariant(&ptr_ref);
@@ -378,16 +378,16 @@ unsafe impl<T: 'static> NonNullPtr for Arc<T> {
     }
 }
 
-pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> (ret: (
+pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ret,perm): (
     NonNull<T>,
     Tracked<ArcPointsTo<T>>,
 ))
     ensures
-        ret.0 == nonnull_from_ptr_mut(ptr_ref.ptr() as *mut T),
-        ret.1@.ptr().addr() != 0,
-        ret.1@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        ret.1@.ptr() == ptr_mut_from_nonnull(ret.0),
-        ret.1@.inv(),
+        ret == nonnull_from_ptr_mut(ptr_ref.ptr() as *mut T),
+        perm@.ptr().addr() != 0,
+        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        perm@.ptr() == ptr_mut_from_nonnull(ret),
+        perm@.inv(),
 {
     // NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner))
     let (ptr, Tracked(perm)) = NonNullPtr::into_raw(ManuallyDrop::into_inner(ptr_ref.inner));
