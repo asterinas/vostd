@@ -282,7 +282,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.children[i].unwrap().inv()
     {
         let pred = |child: Option<OwnerSubtree<C>>| child is Some ==> child.unwrap().inv();
-        assert forall |i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
+        assert forall |i:int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some implies
             self.children[i].unwrap().inv()
         by {
             self.inv_children_unroll(i)
@@ -1579,7 +1579,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall |m: Mapping| cont.view_mappings().contains(m)
                 implies cont0.view_mappings().contains(m) by {
                 let j = choose|j:int| 0 <= j < cont.children.len()
-                    && cont.children[j] is Some
+                    && #[trigger] cont.children[j] is Some
                     && PageTableOwner(cont.children[j].unwrap())
                         .view_rec(cont.path().push_tail(j as usize)).contains(m);
                 if j != idx { assert(cont.children[j] == cont0.children[j]); }
@@ -1587,7 +1587,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall |m: Mapping| cont0.view_mappings().contains(m)
                 implies cont.view_mappings().contains(m) by {
                 let j = choose|j:int| 0 <= j < cont0.children.len()
-                    && cont0.children[j] is Some
+                    && #[trigger] cont0.children[j] is Some
                     && PageTableOwner(cont0.children[j].unwrap())
                         .view_rec(cont0.path().push_tail(j as usize)).contains(m);
                 if j != idx { assert(cont0.children[j] == cont.children[j]); }
