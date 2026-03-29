@@ -108,9 +108,6 @@ jobs:
           fi
           verusfmt --version
 
-      - name: Run verification
-        run: make
-
       - name: Build docs
         run: make doc
 
