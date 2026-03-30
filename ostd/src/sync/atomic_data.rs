@@ -1,3 +1,5 @@
+use core::ops::Deref;
+
 use vstd::{predicate::Predicate, prelude::*};
 use vstd_extra::ownership::Inv;
 
@@ -45,12 +47,22 @@ verus! {
 /// type Data = AtomicDataWithOwner<MyData, MyDataWithOwner>;
 /// ```
 #[repr(transparent)]
-#[allow(repr_transparent_external_private_fields)]
+#[allow(repr_transparent_non_zst_fields)]
 pub struct AtomicDataWithOwner<V, Own> {
     /// The underlying data.
     pub data: V,
     /// The permission to access the data.
     pub permission: Tracked<Own>,
+}
+
+impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
+    type Target = V;
+
+    #[inline]
+    #[verus_spec(returns self.data)]
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 impl<V, Own> !Copy for AtomicDataWithOwner<V, Own> {

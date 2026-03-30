@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::arithmetic::power2::*;
+use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr;
-use vstd::atomic::PermissionU64;
 use vstd::std_specs::clone::*;
 
 use vstd_extra::prelude::lemma_usize_ilog2_ordered;
@@ -63,9 +63,17 @@ pub enum PageTableError {
 }
 
 pub trait RCClone: Sized {
-    spec fn clone_requires(self, slot_perm: simple_pptr::PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool;
+    spec fn clone_requires(
+        self,
+        slot_perm: simple_pptr::PointsTo<MetaSlot>,
+        rc_perm: PermissionU64,
+    ) -> bool;
 
-    fn clone(&self, Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    fn clone(
+        &self,
+        Tracked(slot_perm): Tracked<&simple_pptr::PointsTo<MetaSlot>>,
+        Tracked(rc_perm): Tracked<&mut PermissionU64>,
+    ) -> (res: Self)
         requires
             self.clone_requires(*slot_perm, *old(rc_perm)),
             old(rc_perm).is_for(slot_perm.value().ref_count),
@@ -583,8 +591,8 @@ pub open spec fn vaddr_range_spec<C: PageTableConfig>() -> Range<Vaddr> {
 #[verifier::inline]
 pub open spec fn is_valid_range_spec<C: PageTableConfig>(r: &Range<Vaddr>) -> bool {
     let va_range = vaddr_range_spec::<C>();
-    (r.start == 0 && r.end == 0)
-        || (va_range.start <= r.start && r.end > 0 && r.end - 1 <= va_range.end - 1)
+    (r.start == 0 && r.end == 0) || (va_range.start <= r.start && r.end > 0 && r.end - 1
+        <= va_range.end - 1)
 }
 
 #[verifier::external_body]
@@ -850,13 +858,13 @@ impl<C: PageTableConfig> PageTable<C> {
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> r is Ok
     )]
-    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>)
-    -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
+    pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>) -> Result<
+        (Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>),
+        PageTableError,
+    > {
         #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard, va)
-    }
-    
-    /*
+    }/*
     /// Create a new reference to the same page table.
     /// The caller must ensure that the kernel page table is not copied.
     /// This is only useful for IOMMU page tables. Think twice before using it in other cases.

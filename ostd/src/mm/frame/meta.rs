@@ -158,6 +158,7 @@ pub trait AnyFrameMeta: Repr<MetaSlotStorage> {
 }
 
 global layout MetaSlot is size == 64, align == 8;
+
 pub broadcast proof fn lemma_meta_slot_size()
     ensures
         #[trigger] size_of::<MetaSlot>() == META_SLOT_SIZE,

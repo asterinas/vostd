@@ -59,10 +59,13 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> (Cursor<'rcu, C, A>, Tracked<CursorOwner<'rcu, C>>) {
-
     let ghost start_idx = AbstractVaddr::from_vaddr(va.start).index[NR_LEVELS as int - 1];
 
-    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(pt_own.0, start_idx as usize, guard_perm);
+    let tracked mut cursor_own: CursorOwner<'rcu, C> = CursorOwner::new(
+        pt_own.0,
+        start_idx as usize,
+        guard_perm,
+    );
 
     // The re-try loop of finding the sub-tree root.
     //
@@ -100,26 +103,33 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
-    let res = (Cursor::<'rcu, C, A> {
-        path,
-        rcu_guard: guard,
-        level: guard_level,
-        guard_level,
-        va: va.start,
-        barrier_va: va.clone(),
-        _phantom: PhantomData,
-    }, Tracked(cursor_own));
+    let res = (
+        Cursor::<'rcu, C, A> {
+            path,
+            rcu_guard: guard,
+            level: guard_level,
+            guard_level,
+            va: va.start,
+            barrier_va: va.clone(),
+            _phantom: PhantomData,
+        },
+        Tracked(cursor_own),
+    );
     assert(res.0.invariants(*res.1, *regions, *guards)) by { admit() };
     assert((*res.1).in_locked_range()) by { admit() };
     assert(res.0.level < res.0.guard_level) by { admit() };
     assert(res.0.va < res.0.barrier_va.end) by { admit() };
-    assert(forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-        regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt)
-    by { admit() };
-    assert(forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-        CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-        CursorMut::<C, A>::item_not_mapped(item, *regions))
-    by { admit() };
+    assert(forall|idx: usize|
+        #![trigger regions.slot_owners[idx].path_if_in_pt]
+        regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt) by {
+        admit()
+    };
+    assert(forall|item: C::Item|
+        #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
+        CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==> CursorMut::<
+            C,
+            A,
+        >::item_not_mapped(item, *regions)) by { admit() };
     res
 }
 
@@ -178,7 +188,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     guard: &'rcu A,
     va: &Range<Vaddr>,
 ) -> Option<PPtr<PageTableGuard<'rcu, C>>> {
-
     let mut cur_node_guard: Option<PPtr<PageTableGuard<C>>> = None;
     let tracked mut cur_cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
     let tracked mut guard_perm: Tracked<GuardPerm<'rcu, C>> = Tracked(cur_cont.guard_perm);
@@ -213,11 +222,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = cur_pte.paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
@@ -255,15 +269,20 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
         let mut cur_entry = PageTableGuard::<'rcu, C>::entry(pt_guard, start_idx);
         if cur_entry.is_none() {
             let allocated_guard = cur_entry.alloc_if_none(guard).unwrap();
-            let guard_val = allocated_guard.borrow(Tracked(& guard_perm));
+            let guard_val = allocated_guard.borrow(Tracked(&guard_perm));
             cur_pt_addr = guard_val.start_paddr();
             cur_node_guard = Some(allocated_guard);
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
@@ -279,11 +298,16 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
             cur_pt_addr = pt.start_paddr();
             cur_node_guard = None;
             proof {
-                let ghost next_idx = pte_index::<C>(va.start, (end - cur_level) as PagingLevel) as usize;
+                let ghost next_idx = pte_index::<C>(
+                    va.start,
+                    (end - cur_level) as PagingLevel,
+                ) as usize;
                 proof_decl! {
                     let tracked mut new_guard_perm: GuardPerm<'rcu, C>;
                 }
-                let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
+                let tracked mut cont = cursor_own.continuations.tracked_remove(
+                    cursor_own.level - 1,
+                );
                 let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard_perm));
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
@@ -319,7 +343,6 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
     if is_stray {
         return None;
     }
-
     Some(pt_guard)
 }
 

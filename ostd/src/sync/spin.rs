@@ -148,6 +148,11 @@ impl<T,G> SpinLock<T,G>
         self.inner.val.id()
     }
 
+    /// Public well-formedness predicate for external wrappers.
+    pub closed spec fn wf(self) -> bool {
+        self.type_inv()
+    }
+
     /// Encapsulates the invariant described in the *Invariant* section of [`SpinLock`].
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool{
@@ -442,7 +447,7 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
 }
 }
 
-impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
+impl<T /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         // unsafe { &mut *self.lock.inner.val.get() }
         unsafe {

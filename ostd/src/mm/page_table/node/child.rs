@@ -2,9 +2,9 @@
 //! This module specifies the type of the children of a page table node.
 use vstd::prelude::*;
 
+use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::frame::meta::mapping::{frame_to_index, frame_to_meta, meta_addr, meta_to_frame};
 use crate::mm::frame::Frame;
-use crate::mm::frame::meta::has_safe_slot;
 use crate::mm::page_table::*;
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
@@ -70,8 +70,9 @@ impl<C: PageTableConfig> Child<C> {
             owner.pte_invariants(res, *regions),
             *regions == old(owner).into_pte_regions_spec(*old(regions)),
             *owner == old(owner).into_pte_owner_spec(),
-            old(owner).node is Some ==>
-                res == C::E::new_pt_spec(meta_to_frame(old(owner).node.unwrap().meta_perm.addr())),
+            old(owner).node is Some ==> res == C::E::new_pt_spec(
+                meta_to_frame(old(owner).node.unwrap().meta_perm.addr()),
+            ),
     {
         proof {
             C::E::new_properties();
@@ -98,11 +99,15 @@ impl<C: PageTableConfig> Child<C> {
                 C::E::new_pt(paddr)
             },
             Child::Frame(paddr, level, prop) => {
-                proof { owner.in_scope = false; }
+                proof {
+                    owner.in_scope = false;
+                }
                 C::E::new_page(paddr, level, prop)
             },
             Child::None => {
-                proof { owner.in_scope = false; }
+                proof {
+                    owner.in_scope = false;
+                }
                 C::E::new_absent()
             },
         }
@@ -147,6 +152,7 @@ impl<C: PageTableConfig> Child<C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 regions.inv_implies_correct_addr(paddr);
             }
 
@@ -163,7 +169,9 @@ impl<C: PageTableConfig> Child<C> {
 
                 entry_own.in_scope = true;
 
-                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(*old(regions)).slot_owners);
+                assert(regions.slot_owners =~= entry_own.from_pte_regions_spec(
+                    *old(regions),
+                ).slot_owners);
                 assert(regions.slots =~= entry_own.from_pte_regions_spec(*old(regions)).slots);
             }
 
@@ -217,7 +225,8 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         ensures
             res.invariants(*entry_owner, *regions),
             regions.slot_owners =~= old(regions).slot_owners,
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
     {
         if !pte.is_present() {
             return ChildRef::None;
@@ -227,6 +236,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         if !pte.is_last(level) {
             proof {
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+
                 regions.inv_implies_correct_addr(paddr);
             }
 

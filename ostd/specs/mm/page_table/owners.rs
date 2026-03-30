@@ -20,10 +20,10 @@ use crate::mm::page_table::{page_size_spec, PageTableEntryTrait, PageTableGuard}
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
     lemma_page_size_divides, lemma_page_size_ge_page_size,
 };
+use crate::specs::mm::page_table::*;
 
 use core::ops::Deref;
 

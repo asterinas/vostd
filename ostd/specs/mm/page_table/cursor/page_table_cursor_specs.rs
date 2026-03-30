@@ -413,7 +413,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
                 vstd::set::axiom_set_choose_len(f);
                 assert(m.inv());
-                
+
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 Self::lemma_split_while_huge_preserves_cur_va(new_self, size);
             }

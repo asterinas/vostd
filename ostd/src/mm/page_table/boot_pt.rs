@@ -119,7 +119,10 @@ static IS_DISMISSED: bool = false;
 /// All the newly allocated page table frames have the first unused bit in
 /// parent PTEs. This allows us to deallocate them when the boot page table
 /// is dropped.
-pub(crate) struct BootPageTable<E: PageTableEntryTrait = PageTableEntry, C: PagingConstsTrait = PagingConsts> {
+pub(crate) struct BootPageTable<
+    E: PageTableEntryTrait = PageTableEntry,
+    C: PagingConstsTrait = PagingConsts,
+> {
     root_pt: FrameNumber,
     _pretend_to_use: core::marker::PhantomData<(E, C)>,
 }

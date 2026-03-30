@@ -53,10 +53,7 @@ impl WaitQueue {
     /// Creates a new, empty wait queue.
     #[verifier::external_body]
     pub const fn new() -> Self {
-        WaitQueue {
-            num_wakers: AtomicU32::new(0),
-            wakers: SpinLock::new(VecDeque::new()),
-        }
+        WaitQueue { num_wakers: AtomicU32::new(0), wakers: SpinLock::new(VecDeque::new()) }
     }
 
     /// Waits until some condition is met.
@@ -71,22 +68,17 @@ impl WaitQueue {
     /// more efficient and robust.
     #[track_caller]
     #[verifier::external_body]
-    pub fn wait_until<F, R>(&self, mut cond: F) -> R
-    where
-        F: FnMut() -> Option<R>,
-    {
+    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
         if let Some(res) = cond() {
             return res;
         }
-
         let (waiter, _) = Waiter::new_pair();
-        let cond = || {
-            self.enqueue(waiter.waker());
-            cond()
-        };
-        waiter
-            .wait_until_or_cancelled(cond, || Ok::<(), ()>(()))
-            .unwrap()
+        let cond = ||
+            {
+                self.enqueue(waiter.waker());
+                cond()
+            };
+        waiter.wait_until_or_cancelled(cond, || Ok::<(), ()>(())).unwrap()
     }
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
@@ -97,7 +89,6 @@ impl WaitQueue {
         if self.is_empty() {
             return false;
         }
-
         loop {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
@@ -120,13 +111,12 @@ impl WaitQueue {
         if self.is_empty() {
             return 0;
         }
-
         let mut num_woken = 0;
 
         loop {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
-                break;
+                break ;
             };
             self.num_wakers.fetch_sub(1, Ordering::Release);
             // Avoid holding lock when calling `wake_up`
@@ -174,8 +164,13 @@ pub struct Waiter {
     waker: Arc<Waker>,
 }
 
-impl !Send for Waiter {}
-impl !Sync for Waiter {}
+impl !Send for Waiter {
+
+}
+
+impl !Sync for Waiter {
+
+}
 
 /// A waker that can wake up the associated [`Waiter`].
 ///
@@ -190,14 +185,14 @@ impl Waiter {
     /// Creates a waiter and its associated [`Waker`].
     #[verifier::external_body]
     pub fn new_pair() -> (Self, Arc<Waker>) {
-        let waker = Arc::new(Waker {
-            has_woken: AtomicBool::new(false),
-            // task: Task::current().unwrap().cloned(),
-            task: Arc::new(Task {}),
-        });
-        let waiter = Self {
-            waker: waker.clone(),
-        };
+        let waker = Arc::new(
+            Waker {
+                has_woken: AtomicBool::new(false),
+                // task: Task::current().unwrap().cloned(),
+                task: Arc::new(Task {  }),
+            },
+        );
+        let waiter = Self { waker: waker.clone() };
         (waiter, waker)
     }
 
@@ -224,11 +219,10 @@ impl Waiter {
         &self,
         mut cond: F,
         cancel_cond: FCancel,
-    ) -> core::result::Result<R, E>
-    where
+    ) -> core::result::Result<R, E> where
         F: FnMut() -> Option<R>,
         FCancel: Fn() -> core::result::Result<(), E>,
-    {
+     {
         loop {
             if let Some(res) = cond() {
                 return Ok(res);
@@ -239,7 +233,6 @@ impl Waiter {
                 self.waker.close();
                 return cond().ok_or(e);
             }
-
             self.wait();
         }
     }
@@ -306,7 +299,6 @@ impl Waker {
 }
 
 } // verus!
-
 #[cfg(ktest)]
 mod test {
     use super::*;

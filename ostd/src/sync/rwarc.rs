@@ -109,7 +109,7 @@ impl<T> RwArc<T> {
 #[verus_verify]
 impl<T> Clone for RwArc<T> {
     #[verus_spec]
-    fn clone(&self) -> Self 
+    fn clone(&self) -> Self
         returns
             self,
     {

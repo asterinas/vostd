@@ -1,6 +1,6 @@
 use vstd::prelude::*;
 
-use core::ops::{Add, Sub, BitOr, BitAnd, BitXor};
+use core::ops::{Add, BitAnd, BitOr, BitXor, Sub};
 
 verus! {
 
@@ -293,6 +293,7 @@ impl PageFlags {
 
 impl Add for PageFlags {
     type Output = Self;
+
     #[verifier::external_body]
     fn add(self, other: Self) -> Self {
         Self { bits: self.bits + other.bits }
@@ -301,6 +302,7 @@ impl Add for PageFlags {
 
 impl Sub for PageFlags {
     type Output = Self;
+
     #[verifier::external_body]
     fn sub(self, other: Self) -> Self {
         Self { bits: self.bits - !other.bits }
@@ -309,6 +311,7 @@ impl Sub for PageFlags {
 
 impl BitOr for PageFlags {
     type Output = Self;
+
     #[verifier::external_body]
     fn bitor(self, other: Self) -> Self {
         Self { bits: self.bits | other.bits }
@@ -317,6 +320,7 @@ impl BitOr for PageFlags {
 
 impl BitAnd for PageFlags {
     type Output = Self;
+
     #[verifier::external_body]
     fn bitand(self, other: Self) -> Self {
         Self { bits: self.bits & other.bits }
@@ -325,6 +329,7 @@ impl BitAnd for PageFlags {
 
 impl BitXor for PageFlags {
     type Output = Self;
+
     #[verifier::external_body]
     fn bitxor(self, other: Self) -> Self {
         Self { bits: self.bits ^ other.bits }

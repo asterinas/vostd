@@ -7,23 +7,23 @@
 //! the page table cursor, providing efficient, powerful concurrent accesses
 //! to the page table.
 use alloc::vec::Vec;
+use vstd::atomic::PermissionU64;
 use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
-use vstd::atomic::PermissionU64;
 
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
 use crate::error::Error;
 use crate::mm::frame::untyped::UFrame;
+use crate::mm::frame::MetaSlot;
 use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
-use crate::mm::frame::MetaSlot;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::meta_to_frame;
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::frame::meta_owners::{MetaPerm, MetaSlotStorage, MetadataInnerPerms};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::CursorOwner;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::tlb::TlbModel;
@@ -305,7 +305,9 @@ impl<'a> VmSpace<'a> {
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
     #[verifier::external_body]
-    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
+    pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
+        CursorMut<'a, G>,
+    > {
         Ok(
             self.pt.cursor_mut(guard, va).map(
                 |pt_cursor|
@@ -808,7 +810,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& entry_owner.inv()
         &&& self.pt_cursor.inner.va % page_size(level) == 0
         &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(item, regions)
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
+            item,
+            regions,
+        )
     }
 
     /// The result of a call to `map`. Constructs a `Mapping` from the frame being mapped and the cursor's current virtual address.
@@ -869,14 +874,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
             item,
             *old(regions),
-        )) by { };
+        )) by {};
 
         assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
             item,
             *old(regions),
-        )) by { };
+        )) by {};
 
-        assert(self.pt_cursor.map_item_requires(item, entry_owner)) by { };
+        assert(self.pt_cursor.map_item_requires(item, entry_owner)) by {};
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
@@ -1025,9 +1030,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     // overshoot range [end_va, cursor_va). Since take_next guarantees no mappings
                     // in [prev_va, end_va), and no splits occurred, we use end_va as the bound.
                     assume(cursor_owner@.mappings =~= adjusted_base.difference(
-                        adjusted_base.filter(|m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va)));
+                        adjusted_base.filter(
+                            |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                        ),
+                    ));
                     assume(num_unmapped as nat == adjusted_base.filter(
-                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va).len());
+                        |m: Mapping| start_va <= m.va_range.start < cursor_owner@.cur_va,
+                    ).len());
                 }
                 break ;
             };
@@ -1046,23 +1055,31 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 //   StrayPageTable: owner@.mappings = old_mappings - subtree_filter
                 // We merge this with the accumulated adjusted_base.
                 let ghost old_adjusted = adjusted_base;
-                assume(exists |new_base: Set<Mapping>| {
-                    &&& #[trigger] new_base.finite()
-                    &&& cursor_owner@.mappings =~= new_base.difference(
-                        new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va))
-                    &&& num_unmapped_before + (
-                        new_base.filter(|m: Mapping| prev_va <= m.va_range.start < new_va).len())
-                        == new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va).len()
-                });
+                assume(exists|new_base: Set<Mapping>|
+                    {
+                        &&& #[trigger] new_base.finite()
+                        &&& cursor_owner@.mappings =~= new_base.difference(
+                            new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va),
+                        )
+                        &&& num_unmapped_before + (new_base.filter(
+                            |m: Mapping| prev_va <= m.va_range.start < new_va,
+                        ).len()) == new_base.filter(
+                            |m: Mapping| start_va <= m.va_range.start < new_va,
+                        ).len()
+                    });
                 // Instantiate and update adjusted_base
-                let ghost new_base = choose |new_base: Set<Mapping>| {
-                    &&& #[trigger] new_base.finite()
-                    &&& cursor_owner@.mappings =~= new_base.difference(
-                        new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va))
-                    &&& num_unmapped_before + (
-                        new_base.filter(|m: Mapping| prev_va <= m.va_range.start < new_va).len())
-                        == new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va).len()
-                };
+                let ghost new_base = choose|new_base: Set<Mapping>|
+                    {
+                        &&& #[trigger] new_base.finite()
+                        &&& cursor_owner@.mappings =~= new_base.difference(
+                            new_base.filter(|m: Mapping| start_va <= m.va_range.start < new_va),
+                        )
+                        &&& num_unmapped_before + (new_base.filter(
+                            |m: Mapping| prev_va <= m.va_range.start < new_va,
+                        ).len()) == new_base.filter(
+                            |m: Mapping| start_va <= m.va_range.start < new_va,
+                        ).len()
+                    };
                 adjusted_base = new_base;
             }
 
@@ -1196,18 +1213,21 @@ pub struct MappedItem {
 
 #[verus_verify]
 impl RCClone for MappedItem {
-
-    open spec fn clone_requires(self, slot_perm: PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
+    open spec fn clone_requires(
+        self,
+        slot_perm: PointsTo<MetaSlot>,
+        rc_perm: PermissionU64,
+    ) -> bool {
         self.frame.clone_requires(slot_perm, rc_perm)
     }
 
-    fn clone(&self, Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
-    {
+    fn clone(
+        &self,
+        Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
+        Tracked(rc_perm): Tracked<&mut PermissionU64>,
+    ) -> (res: Self) {
         let frame = self.frame.clone(Tracked(slot_perm), Tracked(rc_perm));
-        Self {
-            frame,
-            prop: self.prop,
-        }
+        Self { frame, prop: self.prop }
     }
 }
 
