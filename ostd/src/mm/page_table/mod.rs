@@ -815,6 +815,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
+                &&& r.unwrap().1.metaregion_correct(*regions)
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel

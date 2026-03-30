@@ -768,7 +768,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.inv()
         &&& cursor_owner.children_not_locked(guards)
         &&& cursor_owner.nodes_locked(guards)
-        &&& cursor_owner.relate_region(regions)
+        &&& cursor_owner.metaregion_sound(regions)
+        &&& cursor_owner.metaregion_correct(regions)
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -933,6 +934,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE.end as int,
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
+            old(cursor_owner).metaregion_correct(*old(regions)),
             old(cursor_owner).in_locked_range(),
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
             old(tlb_model).inv(),
@@ -977,6 +979,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.inner.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
                 self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
+                cursor_owner.metaregion_correct(*regions),
                 end_va <= self.pt_cursor.inner.barrier_va.end,
                 tlb_model.inv(),
                 start_va <= cursor_owner@.cur_va,
@@ -1148,7 +1151,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(owner).popped_too_high,
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
-            old(owner).relate_region(*old(regions)),
+            old(owner).metaregion_sound(*old(regions)),
             len % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.level < NR_LEVELS,
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,

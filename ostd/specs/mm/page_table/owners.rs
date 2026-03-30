@@ -468,25 +468,27 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         ensures
             self.view_rec(path) =~= set![];
 
-    pub open spec fn relate_region_pred(regions: MetaRegionOwners)
+    pub open spec fn metaregion_sound_pred(regions: MetaRegionOwners)
         -> (spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) {
-        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions)
+        |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions)
     }
 
-    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool
+    pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool
         decreases INC_LEVELS - self.0.level when self.0.inv()
     {
-        self.0.tree_predicate_map(self.0.value.path, Self::relate_region_pred(regions))
+        self.0.tree_predicate_map(self.0.value.path, Self::metaregion_sound_pred(regions))
     }
 
-    /// Predicate: all nodes in the tree have their paths tracked in regions
+    /// Predicate: all entries in the tree have their paths correctly tracked in regions.
+    /// Strengthened form: `path_if_in_pt == Some(entry.path)` (not just `is Some`).
     pub open spec fn path_tracked_pred(regions: MetaRegionOwners)
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             entry.meta_slot_paddr() is Some ==> {
                 &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
+                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt
+                        == Some(entry.path)
             }
         }
     }
@@ -748,7 +750,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     ///
     /// Proof sketch: by `inv_implies_path_correct`, every entry `e` at structural position `p`
     /// has `e.path == p`.  Since `!is_prefix_of(path_j, old_entry.path)`, no structural position
-    /// in the subtree equals `old_entry.path`.  Combined with `relate_region` + `path_tracked_pred`
+    /// in the subtree equals `old_entry.path`.  Combined with `path_tracked_pred`
     /// uniqueness (via `same_paddr_implies_same_path`), same paddr would force same path — contradiction.
     pub axiom fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
@@ -762,13 +764,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path_j.len() == subtree.level,
             path_j.inv(),
             path_j.len() <= INC_LEVELS - 1,
-            subtree.tree_predicate_map(path_j, Self::relate_region_pred(regions)),
             subtree.tree_predicate_map(path_j, Self::path_tracked_pred(regions)),
             old_entry.meta_slot_paddr() is Some,
-            old_entry.relate_region(regions),
             regions.slot_owners[
                 frame_to_index(old_entry.meta_slot_paddr().unwrap())
-            ].path_if_in_pt is Some,
+            ].path_if_in_pt == Some(old_entry.path),
             !Self::is_prefix_of(path_j, old_entry.path),
         ensures
             subtree.tree_predicate_map(

@@ -376,14 +376,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level > 1,
             self.only_current_locked(guards),
             self.nodes_locked(guards),
-            self.relate_region(regions),
+            self.metaregion_sound(regions),
             // The new guard_perm must be locked in guards
             guards.lock_held(guard_perm.value().inner.inner@.ptr.addr()),
         ensures
             self.push_level_owner_spec(guard_perm).inv(),
             self.push_level_owner_spec(guard_perm).children_not_locked(guards),
             self.push_level_owner_spec(guard_perm).nodes_locked(guards),
-            self.push_level_owner_spec(guard_perm).relate_region(regions),
+            self.push_level_owner_spec(guard_perm).metaregion_sound(regions),
+            self.metaregion_correct(regions) ==>
+                self.push_level_owner_spec(guard_perm).metaregion_correct(regions),
     {
         reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
@@ -403,7 +405,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as usize);
 
-        assert(cur_entry.relate_region(regions));
+        assert(cur_entry.metaregion_sound(regions));
 
         assert(new_owner.children_not_locked(guards)) by {
             assert forall |i: int|
@@ -461,59 +463,59 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        assert(new_owner.relate_region(regions)) by {
-            let f = PageTableOwner::<C>::relate_region_pred(regions);
-            let g = PageTableOwner::<C>::path_tracked_pred(regions);
-            let child_subtree = child_cont.as_subtree();
-            self.cont_entries_relate_region(regions);
+        let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
+        let g = PageTableOwner::<C>::path_tracked_pred(regions);
+        let child_subtree = child_cont.as_subtree();
+        self.cont_entries_metaregion(regions);
 
+        // child_subtree.inv() — shared between sound and correct proofs.
+        assert(child_subtree.inv()) by {
+            assert(child_subtree.value.inv());
+            assert(child_subtree.level < INC_LEVELS);
+            assert(child_subtree.children.len() == NR_ENTRIES);
+            assert(child_cont.entry_own.is_node());
+            assert(child_cont.tree_level < INC_LEVELS - 1);
+            assert(child_subtree.inv_node());
+            assert(child_subtree.inv_children()) by {
+                assert(child_subtree.level < INC_LEVELS - 1);
+                assert forall |j: int| 0 <= j < NR_ENTRIES implies
+                    match #[trigger] child_subtree.children[j] {
+                        Some(ch) => {
+                            &&& ch.level == child_subtree.level + 1
+                            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
+                        },
+                        None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
+                    }
+                by {
+                    assert(child_cont.children[j] is Some);
+                    let ch = child_cont.children[j].unwrap();
+                    assert(ch.level == child_cont.tree_level + 1);
+                    assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                        child_cont.entry_own, j, Some(ch.value)));
+                };
+            };
+            assert forall |j: int| 0 <= j < NR_ENTRIES implies
+                match #[trigger] child_subtree.children[j] {
+                    Some(ch) => ch.inv(),
+                    None => true,
+                }
+            by {
+                child_cont.inv_children_unroll(j);
+                assert(child_cont.children[j] is Some);
+                assert(child_cont.children[j].unwrap().inv());
+            };
+        };
+
+        // metaregion_sound (unconditional)
+        assert(new_owner.metaregion_sound(regions)) by {
             assert forall |i: int| #![auto]
                 new_owner.level - 1 <= i < NR_LEVELS implies {
                     &&& f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
                     &&& new_owner.continuations[i].map_children(f)
-                    &&& g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
-                    &&& new_owner.continuations[i].map_children(g)
                 } by {
                 if i == self.level - 2 {
                     assert(new_owner.continuations[i] == child_cont);
                     assert(f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                    assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                    assert(child_subtree.inv()) by {
-                        assert(child_subtree.value.inv());
-                        assert(child_subtree.level < INC_LEVELS);
-                        assert(child_subtree.children.len() == NR_ENTRIES);
-                        assert(child_cont.entry_own.is_node());
-                        assert(child_cont.tree_level < INC_LEVELS - 1);
-                        assert(child_subtree.inv_node());
-                        assert(child_subtree.inv_children()) by {
-                            assert(child_subtree.level < INC_LEVELS - 1);
-                            assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                                match #[trigger] child_subtree.children[j] {
-                                    Some(ch) => {
-                                        &&& ch.level == child_subtree.level + 1
-                                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
-                                    },
-                                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
-                                }
-                            by {
-                                assert(child_cont.children[j] is Some);
-                                let ch = child_cont.children[j].unwrap();
-                                assert(ch.level == child_cont.tree_level + 1);
-                                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                                    child_cont.entry_own, j, Some(ch.value)));
-                            };
-                        };
-                        assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.inv(),
-                                None => true,
-                            }
-                        by {
-                            child_cont.inv_children_unroll(j);
-                            assert(child_cont.children[j] is Some);
-                            assert(child_cont.children[j].unwrap().inv());
-                        };
-                    };
                     assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
                         assert(f(child_subtree.value, child_cont.path()));
                         assert forall |j: int| 0 <= j < child_subtree.children.len() implies
@@ -521,29 +523,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                                 Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), f),
                                 None => true,
                             }
-                        by {
-                            child_subtree.map_unroll_once(child_cont.path(), f, j);
-                        };
-                    };
-                    assert(child_subtree.tree_predicate_map(child_cont.path(), g)) by {
-                        assert(g(child_subtree.value, child_cont.path()));
-                        assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), g),
-                                None => true,
-                            }
-                        by {
-                            child_subtree.map_unroll_once(child_cont.path(), g, j);
-                        };
+                        by { child_subtree.map_unroll_once(child_cont.path(), f, j); };
                     };
                     assert(new_owner.continuations[i].map_children(f));
-                    assert(new_owner.continuations[i].map_children(g));
                 } else if i == self.level - 1 {
                     assert(new_owner.continuations[i] == modified_cont);
                     assert(modified_cont.entry_own == old_cont.entry_own);
                     assert(modified_cont.path() == old_cont.path());
                     assert(f(modified_cont.entry_own, modified_cont.path()));
-                    assert(g(modified_cont.entry_own, modified_cont.path()));
                     assert(modified_cont.map_children(f)) by {
                         assert forall |j: int|
                             0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
@@ -552,23 +539,55 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             assert(modified_cont.children[j] == old_cont.children[j]);
                         };
                     };
-                    assert(modified_cont.map_children(g)) by {
-                        assert forall |j: int|
-                            0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
-                            modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), g) by {
-                            assert(j != old_cont.idx as int);
-                            assert(modified_cont.children[j] == old_cont.children[j]);
-                        };
-                    };
                 } else {
                     assert(new_owner.continuations[i] == self.continuations[i]);
                     assert(f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
                     assert(new_owner.continuations[i].map_children(f));
-                    assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                    assert(new_owner.continuations[i].map_children(g));
                 }
             };
         };
+        // metaregion_correct (conditional)
+        if self.metaregion_correct(regions) {
+            assert(new_owner.metaregion_correct(regions)) by {
+                assert forall |i: int| #![auto]
+                    new_owner.level - 1 <= i < NR_LEVELS implies {
+                        &&& g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
+                        &&& new_owner.continuations[i].map_children(g)
+                    } by {
+                    if i == self.level - 2 {
+                        assert(new_owner.continuations[i] == child_cont);
+                        assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
+                        assert(child_subtree.tree_predicate_map(child_cont.path(), g)) by {
+                            assert(g(child_subtree.value, child_cont.path()));
+                            assert forall |j: int| 0 <= j < child_subtree.children.len() implies
+                                match #[trigger] child_subtree.children[j] {
+                                    Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), g),
+                                    None => true,
+                                }
+                            by { child_subtree.map_unroll_once(child_cont.path(), g, j); };
+                        };
+                        assert(new_owner.continuations[i].map_children(g));
+                    } else if i == self.level - 1 {
+                        assert(new_owner.continuations[i] == modified_cont);
+                        assert(modified_cont.entry_own == old_cont.entry_own);
+                        assert(modified_cont.path() == old_cont.path());
+                        assert(g(modified_cont.entry_own, modified_cont.path()));
+                        assert(modified_cont.map_children(g)) by {
+                            assert forall |j: int|
+                                0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
+                                modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), g) by {
+                                assert(j != old_cont.idx as int);
+                                assert(modified_cont.children[j] == old_cont.children[j]);
+                            };
+                        };
+                    } else {
+                        assert(new_owner.continuations[i] == self.continuations[i]);
+                        assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
+                        assert(new_owner.continuations[i].map_children(g));
+                    }
+                };
+            };
+        }
     }
 
     #[verifier::returns(proof)]
@@ -646,12 +665,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level < NR_LEVELS,
             self.children_not_locked(guards),
             self.nodes_locked(guards),
-            self.relate_region(regions),
+            self.metaregion_sound(regions),
         ensures
             self.pop_level_owner_spec().0.inv(),
             self.pop_level_owner_spec().0.only_current_locked(guards),
             self.pop_level_owner_spec().0.nodes_locked(guards),
-            self.pop_level_owner_spec().0.relate_region(regions),
+            self.pop_level_owner_spec().0.metaregion_sound(regions),
+            self.metaregion_correct(regions) ==>
+                self.pop_level_owner_spec().0.metaregion_correct(regions),
     {
         let new_owner = self.pop_level_owner_spec().0;
         let child = self.continuations[self.level - 1];
@@ -745,38 +766,48 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        // relate_region: child.entry_own.relate_region(regions) is not directly tracked by
+        // metaregion: child.entry_own.metaregion_sound(regions) is not directly tracked by
         // map_full_tree (which only checks map_children, not entry_own of continuations).
         // This property was established when push extracted the child from the parent's subtree,
         // and is invariant since no operations modify higher-level entry_owns.
-        assert(new_owner.relate_region(regions)) by {
-            let f = PageTableOwner::<C>::relate_region_pred(regions);
-            let g = PageTableOwner::<C>::path_tracked_pred(regions);
-            let child_subtree = child.as_subtree();
-            self.cont_entries_relate_region(regions);
+        let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
+        let g = PageTableOwner::<C>::path_tracked_pred(regions);
+        let child_subtree = child.as_subtree();
+        self.cont_entries_metaregion(regions);
 
+        assert(child_subtree.inv()) by {
+            assert forall |j: int| 0 <= j < NR_ENTRIES implies
+                match #[trigger] child_subtree.children[j] {
+                    Some(ch) => ch.inv(),
+                    None => true,
+                }
+            by { child.inv_children_unroll(j); };
+        };
+
+        assert(new_owner.metaregion_sound(regions)) by {
             assert forall |i: int| #![auto]
-                new_owner.level - 1 <= i < NR_LEVELS implies {
-                    &&& new_owner.continuations[i].map_children(f)
-                    &&& new_owner.continuations[i].map_children(g)
-                } by {
+                new_owner.level - 1 <= i < NR_LEVELS implies
+                    new_owner.continuations[i].map_children(f)
+            by {
                 if i > self.level as int {
                 } else {
-                    assert(child_subtree.inv()) by {
-                        assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.inv(),
-                                None => true,
-                            }
-                        by {
-                            child.inv_children_unroll(j);
-                        };
-                    };
                     new_cont.map_children_lift_skip_idx(cont, cont.idx as int, f, f);
-                    new_cont.map_children_lift_skip_idx(cont, cont.idx as int, g, g);
                 }
             };
         };
+        if self.metaregion_correct(regions) {
+            assert(new_owner.metaregion_correct(regions)) by {
+                assert forall |i: int| #![auto]
+                    new_owner.level - 1 <= i < NR_LEVELS implies
+                        new_owner.continuations[i].map_children(g)
+                by {
+                    if i > self.level as int {
+                    } else {
+                        new_cont.map_children_lift_skip_idx(cont, cont.idx as int, g, g);
+                    }
+                };
+            };
+        }
     }
 
     /// Update va to a new value that shares the same indices at levels >= self.level.

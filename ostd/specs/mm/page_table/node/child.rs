@@ -104,7 +104,7 @@ impl<C: PageTableConfig> Child<C> {
         &&& owner.inv_base()
         &&& regions.inv()
         &&& self.wf(owner)
-        &&& owner.relate_region(regions)
+        &&& owner.metaregion_sound(regions)
         &&& owner.in_scope
     }
 }
@@ -114,7 +114,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
         &&& owner.inv()
         &&& regions.inv()
         &&& self.wf(owner)
-        &&& owner.relate_region(regions)
+        &&& owner.metaregion_sound(regions)
         &&& !owner.in_scope
     }
 }
@@ -176,7 +176,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
         &&& self.inv()
         &&& regions.inv()
         &&& self.match_pte(pte, self.parent_level)
-        &&& self.relate_region(regions)
+        &&& self.metaregion_sound(regions)
         &&& !self.in_scope
     }
 
