@@ -148,16 +148,25 @@ pub uninterp spec fn drop_tree_spec<C: PageTableConfig>(_page: Frame<PageTablePa
 impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     type Perm = ();
 
-    uninterp spec fn wf(r: MetaSlotStorage, perm: ()) -> bool;
+    open spec fn wf(r: MetaSlotStorage, perm: ()) -> bool {
+        matches!(r, MetaSlotStorage::PTNode(_))
+    }
 
-    uninterp spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ());
+    open spec fn to_repr_spec(self, perm: ()) -> (MetaSlotStorage, ()) {
+        (MetaSlotStorage::PTNode(self.into_spec()), ())
+    }
 
     #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut ()>) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self;
+    open spec fn from_repr_spec(r: MetaSlotStorage, perm: ()) -> Self {
+        match r {
+            MetaSlotStorage::PTNode(node) => node.into_spec::<C>(),
+            _ => arbitrary(),
+        }
+    }
 
     #[verifier::external_body]
     fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&()>) -> Self {
@@ -170,15 +179,24 @@ impl<C: PageTableConfig> Repr<MetaSlotStorage> for PageTablePageMeta<C> {
     }
 
     proof fn from_to_repr(self, perm: ()) {
-        admit()
+        assert(self.to_repr_spec(perm) == (MetaSlotStorage::PTNode(self.into_spec()), ()));
+        assert(StoredPageTablePageMeta::into_spec::<C>(self.into_spec()) == self);
     }
 
     proof fn to_from_repr(r: MetaSlotStorage, perm: ()) {
-        admit()
+        match r {
+            MetaSlotStorage::PTNode(node) => {
+                assert(Self::from_repr_spec(r, perm) == node.into_spec::<C>());
+                assert(Self::from_repr_spec(r, perm).to_repr_spec(perm) == (MetaSlotStorage::PTNode(node), ()));
+            },
+            _ => {
+                assert(false);
+            },
+        }
     }
 
     proof fn to_repr_wf(self, perm: ()) {
-        admit()
+        assert(self.to_repr_spec(perm).0 is PTNode);
     }
 }
 

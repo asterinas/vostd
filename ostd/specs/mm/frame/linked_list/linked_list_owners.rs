@@ -4,7 +4,7 @@ use vstd::prelude::*;
 use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
 
-use vstd::std_specs::convert::FromSpecImpl;
+use vstd::std_specs::convert::{FromSpec, FromSpecImpl};
 use vstd_extra::cast_ptr::{Repr, ReprPtr};
 use vstd_extra::ownership::*;
 
@@ -31,8 +31,10 @@ pub struct StoredLink {
     pub slot: MetaSlotSmall,
 }
 
-pub struct LinkInnerPerms {
-    pub storage: cell::PointsTo<MetaSlotSmall>,
+pub tracked struct LinkInnerPerms<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
+    pub storage: <M as Repr<MetaSlotSmall>>::Perm,
+    pub ghost next_ptr: Option<PPtr<MetaSlot>>,
+    pub ghost prev_ptr: Option<PPtr<MetaSlot>>,
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
@@ -47,39 +49,108 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
-    type Perm = LinkInnerPerms;
+    type Perm = LinkInnerPerms<M>;
 
-    uninterp spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms) -> bool;
+    open spec fn wf(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> bool {
+        match r {
+            MetaSlotStorage::FrameLink(link) => {
+                &&& M::wf(link.slot, perm.storage)
+                &&& (link.next is Some) == (perm.next_ptr is Some)
+                &&& (link.prev is Some) == (perm.prev_ptr is Some)
+            },
+            _ => false,
+        }
+    }
 
-    uninterp spec fn to_repr_spec(self, perm: LinkInnerPerms) -> (MetaSlotStorage, LinkInnerPerms);
+    open spec fn to_repr_spec(self, perm: LinkInnerPerms<M>) -> (MetaSlotStorage, LinkInnerPerms<M>) {
+        let (slot, storage) = self.meta.to_repr_spec(perm.storage);
+        (
+            MetaSlotStorage::FrameLink(StoredLink {
+                next: match self.next {
+                    Some(ptr) => Some(ptr.addr),
+                    None => None,
+                },
+                prev: match self.prev {
+                    Some(ptr) => Some(ptr.addr),
+                    None => None,
+                },
+                slot,
+            }),
+            LinkInnerPerms {
+                storage,
+                next_ptr: match self.next {
+                    Some(ptr) => Some(ptr.ptr),
+                    None => None,
+                },
+                prev_ptr: match self.prev {
+                    Some(ptr) => Some(ptr.ptr),
+                    None => None,
+                },
+            },
+        )
+    }
 
     #[verifier::external_body]
-    fn to_repr(self, Tracked(perm): Tracked<&mut LinkInnerPerms>) -> MetaSlotStorage {
+    fn to_repr(self, Tracked(perm): Tracked<&mut LinkInnerPerms<M>>) -> MetaSlotStorage {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms) -> Self;
+    open spec fn from_repr_spec(r: MetaSlotStorage, perm: LinkInnerPerms<M>) -> Self {
+        match r {
+            MetaSlotStorage::FrameLink(link) => Link {
+                next: match link.next {
+                    Some(addr) => Some(ReprPtr {
+                        addr,
+                        ptr: perm.next_ptr.unwrap(),
+                        _T: PhantomData,
+                    }),
+                    None => None,
+                },
+                prev: match link.prev {
+                    Some(addr) => Some(ReprPtr {
+                        addr,
+                        ptr: perm.prev_ptr.unwrap(),
+                        _T: PhantomData,
+                    }),
+                    None => None,
+                },
+                meta: M::from_repr_spec(link.slot, perm.storage),
+            },
+            _ => Link {
+                next: None,
+                prev: None,
+                meta: M::from_repr_spec(MetaSlotSmall, perm.storage),
+            },
+        }
+    }
 
     #[verifier::external_body]
-    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&LinkInnerPerms>) -> Self {
+    fn from_repr(r: MetaSlotStorage, Tracked(perm): Tracked<&LinkInnerPerms<M>>) -> Self {
         unimplemented!()
     }
 
     #[verifier::external_body]
-    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a LinkInnerPerms>) -> &'a Self {
+    fn from_borrowed<'a>(r: &'a MetaSlotStorage, Tracked(perm): Tracked<&'a LinkInnerPerms<M>>) -> &'a Self {
         unimplemented!()
     }
 
-    proof fn from_to_repr(self, perm: LinkInnerPerms) {
-        admit();
+    proof fn from_to_repr(self, perm: LinkInnerPerms<M>) {
+        <M as Repr<MetaSlotSmall>>::from_to_repr(self.meta, perm.storage);
     }
 
-    proof fn to_from_repr(r: MetaSlotStorage, perm: LinkInnerPerms) {
-        admit();
+    proof fn to_from_repr(r: MetaSlotStorage, perm: LinkInnerPerms<M>) {
+        match r {
+            MetaSlotStorage::FrameLink(link) => {
+                M::to_from_repr(link.slot, perm.storage);
+            },
+            _ => {
+                assert(false);
+            },
+        }
     }
 
-    proof fn to_repr_wf(self, perm: LinkInnerPerms) {
-        admit();
+    proof fn to_repr_wf(self, perm: LinkInnerPerms<M>) {
+        <M as Repr<MetaSlotSmall>>::to_repr_wf(self.meta, perm.storage);
     }
 }
 
@@ -532,15 +603,31 @@ pub struct MetadataAsLink<M: AnyFrameMeta> {
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M> {
     type Perm = MetadataInnerPerms;
 
-    uninterp spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool;
+    open spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool {
+        &&& <Metadata<Link<M>> as Repr<MetaSlot>>::wf(r, perm)
+        &&& ({
+            let md = <Metadata<Link<M>> as Repr<MetaSlot>>::from_repr_spec(r, perm);
+            &&& (md.metadata.next matches Some(next) ==> next.addr == next.ptr.addr())
+            &&& (md.metadata.prev matches Some(prev) ==> prev.addr == prev.ptr.addr())
+        })
+    }
 
-    uninterp spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms);
+    open spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms) {
+        <Metadata<Link<M>> as Repr<MetaSlot>>::to_repr_spec(
+            <Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(self),
+            perm,
+        )
+    }
     #[verifier::external_body]
     fn to_repr(self, Tracked(perm): Tracked<&mut MetadataInnerPerms>) -> MetaSlot {
         unimplemented!()
     }
 
-    uninterp spec fn from_repr_spec(r: MetaSlot, perm: MetadataInnerPerms) -> Self;
+    open spec fn from_repr_spec(r: MetaSlot, perm: MetadataInnerPerms) -> Self {
+        <MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(
+            <Metadata<Link<M>> as Repr<MetaSlot>>::from_repr_spec(r, perm),
+        )
+    }
 
     #[verifier::external_body]
     fn from_repr(r: MetaSlot, Tracked(perm): Tracked<&MetadataInnerPerms>) -> Self {
@@ -553,15 +640,23 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
     }
 
     proof fn from_to_repr(self, perm: MetadataInnerPerms) {
-        admit();
+        let md = <Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(self);
+        <Metadata<Link<M>> as Repr<MetaSlot>>::from_to_repr(md, perm);
+        assert(<MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(md) == self);
     }
 
     proof fn to_from_repr(r: MetaSlot, perm: MetadataInnerPerms) {
-        admit();
+        let md = <Metadata<Link<M>> as Repr<MetaSlot>>::from_repr_spec(r, perm);
+        <Metadata<Link<M>> as Repr<MetaSlot>>::to_from_repr(r, perm);
+        assert(<Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(
+            <MetadataAsLink<M> as FromSpec<Metadata<Link<M>>>>::from_spec(md),
+        ) == md);
     }
 
     proof fn to_repr_wf(self, perm: MetadataInnerPerms) {
-        admit();
+        let md = <Metadata<Link<M>> as FromSpec<MetadataAsLink<M>>>::from_spec(self);
+        <Metadata<Link<M>> as Repr<MetaSlot>>::to_repr_wf(md, perm);
+        <Metadata<Link<M>> as Repr<MetaSlot>>::from_to_repr(md, perm);
     }
 
 }
@@ -619,11 +714,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<MetadataAsLink<M>> for 
         Metadata {
             metadata: Link {
                 next: match m.next {
-                    Some(pptr) => Some(ReprPtr::new_spec(pptr)),
+                    Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
                     None => None,
                 },
                 prev: match m.prev {
-                    Some(pptr) => Some(ReprPtr::new_spec(pptr)),
+                    Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
                     None => None,
                 },
                 meta: m.metadata,
@@ -638,11 +733,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<MetadataAsLink<M>> for 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> From<MetadataAsLink<M>> for Metadata<Link<M>> {
     fn from(m: MetadataAsLink<M>) -> Self {
         let next = match m.next {
-            Some(pptr) => Some(ReprPtr::from_pptr(pptr)),
+            Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
             None => None,
         };
         let prev = match m.prev {
-            Some(pptr) => Some(ReprPtr::from_pptr(pptr)),
+            Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
             None => None,
         };
         Metadata {
