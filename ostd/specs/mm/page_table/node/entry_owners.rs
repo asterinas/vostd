@@ -278,6 +278,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_perm.addr()
             &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[idx])
+            // Node path tracking: ensures no two tree nodes share the same slot index.
+            &&& regions.slot_owners[idx].path_if_in_pt == Some(self.path)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slots.contains_key(idx)
@@ -360,8 +362,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
     {
     }
 
-    /// `metaregion_sound` is preserved when only `path_if_in_pt` changes at a slot
-    /// and `slots` is unchanged.
+    /// `metaregion_sound` is preserved when only `path_if_in_pt` changes at a slot,
+    /// `slots` is unchanged, and the new `path_if_in_pt` is correct for any node at that index.
     pub proof fn metaregion_sound_path_if_in_pt_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
         requires
             self.metaregion_sound(r0),
@@ -375,6 +377,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             r1.slot_owners[changed_idx].self_addr == r0.slot_owners[changed_idx].self_addr,
             r1.slot_owners[changed_idx].raw_count == r0.slot_owners[changed_idx].raw_count,
             r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
+            // For nodes at changed_idx: the new path_if_in_pt must match this entry's path.
+            self.is_node() && self.meta_slot_paddr() is Some
+                && frame_to_index(self.meta_slot_paddr().unwrap()) == changed_idx
+                ==> r1.slot_owners[changed_idx].path_if_in_pt == Some(self.path),
         ensures
             self.metaregion_sound(r1),
     {
@@ -421,6 +427,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.in_list
                 &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
                 &&& r1.slot_owners[idx].raw_count == r0.slot_owners[idx].raw_count
+                &&& r1.slot_owners[idx].path_if_in_pt == r0.slot_owners[idx].path_if_in_pt
             }),
         ensures
             self.metaregion_sound(r1),

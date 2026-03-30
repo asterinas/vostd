@@ -769,7 +769,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& cursor_owner.children_not_locked(guards)
         &&& cursor_owner.nodes_locked(guards)
         &&& cursor_owner.metaregion_sound(regions)
-        &&& cursor_owner.metaregion_correct(regions)
         &&& !cursor_owner.popped_too_high
         &&& regions.inv()
     }
@@ -808,7 +807,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
         &&& self.pt_cursor.inner.va % page_size(level) == 0
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(item, regions)
         &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
     }
 
@@ -866,11 +864,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
         let start_va = self.virt_addr();
         let item = MappedItem { frame: frame, prop: prop };
-
-        assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
-            item,
-            *old(regions),
-        )) by { };
 
         assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
             item,
@@ -934,7 +927,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.va % PAGE_SIZE == 0,
             old(self).pt_cursor.inner.va + len <= KERNEL_VADDR_RANGE.end as int,
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
-            old(cursor_owner).metaregion_correct(*old(regions)),
             old(cursor_owner).in_locked_range(),
             old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
             old(tlb_model).inv(),
@@ -979,7 +971,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.pt_cursor.inner.va % PAGE_SIZE == 0,
                 end_va % PAGE_SIZE == 0,
                 self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
-                cursor_owner.metaregion_correct(*regions),
+                old(cursor_owner).metaregion_correct(*old(regions)) ==> cursor_owner.metaregion_correct(*regions),
                 end_va <= self.pt_cursor.inner.barrier_va.end,
                 tlb_model.inv(),
                 start_va <= cursor_owner@.cur_va,

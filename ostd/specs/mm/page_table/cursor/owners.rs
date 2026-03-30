@@ -1941,6 +1941,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// This lemma encapsulates the `map_children_implies` proof for `not_in_tree`, factored out
     /// so it runs in its own Z3 context (avoiding rlimit issues when called from large functions).
+    /// If `path_if_in_pt is None` at the new entry's slot, then no NODE in the tree
+    /// has the same paddr (node metaregion_sound requires path_if_in_pt == Some).
+    /// Frames CAN share paddrs (they don't track path_if_in_pt).
     pub proof fn not_in_tree_from_not_mapped(
         self,
         regions: MetaRegionOwners,
@@ -1954,15 +1957,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 frame_to_index(new_entry.meta_slot_paddr().unwrap())
             ].path_if_in_pt is None,
         ensures
-            self.not_in_tree(new_entry),
+            // Only guarantees paddr_neq for node entries (frames can share paddrs).
+            self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                e.is_node() ==> e.meta_slot_paddr_neq(new_entry)),
     {
         let pa = new_entry.meta_slot_paddr().unwrap();
-        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.meta_slot_paddr_neq(new_entry);
+        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+            e.is_node() ==> e.meta_slot_paddr_neq(new_entry);
         assert(OwnerSubtree::implies(PageTableOwner::<C>::path_tracked_pred(regions), g)) by {
             assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 PageTableOwner::<C>::path_tracked_pred(regions)(entry, path)
                 implies #[trigger] g(entry, path) by {
-                if entry.meta_slot_paddr() is Some && entry.meta_slot_paddr().unwrap() == pa {
+                if entry.is_node() && entry.meta_slot_paddr() is Some
+                    && entry.meta_slot_paddr().unwrap() == pa {
+                    // Node: path_tracked_pred gives path_if_in_pt == Some(entry.path).
+                    // But precondition says path_if_in_pt is None. Contradiction.
                     assert(false);
                 }
             };

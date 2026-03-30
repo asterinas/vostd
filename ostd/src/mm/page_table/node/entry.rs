@@ -265,7 +265,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Tracked(owner): Tracked<&mut EntryOwner<C>>,
             Tracked(new_owner): Tracked<&mut EntryOwner<C>>,
             Tracked(parent_owner): Tracked<&mut NodeOwner<C>>,
-            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>
+            Tracked(guard_perm): Tracked<&mut GuardPerm<'rcu, C>>,
+            Ghost(write_path): Ghost<bool>
     )]
     pub(in crate::mm) fn replace(&mut self, new_child: Child<C>) -> (res: Child<C>)
         requires
@@ -283,23 +284,37 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             *owner == old(owner).from_pte_owner_spec(),
             *new_owner == old(new_owner).into_pte_owner_spec(),
             Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions),
-            // When the new child is not a node, into_pte doesn't change raw_count.
-            // metaregion_sound is preserved with only paddr_neq(old_child) — no paddr_neq(new_child) needed.
-            !new_owner.is_node() ==>
+            // When the new child is not a node and path_if_in_pt is not written:
+            // metaregion_sound is preserved with only paddr_neq(old_child).
+            (!new_owner.is_node() && !write_path) ==>
                 Self::metaregion_sound_neq_old_preserved(*old(owner), *old(regions), *regions),
-            // When BOTH old and new are not nodes, regions only differs in path_if_in_pt.
-            // metaregion_sound is fully preserved (no neq needed at all).
-            (!old(owner).is_node() && !new_owner.is_node()) ==>
+            // When BOTH old and new are not nodes AND path_if_in_pt was None at new_idx
+            // (from item_not_mapped), metaregion_sound is fully preserved:
+            // no node had metaregion_sound at new_idx (requires path_if_in_pt == Some),
+            // and frames don't check path_if_in_pt.
+            // When path_if_in_pt is NOT written (!write_path && !is_node): metaregion_sound fully preserved.
+            (!old(owner).is_node() && !new_owner.is_node() && !write_path) ==>
                 Self::metaregion_sound_preserved(*old(regions), *regions),
-            !new_owner.is_absent() ==> PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path),
+            // path_tracked_pred for new owner when path_if_in_pt is written (node or write_path).
+            (new_owner.is_node() || write_path) && !new_owner.is_absent() ==>
+                PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path),
             self.parent_perms_preserved(*old(parent_owner), *parent_owner, *guard_perm, *old(guard_perm)),
-            // path_if_in_pt only changes for the new owner's slot; all other slots preserve their value.
+            // path_if_in_pt changes when new owner is a node OR write_path; preserved otherwise.
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-                (new_owner.is_absent() || idx != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+                (!(new_owner.is_node() || write_path) || new_owner.is_absent()
+                    || idx != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
                     ==> regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
             forall|k: usize| old(regions).slots.contains_key(k)
                 ==> #[trigger] regions.slots.contains_key(k),
+            // When both old and new are not nodes: from_pte/into_pte are identity.
+            (!old(owner).is_node() && !new_owner.is_node()) ==> {
+                &&& regions.slots == old(regions).slots
+                &&& forall|i: usize| #![trigger regions.slot_owners[i]]
+                    (!(new_owner.is_node() || write_path) || new_owner.is_absent()
+                        || i != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+                    ==> regions.slot_owners[i] == old(regions).slot_owners[i]
+            },
             // When old child is absent and new child is not a node: slots values unchanged.
             (old(owner).is_absent() && !new_owner.is_node()) ==>
                 forall|k: usize| old(regions).slots.contains_key(k)
@@ -373,7 +388,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         self.pte = new_pte;
 
         proof {
-            if new_owner.is_node() || new_owner.is_frame() {
+            if new_owner.is_node() || (write_path && !new_owner.is_absent()) {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.inv_implies_correct_addr(paddr);
 
@@ -386,52 +401,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         assert(Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions));
 
-        // When new child is not a node: into_pte doesn't change raw_count,
-        // only path_if_in_pt at new_idx changes. metaregion_sound doesn't use path_if_in_pt,
-        // so paddr_neq(old_child) suffices.
         proof {
-            if !new_owner.is_node() {
-                let f_sound_old_only = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.meta_slot_paddr_neq(*old(owner))
-                    && entry.metaregion_sound(*old(regions));
-                let g_sound = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.metaregion_sound(*regions);
-                assert(OwnerSubtree::implies(f_sound_old_only, g_sound)) by {
-                    assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                        entry.inv() && f_sound_old_only(entry, path)
-                        implies #[trigger] g_sound(entry, path) by {
-                        // paddr_neq(old) => eidx != old_idx => from_pte didn't touch eidx.
-                        // If eidx != new_idx: slot_owners[eidx] unchanged.
-                        // If eidx == new_idx: only path_if_in_pt changed, metaregion_sound unaffected.
-                        if entry.meta_slot_paddr() is Some {
-                            let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
-                            if eidx != new_idx {
-                                // slot_owners[eidx] entirely unchanged
-                            }
-                            // eidx == new_idx: inner_perms, self_addr, raw_count, usage unchanged
-                            // because paddr_neq(old) => eidx != old_idx, so from_pte didn't touch it,
-                            // and into_pte is identity for non-node new child,
-                            // and only path_if_in_pt was set at new_idx.
-                        }
-                    };
-                };
-            }
-            // When both old and new are not nodes: from_pte and into_pte are identity,
-            // only path_if_in_pt changed. metaregion_sound doesn't inspect path_if_in_pt.
-            if !old(owner).is_node() && !new_owner.is_node() {
-                let f_s = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.metaregion_sound(*old(regions));
-                let g_s = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.metaregion_sound(*regions);
-                assert(OwnerSubtree::implies(f_s, g_s)) by {
-                    assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                        entry.inv() && f_s(entry, path)
-                        implies #[trigger] g_s(entry, path) by {
-                        if entry.meta_slot_paddr() is Some {
-                            entry.metaregion_sound_path_if_in_pt_changed(*old(regions), *regions, new_idx);
-                        }
-                    };
-                };
+            // When both old and new are not nodes and path_if_in_pt is not written:
+            // from_pte/into_pte are identity, no slot_owners change. Regions unchanged.
+            if !old(owner).is_node() && !new_owner.is_node() && !write_path {
+                // slot_owners and slots are identical → metaregion_sound trivially preserved.
             }
         }
 
@@ -913,7 +887,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 Tracked(&mut new_owner_child.value),
                 Tracked(&mut child_owner),
                 Tracked(&mut new_owner_node),
-                Tracked(&mut new_guard_perm))]
+                Tracked(&mut new_guard_perm),
+                Ghost(false))]
             let old = entry.replace(Child::Frame(small_pa, level - 1, prop));
 
             proof {

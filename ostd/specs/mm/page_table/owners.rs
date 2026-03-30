@@ -485,7 +485,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
-            entry.meta_slot_paddr() is Some ==> {
+            // Only nodes track path_if_in_pt (frames can be shared).
+            entry.is_node() && entry.meta_slot_paddr() is Some ==> {
                 &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
                 &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt
                         == Some(entry.path)
@@ -752,6 +753,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// has `e.path == p`.  Since `!is_prefix_of(path_j, old_entry.path)`, no structural position
     /// in the subtree equals `old_entry.path`.  Combined with `path_tracked_pred`
     /// uniqueness (via `same_paddr_implies_same_path`), same paddr would force same path — contradiction.
+    /// Entries in a subtree whose path is disjoint from `old_entry`'s path
+    /// have different physical addresses from `old_entry`.
+    /// Uses `metaregion_sound` (which includes `path_if_in_pt` for nodes) to derive
+    /// that same-paddr entries would share `path_if_in_pt`, contradicting path disjointness.
     pub axiom fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
         path_j: TreePath<NR_ENTRIES>,
@@ -764,7 +769,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             path_j.len() == subtree.level,
             path_j.inv(),
             path_j.len() <= INC_LEVELS - 1,
-            subtree.tree_predicate_map(path_j, Self::path_tracked_pred(regions)),
+            subtree.tree_predicate_map(path_j, Self::metaregion_sound_pred(regions)),
+            old_entry.is_node(),
             old_entry.meta_slot_paddr() is Some,
             regions.slot_owners[
                 frame_to_index(old_entry.meta_slot_paddr().unwrap())

@@ -378,11 +378,6 @@ impl KVirtArea {
             forall |i: int| 0 <= i < old(entry_owners).len() ==> (#[trigger] old(entry_owners)[i]).inv(),
             forall |i: int| 0 <= i < frames.len() ==>
                 frame_entry_wf(frames[i], prop, #[trigger] old(entry_owners)[i]),
-            forall |i: int| 0 <= i < frames.len() ==>
-                CursorMut::<'a, KernelPtConfig, A>::item_not_mapped(
-                    MappedItem::Tracked(frame_as_dynframe(#[trigger] frames[i]), prop),
-                    *old(regions),
-                ),
             // Frames have distinct physical addresses (follows from linearity of slot_perm ownership).
             forall |i: int, j: int| 0 <= i < j < frames.len() ==>
                 (#[trigger] old(entry_owners)[i]).frame.unwrap().mapped_pa != (#[trigger] old(entry_owners)[j]).frame.unwrap().mapped_pa,
@@ -412,19 +407,6 @@ impl KVirtArea {
 
         let ghost init_frames_len = frames.len();
 
-        assert forall |j: int| #![trigger entry_owners[j]]
-            0 <= j < frames@.len()
-            implies regions.slot_owners[frame_to_index_spec(entry_owners[j].frame.unwrap().mapped_pa)].path_if_in_pt is None
-        by {
-            let item = MappedItem::Tracked(frame_as_dynframe(frames@[j]), prop);
-            KernelPtConfig::item_into_raw_spec_tracked_level(item);
-            let (pa, level, _) = KernelPtConfig::item_into_raw_spec(item);
-            assert(level == 1u8);
-            vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                nr_subpage_per_huge::<PagingConsts>().ilog2() as int);
-            vstd::arithmetic::power::lemma_pow0(2int);
-        };
-
         for frame in it: frames.into_iter()
             invariant
                 cursor.inner.invariants(cursor_owner, *regions, *guards),
@@ -441,10 +423,6 @@ impl KVirtArea {
                 forall |j: int|
                     0 <= j < entry_owners.len() && it.pos + j < it.elements.len() ==>
                     frame_entry_wf(it.elements[it.pos + j], prop, entry_owners[j]),
-                // item_not_mapped holds in current regions for all remaining frames
-                forall |j: int| #![trigger entry_owners[j]]
-                    0 <= j < it.elements.len() - it.pos ==>
-                    regions.slot_owners[frame_to_index_spec(entry_owners[j].frame.unwrap().mapped_pa)].path_if_in_pt is None,
                 // Remaining frames have distinct physical addresses
                 forall |i: int, j: int| 0 <= i < j < it.elements.len() - it.pos ==>
                     (#[trigger]entry_owners[i]).frame.unwrap().mapped_pa != (#[trigger] entry_owners[j]).frame.unwrap().mapped_pa,
