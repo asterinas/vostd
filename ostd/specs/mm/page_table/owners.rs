@@ -16,11 +16,14 @@ use vstd_extra::prelude::TreeNodeValue;
 use crate::mm::{page_table::EntryOwner, Paddr, PagingLevel, Vaddr, MAX_NR_LEVELS};
 
 use crate::mm::frame::frame_to_index;
-use crate::mm::page_table::{PageTableEntryTrait, PageTableGuard};
+use crate::mm::page_table::{page_size_spec, PageTableEntryTrait, PageTableGuard};
 
 use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{
+    lemma_page_size_divides, lemma_page_size_ge_page_size,
+};
 
 use core::ops::Deref;
 
@@ -80,11 +83,37 @@ pub open spec fn vaddr(path: TreePath<NR_ENTRIES>) -> usize {
 /// page_size is monotonically increasing in its argument.
 pub proof fn page_size_monotonic(a: PagingLevel, b: PagingLevel)
     requires
+        1 <= a <= NR_LEVELS + 1,
+        1 <= b <= NR_LEVELS + 1,
         a <= b,
     ensures
         page_size(a) <= page_size(b),
 {
-    admit()
+    if a == b {
+    } else {
+        let ps_a = page_size(a);
+        let ps_b = page_size(b);
+
+        assert(ps_a == page_size_spec(a));
+        assert(ps_b == page_size_spec(b));
+
+        lemma_page_size_ge_page_size(a);
+        lemma_page_size_ge_page_size(b);
+        assert(ps_a > 0);
+        assert(ps_b > 0);
+
+        lemma_page_size_divides(a, b);
+        assert(ps_b % ps_a == 0);
+
+        assert(ps_a <= ps_b) by {
+            if ps_b < ps_a {
+                vstd::arithmetic::div_mod::lemma_small_mod(ps_b as nat, ps_a as nat);
+                assert(ps_b % ps_a == ps_b);
+                assert(ps_b % ps_a == 0);
+                assert(false);
+            }
+        }
+    }
 }
 
 /// Sibling paths (same prefix, different last index) have disjoint VA ranges.
@@ -303,18 +332,113 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             if i1 == i2 {
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_disjoint_vaddrs(path.push_tail(i1 as usize), m1, m2);
             } else if i1 < i2 {
-                let page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
-                // TODO: connect TreePath to AbstractVaddr
-                assert(vaddr(path.push_tail(i1 as usize)) + page_size <= vaddr(path.push_tail(i2 as usize))) by { admit(); };
+                let parent_page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
+                let child_page_size = page_size((INC_LEVELS - path.len() - 1) as PagingLevel);
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_vaddr_range(path.push_tail(i1 as usize), m1);
                 PageTableOwner(self.0.children[i2].unwrap()).view_rec_vaddr_range(path.push_tail(i2 as usize), m2);
                 page_size_monotonic((INC_LEVELS - path.len() - 1) as PagingLevel, (INC_LEVELS - path.len()) as PagingLevel);
+                assert(child_page_size <= parent_page_size);
+                sibling_paths_disjoint(path, i1 as usize, i2 as usize, parent_page_size);
+                if vaddr(path.push_tail(i1 as usize)) + parent_page_size <= vaddr(path.push_tail(i2 as usize)) {
+                    let start1: usize = vaddr(path.push_tail(i1 as usize));
+                    let start2: usize = vaddr(path.push_tail(i2 as usize));
+                    let m1_end: usize = m1.va_range.end;
+                    let m2_start: usize = m2.va_range.start;
+                    assert(m1_end <= start1 + child_page_size);
+                    assert(start1 + child_page_size <= start1 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            child_page_size <= parent_page_size,
+                    ;
+                    assert(m1_end <= start1 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            m1_end <= start1 + child_page_size,
+                            start1 + child_page_size <= start1 + parent_page_size,
+                    ;
+                    assert(start2 <= m2_start);
+                    assert(m1_end <= m2_start) by (nonlinear_arith)
+                        requires
+                            m1_end <= start1 + parent_page_size,
+                            start1 + parent_page_size <= start2,
+                            start2 <= m2_start,
+                    ;
+                } else {
+                    let start2: usize = vaddr(path.push_tail(i2 as usize));
+                    let start1: usize = vaddr(path.push_tail(i1 as usize));
+                    let m2_end: usize = m2.va_range.end;
+                    let m1_start: usize = m1.va_range.start;
+                    assert(start2 + parent_page_size <= start1);
+                    assert(m2_end <= start2 + child_page_size);
+                    assert(start2 + child_page_size <= start2 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            child_page_size <= parent_page_size,
+                    ;
+                    assert(m2_end <= start2 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            m2_end <= start2 + child_page_size,
+                            start2 + child_page_size <= start2 + parent_page_size,
+                    ;
+                    assert(start1 <= m1_start);
+                    assert(m2_end <= m1_start) by (nonlinear_arith)
+                        requires
+                            m2_end <= start2 + parent_page_size,
+                            start2 + parent_page_size <= start1,
+                            start1 <= m1_start,
+                    ;
+                }
             } else {
-                let page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
-                assert(vaddr(path.push_tail(i2 as usize)) + page_size <= vaddr(path.push_tail(i1 as usize))) by { admit(); };
+                let parent_page_size = page_size((INC_LEVELS - path.len()) as PagingLevel);
+                let child_page_size = page_size((INC_LEVELS - path.len() - 1) as PagingLevel);
                 PageTableOwner(self.0.children[i2].unwrap()).view_rec_vaddr_range(path.push_tail(i2 as usize), m2);
                 PageTableOwner(self.0.children[i1].unwrap()).view_rec_vaddr_range(path.push_tail(i1 as usize), m1);
                 page_size_monotonic((INC_LEVELS - path.len() - 1) as PagingLevel, (INC_LEVELS - path.len()) as PagingLevel);
+                assert(child_page_size <= parent_page_size);
+                sibling_paths_disjoint(path, i2 as usize, i1 as usize, parent_page_size);
+                if vaddr(path.push_tail(i2 as usize)) + parent_page_size <= vaddr(path.push_tail(i1 as usize)) {
+                    let start2: usize = vaddr(path.push_tail(i2 as usize));
+                    let start1: usize = vaddr(path.push_tail(i1 as usize));
+                    let m2_end: usize = m2.va_range.end;
+                    let m1_start: usize = m1.va_range.start;
+                    assert(m2_end <= start2 + child_page_size);
+                    assert(start2 + child_page_size <= start2 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            child_page_size <= parent_page_size,
+                    ;
+                    assert(m2_end <= start2 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            m2_end <= start2 + child_page_size,
+                            start2 + child_page_size <= start2 + parent_page_size,
+                    ;
+                    assert(start1 <= m1_start);
+                    assert(m2_end <= m1_start) by (nonlinear_arith)
+                        requires
+                            m2_end <= start2 + parent_page_size,
+                            start2 + parent_page_size <= start1,
+                            start1 <= m1_start,
+                    ;
+                } else {
+                    let start1: usize = vaddr(path.push_tail(i1 as usize));
+                    let start2: usize = vaddr(path.push_tail(i2 as usize));
+                    let m1_end: usize = m1.va_range.end;
+                    let m2_start: usize = m2.va_range.start;
+                    assert(start1 + parent_page_size <= start2);
+                    assert(m1_end <= start1 + child_page_size);
+                    assert(start1 + child_page_size <= start1 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            child_page_size <= parent_page_size,
+                    ;
+                    assert(m1_end <= start1 + parent_page_size) by (nonlinear_arith)
+                        requires
+                            m1_end <= start1 + child_page_size,
+                            start1 + child_page_size <= start1 + parent_page_size,
+                    ;
+                    assert(start2 <= m2_start);
+                    assert(m1_end <= m2_start) by (nonlinear_arith)
+                        requires
+                            m1_end <= start1 + parent_page_size,
+                            start1 + parent_page_size <= start2,
+                            start2 <= m2_start,
+                    ;
+                }
             }
         }
     }
@@ -384,6 +508,68 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             entry.path == path
         }
+    }
+
+    pub open spec fn not_in_scope_pred()
+        -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
+    {
+        |entry: EntryOwner<C>, _path: TreePath<NR_ENTRIES>| !entry.in_scope
+    }
+
+    /// Every entry in an OwnerSubtree has `!in_scope`.
+    /// Follows from `EntryOwner::inv()` including `!in_scope`, propagated through the tree.
+    pub proof fn tree_not_in_scope(subtree: OwnerSubtree<C>, path: TreePath<NR_ENTRIES>)
+        requires
+            subtree.inv(),
+        ensures
+            subtree.tree_predicate_map(path, Self::not_in_scope_pred()),
+        decreases INC_LEVELS - subtree.level,
+    {
+        // subtree.inv() => inv_node() => value.inv() => !value.in_scope
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                0 <= i < subtree.children.len()
+                && (#[trigger] subtree.children[i]) is Some implies
+                subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize), Self::not_in_scope_pred())
+            by {
+                Self::tree_not_in_scope(
+                    subtree.children[i].unwrap(), path.push_tail(i as usize));
+            };
+        }
+    }
+
+    /// All mappings in a subtree's `view_rec` have `page_size <= page_size(pt_level)`
+    /// where `pt_level = INC_LEVELS - path.len()` (the paging level of the subtree root).
+    ///
+    /// For frames: the mapping has exactly `page_size(pt_level)`.
+    /// For nodes: children have longer paths, so their mappings have strictly smaller page sizes.
+    pub proof fn view_rec_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
+        requires
+            self.0.inv(),
+            path.len() <= INC_LEVELS - 1,
+            self.view_rec(path).contains(m),
+        ensures
+            m.page_size <= page_size((INC_LEVELS - path.len()) as PagingLevel),
+        decreases INC_LEVELS - path.len(),
+    {
+        admit()
+    }
+
+    /// For a node subtree, all mappings have `page_size < page_size(pt_level)`, i.e.,
+    /// `page_size <= page_size(pt_level - 1)`.  This is because node mappings come from
+    /// children whose paths are one level deeper.
+    pub proof fn view_rec_node_page_size_bound(self, path: TreePath<NR_ENTRIES>, m: Mapping)
+        requires
+            self.0.inv(),
+            self.0.value.is_node(),
+            path.len() < INC_LEVELS - 1,
+            self.view_rec(path).contains(m),
+        ensures
+            m.page_size <= page_size(((INC_LEVELS - path.len()) - 1) as PagingLevel),
+        decreases INC_LEVELS - path.len(),
+    {
+        admit()
     }
 
     /// Spec function: path1 is a prefix of path2
@@ -618,7 +804,19 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         } else if subtree.level == INC_LEVELS - 1 || !subtree.value.is_node() {
             proof_from_false()
         } else {
-            assert(root_path.len() < dest_path.len()) by { admit() };
+            assert(root_path.len() < dest_path.len()) by {
+                assert(root_path.len() <= dest_path.len());
+                if root_path.len() == dest_path.len() {
+                    assert(root_path =~= dest_path) by {
+                        assert(root_path.0.len() == dest_path.0.len());
+                        assert forall |i: int| 0 <= i < root_path.0.len() implies #[trigger] root_path.0[i] == dest_path.0[i] by {
+                            assert(root_path.index(i) == dest_path.index(i));
+                        };
+                    };
+                    assert(root_path == dest_path);
+                    assert(false);
+                }
+            };
             let i = dest_path.index(root_path.len() as int);
             assert(0 <= i < NR_ENTRIES);
             assert(subtree.children[i as int] is Some);

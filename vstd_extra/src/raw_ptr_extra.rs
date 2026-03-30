@@ -156,19 +156,19 @@ impl<T> PointsTowithDealloc<T> {
         PointsTowithDealloc { points_to, dealloc: None }
     }
 
-    pub proof fn into_raw(tracked self) -> (tracked ret: (PointsToRaw, Option<Dealloc>))
+    pub proof fn into_raw(tracked self) -> (tracked (ret,dealloc): (PointsToRaw, Option<Dealloc>))
         requires
             self.inv(),
             self.is_uninit(),
         ensures
-            match ret.1 {
+            match dealloc {
                 Some(dealloc) => {
                     &&& vstd::layout::size_of::<T>() > 0
                     &&& dealloc.addr() == self.addr()
                     &&& dealloc.addr() as int % vstd::layout::align_of::<T>() as int == 0
                     &&& dealloc.size() == vstd::layout::size_of::<T>() as int
-                    &&& dealloc.provenance() == ret.0.provenance()
-                    &&& ret.0.is_range(dealloc.addr() as int, vstd::layout::size_of::<T>() as int)
+                    &&& dealloc.provenance() == ret.provenance()
+                    &&& ret.is_range(dealloc.addr() as int, vstd::layout::size_of::<T>() as int)
                 },
                 None => { &&& vstd::layout::size_of::<T>() == 0 },
             },

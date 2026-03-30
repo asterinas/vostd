@@ -37,12 +37,16 @@ use core::ops::Range;
 
 // Import types and constants from arch
 pub use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, NR_ENTRIES, NR_LEVELS};
+
+#[doc(hidden)]
 pub use crate::specs::arch::paging_consts::PagingConsts;
 
 // Re-export paddr_to_vaddr from kspace
+#[doc(hidden)]
 pub use kspace::paddr_to_vaddr;
 
 // Re-export largest_pages from page_table
+#[doc(hidden)]
 pub use page_table::largest_pages;
 
 verus! {

@@ -46,7 +46,7 @@ use crate::specs::mm::frame::mapping::{
     frame_to_index, frame_to_index_spec, frame_to_meta, max_meta_slots,
     meta_addr, meta_to_frame, META_SLOT_SIZE
 };
-use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_UNUSED};
+use crate::specs::mm::frame::meta_owners::{MetaSlotOwner, REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
 
@@ -206,6 +206,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         ensures
             res == *item,
             rc_perm.value() == old(rc_perm).value() + 1,
+            rc_perm.id() == old(rc_perm).id(),
     {
         item.clone(Tracked(slot_perm), Tracked(rc_perm))
     }
@@ -454,6 +455,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     let cloned = Self::clone_item(&item);
 
                     proof {
+                        assert(slot_own.inner_perms.ref_count.id() ==
+                            old_regions.slot_owners[idx].inner_perms.ref_count.id());
+                        assume(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                            && old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX);
                         regions.slot_owners.tracked_insert(idx, slot_own);
                         owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         assert(regions.inv());
@@ -1975,7 +1980,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.map_branch_none_inv_holds(owner0);
 
             assert(Entry::<C>::path_tracked_pred_preserved(*old(regions), *regions));
+            let f_ptp = PageTableOwner::<C>::path_tracked_pred(*old(regions));
+            let g_ptp = PageTableOwner::<C>::path_tracked_pred(*regions);
+            // Prove idx-th child satisfies tree_predicate_map(path, ptp(regions)).
+            assert(cont_final.children[idx].unwrap().tree_predicate_map(
+                cont_final.path().push_tail(idx as usize), g_ptp)) by {
+                let child = cont_final.children[idx].unwrap();
+                // Node entry: ptp requires path_if_in_pt is Some (set by alloc_if_none)
+                assert(child.value.meta_slot_paddr() is Some);
+                assert(regions.slot_owners[new_pt_idx].path_if_in_pt is Some);
+                assert(g_ptp(child.value, cont_final.path().push_tail(idx as usize)));
+                // All children of the new node are absent (meta_slot_paddr is None), so ptp is vacuous.
+            };
+            cont_final.map_children_lift_skip_idx(cont0, idx, f_ptp, g_ptp);
             owner.map_branch_none_path_tracked_holds(owner0, *regions, *old(regions));
+
         }
 
         let ghost owner_pre_push = *owner;
@@ -2192,7 +2211,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.map_branch_pt(pt, rcu_guard);
 
                     proof {
-                        axiom_page_size_monotone(self.inner.level, level_pre_pt);
+                        lemma_page_size_monotone(self.inner.level, level_pre_pt);
                         owner0@.split_while_huge_compose(page_size(level_pre_pt), page_size(self.inner.level));
                         owner_pre_pt.split_while_huge_node_noop();
                         assert(child_entry_val == owner1.cur_entry_owner());
@@ -2209,7 +2228,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     self.map_branch_none(&mut cur_entry, rcu_guard);
 
                     proof {
-                        axiom_page_size_monotone(self.inner.level, level_pre_none);
+                        lemma_page_size_monotone(self.inner.level, level_pre_none);
                         owner0@.split_while_huge_compose(page_size(level_pre_none), page_size(self.inner.level));
                         owner_pre_none.split_while_huge_absent_noop(page_size(self.inner.level));
                         assert(owner@ == owner0@.split_while_huge(page_size(self.inner.level)));
@@ -2345,6 +2364,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 self.map_cursor_requires(*owner, *guards),
             (C::item_into_raw(item).1 <= old(self).inner.level
                 && old(owner).cur_entry_owner().is_absent()) ==> res.is_ok(),
+            res is Err && res.unwrap_err() is StrayPageTable ==> C::item_into_raw(item).1 > 1,
             // For non-UNUSED indices other than the mapped frame, path_if_in_pt is preserved.
             forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
                 idx != frame_to_index(C::item_into_raw(item).0) &&
@@ -2414,12 +2434,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // Therefore slot_owners[frame_to_index(pa)].path_if_in_pt is None.
             let ghost pa_idx = frame_to_index(pa);
             // Size is positive so pa is strictly below pa+size.
-            axiom_page_size_ge_page_size(level);
+            lemma_page_size_ge_page_size(level);
             assert(regions_before_new_child.slot_owners[pa_idx].path_if_in_pt is None) by {
                 assert(Self::item_slot_in_regions(item, *old(regions)));
                 assert(regions_before_new_child.slot_owners[pa_idx] == old(regions).slot_owners[pa_idx]);
                 assert(Self::item_not_mapped(item, *old(regions)));
-                axiom_pa_plus_page_size_no_overflow(pa, level);
+                lemma_pa_plus_page_size_no_overflow(pa, level);
                 let ghost range = pa..(pa + size) as usize;
                 old(regions).paddr_not_mapped_at(range, pa);
             };
@@ -2520,6 +2540,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         }
 
         if let Some(frag) = frag {
+            proof {
+                if frag is StrayPageTable {
+                    assert(owner1.cur_entry_owner().is_node());
+                    owner1.cur_entry_node_implies_level_gt_1();
+                    assert(level == owner1.level);
+                    assert(level > 1);
+                }
+            }
             Err(frag)
         } else {
             Ok(())
@@ -3334,4 +3362,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
-

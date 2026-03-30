@@ -12,7 +12,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.client_payload.branch }}
           submodules: recursive
@@ -41,7 +41,7 @@ jobs:
 
       - name: Dispatch back to fork for promotion
         if: success()
-        uses: peter-evans/repository-dispatch@v2
+        uses: peter-evans/repository-dispatch@v4
         with:
           token: ${{ secrets.VERUS_TEST_TOKEN }}
           repository: asterinas/verus

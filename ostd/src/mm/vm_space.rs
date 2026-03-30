@@ -793,6 +793,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         frame: UFrame,
         prop: PageProperty,
         entry_owner: EntryOwner<UserPtConfig>,
+        regions: MetaRegionOwners,
     ) -> bool {
         let item = MappedItem { frame: frame, prop: prop };
         let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
@@ -801,10 +802,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &&& entry_owner.frame.unwrap().prop == prop
         &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
         &&& 1 <= level <= NR_LEVELS  // Should be property of item_into_raw
+        &&& level < self.pt_cursor.inner.guard_level
         &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
         &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
         &&& entry_owner.inv()
         &&& self.pt_cursor.inner.va % page_size(level) == 0
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(item, regions)
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
     }
 
     /// The result of a call to `map`. Constructs a `Mapping` from the frame being mapped and the cursor's current virtual address.
@@ -848,7 +852,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
             old(self).map_cursor_requires(*old(cursor_owner)),
             old(self).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
-            old(self).map_item_requires(frame, prop, entry_owner),
+            old(self).map_item_requires(frame, prop, entry_owner, *old(regions)),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
             old(self).map_item_ensures(
@@ -865,14 +869,14 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
             item,
             *old(regions),
-        )) by { admit() };
+        )) by { };
 
         assert(crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(
             item,
             *old(regions),
-        )) by { admit() };
+        )) by { };
 
-        assert(self.pt_cursor.map_item_requires(item, entry_owner)) by { admit() };
+        assert(self.pt_cursor.map_item_requires(item, entry_owner)) by { };
 
         // SAFETY: It is safe to map untyped memory into the userspace.
         let Err(frag) = (
@@ -892,7 +896,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 self.flusher.dispatch_tlb_flush();
             },
             PageTableFrag::StrayPageTable { .. } => {
-                assert(false) by { admit() };
+                assert(false) by {
+                    assert(UserPtConfig::item_into_raw(item).1 == 1);
+                };
                 //panic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }
@@ -1229,7 +1235,9 @@ unsafe impl PageTableConfig for UserPtConfig {
 
     type Item = MappedItem;
 
-    uninterp spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty);
+    open spec fn item_into_raw_spec(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
+        (item.frame.paddr(), 1, item.prop)
+    }
 
     #[verifier::external_body]
     fn item_into_raw(item: Self::Item) -> (Paddr, PagingLevel, PageProperty) {
