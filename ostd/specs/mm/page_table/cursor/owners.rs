@@ -1717,7 +1717,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub proof fn prefix_in_locked_range(self)
         requires
-            forall|i:int| i >= self.guard_level ==> self.va.index[i] == self.prefix.index[i],
+            forall|i:int| self.guard_level <= i < NR_LEVELS ==> self.va.index[i] == self.prefix.index[i],
         ensures
             self.in_locked_range(),
     { admit() }

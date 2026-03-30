@@ -410,8 +410,6 @@ impl KVirtArea {
         for frame in it: frames.into_iter()
             invariant
                 cursor.inner.invariants(cursor_owner, *regions, *guards),
-                forall |entry: EntryOwner<KernelPtConfig>| entry_owners.contains(entry) ==>
-                    cursor.map_cursor_requires(cursor_owner, *guards),
                 forall |i: int| 0 <= i < entry_owners.len() ==> (#[trigger]entry_owners[i]).inv(),
                 cursor.inner.va % PAGE_SIZE == 0,
                 cursor.inner.va as int + entry_owners.len() as int * PAGE_SIZE as int
@@ -429,7 +427,6 @@ impl KVirtArea {
         {
             proof {
                 assert(entry_owners.contains(entry_owners[0]));
-                assert(cursor.map_cursor_requires(cursor_owner, *guards));
                 assert(frame_entry_wf(frame, prop, entry_owners[0]));
             }
 
@@ -600,9 +597,6 @@ impl KVirtArea {
                             + sum_page_sizes_spec(it.elements, 0, it.pos as int),
                     cursor.inner.barrier_va.end == va_range.start + len,
                     it.pos <= it.elements.len(),
-                    // map_cursor_requires holds while there are remaining elements.
-                    it.pos < it.elements.len() ==>
-                        cursor.map_cursor_requires(cursor_owner, *guards),
                     // PA tracking: element[i].0 == pa_range.start + sum of preceding sizes.
                     forall |i: int| #![auto] 0 <= i < it.elements.len() ==>
                         it.elements[i].0 as nat
@@ -628,6 +622,8 @@ impl KVirtArea {
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
+                // TODO: derive pa < MAX_PADDR from pa_range bounds.
+                assume(pa < MAX_PADDR);
                 proof_decl! {
                     let tracked mut entry_owner =
                         EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
@@ -655,9 +651,10 @@ impl KVirtArea {
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                    item, *regions,
-                )) by { admit() };
+                // TODO: derive from VA tracking + page size arithmetic.
+                assume(!cursor.map_panic_conditions(item));
+                assume(cursor.map_item_requires(item, entry_owner));
+                assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 

@@ -466,6 +466,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(owner).in_locked_range(),
         ensures
             self.0.invariants(*owner, *regions, *guards),
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             self.0.query_some_condition(*owner) ==> {
                 &&& r is Ok
                 &&& self.0.query_some_ensures(*owner, r.unwrap())
@@ -474,6 +475,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                 &&& r is Ok
                 &&& self.0.query_none_ensures(*owner, r.unwrap())
             },
+            old(owner)@.mappings == owner@.mappings,
+            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*regions),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -513,12 +516,10 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).0.level < old(self).0.guard_level,
-            old(owner).in_locked_range(),
-            len % PAGE_SIZE == 0,
-            old(self).0.va + len <= old(self).0.barrier_va.end,
+            !old(self).0.find_next_panic_condition(len),
         ensures
             self.0.invariants(*owner, *regions, *guards),
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             res is Some ==> {
                 &&& res.unwrap() == self.0.va
                 &&& owner.level < owner.guard_level
@@ -556,6 +557,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.jump_panic_condition(va),
         ensures
             self.0.invariants(*owner, *regions, *guards),
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             self.0.barrier_va.start <= va < self.0.barrier_va.end ==> {
                 &&& res is Ok
                 &&& self.0.va == va
@@ -589,29 +591,6 @@ pub struct CursorMut<'a, A: InAtomicMode> {
 }
 
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
-    pub open spec fn query_requires(
-        cursor: Self,
-        owner: CursorOwner<'a, UserPtConfig>,
-        guard_perm: vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& cursor.pt_cursor.inner.wf(owner)
-        &&& owner.inv()
-        &&& regions.inv()
-    }
-
-    pub open spec fn query_ensures(
-        old_cursor: Self,
-        new_cursor: Self,
-        owner: CursorOwner<'a, UserPtConfig>,
-        guard_perm: vstd::simple_pptr::PointsTo<PageTableGuard<'a, UserPtConfig>>,
-        old_regions: MetaRegionOwners,
-        new_regions: MetaRegionOwners,
-        r: Result<(Range<Vaddr>, Option<MappedItem>)>,
-    ) -> bool {
-        &&& new_regions.inv()
-        &&& new_cursor.pt_cursor.inner.wf(owner)
-    }
 
     /// Queries the mapping at the current virtual address.
     ///
@@ -637,17 +616,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
-            old(owner).in_locked_range(),
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
-            old(self).pt_cursor.inner.query_some_condition(*owner) ==> {
-                &&& res is Ok
-                &&& self.pt_cursor.inner.query_some_ensures(*owner, res.unwrap())
-            },
-            !old(self).pt_cursor.inner.query_some_condition(*owner) ==> {
-                &&& res is Ok
-                &&& self.pt_cursor.inner.query_none_ensures(*owner, res.unwrap())
-            },
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
+            old(owner).in_locked_range() ==> res is Ok,
+            res matches Ok(state) ==>
+                self.pt_cursor.inner.query_some_condition(*owner) ==>
+                self.pt_cursor.inner.query_some_ensures(*owner, state),
+            res matches Ok(state) ==>
+                !self.pt_cursor.inner.query_some_condition(*owner) ==>
+                self.pt_cursor.inner.query_none_ensures(*owner, state),
+            old(owner)@.mappings == owner@.mappings,
+            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*regions),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -684,12 +664,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).pt_cursor.inner.level < old(self).pt_cursor.inner.guard_level,
-            old(owner).in_locked_range(),
-            len % PAGE_SIZE == 0,
-            old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
+            !old(self).pt_cursor.inner.find_next_panic_condition(len),
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             res is Some ==> {
                 &&& res.unwrap() == self.pt_cursor.inner.va
                 &&& owner.level < owner.guard_level
@@ -729,6 +707,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end ==> {
                 &&& res is Ok
                 &&& self.pt_cursor.inner.va == va
@@ -849,11 +828,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
             old(tlb_model).inv(),
-            old(self).map_cursor_requires(*old(cursor_owner)),
             old(self).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
+            !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             old(self).map_item_requires(frame, prop, entry_owner, *old(regions)),
         ensures
             self.map_cursor_inv(*cursor_owner, *guards, *regions),
+            old(cursor_owner).metaregion_correct(*old(regions))
+                && crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
+                    MappedItem { frame: frame, prop: prop }, *old(regions))
+                ==> cursor_owner.metaregion_correct(*regions),
             old(self).map_item_ensures(
                 frame,
                 prop,
@@ -932,6 +915,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
         ensures
             self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
+            old(cursor_owner).metaregion_correct(*old(regions)) ==> cursor_owner.metaregion_correct(*regions),
             old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, self.pt_cursor.inner.model(*cursor_owner), r),
             tlb_model.inv(),
     )]
@@ -1150,6 +1134,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).cur_entry_owner().is_frame(),
             op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
         ensures
+            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
     )]
     pub fn protect_next(
         &mut self,
