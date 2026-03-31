@@ -6,12 +6,33 @@
 use vstd::prelude::*;
 
 #[verus_verify]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Copy, PartialEq, Eq, Debug)]
 pub enum Either<L, R> {
     /// Contains the left value
     Left(L),
     /// Contains the right value
     Right(R),
+}
+
+#[verus_verify]
+impl<L, R> Clone for Either<L, R>
+where
+    L: Clone,
+    R: Clone,
+{
+    #[inline(always)]
+    #[verus_spec(r =>
+      ensures
+          (forall|l1, l2: L| call_ensures(L::clone, (l1,), l2) ==> l1 == l2) &&
+          (forall|r1, r2: R| call_ensures(R::clone, (r1,), r2) ==> r1 == r2)
+            ==> r == self,
+    )]
+    fn clone(&self) -> Self {
+        match self {
+            Self::Left(left) => Self::Left(left.clone()),
+            Self::Right(right) => Self::Right(right.clone()),
+        }
+    }
 }
 
 impl<L, R> Either<L, R> {

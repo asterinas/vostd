@@ -148,8 +148,17 @@ pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPr
     OnceImpl::new(Ghost(TrivialPred));
 
 
-#[derive(Clone, Debug)]
-pub(crate) struct KernelPtConfig {}
+#[derive(Debug)]
+pub struct KernelPtConfig {}
+
+#[verus_verify]
+impl Clone for KernelPtConfig {
+    #[inline(always)]
+    #[verus_spec(returns self)]
+    fn clone(&self) -> Self {
+        KernelPtConfig {}
+    }
+}
 
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,

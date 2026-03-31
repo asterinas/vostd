@@ -1185,8 +1185,17 @@ pub(super) fn get_activated_vm_space() -> *const VmSpace {
 }*/
 
 /// The configuration for user page tables.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct UserPtConfig {}
+
+#[verus_verify]
+impl Clone for UserPtConfig {
+    #[inline(always)]
+    #[verus_spec(returns self)]
+    fn clone(&self) -> Self {
+        Self {}
+    }
+}
 
 /// The item that can be mapped into the [`VmSpace`].
 pub struct MappedItem {

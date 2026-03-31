@@ -188,7 +188,7 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
 }
 
 /// The operation to flush TLB entries.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TlbFlushOp {
     /// Flush all TLB entries except for the global entries.
     All,
@@ -196,6 +196,17 @@ pub enum TlbFlushOp {
     Address(Vaddr),
     /// Flush the TLB entries for the specified virtual address range.
     Range(Range<Vaddr>),
+}
+
+impl Clone for TlbFlushOp {
+    #[verus_spec(returns self)]
+    fn clone(&self) -> Self {
+        match self {
+            TlbFlushOp::All => TlbFlushOp::All,
+            TlbFlushOp::Address(addr) => TlbFlushOp::Address(*addr),
+            TlbFlushOp::Range(range) => TlbFlushOp::Range(range.clone()),
+        }
+    }
 }
 
 impl TlbFlushOp {
