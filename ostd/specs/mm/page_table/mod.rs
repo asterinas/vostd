@@ -584,6 +584,7 @@ impl AbstractVaddr {
             assert(aligned.compute_vaddr() == aligned.rec_compute_vaddr(0));
             assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
                 + aligned.rec_compute_vaddr(1)) as Vaddr);
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else if level == 2 {
             let aligned = self.align_down(3);
             self.align_down_shape(3);
@@ -608,6 +609,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else if level == 1 {
             let aligned = self.align_down(2);
             self.align_down_shape(2);
@@ -621,17 +623,12 @@ impl AbstractVaddr {
                 * 0x4000_0000usize + path.index(2) * 0x20_0000usize) by {
                 assert(vaddr(path) == rec_vaddr(path, 0));
                 assert(rec_vaddr(path, 3) == 0);
-                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2)) + rec_vaddr(
-                    path,
-                    3,
-                )) as usize);
-                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0)) + rec_vaddr(
-                    path,
-                    1,
-                )) as usize);
-                assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(
-                    1,
-                )) by (compute);
+                assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, path.index(2)) + rec_vaddr(path, 3)) as usize);
+                assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, path.index(1)) + rec_vaddr(path, 2)) as usize);
+                assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, path.index(0)) + rec_vaddr(path, 1)) as usize);
+                assert(vaddr_make::<NR_LEVELS>(0, path.index(0)) == 0x80_0000_0000usize * path.index(0)) by (compute);
+                assert(vaddr_make::<NR_LEVELS>(1, path.index(1)) == 0x4000_0000usize * path.index(1)) by (compute);
+                assert(vaddr_make::<NR_LEVELS>(2, path.index(2)) == 0x20_0000usize * path.index(2)) by (compute);
             };
             assert(aligned.rec_compute_vaddr(3) == self.index[3] * 0x80_0000_0000usize) by {
                 assert(aligned.rec_compute_vaddr(3) == (aligned.index[3] * page_size(4)
@@ -642,6 +639,10 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(1) == (aligned.index[1] * page_size(2)
                     + aligned.rec_compute_vaddr(2)) as Vaddr);
             };
+            assert(aligned.compute_vaddr() == aligned.rec_compute_vaddr(0));
+            assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
+                + aligned.rec_compute_vaddr(1)) as Vaddr);
+            assert(vaddr(path) == aligned.compute_vaddr());
         } else {
             let aligned = self.align_down(1);
             self.align_down_shape(1);
@@ -691,6 +692,7 @@ impl AbstractVaddr {
                 assert(aligned.rec_compute_vaddr(0) == (aligned.index[0] * page_size(1)
                     + aligned.rec_compute_vaddr(1)) as Vaddr);
             };
+            assert(vaddr(path) == aligned.compute_vaddr());
         }
     }
 
@@ -1016,7 +1018,7 @@ impl AbstractVaddr {
         let start = vaddr(self.to_path(level));
 
         assert(page_size((level + 1) as PagingLevel) >= PAGE_SIZE) by {
-            axiom_page_size_ge_page_size((level + 1) as PagingLevel);
+            lemma_page_size_ge_page_size((level + 1) as PagingLevel);
         };
         lemma_nat_align_down_sound(cur, size as nat);
     }

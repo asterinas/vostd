@@ -31,12 +31,51 @@ jobs:
           sudo apt update -qq
           sudo apt install -y build-essential unzip pkg-config libssl-dev llvm
 
+      - name: Get Rust toolchain version
+        id: rust-toolchain
+        run: |
+          RUST_VERSION=$(grep 'channel' rust-toolchain.toml | sed -E 's/.*= *"(.*)"/\1/')
+          if [ -z "$RUST_VERSION" ]; then
+            echo "Failed to extract Rust version from rust-toolchain.toml"
+            exit 1
+          fi
+          echo "RUST_VERSION=$RUST_VERSION" >> "$GITHUB_ENV"
+          echo "Rust version: $RUST_VERSION"
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/tmp
+          key: ${{ runner.os }}-rust-toolchain-${{ env.RUST_VERSION }}
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Get Verus commit
         id: verus
         run: |
           VERUS_COMMIT=$(git ls-remote https://github.com/asterinas/verus HEAD | cut -f1)
           echo "VERUS_COMMIT=$VERUS_COMMIT" >> "$GITHUB_ENV"
           echo "Using Verus commit: $VERUS_COMMIT"
+          DV_COMMIT=$(git rev-parse HEAD:dv)
+          echo "DV_COMMIT=$DV_COMMIT" >> "$GITHUB_ENV"
+          echo "Using dv commit: $DV_COMMIT"
+
+      - name: Cache dv build artifacts
+        uses: actions/cache@v5
+        with:
+          path: dv/target
+          key: ${{ runner.os }}-dv-${{ env.DV_COMMIT }}
 
       - name: Cache Verus
         id: cache-verus

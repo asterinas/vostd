@@ -406,7 +406,6 @@ impl<C: PageTableConfig> CursorView<C> {
             if m.page_size > size {
                 let new_size = m.page_size / NR_ENTRIES;
                 let new_self = self.split_if_mapped_huge_spec(new_size);
-                assert(new_self.cur_va == self.cur_va);
                 assert(new_self.inv()) by { admit() }; // split_if_mapped_huge_spec preserves inv
                 // Decreases: new_self.query_mapping().page_size < m.page_size
                 let f = self.mappings.filter(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
@@ -414,10 +413,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     self.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
                 vstd::set::axiom_set_choose_len(f);
                 assert(m.inv());
-                assert(NR_ENTRIES == 512);
-                assert(m.page_size % (m.page_size / 512usize) == 0) by {
-                    if m.page_size == 4096 {} else if m.page_size == 2097152 {} else {}
-                };
+                
                 Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
                 Self::lemma_split_while_huge_preserves_cur_va(new_self, size);
             }
@@ -448,7 +444,6 @@ impl<C: PageTableConfig> CursorView<C> {
         }
     }
 
-    ///
     pub open spec fn map_simple(self, paddr: Paddr, size: usize, prop: PageProperty) -> Self {
         let new = Mapping {
             va_range: self.cur_slot_range(size),

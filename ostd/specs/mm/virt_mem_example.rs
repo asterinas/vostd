@@ -94,7 +94,7 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
     requires
         old(cursor).map_cursor_requires(*old(cursor_owner)),
         old(cursor).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
-        old(cursor).map_item_requires(frame, prop, entry_owner),
+        old(cursor).map_item_requires(frame, prop, entry_owner, *old(regions)),
         old(gm).inv(),
         old(tlb_model).inv(),
 )]

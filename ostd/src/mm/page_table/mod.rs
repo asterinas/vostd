@@ -73,6 +73,7 @@ pub trait RCClone: Sized {
         ensures
             res == *self,
             rc_perm.value() == old(rc_perm).value() + 1,
+            rc_perm.id() == old(rc_perm).id(),
     ;
 }
 
@@ -338,6 +339,9 @@ pub trait PageTableEntryTrait: Clone + Copy + Debug + Sized + Send + Sync + 'sta
     proof fn new_properties()
         ensures
             !Self::new_absent_spec().is_present(),
+            forall|level: PagingLevel|
+                #![trigger Self::new_absent_spec().is_last(level)]
+                1 < level ==> !Self::new_absent_spec().is_last(level),
             forall|paddr: Paddr, level: PagingLevel, prop: PageProperty|
                 #![trigger Self::new_page_spec(paddr, level, prop)]
                 {

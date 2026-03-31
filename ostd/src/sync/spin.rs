@@ -411,7 +411,7 @@ impl<'a, T, G: SpinGuardian> SpinLockGuard<'a, T, G>
         *self.v_perm@.value()
     }
 
-    /// The value stored in the lock. It is an alias of `Self::value()`.
+    /// The value stored in the lock. It is an alias of `Self::value`.
     pub open spec fn view(self) -> T {
         self.value()
     }
@@ -426,6 +426,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
 impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
 
+    #[verus_spec(returns self.view())]
     fn deref(&self) -> &T {
         proof_decl! {
             let tracked read_perm = self.v_perm.borrow();
