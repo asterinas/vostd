@@ -236,18 +236,9 @@ impl Waiter {
         self.waker == waker
     }
 
-    pub closed spec fn pair_rel(ret: (Self, Arc<Waker>)) -> bool {
-        ret.0.rel_waker(ret.1)
-    }
-
     /// Abstract identity of the paired waker.
     pub closed spec fn waker_id(self) -> int {
         self.waker.id()
-    }
-
-    #[verifier::type_invariant]
-    pub closed spec fn type_inv(self) -> bool {
-        self.waker_id() == self.waker.id()
     }
 }
 
@@ -273,7 +264,7 @@ impl Waiter {
     /// Creates a waiter and its associated [`Waker`].
     #[verus_spec(ret =>
         ensures
-            Self::pair_rel(ret)
+            ret.0.rel_waker(ret.1),
     )]
     pub fn new_pair() -> (Self, Arc<Waker>) {
         proof_decl! {
@@ -331,7 +322,6 @@ impl Waiter {
             if let Some(res) = cond() {
                 return Ok(res);
             };
-
             if let Err(e) = cancel_cond() {
                 // Close the waker and check again to avoid missing a wake event.
                 self.waker.close();
@@ -344,7 +334,7 @@ impl Waiter {
     /// Gets the associated [`Waker`] of the current waiter.
     #[verus_spec(ret =>
         ensures
-            self.rel_waker(ret)
+            self.rel_waker(ret),
     )]
     pub fn waker(&self) -> Arc<Waker> {
         self.waker.clone()
