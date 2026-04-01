@@ -108,17 +108,22 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// and represents that the caller has exclusive ownership of the frame.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+            Tracked(new_meta_own): Tracked<M1::Owner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
         -> new_owner: Tracked<UniqueFrameOwner<M1>>
         requires
             self.wf(owner),
             owner.inv(),
+            owner.global_inv(*old(regions)),
+            new_meta_own.inv(),
+            metadata.wf(new_meta_own),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).inv(),
         ensures
             res.wf(new_owner@),
             new_owner@.meta_perm.value().metadata == metadata,
+            new_owner@.meta_own == new_meta_own,
             regions.inv(),
     )]
     pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -165,7 +170,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         );
 
         proof_decl! {
-            let tracked new_owner = UniqueFrameOwner::<M1>::owner_from_perm(meta_perm, Ghost(idx));
+            let tracked new_owner = UniqueFrameOwner::<M1>::from_raw_owner(
+                new_meta_own,
+                Ghost(idx),
+                meta_perm,
+            );
         }
 
         proof {
