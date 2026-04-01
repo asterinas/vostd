@@ -96,7 +96,7 @@ impl WaitQueue {
     /// more efficient and robust.
     #[track_caller]
     #[verifier::external_body]
-    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
+    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: Fn() -> Option<R> {
         if let Some(res) = cond() {
             return res;
         }
@@ -113,10 +113,6 @@ impl WaitQueue {
     /// called, returning whether such a thread was woken up.
     #[verifier::external_body]
     pub fn wake_one(&self) -> (r: bool)
-        requires
-            self.type_inv(),
-        ensures
-            self.type_inv(),
     {
         // Fast path
         if self.is_empty() {
@@ -146,10 +142,6 @@ impl WaitQueue {
     /// Wakes up all waiting threads, returning the number of threads that were woken up.
     #[verifier::external_body]
     pub fn wake_all(&self) -> (r: usize)
-        requires
-            self.type_inv(),
-        ensures
-            self.type_inv(),
     {
         // Fast path
         if self.is_empty() {
@@ -189,10 +181,6 @@ impl WaitQueue {
     #[doc(hidden)]
     #[verifier::external_body]
     pub fn enqueue(&self, waker: Arc<Waker>)
-        requires
-            self.type_inv(),
-        ensures
-            self.type_inv(),
     {
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
@@ -302,6 +290,11 @@ impl Waiter {
         requires
             cond.requires(()),
             cancel_cond.requires(()),
+        ensures
+            match ret {
+                Ok(res) => cond.ensures((),Some(res)),
+                Err(e) => cancel_cond.ensures((), Err(e)),
+            },
     )]
     #[track_caller]
     #[verifier::exec_allows_no_decreases_clause]
@@ -320,11 +313,14 @@ impl Waiter {
         )]
         loop {
             if let Some(res) = cond() {
+                assert(cond.ensures((), Some(res)));
+                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
             if let Err(e) = cancel_cond() {
                 // Close the waker and check again to avoid missing a wake event.
                 self.waker.close();
+                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return cond().ok_or(e);
             }
             self.wait();
