@@ -88,7 +88,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
     }
 
-    pub open spec fn map_item_requires(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
+    // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
+    pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
         let (paddr, level, prop) = C::item_into_raw(item);
         &&& entry_owner.inv()
         &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))

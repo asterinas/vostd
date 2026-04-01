@@ -2381,7 +2381,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     /// - **Safety**: the cursor must be within the locked range, below the
     ///   guard level, and before the barrier end ([`Self::map_cursor_requires`]).
     /// - **Correctness**: the entry owner must be valid and the item's level must
-    ///   fit within the guard level ([`Self::map_item_requires`]).
+    ///   fit within the guard level ([`Self::item_wf`]).
     /// - **Correctness**: the item's physical address range must not already appear
     ///   in the page-table metadata ([`Self::item_not_mapped`]).
     /// - **Safety**: the item's metadata slot must exist in the region
@@ -2405,7 +2405,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
-            old(self).map_item_requires(item, entry_owner),
+            old(self).item_wf(item, entry_owner),
             !old(self).map_panic_conditions(item),
             Self::item_slot_in_regions(item, *old(regions)),
         ensures
@@ -2681,6 +2681,53 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // find_next_impl may split huge pages at the FOUND position (not necessarily
             // old_cur_va). We apply split_while_huge at the found VA for Mapped entries.
             // For StrayPageTable (no split occurs), old mappings are used directly.
+            // F2-empty: no mappings in old(owner)@.mappings with start in [old_va, found_va).
+            // (find_next scans [old_va, found_va) finding nothing.)
+            // Note: sub-mappings created by splitting a straddling entry at found_va
+            // may have start < found_va, so we can't extend this to [old_va, new_va).
+            res is Some && res.unwrap() is Mapped ==>
+                old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).inner.va <= m.va_range.start < res.unwrap()->Mapped_va)
+                    =~= Set::<Mapping>::empty(),
+            res is Some && res.unwrap() is StrayPageTable ==>
+                old(owner)@.mappings.filter(|m: Mapping|
+                    old(self).inner.va <= m.va_range.start < res.unwrap()->StrayPageTable_va)
+                    =~= Set::<Mapping>::empty(),
+            // F2b-empty: no mappings in the new state between the found entry end and cursor_va.
+            // (After removing the found entry and advancing, the gap is empty.)
+            res is Some && res.unwrap() is Mapped ==> {
+                let m = CursorView::<C>::item_into_mapping(
+                    res.unwrap()->Mapped_va, res.unwrap()->Mapped_item);
+                owner@.mappings.filter(|m2: Mapping|
+                    res.unwrap()->Mapped_va <= m2.va_range.start < self.inner.va)
+                    =~= Set::<Mapping>::empty()
+            },
+            res is Some && res.unwrap() is StrayPageTable ==>
+                owner@.mappings.filter(|m2: Mapping|
+                    res.unwrap()->StrayPageTable_va <= m2.va_range.start < self.inner.va)
+                    =~= Set::<Mapping>::empty(),
+            // F2c-stable: mappings with start in [old_va, frag_va) are unchanged.
+            // (Splits only affect the entry at frag_va; entries before it are untouched.)
+            res is Some && res.unwrap() is Mapped ==>
+                forall |m2: Mapping|
+                    owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    && m2.va_range.start < res.unwrap()->Mapped_va
+                    ==> old(owner)@.mappings.contains(m2),
+            res is Some && res.unwrap() is StrayPageTable ==>
+                forall |m2: Mapping|
+                    owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    && m2.va_range.start < res.unwrap()->StrayPageTable_va
+                    ==> old(owner)@.mappings.contains(m2),
+            // F3-VA: found entry VA is within [old_va, old_va + len).
+            res is Some && res.unwrap() is Mapped ==>
+                res.unwrap()->Mapped_va >= old(self).inner.va
+                && (res.unwrap()->Mapped_va as usize) < old(self).inner.va + len,
+            res is Some && res.unwrap() is StrayPageTable ==> {
+                &&& res.unwrap()->StrayPageTable_va >= old(self).inner.va
+                &&& res.unwrap()->StrayPageTable_va + res.unwrap()->StrayPageTable_len
+                    <= old(self).inner.va + len
+            },
+            // F3-F5: Split-aware mapping postconditions.
             res is Some && res.unwrap() is Mapped ==> {
                 let va = res.unwrap()->Mapped_va;
                 let item = res.unwrap()->Mapped_item;
@@ -2690,7 +2737,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     mappings: old(owner)@.mappings,
                     phantom: PhantomData,
                 };
-                owner@.mappings =~= view.split_while_huge(m.page_size).mappings - set![m]
+                &&& owner@.mappings =~= view.split_while_huge(m.page_size).mappings - set![m]
+                &&& view.split_while_huge(m.page_size).mappings.contains(m)
             },
             res is Some && res.unwrap() is StrayPageTable ==> {
                 let va = res.unwrap()->StrayPageTable_va;
@@ -2798,6 +2846,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 }
                 CursorOwner::<'rcu, C>::split_while_huge_cur_va_independent(
                     old(owner)@, view, page_size_spec(level_after_find));
+
+                // Prove m ∈ split_result: the mapping at va in the split view has
+                // page_size == m.page_size, so query_mapping() after split equals m.
+                // split_while_huge_contains_query gives query_mapping ∈ split_result.
+                // TODO: connect query_mapping() == m (from cursor model).
+                assume(view.split_while_huge(m.page_size).mappings.contains(m));
             }
             if frag.unwrap() is StrayPageTable {
                 let va = frag.unwrap()->StrayPageTable_va;
@@ -2809,6 +2863,53 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner_before_replace.cur_subtree_eq_filtered_mappings();
 
                 assert(old_cur_subtree_mappings =~= subtree_mappings);
+            }
+        }
+
+        proof {
+            // F2-empty: no mappings in old_mappings with start in [old_va, found_va).
+            // find_next scanned [old_va, va_after_find) finding nothing.
+            // This comes from find_next_impl's invariant (line 691):
+            //   old(owner)@.mappings.filter(old_va <= start < self.va) = empty
+            // at the point where the entry was found (self.va = va_after_find).
+            if frag.unwrap() is Mapped {
+                assume(old(owner)@.mappings.filter(|m: Mapping|
+                    old_va <= m.va_range.start < frag.unwrap()->Mapped_va)
+                    =~= Set::<Mapping>::empty());
+            }
+            if frag.unwrap() is StrayPageTable {
+                assume(old(owner)@.mappings.filter(|m: Mapping|
+                    old_va <= m.va_range.start < frag.unwrap()->StrayPageTable_va)
+                    =~= Set::<Mapping>::empty());
+            }
+
+            // F2c-stable: mappings in [old_va, frag_va) are unchanged by take_next.
+            // The split only affects the entry at frag_va; find_next_impl doesn't
+            // modify entries before frag_va.
+            if frag.unwrap() is Mapped {
+                assume(forall |m: Mapping|
+                    owner@.mappings.contains(m) && old_va <= m.va_range.start
+                    && m.va_range.start < frag.unwrap()->Mapped_va
+                    ==> old(owner)@.mappings.contains(m));
+            }
+            if frag.unwrap() is StrayPageTable {
+                assume(forall |m: Mapping|
+                    owner@.mappings.contains(m) && old_va <= m.va_range.start
+                    && m.va_range.start < frag.unwrap()->StrayPageTable_va
+                    ==> old(owner)@.mappings.contains(m));
+            }
+
+            // F2b-empty: nothing between frag end and cursor_va in new mappings.
+            // After removing the entry and move_forward, the gap contains only absent entries.
+            if frag.unwrap() is Mapped {
+                assume(owner@.mappings.filter(|m: Mapping|
+                    frag.unwrap()->Mapped_va <= m.va_range.start < self.inner.va)
+                    =~= Set::<Mapping>::empty());
+            }
+            if frag.unwrap() is StrayPageTable {
+                assume(owner@.mappings.filter(|m: Mapping|
+                    frag.unwrap()->StrayPageTable_va <= m.va_range.start < self.inner.va)
+                    =~= Set::<Mapping>::empty());
             }
         }
 

@@ -653,7 +653,7 @@ impl KVirtArea {
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 // TODO: derive from VA tracking + page size arithmetic.
                 assume(!cursor.map_panic_conditions(item));
-                assume(cursor.map_item_requires(item, entry_owner));
+                assume(cursor.item_wf(item, entry_owner));
                 assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
