@@ -621,6 +621,9 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         old(regions).inv(),
         old(regions).slots.contains_key(frame_to_index(paddr)),
         has_safe_slot(paddr),
+        0 < old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value(),
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1
+            < REF_COUNT_MAX,
         !MetaSlot::inc_ref_count_panic_cond(
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
         ),
@@ -649,7 +652,6 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
     slot.borrow(Tracked(perm)).inc_ref_count();
 
     proof {
-        admit();
         slot_own.sync_inner(&inner_perms);
         regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
     }
