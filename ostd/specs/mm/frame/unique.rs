@@ -4,6 +4,7 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use super::meta_owners::*;
+use super::meta_owners::REF_COUNT_UNIQUE;
 use crate::mm::frame::*;
 use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::specs::arch::mm::{MAX_NR_PAGES, MAX_PADDR, PAGE_SIZE};
@@ -91,6 +92,41 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     ) -> Self {
         UniqueFrameOwner::<M> { meta_own: owner, meta_perm: perm, slot_index: index@ }
     }
+
+    pub axiom fn owner_from_perm(
+        perm: PointsTo<MetaSlot, Metadata<M>>,
+        index: Ghost<usize>,
+    ) -> (tracked res: Self)
+    requires
+        perm.is_init(),
+        perm.wf(&perm.inner_perms),
+        perm.addr() == meta_addr(index@),
+        index@ < max_meta_slots(),
+    ensures
+        res.inv(),
+        res.meta_perm == perm,
+        res.slot_index == index@,
+        <M as OwnerOf>::wf(perm.value().metadata, res.meta_own),
+    ;
+
+    pub axiom fn aligns_with_regions(
+        frame: UniqueFrame<M>,
+        owner: Self,
+        regions: MetaRegionOwners,
+    )
+    requires
+        frame.wf(owner),
+        owner.inv(),
+        regions.inv(),
+        regions.slot_owners.contains_key(frame_to_index(meta_to_frame(frame.ptr.addr()))),
+        regions.slot_owners[frame_to_index(meta_to_frame(frame.ptr.addr()))].inner_perms.ref_count
+            .value() == REF_COUNT_UNIQUE,
+    ensures
+        regions.slot_owners[frame_to_index(meta_to_frame(frame.ptr.addr()))].inner_perms
+            == owner.meta_perm.inner_perms,
+        regions.slot_owners[frame_to_index(meta_to_frame(frame.ptr.addr()))].self_addr
+            == owner.meta_perm.addr(),
+    ;
 
     pub open spec fn from_unused_owner_spec(
         old_regions: MetaRegionOwners,
