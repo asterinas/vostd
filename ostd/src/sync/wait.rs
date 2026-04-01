@@ -95,8 +95,11 @@ impl WaitQueue {
     /// By taking a condition closure, this wait-wakeup mechanism becomes
     /// more efficient and robust.
     #[track_caller]
-    #[verifier::external_body]
-    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: Fn() -> Option<R> {
+    #[verus_spec(ret =>
+        requires
+            cond.requires(()),
+    )]
+    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
         if let Some(res) = cond() {
             return res;
         }
@@ -106,7 +109,7 @@ impl WaitQueue {
                 self.enqueue(waiter.waker());
                 cond()
             };
-        waiter.wait_until_or_cancelled(cond, || Ok::<(), ()>(())).unwrap()
+        waiter.wait_until_or_cancelled(cond, || -> (ret:Result<(), ()>) ensures ret == Ok::<(),()>(()) { Ok::<(), ()>(()) }).unwrap()
     }
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
