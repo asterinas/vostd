@@ -46,10 +46,9 @@ pub open spec fn frame_as_dynframe<T: AnyFrameMeta>(frame: Frame<T>) -> DynFrame
     DynFrame { ptr: frame.ptr, _marker: PhantomData }
 }
 
-/// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
-/// to the spec function `frame_as_dynframe`. The `Into` impl uses `transmute`, which is
-/// `external_body`, so the equality is admitted.
-/// TODO: use the conversions in `frame/mod.rs`
+/// Converts `Frame<T>` to `DynFrame`, while exposing the corresponding spec equality
+/// for verification. The exec `Into` conversion is opaque here, so this wrapper
+/// bridges it to `frame_as_dynframe` for proofs.
 fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
     ensures
         res == frame_as_dynframe(frame),
