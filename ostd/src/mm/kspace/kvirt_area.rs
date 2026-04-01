@@ -54,7 +54,6 @@ fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
     ensures
         res == frame_as_dynframe(frame),
 {
-    proof { admit(); }
     frame.into()
 }
 
@@ -449,6 +448,8 @@ impl KVirtArea {
                 forall |i: int, j: int| 0 <= i < j < it.elements.len() - it.pos ==>
                     (#[trigger]entry_owners[i]).frame.unwrap().mapped_pa != (#[trigger] entry_owners[j]).frame.unwrap().mapped_pa,
         {
+            // unsafe { cursor.map(MappedItem::Tracked(frame.into(), prop)) }
+            //     .expect("Failed to map frame in a new `KVirtArea`");
             proof {
                 assert(entry_owners.contains(entry_owners[0]));
                 assert(cursor.map_cursor_requires(cursor_owner, *guards));
@@ -471,6 +472,16 @@ impl KVirtArea {
             let ghost old_cursor_model: CursorView<KernelPtConfig> = cursor.inner.model(cursor_owner);
             let ghost old_cursor_owner_va = cursor_owner.va;
             proof {
+                let cur_idx = frame_to_index_spec(cur_mapped_pa);
+                let tracked slot_perm = EntryOwner::<KernelPtConfig>::placeholder_slot_perm(
+                    cur_mapped_pa,
+                    &*regions,
+                );
+                regions.slots.tracked_insert(cur_idx, slot_perm);
+                regions_before_map.frame_slot_perm_insert_preserves_inv(cur_idx, slot_perm, *regions);
+                cursor_owner.relate_region_slot_owners_preserved(regions_before_map, *regions);
+                assert(cursor.inner.invariants(cursor_owner, *regions, *guards));
+
                 cursor_owner.view_preserves_inv(); // old_cursor_model.inv()
                 cursor_owner.va.reflect_prop(cursor.inner.va);
                 let (pa, level, prop_from_item) = KernelPtConfig::item_into_raw_spec(item);
@@ -485,13 +496,20 @@ impl KVirtArea {
                 vstd::arithmetic::power::lemma_pow0(2int);
 
                 KernelPtConfig::item_into_raw_spec_tracked_level(item);
+                assert(item == MappedItem::Tracked(frame_as_dynframe(it.elements.index(it.pos as int)), prop));
+                assert(pa == cur_pa_from_wf);
+                assert(cur_pa_from_wf == cur_mapped_pa);
+                assert(pa == cur_mapped_pa);
+                assert(regions.slots.contains_key(cur_idx));
+                assert(regions.slot_owners[cur_idx].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
             }
 
             // SAFETY: The constructor of the `KVirtArea` has already ensured
             // that this mapping does not affect kernel's memory safety.
             assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                 item, *regions,
-            )) by { admit() };
+            ));
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
             let res = cursor.map(item);
 
@@ -678,7 +696,7 @@ impl KVirtArea {
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
                 assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                     item, *regions,
-                )) by { admit() };
+                ));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 

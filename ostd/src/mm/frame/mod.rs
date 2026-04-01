@@ -45,6 +45,7 @@ mod test;
 use vstd::atomic::PermissionU64;
 use vstd::prelude::*;
 use vstd::simple_pptr::{self, PPtr};
+use vstd::std_specs::convert::FromSpecImpl;
 
 use vstd_extra::cast_ptr;
 
@@ -177,6 +178,16 @@ impl<M: AnyFrameMeta> Frame<M> {
 
     pub open spec fn index(self) -> usize {
         frame_to_index(self.paddr())
+    }
+}
+
+impl<M: AnyUFrameMeta> FromSpecImpl<Frame<M>> for UFrame {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    open spec fn from_spec(v: Frame<M>) -> UFrame {
+        Frame::<MetaSlotStorage> { ptr: v.ptr, _marker: PhantomData }
     }
 }
 
