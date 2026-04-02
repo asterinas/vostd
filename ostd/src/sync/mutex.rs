@@ -16,25 +16,21 @@ use super::WaitQueue;
 
 verus! {
 
-tracked struct MutexPerms<T> {
-    cell_perm: Option<PointsTo<T>>,
-}
-
 struct_with_invariants! {
 
 /// A mutex with waitqueue.
 pub struct Mutex<T  /* : ?Sized */ > {
-    lock: AtomicBool<_, MutexPerms<T>, _>,
+    lock: AtomicBool<_, Option<PointsTo<T>>, _>,
     queue: WaitQueue,
     // val: UnsafeCell<T>,
     val: PCell<T>,
 }
 
 closed spec fn wf(self) -> bool {
-    invariant on lock with (val) is (v: bool, g: MutexPerms<T>) {
-        let active_guard = g.cell_perm is None;
+    invariant on lock with (val) is (v: bool, g: Option<PointsTo<T>>) {
+        let active_guard = g is None;
         &&& v <==> active_guard
-        &&& g.cell_perm is Some ==> g.cell_perm->Some_0.id() == val.id()
+        &&& g is Some ==> g->Some_0.id() == val.id()
     }
 }
 }
@@ -59,7 +55,7 @@ impl<T> Mutex<T> {
             lock: AtomicBool::new(
                 Ghost(val),
                 false,
-                Tracked(MutexPerms { cell_perm: Some(perm) }),
+                Tracked(Some(perm)),
             ),
             queue: WaitQueue::new(),
             val: val,
@@ -135,7 +131,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             returning res;
             ghost perms => {
                 if res is Ok {
-                    let tracked perm = perms.cell_perm.tracked_take();
+                    let tracked perm = perms.tracked_take();
                     locked_state = Some(perm);
                 }
             }
@@ -152,7 +148,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         atomic_with_ghost! {
             self.lock => store(false);
             ghost perms => {
-                perms = MutexPerms { cell_perm: Some(perm) };
+                perms = Some(perm);
             }
         }
     }
