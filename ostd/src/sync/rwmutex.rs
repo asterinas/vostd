@@ -736,7 +736,7 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
         if res.is_ok() {
             // drop(self);
             atomic_with_ghost! {
-                inner.lock => fetch_and(!WRITER);
+                self.inner.lock => fetch_and(!WRITER);
                 update prev -> next;
                 ghost g => {
                     let prev_usize = prev as usize;
@@ -755,7 +755,7 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
                     lemma_consts_properties_value(next_usize);
                 }
             };
-            inner.queue.wake_all();
+            self.inner.queue.wake_all();
             Ok(RwMutexUpgradeableGuard {
                 inner,
                 v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
