@@ -736,6 +736,7 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
 
         if res.is_ok() {
             // drop(self);
+            self.inner.queue.wake_all();
             Ok(RwMutexUpgradeableGuard {
                 inner: self.inner,
                 v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
