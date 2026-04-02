@@ -71,6 +71,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     }
 
     /// Tries to acquire the mutex immediately.
+    #[verus_spec]
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
