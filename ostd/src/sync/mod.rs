@@ -17,10 +17,7 @@ pub use self::{
     rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
     rwarc::{RoArc, RwArc},
     rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},
-    /*rwmutex::{
-        ArcRwMutexReadGuard, ArcRwMutexUpgradeableGuard, ArcRwMutexWriteGuard, RwMutex,
-        RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard,
-    },*/
+    rwmutex::{RwMutex, RwMutexReadGuard, RwMutexUpgradeableGuard, RwMutexWriteGuard},
     spin::{SpinLock, SpinLockGuard},
     wait::{WaitQueue, Waiter, Waker},
 };
