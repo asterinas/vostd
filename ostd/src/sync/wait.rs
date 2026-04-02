@@ -98,6 +98,8 @@ impl WaitQueue {
     #[verus_spec(ret =>
         requires
             cond.requires(()),
+        ensures
+            cond.ensures((), Some(ret)),
     )]
     pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
         if let Some(res) = cond() {
@@ -109,6 +111,9 @@ impl WaitQueue {
                 self.enqueue(waiter.waker());
                 cond()
             };
+        proof!{
+            admit(); // FIXME: The Verus type inference of the closure is wrong if we add an `ensures` clause to the closure.
+        }
         waiter.wait_until_or_cancelled(cond, || -> (ret:Result<(), ()>) ensures ret == Ok::<(),()>(()) { Ok::<(), ()>(()) }).unwrap()
     }
 
