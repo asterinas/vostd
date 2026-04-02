@@ -203,34 +203,6 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     }
 }
 
-/// An guard that provides exclusive access to the data protected by a `Arc<Mutex>`.
-#[verifier::reject_recursive_types(T)]
-#[clippy::has_significant_drop]
-#[must_use]
-pub struct ArcMutexGuard<T  /* : ?Sized */ > {
-    mutex: Arc<Mutex<T>>,
-    v_perm: Tracked<PointsTo<T>>,
-}
-
-impl<T> ArcMutexGuard<T> {
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.v_perm@.id() == self.mutex.cell_id()
-    }
-
-    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
-    /// `Drop` is incomplete for now.
-    pub fn drop(self) {
-        proof! {
-            use_type_invariant(&self);
-            use_type_invariant(&*self.mutex);
-        }
-        let Tracked(perm) = self.v_perm;
-        self.mutex.release_lock(Tracked(perm));
-        self.mutex.queue.wake_one();
-    }
-}
-
 /* impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
@@ -255,15 +227,6 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     {
         self.mutex.unlock(Tracked(perm));
     }
-}
-
-impl<T> Drop for ArcMutexGuard<T> {
-    fn drop(&mut self)
-        opens_invariants none
-        no_unwind
-    {
-        self.mutex.unlock(Tracked(perm));
-    }
 } */
 
 /* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
@@ -274,8 +237,6 @@ impl<T> Drop for ArcMutexGuard<T> {
 } */
 
 impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
-
-impl<T> !Send for ArcMutexGuard<T> {}
 
 // unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
