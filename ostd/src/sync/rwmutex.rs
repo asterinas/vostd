@@ -698,9 +698,8 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let mut this = self;
-        let Tracked(perm) = this.v_perm;
-        let Tracked(token) = this.v_token;
+        let Tracked(perm) = self.v_perm;
+        let Tracked(token) = self.v_token;
         proof_decl! {
             let tracked mut upgrade_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut err_perm: Option<PointsTo<T>> = None;
@@ -708,7 +707,7 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
         }
 
         let res = atomic_with_ghost!(
-            this.inner.lock => compare_exchange(WRITER, UPGRADEABLE_READER);
+            self.inner.lock => compare_exchange(WRITER, UPGRADEABLE_READER);
             update prev -> next;
             returning res;
             ghost g => {
@@ -737,12 +736,12 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
 
         if res.is_ok() {
             Ok(RwMutexUpgradeableGuard {
-                inner: this.inner,
+                inner: self.inner,
                 v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
             })
         } else {
             Err(RwMutexWriteGuard {
-                inner: this.inner,
+                inner: self.inner,
                 v_perm: Tracked(err_perm.tracked_unwrap()),
                 v_token: Tracked(err_write_guard_token.tracked_unwrap()),
             })
@@ -863,8 +862,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let mut this = self;
-        let Tracked(upread_guard_token) = this.v_token;
+        let Tracked(upread_guard_token) = self.v_token;
         proof_decl! {
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
@@ -873,7 +871,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
         }
 
         let res = atomic_with_ghost!(
-            this.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
+            self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
             ghost g => {
@@ -903,7 +901,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
         );
 
         if res.is_ok() {
-            let inner = this.inner;
+            let inner = self.inner;
             atomic_with_ghost!(
                 inner.lock => fetch_sub(UPGRADEABLE_READER);
                 update prev -> next;
@@ -926,7 +924,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             })
         } else {
             Err(RwMutexUpgradeableGuard {
-                inner: this.inner,
+                inner: self.inner,
                 v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
             })
         }
