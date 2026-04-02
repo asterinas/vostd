@@ -734,15 +734,35 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
         );
 
         if res.is_ok() {
-            //drop(self);
-            self.inner.queue.wake_all();
+            // drop(self);
+            atomic_with_ghost! {
+                inner.lock => fetch_and(!WRITER);
+                update prev -> next;
+                ghost g => {
+                    let prev_usize = prev as usize;
+                    let next_usize = next as usize;
+                    let tracked mut guard_token = upgrade_guard_token.tracked_unwrap();
+                    g.core_token.validate_with_one_left_owner(&guard_token);
+                    if g.upreader_guard_token is Some {
+                        guard_token.validate_with_one_left_owner(
+                            g.upreader_guard_token.tracked_borrow(),
+                        );
+                        assert(false);
+                    }
+                    upgrade_guard_token = Some(guard_token);
+                    lemma_consts_properties_value(prev_usize);
+                    lemma_consts_properties_prev_next(prev_usize, next_usize);
+                    lemma_consts_properties_value(next_usize);
+                }
+            };
+            inner.queue.wake_all();
             Ok(RwMutexUpgradeableGuard {
                 inner,
                 v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
             })
         } else {
             Err(RwMutexWriteGuard {
-                inner: self.inner,
+                inner,
                 v_perm: Tracked(err_perm.tracked_unwrap()),
                 v_token: Tracked(err_write_guard_token.tracked_unwrap()),
             })
