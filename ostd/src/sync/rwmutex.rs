@@ -325,10 +325,10 @@ impl<T> RwMutex<T> {
         };
 
         Self {
-            lock: AtomicUsize::new(Ghost((val, Ghost(v_id))), 0, Tracked(perms)),
-            queue: WaitQueue::new(),
             // val: UnsafeCell::new(val),
             val,
+            lock: AtomicUsize::new(Ghost((val, Ghost(v_id))), 0, Tracked(perms)),
+            queue: WaitQueue::new(),
             v_id: Ghost(v_id),
         }
     }
@@ -394,7 +394,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
                 assume(no_max_reader_overflow(prev_usize));
                 lemma_consts_properties_value(prev_usize);
                 lemma_consts_properties_prev_next(prev_usize, next_usize);
-                if prev_usize & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+                if prev_usize & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
                     let tracked mut tmp = g.read_guard_token.tracked_take_left();
                     read_token = Some(tmp.split_one());
                     g.read_guard_token = Sum::Left(tmp);
@@ -404,7 +404,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             }
         );
 
-        if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+        if lock & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
             Some(RwMutexReadGuard {
                 inner: self,
                 v_token: Tracked(read_token.tracked_unwrap()),
@@ -615,7 +615,7 @@ impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
             lemma_consts_properties();
         }
         let Tracked(token) = self.v_token;
-        let prev = atomic_with_ghost!(
+        if atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
             update prev -> next;
             ghost g => {
@@ -629,8 +629,7 @@ impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
             }
-        );
-        if prev == READER {
+        ) == READER {
             self.inner.queue.wake_one();
         }
     }
@@ -1068,7 +1067,7 @@ proof fn lemma_consts_properties()
 proof fn lemma_consts_properties_value(prev: usize)
     ensures
         no_max_reader_overflow(prev) ==> prev + READER <= usize::MAX,
-        prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 ==> {
+        prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0 ==> {
             &&& prev & WRITER == 0
             &&& prev & BEING_UPGRADED == 0
             &&& prev & MAX_READER == 0
@@ -1095,18 +1094,18 @@ proof fn lemma_consts_properties_value(prev: usize)
                 prev & MAX_READER_MASK < MAX_READER_MASK,
         ;
     }
-    if prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
+    if prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
         assert(prev & WRITER == 0) by (bit_vector)
             requires
-                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
         ;
         assert(prev & BEING_UPGRADED == 0) by (bit_vector)
             requires
-                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
         ;
         assert(prev & MAX_READER == 0) by (bit_vector)
             requires
-                prev & (WRITER | MAX_READER | BEING_UPGRADED) == 0,
+                prev & (WRITER | BEING_UPGRADED | MAX_READER) == 0,
         ;
     }
     if prev & (WRITER | UPGRADEABLE_READER) == 0 {
