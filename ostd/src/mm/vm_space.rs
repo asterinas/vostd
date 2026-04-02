@@ -149,111 +149,6 @@ impl<'a> VmSpace<'a> {
     /// of the [`VmSpace`] struct are not important for the verification of its clients.
     pub uninterp spec fn new_spec() -> Self;
 
-    /// Checks the preconditions for creating a reader or writer for the given virtual address range.
-    ///
-    /// Essentially, this requires that
-    ///
-    /// - the invariants of the [`VmSpace`] and [`VmSpaceOwner`] hold
-    ///   (see [`VmSpaceOwner::inv_with`] and [`VmSpaceOwner::inv`]);
-    /// - the [`VmSpaceOwner`] is active (via some threads or activation function);
-    /// - the [`VmSpaceOwner`] can create a reader or writer for the given virtual address range
-    ///   (see [`VmSpaceOwner::can_create_reader`] and [`VmSpaceOwner::can_create_writer`]);
-    /// - the virtual address range is valid (non-zero, non-empty, and within user-space limits);
-    /// - the currently active page table is the one owned by the [`VmSpace`] (note that this is
-    ///   an `uninterp` spec function as this is non-trackable during verification).
-    pub open spec fn reader_requires(
-        &self,
-        vm_owner: VmSpaceOwner<'a>,
-        vaddr: Vaddr,
-        len: usize,
-    ) -> bool {
-        &&& vm_owner.inv()
-        &&& vm_owner.active
-        &&& vm_owner.can_create_reader(vaddr, len)
-        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
-    }
-
-    /// Checks the preconditions for creating a writer for the given virtual address range.
-    ///
-    /// Most of the pre-conditions are the same as those for creating a reader (see
-    /// [`Self::reader_requires`]), except that the caller must also have permission to
-    /// create a writer for the given virtual address range.
-    pub open spec fn writer_requires(
-        &self,
-        vm_owner: VmSpaceOwner<'a>,
-        vaddr: Vaddr,
-        len: usize,
-    ) -> bool {
-        &&& vm_owner.inv()
-        &&& vm_owner.active
-        &&& vm_owner.can_create_writer(vaddr, len)
-        &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
-        &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
-    }
-
-    /// The guarantees of the created reader or writer, assuming the preconditions are satisfied.
-    ///
-    /// Essentially, this ensures that
-    ///
-    /// - the invariants of the new [`VmSpace`] and the reader or writer hold;
-    /// - the reader or writer is associated with a [`VmIoOwner`] that is well-formed with respect to
-    ///   the reader or writer;
-    /// - the reader or writer has no memory view, as the memory view will be taken from the
-    ///   [`VmSpaceOwner`] when the reader or writer is activated.
-    ///
-    /// # Special Note
-    ///
-    /// The newly created instance of [`VmReader`] and its associated [`VmIoOwner`] are not yet
-    /// activated, so the guarantees about the memory view only require that the memory view is
-    /// [`None`]. The guarantees about the memory view will be provided by the activation function
-    /// (see [`VmSpaceOwner::activate_reader`] and [`VmSpaceOwner::activate_writer`]).
-    ///
-    /// We avoid mixing the creation, usage and deletion into one giant function as this would
-    /// create some unnecessary life-cycle management complexities and not really help with the
-    /// verification itself.
-    pub open spec fn reader_ensures(
-        &self,
-        vm_owner_old: VmSpaceOwner<'_>,
-        vm_owner_new: VmSpaceOwner<'_>,
-        vaddr: Vaddr,
-        len: usize,
-        r: Result<VmReader<'_>>,
-        r_owner: Option<VmIoOwner<'_>>,
-    ) -> bool {
-        &&& vm_owner_new.inv()
-        &&& vm_owner_new.readers == vm_owner_old.readers
-        &&& vm_owner_new.writers == vm_owner_old.writers
-        &&& r matches Ok(reader) && r_owner matches Some(owner) ==> {
-            &&& reader.inv()
-            &&& owner.inv_with_reader(reader)
-            &&& owner.mem_view is None
-        }
-    }
-
-    /// The guarantees of the created writer, assuming the preconditions are satisfied.
-    ///
-    /// Most of the guarantees are the same as those for creating a reader (see
-    /// [`Self::reader_ensures`]), except that the writer is associated with a [`VmIoOwner`] that is well-formed with respect to the writer.
-    pub open spec fn writer_ensures(
-        &self,
-        vm_owner_old: VmSpaceOwner<'a>,
-        vm_owner_new: VmSpaceOwner<'a>,
-        vaddr: Vaddr,
-        len: usize,
-        r: Result<VmWriter<'a>>,
-        r_owner: Option<VmIoOwner<'a>>,
-    ) -> bool {
-        &&& vm_owner_new.inv()
-        &&& vm_owner_new.readers == vm_owner_old.readers
-        &&& vm_owner_new.writers == vm_owner_old.writers
-        &&& r matches Ok(writer) && r_owner matches Some(owner) ==> {
-            &&& writer.inv()
-            &&& owner.inv_with_writer(writer)
-            &&& owner.mem_view is None
-        }
-    }
-
     /// Creates a new VM address space.
     ///
     /// # Verification Design
@@ -288,9 +183,7 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
     #[verifier::external_body]
-    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<
-        Cursor<'a, G>,
-    > {
+    pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
         Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
     }
 
@@ -322,94 +215,110 @@ impl<'a> VmSpace<'a> {
 
     /// Creates a reader to read data from the user space of the current task.
     ///
-    /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
-    /// or the `vaddr` and `len` do not represent a user space memory range.
+    /// Returns [`Err`] if this [`VmSpace`] is not the user space of the current task
+    /// or the `vaddr` and `len` do not represent a valid user space memory range.
     ///
-    /// Users must ensure that no other page table is activated in the current task during the
-    /// lifetime of the created [`VmReader`]. This guarantees that the [`VmReader`] can operate
-    /// correctly.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
-    /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The [`VmSpaceOwner`] must not have any active writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] invariant must hold.
     /// ## Postconditions
-    /// - An inactive [`VmReader`] will be created with the range `vaddr..vaddr + len`.
+    /// - When [`Self::reader_success_cond`] holds, the result is `Ok`.
+    /// - On success, the [`VmReader`] and its [`VmIoOwner`] are well-formed with no memory view.
     /// ## Safety
-    /// - The function preserves all memory invariants.
-    /// - By requiring that the [`VmSpaceOwner`] must not have any active writers overlapping with the target range,
-    /// it prevents data races between the reader and any writers.
+    /// - The function does not interact with the lower-level memory system directly.
+    ///   By checking that the target (user) page table is not the active (kernel) one,
+    ///   we ensure that the resulting reader cannot interact with kernel memory.
     #[inline]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&'a mut VmSpaceOwner<'a>>,
-                -> vm_reader_owner: Tracked<Option<VmIoOwner<'a>>>,
+                -> reader_owner: Tracked<Option<VmIoOwner<'a>>>,
         requires
-            self.reader_requires(*old(owner), vaddr, len),
+            old(owner).inv(),
         ensures
-            self.reader_ensures(*old(owner), *owner, vaddr, len, r, vm_reader_owner@),
+            owner.inv(),
+            self.reader_success_cond(vaddr, len) ==> r is Ok && reader_owner@ is Some,
+            r is Ok && reader_owner@ is Some ==> {
+                &&& r.unwrap().wf(reader_owner@.unwrap())
+                &&& reader_owner@.unwrap().mem_view is None
+            }
     )]
     pub fn reader(&self, vaddr: Vaddr, len: usize) -> Result<VmReader<'a>> {
-        let vptr = VirtPtr::from_vaddr(vaddr, len);
-        let ghost id = owner.new_vm_io_id();
-        proof_decl! {
-            let tracked mut vm_reader_owner;
-        }
-        // SAFETY: The memory range is in user space, as checked above.
-        let reader = unsafe {
-            proof_with!(Ghost(id) => Tracked(vm_reader_owner));
-            VmReader::from_user_space(vptr)
-        };
+        if current_page_table_paddr() != self.pt.root_paddr() {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else if vaddr.checked_add(len).unwrap_or(usize::MAX) > MAX_USERSPACE_VADDR {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            let ghost id = owner.new_vm_io_id();
+            proof_decl! {
+                let tracked mut vm_reader_owner;
+            }
 
-        proof_with!(|= Tracked(Some(vm_reader_owner)));
-        Ok(reader)
+            // SAFETY: The memory range is in user space, as checked above.
+            let reader = unsafe {
+                proof_with!(Ghost(id) => Tracked(vm_reader_owner));
+                VmReader::from_user_space(VirtPtr::from_vaddr(vaddr, len), len)
+            };
+
+            proof_with!(|= Tracked(Some(vm_reader_owner)));
+            Ok(reader)
+        }
     }
 
-    /// Returns [`Err`] if this [`VmSpace`] is not belonged to the user space of the current task
-    /// or the `vaddr` and `len` do not represent a user space memory range.
+    /// Creates a writer to write data to the user space of the current task.
     ///
-    /// Users must ensure that no other page table is activated in the current task during the
-    /// lifetime of the created [`VmWriter`]. This guarantees that the [`VmWriter`] can operate correctly.
+    /// Returns [`Err`] if this [`VmSpace`] is not the user space of the current task
+    /// or the `vaddr` and `len` do not represent a valid user space memory range.
+    ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - The [`VmSpace`] invariants must hold with respect to the [`VmSpaceOwner`], which must be active.
-    /// - The range `vaddr..vaddr + len` must represent a user space memory range.
-    /// - The [`VmSpaceOwner`] must not have any active readers or writers overlapping with the range `vaddr..vaddr + len`.
+    /// - The [`VmSpaceOwner`] invariant must hold.
     /// ## Postconditions
-    /// - An inactive [`VmWriter`] will be created with the range `vaddr..vaddr + len`.
+    /// - When [`Self::writer_success_cond`] holds, the result is `Ok`.
+    /// - On success, the [`VmWriter`] and its [`VmIoOwner`] are well-formed with no memory view.
     /// ## Safety
-    /// - The function preserves all memory invariants.
-    /// - By requiring that the [`VmSpaceOwner`] must not have any active readers or writers overlapping with the target range,
-    /// it prevents data races.
+    /// - The function does not interact with the lower-level memory system directly.
+    ///   By checking that the target (user) page table is not the active (kernel) one,
+    ///   we ensure that the resulting writer cannot interact with kernel memory.
     #[inline]
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<&mut VmSpaceOwner<'a>>,
-                -> new_owner: Tracked<Option<VmIoOwner<'a>>>,
+                -> writer_owner: Tracked<Option<VmIoOwner<'a>>>,
         requires
-            self.writer_requires(*old(owner), vaddr, len),
+            old(owner).inv(),
         ensures
-            self.writer_ensures(*old(owner), *owner, vaddr, len, r, new_owner@),
+            owner.inv(),
+            self.writer_success_cond(vaddr, len) ==> r is Ok && writer_owner@ is Some,
+            r is Ok && writer_owner@ is Some ==> {
+                &&& r.unwrap().wf(writer_owner@.unwrap())
+                &&& writer_owner@.unwrap().mem_view is None
+            }
     )]
     pub fn writer(self, vaddr: Vaddr, len: usize) -> Result<VmWriter<'a>> {
-        let vptr = VirtPtr::from_vaddr(vaddr, len);
-        let ghost id = owner.new_vm_io_id();
-        proof_decl! {
-            let tracked mut vm_writer_owner;
+        if current_page_table_paddr() != self.pt.root_paddr() {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else if vaddr.checked_add(len).unwrap_or(usize::MAX) > MAX_USERSPACE_VADDR {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            let ghost id = owner.new_vm_io_id();
+            proof_decl! {
+                let tracked mut vm_writer_owner;
+            }
+
+            // SAFETY: The memory range is in user space, as checked above.
+            let reader = unsafe {
+                proof_with!(Ghost(id) => Tracked(vm_writer_owner));
+                VmWriter::from_user_space(VirtPtr::from_vaddr(vaddr, len), len)
+            };
+
+            proof_with!(|= Tracked(Some(vm_writer_owner)));
+            Ok(reader)
         }
-
-        // `VmWriter` is neither `Sync` nor `Send`, so it will not live longer than the current
-        // task. This ensures that the correct page table is activated during the usage period of
-        // the `VmWriter`.
-        //
-        // SAFETY: The memory range is in user space, as checked above.
-        let writer = unsafe {
-            proof_with!(Ghost(id) => Tracked(vm_writer_owner));
-            VmWriter::from_user_space(vptr)
-        };
-
-        proof_with!(|= Tracked(Some(vm_writer_owner)));
-        Ok(writer)
     }
 }
 
@@ -1217,7 +1126,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                         ).contains(m));
                                     }
                                 },
-                                _ => {},
                             }
                             assert(false);
                         } else {
