@@ -72,7 +72,6 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     ///
     /// This method runs in a block way until the mutex can be acquired.
     #[track_caller]
-    #[verifier::external_body]
     pub fn lock(&self) -> MutexGuard<'_, T> {
         self.queue.wait_until(|| self.try_lock())
     }
@@ -108,9 +107,11 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     } */
 
     /// Releases the mutex and wake up one thread which is blocked on this mutex.
-    #[verifier::external_body]
-    fn unlock(&self) {
-        self.release_lock();
+    fn unlock(&self, Tracked(perm): Tracked<PointsTo<T>>)
+        requires
+            perm.id() == self.cell_id(),
+    {
+        self.release_lock(Tracked(perm));
         self.queue.wake_one();
     }
 
@@ -141,13 +142,10 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         }.is_ok()
     }
 
-    #[verus_spec(
-        with
-            Tracked(perm): Tracked<PointsTo<T>>,
+    fn release_lock(&self, Tracked(perm): Tracked<PointsTo<T>>)
         requires
             perm.id() == self.cell_id(),
-    )]
-    fn release_lock(&self) {
+    {
         proof! {
             use_type_invariant(self);
         }
@@ -241,7 +239,10 @@ impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
         opens_invariants none
         no_unwind
     {
-        self.mutex.unlock();
+        proof_decl! {
+            let tracked perm = self.v_perm.get();
+        }
+        self.mutex.unlock(Tracked(perm));
     }
 }
 
@@ -251,7 +252,10 @@ impl<T> Drop for ArcMutexGuard<T> {
         opens_invariants none
         no_unwind
     {
-        self.mutex.unlock();
+        proof_decl! {
+            let tracked perm = self.v_perm.get();
+        }
+        self.mutex.unlock(Tracked(perm));
     }
 }
 
@@ -269,7 +273,6 @@ impl<T> !Send for ArcMutexGuard<T> {}
 // unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     /// Returns the [`Mutex`] associated with this guard.
-    #[verifier::external_body]
     pub fn get_lock(guard: &MutexGuard<'a, T>) -> &'a Mutex<T> {
         guard.mutex
     }
