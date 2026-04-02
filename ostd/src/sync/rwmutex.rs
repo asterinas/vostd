@@ -704,7 +704,7 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
             let tracked mut err_perm: Option<PointsTo<T>> = None;
             let tracked mut err_write_guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
-
+        let inner = self.inner;
         let res = atomic_with_ghost!(
             self.inner.lock => compare_exchange(WRITER, UPGRADEABLE_READER);
             update prev -> next;
@@ -734,10 +734,10 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
         );
 
         if res.is_ok() {
-            // drop(self);
+            //drop(self);
             self.inner.queue.wake_all();
             Ok(RwMutexUpgradeableGuard {
-                inner: self.inner,
+                inner,
                 v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
             })
         } else {
