@@ -198,6 +198,18 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     closed spec fn type_inv(self) -> bool {
         self.v_perm@.id() == self.mutex.cell_id()
     }
+
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
+    /// `Drop` is incomplete for now.
+    pub fn drop(self) {
+        proof! {
+            use_type_invariant(&self);
+            use_type_invariant(&*self.mutex);
+        }
+        let Tracked(perm) = self.v_perm;
+        self.mutex.release_lock(Tracked(perm));
+        self.mutex.queue.wake_one();
+    }
 }
 
 /// An guard that provides exclusive access to the data protected by a `Arc<Mutex>`.
@@ -213,6 +225,18 @@ impl<T> ArcMutexGuard<T> {
     #[verifier::type_invariant]
     closed spec fn type_inv(self) -> bool {
         self.v_perm@.id() == self.mutex.cell_id()
+    }
+
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
+    /// `Drop` is incomplete for now.
+    pub fn drop(self) {
+        proof! {
+            use_type_invariant(&self);
+            use_type_invariant(&*self.mutex);
+        }
+        let Tracked(perm) = self.v_perm;
+        self.mutex.release_lock(Tracked(perm));
+        self.mutex.queue.wake_one();
     }
 }
 
@@ -233,31 +257,23 @@ impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     }
 } */
 
-impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
-    #[verifier::external_body]
+/* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     fn drop(&mut self)
         opens_invariants none
         no_unwind
     {
-        proof_decl! {
-            let tracked perm = self.v_perm.get();
-        }
         self.mutex.unlock(Tracked(perm));
     }
 }
 
 impl<T> Drop for ArcMutexGuard<T> {
-    #[verifier::external_body]
     fn drop(&mut self)
         opens_invariants none
         no_unwind
     {
-        proof_decl! {
-            let tracked perm = self.v_perm.get();
-        }
         self.mutex.unlock(Tracked(perm));
     }
-}
+} */
 
 /* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
     #[verifier::external_body]
