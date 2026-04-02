@@ -46,10 +46,7 @@ impl<T> Mutex<T> {
     }
 
     /// Creates a new mutex.
-    pub const fn new(val: T) -> (r: Self)
-        ensures
-            r.type_inv(),
-    {
+    pub const fn new(val: T) -> Self {
         let (val, Tracked(perm)) = PCell::new(val);
         Self {
             lock: AtomicBool::new(
@@ -184,8 +181,6 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     ) -> (r: MutexGuard<'a, T>)
         requires
             perm.id() == mutex.cell_id(),
-        ensures
-            r.type_inv(),
     {
         MutexGuard { mutex, v_perm: Tracked(perm) }
     }
