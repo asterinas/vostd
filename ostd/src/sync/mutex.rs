@@ -97,11 +97,16 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     } */
 
     /// Releases the mutex and wake up one thread which is blocked on this mutex.
-    fn unlock(&self, Tracked(perm): Tracked<PointsTo<T>>)
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == self.cell_id(),
+    )]
+    fn unlock(&self)
     {
-        self.release_lock(Tracked(perm));
+        proof_with!(Tracked(perm));
+        self.release_lock();
         self.queue.wake_one();
     }
 
@@ -132,9 +137,13 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         }.is_ok()
     }
 
-    fn release_lock(&self, Tracked(perm): Tracked<PointsTo<T>>)
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == self.cell_id(),
+    )]
+    fn release_lock(&self)
     {
         proof! {
             use_type_invariant(self);
@@ -179,9 +188,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
         requires
             perm.id() == mutex.cell_id(),
     )]
-    unsafe fn new(
-        mutex: &'a Mutex<T>,
-    ) -> (r: MutexGuard<'a, T>)
+    unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
     {
         MutexGuard { mutex, v_perm: Tracked(perm) }
     }
@@ -193,13 +200,14 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
     /// `Drop` is incomplete for now.
+    #[verus_spec]
     pub fn drop(self) {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(&*self.mutex);
         }
-        let Tracked(perm) = self.v_perm;
-        self.mutex.release_lock(Tracked(perm));
+        proof_with!{self.v_perm}
+        self.mutex.release_lock();
         self.mutex.queue.wake_one();
     }
 }
@@ -208,14 +216,11 @@ impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        proof_decl! {
-            let tracked read_perm = self.v_perm.borrow();
-        }
         proof! {
             use_type_invariant(self);
         }
         // unsafe { &*self.mutex.val.get() }
-        self.mutex.val.borrow(Tracked(read_perm))
+        self.mutex.val.borrow(Tracked(self.v_perm.borrow()))
     }
 }
 
