@@ -108,62 +108,78 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
     /// and represents that the caller has exclusive ownership of the frame.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<UniqueFrameOwner<M>>,
+            Tracked(new_meta_own): Tracked<M1::Owner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>
         -> new_owner: Tracked<UniqueFrameOwner<M1>>
         requires
             self.wf(owner),
             owner.inv(),
+            owner.global_inv(*old(regions)),
+            new_meta_own.inv(),
+            metadata.wf(new_meta_own),
             old(regions).slot_owners.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
             old(regions).slot_owners[frame_to_index(meta_to_frame(self.ptr.addr()))].inner_perms.ref_count.value() == REF_COUNT_UNIQUE,
             old(regions).inv(),
         ensures
             res.wf(new_owner@),
             new_owner@.meta_perm.value().metadata == metadata,
+            new_owner@.meta_own == new_meta_own,
             regions.inv(),
     )]
     pub fn repurpose<M1: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
         self,
         metadata: M1,
     ) -> UniqueFrame<M1> {
-        let tracked mut slot_own = regions.slot_owners.tracked_remove(
-            frame_to_index(meta_to_frame(self.ptr.addr())),
-        );
+        /* // SAFETY: We are the sole owner and the metadata is initialized.
+        unsafe { self.slot().drop_meta_in_place() };
+        // SAFETY: We are the sole owner.
+        unsafe { self.slot().write_meta(metadata) };
+        // SAFETY: The metadata is initialized with type `M1`.
+        unsafe { core::mem::transmute(self) } */
+
+        let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        proof {
+            UniqueFrameOwner::<M>::aligns_with_regions(self, owner, *old(regions));
+        }
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
 
         #[verus_spec(with Tracked(&owner.meta_perm.points_to))]
         let slot = self.slot();
 
         assert(slot_own.inv()) by {
-            admit();
+            assert(slot_own.inner_perms == owner.meta_perm.inner_perms);
+            assert(slot_own.self_addr == owner.meta_perm.addr());
         }
 
         // SAFETY: We are the sole owner and the metadata is initialized.
         #[verus_spec(with Tracked(&mut slot_own))]
         slot.drop_meta_in_place();
 
+        let tracked mut inner_perms = slot_own.take_inner_perms();
+
+        // SAFETY: We are the sole owner.
+        #[verus_spec(
+            with Tracked(&mut inner_perms.storage), Tracked(&mut inner_perms.vtable_ptr)
+        )]
+        slot.write_meta(metadata);
+
         let Tracked(meta_perm) = MetaSlot::cast_perm::<M1>(
             self.ptr.addr(),
             Tracked(owner.meta_perm.points_to),
-            Tracked(owner.meta_perm.inner_perms),
+            Tracked(inner_perms),
         );
 
         proof_decl! {
-            let tracked mut new_owner = UniqueFrameOwner::<M1>::from_unused_owner(
-                regions,
-                meta_to_frame(self.ptr.addr()),
+            let tracked new_owner = UniqueFrameOwner::<M1>::from_raw_owner(
+                new_meta_own,
+                Ghost(idx),
                 meta_perm,
             );
         }
 
-        // SAFETY: We are the sole owner.
-        //        #[verus_spec(with Tracked(&mut new_owner.meta_perm.inner_perms.storage))]
-        //        slot.write_meta(metadata);
-
         proof {
-            regions.slot_owners.tracked_insert(
-                frame_to_index(meta_to_frame(self.ptr.addr())),
-                slot_own,
-            );
-            admit();
+            slot_own.sync_inner(&new_owner.meta_perm.inner_perms);
+            regions.slot_owners.tracked_insert(idx, slot_own);
         }
 
         // SAFETY: The metadata is initialized with type `M1`.

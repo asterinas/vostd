@@ -277,7 +277,6 @@ impl PageTableEntryTrait for PageTableEntry {
 
     proof fn set_prop_properties(self, prop: PageProperty)
     {
-        admit();
     }
 
     fn is_last(&self, level: PagingLevel) -> bool {
