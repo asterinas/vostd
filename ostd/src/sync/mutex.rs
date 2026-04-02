@@ -60,6 +60,7 @@ impl<T> Mutex<T> {
     }
 }
 
+#[verus_verify]
 impl<T  /* : ?Sized */ > Mutex<T> {
     /// Acquires the mutex.
     ///
@@ -70,7 +71,6 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     }
 
     /// Tries to acquire the mutex immediately.
-    #[verus_spec]
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
@@ -82,7 +82,8 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             || requires 
                 locked_state is Some,
                 locked_state -> Some_0.id() == self.cell_id(),
-                {unsafe { MutexGuard::new(self, Tracked(locked_state.tracked_unwrap())) }})
+                {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())};
+                            MutexGuard::new(self) }})
     }
 
     /* /// Returns a mutable reference to the underlying data.
@@ -171,12 +172,15 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     ///
     /// The caller must ensure that the given reference of [`Mutex`] lock has been successfully acquired
     /// in the current context. When the created [`MutexGuard`] is dropped, it will unlock the [`Mutex`].
-    unsafe fn new(
-        mutex: &'a Mutex<T>,
-        Tracked(perm): Tracked<PointsTo<T>>,
-    ) -> (r: MutexGuard<'a, T>)
+    #[verus_spec(ret =>
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
         requires
             perm.id() == mutex.cell_id(),
+    )]
+    unsafe fn new(
+        mutex: &'a Mutex<T>,
+    ) -> (r: MutexGuard<'a, T>)
     {
         MutexGuard { mutex, v_perm: Tracked(perm) }
     }
