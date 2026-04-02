@@ -151,10 +151,11 @@ impl<T  /* : ?Sized */ > Mutex<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
-}
-
-unsafe impl<T: ?Sized + Send> Send for Mutex<T> {}
-unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {} */
+} */
+#[verifier::external]
+unsafe impl<T: /*?Sized + */Send> Send for Mutex<T> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 
 /// A guard that provides exclusive access to the data protected by a [`Mutex`].
 #[verifier::reject_recursive_types(T)]
