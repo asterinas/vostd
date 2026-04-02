@@ -78,16 +78,11 @@ impl<T  /* : ?Sized */ > Mutex<T> {
         proof_decl! {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
-        if #[verus_spec(with => Tracked(locked_state))] self.acquire_lock() {
-            proof_decl! {
-                let tracked perm = locked_state.tracked_unwrap();
-            }
-            Some(unsafe {
-                MutexGuard::new(self, Tracked(perm))
-            })
-        } else {
-            None
-        }
+        {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
+            || requires 
+                locked_state is Some,
+                locked_state -> Some_0.id() == self.cell_id(),
+                {unsafe { MutexGuard::new(self, Tracked(locked_state.tracked_unwrap())) }})
     }
 
     /* /// Returns a mutable reference to the underlying data.
