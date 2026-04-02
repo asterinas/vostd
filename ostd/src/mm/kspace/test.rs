@@ -24,7 +24,7 @@ fn kvirt_area_tracked_map_pages() {
         .unwrap();
     let start_paddr = frames.start_paddr();
 
-    let kvirt_area = KVirtArea::map_frames(size, 0, frames.into_iter(), default_prop());
+    let kvirt_area = KVirtArea::map_frames(size, 0, frames.into_iter().collect(), default_prop());
 
     assert_eq!(kvirt_area.len(), size);
     assert!(kvirt_area.start() >= VMALLOC_VADDR_RANGE.start);
@@ -71,13 +71,13 @@ fn kvirt_area_tracked_drop() {
         .alloc_segment_with(2, |_| ())
         .unwrap();
 
-    let kvirt_area = KVirtArea::map_frames(size, 0, frames.into_iter(), default_prop());
+    let kvirt_area = KVirtArea::map_frames(size, 0, frames.into_iter().collect(), default_prop());
 
     drop(kvirt_area);
 
     // After dropping, the virtual address range should be freed and no longer mapped.
     let kvirt_area =
-        KVirtArea::map_frames(size, 0, core::iter::empty::<Frame<()>>(), default_prop());
+        KVirtArea::map_frames(size, 0, alloc::vec::Vec::new(), default_prop());
     assert_eq!(kvirt_area.query(kvirt_area.start()), None);
 }
 

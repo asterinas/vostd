@@ -248,20 +248,20 @@ pub uninterp spec fn box_pointer_spec<T>(b: Box<T>) -> *mut T;
 // See https://doc.rust-lang.org/stable/std/boxed/index.html
 // Its guarantee is actually much stronger than PointsTowithDealloc.inv().
 #[verifier::external_body]
-pub fn box_into_raw<T>(b: Box<T>) -> (ret: (*mut T, Tracked<PointsTo<T>>, Tracked<Option<Dealloc>>))
+pub fn box_into_raw<T>(b: Box<T>) -> ((ret, perm, dealloc): (*mut T, Tracked<PointsTo<T>>, Tracked<Option<Dealloc>>))
     ensures
-        ret.0 == box_pointer_spec(b),
-        ret.0 == ret.1@.ptr(),
-        ret.1@.ptr().addr() != 0,
-        ret.1@.is_init(),
-        ret.1@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
-        match ret.2@ {
+        ret == box_pointer_spec(b),
+        ret == perm@.ptr(),
+        perm@.ptr().addr() != 0,
+        perm@.is_init(),
+        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        match dealloc@ {
             Some(dealloc) => {
                 &&& vstd::layout::size_of::<T>() > 0
-                &&& dealloc.addr() == ret.1@.ptr().addr()
+                &&& dealloc.addr() == perm@.ptr().addr()
                 &&& dealloc.size() == vstd::layout::size_of::<T>()
                 &&& dealloc.align() == vstd::layout::align_of::<T>()
-                &&& dealloc.provenance() == ret.1@.ptr()@.provenance
+                &&& dealloc.provenance() == perm@.ptr()@.provenance
                 &&& valid_layout(size_of::<T>(), align_of::<T>())
             },
             None => { &&& vstd::layout::size_of::<T>() == 0 },
@@ -303,13 +303,13 @@ pub uninterp spec fn arc_pointer_spec<T>(a: Arc<T>) -> *const T;
 // VERUS LIMITATION: can not add ghost parameter in external specification yet, sp we wrap it in an external_body function
 // `Arc::into_raw` will not decrease the reference count, so the memory will keep valid until we convert back to Arc<T> and drop it.
 #[verifier::external_body]
-pub fn arc_into_raw<T>(p: Arc<T>) -> (ret: (*const T, Tracked<ArcPointsTo<T>>))
+pub fn arc_into_raw<T>(p: Arc<T>) -> ((ret, perm): (*const T, Tracked<ArcPointsTo<T>>))
     ensures
-        ret.0 == arc_pointer_spec(p),
-        ret.0 == ret.1@.ptr(),
-        ret.1@.ptr().addr() != 0,
-        ret.1@.is_init(),
-        ret.1@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
+        ret == arc_pointer_spec(p),
+        ret == perm@.ptr(),
+        perm@.ptr().addr() != 0,
+        perm@.is_init(),
+        perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
 {
     (Arc::into_raw(p), Tracked::assume_new())
 }

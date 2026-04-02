@@ -1,5 +1,7 @@
 use vstd::prelude::*;
 
+use core::ops::{Add, Sub, BitOr, BitAnd, BitXor};
+
 verus! {
 
 #[verifier::ext_equal]
@@ -281,6 +283,51 @@ impl PageFlags {
     #[vstd::contrib::auto_spec]
     pub const fn AVAIL2() -> Self {
         Self { bits: 0b10000000 }
+    }
+
+    #[vstd::contrib::auto_spec]
+    pub fn contains(self, other: Self) -> bool {
+        self.bits & other.bits != 0
+    }
+}
+
+impl Add for PageFlags {
+    type Output = Self;
+    #[verifier::external_body]
+    fn add(self, other: Self) -> Self {
+        Self { bits: self.bits + other.bits }
+    }
+}
+
+impl Sub for PageFlags {
+    type Output = Self;
+    #[verifier::external_body]
+    fn sub(self, other: Self) -> Self {
+        Self { bits: self.bits - !other.bits }
+    }
+}
+
+impl BitOr for PageFlags {
+    type Output = Self;
+    #[verifier::external_body]
+    fn bitor(self, other: Self) -> Self {
+        Self { bits: self.bits | other.bits }
+    }
+}
+
+impl BitAnd for PageFlags {
+    type Output = Self;
+    #[verifier::external_body]
+    fn bitand(self, other: Self) -> Self {
+        Self { bits: self.bits & other.bits }
+    }
+}
+
+impl BitXor for PageFlags {
+    type Output = Self;
+    #[verifier::external_body]
+    fn bitxor(self, other: Self) -> Self {
+        Self { bits: self.bits ^ other.bits }
     }
 }
 

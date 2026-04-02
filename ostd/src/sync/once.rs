@@ -39,7 +39,7 @@ pub tracked enum OnceState<V: 'static> {
 /// the data is initialized only once and the permission is preserved
 /// throughout the lifetime of the data.
 #[repr(transparent)]
-#[allow(repr_transparent_external_private_fields)]
+#[allow(repr_transparent_non_zst_fields)]
 pub struct AtomicDataWithOwner<V, Own> {
     /// The underlying data.
     pub data: V,
@@ -70,6 +70,16 @@ impl<V, Own> AtomicDataWithOwner<V, Own> {
 /// of any synchronization primitives like [`Once`].
 pub trait Predicate<V> {
     spec fn inv(self, v: V) -> bool;
+}
+
+/// A trivial predicate that holds for any value.
+/// Use with [`OnceImpl`] when no invariant is needed.
+pub struct TrivialPred;
+
+impl<V> Predicate<V> for TrivialPred {
+    open spec fn inv(self, v: V) -> bool {
+        true
+    }
 }
 
 struct_with_invariants! {

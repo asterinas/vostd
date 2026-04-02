@@ -103,6 +103,7 @@ pub struct StoredPageTablePageMeta {
 
 pub enum MetaSlotStorage {
     Empty([u8; 39]),
+    Untyped,
     FrameLink(StoredLink),
     PTNode(StoredPageTablePageMeta),
 }
@@ -380,6 +381,5 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage>> Repr<MetaSlot> for Metadata<M> {
 /// [`Frame<M>`] the high-level representation of the low-level pointer
 /// to the [`super::meta::MetaSlot`].
 pub type MetaPerm<M: AnyFrameMeta + Repr<MetaSlotStorage>> = cast_ptr::PointsTo<MetaSlot, Metadata<M>>;
-
 
 } // verus!

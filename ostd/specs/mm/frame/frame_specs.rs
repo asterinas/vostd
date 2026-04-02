@@ -14,16 +14,66 @@ use core::marker::PhantomData;
 
 verus! {
 
+/// A tracked obligation token issued when `from_raw` is called without the
+/// bookkeeping precondition (`raw_count == 1`).  The holder must ensure that
+/// the resulting `Frame` is wrapped in `ManuallyDrop::new` (which increments
+/// `raw_count` to 1) before the `Frame` could be dropped.
+///
+/// The token is linear: Verus requires every tracked value to be consumed,
+/// so the caller is forced to account for it.
+pub tracked struct BorrowDebt {
+    /// Index of the frame slot this debt applies to.
+    pub ghost frame_index: usize,
+    /// The `raw_count` that was observed when `from_raw` was called.
+    pub ghost raw_count_at_issue: usize,
+}
+
+impl BorrowDebt {
+    /// Discharge the debt when the bookkeeping precondition was already met
+    /// (`raw_count` was 1 at the time of `from_raw`).  This is the zero-cost
+    /// path for normal `from_raw` callers.
+    pub proof fn discharge_bookkeeping(tracked self)
+        requires self.raw_count_at_issue == 1,
+    {}
+
+    /// Discharge the debt after the `Frame` has been wrapped in
+    /// `ManuallyDrop::new`, which increments `raw_count` to 1.
+    /// This is the path used by `borrow_paddr`.
+    pub proof fn discharge_with_manual_drop(tracked self, regions: &MetaRegionOwners)
+        requires
+            regions.slot_owners.contains_key(self.frame_index),
+            regions.slot_owners[self.frame_index].raw_count == 1,
+    {}
+}
+
 impl<'a, M: AnyFrameMeta> Frame<M> {
-    /// # Internal Safety Spec
-    /// This is a condition that supports unsafe Rust encapsulation. It should never be exposed to
-    /// the API client.
-    pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
+    // ── from_raw precondition predicates ──
+
+    /// **Safety**: The frame exists and is addressable.  This is sufficient to
+    /// call `from_raw` provided the caller will immediately wrap the result in
+    /// `ManuallyDrop::new` (i.e., the borrow pattern).
+    pub open spec fn from_raw_requires_safety(regions: MetaRegionOwners, paddr: Paddr) -> bool {
         &&& regions.slot_owners.contains_key(frame_to_index(paddr))
-        &&& regions.slot_owners[frame_to_index(paddr)].raw_count == 1
         &&& regions.slot_owners[frame_to_index(paddr)].self_addr == frame_to_meta(paddr)
         &&& has_safe_slot(paddr) // TODO: this should actually imply the first condition
         &&& regions.inv()
+    }
+
+    /// **Bookkeeping**: Exactly one forgotten copy exists (`raw_count == 1`).
+    /// When this holds, the `Frame` returned by `from_raw` may be dropped
+    /// normally (its `drop_requires` is satisfied after `ManuallyDrop::new`
+    /// increments `raw_count`).  When this does *not* hold, the caller must
+    /// wrap the result in `ManuallyDrop::new` to prevent the `Frame` from
+    /// being dropped (`drop_requires` needs `raw_count > 0`).
+    pub open spec fn from_raw_requires_bookkeeping(regions: MetaRegionOwners, paddr: Paddr) -> bool {
+        regions.slot_owners[frame_to_index(paddr)].raw_count == 1
+    }
+
+    /// Full precondition (safety + bookkeeping).  Retained for backward
+    /// compatibility with callers that restore a previously-forgotten frame.
+    pub open spec fn from_raw_requires(regions: MetaRegionOwners, paddr: Paddr) -> bool {
+        &&& Self::from_raw_requires_safety(regions, paddr)
+        &&& Self::from_raw_requires_bookkeeping(regions, paddr)
     }
 
     pub open spec fn from_raw_ensures(

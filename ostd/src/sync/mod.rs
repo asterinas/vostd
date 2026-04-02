@@ -2,6 +2,7 @@
 //! Useful synchronization primitives.
 mod guard;
 mod mutex;
+mod once;
 mod rcu;
 mod rwarc;
 mod rwlock;
@@ -12,6 +13,7 @@ mod wait;
 pub use self::{
     guard::{GuardTransfer, LocalIrqDisabled, PreemptDisabled, SpinGuardian, /*WriteIrqDisabled*/},
     mutex::{ArcMutexGuard, Mutex, MutexGuard},
+    once::{OnceImpl, TrivialPred},
     rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
     rwarc::{RoArc, RwArc},
     rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},

@@ -99,13 +99,13 @@ impl<C: PageTableConfig> Inv for NodeOwner<C> {
         &&& self.children_perm.is_init_all()
         &&& self.children_perm.addr() == paddr_to_vaddr(meta_to_frame(self.meta_perm.addr()))
         &&& self.level == self.meta_perm.value().metadata.level
-        &&& self.tree_level == INC_LEVELS - self.level
+        &&& self.tree_level == INC_LEVELS - self.level - 1
     }
 }
 
 impl<C: PageTableConfig> NodeOwner<C> {
-    /// Returns a NodeOwner with children_perm updated at the given index.
-    /// Used to specify the state after storing a new PTE for an allocated child.
+    // TODO: this is a bizzare structure; `set_children_perm` needs to actually be
+    // defined to satisfy the axiom, which can then be deleted.
     pub uninterp spec fn set_children_perm(self, idx: usize, pte: C::E) -> Self;
 
     #[verifier::external_body]

@@ -8,40 +8,6 @@ verus! {
 broadcast use {group_seq_axioms, group_seq_lib_default};
 
 #[verifier::external_body]
-pub proof fn seq_tracked_empty<T>() -> (tracked res: Seq<T>)
-    ensures
-        res == Seq::<T>::empty(),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
-pub proof fn seq_tracked_new<T>(len: nat, f: impl Fn(int) -> T) -> (tracked res: Seq<T>)
-    ensures
-        res == Seq::<T>::new(len, f),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
-pub proof fn seq_tracked_update<T>(s: Seq<T>, idx: int, x: T) -> (tracked res: Seq<T>)
-    requires
-        0 <= idx < s.len(),
-    ensures
-        res == s.update(idx, x),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
-pub proof fn seq_tracked_add<T>(s1: Seq<T>, s2: Seq<T>) -> (tracked res: Seq<T>)
-    ensures
-        res == s1.add(s2),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
 pub proof fn seq_tracked_map_values<T, U>(s: Seq<T>, f: spec_fn(T) -> U) -> (tracked res: Seq<U>)
     ensures
         res == s.map_values(f),
