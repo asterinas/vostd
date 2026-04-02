@@ -1,165 +1,263 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
+use vstd::cell::{self, pcell::*};
+use vstd::prelude::*;
+use vstd_extra::resource::ghost_resource::excl::*;
+
 use alloc::sync::Arc;
 use core::{
     cell::UnsafeCell,
     fmt,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::Ordering,
 };
 
 use super::WaitQueue;
 
+verus! {
+
+struct_with_invariants! {
+
 /// A mutex with waitqueue.
-pub struct Mutex<T: ?Sized> {
-    lock: AtomicBool,
+pub struct Mutex<T  /* : ?Sized */ > {
+    lock: AtomicBool<_, Option<PointsTo<T>>, _>,
     queue: WaitQueue,
-    val: UnsafeCell<T>,
+    // val: UnsafeCell<T>,
+    val: PCell<T>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on lock with (val) is (v: bool, g: Option<PointsTo<T>>) {
+        let active_guard = g is None;
+        &&& v <==> active_guard
+        &&& g is Some ==> g->Some_0.id() == val.id()
+    }
+}
 }
 
 impl<T> Mutex<T> {
+    pub closed spec fn cell_id(self) -> cell::CellId {
+        self.val.id()
+    }
+
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
+
     /// Creates a new mutex.
     pub const fn new(val: T) -> Self {
+        let (val, Tracked(perm)) = PCell::new(val);
         Self {
-            lock: AtomicBool::new(false),
+            lock: AtomicBool::new(
+                Ghost(val),
+                false,
+                Tracked(Some(perm)),
+            ),
             queue: WaitQueue::new(),
-            val: UnsafeCell::new(val),
+            val: val,
         }
     }
 }
 
-impl<T: ?Sized> Mutex<T> {
+#[verus_verify]
+impl<T  /* : ?Sized */ > Mutex<T> {
     /// Acquires the mutex.
     ///
     /// This method runs in a block way until the mutex can be acquired.
     #[track_caller]
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         self.queue.wait_until(|| self.try_lock())
     }
 
-    /// Acquires the mutex through an [`Arc`].
-    ///
-    /// The method is similar to [`lock`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the mutex guard.
-    ///
-    /// [`lock`]: Self::lock
-    #[track_caller]
-    pub fn lock_arc(self: &Arc<Self>) -> ArcMutexGuard<T> {
-        self.queue.wait_until(|| self.try_lock_arc())
-    }
-
-    /// Tries Acquire the mutex immediately.
+    /// Tries to acquire the mutex immediately.
+    #[verus_spec]
     pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         // Cannot be reduced to `then_some`, or the possible dropping of the temporary
         // guard will cause an unexpected unlock.
         // SAFETY: The lock is successfully acquired when creating the guard.
-        self.acquire_lock()
-            .then(|| unsafe { MutexGuard::new(self) })
+        proof_decl! {
+            let tracked mut locked_state: Option<PointsTo<T>> = None;
+        }
+        {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
+            || requires 
+                locked_state is Some,
+                locked_state -> Some_0.id() == self.cell_id(),
+                {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())};
+                            MutexGuard::new(self) }})
     }
 
-    /// Tries acquire the mutex through an [`Arc`].
-    ///
-    /// The method is similar to [`try_lock`], but it doesn't have the requirement
-    /// for compile-time checked lifetimes of the mutex guard.
-    ///
-    /// [`try_lock`]: Self::try_lock
-    pub fn try_lock_arc(self: &Arc<Self>) -> Option<ArcMutexGuard<T>> {
-        self.acquire_lock().then(|| ArcMutexGuard {
-            mutex: self.clone(),
-        })
-    }
-
-    /// Returns a mutable reference to the underlying data.
+    /* /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
     /// already statically guaranteed that access to the data is exclusive.
+    #[verifier::external_body]
     pub fn get_mut(&mut self) -> &mut T {
         self.val.get_mut()
-    }
+    } */
 
     /// Releases the mutex and wake up one thread which is blocked on this mutex.
-    fn unlock(&self) {
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
+        requires
+            perm.id() == self.cell_id(),
+    )]
+    fn unlock(&self)
+    {
+        proof_with!(Tracked(perm));
         self.release_lock();
         self.queue.wake_one();
     }
 
+    #[verus_spec(ret =>
+        with
+            -> locked_state: Tracked<Option<PointsTo<T>>>,
+        ensures
+            ret ==> locked_state@ is Some && locked_state@->Some_0.id() == self.cell_id(),
+            !ret ==> locked_state@ is None,
+    )]
     fn acquire_lock(&self) -> bool {
-        self.lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
+        proof_decl! {
+            let tracked mut locked_state: Option<PointsTo<T>> = None;
+        }
+        proof! {
+            use_type_invariant(self);
+        }
+        proof_with! { |= Tracked(locked_state) }
+        atomic_with_ghost! {
+            self.lock => compare_exchange(false, true);
+            returning res;
+            ghost perms => {
+                if res is Ok {
+                    let tracked perm = perms.tracked_take();
+                    locked_state = Some(perm);
+                }
+            }
+        }.is_ok()
     }
 
-    fn release_lock(&self) {
-        self.lock.store(false, Ordering::Release);
+    #[verus_spec(
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
+        requires
+            perm.id() == self.cell_id(),
+    )]
+    fn release_lock(&self)
+    {
+        proof! {
+            use_type_invariant(self);
+        }
+        atomic_with_ghost! {
+            self.lock => store(false);
+            ghost perms => {
+                perms = Some(perm);
+            }
+        }
     }
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for Mutex<T> {
+/* impl<T: /* ?Sized +  */fmt::Debug> fmt::Debug for Mutex<T> {
+    #[verifier::external_body]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
-}
-
-unsafe impl<T: ?Sized + Send> Send for Mutex<T> {}
-unsafe impl<T: ?Sized + Send> Sync for Mutex<T> {}
-
-#[clippy::has_significant_drop]
-#[must_use]
-pub struct MutexGuard_<T: ?Sized, R: Deref<Target = Mutex<T>>> {
-    mutex: R,
-}
+} */
+#[verifier::external]
+unsafe impl<T: /*?Sized + */Send> Send for Mutex<T> {}
+#[verifier::external]
+unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 
 /// A guard that provides exclusive access to the data protected by a [`Mutex`].
-pub type MutexGuard<'a, T> = MutexGuard_<T, &'a Mutex<T>>;
+#[verifier::reject_recursive_types(T)]
+#[clippy::has_significant_drop]
+#[must_use]
+pub struct MutexGuard<'a, T  /* : ?Sized */ > {
+    mutex: &'a Mutex<T>,
+    v_perm: Tracked<PointsTo<T>>,
+}
 
-impl<'a, T: ?Sized> MutexGuard<'a, T> {
+impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     /// # Safety
     ///
     /// The caller must ensure that the given reference of [`Mutex`] lock has been successfully acquired
     /// in the current context. When the created [`MutexGuard`] is dropped, it will unlock the [`Mutex`].
-    unsafe fn new(mutex: &'a Mutex<T>) -> MutexGuard<'a, T> {
-        MutexGuard { mutex }
+    #[verus_spec(ret =>
+        with
+            Tracked(perm): Tracked<PointsTo<T>>,
+        requires
+            perm.id() == mutex.cell_id(),
+    )]
+    unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
+    {
+        MutexGuard { mutex, v_perm: Tracked(perm) }
+    }
+
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.v_perm@.id() == self.mutex.cell_id()
+    }
+
+    /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
+    /// `Drop` is incomplete for now.
+    #[verus_spec]
+    pub fn drop(self) {
+        proof! {
+            use_type_invariant(&self);
+            use_type_invariant(&*self.mutex);
+        }
+        proof_with!{self.v_perm}
+        self.mutex.release_lock();
+        self.mutex.queue.wake_one();
     }
 }
 
-/// An guard that provides exclusive access to the data protected by a `Arc<Mutex>`.
-pub type ArcMutexGuard<T> = MutexGuard_<T, Arc<Mutex<T>>>;
-
-impl<T: ?Sized, R: Deref<Target = Mutex<T>>> Deref for MutexGuard_<T, R> {
+impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.mutex.val.get() }
+        proof! {
+            use_type_invariant(self);
+        }
+        // unsafe { &*self.mutex.val.get() }
+        self.mutex.val.borrow(Tracked(self.v_perm.borrow()))
     }
 }
 
-impl<T: ?Sized, R: Deref<Target = Mutex<T>>> DerefMut for MutexGuard_<T, R> {
+/* impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
+    #[verifier::external_body]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mutex.val.get() }
     }
-}
+} */
 
-impl<T: ?Sized, R: Deref<Target = Mutex<T>>> Drop for MutexGuard_<T, R> {
-    fn drop(&mut self) {
-        self.mutex.unlock();
+/* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
+    fn drop(&mut self)
+        opens_invariants none
+        no_unwind
+    {
+        self.mutex.unlock(Tracked(perm));
     }
-}
+} */
 
-impl<T: ?Sized + fmt::Debug, R: Deref<Target = Mutex<T>>> fmt::Debug for MutexGuard_<T, R> {
+/* impl<T: /* ?Sized + */ fmt::Debug> fmt::Debug for MutexGuard<'_, T> {
+    #[verifier::external_body]
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
-}
+} */
 
-impl<T: ?Sized, R: Deref<Target = Mutex<T>>> !Send for MutexGuard_<T, R> {}
+impl<T  /* : ?Sized */ > !Send for MutexGuard<'_, T> {}
 
-unsafe impl<T: ?Sized + Sync, R: Deref<Target = Mutex<T>> + Sync> Sync for MutexGuard_<T, R> {}
-
-impl<'a, T: ?Sized> MutexGuard<'a, T> {
+// unsafe impl<T: ?Sized + Sync> Sync for MutexGuard<'_, T> {}
+impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+    /// Returns the [`Mutex`] associated with this guard.
     pub fn get_lock(guard: &MutexGuard<'a, T>) -> &'a Mutex<T> {
         guard.mutex
     }
 }
 
+} // verus!
 #[cfg(ktest)]
 mod test {
     use super::*;
