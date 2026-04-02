@@ -203,17 +203,22 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     }
 }
 
-/* impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
+impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
-    #[verifier::external_body]
     fn deref(&self) -> &Self::Target {
+        proof_decl! {
+            let tracked read_perm = self.v_perm.borrow();
+        }
+        proof! {
+            use_type_invariant(self);
+        }
         // unsafe { &*self.mutex.val.get() }
         self.mutex.val.borrow(Tracked(read_perm))
     }
 }
 
-impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
+/* impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
     #[verifier::external_body]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mutex.val.get() }
