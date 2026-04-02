@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
+use vstd::cell::pcell::*;
+use vstd::prelude::*;
+
 use core::{
     cell::UnsafeCell,
-    fmt,
     ops::{Deref, DerefMut},
     sync::atomic::{
         AtomicUsize,
@@ -11,6 +13,8 @@ use core::{
 };
 
 use super::WaitQueue;
+
+verus! {
 
 /// A mutex that provides data access to either one writer or many readers.
 ///
@@ -85,7 +89,8 @@ use super::WaitQueue;
 ///     assert_eq!(*w2, 7);
 /// }   // write mutex is dropped at this point
 /// ```
-pub struct RwMutex<T: ?Sized> {
+#[verifier::reject_recursive_types(T)]
+pub struct RwMutex<T /*: ?Sized*/> {
     /// The internal representation of the mutex state is as follows:
     /// - **Bit 63:** Writer mutex.
     /// - **Bit 62:** Upgradeable reader mutex.
@@ -94,7 +99,8 @@ pub struct RwMutex<T: ?Sized> {
     lock: AtomicUsize,
     /// Threads that fail to acquire the mutex will sleep on this waitqueue.
     queue: WaitQueue,
-    val: UnsafeCell<T>,
+    // val: UnsafeCell<T>,
+    val: PCell<T>,
 }
 
 const READER: usize = 1;
@@ -109,16 +115,19 @@ const MAX_READER: usize = 1 << (usize::BITS - 4);
 
 impl<T> RwMutex<T> {
     /// Creates a new read-write mutex with an initial value.
+    #[verifier::external_body]
     pub const fn new(val: T) -> Self {
+        let (val, Tracked(_perm)) = PCell::new(val);
         Self {
-            val: UnsafeCell::new(val),
+            // val: UnsafeCell::new(val),
+            val,
             lock: AtomicUsize::new(0),
             queue: WaitQueue::new(),
         }
     }
 }
 
-impl<T: ?Sized> RwMutex<T> {
+impl<T /*: ?Sized*/> RwMutex<T> {
     /// Acquires a read mutex and sleep until it can be acquired.
     ///
     /// The calling thread will sleep until there are no writers or upgrading
@@ -126,6 +135,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// order in which other concurrent readers or writers waiting simultaneously
     /// will acquire the mutex.
     #[track_caller]
+    #[verifier::external_body]
     pub fn read(&self) -> RwMutexReadGuard<'_, T> {
         self.queue.wait_until(|| self.try_read())
     }
@@ -137,6 +147,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// order in which other concurrent readers or writers waiting simultaneously
     /// will acquire the mutex.
     #[track_caller]
+    #[verifier::external_body]
     pub fn write(&self) -> RwMutexWriteGuard<'_, T> {
         self.queue.wait_until(|| self.try_write())
     }
@@ -152,6 +163,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// only one upreader can exist at any time to avoid deadlock in the
     /// upgrade method.
     #[track_caller]
+    #[verifier::external_body]
     pub fn upread(&self) -> RwMutexUpgradeableGuard<'_, T> {
         self.queue.wait_until(|| self.try_upread())
     }
@@ -159,6 +171,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// Attempts to acquire a read mutex.
     ///
     /// This function will never sleep and will return immediately.
+    #[verifier::external_body]
     pub fn try_read(&self) -> Option<RwMutexReadGuard<'_, T>> {
         let lock = self.lock.fetch_add(READER, Acquire);
         if lock & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
@@ -172,6 +185,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// Attempts to acquire a write mutex.
     ///
     /// This function will never sleep and will return immediately.
+    #[verifier::external_body]
     pub fn try_write(&self) -> Option<RwMutexWriteGuard<'_, T>> {
         if self
             .lock
@@ -187,6 +201,7 @@ impl<T: ?Sized> RwMutex<T> {
     /// Attempts to acquire a upread mutex.
     ///
     /// This function will never sleep and will return immediately.
+    #[verifier::external_body]
     pub fn try_upread(&self) -> Option<RwMutexUpgradeableGuard<'_, T>> {
         let lock = self.lock.fetch_or(UPGRADEABLE_READER, Acquire) & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
@@ -197,79 +212,98 @@ impl<T: ?Sized> RwMutex<T> {
         None
     }
 
-    /// Returns a mutable reference to the underlying data.
+    /* /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
     /// already statically guaranteed that access to the data is exclusive.
     pub fn get_mut(&mut self) -> &mut T {
         self.val.get_mut()
-    }
+    } */
 }
 
-impl<T: ?Sized + fmt::Debug> fmt::Debug for RwMutex<T> {
+/* impl<T: /*: ?Sized +*/ fmt::Debug> fmt::Debug for RwMutex<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&self.val, f)
     }
-}
+} */
 
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
-unsafe impl<T: ?Sized + Send> Send for RwMutex<T> {}
-unsafe impl<T: ?Sized + Send + Sync> Sync for RwMutex<T> {}
+#[verifier::external]
+unsafe impl<T: /*: ?Sized +*/ Send> Send for RwMutex<T> {}
+#[verifier::external]
+unsafe impl<T: /*: ?Sized +*/ Send + Sync> Sync for RwMutex<T> {}
 
-impl<T: ?Sized> !Send for RwMutexWriteGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for RwMutexWriteGuard<'_, T> {}
+impl<T /*: ?Sized*/> !Send for RwMutexWriteGuard<'_, T> {}
+#[verifier::external]
+unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexWriteGuard<'_, T> {}
 
-impl<T: ?Sized> !Send for RwMutexReadGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for RwMutexReadGuard<'_, T> {}
+impl<T /*: ?Sized*/> !Send for RwMutexReadGuard<'_, T> {}
+#[verifier::external]
+unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexReadGuard<'_, T> {}
 
-impl<T: ?Sized> !Send for RwMutexUpgradeableGuard<'_, T> {}
-unsafe impl<T: ?Sized + Sync> Sync for RwMutexUpgradeableGuard<'_, T> {}
+impl<T /*: ?Sized*/> !Send for RwMutexUpgradeableGuard<'_, T> {}
+#[verifier::external]
+unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {}
 
 /// A guard that provides immutable data access.
-pub struct RwMutexReadGuard<'a, T: ?Sized> {
+#[verifier::reject_recursive_types(T)]
+pub struct RwMutexReadGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
 }
 
-impl<T: ?Sized> Deref for RwMutexReadGuard<'_, T> {
+impl<T /*: ?Sized*/> Deref for RwMutexReadGuard<'_, T> {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized> Drop for RwMutexReadGuard<'_, T> {
+/* impl<T: ?Sized> Drop for RwMutexReadGuard<'_, T> {
     fn drop(&mut self) {
         // When there are no readers, wake up a waiting writer.
         if self.inner.lock.fetch_sub(READER, Release) == READER {
             self.inner.queue.wake_one();
         }
     }
-}
+} */
 
 /// A guard that provides mutable data access.
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct RwMutexWriteGuard<'a, T: ?Sized> {
+#[verifier::reject_recursive_types(T)]
+pub struct RwMutexWriteGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
 }
 
-impl<T: ?Sized> Deref for RwMutexWriteGuard<'_, T> {
+impl<T /*: ?Sized*/> Deref for RwMutexWriteGuard<'_, T> {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
 
-impl<'a, T: ?Sized> RwMutexWriteGuard<'a, T> {
+impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
     /// Atomically downgrades a write guard to an upgradeable reader guard.
     ///
     /// This method always succeeds because the lock is exclusively held by the writer.
-    pub fn downgrade(mut self) -> RwMutexUpgradeableGuard<'a, T> {
+    #[verifier::external_body]
+    pub fn downgrade(self) -> RwMutexUpgradeableGuard<'a, T> {
+        let mut this = self;
         loop {
-            self = match self.try_downgrade() {
+            this = match this.try_downgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -278,6 +312,7 @@ impl<'a, T: ?Sized> RwMutexWriteGuard<'a, T> {
 
     /// This is not exposed as a public method to prevent intermediate lock states from affecting the
     /// downgrade process.
+    #[verifier::external_body]
     fn try_downgrade(self) -> Result<RwMutexUpgradeableGuard<'a, T>, Self> {
         let inner = self.inner;
         let res = self
@@ -293,13 +328,13 @@ impl<'a, T: ?Sized> RwMutexWriteGuard<'a, T> {
     }
 }
 
-impl<T: ?Sized> DerefMut for RwMutexWriteGuard<'_, T> {
+/* impl<T: ?Sized> DerefMut for RwMutexWriteGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.inner.val.get() }
     }
-}
+} */
 
-impl<T: ?Sized> Drop for RwMutexWriteGuard<'_, T> {
+/* impl<T: ?Sized> Drop for RwMutexWriteGuard<'_, T> {
     fn drop(&mut self) {
         self.inner.lock.fetch_and(!WRITER, Release);
 
@@ -309,15 +344,16 @@ impl<T: ?Sized> Drop for RwMutexWriteGuard<'_, T> {
         // continue to execute or one writer continues to execute.
         self.inner.queue.wake_all();
     }
-}
+} */
 
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to [`RwMutexWriteGuard`].
-pub struct RwMutexUpgradeableGuard<'a, T: ?Sized> {
+#[verifier::reject_recursive_types(T)]
+pub struct RwMutexUpgradeableGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
 }
 
-impl<'a, T: ?Sized> RwMutexUpgradeableGuard<'a, T> {
+impl<'a, T /*: ?Sized*/> RwMutexUpgradeableGuard<'a, T> {
     /// Upgrades this upread guard to a write guard atomically.
     ///
     /// After calling this method, subsequent readers will be blocked
@@ -327,10 +363,12 @@ impl<'a, T: ?Sized> RwMutexUpgradeableGuard<'a, T> {
     /// reader to be released. There are two main reasons.
     /// - First, it needs to sleep in an extra waiting queue and needs extra wake-up logic and overhead.
     /// - Second, upgrading method usually requires a high response time (because the mutex is being used now).
-    pub fn upgrade(mut self) -> RwMutexWriteGuard<'a, T> {
-        self.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
+    #[verifier::external_body]
+    pub fn upgrade(self) -> RwMutexWriteGuard<'a, T> {
+        let mut this = self;
+        this.inner.lock.fetch_or(BEING_UPGRADED, Acquire);
         loop {
-            self = match self.try_upgrade() {
+            this = match this.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -343,6 +381,7 @@ impl<'a, T: ?Sized> RwMutexUpgradeableGuard<'a, T> {
     ///
     /// This function is not exposed publicly because the `BEING_UPGRADED` bit
     /// is set only in [`Self::upgrade`].
+    #[verifier::external_body]
     fn try_upgrade(self) -> Result<RwMutexWriteGuard<'a, T>, Self> {
         let res = self.inner.lock.compare_exchange(
             UPGRADEABLE_READER | BEING_UPGRADED,
@@ -360,19 +399,26 @@ impl<'a, T: ?Sized> RwMutexUpgradeableGuard<'a, T> {
     }
 }
 
-impl<T: ?Sized> Deref for RwMutexUpgradeableGuard<'_, T> {
+impl<T /*: ?Sized*/> Deref for RwMutexUpgradeableGuard<'_, T> {
     type Target = T;
 
+    #[verifier::external_body]
     fn deref(&self) -> &T {
-        unsafe { &*self.inner.val.get() }
+        // unsafe { &*self.inner.val.get() }
+        unsafe {
+            let ucell: *const UnsafeCell<T> = (&self.inner.val as *const PCell<T>).cast();
+            &*(*ucell).get()
+        }
     }
 }
 
-impl<T: ?Sized> Drop for RwMutexUpgradeableGuard<'_, T> {
+/* impl<T: ?Sized> Drop for RwMutexUpgradeableGuard<'_, T> {
     fn drop(&mut self) {
         let res = self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
         if res == UPGRADEABLE_READER {
             self.inner.queue.wake_all();
         }
     }
-}
+} */
+
+} // verus!

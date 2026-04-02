@@ -6,7 +6,7 @@ mod once;
 mod rcu;
 mod rwarc;
 mod rwlock;
-//mod rwmutex;
+mod rwmutex;
 mod spin;
 mod wait;
 //pub(crate) use self::rcu::finish_grace_period;
