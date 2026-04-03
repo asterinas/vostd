@@ -19,6 +19,7 @@ use crate::mm::frame::untyped::UFrame;
 use crate::mm::io::VmIoMemView;
 use crate::mm::page_table::*;
 use crate::mm::page_table::{EntryOwner, PageTableFrag, PageTableGuard};
+use crate::mm::kspace::KernelPtConfig;
 use crate::mm::frame::MetaSlot;
 use crate::specs::arch::*;
 use crate::specs::mm::frame::mapping::meta_to_frame;
@@ -33,7 +34,8 @@ use core::{ops::Range, sync::atomic::Ordering};
 use vstd_extra::ghost_tree::*;
 
 use crate::mm::tlb::*;
-use crate::specs::mm::cpu::AtomicCpuSet;
+use crate::specs::mm::cpu::{AtomicCpuSet, CpuSet};
+use crate::mm::kspace::KERNEL_PAGE_TABLE;
 
 use crate::{
     mm::{
@@ -143,35 +145,42 @@ type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
 impl<'a> VmSpace<'a> {
-    /// A spec function to create a new [`VmSpace`] instance.
-    ///
-    /// The reason why this function is marked as `uninterp` is that the implementation details
-    /// of the [`VmSpace`] struct are not important for the verification of its clients.
-    pub uninterp spec fn new_spec() -> Self;
 
     /// Creates a new VM address space.
     ///
     /// # Verification Design
-    ///
-    /// This function is marked as `external_body` for now as the current design does not entail
-    /// the concrete implementation details of the underlying data structure of the [`VmSpace`].
-    ///
-    /// ## Preconditions
-    /// None
     ///
     /// ## Postconditions
     /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`]
     /// - The returned [`VmSpace`] instance is equal to the one created by the [`Self::new_spec`]
     ///   function, which is an `uninterp` function that can be used in specifications.
     #[inline]
-    #[verifier::external_body]
-    #[verifier::when_used_as_spec(new_spec)]
     #[verus_spec(r =>
-        ensures
-            r == Self::new_spec(),
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
+            Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
+        requires
+            old(regions).inv(),
     )]
     pub fn new() -> Self {
-        unimplemented!()
+        proof_decl! {
+            let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
+        }
+        let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
+            Tracked(&mut kernel_owner_opt), Tracked(regions),
+        );
+        proof_decl! {
+            let tracked kernel_owner = kernel_owner_opt.tracked_take();
+        }
+        let pt = {
+            #[verus_spec(with Tracked(kernel_owner), Tracked(regions), Tracked(guards_k), Tracked(guards_u))]
+            kpt.create_user_page_table::<crate::specs::task::AnyAtomicGuard>()
+        };
+        Self {
+            pt,
+            cpus: AtomicCpuSet::new(CpuSet::new_empty()),
+            _marker: PhantomData,
+        }
     }
 
     /// Gets an immutable cursor in the virtual address range.
@@ -182,9 +191,36 @@ impl<'a> VmSpace<'a> {
     ///
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
-    #[verifier::external_body]
+    #[verus_spec(r =>
+        with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
+            -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
+        requires
+            owner.inv(),
+        ensures
+            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> r is Ok && cursor_owner@ is Some,
+    )]
     pub fn cursor<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<Cursor<'a, G>> {
-        Ok(self.pt.cursor(guard, va).map(|pt_cursor| Cursor(pt_cursor.0))?)
+        proof_decl! {
+            let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
+        }
+        match {
+            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+            self.pt.cursor(guard, va)
+        } {
+            Ok((pt_cursor, tracked_owner)) => {
+                proof! { out_owner = Some(tracked_owner.get()); }
+                proof_with!(|= Tracked(out_owner));
+                Ok(Cursor(pt_cursor))
+            }
+            Err(e) => {
+                proof! { out_owner = None; }
+                proof_with!(|= Tracked(out_owner));
+                Err(Error::AccessDenied)
+            }
+        }
     }
 
     /// Gets an mutable cursor in the virtual address range.
@@ -197,20 +233,38 @@ impl<'a> VmSpace<'a> {
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
     /// cursor may also block or be overridden the mapping of another cursor.
-    #[verifier::external_body]
+    #[verus_spec(r =>
+        with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
+            -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
+        requires
+        ensures
+            crate::mm::page_table::Cursor::<UserPtConfig, G>::cursor_new_success_conditions(va) ==> r is Ok && cursor_owner@ is Some,
+    )]
     pub fn cursor_mut<G: InAtomicMode>(&'a self, guard: &'a G, va: &Range<Vaddr>) -> Result<CursorMut<'a, G>> {
-        Ok(
-            self.pt.cursor_mut(guard, va).map(
-                |pt_cursor|
-                    CursorMut {
-                        pt_cursor: pt_cursor.0,
-                        flusher: TlbFlusher::new(
-                            &self.cpus  /*, disable_preempt()*/
-                            ,
-                        ),
-                    },
-            )?,
-        )
+        proof_decl! {
+            let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
+        }
+        match {
+            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+            self.pt.cursor_mut(guard, va)
+        } {
+            Ok((pt_cursor, tracked_owner)) => {
+                proof! { out_owner = Some(tracked_owner.get()); }
+                proof_with!(|= Tracked(out_owner));
+                Ok(CursorMut {
+                    pt_cursor,
+                    flusher: TlbFlusher::new(&self.cpus),
+                })
+            }
+            Err(e) => {
+                proof! { out_owner = None; }
+                proof_with!(|= Tracked(out_owner));
+                Err(Error::AccessDenied)
+            }
+        }
     }
 
     /// Creates a reader to read data from the user space of the current task.

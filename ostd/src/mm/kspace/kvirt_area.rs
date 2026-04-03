@@ -185,9 +185,21 @@ fn collect_largest_pages(
 }
 
 #[verifier::external_body]
-pub(crate) fn get_kernel_page_table() -> (r: &'static PageTable<KernelPtConfig>)
+pub(crate) fn get_kernel_page_table(
+    Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
+    Tracked(regions): Tracked<&MetaRegionOwners>,
+) -> (r: &'static PageTable<KernelPtConfig>)
+    requires
+        regions.inv(),
     ensures
-        true,
+        kernel_owner@ is Some,
+        kernel_owner@.unwrap().inv(),
+        kernel_owner@.unwrap().0.value.node is Some,
+        r.root.ptr.addr() == kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
+            kernel_owner@.unwrap().0.value.node.unwrap(),
+        ),
+        kernel_owner@.unwrap().0.value.metaregion_sound(*regions),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -320,12 +332,14 @@ impl KVirtArea {
     /// - If there is a mapped item at the page containing the address ([`query_some_condition`]),
     /// it is returned ([`query_some_ensures`]).
     /// - If there is no mapping at that page, `None` is returned ([`query_none_ensures`]).
-    #[verifier::external_body]
     #[verus_spec(r =>
         with Tracked(owner): Tracked<KVirtAreaOwner>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'static, KernelPtConfig>>,
         requires
             self.inv(),
             self.range.start <= addr && addr < self.range.end,
+            old(regions).inv(),
         ensures
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, r),
             !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
@@ -334,12 +348,22 @@ impl KVirtArea {
     {
         use align_ext::AlignExt;
 
+        proof {
+            vstd_extra::prelude::lemma_pow2_is_pow2_to64();
+            broadcast use vstd::arithmetic::power2::is_pow2_equiv, vstd::arithmetic::power2::lemma_pow2;
+            let witness: nat = choose |i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
+            assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
+        }
         let start = addr.align_down(PAGE_SIZE);
+        proof { assume(start + PAGE_SIZE <= usize::MAX); }
         let vaddr = start..start + PAGE_SIZE;
-        let page_table = get_kernel_page_table();
-
+        proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
+        let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions));
         let preempt_guard = disable_preempt::<A>();
+        // cursor requires owned PageTableOwner; get_kernel_page_table only lends.
+        proof { admit(); }
         let (mut cursor, _cursor_owner) = page_table.cursor(preempt_guard, &vaddr).unwrap();
+        proof { admit(); }
         cursor.query().unwrap().1
     }
 
@@ -369,6 +393,7 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> Self
         requires
+            old(regions).inv(),
             0 < area_size,
             map_offset < area_size,
             map_offset % PAGE_SIZE == 0,
@@ -398,10 +423,15 @@ impl KVirtArea {
             axiom_kernel_range_valid(cursor_range);
         }
 
-        let page_table = get_kernel_page_table();
+        let page_table = {
+                proof_decl! {
+                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
+                }
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+            };
         let preempt_guard = disable_preempt::<A>();
 
-        let (mut cursor, Tracked(cursor_owner)) = 
+        let (mut cursor, Tracked(cursor_owner)) =
         (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
             page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
 
@@ -534,6 +564,7 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> Self
         requires
+            old(regions).inv(),
             0 < area_size,
             area_size <= usize::MAX / 2,
             map_offset % PAGE_SIZE == 0,
@@ -567,7 +598,12 @@ impl KVirtArea {
 //                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_success_conditions(&va_range));
             }
 
-            let page_table = get_kernel_page_table();
+            let page_table = {
+                proof_decl! {
+                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
+                }
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+            };
             let preempt_guard = disable_preempt::<A>();
 
             // Save regions state before cursor_mut so postcondition trigger can fire.
