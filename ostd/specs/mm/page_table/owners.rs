@@ -166,6 +166,7 @@ impl<C: PageTableConfig, const L: usize> TreeNodeValue<L> for EntryOwner<C> {
             &&& child.unwrap().path.len() == self.node.unwrap().tree_level + 1
             &&& child.unwrap().match_pte(self.node.unwrap().children_perm.value()[i], self.node.unwrap().level)
             &&& child.unwrap().path == self.path.push_tail(i as usize)
+            &&& child.unwrap().parent_level == self.node.unwrap().level
         } else {
             &&& child is None
         }

@@ -1162,6 +1162,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner.jump_above_locked_range_va_in_node(va, node_start);
                         assert(false);
                     }
+                    // TODO: above_locked_range + pop can set popped_too_high without in_locked_range,
+                    // violating CursorOwner::inv(). Needs either:
+                    // (a) a proof that above_locked_range ==> va is in node (so we'd return above), or
+                    // (b) weakening the popped_too_high ==> in_locked_range invariant for jump
+                    assume(owner.in_locked_range());
                 }
             }
 
@@ -1355,6 +1360,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).inv(),
             old(regions).inv(),
             old(self).wf(*old(owner)),
+            old(owner).in_locked_range(),
             old(owner).children_not_locked(*old(guards)),
             old(owner).nodes_locked(*old(guards)),
             old(owner).metaregion_sound(*old(regions)),

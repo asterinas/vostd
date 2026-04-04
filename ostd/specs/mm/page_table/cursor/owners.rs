@@ -591,10 +591,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         }
         &&& self.prefix.inv()
         &&& forall|i: int| i < self.guard_level ==> self.prefix.index[i] == 0
-        // The cursor's VA shares upper indices with the prefix: as long as
-        // the cursor hasn't popped above guard_level (level <= guard_level),
-        // only indices below guard_level change.
-        &&& self.level <= self.guard_level ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
+        // The cursor's VA shares upper indices with the prefix as long as
+        // the cursor hasn't popped above guard_level.
+        &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
             self.va.index[i] == self.prefix.index[i]
         &&& self.level <= 4 ==> {
             &&& self.continuations.contains_key(3)
@@ -614,6 +613,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(self.continuations[3].idx as usize)
+            // PTE consistency: child entry matches parent's PTE at parent's index
+            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    self.continuations[3].entry_own, self.continuations[3].idx as int,
+                    Some(self.continuations[2].entry_own))
         }
         &&& self.level <= 2 ==> {
             &&& self.continuations.contains_key(1)
@@ -627,6 +630,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(self.continuations[2].idx as usize)
+            // PTE consistency: child entry matches parent's PTE at parent's index
+            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    self.continuations[2].entry_own, self.continuations[2].idx as int,
+                    Some(self.continuations[1].entry_own))
         }
         &&& self.level == 1 ==> {
             &&& self.continuations.contains_key(0)
@@ -642,6 +649,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(self.continuations[1].idx as usize)
+            // PTE consistency: child entry matches parent's PTE at parent's index
+            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    self.continuations[1].entry_own, self.continuations[1].idx as int,
+                    Some(self.continuations[0].entry_own))
         }
     }
 }
@@ -870,6 +881,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn do_inc_index(tracked &mut self)
         requires
             old(self).inv(),
+            old(self).level <= old(self).guard_level,
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==>
                 (old(self).continuations[old(self).level - 1].idx + 1) < C::TOP_LEVEL_INDEX_RANGE_spec().end,
@@ -894,6 +906,32 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
         assert(self.in_locked_range() || self.above_locked_range()) by { admit() };
+        // VA/prefix match: !popped_too_high ==> match
+        // popped_too_high just set to false. Need the match.
+        // From old(self): level <= guard_level, so !popped_too_high (from inv).
+        // !popped_too_high ==> match in old state.
+        // inc_index changes va.index[level-1] where level-1 < guard_level (or == guard_level - 1).
+        // Indices at i >= guard_level unchanged. Match preserved.
+        assert(forall |i: int| self.guard_level <= i < NR_LEVELS ==>
+            self.va.index[i] == self.prefix.index[i]) by {
+            // level <= guard_level from precondition, so level - 1 < guard_level.
+            // inc_index only changed va.index[level-1], which is below guard_level.
+            // All indices at i >= guard_level are unchanged from old(self).
+            // From !old(self).popped_too_high + old(self).inv(): old match held.
+            assert forall |i: int| self.guard_level <= i < NR_LEVELS implies
+                self.va.index[i] == self.prefix.index[i] by {
+                // level - 1 < guard_level <= i, so i != level - 1, va.index[i] unchanged
+                assert(self.level as int - 1 < self.guard_level as int);
+                // Need old(self).va.index[i] == old(self).prefix.index[i].
+                // If !old(self).popped_too_high: from invariant directly.
+                // If old(self).popped_too_high: in_locked_range ==> match (needs lemma).
+                if old(self).popped_too_high {
+                    // popped_too_high ==> in_locked_range (from inv)
+                    // in_locked_range ==> match (reverse lemma)
+                    old(self).in_locked_range_prefix_match();
+                }
+            };
+        };
     }
 
     pub proof fn inc_and_zero_increases_va(self)
@@ -1721,6 +1759,90 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.in_locked_range(),
     { admit() }
+
+    /// Reverse of prefix_in_locked_range: if va is in the locked range,
+    /// then va shares upper indices with prefix.
+    pub proof fn in_locked_range_prefix_match(self)
+        requires
+            self.inv(),
+            self.prefix.inv(),
+            1 <= self.guard_level <= NR_LEVELS,
+            self.in_locked_range(),
+        ensures
+            forall|i:int| self.guard_level <= i < NR_LEVELS ==> self.va.index[i] == self.prefix.index[i],
+    {
+        let gl = self.guard_level;
+        let start = self.prefix.align_down(gl as int).to_vaddr();
+
+        // prefix is in its own locked range
+        self.prefix.align_down_shape(gl as int);
+        let prefix_ad = self.prefix.align_down(gl as int);
+
+        // align_down(gl).to_vaddr() is page_size(gl)-aligned
+        self.prefix.align_down_concrete(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(
+            self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        lemma_nat_align_down_sound(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat);
+
+        // prefix.to_vaddr() is in [start, start + page_size(gl))
+        self.prefix.align_diff(gl as int);
+
+        if gl as int >= 2 && (gl as int) < NR_LEVELS as int {
+            // Connect locked_range.end == start + page_size(gl)
+            self.prefix.align_up_concrete(gl as int);
+            AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                nat_align_up(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+
+            // Both va and prefix are in [start, start + page_size(gl)).
+            // same_node_indices_match with level = gl - 1 >= 1
+            AbstractVaddr::same_node_indices_match(
+                self.va.to_vaddr(),
+                self.prefix.to_vaddr(),
+                start,
+                (gl - 1) as PagingLevel,
+            );
+            // from_vaddr(va) == va (since va.inv())
+            AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va);
+            AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.prefix);
+        } else if gl as int == 1 {
+            // gl == 1: page_size(1) = 4KB = 2^12 = PAGE_SIZE.
+            // The locked range is one page. Both va and prefix are in the same page.
+            // align_down(1) just zeroes the offset, keeping all indices.
+            // same_node_indices_match needs level >= 1, so we can't use it directly.
+            // But for gl == 1, the match checks i >= 1, i.e., indices 1,2,3.
+            // Two VAs in the same 4KB page share all 4 indices (they differ only in offset).
+            // We need: from_vaddr(va).index[i] == from_vaddr(prefix.to_vaddr()).index[i] for i >= 1.
+            // Actually, the locked range for gl=1 spans page_size(1) = one page.
+            // But same_node_indices_match needs level >= 1 and uses page_size(level+1).
+            // With level = 1: page_size(2) = 2MB. Both VAs in the same 2MB block.
+            // But the locked range is only 4KB, not 2MB. So we can't directly use it.
+            // However, both VAs are within [start, start + 4KB) ⊂ [start, start + 2MB).
+            // And start is 4KB-aligned, hence 2MB-aligned? No, 4KB-aligned doesn't imply 2MB-aligned.
+            // We need start to be page_size(2)-aligned for same_node_indices_match with level=1.
+            // start = nat_align_down(prefix.to_vaddr(), page_size(1)). This is 4KB-aligned, not 2MB-aligned.
+            // So we need a different approach for gl == 1.
+            // For gl == 1, check indices 1,2,3. Use align_down(2) which zeroes offset and index[0].
+            // align_down_shape(2): indices at i >= 1 preserved. So:
+            //   va.align_down(2).index[i] == va.index[i] for i >= 1
+            //   prefix.align_down(2).index[i] == prefix.index[i] for i >= 1
+            // If va and prefix have the same align_down(2), they share indices at i >= 1.
+            // va and prefix are in the same 4KB page, so they're in the same 2MB page.
+            // align_down(2).to_vaddr() for both = same value.
+            // Then align_down_to_vaddr_eq_if_upper_indices_eq proves they share indices.
+            // But we need to show they have the same align_down(2).to_vaddr() first.
+            // Since both are in [start, start+4KB) and start is 4KB-aligned:
+            //   va.to_vaddr() / 2MB == prefix.to_vaddr() / 2MB (since they differ by < 4KB < 2MB)
+            // So align_down(2) values are the same. This needs same_node_indices_match with level=1
+            // and a 2MB-aligned start. The actual start may not be 2MB-aligned.
+            // Alternative: use the direct definition. va and prefix differ by < page_size(1) = 4KB.
+            // 4KB < 2^21 = page_size(2), so index[1] (which is (va >> 21) % 512) is the same for both.
+            // Similarly for higher indices.
+            admit();
+        } else {
+            // gl == NR_LEVELS: forall i >= NR_LEVELS is vacuous
+        }
+    }
 
     pub proof fn in_locked_range_level_lt_nr_levels(self)
         requires self.inv(), self.in_locked_range(), !self.popped_too_high,

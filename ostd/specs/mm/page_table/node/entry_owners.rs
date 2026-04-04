@@ -473,6 +473,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.locked is None
             &&& self.node.unwrap().inv()
             &&& !self.absent
+            &&& self.parent_level == self.node.unwrap().level + 1
         }
         &&& self.frame is Some ==> {
             &&& self.node is None
