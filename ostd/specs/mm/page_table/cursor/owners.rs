@@ -1573,7 +1573,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall |m: Mapping| cont.view_mappings().contains(m)
                 implies cont0.view_mappings().contains(m) by {
                 let j = choose|j:int| 0 <= j < cont.children.len()
-                    && cont.children[j] is Some
+                    && #[trigger] cont.children[j] is Some
                     && PageTableOwner(cont.children[j].unwrap())
                         .view_rec(cont.path().push_tail(j as usize)).contains(m);
                 if j != idx { assert(cont.children[j] == cont0.children[j]); }
@@ -1581,7 +1581,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert forall |m: Mapping| cont0.view_mappings().contains(m)
                 implies cont.view_mappings().contains(m) by {
                 let j = choose|j:int| 0 <= j < cont0.children.len()
-                    && cont0.children[j] is Some
+                    && #[trigger] cont0.children[j] is Some
                     && PageTableOwner(cont0.children[j].unwrap())
                         .view_rec(cont0.path().push_tail(j as usize)).contains(m);
                 if j != idx { assert(cont0.children[j] == cont.children[j]); }

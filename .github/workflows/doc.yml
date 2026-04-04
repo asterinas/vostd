@@ -112,7 +112,7 @@ jobs:
         run: make doc
 
       - name: Upload artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && github.repository == 'asterinas/vostd'
         uses: actions/upload-pages-artifact@v4
         with:
           path: doc
@@ -122,7 +122,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.repository == 'asterinas/vostd'
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages

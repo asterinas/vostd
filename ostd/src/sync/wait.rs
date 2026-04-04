@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
+use vstd::atomic_ghost::*;
 use vstd::prelude::*;
 
 use alloc::{collections::VecDeque, sync::Arc};
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::{LocalIrqDisabled, SpinLock};
 use crate::task::{scheduler, Task};
@@ -37,6 +38,12 @@ use crate::task::{scheduler, Task};
 
 verus! {
 
+pub tracked struct WaitQueueGhost {
+    pub queued_wakers: Seq<int>,
+}
+
+struct_with_invariants! {
+
 /// A wait queue.
 ///
 /// One may wait on a wait queue to put its executing thread to sleep.
@@ -45,8 +52,22 @@ verus! {
 /// wake up one or many waiting threads.
 pub struct WaitQueue {
     // A copy of `wakers.len()`, used for the lock-free fast path in `wake_one` and `wake_all`.
-    num_wakers: AtomicU32,
+    num_wakers: AtomicU32<_, WaitQueueGhost, _>,
     wakers: SpinLock<VecDeque<Arc<Waker>>, LocalIrqDisabled>,
+}
+
+closed spec fn wf(self) -> bool {
+    invariant on num_wakers is (v: u32, g: WaitQueueGhost) {
+        &&& g.queued_wakers.len() == v as int
+    }
+}
+}
+
+impl WaitQueue {
+    #[verifier::type_invariant]
+    pub closed spec fn type_inv(self) -> bool {
+        self.wf()
+    }
 }
 
 impl WaitQueue {
@@ -54,7 +75,11 @@ impl WaitQueue {
     #[verifier::external_body]
     pub const fn new() -> Self {
         WaitQueue {
-            num_wakers: AtomicU32::new(0),
+            num_wakers: AtomicU32::new(
+                Ghost(()),
+                0,
+                Tracked(WaitQueueGhost { queued_wakers: seq![] }),
+            ),
             wakers: SpinLock::new(VecDeque::new()),
         }
     }
@@ -70,40 +95,49 @@ impl WaitQueue {
     /// By taking a condition closure, this wait-wakeup mechanism becomes
     /// more efficient and robust.
     #[track_caller]
-    #[verifier::external_body]
-    pub fn wait_until<F, R>(&self, mut cond: F) -> R
-    where
-        F: FnMut() -> Option<R>,
-    {
+    #[verus_spec(ret =>
+        requires
+            cond.requires(()),
+        ensures
+            cond.ensures((), Some(ret)),
+    )]
+    pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
         if let Some(res) = cond() {
             return res;
         }
-
         let (waiter, _) = Waiter::new_pair();
-        let cond = || {
-            self.enqueue(waiter.waker());
-            cond()
-        };
-        waiter
-            .wait_until_or_cancelled(cond, || Ok::<(), ()>(()))
-            .unwrap()
+        let cond = ||
+            {
+                self.enqueue(waiter.waker());
+                cond()
+            };
+        proof!{
+            admit(); // FIXME: The Verus type inference of the closure is wrong if we add an `ensures` clause to the closure.
+        }
+        waiter.wait_until_or_cancelled(cond, || -> (ret:Result<(), ()>) ensures ret == Ok::<(),()>(()) { Ok::<(), ()>(()) }).unwrap()
     }
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
     /// called, returning whether such a thread was woken up.
     #[verifier::external_body]
-    pub fn wake_one(&self) -> bool {
+    pub fn wake_one(&self) -> (r: bool)
+    {
         // Fast path
         if self.is_empty() {
             return false;
         }
-
         loop {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
                 return false;
             };
-            self.num_wakers.fetch_sub(1, Ordering::Release);
+            atomic_with_ghost! {
+                self.num_wakers => fetch_sub(1);
+                update prev -> next;
+                ghost g => {
+                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
+                }
+            };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
 
@@ -115,20 +149,26 @@ impl WaitQueue {
 
     /// Wakes up all waiting threads, returning the number of threads that were woken up.
     #[verifier::external_body]
-    pub fn wake_all(&self) -> usize {
+    pub fn wake_all(&self) -> (r: usize)
+    {
         // Fast path
         if self.is_empty() {
             return 0;
         }
-
         let mut num_woken = 0;
 
         loop {
             let mut wakers = self.wakers.lock();
             let Some(waker) = wakers.pop_front() else {
-                break;
+                break ;
             };
-            self.num_wakers.fetch_sub(1, Ordering::Release);
+            atomic_with_ghost! {
+                self.num_wakers => fetch_sub(1);
+                update prev -> next;
+                ghost g => {
+                    g = WaitQueueGhost { queued_wakers: g.queued_wakers.drop_first() };
+                }
+            };
             // Avoid holding lock when calling `wake_up`
             drop(wakers);
 
@@ -142,19 +182,23 @@ impl WaitQueue {
 
     #[verifier::external_body]
     fn is_empty(&self) -> bool {
-        // On x86-64, this generates `mfence; mov`, which is exactly the right way to implement
-        // atomic loading with `Ordering::Release`. It performs much better than naively
-        // translating `fetch_add(0)` to `lock; xadd`.
-        self.num_wakers.fetch_add(0, Ordering::Release) == 0
+        self.num_wakers.load() == 0
     }
 
     /// Enqueues the input [`Waker`] to the wait queue.
     #[doc(hidden)]
     #[verifier::external_body]
-    pub fn enqueue(&self, waker: Arc<Waker>) {
+    pub fn enqueue(&self, waker: Arc<Waker>)
+    {
         let mut wakers = self.wakers.lock();
         wakers.push_back(waker);
-        self.num_wakers.fetch_add(1, Ordering::Acquire);
+        atomic_with_ghost! {
+            self.num_wakers => fetch_add(1);
+            update prev -> next;
+            ghost g => {
+                g = WaitQueueGhost { queued_wakers: g.queued_wakers.push(waker.id()) };
+            }
+        };
     }
 }
 
@@ -174,8 +218,25 @@ pub struct Waiter {
     waker: Arc<Waker>,
 }
 
-impl !Send for Waiter {}
-impl !Sync for Waiter {}
+impl !Send for Waiter {
+
+}
+
+impl !Sync for Waiter {
+
+}
+
+impl Waiter {
+    /// Checks if the input waker is the associated waker of the current waiter.
+    pub closed spec fn rel_waker(self, waker: Arc<Waker>) -> bool {
+        self.waker == waker
+    }
+
+    /// Abstract identity of the paired waker.
+    pub closed spec fn waker_id(self) -> int {
+        self.waker.id()
+    }
+}
 
 /// A waker that can wake up the associated [`Waiter`].
 ///
@@ -184,20 +245,36 @@ impl !Sync for Waiter {}
 pub struct Waker {
     has_woken: AtomicBool,
     task: Arc<Task>,
+    v_id: Ghost<int>,
 }
 
+impl Waker {
+    /// Abstract identity used by the queue model.
+    pub closed spec fn id(self) -> int {
+        self.v_id@
+    }
+}
+
+#[verus_verify]
 impl Waiter {
     /// Creates a waiter and its associated [`Waker`].
-    #[verifier::external_body]
+    #[verus_spec(ret =>
+        ensures
+            ret.0.rel_waker(ret.1),
+    )]
     pub fn new_pair() -> (Self, Arc<Waker>) {
-        let waker = Arc::new(Waker {
-            has_woken: AtomicBool::new(false),
-            // task: Task::current().unwrap().cloned(),
-            task: Arc::new(Task {}),
-        });
-        let waiter = Self {
-            waker: waker.clone(),
-        };
+        proof_decl! {
+            let ghost waker_id: int = arbitrary();
+        }
+        let waker = Arc::new(
+            Waker {
+                has_woken: AtomicBool::new(false),
+                // task: Task::current().unwrap().cloned(),
+                task: Arc::new(Task {  }),
+                v_id: Ghost(waker_id),
+            },
+        );
+        let waiter = Self { waker: waker.clone() };
         (waiter, waker)
     }
 
@@ -208,7 +285,6 @@ impl Waiter {
     /// to this method (or since the waiter was created, if this method has not been called
     /// before). Otherwise, it puts the current thread to sleep until the waiter is woken up.
     #[track_caller]
-    #[verifier::external_body]
     pub fn wait(&self) {
         self.waker.do_wait();
     }
@@ -218,40 +294,57 @@ impl Waiter {
     /// This method will return `Ok(_)` if the condition returns `Some(_)`, and will stop waiting
     /// if the cancel condition returns `Err(_)`. In this situation, this method will return the `Err(_)`
     /// generated by the cancel condition.
+    #[verus_spec(ret =>
+        requires
+            cond.requires(()),
+            cancel_cond.requires(()),
+        ensures
+            match ret {
+                Ok(res) => cond.ensures((),Some(res)),
+                Err(e) => cancel_cond.ensures((), Err(e)),
+            },
+    )]
     #[track_caller]
-    #[verifier::external_body]
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn wait_until_or_cancelled<F, R, FCancel, E>(
         &self,
         mut cond: F,
         cancel_cond: FCancel,
-    ) -> core::result::Result<R, E>
-    where
+    ) -> core::result::Result<R, E> where
         F: FnMut() -> Option<R>,
         FCancel: Fn() -> core::result::Result<(), E>,
-    {
+     {
+        let mut cond = cond;
+        #[verus_spec(invariant
+            cond.requires(()),
+            cancel_cond.requires(()),
+        )]
         loop {
             if let Some(res) = cond() {
+                assert(cond.ensures((), Some(res)));
+                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return Ok(res);
             };
-
             if let Err(e) = cancel_cond() {
                 // Close the waker and check again to avoid missing a wake event.
                 self.waker.close();
+                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
                 return cond().ok_or(e);
             }
-
             self.wait();
         }
     }
 
     /// Gets the associated [`Waker`] of the current waiter.
-    #[verifier::external_body]
+    #[verus_spec(ret =>
+        ensures
+            self.rel_waker(ret),
+    )]
     pub fn waker(&self) -> Arc<Waker> {
         self.waker.clone()
     }
 
     /// Returns the task that the associated waker will attempt to wake up.
-    #[verifier::external_body]
     pub fn task(&self) -> &Arc<Task> {
         &self.waker.task
     }
@@ -306,7 +399,6 @@ impl Waker {
 }
 
 } // verus!
-
 #[cfg(ktest)]
 mod test {
     use super::*;
