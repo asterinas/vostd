@@ -148,12 +148,14 @@ impl<'a> VmSpace<'a> {
 
     /// Creates a new VM address space.
     ///
-    /// # Verification Design
+    /// This allocates a new user page table by duplicating the kernel page
+    /// table's top-level entries, and returns a [`VmSpace`] that wraps it.
     ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The meta-region invariants must hold.
     /// ## Postconditions
-    /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`]
-    /// - The returned [`VmSpace`] instance is equal to the one created by the [`Self::new_spec`]
-    ///   function, which is an `uninterp` function that can be used in specifications.
+    /// - The returned [`VmSpace`] instance satisfies the invariants of [`VmSpace`].
     #[inline]
     #[verus_spec(r =>
         with Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -191,6 +193,14 @@ impl<'a> VmSpace<'a> {
     ///
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The page table owner must be valid.
+    /// ## Postconditions
+    /// - When the virtual address range satisfies
+    ///   [`cursor_new_success_conditions`](crate::mm::page_table::Cursor::cursor_new_success_conditions),
+    ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
@@ -223,7 +233,7 @@ impl<'a> VmSpace<'a> {
         }
     }
 
-    /// Gets an mutable cursor in the virtual address range.
+    /// Gets a mutable cursor in the virtual address range.
     ///
     /// The same as [`Self::cursor`], the cursor behaves like a lock guard,
     /// exclusively owning a sub-tree of the page table, preventing others
@@ -232,7 +242,15 @@ impl<'a> VmSpace<'a> {
     ///
     /// The creation of the cursor may block if another cursor having an
     /// overlapping range is alive. The modification to the mapping by the
-    /// cursor may also block or be overridden the mapping of another cursor.
+    /// cursor may also block or be overridden by the mapping of another cursor.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The page table owner must be valid.
+    /// ## Postconditions
+    /// - When the virtual address range satisfies
+    ///   [`cursor_new_success_conditions`](crate::mm::page_table::Cursor::cursor_new_success_conditions),
+    ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
             Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
@@ -385,25 +403,6 @@ pub struct Cursor<'a, A: InAtomicMode>(pub crate::mm::page_table::Cursor<'a, Use
 
 #[verus_verify]
 impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
-    pub open spec fn query_success_requires(self) -> bool {
-        self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
-    }
-
-    pub open spec fn query_success_ensures(
-        self,
-        view: CursorView<UserPtConfig>,
-        range: Range<Vaddr>,
-        item: Option<MappedItem>,
-    ) -> bool {
-        if view.present() {
-            &&& item is Some
-            &&& view.query_item_spec(item.unwrap()) == Some(range)
-        } else {
-            &&& range.start == self.0.va
-            &&& item is None
-        }
-    }
-
     /// Queries the mapping at the current virtual address.
     ///
     /// If the cursor is pointing to a valid virtual address that is locked,
@@ -459,20 +458,20 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Liveness**: The cursor must be within the locked range and below the guard level.
-    /// - **Liveness**: The length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
+    /// - **Liveness**: In order to avoid a panic, the length must be page-aligned and less than or equal to the remaining range of the cursor.
     /// ## Postconditions
-    /// - If there is a mapped address after the current address within the next `len` bytes,
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: If there is a mapped address after the current address within the next `len` bytes,
     /// it will move the cursor to the next mapped address and return it.
-    /// - If not, it will return `None`. The cursor may stop at any
-    /// address after `len` bytes, but it will not move past the barrier address.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
     /// ## Panics
     /// This method panics if the length is longer than the remaining range of the cursor.
     /// ## Safety
     /// This function preserves all memory invariants.
     /// Because it panics rather than move the cursor to an invalid address,
     /// it ensures that the cursor is safe to use after the call.
-    /// The locking mechanism prevents data races.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -500,10 +499,16 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
     /// If the target address is not in the locked range, it will return an error.
     /// # Verified Properties
     /// ## Preconditions
-    /// The cursor must be within the locked range and below the guard level.
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
+    /// - **Liveness**:  The function will panic if the target `va` is not aligned
+    /// to the base page size.
     /// ## Postconditions
-    /// - If the target address is in the locked range, it will move the cursor to the given address.
-    /// - If the target address is not in the locked range, it will return an error.
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: If the target `va` is within the cursor's locked range,
+    /// the result will be `Ok` and the cursor's virtual address will be set to `va`.
+    /// - **Correctness**: If the target `va` is outside the locked range, the result is `Err`.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
     /// ## Panics
     /// This method panics if the target address is not aligned to the page size.
     /// ## Safety
@@ -562,14 +567,19 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// If the cursor is pointing to a valid virtual address that is locked,
     /// it will return the virtual address range and the mapped item.
     /// ## Preconditions
-    /// - All system invariants must hold
-    /// - **Liveness**: The function will return an error if the cursor is not within the locked range
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
     /// ## Postconditions
-    /// - If there is a mapped item at the current virtual address ([`query_some_condition`]),
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: If the cursor is within the locked range, the result is `Ok`.
+    /// - **Correctness**: If there is a mapped item at the current virtual address ([`query_some_condition`]),
     /// it is returned along with the virtual address range that it maps ([`query_success_ensures`]).
-    /// - The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
-    /// - If there is no mapped item at the current virtual address ([`query_none_condition`]),
+    /// - **Correctness**: The mapping that is returned corresponds to the abstract mapping given by [`query_item_spec`](CursorView::query_item_spec).
+    /// - **Correctness**: If there is no mapped item at the current virtual address ([`query_none_condition`]),
     /// it returns `None`, and the virtual address range of the cursor's current position.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
+    /// - **Safety**: The mappings in the page table are not affected.
+    /// - **Safety**: The soundness of individual entries are not affected.
     /// ## Safety
     /// - This function preserves all memory invariants.
     /// - The locking mechanism prevents data races.
@@ -605,20 +615,20 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// # Verified Properties
     /// ## Preconditions
-    /// - **Liveness**: The cursor must be within the locked range and below the guard level.
-    /// The length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
+    /// - **Liveness**: In order to avoid a panic, the length must be page-aligned and less than or equal to the remaining range of the cursor.
     /// ## Postconditions
-    /// - If there is a mapped address after the current address within the next `len` bytes,
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: If there is a mapped address after the current address within the next `len` bytes,
     /// it will move the cursor to the next mapped address and return it.
-    /// - If not, it will return `None`. The cursor may stop at any
-    /// address after `len` bytes, but it will not move past the barrier address.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
     /// ## Panics
     /// This method panics if the length is longer than the remaining range of the cursor.
     /// ## Safety
     /// This function preserves all memory invariants.
     /// Because it panics rather than move the cursor to an invalid address,
     /// it ensures that the cursor is safe to use after the call.
-    /// The locking mechanism prevents data races.
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -645,14 +655,18 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     ///
     /// This is the same as [`Cursor::jump`].
     ///
-    /// This function will move the cursor to the given virtual address.
-    /// If the target address is not in the locked range, it will return an error.
     /// # Verified Properties
     /// ## Preconditions
-    /// The cursor must be within the locked range and below the guard level.
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
+    /// - **Liveness**:  The function will panic if the target `va` is not aligned
+    /// to the base page size.
     /// ## Postconditions
-    /// - If the target address is in the locked range, it will move the cursor to the given address.
-    /// - If the target address is not in the locked range, it will return an error.
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: If the target `va` is within the cursor's locked range,
+    /// the result will be `Ok` and the cursor's virtual address will be set to `va`.
+    /// - **Correctness**: If the target `va` is outside the locked range, the result is `Err`.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
     /// ## Panics
     /// This method panics if the target address is not aligned to the page size.
     /// ## Safety
@@ -697,92 +711,29 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         &self.flusher
     }
 
-    /// Collects the invariants of the cursor, its owner, and associated tracked structures.
-    /// The cursor must be well-formed with respect to its owner. This will hold before and after the call to `map`.
-    pub open spec fn map_cursor_inv(
-        self,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
-        guards: Guards<'a, UserPtConfig>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        &&& cursor_owner.inv()
-        &&& self.pt_cursor.inner.wf(cursor_owner)
-        &&& self.pt_cursor.inner.inv()
-        &&& cursor_owner.children_not_locked(guards)
-        &&& cursor_owner.nodes_locked(guards)
-        &&& cursor_owner.metaregion_sound(regions)
-        &&& !cursor_owner.popped_too_high
-        &&& regions.inv()
-    }
-
-    /// These conditions must hold before the call to `map` but may not be maintained after the call.
-    /// The cursor must be within the locked range and below the guard level, but it may move outside the
-    /// range if the frame being mapped is exactly the length of the remaining range.
-    pub open spec fn map_cursor_requires(
-        self,
-        cursor_owner: CursorOwner<'a, UserPtConfig>,
-    ) -> bool {
-        &&& cursor_owner.in_locked_range()
-        &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
-        &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
-    }
-
-    /// Collects the conditions that must hold on the frame being mapped.
-    /// The frame must be well-formed with respect to the entry owner. When converted into a `MappedItem`,
-    /// its physical address must also match, and its level must be between 1 and the highest translation level.
-    pub open spec fn item_wf(
-        self,
-        frame: UFrame,
-        prop: PageProperty,
-        entry_owner: EntryOwner<UserPtConfig>,
-        regions: MetaRegionOwners,
-    ) -> bool {
-        let item = MappedItem { frame: frame, prop: prop };
-        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
-        &&& prop == prop0
-        &&& entry_owner.frame.unwrap().mapped_pa == paddr
-        &&& entry_owner.frame.unwrap().prop == prop
-        &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
-        &&& 1 <= level <= NR_LEVELS  // Should be property of item_into_raw
-        &&& level < self.pt_cursor.inner.guard_level
-        &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
-        &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
-        &&& entry_owner.inv()
-        &&& self.pt_cursor.inner.va % page_size(level) == 0
-        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
-    }
-
-    /// The result of a call to `map`. Constructs a `Mapping` from the frame being mapped and the cursor's current virtual address.
-    /// The page table's cursor view will be updated with this mapping, replacing the previous mapping (if any).
-    pub open spec fn map_item_ensures(
-        self,
-        frame: UFrame,
-        prop: PageProperty,
-        old_cursor_view: CursorView<UserPtConfig>,
-        cursor_view: CursorView<UserPtConfig>,
-    ) -> bool {
-        let item = MappedItem { frame: frame, prop: prop };
-        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
-        cursor_view == old_cursor_view.map_spec(paddr, page_size(level), prop)
-    }
-
     /// Map a frame into the current slot.
     ///
     /// This method will bring the cursor to the next slot after the modification.
+    /// If there is an existing mapping at the current slot, it will be replaced
+    /// and the TLB will be flushed for that entry.
     /// # Verified Properties
     /// ## Preconditions
-    /// - The cursor must be within the locked range and below the guard level,
-    /// and the frame must fit within the remaining range of the cursor.
-    /// - The cursor must satisfy all invariants, and the frame must be well-formed when converted into a `MappedItem` ([`item_wf`](Self::item_wf)).
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    ///   ([`invariants`](crate::mm::page_table::Cursor::invariants)) and the TLB invariant
+    ///   ([`TlbModel::inv`]) must hold before the call.
+    /// - **Liveness**: The cursor must not be past the end of its locked range,
+    ///   and the frame's level must fit within the remaining range, or the function will panic.
+    /// - **Bookkeeping**: The frame must be well-formed with respect to its entry owner
+    ///   ([`item_wf`](Self::item_wf)).
     /// ## Postconditions
-    /// After the call, the cursor will satisfy all invariants, and will map the frame into the current slot according to [`map_spec`](CursorView::map_spec).
-    /// After the call, the TLB will not contain any entries for the virtual address range being mapped (TODO).
+    /// - **Safety Invariants**: Page table cursor safety invariants are preserved.
+    /// - **Correctness**: The page table view is updated with the new mapping
+    ///   according to [`map_item_ensures`](Self::map_item_ensures).
+    /// - **Correctness**: If the metadata region was well-formed before the call
+    ///   and the frame was not already mapped, it will be well-formed after.
     /// ## Safety
-    /// The preconditions of this function require that the frame to be mapped is disjoint from any other mapped frames.
-    /// If this is not the case, the global memory invariants will be violated. If the allocator implementation is correct,
-    /// the user shouldn't be able to create such a frame object in the first place, but currently a proof of that is
-    /// outside of the verification boundary.
-    /// Because this function flushes the TLB if it unmaps a page, it preserves TLB consistency.
+    /// - For soundness purposes, it doesn't matter if a frame is mapped multiple times
+    /// in the same page table. There is still a clear definition of the behavior.
     #[verus_spec(
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(entry_owner): Tracked<EntryOwner<UserPtConfig>>,
@@ -791,11 +742,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
             old(tlb_model).inv(),
-            old(self).map_cursor_inv(*old(cursor_owner), *old(guards), *old(regions)),
+            old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
-            self.map_cursor_inv(*cursor_owner, *guards, *regions),
+            self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
             old(cursor_owner).metaregion_correct(*old(regions))
                 && crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
                     MappedItem { frame: frame, prop: prop }, *old(regions))
@@ -853,17 +804,32 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// to avoid the overhead of TLB flush. Using a large `len` is wiser than
     /// splitting the operation into multiple small ones.
     ///
-    /// # Panics
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    /// ([crate::mm::page_table::Cursor::invariants]) must hold before the call.
+    /// - **Safety Invariants**: The TLB invariant ([TlbModel::inv]) must hold.
+    /// - **Liveness**: In order to avoid a panic, the length must be page-aligned and less than or equal to the remaining range of the cursor.
+    /// ## Postconditions
+    /// - **Safety Invariants**: The page table cursor safety invariants are preserved.
+    /// - **Safety Invariants**: The TLB invariant is preserved.
+    /// - **Correctness**: Unmaps a range of virtual addresses from the current address up to `len` bytes
+    /// and returns the number of mappings that were removed.
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be well-formed after.
+    /// ## Panics
     /// Panics if:
     ///  - the length is longer than the remaining range of the cursor;
     ///  - the length is not page-aligned.
+    /// ## Safety
+    /// - It is always sound to unmap pages. We flush unmapped pages from the TLB to ensure consistency.
+    /// - TODO: formalizing and proving that this function preserves TLB consistency would
+    /// be pretty straightforward and would be a nice addition to the correctness properties.
     #[verus_spec(r =>
         with Tracked(cursor_owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
             Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
-            len > 0,
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
             old(tlb_model).inv(),
@@ -954,7 +920,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         && m.property == parent.property,
             invariant_except_break
                 self.pt_cursor.inner.va <= end_va,
-                cursor_owner.in_locked_range(),
+                self.pt_cursor.inner.va < end_va ==> cursor_owner.in_locked_range(),
             ensures
                 self.pt_cursor.inner.va >= end_va,
             decreases end_va - self.pt_cursor.inner.va
@@ -984,26 +950,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     assert(cursor_owner.inv());
                     cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
 
-                    // take_next None: mappings unchanged, removed unchanged.
                     assert(cursor_owner@.mappings == prev_mappings);
-                    // For the bridge: nothing in [start_va, end_va) remains.
-                    // From loop invariant: entries in adjusted_base \ removed
-                    //   with start in [start_va, end_va) have start >= cursor_va = prev_va.
-                    // take_next None: prev_mappings.filter(prev_va <= start < end_va) = empty.
-                    // cursor@.mappings = prev_mappings (None: unchanged).
-                    // So no entry in adjusted_base \ removed has start in [start_va, end_va).
                     assert forall |m: Mapping|
                         adjusted_base.contains(m) && !removed.contains(m)
                         && start_va <= m.va_range.start
                     implies m.va_range.start >= end_va by {
                         if m.va_range.start < end_va {
-                            // From invariant: m.start >= cursor_va = prev_va.
-                            // m ∈ adjusted_base \ removed = prev_mappings.
-                            // m.start ∈ [prev_va, end_va).
                             assert(prev_mappings.contains(m));
                             assert(prev_mappings.filter(
                                 |m2: Mapping| prev_va <= m2.va_range.start < end_va).contains(m));
-                            // Contradicts take_next None postcondition.
                             assert(false);
                         }
                     };
@@ -1015,7 +970,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             let ghost old_removed = removed;
 
             proof {
-                // Re-establish reflect for post-call state
                 assert(self.pt_cursor.inner.wf(*cursor_owner));
                 assert(cursor_owner.inv());
                 cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
@@ -1026,9 +980,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             match frag {
                 PageTableFrag::Mapped { va, item, .. } => {
                     let frame = item.frame;
-                    assert(num_unmapped < usize::MAX) by {
-                        assert(MAX_PADDR / PAGE_SIZE < usize::MAX) by (compute_only);
-                    };
+                    assert(MAX_PADDR / PAGE_SIZE < usize::MAX) by (compute_only);
+                    assert(num_unmapped < usize::MAX);
                     num_unmapped += 1;
                     #[verus_spec(with Tracked(tlb_model))]
                     self.flusher.issue_tlb_flush_with(TlbFlushOp::Address(va), frame.into());
@@ -1102,7 +1055,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     assert(sv.split_while_huge(mm.page_size).inv()) by { admit() };
                 }
 
-                // 1. num_unmapped == removed.len() (+ 6. removed.finite())
                 match frag_ghost {
                     PageTableFrag::StrayPageTable { .. } => {
                         assert(old_removed.disjoint(subtree)) by {
@@ -1129,27 +1081,24 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         vstd::set::axiom_set_insert_len(Set::<Mapping>::empty(), mm);
                     },
                 }
-                // 2. num_unmapped <= MAX_PADDR / PAGE_SIZE
                 assume(num_unmapped <= MAX_PADDR / PAGE_SIZE);
-                // 3. adjusted_base.finite()
-                if is_mapped { vstd::set::axiom_set_union_finite(sm, old_removed); }
-                // 4. cursor@.mappings =~= adjusted_base \ removed
-                assert(cursor_owner@.mappings =~= adjusted_base.difference(removed)) by {
-                    assert forall |e: Mapping| adjusted_base.difference(removed).contains(e)
-                        <==> cursor_owner@.mappings.contains(e) by {};
-                };
-                // 5. removed ⊆ adjusted_base
-                if is_mapped { assert(sm.contains(mm)); }
+                if is_mapped {
+                    vstd::set::axiom_set_union_finite(sm, old_removed);
+                    assert(sm.contains(mm));
+                }
+                assert forall |e: Mapping| adjusted_base.difference(removed).contains(e)
+                    <==> cursor_owner@.mappings.contains(e) by {};
+                assert(cursor_owner@.mappings =~= adjusted_base.difference(removed));
+
                 assert(removed.subset_of(adjusted_base)) by {
                     assert forall |e: Mapping| removed.contains(e)
                         implies adjusted_base.contains(e) by {};
                 };
-                // 6. removed.finite() — handled in clause 1 above.
-                // 7. removed entries in [start, end)
+
                 assert forall |m: Mapping| removed.contains(m) implies
                     start_va <= m.va_range.start < end_va by {
                 };
-                // 8. nothing in [start_va, cursor_va) ∩ [start_va, end_va) in adjusted_base \ removed.
+
                 assert forall |m: Mapping| adjusted_base.contains(m) && !removed.contains(m)
                     && start_va <= m.va_range.start && m.va_range.start < end_va
                     implies m.va_range.start >= cursor_owner@.cur_va by {
@@ -1189,9 +1138,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         }
                     }
                 };
-                // 9. locality + 10. refinement (Mapped case only; StrayPageTable trivial)
                 if is_mapped {
-                    // 9. locality
                     assert forall |m: Mapping| old(cursor_owner)@.mappings.contains(m)
                         && (m.va_range.end <= start_va || m.va_range.start >= end_va)
                         implies adjusted_base.contains(m) by {
@@ -1200,7 +1147,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                         sv.split_while_huge_locality(mm.page_size, m);
                     };
 
-                    // 10. refinement
                     assert forall |m: Mapping| adjusted_base.contains(m) implies
                             old(cursor_owner)@.mappings.contains(m)
                             || exists |parent: Mapping| old(cursor_owner)@.mappings.contains(parent)
@@ -1209,8 +1155,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                                 && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
                                 && m.property == parent.property
                         by {
-                            if old_removed.contains(m) {
-                            } else {
+                            if !old_removed.contains(m) {
                                 sv.split_while_huge_refinement(mm.page_size, m);
                                 if prev_mappings.contains(m) {
                                 } else {
@@ -1251,37 +1196,20 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             let start = old_view.cur_va;
             let end = (old_view.cur_va + len) as Vaddr;
 
-            // 1. Cursor advanced past the range.
             assert(new_view.cur_va >= end);
 
-            // 2. Old mappings fully outside [start, end) are preserved.
             assert forall |m: Mapping| old_view.mappings.contains(m)
                 && (m.va_range.end <= start || m.va_range.start >= end)
                 implies new_view.mappings.contains(m) by {
-                // m fully outside range → m ∈ adjusted_base (locality invariant).
                 assert(adjusted_base.contains(m));
-                // m fully outside → m.start ∉ [start, end) → m ∉ removed.
-                assert(!(start <= m.va_range.start < end)) by {
-                    if m.va_range.end <= start {
-                        // m ∈ old_view.mappings = old(cursor_owner)@.mappings, which has inv().
-                        assert(m.inv());
-                    }
-                };
-                // m ∈ adjusted_base \ removed = cursor@.mappings = new_view.mappings.
+                if m.va_range.end <= start {
+                    assert(m.inv());
+                }
             };
 
-            // 3. No mapping in the new view starts inside [start, end).
-            // The None-case break established: forall m in adjusted_base \ removed
-            //   with start >= start_va: m.start >= end_va.
-            // (This was assumed in the break path from the combination of the loop
-            //  invariant and take_next None's "nothing in range" postcondition.)
             assert forall |m: Mapping| new_view.mappings.contains(m)
-                implies !(start <= m.va_range.start < end) by {
-                // new_view.mappings = adjusted_base \ removed = cursor@.mappings.
-                // From the break path assume: m.start >= end_va = end. So !(start <= m.start < end).
-            };
+                implies !(start <= m.va_range.start < end) by { };
 
-            // 4. Refinement: new mappings are old or sub-mappings of old.
             assert forall |m: Mapping| new_view.mappings.contains(m)
                 implies old_view.mappings.contains(m)
                 || exists |parent: Mapping| old_view.mappings.contains(parent)
@@ -1289,10 +1217,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     && m.va_range.end <= parent.va_range.end
                     && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
                     && m.property == parent.property
-            by {
-                // m ∈ adjusted_base \ removed. By refinement invariant,
-                // m is either in old_view.mappings or a sub-mapping of an old entry.
-            };
+            by { };
         }
 
         #[verus_spec(with Tracked(tlb_model))]
@@ -1318,31 +1243,33 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     /// make the decision yourself on when and how to flush the TLB using
     /// [`Self::flusher`].
     ///
-    /// # Panics
-    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - **Safety Invariants**: The page table cursor safety invariants
+    ///   ([`invariants`](crate::mm::page_table::Cursor::invariants)) and the
+    ///   meta-region invariants must hold before the call.
+    /// - The cursor must be within the locked range and below the guard level.
+    /// - The current entry must be a mapped frame (not absent or a page table node).
+    /// - **Liveness**: The length must be page-aligned and within the remaining cursor range.
+    /// ## Postconditions
+    /// - **Correctness**: If the metadata region was well-formed before the call, it will be
+    ///   well-formed after.
+    /// ## Panics
     /// Panics if the length is longer than the remaining range of the cursor.
+    /// ## Safety
+    /// - From a soundness perspective changing a userspace page's `prop` field is safe.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<&mut CursorOwner<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires
-            old(regions).inv(),
-            old(owner).inv(),
-            !old(owner).cur_entry_owner().is_absent(),
-            old(self).pt_cursor.inner.wf(*old(owner)),
-            old(self).pt_cursor.inner.inv(),
-            old(owner).in_locked_range(),
-            !old(owner).popped_too_high,
-            old(owner).children_not_locked(*old(guards)),
-            old(owner).nodes_locked(*old(guards)),
-            old(owner).metaregion_sound(*old(regions)),
-            len % PAGE_SIZE == 0,
-            old(self).pt_cursor.inner.level < NR_LEVELS,
-            old(self).pt_cursor.inner.va + len <= old(self).pt_cursor.inner.barrier_va.end,
-            old(owner).cur_entry_owner().is_frame(),
-            op.requires((old(owner).cur_entry_owner().frame.unwrap().prop,)),
+            old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
+            !old(self).pt_cursor.inner.find_next_panic_condition(len),
+            forall |p: PageProperty| op.requires((p,)),
         ensures
+            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
             old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
+            self.pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
     )]
     pub fn protect_next(
         &mut self,

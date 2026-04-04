@@ -1,15 +1,24 @@
 use vstd::pervasive::proof_from_false;
 use vstd::prelude::*;
+use core::ops::Range;
 
 use vstd_extra::ownership::*;
 
+use crate::mm::frame::untyped::UFrame;
 use crate::mm::io::{VmIoMemView, VmIoOwner, VmReader, VmWriter};
-use crate::mm::vm_space::{UserPtConfig, VmSpace};
-use crate::mm::{Paddr, Vaddr, MAX_USERSPACE_VADDR};
-use crate::specs::arch::mm::current_page_table_paddr_spec;
+use crate::mm::page_prop::PageProperty;
+use crate::mm::page_table::*;
+use crate::mm::vm_space::{Cursor, CursorMut, MappedItem, UserPtConfig, VmSpace};
+use crate::mm::{Paddr, PagingConstsTrait, PagingLevel, Vaddr, MAX_USERSPACE_VADDR};
+use crate::specs::arch::mm::{current_page_table_paddr_spec, NR_LEVELS};
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::{Guards, Mapping, OwnerSubtree, PageTableOwner, PageTableView};
+use crate::specs::mm::page_table::cursor::owners::CursorOwner;
+use crate::specs::mm::page_table::cursor::CursorView;
+use crate::specs::mm::page_table::node::entry_owners::EntryOwner;
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem_newer::{FrameContents, MemView};
+use crate::specs::task::InAtomicMode;
 
 verus! {
 
@@ -695,6 +704,72 @@ impl<'a> VmSpace<'a> {
     pub open spec fn writer_success_cond(self, vaddr: Vaddr, len: usize) -> bool {
         &&& vaddr != 0 && len > 0 && vaddr + len <= MAX_USERSPACE_VADDR
         &&& current_page_table_paddr_spec() == self.pt.root_paddr_spec()
+    }
+}
+
+impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
+    pub open spec fn query_success_requires(self) -> bool {
+        self.0.barrier_va.start <= self.0.va < self.0.barrier_va.end
+    }
+
+    pub open spec fn query_success_ensures(
+        self,
+        view: CursorView<UserPtConfig>,
+        range: Range<Vaddr>,
+        item: Option<MappedItem>,
+    ) -> bool {
+        if view.present() {
+            &&& item is Some
+            &&& view.query_item_spec(item.unwrap()) == Some(range)
+        } else {
+            &&& range.start == self.0.va
+            &&& item is None
+        }
+    }
+}
+
+impl<'a, A: InAtomicMode> CursorMut<'a, A> {
+    pub open spec fn map_cursor_requires(
+        self,
+        cursor_owner: CursorOwner<'a, UserPtConfig>,
+    ) -> bool {
+        &&& cursor_owner.in_locked_range()
+        &&& self.pt_cursor.inner.level < self.pt_cursor.inner.guard_level
+        &&& self.pt_cursor.inner.va < self.pt_cursor.inner.barrier_va.end
+    }
+
+    pub open spec fn item_wf(
+        self,
+        frame: UFrame,
+        prop: PageProperty,
+        entry_owner: EntryOwner<UserPtConfig>,
+        regions: MetaRegionOwners,
+    ) -> bool {
+        let item = MappedItem { frame: frame, prop: prop };
+        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        &&& prop == prop0
+        &&& entry_owner.frame.unwrap().mapped_pa == paddr
+        &&& entry_owner.frame.unwrap().prop == prop
+        &&& level <= UserPtConfig::HIGHEST_TRANSLATION_LEVEL()
+        &&& 1 <= level <= NR_LEVELS
+        &&& level < self.pt_cursor.inner.guard_level
+        &&& Child::Frame(paddr, level, prop0).wf(entry_owner)
+        &&& self.pt_cursor.inner.va + page_size(level) <= self.pt_cursor.inner.barrier_va.end
+        &&& entry_owner.inv()
+        &&& self.pt_cursor.inner.va % page_size(level) == 0
+        &&& crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_slot_in_regions(item, regions)
+    }
+
+    pub open spec fn map_item_ensures(
+        self,
+        frame: UFrame,
+        prop: PageProperty,
+        old_cursor_view: CursorView<UserPtConfig>,
+        cursor_view: CursorView<UserPtConfig>,
+    ) -> bool {
+        let item = MappedItem { frame: frame, prop: prop };
+        let (paddr, level, prop0) = UserPtConfig::item_into_raw_spec(item);
+        cursor_view == old_cursor_view.map_spec(paddr, page_size(level), prop)
     }
 }
 

@@ -408,7 +408,7 @@ impl KVirtArea {
                 (#[trigger] old(entry_owners)[i]).frame.unwrap().mapped_pa != (#[trigger] old(entry_owners)[j]).frame.unwrap().mapped_pa,
     {
         proof {
-            kvirt_alloc_succeeds(area_size);            
+            kvirt_alloc_succeeds(area_size);
         }
         
         let range = KVIRT_AREA_ALLOCATOR.alloc(area_size).unwrap();
