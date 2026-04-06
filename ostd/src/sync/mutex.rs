@@ -80,7 +80,7 @@ impl<T  /* : ?Sized */ > Mutex<T> {
             let tracked mut locked_state: Option<PointsTo<T>> = None;
         }
         {#[verus_spec(with => Tracked(locked_state))] self.acquire_lock()}.then(
-            || requires 
+            || requires
                 locked_state is Some,
                 locked_state -> Some_0.id() == self.cell_id(),
                 {unsafe { proof_with!{Tracked(locked_state.tracked_unwrap())};
@@ -198,6 +198,23 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
         self.v_perm@.id() == self.mutex.cell_id()
     }
 
+    pub closed spec fn value(self) -> T {
+        *self.v_perm@.value()
+    }
+
+    pub open spec fn view(self) -> T {
+        self.value()
+    }
+
+    /// Borrows the inner value in tracked mode.
+    #[verifier::external_body]
+    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
+        returns
+            self.view(),
+    {
+        unimplemented!()
+    }
+
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
     /// `Drop` is incomplete for now.
     #[verus_spec]
@@ -215,6 +232,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
 impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
+    #[verus_spec(returns self.view())]
     fn deref(&self) -> &Self::Target {
         proof! {
             use_type_invariant(self);

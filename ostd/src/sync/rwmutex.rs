@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MPL-2.0
-
 use vstd::atomic_ghost::*;
 use vstd::cell::{self, pcell::*, CellId};
 use vstd::pcm::Loc;
@@ -37,7 +36,9 @@ exec const V_MAX_READ_RETRACT_FRACS: u64
 }
 
 type NoPerm<T> = Empty<PointsTo<T>>;
+
 type HalfPerm<T> = Frac<PointsTo<T>>;
+
 type ReadPerm<T> = (HalfPerm<T>, OneLeftKnowledge<HalfPerm<T>, NoPerm<T>, 3>);
 
 tracked struct RwPerms<T> {
@@ -112,7 +113,7 @@ struct_with_invariants! {
 ///     let r2 = mutex.read();
 ///     assert_eq!(*r1, 5);
 ///     assert_eq!(*r2, 5);
-///     
+///
 ///     // Upgradeable read mutex can share access to data with read mutexes
 ///     let r3 = mutex.upread();
 ///     assert_eq!(*r3, 5);
@@ -127,7 +128,7 @@ struct_with_invariants! {
 ///     assert_eq!(*w1, 6);
 /// }   // upread mutex are dropped at this point
 ///
-/// {   
+/// {
 ///     // Only one write mutex can be held at a time
 ///     let mut w2 = mutex.write();
 ///     *w2 += 1;
@@ -228,8 +229,11 @@ closed spec fn wf(self) -> bool {
 }
 
 const READER: usize = 1;
+
 const WRITER: usize = 1 << (usize::BITS - 1);
+
 const UPGRADEABLE_READER: usize = 1 << (usize::BITS - 2);
+
 const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 
 /// This bit is reserved as an overflow sentinel.
@@ -238,6 +242,7 @@ const BEING_UPGRADED: usize = 1 << (usize::BITS - 3);
 const MAX_READER: usize = 1 << (usize::BITS - 4);
 
 const READER_MASK: usize = usize::MAX >> 4;
+
 const MAX_READER_MASK: usize = usize::MAX >> 3;
 
 pub closed spec fn no_max_reader_overflow(v: usize) -> bool {
@@ -334,7 +339,7 @@ impl<T> RwMutex<T> {
     }
 }
 
-impl<T /*: ?Sized*/> RwMutex<T> {
+impl<T  /*: ?Sized*/ > RwMutex<T> {
     /// Acquires a read mutex and sleep until it can be acquired.
     ///
     /// The calling thread will sleep until there are no writers or upgrading
@@ -385,7 +390,8 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             lemma_consts_properties();
         }
 
-        let lock = atomic_with_ghost!(
+        let lock =
+            atomic_with_ghost!(
             self.lock => fetch_add(READER);
             update prev -> next;
             ghost g => {
@@ -405,10 +411,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
         );
 
         if lock & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
-            Some(RwMutexReadGuard {
-                inner: self,
-                v_token: Tracked(read_token.tracked_unwrap()),
-            })
+            Some(RwMutexReadGuard { inner: self, v_token: Tracked(read_token.tracked_unwrap()) })
         } else {
             atomic_with_ghost!(
                 self.lock => fetch_sub(READER);
@@ -464,11 +467,13 @@ impl<T /*: ?Sized*/> RwMutex<T> {
                 }
             }
         ).is_ok() {
-            Some(RwMutexWriteGuard {
-                inner: self,
-                v_perm: Tracked(guard_perm.tracked_unwrap()),
-                v_token: Tracked(guard_token.tracked_unwrap()),
-            })
+            Some(
+                RwMutexWriteGuard {
+                    inner: self,
+                    v_perm: Tracked(guard_perm.tracked_unwrap()),
+                    v_token: Tracked(guard_token.tracked_unwrap()),
+                },
+            )
         } else {
             None
         }
@@ -487,7 +492,8 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             lemma_consts_properties();
         }
 
-        let lock = atomic_with_ghost!(
+        let lock =
+            atomic_with_ghost!(
             self.lock => fetch_or(UPGRADEABLE_READER);
             update prev -> next;
             ghost g => {
@@ -499,13 +505,16 @@ impl<T /*: ?Sized*/> RwMutex<T> {
                     retract_upgrade_token = Some(g.upread_retract_token.tracked_take());
                 }
             }
-        ) & (WRITER | UPGRADEABLE_READER);
+        )
+            & (WRITER | UPGRADEABLE_READER);
 
         if lock == 0 {
-            return Some(RwMutexUpgradeableGuard {
-                inner: self,
-                v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
-            });
+            return Some(
+                RwMutexUpgradeableGuard {
+                    inner: self,
+                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                },
+            );
         } else if lock == WRITER {
             atomic_with_ghost!(
                 self.lock => fetch_sub(UPGRADEABLE_READER);
@@ -525,15 +534,14 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             );
         }
         None
-    }
-
-    /* /// Returns a mutable reference to the underlying data.
+    }/* /// Returns a mutable reference to the underlying data.
     ///
     /// This method is zero-cost: By holding a mutable reference to the lock, the compiler has
     /// already statically guaranteed that access to the data is exclusive.
     pub fn get_mut(&mut self) -> &mut T {
         self.val.get_mut()
     } */
+
 }
 
 /* impl<T: /*: ?Sized +*/ fmt::Debug> fmt::Debug for RwMutex<T> {
@@ -545,27 +553,47 @@ impl<T /*: ?Sized*/> RwMutex<T> {
 /// Because there can be more than one readers to get the T's immutable ref,
 /// so T must be Sync to guarantee the sharing safety.
 #[verifier::external]
-unsafe impl<T: /*: ?Sized +*/ Send> Send for RwMutex<T> {}
-#[verifier::external]
-unsafe impl<T: /*: ?Sized +*/ Send + Sync> Sync for RwMutex<T> {}
+unsafe impl<T:   /*: ?Sized +*/ Send> Send for RwMutex<T> {
 
-impl<T /*: ?Sized*/> !Send for RwMutexWriteGuard<'_, T> {}
-#[verifier::external]
-unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexWriteGuard<'_, T> {}
+}
 
-impl<T /*: ?Sized*/> !Send for RwMutexReadGuard<'_, T> {}
 #[verifier::external]
-unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexReadGuard<'_, T> {}
+unsafe impl<T:   /*: ?Sized +*/ Send + Sync> Sync for RwMutex<T> {
 
-impl<T /*: ?Sized*/> !Send for RwMutexUpgradeableGuard<'_, T> {}
+}
+
+impl<T  /*: ?Sized*/ > !Send for RwMutexWriteGuard<'_, T> {
+
+}
+
 #[verifier::external]
-unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {}
+unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexWriteGuard<'_, T> {
+
+}
+
+impl<T  /*: ?Sized*/ > !Send for RwMutexReadGuard<'_, T> {
+
+}
+
+#[verifier::external]
+unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexReadGuard<'_, T> {
+
+}
+
+impl<T  /*: ?Sized*/ > !Send for RwMutexUpgradeableGuard<'_, T> {
+
+}
+
+#[verifier::external]
+unsafe impl<T:   /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {
+
+}
 
 /// A guard that provides immutable data access.
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct RwMutexReadGuard<'a, T /*: ?Sized*/> {
+pub struct RwMutexReadGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
     v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
 }
@@ -593,7 +621,7 @@ impl<'a, T> RwMutexReadGuard<'a, T> {
     }
 }
 
-impl<T /*: ?Sized*/> Deref for RwMutexReadGuard<'_, T> {
+impl<T  /*: ?Sized*/ > Deref for RwMutexReadGuard<'_, T> {
     type Target = T;
 
     #[verus_spec(returns self.view())]
@@ -606,7 +634,7 @@ impl<T /*: ?Sized*/> Deref for RwMutexReadGuard<'_, T> {
     }
 }
 
-impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
+impl<T  /* : ?Sized */ > RwMutexReadGuard<'_, T> {
     fn drop(self) {
         // When there are no readers, wake up a waiting writer.
         proof! {
@@ -629,7 +657,8 @@ impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
                 tmp.combine(token);
                 g.read_guard_token = Sum::Left(tmp);
             }
-        ) == READER {
+        )
+            == READER {
             self.inner.queue.wake_one();
         }
     }
@@ -639,7 +668,7 @@ impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
 #[clippy::has_significant_drop]
 #[must_use]
 #[verifier::reject_recursive_types(T)]
-pub struct RwMutexWriteGuard<'a, T /*: ?Sized*/> {
+pub struct RwMutexWriteGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
     v_perm: Tracked<PointsTo<T>>,
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
@@ -661,7 +690,7 @@ impl<'a, T> RwMutexWriteGuard<'a, T> {
     }
 }
 
-impl<T /*: ?Sized*/> Deref for RwMutexWriteGuard<'_, T> {
+impl<T  /*: ?Sized*/ > Deref for RwMutexWriteGuard<'_, T> {
     type Target = T;
 
     #[verus_spec(returns self.view())]
@@ -674,7 +703,7 @@ impl<T /*: ?Sized*/> Deref for RwMutexWriteGuard<'_, T> {
     }
 }
 
-impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
+impl<'a, T  /*: ?Sized*/ > RwMutexWriteGuard<'a, T> {
     /// Atomically downgrades a write guard to an upgradeable reader guard.
     ///
     /// This method always succeeds because the lock is exclusively held by the writer.
@@ -682,7 +711,8 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
     pub fn downgrade(self) -> RwMutexUpgradeableGuard<'a, T> {
         let mut this = self;
         loop {
-            this = match this.try_downgrade() {
+            this =
+            match this.try_downgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -705,7 +735,8 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
             let tracked mut err_write_guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
         let inner = self.inner;
-        let res = atomic_with_ghost!(
+        let res =
+            atomic_with_ghost!(
             self.inner.lock => compare_exchange(WRITER, UPGRADEABLE_READER);
             update prev -> next;
             returning res;
@@ -756,16 +787,20 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
                 }
             };
             self.inner.queue.wake_all();
-            Ok(RwMutexUpgradeableGuard {
-                inner,
-                v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
-            })
+            Ok(
+                RwMutexUpgradeableGuard {
+                    inner,
+                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                },
+            )
         } else {
-            Err(RwMutexWriteGuard {
-                inner,
-                v_perm: Tracked(err_perm.tracked_unwrap()),
-                v_token: Tracked(err_write_guard_token.tracked_unwrap()),
-            })
+            Err(
+                RwMutexWriteGuard {
+                    inner,
+                    v_perm: Tracked(err_perm.tracked_unwrap()),
+                    v_token: Tracked(err_write_guard_token.tracked_unwrap()),
+                },
+            )
         }
     }
 
@@ -813,12 +848,12 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to [`RwMutexWriteGuard`].
 #[verifier::reject_recursive_types(T)]
-pub struct RwMutexUpgradeableGuard<'a, T /*: ?Sized*/> {
+pub struct RwMutexUpgradeableGuard<'a, T  /*: ?Sized*/ > {
     inner: &'a RwMutex<T>,
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
-impl<'a, T /*: ?Sized*/> RwMutexUpgradeableGuard<'a, T> {
+impl<'a, T  /*: ?Sized*/ > RwMutexUpgradeableGuard<'a, T> {
     #[verifier::type_invariant]
     pub closed spec fn type_inv(self) -> bool {
         wf_upgradeable_guard_token(
@@ -864,7 +899,8 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             }
         );
         loop {
-            this = match this.try_upgrade() {
+            this =
+            match this.try_upgrade() {
                 Ok(guard) => return guard,
                 Err(e) => e,
             };
@@ -891,7 +927,8 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             let tracked mut write_guard_token: Option<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>> = None;
         }
 
-        let res = atomic_with_ghost!(
+        let res =
+            atomic_with_ghost!(
             self.inner.lock => compare_exchange(UPGRADEABLE_READER | BEING_UPGRADED, WRITER | UPGRADEABLE_READER);
             update prev -> next;
             returning res;
@@ -938,16 +975,20 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                     g.upread_retract_token = Some(token);
                 }
             );
-            Ok(RwMutexWriteGuard {
-                inner,
-                v_perm: Tracked(write_perm.tracked_unwrap()),
-                v_token: Tracked(write_guard_token.tracked_unwrap()),
-            })
+            Ok(
+                RwMutexWriteGuard {
+                    inner,
+                    v_perm: Tracked(write_perm.tracked_unwrap()),
+                    v_token: Tracked(write_guard_token.tracked_unwrap()),
+                },
+            )
         } else {
-            Err(RwMutexUpgradeableGuard {
-                inner: self.inner,
-                v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
-            })
+            Err(
+                RwMutexUpgradeableGuard {
+                    inner: self.inner,
+                    v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
+                },
+            )
         }
     }
 
@@ -958,7 +999,8 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
             lemma_consts_properties();
         }
         let Tracked(guard_token) = self.v_token;
-        let res = atomic_with_ghost!(
+        let res =
+            atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);
             update prev -> next;
             ghost g => {
@@ -981,7 +1023,7 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
     }
 }
 
-impl<T /*: ?Sized*/> Deref for RwMutexUpgradeableGuard<'_, T> {
+impl<T  /*: ?Sized*/ > Deref for RwMutexUpgradeableGuard<'_, T> {
     type Target = T;
 
     #[verus_spec(returns self.view())]

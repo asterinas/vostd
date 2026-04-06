@@ -3,6 +3,8 @@ use core::ops::Deref;
 use vstd::{predicate::Predicate, prelude::*};
 use vstd_extra::ownership::Inv;
 
+use super::{RwLockReadGuard, SpinGuardian};
+
 verus! {
 
 /// A structure that combines some data with a permission to access it.
@@ -53,6 +55,17 @@ pub struct AtomicDataWithOwner<V, Own> {
     pub data: V,
     /// The permission to access the data.
     pub permission: Tracked<Own>,
+}
+
+impl<'a, V, Own, G: SpinGuardian> RwLockReadGuard<'a, crate::sync::AtomicDataWithOwner<V, Own>, G> {
+    /// Borrows the tracked permission stored in an [`AtomicDataWithOwner`].
+    #[verifier::external_body]
+    pub proof fn atomic_permission(tracked &self) -> (tracked permission: &'a Own)
+        returns
+            self@.permission@,
+    {
+        unimplemented!()
+    }
 }
 
 impl<V, Own> Deref for AtomicDataWithOwner<V, Own> {
