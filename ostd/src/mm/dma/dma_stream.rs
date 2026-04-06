@@ -1,4 +1,4 @@
-use core::ops::Deref;
+use core::{marker::PhantomData, ops::Deref};
 
 // SPDX-License-Identifier: MPL-2.0
 use vstd::{predicate::Predicate, prelude::*};
@@ -11,10 +11,17 @@ use crate::{
     mm::{
         dma::{dma_type, Daddr, DmaType},
         frame::{segment::SegmentOwner, untyped::AnyUFrameMeta, AnyFrameMeta, Segment},
-        io::{VmIo, VmIoOwner, VmReader, VmWriter},
-        Paddr,
+        io::{VmIo, VmIoMemView, VmIoOwner, VmReader, VmWriter},
+        kspace::{KERNEL_BASE_VADDR, KERNEL_END_VADDR, VMALLOC_BASE_VADDR},
+        paddr_to_vaddr, Paddr,
     },
-    specs::{arch::PAGE_SIZE, mm::virt_mem_newer::MemView},
+    specs::{
+        arch::{
+            kspace::{lemma_max_paddr_range, lemma_paddr_to_vaddr_properties},
+            PAGE_SIZE,
+        },
+        mm::virt_mem_newer::{MemView, VirtPtr},
+    },
     sync::{AtomicDataWithOwner, PreemptDisabled, RoArc, RwArc, RwLockReadGuard},
 };
 
@@ -82,11 +89,11 @@ pub struct DmaStream<M: AnyUFrameMeta + ?Sized> {
 }
 
 /// The tracked owner for the inner part of a [`DmaStream`].
-/// 
+///
 /// This is a placeholder but for the completeness of the [`VmIo`] trait.
 /// The "real" owner is tracked via the [`RwArc`] of the inner part of the
 /// [`DmaStream`].
-/// 
+///
 /// The caller must hold the invariant of the inner part to call any
 /// method that can read or write data from the DMA stream.
 pub struct DmaStreamVmIoOwner<M>(pub core::marker::PhantomData<M>);
@@ -118,16 +125,12 @@ pub struct DmaStreamInner<M: AnyUFrameMeta + ?Sized> {
 /// The owner of the inner part of a [`DmaStream`].
 pub tracked struct DmaStreamInnerOwner<M: AnyUFrameMeta + ?Sized> {
     pub segment_owner: SegmentOwner<M>,
-    // Here we put the [`VmSpaceOwner`] as a proof field to make sure
-    // the caller holds the invariant of the  writers which require
-    // the invariant of the [`VmSpaceOwner`] to be held.
-    // pub vm_space_owner: VmSpaceOwner<'_>,
 }
 
 pub type DmaStreanInnerAtomic<M> = AtomicDataWithOwner<DmaStreamInner<M>, DmaStreamInnerOwner<M>>;
 
 #[verus_verify]
-impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
+impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     /// Establishes DMA stream mapping for a given [`Segment<M>`].
     ///
     /// The method fails if the segment already belongs to a DMA mapping.
@@ -179,7 +182,9 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
             },
         };
 
-        let tracked inner_owner = DmaStreamInnerOwner { segment_owner, /* vm_space_owner */ };
+        let tracked inner_owner = DmaStreamInnerOwner {
+            segment_owner,  /* vm_space_owner */
+        };
 
         let inner = AtomicDataWithOwner::new(
             DmaStreamInner { segment, start_daddr, is_cache_coherent, direction },
@@ -191,7 +196,7 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         Ok(stream)
     }
 
-    /// Returns the starting device address of the DMA stream.
+    /// Returns the starting device address from a read guard.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -205,10 +210,17 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         returns
             this@.data.start_daddr,
     )]
-    pub fn daddr(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> Daddr {
+    fn daddr_inner(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> Daddr {
         this.start_daddr
     }
 
+    /// Returns the DMA direction from a read guard.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The caller must hold the [`DmaStreaInnerOwner`] invariant for the inner data of the [`DmaStream`].
+    /// ## Postconditions
+    /// - The returned direction is equal to the `direction` field of the inner data of the [`DmaStream`].
     #[inline(always)]
     #[verus_spec(r =>
         requires
@@ -216,13 +228,14 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         returns
             this@.data.direction,
     )]
-    pub fn direction(
+    fn direction_inner(
         this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>,
     ) -> DmaDirection {
         this.direction
     }
 
-    /// Returns the physical address corresponding to the starting device address of the DMA stream.
+    /// Returns the physical address corresponding to the starting device address
+    /// from a read guard.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -236,11 +249,11 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         returns
             this@.data.segment.start_paddr(),
     )]
-    pub fn paddr(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> Paddr {
+    fn paddr_inner(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> Paddr {
         this.segment.start_paddr()
     }
 
-    /// Returns a reader to read data from it.
+    /// Returns a reader to read data from it using a read guard.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -258,23 +271,51 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
           ensures
             r.inv(),
             reader_owner@.inv(),
-            reader_owner@.inv_with_reader(r),
+            reader_owner@.is_kernel,
+            reader_owner@.has_read_view(),
+            reader_owner@.read_view_initialized(),
+            r.wf(reader_owner@),
+            KERNEL_BASE_VADDR <= r.cursor.range@.start,
+            r.cursor.range@.end <= KERNEL_END_VADDR,
     )]
-    pub fn reader<'a>(
-        this: &'a RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>,
+    fn reader_inner<'a>(
+        this: RwLockReadGuard<'a, DmaStreanInnerAtomic<M>, PreemptDisabled>,
     ) -> VmReader<'a> {
         proof_decl! {
-            let tracked reader_owner: Tracked<VmIoOwner<'a>>;
+            let ghost id: nat;
+            let tracked mut reader_owner: VmIoOwner<'a>;
+        }
+        proof {
+            lemma_max_paddr_range();
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
         }
 
-        proof_with!(=> Tracked(reader_owner));
-        let reader = this.segment.reader();
+        let vaddr = paddr_to_vaddr(this.segment.start_paddr());
+        let len = this.segment.size();
+        let ghost range = vaddr..(vaddr + len) as usize;
+        let ptr = VirtPtr { vaddr, range: Ghost(range) };
+        proof {
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(vaddr > 0);
+            assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+            assert(ptr.inv());
+        }
 
+        let reader = unsafe {
+            proof_with!(Ghost(id) => Tracked(reader_owner));
+            VmReader::from_kernel_space(ptr, len)
+        };
+        proof {
+            let tracked inner = this.tracked_borrow();
+            let tracked owner = inner.permission.borrow();
+            let tracked mem_view = owner.segment_owner.borrow_kernel_mem_view(this@.data.segment);
+            reader_owner.mem_view = Some(VmIoMemView::ReadView(mem_view));
+        }
         proof_with!(|= Tracked(reader_owner));
         reader
     }
 
-    /// Returns a writer to write data to it.
+    /// Returns a writer to write data to it using a read guard.
     ///
     /// # Verified Properties
     /// ## Preconditions
@@ -292,18 +333,45 @@ impl<'a, M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
           ensures
             r.inv(),
             writer_owner@.inv(),
-            writer_owner@.inv_with_writer(r),
+            writer_owner@.is_kernel,
+            writer_owner@.has_write_view(),
+            r.wf(writer_owner@),
+            KERNEL_BASE_VADDR <= r.cursor.range@.start,
+            r.cursor.range@.end <= KERNEL_END_VADDR,
     )]
-    pub fn writer<'a>(
-        this: &'a RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>,
+    fn writer_inner<'a>(
+        this: RwLockReadGuard<'a, DmaStreanInnerAtomic<M>, PreemptDisabled>,
     ) -> VmWriter<'a> {
         proof_decl! {
-            let tracked writer_owner: Tracked<VmIoOwner<'a>>;
+            let ghost id: nat;
+            let tracked mut writer_owner: VmIoOwner<'a>;
+        }
+        proof {
+            lemma_max_paddr_range();
+            lemma_paddr_to_vaddr_properties(this@.data.segment.start_paddr_spec());
         }
 
-        proof_with!(=> Tracked(writer_owner));
-        let writer = this.segment.writer();
+        let vaddr = paddr_to_vaddr(this.segment.start_paddr());
+        let len = this.segment.size();
+        let ghost range = vaddr..(vaddr + len) as usize;
+        let ptr = VirtPtr { vaddr, range: Ghost(range) };
+        proof {
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(vaddr > 0);
+            assert(VMALLOC_BASE_VADDR <= KERNEL_END_VADDR) by (compute_only);
+            assert(ptr.inv());
+        }
 
+        let writer = unsafe {
+            proof_with!(Ghost(id), Tracked(false) => Tracked(writer_owner));
+            VmWriter::from_kernel_space(ptr, len)
+        };
+        proof {
+            let tracked inner = this.tracked_borrow();
+            let tracked owner = inner.permission.borrow();
+            let tracked mem_view = owner.segment_owner.produce_kernel_mem_view(this@.data.segment);
+            writer_owner.mem_view = Some(VmIoMemView::WriteView(mem_view));
+        }
         proof_with!(|= Tracked(writer_owner));
         writer
     }
@@ -323,7 +391,26 @@ impl<M: AnyUFrameMeta + ?Sized> Inv for DmaStreamInnerOwner<M> {
 }
 
 impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
+    /// Acquires a read guard for the inner DMA stream state.
+    ///
+    /// This method is the glue layer between [`RwArc`] and the guard-based
+    /// inner helpers.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    /// - The returned read guard satisfies the inner invariant.
     #[inline(always)]
+    #[verifier::external_body]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+            r@.inv(),
+    )]
     pub fn read_inner(&self) -> RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled> {
         self.inner.read()
     }
@@ -331,6 +418,169 @@ impl<M: AnyUFrameMeta + ?Sized> DmaStream<M> {
 
 #[verus_verify]
 impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
+    /// Returns the starting device address.
+    ///
+    /// This is a glue-layer wrapper over [`Self::daddr_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+    )]
+    pub fn daddr(&self) -> Daddr {
+        let inner = self.read_inner();
+        Self::daddr_inner(&inner)
+    }
+
+    /// Returns the DMA direction.
+    ///
+    /// This is a glue-layer wrapper over [`Self::direction_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+    )]
+    pub fn direction(&self) -> DmaDirection {
+        let inner = self.read_inner();
+        Self::direction_inner(&inner)
+    }
+
+    /// Returns the starting physical address.
+    ///
+    /// This is a glue-layer wrapper over [`Self::paddr_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+    )]
+    pub fn paddr(&self) -> Paddr {
+        let inner = self.read_inner();
+        Self::paddr_inner(&inner)
+    }
+
+    /// Returns a reader to read data from it.
+    ///
+    /// This is a glue-layer wrapper over [`Self::reader_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            -> reader_perm: Tracked<Option<VmIoOwner<'a>>>,
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& reader_perm@ is Some
+                &&& reader_perm@.unwrap().inv()
+                &&& reader_perm@.unwrap().is_kernel
+                &&& reader_perm@.unwrap().has_read_view()
+                &&& r.unwrap().wf(reader_perm@.unwrap())
+                &&& KERNEL_BASE_VADDR <= r.unwrap().cursor.range@.start
+                &&& r.unwrap().cursor.range@.end <= KERNEL_END_VADDR
+            },
+    )]
+    pub fn reader<'a>(&'a self) -> core::result::Result<VmReader<'a>, Error> {
+        let inner = self.read_inner();
+
+        if matches!(inner.direction, DmaDirection::ToDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            proof_with!(=> Tracked(reader_perm));
+            let reader = Self::reader_inner(inner);
+            // The reader stores raw address state plus a phantom lifetime. The
+            // stream owns the segment, so tying the phantom lifetime to `self`
+            // is the public API boundary.
+            proof_with!(|= Tracked(Some(reader_perm)));
+            Ok(
+                VmReader {
+                    id: reader.id,
+                    cursor: reader.cursor,
+                    end: reader.end,
+                    phantom: PhantomData,
+                },
+            )
+        }
+    }
+
+    /// Returns a writer to write data to it.
+    ///
+    /// This is a glue-layer wrapper over [`Self::writer_inner`].
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The inner [`RwArc`] is well-formed.
+    /// ## Postconditions
+    /// - The inner [`RwArc`] remains well-formed.
+    #[inline(always)]
+    #[verus_spec(r =>
+        with
+            -> writer_perm: Tracked<Option<VmIoOwner<'a>>>,
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+            r is Ok ==> {
+                &&& r.unwrap().inv()
+                &&& writer_perm@ is Some
+                &&& writer_perm@.unwrap().inv()
+                &&& writer_perm@.unwrap().is_kernel
+                &&& writer_perm@.unwrap().has_write_view()
+                &&& r.unwrap().wf(writer_perm@.unwrap())
+            },
+    )]
+    pub fn writer<'a>(&'a self) -> core::result::Result<VmWriter<'a>, Error> {
+        let inner = self.read_inner();
+
+        if matches!(inner.direction, DmaDirection::FromDevice) {
+            proof_with!(|= Tracked(None));
+            Err(Error::AccessDenied)
+        } else {
+            proof_with!(=> Tracked(writer_perm));
+            let writer = Self::writer_inner(inner);
+
+            proof_with!(|= Tracked(Some(writer_perm)));
+            Ok(
+                VmWriter {
+                    id: writer.id,
+                    cursor: writer.cursor,
+                    end: writer.end,
+                    phantom: PhantomData,
+                },
+            )
+        }
+    }
+
     #[verus_spec(r =>
         requires
             old(writer).inv(),
@@ -391,6 +641,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
 impl<M: AnyUFrameMeta + ?Sized> Predicate<DmaStreamInner<M>> for DmaStreamInnerOwner<M> {
     #[verifier::inline]
     open spec fn predicate(&self, v: DmaStreamInner<M>) -> bool {
+        &&& self.inv()
         &&& v.inv()
         &&& v.segment.inv_with(&self.segment_owner)
     }
@@ -408,7 +659,9 @@ pub enum DmaDirection {
     Bidirectional,
 }
 
-impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<M>> for DmaStream<M> {
+impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<M>> for DmaStream<
+    M,
+> {
     closed spec fn obeys_vmio_spec() -> bool {
         true
     }
@@ -437,9 +690,14 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         owner: DmaStreamVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
+        &&& self.inner.wf()
         &&& writer.inv()
         &&& writer_own.inv()
-        &&& writer_own.inv_with_writer(writer)
+        &&& writer.wf(writer_own)
+        &&& writer_own.mem_view matches Some(VmIoMemView::WriteView(_))
+        &&& writer.cursor.vaddr > 0
+        &&& (writer.cursor.range@.end <= KERNEL_BASE_VADDR || KERNEL_END_VADDR
+            <= writer.cursor.range@.start)
     }
 
     open spec fn write_requires(
@@ -450,9 +708,15 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         owner: DmaStreamVmIoOwner<M>,
     ) -> bool {
         &&& self.inv()
+        &&& self.inner.wf()
         &&& reader.inv()
         &&& reader_own.inv()
-        &&& reader_own.inv_with_reader(reader)
+        &&& reader.wf(reader_own)
+        &&& reader_own.mem_view matches Some(VmIoMemView::ReadView(_))
+        &&& reader_own.read_view_initialized()
+        &&& reader.cursor.vaddr > 0
+        &&& (reader.cursor.range@.end <= KERNEL_BASE_VADDR || KERNEL_END_VADDR
+            <= reader.cursor.range@.start)
     }
 
     open spec fn read_spec(
@@ -466,7 +730,30 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         new_owner: DmaStreamVmIoOwner<M>,
         r: core::result::Result<(), Error>,
     ) -> bool {
-        self.inv()
+        &&& self.inv()
+        &&& new_owner == old_owner
+        &&& new_writer.inv()
+        &&& new_writer_own.inv()
+        &&& new_writer.wf(new_writer_own)
+        &&& new_writer_own.mem_view matches Some(VmIoMemView::WriteView(_))
+        &&& match r {
+            Ok(_) => {
+                &&& new_writer.avail_spec() == 0
+                &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
+                &&& new_writer.end == old_writer.end
+                &&& new_writer.id == old_writer.id
+                &&& new_writer_own.range@.start == old_writer_own.range@.start
+                    + old_writer.avail_spec()
+                &&& new_writer_own.range@.end == old_writer_own.range@.end
+                &&& new_writer_own.id == old_writer_own.id
+                &&& new_writer_own.is_fallible == old_writer_own.is_fallible
+                &&& new_writer_own.is_kernel == old_writer_own.is_kernel
+            },
+            Err(_) => {
+                &&& new_writer == old_writer
+                &&& new_writer_own == old_writer_own
+            },
+        }
     }
 
     open spec fn write_spec(
@@ -480,29 +767,139 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         new_owner: DmaStreamVmIoOwner<M>,
         r: core::result::Result<(), Error>,
     ) -> bool {
-        self.inv()
+        &&& self.inv()
+        &&& new_owner == old_owner
+        &&& new_reader.inv()
+        &&& new_reader_own.inv()
+        &&& new_reader.wf(new_reader_own)
+        &&& new_reader_own.mem_view matches Some(VmIoMemView::ReadView(_))
+        &&& match r {
+            Ok(_) => {
+                &&& new_reader.remain_spec() == 0
+                &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
+                &&& new_reader.end == old_reader.end
+                &&& new_reader.id == old_reader.id
+                &&& new_reader_own.range@.start == old_reader_own.range@.start
+                    + old_reader.remain_spec()
+                &&& new_reader_own.range@.end == old_reader_own.range@.end
+                &&& new_reader_own.id == old_reader_own.id
+                &&& new_reader_own.is_fallible == old_reader_own.is_fallible
+                &&& new_reader_own.is_kernel == old_reader_own.is_kernel
+            },
+            Err(_) => {
+                &&& new_reader == old_reader
+                &&& new_reader_own == old_reader_own
+            },
+        }
     }
 
+    #[verus_spec()]
     fn read(
         &self,
         offset: usize,
         writer: &mut VmWriter<'_>,
-        Tracked(_writer_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
         let inner = self.read_inner();
-        DmaStream::read_inner_vmio(&inner, offset, writer)
+        if matches!(inner.direction, DmaDirection::ToDevice) {
+            return Err(Error::AccessDenied);
+        }
+        proof_decl! {
+            let tracked mut reader_own;
+        }
+        let mut reader = {
+            #[verus_spec(with => Tracked(reader_own))]
+            Self::reader_inner(inner)
+        };
+
+        let Some(remain) = reader.remain().checked_sub(offset) else {
+            return Err(Error::InvalidArgs);
+        };
+        let len = writer.avail();
+        if remain < len {
+            return Err(Error::InvalidArgs);
+        }
+        if len == 0 {
+            proof {
+                assert(writer.avail_spec() == 0);
+            }
+            return Ok(());
+        }
+        reader.advance(offset);
+        proof {
+            reader_own.advance(offset);
+
+            assert(reader.remain_spec() >= len);
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(reader.cursor.vaddr > 0);
+            assert(writer.cursor.range@.start >= reader.cursor.range@.end
+                || reader.cursor.range@.start >= writer.cursor.range@.end);
+        }
+
+        proof_with!(Tracked(&mut reader_own), Tracked(&mut *writer_own));
+        let copied = reader.read(writer);
+
+        proof {
+            assert(copied == len);
+            assert(len == old(writer).avail_spec());
+        }
+
+        Ok(())
     }
 
     fn write(
         &self,
         offset: usize,
         reader: &mut VmReader<'_>,
-        Tracked(_reader_own): Tracked<&mut VmIoOwner<'_>>,
+        Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
         let inner = self.read_inner();
-        DmaStream::write_inner_vmio(&inner, offset, reader)
+        if matches!(inner.direction, DmaDirection::FromDevice) {
+            return Err(Error::AccessDenied);
+        }
+        proof_decl! {
+            let tracked mut writer_own;
+        }
+        let mut writer = {
+            #[verus_spec(with => Tracked(writer_own))]
+            Self::writer_inner(inner)
+        };
+
+        let Some(avail) = writer.avail().checked_sub(offset) else {
+            return Err(Error::InvalidArgs);
+        };
+        let len = reader.remain();
+        if avail < len {
+            return Err(Error::InvalidArgs);
+        }
+        if len == 0 {
+            proof {
+                assert(reader.remain_spec() == 0);
+            }
+            return Ok(());
+        }
+        writer.advance(offset);
+        proof {
+            writer_own.advance(offset);
+
+            assert(writer.avail_spec() >= len);
+            assert(KERNEL_BASE_VADDR > 0) by (compute_only);
+            assert(writer.cursor.vaddr > 0);
+            assert(writer.cursor.range@.start >= reader.cursor.range@.end
+                || reader.cursor.range@.start >= writer.cursor.range@.end);
+        }
+        let copied = {
+            #[verus_spec(with Tracked(&mut writer_own), Tracked(&mut *reader_own))]
+            writer.write(reader)
+        };
+        proof {
+            assert(copied == len);
+            assert(len == old(reader).remain_spec());
+        }
+
+        Ok(())
     }
 
     #[verifier::external_body]
@@ -513,8 +910,6 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         Tracked(_bytes_owner): Tracked<&mut PointsToArray<u8, N>>,
         Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
-        let _ = offset;
-        let _ = bytes;
         Err(Error::AccessDenied)
     }
 }
