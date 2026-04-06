@@ -474,17 +474,17 @@ impl<C: PageTableConfig> CursorView<C> {
         // Mappings fully outside [start, end) are preserved.
         // (A mapping that straddles a boundary may be split, but its sub-mappings
         // outside the range are present — see refinement clause.)
-        &&& forall |m: Mapping| self.mappings.contains(m)
+        &&& forall |m: Mapping| #[trigger] self.mappings.contains(m)
             && (m.va_range.end <= start || m.va_range.start >= end)
             ==> new_view.mappings.contains(m)
         // No mapping in the new view starts inside [start, end).
-        &&& forall |m: Mapping| new_view.mappings.contains(m)
+        &&& forall |m: Mapping| #[trigger] new_view.mappings.contains(m)
             ==> !(start <= m.va_range.start < end)
         // New mappings are either from the old view or are sub-mappings of
         // old entries that straddled a boundary (refinement).
-        &&& forall |m: Mapping| new_view.mappings.contains(m)
+        &&& forall |m: Mapping| #[trigger] new_view.mappings.contains(m)
             ==> self.mappings.contains(m)
-            || exists |parent: Mapping| self.mappings.contains(parent)
+            || exists |parent: Mapping| #[trigger] self.mappings.contains(parent)
                 && parent.va_range.start <= m.va_range.start
                 && m.va_range.end <= parent.va_range.end
                 && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
@@ -754,7 +754,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.split_while_huge(size).mappings.contains(m),
         ensures
             self.mappings.contains(m)
-            || exists |parent: Mapping| self.mappings.contains(parent)
+            || exists |parent: Mapping| #[trigger] self.mappings.contains(parent)
                 && parent.va_range.start <= m.va_range.start
                 && m.va_range.end <= parent.va_range.end
                 && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr

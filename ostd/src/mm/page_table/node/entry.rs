@@ -143,8 +143,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
         ensures
             res.invariants(*owner, *regions),
             regions.slot_owners =~= old(regions).slot_owners,
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
-            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                    == #[trigger] regions.slots[k],
             regions.inv(),
     {
         let guard = self.node.borrow(Tracked(guard_perm));
@@ -294,39 +297,52 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions),
             // When the new child is not a node and path_if_in_pt is not written:
             // metaregion_sound is preserved with only paddr_neq(old_child).
-            (!new_owner.is_node() && !write_path) ==>
-                Self::metaregion_sound_neq_old_preserved(*old(owner), *old(regions), *regions),
+            (!new_owner.is_node() && !write_path) ==> Self::metaregion_sound_neq_old_preserved(
+                *old(owner),
+                *old(regions),
+                *regions,
+            ),
             // When BOTH old and new are not nodes AND path_if_in_pt was None at new_idx
             // (from item_not_mapped), metaregion_sound is fully preserved:
             // no node had metaregion_sound at new_idx (requires path_if_in_pt == Some),
             // and frames don't check path_if_in_pt.
             // When path_if_in_pt is NOT written (!write_path && !is_node): metaregion_sound fully preserved.
-            (!old(owner).is_node() && !new_owner.is_node() && !write_path) ==>
-                Self::metaregion_sound_preserved(*old(regions), *regions),
+            (!old(owner).is_node() && !new_owner.is_node() && !write_path)
+                ==> Self::metaregion_sound_preserved(*old(regions), *regions),
             // path_tracked_pred for new owner when path_if_in_pt is written (node or write_path).
-            (new_owner.is_node() || write_path) && !new_owner.is_absent() ==>
-                PageTableOwner::<C>::path_tracked_pred(*regions)(*new_owner, new_owner.path),
-            self.parent_perms_preserved(*old(parent_owner), *parent_owner, *guard_perm, *old(guard_perm)),
+            (new_owner.is_node() || write_path) && !new_owner.is_absent() ==> PageTableOwner::<
+                C,
+            >::path_tracked_pred(*regions)(*new_owner, new_owner.path),
+            self.parent_perms_preserved(
+                *old(parent_owner),
+                *parent_owner,
+                *guard_perm,
+                *old(guard_perm),
+            ),
             // path_if_in_pt changes when new owner is a node OR write_path; preserved otherwise.
-            forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-                (!(new_owner.is_node() || write_path) || new_owner.is_absent()
-                    || idx != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
-                    ==> regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+            forall|idx: usize|
+                #![trigger regions.slot_owners[idx].path_if_in_pt]
+                (!(new_owner.is_node() || write_path) || new_owner.is_absent() || idx
+                    != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+                    ==> regions.slot_owners[idx].path_if_in_pt == old(
+                    regions,
+                ).slot_owners[idx].path_if_in_pt,
             // slots: monotonic (from_pte may add; into_pte doesn't remove for non-nodes).
-            forall|k: usize| old(regions).slots.contains_key(k)
-                ==> #[trigger] regions.slots.contains_key(k),
+            forall|k: usize|
+                old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
             // When both old and new are not nodes: from_pte/into_pte are identity.
             (!old(owner).is_node() && !new_owner.is_node()) ==> {
                 &&& regions.slots == old(regions).slots
-                &&& forall|i: usize| #![trigger regions.slot_owners[i]]
-                    (!(new_owner.is_node() || write_path) || new_owner.is_absent()
-                        || i != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
-                    ==> regions.slot_owners[i] == old(regions).slot_owners[i]
+                &&& forall|i: usize|
+                    #![trigger regions.slot_owners[i]]
+                    (!(new_owner.is_node() || write_path) || new_owner.is_absent() || i
+                        != frame_to_index(new_owner.meta_slot_paddr().unwrap()))
+                        ==> regions.slot_owners[i] == old(regions).slot_owners[i]
             },
             // When old child is absent and new child is not a node: slots values unchanged.
-            (old(owner).is_absent() && !new_owner.is_node()) ==>
-                forall|k: usize| old(regions).slots.contains_key(k)
-                    ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+            (old(owner).is_absent() && !new_owner.is_node()) ==> forall|k: usize|
+                old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                    == #[trigger] regions.slots[k],
     {
         let ghost new_idx = frame_to_index(new_owner.meta_slot_paddr().unwrap());
         let ghost old_idx = frame_to_index(owner.meta_slot_paddr().unwrap());
@@ -409,7 +425,12 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             owner.in_scope = true;
         }
 
-        assert(Self::metaregion_sound_neq_preserved(*old(owner), *new_owner, *old(regions), *regions));
+        assert(Self::metaregion_sound_neq_preserved(
+            *old(owner),
+            *new_owner,
+            *old(regions),
+            *regions,
+        ));
 
         proof {
             // When both old and new are not nodes and path_if_in_pt is not written:
@@ -816,15 +837,16 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                             == C::E::new_absent_spec()
                     },
                 // Children [0, i) have been replaced with frames.
-                forall|j: int| #![auto] 0 <= j < i ==> {
-                    new_owner.children[j].unwrap().value.is_frame()
-                },
+                forall|j: int|
+                    #![auto]
+                    0 <= j < i ==> { new_owner.children[j].unwrap().value.is_frame() },
                 // Sub-page slots: slots.contains_key preserved via monotonicity.
-                forall |j: usize| #![trigger frame_to_index(
+                forall|j: usize|
+                    #![trigger frame_to_index(
                     (pa + j * page_size((level - 1) as PagingLevel)) as usize)]
-                    j < NR_ENTRIES ==>
-                    regions.slots.contains_key(frame_to_index(
-                        (pa + j * page_size((level - 1) as PagingLevel)) as usize)),
+                    j < NR_ENTRIES ==> regions.slots.contains_key(
+                        frame_to_index((pa + j * page_size((level - 1) as PagingLevel)) as usize),
+                    ),
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -890,7 +912,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 let idx = frame_to_index(small_pa);
                 // Trigger the loop invariant with j = i.
                 assert(idx == frame_to_index(
-                    (pa + i * page_size((level - 1) as PagingLevel)) as usize));
+                    (pa + i * page_size((level - 1) as PagingLevel)) as usize,
+                ));
                 // TODO: derive from frame_to_index injectivity + precondition on sub-page slots.
                 assume(regions.slots.contains_key(idx));
                 assume(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);

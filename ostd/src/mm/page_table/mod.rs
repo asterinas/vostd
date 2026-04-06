@@ -17,15 +17,8 @@ use core::{
 use crate::mm::frame::meta::MetaSlot;
 
 use super::{
-    lemma_nr_subpage_per_huge_bounded,
-    kspace::KernelPtConfig,
-    nr_subpage_per_huge,
-    page_prop::PageProperty,
-    Paddr,
-    vm_space::UserPtConfig,
-    PagingConstsTrait,
-    PagingLevel,
-    Vaddr,
+    kspace::KernelPtConfig, lemma_nr_subpage_per_huge_bounded, nr_subpage_per_huge,
+    page_prop::PageProperty, vm_space::UserPtConfig, Paddr, PagingConstsTrait, PagingLevel, Vaddr,
 };
 
 use crate::specs::mm::page_table::*;
@@ -35,10 +28,10 @@ use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
-use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::frame::meta_owners::MetaPerm;
 use crate::mm::kspace::kvirt_area::disable_preempt;
 use crate::specs::arch::PageTableEntry;
+use crate::specs::mm::frame::meta_owners::MetaPerm;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use vstd_extra::ownership::Inv;
 
 mod node;
@@ -172,7 +165,8 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
             res.0 % crate::specs::arch::mm::PAGE_SIZE == 0,
             res.0 < crate::specs::arch::mm::MAX_PADDR,
             res.0 % crate::mm::page_table::cursor::page_size(res.1) == 0,
-            res.0 + crate::mm::page_table::cursor::page_size(res.1) <= crate::specs::arch::mm::MAX_PADDR,
+            res.0 + crate::mm::page_table::cursor::page_size(res.1)
+                <= crate::specs::arch::mm::MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -681,8 +675,7 @@ impl PageTable<KernelPtConfig> {
         exists|i: usize|
             #![trigger root_owner.children_perm.value()[i as int]]
             KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
-                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end
-            && {
+                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end && {
                 let pte = root_owner.children_perm.value()[i as int];
                 ||| !pte.is_present()
                 ||| pte.is_last(root_owner.level)
@@ -692,8 +685,7 @@ impl PageTable<KernelPtConfig> {
     /// Create a new kernel page table.
     #[verifier::external_body]
     pub(crate) fn new_kernel_page_table() -> Self {
-        unimplemented!()
-/*        let kpt = Self::empty();
+        unimplemented!()/*        let kpt = Self::empty();
 
         // Make shared the page tables mapped by the root table in the kernel space.
         {
@@ -707,6 +699,7 @@ impl PageTable<KernelPtConfig> {
         }
 
         kpt*/
+
     }
 
     /// Create a new user page table.
@@ -728,13 +721,17 @@ impl PageTable<KernelPtConfig> {
             // The kernel root entry is sound with respect to the meta regions.
             kernel_owner.0.value.metaregion_sound(*old(regions)),
     )]
-    pub(in crate::mm) fn create_user_page_table<G: InAtomicMode + 'static>(&'static self) -> PageTable<UserPtConfig> {
+    pub(in crate::mm) fn create_user_page_table<G: InAtomicMode + 'static>(
+        &'static self,
+    ) -> PageTable<UserPtConfig> {
         let preempt_guard: &G = disable_preempt::<G>();
 
         proof_decl! {
             let tracked mut new_pt_owner: Option<PageTableOwner<UserPtConfig>> = None;
         }
-        let new_pt: PageTable<UserPtConfig> = PageTable::empty_with_owner(Tracked(&mut new_pt_owner));
+        let new_pt: PageTable<UserPtConfig> = PageTable::empty_with_owner(
+            Tracked(&mut new_pt_owner),
+        );
         let new_root = new_pt.root;
 
         proof_decl! {
@@ -753,7 +750,9 @@ impl PageTable<KernelPtConfig> {
 
         // borrow/lock preconditions: deeply nested chain from kernel_owner.inv()
         // + metaregion_sound + guards unlocked. Admitting for now.
-        proof { admit(); }
+        proof {
+            admit();
+        }
         let root_node = {
             #[verus_spec(with Tracked(regions), Tracked(root_perm))]
             let root_ref = self.root.borrow();
@@ -778,24 +777,23 @@ impl PageTable<KernelPtConfig> {
         {
             proof {
                 let kern_node = kernel_owner.0.value.node.unwrap();
-                assert forall |j: usize|
+                assert forall|j: usize|
                     #![trigger kern_node.children_perm.value()[j as int]]
                     KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
-                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end
-                    implies {
-                        let pte = kern_node.children_perm.value()[j as int];
-                        pte.is_present() && !pte.is_last(kern_node.level)
-                    } by {
-                        let pte = kern_node.children_perm.value()[j as int];
-                        if !pte.is_present() || pte.is_last(kern_node.level) {
-                            assert(Self::create_user_pt_panic_condition(kern_node));
-                        }
+                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end implies {
+                    let pte = kern_node.children_perm.value()[j as int];
+                    pte.is_present() && !pte.is_last(kern_node.level)
+                } by {
+                    let pte = kern_node.children_perm.value()[j as int];
+                    if !pte.is_present() || pte.is_last(kern_node.level) {
+                        assert(Self::create_user_pt_panic_condition(kern_node));
                     }
+                }
 
-                let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>>
-                    = kernel_owner.0.children.tracked_borrow(i as int);
-                let tracked child_subtree: &OwnerSubtree<KernelPtConfig>
-                    = child_opt.tracked_borrow();
+                let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>> =
+                    kernel_owner.0.children.tracked_borrow(i as int);
+                let tracked child_subtree: &OwnerSubtree<KernelPtConfig> =
+                    child_opt.tracked_borrow();
                 entry_owner = child_subtree.borrow_value();
                 admit();
             }
@@ -824,9 +822,7 @@ impl PageTable<KernelPtConfig> {
         }
 
         PageTable::<UserPtConfig> { root: new_root }
-    }
-
-    /*
+    }/*
     /// Protect the given virtual address range in the kernel page table.
     ///
     /// This method flushes the TLB entries when doing protection.
@@ -850,6 +846,7 @@ impl PageTable<KernelPtConfig> {
         }
         Ok(())
     }*/
+
 }
 
 impl<C: PageTableConfig> PageTable<C> {

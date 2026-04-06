@@ -16,18 +16,14 @@ use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
 
+use crate::mm::page_table::page_size_spec as page_size;
 use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_ge_page_size,
-    lemma_page_size_divides,
+    lemma_page_size_divides, lemma_page_size_ge_page_size,
 };
 use vstd_extra::arithmetic::{
-    lemma_nat_align_down_sound,
-    lemma_nat_align_down_within_block,
-    nat_align_down,
-    nat_align_up,
+    lemma_nat_align_down_sound, lemma_nat_align_down_within_block, nat_align_down, nat_align_up,
 };
-use crate::mm::page_table::page_size_spec as page_size;
 
 use core::ops::Range;
 
@@ -382,9 +378,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(child_subtree.inv());
             let pto = PageTableOwner(child_subtree);
             assert(pto.view_rec(child_path) =~= child_cont.view_mappings()) by {
-                assert forall |m: Mapping| child_cont.view_mappings().contains(m) implies
+                assert forall |m: Mapping| #[trigger] child_cont.view_mappings().contains(m) implies
                     pto.view_rec(child_path).contains(m) by {
-                    let j = choose |j: int| #![auto]
+                    let j = choose |j: int| #![trigger child_cont.children[j]]
                         0 <= j < child_cont.children.len()
                         && child_cont.children[j] is Some
                         && PageTableOwner(child_cont.children[j].unwrap()).view_rec(
@@ -394,7 +390,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(pto.0.children[j] is Some);
                     assert(pto.0.children[j] == child_cont.children[j]);
                 };
-                assert forall |m: Mapping| pto.view_rec(child_path).contains(m) implies
+                assert forall |m: Mapping| #[trigger] pto.view_rec(child_path).contains(m) implies
                     child_cont.view_mappings().contains(m) by {
                     // view_rec for node: exists i s.t. children[i] is Some && PTO(children[i]).view_rec(...)
                     let j = choose |j: int|
@@ -1182,7 +1178,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
 
         assert(new_owner.metaregion_sound(regions)) by {
-            assert forall |i: int| #![auto]
+            assert forall |i: int| #![trigger new_owner.continuations[i]]
                 new_owner.level - 1 <= i < NR_LEVELS implies {
                     &&& f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
                     &&& new_owner.continuations[i].map_children(f)
@@ -1221,7 +1217,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
 
             assert(new_owner.metaregion_correct(regions)) by {
-                assert forall |i: int| #![auto]
+                assert forall |i: int| #![trigger new_owner.continuations[i]]
                     new_owner.level - 1 <= i < NR_LEVELS implies {
                         &&& g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path())
                         &&& new_owner.continuations[i].map_children(g)
@@ -1553,7 +1549,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.cont_entries_metaregion(regions);
 
         assert(new_owner.metaregion_sound(regions)) by {
-            assert forall |i: int| #![auto]
+            assert forall |i: int| #![trigger new_owner.continuations[i]]
                 new_owner.level - 1 <= i < NR_LEVELS implies
                     new_owner.continuations[i].map_children(f)
             by {
@@ -1565,7 +1561,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         if self.metaregion_correct(regions) {
             assert(new_owner.metaregion_correct(regions)) by {
-                assert forall |i: int| #![auto]
+                assert forall |i: int| #![trigger new_owner.continuations[i]]
                     new_owner.level - 1 <= i < NR_LEVELS implies
                         new_owner.continuations[i].map_children(g)
                 by {
@@ -1590,8 +1586,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.level < self.guard_level,
             new_va.inv(),
             new_va.offset == 0,
-            forall |i: int| #![auto] self.level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.va.index[i],
-            forall |i: int| #![auto] self.guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.prefix.index[i],
+            forall |i: int| #![trigger new_va.index[i]] self.level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.va.index[i],
+            forall |i: int| #![trigger new_va.index[i]] self.guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.prefix.index[i],
         ensures
             self.set_va_spec(new_va).inv(),
     {
@@ -1978,7 +1974,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // With same children and path, view_mappings are the same
             assert forall |m: Mapping| r.view_mappings().contains(m)
                 implies p.view_mappings().contains(m) by {
-                let j = choose |j: int| #![auto]
+                let j = choose |j: int| #![trigger PageTableOwner(r.children[j].unwrap()).view_rec(
+                    r.path().push_tail(j as usize)).contains(m)]
                     0 <= j < r.children.len()
                     && r.children[j] is Some
                     && PageTableOwner(r.children[j].unwrap()).view_rec(
@@ -1989,7 +1986,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
             assert forall |m: Mapping| p.view_mappings().contains(m)
                 implies r.view_mappings().contains(m) by {
-                let j = choose |j: int| #![auto]
+                let j = choose |j: int| #![trigger PageTableOwner(p.children[j].unwrap()).view_rec(
+                    p.path().push_tail(j as usize)).contains(m)]
                     0 <= j < p.children.len()
                     && p.children[j] is Some
                     && PageTableOwner(p.children[j].unwrap()).view_rec(
@@ -2095,7 +2093,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(new_cont.view_mappings() =~= old_cont.view_mappings()) by {
                 assert forall |m: Mapping| old_cont.view_mappings().contains(m)
                     implies new_cont.view_mappings().contains(m) by {
-                    let i = choose |i: int| #![auto]
+                    let i = choose |i: int| #![trigger PageTableOwner(old_cont.children[i].unwrap()).view_rec(
+                        old_cont.path().push_tail(i as usize)).contains(m)]
                         0 <= i < old_cont.children.len()
                         && old_cont.children[i] is Some
                         && PageTableOwner(old_cont.children[i].unwrap()).view_rec(
@@ -2106,7 +2105,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
                 assert forall |m: Mapping| new_cont.view_mappings().contains(m)
                     implies old_cont.view_mappings().contains(m) by {
-                    let i = choose |i: int| #![auto]
+                    let i = choose |i: int| #![trigger PageTableOwner(new_cont.children[i].unwrap()).view_rec(
+                        new_cont.path().push_tail(i as usize)).contains(m)]
                         0 <= i < new_cont.children.len()
                         && new_cont.children[i] is Some
                         && PageTableOwner(new_cont.children[i].unwrap()).view_rec(
@@ -2168,7 +2168,3 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 }
 
 }
-
- 
- 
- 

@@ -17,13 +17,15 @@ pub struct TlbModel {
 
 impl Inv for TlbModel {
     open spec fn inv(self) -> bool {
-        &&& forall|m: Mapping| #![auto] self.mappings has m ==> m.inv()
-        &&& forall|m: Mapping, n:Mapping| #![auto]
+        &&& forall|m: Mapping| #![trigger self.mappings.contains(m)] self.mappings has m ==> m.inv()
+        &&& forall|m: Mapping, n:Mapping|
+            #![trigger self.mappings.contains(m), self.mappings.contains(n)]
             self.mappings has m ==>
             self.mappings has n ==>
             m != n ==>
             Mapping::disjoint_vaddrs(m, n)
-        &&& forall|m: Mapping, n:Mapping| #![auto]
+        &&& forall|m: Mapping, n:Mapping|
+            #![trigger self.mappings.contains(m), self.mappings.contains(n)]
             self.mappings has m ==>
             self.mappings has n ==>
             m != n ==>

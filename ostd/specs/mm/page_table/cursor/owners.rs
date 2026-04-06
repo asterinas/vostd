@@ -170,7 +170,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn map_children(self, f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool) -> bool {
         forall |i: int|
-            #![auto]
+            #![trigger self.children[i]]
             0 <= i < self.children.len() ==>
                 self.children[i] is Some ==>
                     self.children[i].unwrap().tree_predicate_map(self.path().push_tail(i as usize), f)
@@ -190,7 +190,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.map_children(g),
     {
         assert forall|j: int|
-            #![auto]
+            #![trigger self.children[j]]
             0 <= j < self.children.len()
                 && self.children[j] is Some implies
                 self.children[j].unwrap().tree_predicate_map(
@@ -222,7 +222,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             cont0.map_children(f),
             self.path() == cont0.path(),
             self.children.len() == cont0.children.len(),
-            forall|j: int| #![auto]
+            forall|j: int| #![trigger self.children[j], cont0.children[j]]
                 0 <= j < NR_ENTRIES && j != idx ==>
                 self.children[j] == cont0.children[j],
             self.children[idx] is Some ==>
@@ -232,7 +232,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.map_children(g),
     {
         assert forall|j: int|
-            #![auto]
+            #![trigger self.children[j]]
             0 <= j < self.children.len()
                 && self.children[j] is Some implies
                 self.children[j].unwrap().tree_predicate_map(
@@ -275,13 +275,13 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.inv_children()
         ensures
             forall |i:int|
-                #![auto]
+                #![trigger self.children[i]]
                 0 <= i < self.children.len() ==>
                 self.children[i] is Some ==>
                 self.children[i].unwrap().inv()
     {
         let pred = |child: Option<OwnerSubtree<C>>| child is Some ==> child.unwrap().inv();
-        assert forall |i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
+        assert forall |i:int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some implies
             self.children[i].unwrap().inv()
         by {
             self.inv_children_unroll(i)
@@ -367,7 +367,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn view_mappings(self) -> Set<Mapping> {
         Set::new(
             |m: Mapping| exists|i:int|
-            #![auto]
+            #![trigger self.children[i]]
             0 <= i < self.children.len() &&
                 self.children[i] is Some &&
                 PageTableOwner(self.children[i].unwrap()).view_rec(self.path().push_tail(i as usize)).contains(m)
@@ -1097,7 +1097,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.inv_continuation(i);
 
         let cont_i = self.continuations[i];
-        let j = choose|j: int| #![auto] 0 <= j < NR_ENTRIES
+        let j = choose|j: int| #![trigger cont_i.children[j]] 0 <= j < NR_ENTRIES
             && cont_i.children[j] is Some
             && PageTableOwner(cont_i.children[j].unwrap())
                 .view_rec(cont_i.path().push_tail(j as usize)).contains(m);
@@ -2208,7 +2208,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let g = PageTableOwner::metaregion_sound_pred(regions1);
         let h = PageTableOwner::<C>::path_tracked_pred(regions1);
 
-        assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
+        assert forall|i: int| #![trigger other.continuations[i]] self.level - 1 <= i < NR_LEVELS implies {
             other.continuations[i].map_children(g)
         } by {
             let cont = self.continuations[i];
@@ -2223,7 +2223,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         if self.metaregion_correct(regions0) {
-            assert forall|i: int| #![auto] self.level - 1 <= i < NR_LEVELS implies {
+            assert forall|i: int| #![trigger other.continuations[i]] self.level - 1 <= i < NR_LEVELS implies {
                 other.continuations[i].map_children(h)
             } by {
                 let cont = self.continuations[i];
@@ -2557,8 +2557,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     pub axiom fn set_va(tracked &mut self, new_va: AbstractVaddr)
         requires
-            forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
-            forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
+            forall |i: int| #![trigger new_va.index[i]] old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
+            forall |i: int| #![trigger new_va.index[i]] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
             *self == old(self).set_va_spec(new_va);
 
@@ -2584,7 +2584,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
             new_va.inv(),
-            forall|i: int| #![auto] old(self).level <= i < NR_LEVELS
+            forall|i: int| #![trigger new_va.index[i]] old(self).level <= i < NR_LEVELS
                 ==> new_va.index[i] == old(self).va.index[i],
             old(self).locked_range().start <= new_va.to_vaddr()
                 < old(self).locked_range().end,
@@ -2730,8 +2730,9 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         &&& self.cur_va < MAX_USERSPACE_VADDR
         &&& self.mappings.finite()
-        &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
-        &&& forall|m: Mapping, n: Mapping| #![auto]
+        &&& forall|m: Mapping| #![trigger self.mappings.contains(m)] self.mappings.contains(m) ==> m.inv()
+        &&& forall|m: Mapping, n: Mapping|
+            #![trigger self.mappings.contains(m), self.mappings.contains(n)]
             self.mappings.contains(m) ==>
             self.mappings.contains(n) ==>
             m != n ==>

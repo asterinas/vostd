@@ -341,20 +341,31 @@ impl KVirtArea {
 
         proof {
             vstd_extra::prelude::lemma_pow2_is_pow2_to64();
-            broadcast use vstd::arithmetic::power2::is_pow2_equiv, vstd::arithmetic::power2::lemma_pow2;
-            let witness: nat = choose |i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
+            broadcast use
+                vstd::arithmetic::power2::is_pow2_equiv,
+                vstd::arithmetic::power2::lemma_pow2,
+            ;
+
+            let witness: nat = choose|i: nat|
+                vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
             assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
         }
         let start = addr.align_down(PAGE_SIZE);
-        proof { assume(start + PAGE_SIZE <= usize::MAX); }
+        proof {
+            assume(start + PAGE_SIZE <= usize::MAX);
+        }
         let vaddr = start..start + PAGE_SIZE;
         proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
         let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions));
         let preempt_guard = disable_preempt::<A>();
         // cursor requires owned PageTableOwner; get_kernel_page_table only lends.
-        proof { admit(); }
+        proof {
+            admit();
+        }
         let (mut cursor, _cursor_owner) = page_table.cursor(preempt_guard, &vaddr).unwrap();
-        proof { admit(); }
+        proof {
+            admit();
+        }
         cursor.query().unwrap().1
     }
 
@@ -391,16 +402,20 @@ impl KVirtArea {
             area_size <= usize::MAX / 2,
             old(entry_owners).len() == frames.len(),
             frames.len() as int * PAGE_SIZE as int + map_offset as int <= area_size as int,
-            forall |i: int| 0 <= i < old(entry_owners).len() ==> (#[trigger] old(entry_owners)[i]).inv(),
-            forall |i: int| 0 <= i < frames.len() ==>
-                frame_entry_wf(frames[i], prop, #[trigger] old(entry_owners)[i]),
+            forall|i: int|
+                0 <= i < old(entry_owners).len() ==> (#[trigger] old(entry_owners)[i]).inv(),
+            forall|i: int|
+                0 <= i < frames.len() ==> frame_entry_wf(
+                    frames[i],
+                    prop,
+                    #[trigger] old(entry_owners)[i],
+                ),
             // Frames have distinct physical addresses (follows from linearity of slot_perm ownership).
             forall|i: int, j: int|
-                0 <= i < j < frames.len() ==> (#[trigger] old(
+                #![trigger old(entry_owners)[i], old(entry_owners)[j]]
+                0 <= i < j < frames.len() ==> old(entry_owners)[i].frame.unwrap().mapped_pa != old(
                     entry_owners,
-                )[i]).frame.unwrap().mapped_pa != (#[trigger] old(
-                    entry_owners,
-                )[j]).frame.unwrap().mapped_pa,
+                )[j].frame.unwrap().mapped_pa,
     {
         proof {
             kvirt_alloc_succeeds(area_size);
@@ -419,23 +434,23 @@ impl KVirtArea {
         }
 
         let page_table = {
-                proof_decl! {
+            proof_decl! {
                     let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
                 }
-                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
-            };
+            get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+        };
         let preempt_guard = disable_preempt::<A>();
 
-        let (mut cursor, Tracked(cursor_owner)) =
-        (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
-            page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
+        let (mut cursor, Tracked(cursor_owner)) = (
+        #[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
 
         let ghost init_frames_len = frames.len();
 
         for frame in it: frames.into_iter()
             invariant
                 cursor.inner.invariants(cursor_owner, *regions, *guards),
-                forall |i: int| 0 <= i < entry_owners.len() ==> (#[trigger]entry_owners[i]).inv(),
+                forall|i: int| 0 <= i < entry_owners.len() ==> (#[trigger] entry_owners[i]).inv(),
                 cursor.inner.va % PAGE_SIZE == 0,
                 cursor.inner.va as int + entry_owners.len() as int * PAGE_SIZE as int
                     <= cursor.inner.barrier_va.end as int,
@@ -443,14 +458,15 @@ impl KVirtArea {
                 it.elements.len() == init_frames_len,
                 init_frames_len <= old(entry_owners).len(),
                 entry_owners.len() == old(entry_owners).len() - it.pos,
-                forall |j: int|
-                    0 <= j < entry_owners.len() && it.pos + j < it.elements.len() ==>
-                    frame_entry_wf(it.elements[it.pos + j], prop, entry_owners[j]),
+                forall|j: int|
+                    0 <= j < entry_owners.len() && it.pos + j < it.elements.len()
+                        ==> frame_entry_wf(it.elements[it.pos + j], prop, entry_owners[j]),
                 // Remaining frames have distinct physical addresses
                 forall|i: int, j: int|
-                    0 <= i < j < it.elements.len() - it.pos ==> (
-                    #[trigger] entry_owners[i]).frame.unwrap().mapped_pa != (
-                    #[trigger] entry_owners[j]).frame.unwrap().mapped_pa,
+                    #![trigger entry_owners[i], entry_owners[j]]
+                    0 <= i < j < it.elements.len() - it.pos
+                        ==> entry_owners[i].frame.unwrap().mapped_pa
+                        != entry_owners[j].frame.unwrap().mapped_pa,
         {
             proof {
                 assert(entry_owners.contains(entry_owners[0]));

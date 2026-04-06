@@ -68,7 +68,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         ensures
             r.inv(),
             owner@.inv(),
-            owner@.inv_with_reader(r),
+            r.wf(owner@),
             r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
             r.remain_spec() == self.size_spec(),
             owner@.is_kernel,
@@ -110,7 +110,7 @@ impl<M: AnyUFrameMeta + OwnerOf> Segment<M> {
         ensures
             r.inv(),
             owner@.inv(),
-            owner@.inv_with_writer(r),
+            r.wf(owner@),
             r.cursor.vaddr == paddr_to_vaddr_spec(self.start_paddr_spec()),
             r.avail_spec() == self.size_spec(),
             owner@.is_kernel,

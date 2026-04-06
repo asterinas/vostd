@@ -375,10 +375,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             regions,
                         ).slot_owners[idx].inner_perms.in_list.id()
                     },
-                forall|k: usize| old(regions).slots.contains_key(k)
-                    ==> #[trigger] regions.slots.contains_key(k),
-                forall|k: usize| old(regions).slots.contains_key(k)
-                    ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+                forall|k: usize|
+                    old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+                forall|k: usize|
+                    old(regions).slots.contains_key(k) ==> old(regions).slots[k]
+                        == #[trigger] regions.slots[k],
             decreases self.level,
         {
             let cur_va = self.va;
@@ -504,9 +505,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
             proof {
                 owner.cur_va_range_reflects_view();
-                assert forall |e: EntryOwner<C>|
-                    #[trigger] e.inv() && e.metaregion_sound(*old(regions)) implies e.metaregion_sound(*regions)
-                by {
+                assert forall|e: EntryOwner<C>| #[trigger]
+                    e.inv() && e.metaregion_sound(*old(regions)) implies e.metaregion_sound(
+                    *regions,
+                ) by {
                     if e.is_node() || e.is_frame() {
                         regions.inv_implies_correct_addr(e.meta_slot_paddr().unwrap());
                     }
@@ -1042,14 +1044,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     assume(child_owner.value.is_frame() && parent_owner.level > 1 ==> {
                         let pa = child_owner.value.frame.unwrap().mapped_pa;
                         let sub_level = (parent_owner.level - 1) as PagingLevel;
-                        forall |j: usize| #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
+                        forall|j: usize|
+                            #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
                             j < NR_ENTRIES ==> {
-                            &&& regions.slots.contains_key(frame_to_index((pa + j * page_size(sub_level)) as usize))
-                            &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                                .inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                                .path_if_in_pt is None
-                        }
+                                &&& regions.slots.contains_key(
+                                    frame_to_index((pa + j * page_size(sub_level)) as usize),
+                                )
+                                &&& regions.slot_owners[frame_to_index(
+                                    (pa + j * page_size(sub_level)) as usize,
+                                )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                                &&& regions.slot_owners[frame_to_index(
+                                    (pa + j * page_size(sub_level)) as usize,
+                                )].path_if_in_pt is None
+                            }
                     });
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
@@ -1325,7 +1332,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             owner0.va.align_down_inv(start_level as int);
             owner0.va.align_down_concrete(start_level as int);
             owner0.va.align_down(start_level as int).reflect_prop(
-                nat_align_down(va as nat, page_size(start_level as PagingLevel) as nat) as Vaddr);
+                nat_align_down(va as nat, page_size(start_level as PagingLevel) as nat) as Vaddr,
+            );
             abs_next_va.reflect_prop(next_va);
 
             AbstractVaddr::reflect_eq(abs_next_va, owner0.va.align_up(start_level as int), next_va);
@@ -1388,8 +1396,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     owner0.va.align_down_shape(start_level as int);
                 }
                 AbstractVaddr::wrapped_nonzero_at_level(
-                    abs_va_down, abs_next_va, start_level as int,
-                    self.level as int, abs_va_down.index[self.level as int - 1]);
+                    abs_va_down,
+                    abs_next_va,
+                    start_level as int,
+                    self.level as int,
+                    abs_va_down.index[self.level as int - 1],
+                );
             }
         }
         assert(index != 0);
@@ -1397,7 +1409,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self.va = next_va;
 
         proof {
-            if owner.level == NR_LEVELS { admit(); } // TOP_LEVEL_INDEX_RANGE.end >= 2
+            if owner.level == NR_LEVELS {
+                admit();
+            }  // TOP_LEVEL_INDEX_RANGE.end >= 2
+
             owner.do_inc_index();
             owner.zero_preserves_all_but_va();
             owner.do_zero_below_level();
@@ -2087,17 +2102,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let f_sound = PageTableOwner::<C>::metaregion_sound_pred(*old(regions));
             let g_sound = PageTableOwner::<C>::metaregion_sound_pred(*regions);
 
-            Entry::<C>::alloc_if_none_metaregion_sound_preserved(old_child_value, new_child_value, *old(regions), *regions);
+            Entry::<C>::alloc_if_none_metaregion_sound_preserved(
+                old_child_value,
+                new_child_value,
+                *old(regions),
+                *regions,
+            );
 
             let idx = cont0.idx as int;
             let cont_final = owner.continuations[owner.level - 1];
 
             assert forall|i: int|
-                #![auto]
-                owner.level <= i < NR_LEVELS implies
-                    owner.continuations[i].map_children(g_unlocked)
-                    && owner.continuations[i].map_children(g_sound)
-            by {
+                #![trigger owner.continuations[i]]
+                owner.level <= i < NR_LEVELS implies owner.continuations[i].map_children(g_unlocked)
+                && owner.continuations[i].map_children(g_sound) by {
                 owner0.continuations[i].map_children_lift(f_unlocked, g_unlocked);
                 owner0.continuations[i].map_children_lift(f_sound, g_sound);
             };
@@ -2140,7 +2158,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let f_ptp = PageTableOwner::<C>::path_tracked_pred(*old(regions));
                 let g_ptp = PageTableOwner::<C>::path_tracked_pred(*regions);
                 assert(cont_final.children[idx].unwrap().tree_predicate_map(
-                    cont_final.path().push_tail(idx as usize), g_ptp)) by {
+                    cont_final.path().push_tail(idx as usize),
+                    g_ptp,
+                )) by {
                     let child = cont_final.children[idx].unwrap();
                     assert(child.value.meta_slot_paddr() is Some);
                     assert(regions.slot_owners[new_pt_idx].path_if_in_pt is Some);
@@ -2149,7 +2169,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont_final.map_children_lift_skip_idx(cont0, idx, f_ptp, g_ptp);
                 owner.map_branch_none_path_tracked_holds(owner0, *regions, *old(regions));
             }
-
         }
 
         let ghost owner_pre_push = *owner;
@@ -2221,19 +2240,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         // Sub-page slot validity: all pages of the huge frame have valid metadata.
         // TODO: derive from physical memory allocator invariant.
-        assume(child_owner.value.is_frame() && parent_owner.level > 1 ==>
-            {
-                let pa = child_owner.value.frame.unwrap().mapped_pa;
-                let sub_level = (parent_owner.level - 1) as PagingLevel;
-                forall |j: usize| #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                    j < NR_ENTRIES ==> {
-                    &&& regions.slots.contains_key(frame_to_index((pa + j * page_size(sub_level)) as usize))
-                    &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                        .inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                        .path_if_in_pt is None
+        assume(child_owner.value.is_frame() && parent_owner.level > 1 ==> {
+            let pa = child_owner.value.frame.unwrap().mapped_pa;
+            let sub_level = (parent_owner.level - 1) as PagingLevel;
+            forall|j: usize|
+                #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
+                j < NR_ENTRIES ==> {
+                    &&& regions.slots.contains_key(
+                        frame_to_index((pa + j * page_size(sub_level)) as usize),
+                    )
+                    &&& regions.slot_owners[frame_to_index(
+                        (pa + j * page_size(sub_level)) as usize,
+                    )].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[frame_to_index(
+                        (pa + j * page_size(sub_level)) as usize,
+                    )].path_if_in_pt is None
                 }
-            });
+        });
         let split_child = (
         #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
                 Tracked(guards), Tracked(&mut continuation.guard_perm))]
@@ -2579,7 +2602,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             self.inner.guard_level == old(self).inner.guard_level,
     )]
     pub fn map(&mut self, item: C::Item) -> (res: Result<(), PageTableFrag<C>>) {
-
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
@@ -2605,7 +2627,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner1 = *owner;
         let ghost regions_before_new_child = *regions;
 
-        let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(pa, prop, regions);
+        let tracked new_owner = owner.continuations.tracked_borrow(owner.level - 1).new_child(
+            pa,
+            prop,
+            regions,
+        );
 
         let ghost regions_after_new_child = *regions;
 
@@ -2644,21 +2670,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             // metaregion_correct: conditional on mc AND item_not_mapped.
             // item_not_mapped gives path_if_in_pt is None at pa_idx → enables write_path.
-            if owner1.metaregion_correct(regions_before_new_child)
-                && Self::item_not_mapped(item, *old(regions))
-            {
+            if owner1.metaregion_correct(regions_before_new_child) && Self::item_not_mapped(
+                item,
+                *old(regions),
+            ) {
                 let ghost pa_idx = frame_to_index(pa);
                 lemma_page_size_ge_page_size(level);
                 assert(regions_before_new_child.slot_owners[pa_idx].path_if_in_pt is None) by {
                     assert(Self::item_slot_in_regions(item, *old(regions)));
-                    assert(regions_before_new_child.slot_owners[pa_idx] == old(regions).slot_owners[pa_idx]);
+                    assert(regions_before_new_child.slot_owners[pa_idx] == old(
+                        regions,
+                    ).slot_owners[pa_idx]);
                     lemma_pa_plus_page_size_no_overflow(pa, level);
                     let ghost range = pa..(pa + size) as usize;
                     old(regions).paddr_not_mapped_at(range, pa);
                 };
                 assert(new_owner.value.meta_slot_paddr() == Some(pa));
             }
-
             assert(regions.inv()) by {
                 let idx = frame_to_index(pa);
                 assert(regions.slots =~= regions_before_new_child.slots);
@@ -2719,8 +2747,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         assert(self0.map_item_ensures(item, owner0@, owner@));
 
         proof {
-            assert(self.inner.va >= self.inner.barrier_va.end
-                || owner.in_locked_range()) by {
+            assert(self.inner.va >= self.inner.barrier_va.end || owner.in_locked_range()) by {
                 if !owner.above_locked_range() {
                     owner2.move_forward_increases_va();
                 }
@@ -2733,7 +2760,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(regions_after_new_child.slot_owners
                     =~= regions_before_new_child.slot_owners);
             };
-//            assert((level <= self0.inner.level && old(owner).cur_entry_owner().is_absent()) ==> owner1.cur_entry_owner().is_absent());
+            //            assert((level <= self0.inner.level && old(owner).cur_entry_owner().is_absent()) ==> owner1.cur_entry_owner().is_absent());
         }
 
         if let Some(frag) = frag {
@@ -2858,12 +2885,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // (Splits only affect the entry at frag_va; entries before it are untouched.)
             res is Some && res.unwrap() is Mapped ==>
                 forall |m2: Mapping|
-                    owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    #[trigger] owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
                     && m2.va_range.start < res.unwrap()->Mapped_va
                     ==> old(owner)@.mappings.contains(m2),
             res is Some && res.unwrap() is StrayPageTable ==>
                 forall |m2: Mapping|
-                    owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    #[trigger] owner@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
                     && m2.va_range.start < res.unwrap()->StrayPageTable_va
                     ==> old(owner)@.mappings.contains(m2),
             // F3-VA: found entry VA is within [old_va, old_va + len).
@@ -2919,14 +2946,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             }
             return None;
         }
-
         let tracked mut absent_entry_owner = EntryOwner::new_absent(
             owner.cur_entry_owner().path,
             owner.level,
         );
-        proof { absent_entry_owner.in_scope = false; }
-        let tracked subtree = OwnerSubtree::new_val_tracked(absent_entry_owner,
-            (owner.continuations[owner.level - 1].tree_level + 1) as nat);
+        proof {
+            absent_entry_owner.in_scope = false;
+        }
+        let tracked subtree = OwnerSubtree::new_val_tracked(
+            absent_entry_owner,
+            (owner.continuations[owner.level - 1].tree_level + 1) as nat,
+        );
 
         assert(subtree.value.meta_slot_paddr() is None);
         proof {
@@ -3003,7 +3033,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     );
                 }
                 CursorOwner::<'rcu, C>::split_while_huge_cur_va_independent(
-                    old(owner)@, view, page_size_spec(level_after_find));
+                    old(owner)@,
+                    view,
+                    page_size_spec(level_after_find),
+                );
 
                 // Prove m ∈ split_result: the mapping at va in the split view has
                 // page_size == m.page_size, so query_mapping() after split equals m.
@@ -3032,43 +3065,42 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             //   old(owner)@.mappings.filter(old_va <= start < self.va) = empty
             // at the point where the entry was found (self.va = va_after_find).
             if frag.unwrap() is Mapped {
-                assume(old(owner)@.mappings.filter(|m: Mapping|
-                    old_va <= m.va_range.start < frag.unwrap()->Mapped_va)
-                    =~= Set::<Mapping>::empty());
+                assume(old(owner)@.mappings.filter(
+                    |m: Mapping| old_va <= m.va_range.start < frag.unwrap()->Mapped_va,
+                ) =~= Set::<Mapping>::empty());
             }
             if frag.unwrap() is StrayPageTable {
-                assume(old(owner)@.mappings.filter(|m: Mapping|
-                    old_va <= m.va_range.start < frag.unwrap()->StrayPageTable_va)
-                    =~= Set::<Mapping>::empty());
+                assume(old(owner)@.mappings.filter(
+                    |m: Mapping| old_va <= m.va_range.start < frag.unwrap()->StrayPageTable_va,
+                ) =~= Set::<Mapping>::empty());
             }
-
             // F2c-stable: mappings in [old_va, frag_va) are unchanged by take_next.
             // The split only affects the entry at frag_va; find_next_impl doesn't
             // modify entries before frag_va.
+
             if frag.unwrap() is Mapped {
-                assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
-                    && m.va_range.start < frag.unwrap()->Mapped_va
-                    ==> old(owner)@.mappings.contains(m));
+                assume(forall|m: Mapping| #[trigger]
+                    owner@.mappings.contains(m) && old_va <= m.va_range.start && m.va_range.start
+                        < frag.unwrap()->Mapped_va ==> old(owner)@.mappings.contains(m));
             }
             if frag.unwrap() is StrayPageTable {
-                assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
-                    && m.va_range.start < frag.unwrap()->StrayPageTable_va
-                    ==> old(owner)@.mappings.contains(m));
+                assume(forall|m: Mapping| #[trigger]
+                    owner@.mappings.contains(m) && old_va <= m.va_range.start && m.va_range.start
+                        < frag.unwrap()->StrayPageTable_va ==> old(owner)@.mappings.contains(m));
             }
-
             // F2b-empty: nothing between frag end and cursor_va in new mappings.
             // After removing the entry and move_forward, the gap contains only absent entries.
+
             if frag.unwrap() is Mapped {
-                assume(owner@.mappings.filter(|m: Mapping|
-                    frag.unwrap()->Mapped_va <= m.va_range.start < self.inner.va)
-                    =~= Set::<Mapping>::empty());
+                assume(owner@.mappings.filter(
+                    |m: Mapping| frag.unwrap()->Mapped_va <= m.va_range.start < self.inner.va,
+                ) =~= Set::<Mapping>::empty());
             }
             if frag.unwrap() is StrayPageTable {
-                assume(owner@.mappings.filter(|m: Mapping|
-                    frag.unwrap()->StrayPageTable_va <= m.va_range.start < self.inner.va)
-                    =~= Set::<Mapping>::empty());
+                assume(owner@.mappings.filter(
+                    |m: Mapping|
+                        frag.unwrap()->StrayPageTable_va <= m.va_range.start < self.inner.va,
+                ) =~= Set::<Mapping>::empty());
             }
         }
 
@@ -3283,11 +3315,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             self.inner.invariants(*owner, *regions, *guards),
             // metaregion_correct is maintained when mc holds and path_if_in_pt is None at new_idx
             // (ensuring no tree node shares the new entry's slot).
-            old(owner).metaregion_correct(*old(regions))
-                && (new_owner.value.is_absent() || old(regions).slot_owners[
-                    frame_to_index(new_owner.value.meta_slot_paddr().unwrap())
-                ].path_if_in_pt is None)
-                ==> owner.metaregion_correct(*regions),
+            old(owner).metaregion_correct(*old(regions)) && (new_owner.value.is_absent() || old(
+                regions,
+            ).slot_owners[frame_to_index(
+                new_owner.value.meta_slot_paddr().unwrap(),
+            )].path_if_in_pt is None) ==> owner.metaregion_correct(*regions),
             self.inner.barrier_va == old(self).inner.barrier_va,
             owner.va == old(owner).va,
             self.inner.va == old(self).inner.va,
@@ -3351,7 +3383,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked old_child_owner = continuation.take_child();
 
         let ghost cont1 = continuation;
-        assert(cont1.view_mappings() == cont0.view_mappings() - cont0.view_mappings_take_child_spec()) by {
+        assert(cont1.view_mappings() == cont0.view_mappings()
+            - cont0.view_mappings_take_child_spec()) by {
             cont0.view_mappings_take_child();
             assert(cont1 == cont0.take_child_spec().1);
         }
@@ -3365,14 +3398,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         // value to match Entry::metaregion_sound_neq_preserved's old(owner) parameter).
         let ghost old_child_pre_replace = old_child_owner.value;
 
-        proof { new_owner.value.in_scope = true; }
+        proof {
+            new_owner.value.in_scope = true;
+        }
 
         // write_path: true when mc holds, new has paddr, path_if_in_pt at new_idx is None,
         // AND old is not a node (node old uses neq_old_preserved which requires !write_path).
-        let ghost write_path = !old_child_pre_replace.is_node()
-            && owner0.metaregion_correct(regions0)
-            && pre_new_owner_value.meta_slot_paddr() is Some
-            && regions0.slot_owners[frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap())].path_if_in_pt is None;
+        let ghost write_path = !old_child_pre_replace.is_node() && owner0.metaregion_correct(
+            regions0,
+        ) && pre_new_owner_value.meta_slot_paddr() is Some && regions0.slot_owners[frame_to_index(
+            pre_new_owner_value.meta_slot_paddr().unwrap(),
+        )].path_if_in_pt is None;
         #[verus_spec(with Tracked(regions),
             Tracked(&mut old_child_owner.value),
             Tracked(&mut new_owner.value),
@@ -3427,12 +3463,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // When write_path: use metaregion_sound_neq_preserved (both neq conditions).
             if !write_path {
                 assert(Entry::<C>::metaregion_sound_neq_old_preserved(
-                    old_child_pre_replace, regions0, *regions));
+                    old_child_pre_replace,
+                    regions0,
+                    *regions,
+                ));
             }
-
             // Higher-level continuations: metaregion_sound
-            assert forall|i: int| #![auto] owner0.level <= i < NR_LEVELS implies {
-                owner.continuations[i].map_children(g_sound)
+
+            assert forall|i: int|
+                #![trigger owner.continuations[i]]
+                owner0.level <= i < NR_LEVELS implies { owner.continuations[i].map_children(g_sound)
             } by {
                 assert(owner.continuations[i] == owner0.continuations[i]);
                 let cont = owner0.continuations[i];
@@ -3442,17 +3482,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // map has non-node old (from assume). So neq_old_preserved is available.
                     assert(!write_path);
                     assert forall|j: int|
-                        #![auto]
-                        0 <= j < NR_ENTRIES && cont.children[j] is Some
-                    implies cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g_sound)
-                    by {
+                        #![trigger cont.children[j]]
+                        0 <= j < NR_ENTRIES
+                            && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
+                    cont.path().push_tail(j as usize), g_sound) by {
                         cont.inv_children_unroll(j);
                         let subtree = cont.children[j].unwrap();
                         let path_j = cont.path().push_tail(j as usize);
                         owner0.cursor_path_nesting(i, owner0.level as int - 1);
                         cont0.path().push_tail_property_index(idx as usize);
                         cont.path().push_tail_property_index(j as usize);
-                        PageTableOwner::<C>::neq_old_from_path_disjoint(subtree, path_j, old_child_pre_replace, regions0);
+                        PageTableOwner::<C>::neq_old_from_path_disjoint(
+                            subtree,
+                            path_j,
+                            old_child_pre_replace,
+                            regions0,
+                        );
                         OwnerSubtree::map_implies_and(subtree, path_j, f_sound, f_neq_old, g_sound);
                     };
                 } else if !write_path {
@@ -3467,9 +3512,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // write_path: path_if_in_pt at new_idx was None (from condition).
                     // No node has metaregion_sound(r0) at new_idx (requires path_if_in_pt == Some).
                     // Frames don't check path_if_in_pt. So OwnerSubtree::implies holds.
-                    let ghost new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
+                    let ghost new_idx2 = frame_to_index(
+                        pre_new_owner_value.meta_slot_paddr().unwrap(),
+                    );
                     assert(OwnerSubtree::implies(f_sound, g_sound)) by {
-                        assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                        assert forall|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                             e.inv() && f_sound(e, p) implies #[trigger] g_sound(e, p) by {
                             if e.meta_slot_paddr() is Some {
                                 let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
@@ -3481,6 +3528,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     }
                                     // Frame at new_idx2: slots unchanged, slot_owners fields
                                     // besides path_if_in_pt unchanged → metaregion_sound preserved.
+
                                 }
                             }
                         };
@@ -3493,8 +3541,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(new_owner.value.metaregion_sound(*regions));
             let child_path = final_cont.path().push_tail(idx as usize);
             assert(new_owner.tree_predicate_map(child_path, g_sound)) by {
-                assert forall|lv: nat, p: TreePath<NR_ENTRIES>| lv < INC_LEVELS implies
-                    #[trigger] g_sound(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv), p) by {};
+                assert forall|lv: nat, p: TreePath<NR_ENTRIES>|
+                    lv < INC_LEVELS implies #[trigger] g_sound(
+                    <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv),
+                    p,
+                ) by {};
                 OwnerSubtree::new_val_tree_predicate_map(new_owner, child_path, g_sound);
             };
 
@@ -3503,7 +3554,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(!write_path);
                 assert(final_cont.map_children(g_sound)) by {
                     assert forall|j: int|
-                        #![auto]
+                        #![trigger final_cont.children[j]]
                         0 <= j < NR_ENTRIES
                             && final_cont.children[j] is Some implies final_cont.children[j].unwrap().tree_predicate_map(
                     final_cont.path().push_tail(j as usize), g_sound) by {
@@ -3520,7 +3571,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                 old_child_pre_replace,
                                 regions0,
                             );
-                            OwnerSubtree::map_implies_and(subtree, path_j, f_sound, f_neq_old, g_sound);
+                            OwnerSubtree::map_implies_and(
+                                subtree,
+                                path_j,
+                                f_sound,
+                                f_neq_old,
+                                g_sound,
+                            );
                         }
                     };
                 };
@@ -3531,7 +3588,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 // write_path=true: path_if_in_pt written at new_idx2. Same proof as above.
                 let ghost new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
                 assert(OwnerSubtree::implies(f_sound, g_sound)) by {
-                    assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                    assert forall|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                         e.inv() && f_sound(e, p) implies #[trigger] g_sound(e, p) by {
                         if e.meta_slot_paddr() is Some {
                             let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
@@ -3547,10 +3604,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(owner.metaregion_sound(*regions));
 
             // metaregion_correct: conditional on old mc + path_if_in_pt is None at new_idx.
-            if owner0.metaregion_correct(regions0)
-                && (pre_new_owner_value.is_absent()
-                    || regions0.slot_owners[frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap())].path_if_in_pt is None)
-            {
+            if owner0.metaregion_correct(regions0) && (pre_new_owner_value.is_absent()
+                || regions0.slot_owners[frame_to_index(
+                pre_new_owner_value.meta_slot_paddr().unwrap(),
+            )].path_if_in_pt is None) {
                 // Since path_tracked_pred is now node-only, f_neq_new only needs to cover nodes.
                 let f_neq_new = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.is_node() ==> entry.meta_slot_paddr_neq(pre_new_owner_value);
@@ -3561,31 +3618,36 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 if pre_new_owner_value.meta_slot_paddr() is Some {
                     owner0.not_in_tree_from_not_mapped(regions0, pre_new_owner_value);
                 }
-
                 // path_tracked_pred for new node owner (frames don't write path_if_in_pt).
-                assert(new_owner.value.is_node() ==>
-                    PageTableOwner::<C>::path_tracked_pred(*regions)(new_owner.value, new_owner.value.path));
+
+                assert(new_owner.value.is_node() ==> PageTableOwner::<C>::path_tracked_pred(
+                    *regions,
+                )(new_owner.value, new_owner.value.path));
 
                 assert(OwnerSubtree::implies(
                     |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f_path(e, p) && f_neq_new(e, p),
                     g_path,
                 )) by {
-                    assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                        e.inv() && f_path(e, p) && f_neq_new(e, p)
-                        implies #[trigger] g_path(e, p) by {
+                    assert forall|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                        e.inv() && f_path(e, p) && f_neq_new(e, p) implies #[trigger] g_path(
+                        e,
+                        p,
+                    ) by {
                         if e.meta_slot_paddr() is Some {
                             let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
                         }
                     };
                 };
 
-                assert forall|i: int| #![auto] owner0.level <= i < NR_LEVELS implies {
+                assert forall|i: int|
+                    #![trigger owner.continuations[i]]
+                    owner0.level <= i < NR_LEVELS implies {
                     owner.continuations[i].map_children(g_path)
                 } by {
                     assert(owner.continuations[i] == owner0.continuations[i]);
                     let cont = owner0.continuations[i];
                     assert forall|j: int|
-                        #![auto]
+                        #![trigger cont.children[j]]
                         0 <= j < NR_ENTRIES
                             && cont.children[j] is Some implies cont.children[j].unwrap().tree_predicate_map(
                     cont.path().push_tail(j as usize), g_path) by {
@@ -3600,14 +3662,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
 
                 assert(new_owner.tree_predicate_map(child_path, g_path)) by {
-                    assert forall|lv: nat, p: TreePath<NR_ENTRIES>| lv < INC_LEVELS implies
-                        #[trigger] g_path(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv), p) by {};
+                    assert forall|lv: nat, p: TreePath<NR_ENTRIES>|
+                        lv < INC_LEVELS implies #[trigger] g_path(
+                        <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv),
+                        p,
+                    ) by {};
                     OwnerSubtree::new_val_tree_predicate_map(new_owner, child_path, g_path);
                 };
 
                 assert(final_cont.map_children(g_path)) by {
                     assert forall|j: int|
-                        #![auto]
+                        #![trigger final_cont.children[j]]
                         0 <= j < NR_ENTRIES
                             && final_cont.children[j] is Some implies final_cont.children[j].unwrap().tree_predicate_map(
                     final_cont.path().push_tail(j as usize), g_path) by {
@@ -3617,14 +3682,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             let subtree = cont0.children[j].unwrap();
                             let path_j = final_cont.path().push_tail(j as usize);
                             OwnerSubtree::map_implies(subtree, path_j, f_sound, f_neq_new);
-                            OwnerSubtree::map_implies_and(subtree, path_j, f_path, f_neq_new, g_path);
+                            OwnerSubtree::map_implies_and(
+                                subtree,
+                                path_j,
+                                f_path,
+                                f_neq_new,
+                                g_path,
+                            );
                         }
                     };
                 };
 
                 assert(owner.metaregion_correct(*regions));
             }
-
             assert forall|j: int|
                 #![trigger final_cont.children[j]]
                 0 <= j < NR_ENTRIES && final_cont.children[j] is Some implies {
@@ -3760,7 +3830,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     let f = PageTableOwner::<C>::metaregion_sound_pred(*regions);
 
                     owner_before_dfs.cont_entries_metaregion(*regions);
-                    assert forall|i: int| #![auto] owner.level - 1 <= i < NR_LEVELS implies {
+                    assert forall|i: int|
+                        #![trigger owner.continuations[i]]
+                        owner.level - 1 <= i < NR_LEVELS implies {
                         &&& f(owner.continuations[i].entry_own, owner.continuations[i].path())
                         &&& owner.continuations[i].map_children(f)
                     } by {
@@ -3777,7 +3849,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
 
                     assert forall|i: int|
-                        #![auto]
+                        #![trigger owner.continuations[i]]
                         owner.level - 1 <= i
                             < NR_LEVELS implies owner.continuations[i].view_mappings()
                         == owner_before_dfs.continuations[i].view_mappings() by {
@@ -3823,4 +3895,3 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 }
 
 } // verus!
- 
