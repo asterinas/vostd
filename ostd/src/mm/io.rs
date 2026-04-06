@@ -77,23 +77,21 @@ verus! {
             old(writer).inv(),
             old(owner_r).inv(),
             old(owner_w).inv(),
-            old(owner_r).inv_with_reader(*old(reader)),
-            old(owner_w).inv_with_writer(*old(writer)),
+            old(reader).wf(*old(owner_r)),
+            old(writer).wf(*old(owner_w)),
             old(owner_r).is_fallible && old(owner_w).is_fallible, // both fallible
         ensures
             reader.inv(),
             writer.inv(),
             owner_r.inv(),
             owner_w.inv(),
-            owner_r.inv_with_reader(*reader),
-            owner_w.inv_with_writer(*writer),
+            reader.wf(*owner_r),
+            writer.wf(*owner_w),
             owner_r.params_eq(*old(owner_r)),
             owner_w.params_eq(*old(owner_w)),
     )]
-pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>) -> core::result::Result<
-    usize,
-    (Error, usize),
-> {
+pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>)
+-> core::result::Result<usize, (Error, usize)> {
     Ok(0)  // placeholder.
 
 }
@@ -257,18 +255,19 @@ pub tracked struct VmIoOwner<'a> {
     pub mem_view: Option<VmIoMemView<'a>>,
 }
 
+impl VmIoOwner<'_> {
+    /// Structural well-formedness: the range is ordered.
+    /// Always holds after construction.
+    pub open spec fn inv_wf(self) -> bool {
+        self.range@.start <= self.range@.end
+    }
+}
+
 impl Inv for VmIoOwner<'_> {
-    /// The invariant of a [`VmIoOwner`].
-    ///
-    /// The owned virtual-address range must be ordered. When a memory view is present,
-    /// its mappings must be finite, disjoint, and cover the whole range. If the memory
-    /// view is `None`, then this owner acts as a placeholder that grants no accessible
-    /// memory.
+    /// Full invariant: well-formed AND memory view (if present) covers the range.
     open spec fn inv(self) -> bool {
-        // We do allow ZSTs so that empty ranges are valid.
-        &&& self.range@.start <= self.range@.end
+        &&& self.inv_wf()
         &&& match self.mem_view {
-            // Case 1: Write (exclusive)
             Some(VmIoMemView::WriteView(mv)) => {
                 &&& mv.mappings.finite()
                 &&& mv.mappings_are_disjoint()
@@ -277,7 +276,6 @@ impl Inv for VmIoOwner<'_> {
                         &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
-            // Case 2: Read (shared)
             Some(VmIoMemView::ReadView(mv)) => {
                 &&& mv.mappings.finite()
                 &&& mv.mappings_are_disjoint()
@@ -286,8 +284,6 @@ impl Inv for VmIoOwner<'_> {
                         &&& #[trigger] mv.addr_transl(va) is Some
                     }
             },
-            // Case 3: Empty/Invalid; this means no memory is accessible,
-            //         and we are just creating a placeholder.
             None => true,
         }
     }
@@ -480,61 +476,69 @@ impl VmIoOwner<'_> {
     }
 }
 
+impl VmWriter<'_> {
+    /// Structural well-formedness: cursor and end share the same ghost range.
+    /// Always holds after construction, regardless of input validity.
+    pub open spec fn inv_wf(self) -> bool {
+        &&& self.cursor.range@ == self.end.range@
+    }
+
+    /// Relates a concrete [`VmWriter`] to its ghost [`VmIoOwner`],
+    /// following the `OwnerOf::wf` pattern.
+    pub open spec fn wf(self, owner: VmIoOwner<'_>) -> bool {
+        &&& owner.inv()
+        &&& owner.range@.start == self.cursor.vaddr
+        &&& owner.range@.end == self.end.vaddr
+        &&& owner.id == self.id
+        &&& owner.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
+            forall|va: usize|
+                owner.range@.start <= va < owner.range@.end ==> {
+                    &&& #[trigger] mv.addr_transl(va) is Some
+                }
+        }
+    }
+}
+
 impl Inv for VmWriter<'_> {
+    /// Full invariant: well-formed AND semantically valid (non-null, ordered).
     open spec fn inv(self) -> bool {
+        &&& self.inv_wf()
         &&& self.cursor.inv()
         &&& self.end.inv()
-        &&& self.cursor.vaddr
-            <= self.end.vaddr
-        // Ensure that they point to the same range as in VmIoOwner.
+        &&& self.cursor.vaddr <= self.end.vaddr
+    }
+}
+
+impl VmReader<'_> {
+    /// Structural well-formedness: cursor and end share the same ghost range.
+    /// Always holds after construction, regardless of input validity.
+    pub open spec fn inv_wf(self) -> bool {
         &&& self.cursor.range@ == self.end.range@
+    }
+
+    /// Relates a concrete [`VmReader`] to its ghost [`VmIoOwner`],
+    /// following the `OwnerOf::wf` pattern.
+    pub open spec fn wf(self, owner: VmIoOwner<'_>) -> bool {
+        &&& owner.inv()
+        &&& owner.range@.start == self.cursor.vaddr
+        &&& owner.range@.end == self.end.vaddr
+        &&& owner.id == self.id
+        &&& owner.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
+            forall|va: usize|
+                owner.range@.start <= va < owner.range@.end ==> {
+                    &&& #[trigger] mv.addr_transl(va) is Some
+                }
+        }
     }
 }
 
 impl Inv for VmReader<'_> {
+    /// Full invariant: well-formed AND semantically valid (non-null, ordered).
     open spec fn inv(self) -> bool {
+        &&& self.inv_wf()
         &&& self.cursor.inv()
         &&& self.end.inv()
-        &&& self.cursor.vaddr
-            <= self.end.vaddr
-        // Ensure that they point to the same range as in VmIoOwner.
-        &&& self.cursor.range@ == self.end.range@
-    }
-}
-
-impl VmIoOwner<'_> {
-    pub open spec fn inv_with_reader(
-        self,
-        reader: VmReader<'_  /* Fallibility */ >,
-    ) -> bool {
-        &&& self.inv()
-        &&& self.range@.start == reader.cursor.vaddr
-        &&& self.range@.end == reader.end.vaddr
-        &&& self.id == reader.id
-        &&& self.mem_view matches Some(VmIoMemView::ReadView(mv)) ==> {
-            // Ensure that the mem view covers the entire range.
-            forall|va: usize|
-                self.range@.start <= va < self.range@.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
-    }
-
-    pub open spec fn inv_with_writer(
-        self,
-        writer: VmWriter<'_  /* Fallibility */ >,
-    ) -> bool {
-        &&& self.inv()
-        &&& self.range@.start == writer.cursor.vaddr
-        &&& self.range@.end == writer.end.vaddr
-        &&& self.id == writer.id
-        &&& self.mem_view matches Some(VmIoMemView::WriteView(mv)) ==> {
-            // Ensure that the mem view covers the entire range.
-            forall|va: usize|
-                self.range@.start <= va < self.range@.end ==> {
-                    &&& #[trigger] mv.addr_transl(va) is Some
-                }
-        }
+        &&& self.cursor.vaddr <= self.end.vaddr
     }
 }
 
@@ -600,7 +604,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
             len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR,
         ensures
             owner@.inv(),
-            owner@.inv_with_writer(r),
+            r.wf(owner@),
             owner@.is_fallible == fallible,
             owner@.id == id,
             owner@.is_kernel,
@@ -652,7 +656,7 @@ impl<'a> VmWriter<'a  /* Infallible */ > {
                     &&& r.inv()
                     &&& r.avail_spec() == core::mem::size_of::<T>()
                     &&& owner.inv()
-                    &&& owner.inv_with_writer(r)
+                    &&& r.wf(owner)
                 }
             }
     )]
@@ -697,37 +701,50 @@ impl<'a> VmReader<'a  /* Infallible */ > {
     /// Constructs a [`VmReader`] from a pointer and a length, which represents
     /// a memory range in USER space.
     ///
-    /// ⚠️ WARNING: Currently not implemented yet.
-    ///
     /// # Verified Properties
     /// ## Preconditions
     /// - `ptr` must satisfy [`VirtPtr::inv`].
     /// ## Postconditions
     /// - The returned [`VmReader`] satisfies its invariant.
     /// - The returned reader is associated with a [`VmIoOwner`] that satisfies both [`VmIoOwner::inv`]
-    ///   and [`VmIoOwner::inv_with_reader`].
+    ///   and [`VmReader::wf`].
     /// - The owner has the same range as `ptr`, has no memory view yet, and is marked as user-space
     ///   and infallible.
-    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
             -> owner: Tracked<VmIoOwner<'a>>,
-        requires
-            ptr.inv(),
         ensures
-            r.inv(),
+            r.inv_wf(),
             owner@.id == id,
-            owner@.inv(),
-            owner@.inv_with_reader(r),
             owner@.range == ptr.range@,
             owner@.mem_view is None,
             !owner@.is_kernel,
             !owner@.is_fallible,
+            r.cursor == ptr,
+            ptr.vaddr + len <= usize::MAX ==> r.end.vaddr == ptr.vaddr + len,
+            r.end.range@ == ptr.range@,
+            ptr.inv() && ptr.range@.start == ptr.vaddr
+                && len == ptr.range@.end - ptr.range@.start ==> {
+                &&& r.inv()
+                &&& owner@.inv()
+                &&& r.wf(owner@)
+            },
     )]
-    pub unsafe fn from_user_space(ptr: VirtPtr) -> Self {
-        // SAFETY: The caller must ensure the safety requirements.
-        unimplemented!()
+    pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
+        let ghost range = ptr.range@;
+        let tracked owner = VmIoOwner {
+            id: Ghost(id),
+            range: Ghost(range),
+            is_fallible: false,
+            phantom: PhantomData,
+            is_kernel: false,
+            mem_view: None,
+        };
+        let end_vaddr = if ptr.vaddr <= usize::MAX - len { ptr.vaddr + len } else { 0 };
+        let end = VirtPtr { vaddr: end_vaddr, range: Ghost(range) };
+        proof_with!(|= Tracked(owner));
+        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
     /// Constructs a [`VmReader`] from a pointer and a length, which represents
@@ -762,7 +779,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
             len == 0 || ptr.vaddr + len <= KERNEL_END_VADDR,
         ensures
             owner@.inv(),
-            owner@.inv_with_reader(r),
+            r.wf(owner@),
             r.cursor.vaddr == ptr.vaddr,
             r.end.vaddr == ptr.vaddr + len,
             r.cursor == ptr,
@@ -812,7 +829,7 @@ impl<'a> VmReader<'a  /* Infallible */ > {
                     &&& r.inv()
                     &&& r.remain_spec() == core::mem::size_of::<T>()
                     &&& owner.inv()
-                    &&& owner.inv_with_reader(r)
+                    &&& r.wf(owner)
                 }
             }
     )]
@@ -1276,10 +1293,12 @@ impl VmReader<'_> {
         requires
             old(self).inv(),
             old(writer).inv(),
+            old(self).cursor.vaddr > 0,
+            old(writer).cursor.vaddr > 0,
             old(owner_r).inv(),
             old(owner_w).inv(),
-            old(owner_r).inv_with_reader(*old(self)),
-            old(owner_w).inv_with_writer(*old(writer)),
+            old(self).wf(*old(owner_r)),
+            old(writer).wf(*old(owner_w)),
             old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
             // Non-overlapping requirements.
             old(writer).cursor.range@.start >= old(self).cursor.range@.end
@@ -1297,8 +1316,8 @@ impl VmReader<'_> {
             writer.inv(),
             owner_r.inv(),
             owner_w.inv(),
-            owner_r.inv_with_reader(*self),
-            owner_w.inv_with_writer(*writer),
+            self.wf(*owner_r),
+            writer.wf(*owner_w),
             r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
             self.remain_spec() == old(self).remain_spec() - r as usize,
             self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
@@ -1380,7 +1399,7 @@ impl VmReader<'_> {
         requires
             old(self).inv(),
             old(owner).inv(),
-            old(owner).inv_with_reader(*old(self)),
+            old(self).wf(*old(owner)),
             old(owner).mem_view matches Some(VmIoMemView::ReadView(_)),
             old(owner).mem_view matches Some(VmIoMemView::ReadView(mem_src)) ==> {
                 forall|i: usize|
@@ -1394,7 +1413,7 @@ impl VmReader<'_> {
         ensures
             self.inv(),
             owner.inv(),
-            owner.inv_with_reader(*self),
+            self.wf(*owner),
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
@@ -1452,7 +1471,7 @@ impl VmReader<'_> {
         requires
             old(self).inv(),
             old(owner).inv(),
-            old(owner).inv_with_reader(*old(self)),
+            old(self).wf(*old(owner)),
             old(owner).mem_view matches Some(VmIoMemView::ReadView(_)),
             old(self).cursor.vaddr % core::mem::align_of::<T>() == 0,
             old(owner).mem_view matches Some(VmIoMemView::ReadView(mem_src)) ==> {
@@ -1467,7 +1486,7 @@ impl VmReader<'_> {
         ensures
             self.inv(),
             owner.inv(),
-            owner.inv_with_reader(*self),
+            self.wf(*owner),
             match r {
                 Ok(_) => {
                     &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
@@ -1515,29 +1534,44 @@ impl<'a> VmWriter<'a> {
     /// ## Postconditions
     /// - The returned [`VmWriter`] satisfies its invariant.
     /// - The returned writer is associated with a [`VmIoOwner`] that satisfies both [`VmIoOwner::inv`]
-    ///   and [`VmIoOwner::inv_with_writer`].
+    ///   and [`VmWriter::wf`].
     /// - The owner has the same range as `ptr`, has no memory view yet, and is marked as user-space
     ///   and infallible.
-    #[verifier::external_body]
     #[verus_spec(r =>
         with
             Ghost(id): Ghost<nat>,
             -> owner: Tracked<VmIoOwner<'a>>,
-        requires
-            ptr.inv(),
         ensures
-            r.inv(),
+            r.inv_wf(),
             owner@.id == id,
-            owner@.inv(),
-            owner@.inv_with_writer(r),
             owner@.range == ptr.range@,
             owner@.mem_view is None,
             !owner@.is_kernel,
             !owner@.is_fallible,
+            r.cursor == ptr,
+            ptr.vaddr + len <= usize::MAX ==> r.end.vaddr == ptr.vaddr + len,
+            r.end.range@ == ptr.range@,
+            ptr.inv() && ptr.range@.start == ptr.vaddr
+                && len == ptr.range@.end - ptr.range@.start ==> {
+                &&& r.inv()
+                &&& owner@.inv()
+                &&& r.wf(owner@)
+            },
     )]
-    pub unsafe fn from_user_space(ptr: VirtPtr) -> Self {
-        // SAFETY: The caller must ensure the safety requirements.
-        unimplemented!()
+    pub unsafe fn from_user_space(ptr: VirtPtr, len: usize) -> Self {
+        let ghost range = ptr.range@;
+        let tracked owner = VmIoOwner {
+            id: Ghost(id),
+            range: Ghost(range),
+            is_fallible: false,
+            phantom: PhantomData,
+            is_kernel: false,
+            mem_view: None,
+        };
+        let end_vaddr = if ptr.vaddr <= usize::MAX - len { ptr.vaddr + len } else { 0 };
+        let end = VirtPtr { vaddr: end_vaddr, range: Ghost(range) };
+        proof_with!(|= Tracked(owner));
+        Self { id: Ghost(id), cursor: ptr, end, phantom: PhantomData }
     }
 
     /// Returns the number of available bytes that can be written.
@@ -1624,10 +1658,12 @@ impl<'a> VmWriter<'a> {
         requires
             old(self).inv(),
             old(reader).inv(),
+            old(self).cursor.vaddr > 0,
+            old(reader).cursor.vaddr > 0,
             old(owner_w).inv(),
             old(owner_r).inv(),
-            old(owner_w).inv_with_writer(*old(self)),
-            old(owner_r).inv_with_reader(*old(reader)),
+            old(self).wf(*old(owner_w)),
+            old(reader).wf(*old(owner_r)),
             old(owner_w).mem_view matches Some(VmIoMemView::WriteView(_)),
             // Non-overlapping requirements.
             old(self).cursor.range@.start >= old(reader).cursor.range@.end
@@ -1645,8 +1681,8 @@ impl<'a> VmWriter<'a> {
             reader.inv(),
             owner_w.inv(),
             owner_r.inv(),
-            owner_w.inv_with_writer(*self),
-            owner_r.inv_with_reader(*reader),
+            self.wf(*owner_w),
+            reader.wf(*owner_r),
             r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
             self.avail_spec() == old(self).avail_spec() - r as usize,
             self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
@@ -1681,12 +1717,12 @@ impl<'a> VmWriter<'a> {
         requires
             old(self).inv(),
             old(owner_w).inv(),
-            old(owner_w).inv_with_writer(*old(self)),
+            old(self).wf(*old(owner_w)),
             old(owner_w).mem_view is Some,
         ensures
             self.inv(),
             owner_w.inv(),
-            owner_w.inv_with_writer(*self),
+            self.wf(*owner_w),
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
@@ -1742,11 +1778,11 @@ impl<'a> VmWriter<'a> {
             old(self).inv(),
             old(owner_w).mem_view is Some,
             old(owner_w).inv(),
-            old(owner_w).inv_with_writer(*old(self)),
+            old(self).wf(*old(owner_w)),
         ensures
             self.inv(),
             owner_w.inv(),
-            owner_w.inv_with_writer(*self),
+            self.wf(*owner_w),
             match r {
                 Ok(_) => {
                     &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()

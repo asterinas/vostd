@@ -423,6 +423,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                 i != self.index() ==> regions.slot_owners[i]
                     == old(regions).slot_owners[i],
             regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            // slots: borrow inserts the PointsTo at self.index(); existing keys are preserved.
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            forall |k: usize| old(regions).slots.contains_key(k) && k != self.index()
+                ==> old(regions).slots[k] == #[trigger] regions.slots[k],
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));

@@ -17,7 +17,7 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         &&& owner.inv()
         &&& regions.inv()
         &&& self.wf(owner)
-        &&& owner.relate_region(regions)
+        &&& owner.metaregion_sound(regions)
     }
 
     pub open spec fn node_matching(self, owner: EntryOwner<C>, parent_owner: NodeOwner<C>, guard_perm: GuardPerm<'rcu, C>) -> bool {
@@ -33,10 +33,10 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         &&& owner.match_pte(parent_owner.children_perm.value()[self.idx as int], owner.parent_level)
     }
 
-    pub open spec fn relate_region_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners) -> bool {
+    pub open spec fn metaregion_sound_preserved(regions0: MetaRegionOwners, regions1: MetaRegionOwners) -> bool {
         OwnerSubtree::implies(
-            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions0),
-            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.relate_region(regions1),
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions0),
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| entry.metaregion_sound(regions1),
         )
     }
 
@@ -53,7 +53,7 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         }
     }
 
-    pub open spec fn relate_region_neq_preserved(
+    pub open spec fn metaregion_sound_neq_preserved(
         old_entry_owner: EntryOwner<C>,
         new_entry_owner: EntryOwner<C>,
         regions0: MetaRegionOwners,
@@ -63,21 +63,39 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                 entry.meta_slot_paddr_neq(old_entry_owner)
                 && entry.meta_slot_paddr_neq(new_entry_owner)
-                && entry.relate_region(regions0),
+                && entry.metaregion_sound(regions0),
             |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.relate_region(regions1),
+                entry.metaregion_sound(regions1),
+        )
+    }
+
+    /// When the new child is NOT a node, `into_pte` doesn't modify `raw_count`.
+    /// Only `path_if_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
+    /// So entries with `paddr_neq(old_child)` preserve `metaregion_sound` — no
+    /// `paddr_neq(new_child)` needed.
+    pub open spec fn metaregion_sound_neq_old_preserved(
+        old_entry_owner: EntryOwner<C>,
+        regions0: MetaRegionOwners,
+        regions1: MetaRegionOwners,
+    ) -> bool {
+        OwnerSubtree::implies(
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.meta_slot_paddr_neq(old_entry_owner)
+                && entry.metaregion_sound(regions0),
+            |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.metaregion_sound(regions1),
         )
     }
 
     /// When `alloc_if_none` allocates a new node from an absent slot, all existing entries'
-    /// `relate_region` is preserved in the new regions.
+    /// `metaregion_sound` is preserved in the new regions.
     ///
-    /// Justification: `relate_region_neq_preserved` gives preservation for entries whose paddr
+    /// Justification: `metaregion_sound_neq_preserved` gives preservation for entries whose paddr
     /// differs from both old_child and new_child. Old_child is absent (paddr_neq trivially true).
     /// New_child was freshly allocated from `regions0.slots` (a free slot). By PointsTo
     /// uniqueness (`active_entry_not_in_free_pool`), no existing entry can share its slot index.
-    /// With both `paddr_neq` conditions, `relate_region_neq_preserved` yields the result.
-    pub proof fn alloc_if_none_relate_region_preserved(
+    /// With both `paddr_neq` conditions, `metaregion_sound_neq_preserved` yields the result.
+    pub proof fn alloc_if_none_metaregion_sound_preserved(
         old_child: EntryOwner<C>,
         new_child: EntryOwner<C>,
         regions0: MetaRegionOwners,
@@ -89,16 +107,18 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             new_child.is_node(),
             regions0.inv(),
             regions0.slots.contains_key(frame_to_index(new_child.meta_slot_paddr().unwrap())),
-            Self::relate_region_neq_preserved(old_child, new_child, regions0, regions1),
+            regions0.slot_owners[frame_to_index(new_child.meta_slot_paddr().unwrap())]
+                .inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            Self::metaregion_sound_neq_preserved(old_child, new_child, regions0, regions1),
         ensures
-            Self::relate_region_preserved(regions0, regions1),
+            Self::metaregion_sound_preserved(regions0, regions1),
     {
         let new_idx = frame_to_index(new_child.meta_slot_paddr().unwrap());
-        // Use relate_region_pred to get spec_fn values whose application covers both variables,
+        // Use metaregion_sound_pred to get spec_fn values whose application covers both variables,
         // satisfying Verus's trigger-coverage requirement.
-        let f = PageTableOwner::<C>::relate_region_pred(regions0);
-        let g = PageTableOwner::<C>::relate_region_pred(regions1);
-        assert(Self::relate_region_preserved(regions0, regions1)) by {
+        let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
+        let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
+        assert(Self::metaregion_sound_preserved(regions0, regions1)) by {
             assert(OwnerSubtree::implies(f, g)) by {
                 assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.inv() && f(entry, path) implies
@@ -112,15 +132,21 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     };
                     assert(entry.meta_slot_paddr_neq(old_child));
 
-                    // Part 2: meta_slot_paddr_neq(new_child) — by PointsTo uniqueness.
+                    // Part 2: meta_slot_paddr_neq(new_child) — by slot disjointness.
                     // If this entry has a paddr, it can't be the same as new_child's free-pool slot.
                     assert(entry.meta_slot_paddr_neq(new_child)) by {
                         if entry.meta_slot_paddr() is Some {
-                            // PointsTo uniqueness: a slot in the free pool can't also be active.
-                            EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
-                            assert(frame_to_index(entry.meta_slot_paddr().unwrap()) != new_idx);
-                            // frame_to_index is a function: same paddr gives same index,
-                            // so different index implies different paddr.
+                            let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
+                            if entry.is_node() {
+                                // PointsTo uniqueness: a node's slot can't also be in the free pool.
+                                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
+                            } else {
+                                // Frame: metaregion_sound requires ref_count != UNUSED at eidx.
+                                // The free pool slot at new_idx has ref_count == UNUSED (alloc precondition).
+                                // So eidx != new_idx by contradiction.
+                                assert(regions0.slot_owners[eidx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                            }
+                            assert(eidx != new_idx);
                             if entry.meta_slot_paddr().unwrap() == new_child.meta_slot_paddr().unwrap() {
                                 assert(frame_to_index(entry.meta_slot_paddr().unwrap())
                                     == frame_to_index(new_child.meta_slot_paddr().unwrap()));
@@ -129,12 +155,12 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         }
                     };
 
-                    // Part 3: apply relate_region_neq_preserved.
+                    // Part 3: apply metaregion_sound_neq_preserved.
                     // The antecedent f(entry, path) = paddr_neq(old) && paddr_neq(new) && relate(r0)
                     // is fully established; the conclusion g(entry, path) = relate(r1) follows.
                     assert(entry.meta_slot_paddr_neq(old_child)
                         && entry.meta_slot_paddr_neq(new_child)
-                        && entry.relate_region(regions0));
+                        && entry.metaregion_sound(regions0));
                 };
             };
         };
@@ -155,7 +181,6 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
     -> bool {
         &&& old_owner.path == new_owner.path
         &&& old_owner.parent_level == new_owner.parent_level
-        &&& old_owner.meta_slot_paddr_neq(new_owner)
         &&& new_owner.in_scope
         &&& new_owner.is_node() ==> {
             &&& regions.slots.contains_key(frame_to_index(new_owner.meta_slot_paddr().unwrap()))

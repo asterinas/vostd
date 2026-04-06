@@ -36,7 +36,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         &&& regions.inv()
         &&& owner.children_not_locked(guards)
         &&& owner.nodes_locked(guards)
-        &&& owner.relate_region(regions)
+        &&& owner.metaregion_sound(regions)
         &&& !owner.popped_too_high
     }
 
@@ -76,32 +76,23 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 // ─── CursorMut specs ──────────────────────────────────────────────────────────
 
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
+    // TODO: trace the `level >= guard_level` panic to its actual location in `pop_level`
+    // (unwrap of None path entry). Doing so requires tweaking the cursor invariant's
+    // treatment of locks so that `pop_level` can express the panic as a precondition violation.
     pub open spec fn map_panic_conditions(self, item: C::Item) -> bool {
         ||| self.inner.va >= self.inner.barrier_va.end
         ||| C::item_into_raw(item).1 > C::HIGHEST_TRANSLATION_LEVEL()
+        ||| C::item_into_raw(item).1 >= self.inner.guard_level
         ||| (!C::TOP_LEVEL_CAN_UNMAP_spec() && C::item_into_raw(item).1 >= NR_LEVELS)
         ||| self.inner.va % page_size(C::item_into_raw(item).1) != 0
         ||| self.inner.va + page_size(C::item_into_raw(item).1) > self.inner.barrier_va.end
     }
 
-    pub open spec fn map_cursor_requires(
-        self,
-        owner: CursorOwner<'rcu, C>,
-        guards: Guards<'rcu, C>,
-    ) -> bool {
-        &&& owner.in_locked_range()
-        &&& self.inner.level < self.inner.guard_level
-        &&& self.inner.va < self.inner.barrier_va.end
-    }
-
-    pub open spec fn map_item_requires(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
+    // TODO: ideally this should be an `OwnerOf` impl for `C::Item`
+    pub open spec fn item_wf(self, item: C::Item, entry_owner: EntryOwner<C>) -> bool {
         let (paddr, level, prop) = C::item_into_raw(item);
         &&& entry_owner.inv()
-        &&& self.inner.va % page_size(level) == 0
-        &&& self.inner.va + page_size(level) <= self.inner.barrier_va.end
-        &&& level < self.inner.guard_level
-        &&& (entry_owner.is_absent()
-            || Child::Frame(paddr, level, prop).wf(entry_owner))
+        &&& (entry_owner.is_absent() || Child::Frame(paddr, level, prop).wf(entry_owner))
     }
 
     pub open spec fn item_not_mapped(item: C::Item, regions: MetaRegionOwners) -> bool {

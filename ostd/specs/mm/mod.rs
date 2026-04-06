@@ -1,6 +1,7 @@
 pub mod cpu;
 pub mod frame;
 pub mod page_table;
+pub mod pod;
 pub mod tlb;
 pub mod virt_mem_newer;
 
@@ -121,7 +122,7 @@ impl GlobalMemOwner {
     pub open spec fn internal_invariants(self) -> bool {
         &&& self.regions.inv()
         &&& self.pt.inv()
-        &&& self.pt.relate_region(self.regions)
+        &&& self.pt.metaregion_sound(self.regions)
         &&& self.tlb.consistent_with_pt(self.pt.view())
     }
 
