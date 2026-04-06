@@ -522,6 +522,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
+            old(owner).in_locked_range(),
             !old(self).0.jump_panic_condition(va),
         ensures
             self.0.invariants(*owner, *regions, *guards),
@@ -589,6 +590,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
+            old(owner).in_locked_range(),
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
             old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
@@ -681,6 +683,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
+            old(owner).in_locked_range(),
             !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
             self.pt_cursor.inner.invariants(*owner, *regions, *guards),
@@ -743,6 +746,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(tlb_model).inv(),
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
+            old(cursor_owner).in_locked_range(),
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures

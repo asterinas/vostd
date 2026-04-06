@@ -16,6 +16,19 @@ use crate::specs::mm::Guards;
 use crate::specs::mm::Mapping;
 use crate::specs::mm::MetaRegionOwners;
 
+use crate::specs::mm::frame::mapping::{frame_to_index, meta_to_frame};
+use crate::specs::mm::page_table::cursor::page_size_lemmas::{
+    lemma_page_size_ge_page_size,
+    lemma_page_size_divides,
+};
+use vstd_extra::arithmetic::{
+    lemma_nat_align_down_sound,
+    lemma_nat_align_down_within_block,
+    nat_align_down,
+    nat_align_up,
+};
+use crate::mm::page_table::page_size_spec as page_size;
+
 use core::ops::Range;
 
 verus! {
@@ -73,24 +86,134 @@ pub proof fn push_tail_increases_length(
     path.push_tail_property(i);
 }
 
+/// Upgrade `node_unlocked_except` to `node_unlocked` on a subtree where the excepted
+/// entry cannot appear. The precondition `path == subtree.value.path` ties structural
+/// positions to entry paths. `excepted_path` must differ from all descendant paths,
+/// which is guaranteed when `excepted_path != path` and `excepted_path` is not an
+/// extension of `path` (all descendants have paths extending `path`).
+pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
+    subtree: OwnerSubtree<C>,
+    path: TreePath<NR_ENTRIES>,
+    guards: Guards<'rcu, C>,
+    regions: MetaRegionOwners,
+    excepted_addr: usize,
+    excepted_path: TreePath<NR_ENTRIES>,
+)
+    requires
+        subtree.inv(),
+        subtree.tree_predicate_map(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
+        subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr)),
+        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].path_if_in_pt
+            == Some(excepted_path),
+        // Structural path == value path
+        path == subtree.value.path,
+        path.inv(),
+        // excepted_path does not match this subtree root
+        path != excepted_path,
+        // excepted_path is not a descendant (all descendants extend path, so if
+        // excepted_path.len() <= path.len() it can't be a descendant; otherwise
+        // it must diverge at some index below path.len())
+        excepted_path.len() <= path.len() ||
+            (exists|k: int| 0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k)),
+    ensures
+        subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked(guards)),
+    decreases INC_LEVELS - subtree.level,
+{
+    let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
+    let g = CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr);
+    let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
+
+    // Root: value.path == path != excepted_path.
+    // If addr == excepted_addr: metaregion_sound gives slot.path_if_in_pt == Some(value.path)
+    // == Some(path). And slot.path_if_in_pt == Some(excepted_path). So path == excepted_path.
+    // Contradiction.
+    assert(f(subtree.value, path));
+    assert(g(subtree.value, path));
+    if subtree.value.is_node() {
+        if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
+            let idx = frame_to_index(meta_to_frame(excepted_addr));
+            assert(subtree.value.metaregion_sound(regions));
+            assert(regions.slot_owners[idx].path_if_in_pt == Some(subtree.value.path));
+            assert(subtree.value.path == path);
+            // path == excepted_path: contradiction with precondition
+            assert(false);
+        }
+    }
+    assert(h(subtree.value, path));
+
+    // Children: from inv, child.value.path == path.push_tail(i).
+    // excepted_path can't equal path.push_tail(i) (would need to extend path, but
+    // excepted_path doesn't extend path by precondition).
+    // excepted_path is also not a descendant of path.push_tail(i) (if excepted_path
+    // diverges from path at some k < path.len(), it diverges from path.push_tail(i) at the
+    // same k; if excepted_path.len() <= path.len(), then excepted_path.len() < path.push_tail(i).len()).
+    if subtree.level < INC_LEVELS - 1 {
+        assert forall |i: int|
+            #![trigger subtree.children[i]]
+            0 <= i < subtree.children.len() && subtree.children[i] is Some implies
+            subtree.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), h) by {
+            let child = subtree.children[i].unwrap();
+            subtree.map_unroll_once(path, f, i);
+            subtree.map_unroll_once(path, g, i);
+
+            // child.value.path == path.push_tail(i) from rel_children
+            assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                subtree.value, i, Some(child.value)));
+            let child_path = path.push_tail(i as usize);
+            assert(child.value.path == child_path);
+            path.push_tail_property(i as usize);
+
+            // child_path != excepted_path:
+            // Case 1: excepted_path.len() <= path.len() < child_path.len(). Different lengths.
+            // Case 2: excepted_path diverges from path at some k < path.len().
+            //   child_path agrees with path at 0..path.len()-1 (from push_tail).
+            //   So excepted_path diverges from child_path at k too.
+            assert(child_path != excepted_path) by {
+                if excepted_path.len() <= path.len() {
+                    // child_path.len() == path.len() + 1 > excepted_path.len()
+                } else {
+                    let k = choose|k: int| 0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
+                    assert(child_path.index(k) == path.index(k));
+                    assert(excepted_path.index(k) != child_path.index(k));
+                }
+            };
+
+            // Propagate "not a descendant" to child: excepted_path.len() <= child_path.len()
+            // or diverges at some k < child_path.len()
+            assert(excepted_path.len() <= child_path.len() ||
+                (exists|k: int| 0 <= k < child_path.len() && #[trigger] excepted_path.index(k) != child_path.index(k))) by {
+                if excepted_path.len() <= path.len() {
+                    // excepted_path.len() <= path.len() < child_path.len()
+                } else {
+                    let k = choose|k: int| 0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
+                    assert(child_path.index(k) == path.index(k));
+                    assert(k < child_path.len());
+                    assert(excepted_path.index(k) != child_path.index(k));
+                }
+            };
+
+            subtree_unlock_upgrade(child, child_path, guards, regions, excepted_addr, excepted_path);
+        };
+    }
+}
+
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     /// The number of steps it will take to walk through every node of a full
     /// page table at level `level`
-    pub open spec fn max_steps_subtree(level: usize) -> usize
+    pub open spec fn max_steps_subtree(level: usize) -> nat
         decreases level,
     {
         if level <= 1 {
-            NR_ENTRIES
+            NR_ENTRIES as nat
         } else {
-            // One step to push down a level, then the number for that subtree
-            (NR_ENTRIES * (Self::max_steps_subtree((level - 1) as usize) + 1)) as usize
+            (NR_ENTRIES as nat) * (Self::max_steps_subtree((level - 1) as usize) + 1)
         }
     }
 
     /// The number of steps it will take to walk through the remaining entries of the page table
     /// starting at the given level.
-    pub open spec fn max_steps_partial(self, level: usize) -> usize
+    pub open spec fn max_steps_partial(self, level: usize) -> nat
         decreases NR_LEVELS - level,
         when level <= NR_LEVELS
     {
@@ -100,15 +223,40 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             // How many entries remain at this level?
             let cont = self.continuations[(level - 1) as int];
             // Each entry takes at most `max_step_subtree` steps.
-            let steps = Self::max_steps_subtree(level) * (NR_ENTRIES - cont.idx);
+            let steps = Self::max_steps_subtree(level) * ((NR_ENTRIES - cont.idx) as nat);
             // Then the number of steps for the remaining entries at higher levels
             let remaining_steps = self.max_steps_partial((level + 1) as usize);
-            (steps + remaining_steps) as usize
+            steps + remaining_steps
         }
     }
 
-    pub open spec fn max_steps(self) -> usize {
+    pub open spec fn max_steps(self) -> nat {
         self.max_steps_partial(self.level as usize)
+    }
+
+    pub proof fn max_steps_subtree_positive(level: usize)
+        ensures
+            Self::max_steps_subtree(level) > 0,
+        decreases level,
+    {
+        if level > 1 {
+            Self::max_steps_subtree_positive((level - 1) as usize);
+        }
+    }
+
+    /// Two owners with the same idx values from `start` upward have the same max_steps_partial.
+    pub proof fn max_steps_partial_eq(self, other: Self, start: usize)
+        requires
+            1 <= start <= NR_LEVELS,
+            forall |k: int|
+                start - 1 <= k < NR_LEVELS ==> #[trigger] self.continuations[k].idx == other.continuations[k].idx,
+        ensures
+            self.max_steps_partial(start) == other.max_steps_partial(start),
+        decreases NR_LEVELS - start,
+    {
+        if start < NR_LEVELS {
+            self.max_steps_partial_eq(other, (start + 1) as usize);
+        }
     }
 
     pub proof fn max_steps_partial_inv(self, other: Self, level: usize)
@@ -169,15 +317,170 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level > 1,
+            self.cur_entry_owner().is_node(),
         ensures
             self.push_level_owner_spec(guard_perm)@.mappings == self@.mappings,
-    { admit() }
+    {
+        let new_owner = self.push_level_owner_spec(guard_perm);
+        let old_cont = self.continuations[self.level - 1];
+        let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+
+        reveal(CursorContinuation::inv_children);
+
+        // old_cont.view_mappings() == child_cont.view_mappings() + modified_cont.view_mappings()
+        // From view_mappings_take_child: modified_cont.view_mappings() == old_cont.view_mappings() - child_spec
+        // And child_cont.view_mappings() == child_spec (via as_page_table_owner_preserves_view_mappings)
+        assert(old_cont.all_some());
+        old_cont.view_mappings_take_child();
+        // take_child_spec().1.view_mappings() == old_cont.view_mappings() - view_mappings_take_child_spec()
+
+        // modified_cont.view_mappings() == take_child_spec().1.view_mappings()
+        // They have the same children (both have children[idx] = None, rest unchanged)
+        // and same path/entry_own.
+        let taken = old_cont.take_child_spec().1;
+        assert(modified_cont.view_mappings() =~= taken.view_mappings()) by {
+            // modified_cont and taken differ only in how children[idx] is set to None
+            // (update vs remove+insert), but the result is the same sequence.
+            assert(modified_cont.children =~= taken.children) by {
+                assert forall |j: int| 0 <= j < modified_cont.children.len()
+                    implies modified_cont.children[j] == taken.children[j] by {
+                    if j == old_cont.idx as int {
+                        assert(modified_cont.children[j] is None);
+                        assert(taken.children[j] is None);
+                    } else {
+                        assert(modified_cont.children[j] == old_cont.children[j]);
+                    }
+                };
+            };
+            assert(modified_cont.path() == taken.path());
+        };
+
+        // child_cont.view_mappings() == view_mappings_take_child_spec()
+        // Both are the set of mappings from the child subtree's children.
+        // child_cont.view_mappings() = union over j of PTO(child_cont.children[j]).view_rec(child_cont.path().push_tail(j))
+        // view_mappings_take_child_spec() = PTO(old_cont.children[old_cont.idx]).view_rec(old_cont.path().push_tail(old_cont.idx))
+        // Since child_cont.children == old_cont.children[old_cont.idx].children
+        //   and child_cont.path() == old_cont.path().push_tail(old_cont.idx) (from inv_children_rel)
+        // The child_cont.view_mappings() is exactly the view_rec decomposition of the child subtree.
+        old_cont.inv_children_rel_unroll(old_cont.idx as int);
+        assert(child_cont.view_mappings() =~= old_cont.view_mappings_take_child_spec()) by {
+            let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
+            let child_path = old_cont.path().push_tail(old_cont.idx as usize);
+            assert(child_cont.children == child_subtree.children);
+            assert(child_cont.path() == child_path);
+            // Both child_cont.view_mappings() and PTO(child_subtree).view_rec(child_path) unfold
+            // to the same set (union over children), since children and path are the same.
+            assert(child_subtree.value.is_node());
+            assert(child_path.len() < INC_LEVELS - 1) by {
+                assert(old_cont.tree_level < INC_LEVELS - 1);
+                assert(old_cont.entry_own.inv_base());
+                old_cont.path().push_tail_property(old_cont.idx as usize);
+            };
+            // view_rec for a node = union over children; view_mappings = same union.
+            // Need child_subtree.inv() for view_rec unfolding.
+            old_cont.inv_children_unroll(old_cont.idx as int);
+            assert(child_subtree.inv());
+            let pto = PageTableOwner(child_subtree);
+            assert(pto.view_rec(child_path) =~= child_cont.view_mappings()) by {
+                assert forall |m: Mapping| child_cont.view_mappings().contains(m) implies
+                    pto.view_rec(child_path).contains(m) by {
+                    let j = choose |j: int| #![auto]
+                        0 <= j < child_cont.children.len()
+                        && child_cont.children[j] is Some
+                        && PageTableOwner(child_cont.children[j].unwrap()).view_rec(
+                            child_cont.path().push_tail(j as usize)).contains(m);
+                    // child_cont.children[j] == child_subtree.children[j]
+                    // child_cont.path() == child_path
+                    assert(pto.0.children[j] is Some);
+                    assert(pto.0.children[j] == child_cont.children[j]);
+                };
+                assert forall |m: Mapping| pto.view_rec(child_path).contains(m) implies
+                    child_cont.view_mappings().contains(m) by {
+                    // view_rec for node: exists i s.t. children[i] is Some && PTO(children[i]).view_rec(...)
+                    let j = choose |j: int|
+                        #![trigger pto.0.children[j]]
+                        0 <= j < pto.0.children.len()
+                        && pto.0.children[j] is Some
+                        && PageTableOwner(pto.0.children[j].unwrap()).view_rec(
+                            child_path.push_tail(j as usize)).contains(m);
+                    assert(child_cont.children[j] == pto.0.children[j]);
+                    assert(child_cont.children[j] is Some);
+                };
+            };
+        };
+
+        // new_owner.view_mappings() == child_cont.view_mappings() + modified_cont.view_mappings()
+        //                              + (higher continuations unchanged)
+        // == view_mappings_take_child_spec() + (old_cont.view_mappings() - view_mappings_take_child_spec())
+        //    + higher
+        // == old_cont.view_mappings() + higher
+        // == self.view_mappings()
+        assert(new_owner.view_mappings() =~= self.view_mappings()) by {
+            assert forall |m: Mapping| self.view_mappings().contains(m)
+                implies new_owner.view_mappings().contains(m) by {
+                let i = choose |i: int|
+                    self.level - 1 <= i < NR_LEVELS
+                    && (#[trigger] self.continuations[i]).view_mappings().contains(m);
+                if i == self.level - 1 {
+                    // m in old_cont.view_mappings()
+                    // m in child_spec or m in modified.view_mappings()
+                    if old_cont.view_mappings_take_child_spec().contains(m) {
+                        // m in child_cont.view_mappings()
+                        assert(new_owner.continuations[self.level - 2].view_mappings().contains(m));
+                    } else {
+                        // m in modified_cont.view_mappings()
+                        assert(taken.view_mappings().contains(m));
+                        assert(modified_cont.view_mappings().contains(m));
+                        assert(new_owner.continuations[self.level - 1].view_mappings().contains(m));
+                    }
+                } else {
+                    // i > self.level - 1, unchanged
+                    assert(new_owner.continuations[i] == self.continuations[i]);
+                }
+            };
+            assert forall |m: Mapping| new_owner.view_mappings().contains(m)
+                implies self.view_mappings().contains(m) by {
+                let i = choose |i: int|
+                    new_owner.level - 1 <= i < NR_LEVELS
+                    && (#[trigger] new_owner.continuations[i]).view_mappings().contains(m);
+                if i == self.level - 2 {
+                    // m in child_cont.view_mappings() == child_spec
+                    assert(child_cont.view_mappings().contains(m));
+                    assert(old_cont.view_mappings_take_child_spec().contains(m));
+                    // child_spec ⊆ old_cont.view_mappings()
+                    // view_mappings_take_child_spec is a subset of view_mappings
+                    // (it's the view_rec of one child subtree)
+                    assert(old_cont.view_mappings().contains(m)) by {
+                        // view_mappings_take_child_spec() = PTO(children[idx]).view_rec(path.push_tail(idx))
+                        // view_mappings() includes this for i == idx
+                        let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
+                        assert(PageTableOwner(child_subtree).view_rec(
+                            old_cont.path().push_tail(old_cont.idx as usize)).contains(m));
+                    };
+                    assert(self.continuations[self.level - 1].view_mappings().contains(m));
+                } else if i == self.level - 1 {
+                    // m in modified_cont.view_mappings() ⊆ old_cont.view_mappings()
+                    assert(modified_cont.view_mappings().contains(m));
+                    assert(taken.view_mappings().contains(m));
+                    // taken.view_mappings() ⊆ old_cont.view_mappings() (subset after removal)
+                    assert(old_cont.view_mappings().contains(m)) by {
+                        // taken.view_mappings() == old_cont.view_mappings() - child_spec
+                        // So taken.view_mappings() ⊆ old_cont.view_mappings()
+                    };
+                    assert(self.continuations[self.level - 1].view_mappings().contains(m));
+                } else {
+                    assert(self.continuations[i] == new_owner.continuations[i]);
+                }
+            };
+        };
+    }
 
     pub proof fn push_level_owner_preserves_inv(self, guard_perm: GuardPerm<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
             !self.popped_too_high,
+            self.level < self.guard_level,
             // The current entry is a node (we're descending into it)
             self.cur_entry_owner().is_node(),
             // The child node's guard relates to the new guard_perm
@@ -216,7 +519,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             // 2. idx in range (from va.inv())
             assert(self.va.inv());
+            assert(0 <= self.level - 2 < NR_LEVELS);
             assert(self.va.index.contains_key(self.level - 2));
+            assert(0 <= self.va.index[self.level - 2] < NR_ENTRIES);
+            assert(child.idx == self.va.index[self.level - 2] as usize);
             assert(0 <= child.idx < NR_ENTRIES);
 
             // 3. entry_own.inv() from child_node.inv()
@@ -616,9 +922,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
 
-        // VA/prefix consistency: !popped_too_high ==> va matches prefix
-        // new_owner.popped_too_high == false. From !self.popped_too_high (precondition):
-        // match holds for self. VA, prefix, guard_level unchanged ⟹ match for new_owner.
     }
 
     pub proof fn push_level_owner_preserves_invs(self, guard_perm: GuardPerm<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
@@ -626,6 +929,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.level > 1,
             !self.popped_too_high,
+            self.level < self.guard_level,
             self.only_current_locked(guards),
             self.nodes_locked(guards),
             self.metaregion_sound(regions),
@@ -655,54 +959,272 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Establish relate_guard_perm precondition
         assert(self.cur_entry_owner().node.unwrap().relate_guard_perm(guard_perm));
 
-        // Establish guard distinctness precondition (node addresses differ across levels)
-        assert(forall |i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS ==>
-                self.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
-                    != guard_perm.value().inner.inner@.ptr.addr()) by { admit() };
-        self.push_level_owner_preserves_inv(guard_perm);
-
+        // Establish guard distinctness precondition (node addresses differ across levels).
+        // From metaregion_sound, each node's path is recorded in its metadata slot.
+        // If two nodes had the same meta_perm.addr(), they'd share the same slot, hence same
+        // path_if_in_pt. But the child and each continuation have different path lengths.
         let cur_entry = self.cur_entry_owner();
         let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as usize);
-
+        self.cont_entries_metaregion(regions);
         assert(cur_entry.metaregion_sound(regions));
+
+        assert forall |i: int|
+            #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS implies
+                self.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
+                    != guard_perm.value().inner.inner@.ptr.addr() by {
+            let cont_i = self.continuations[i];
+
+            if cont_i.guard_perm.value().inner.inner@.ptr.addr()
+                == guard_perm.value().inner.inner@.ptr.addr()
+            {
+                // Same guard_perm value addr ⟹ same meta_perm.addr() (from relate_guard_perm)
+                let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
+                assert(addr == cur_entry.node.unwrap().meta_perm.addr());
+
+                // Same meta_perm.addr() ⟹ same slot index
+                let idx = frame_to_index(meta_to_frame(addr));
+
+                // From metaregion_sound on both:
+                //   slot_owners[idx].path_if_in_pt == Some(cont_i.path())
+                //   slot_owners[idx].path_if_in_pt == Some(cur_entry_path)
+                assert(cont_i.entry_own.metaregion_sound(regions));
+                assert(cur_entry.metaregion_sound(regions));
+                assert(regions.slot_owners[idx].path_if_in_pt == Some(cont_i.path()));
+                assert(regions.slot_owners[idx].path_if_in_pt == Some(cur_entry_path));
+
+                // Therefore cont_i.path() == cur_entry_path
+                assert(cont_i.path() == cur_entry_path);
+
+                // But their path lengths differ:
+                // cur_entry_path.len() == old_cont.tree_level + 1
+                // cont_i.path().len() == cont_i.tree_level <= old_cont.tree_level
+                assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
+                    old_cont.inv_children_rel_unroll(old_cont.idx as int);
+                    assert(old_cont.entry_own.inv_base());
+                    old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
+                };
+                assert(cont_i.path().len() == cont_i.tree_level);
+                assert(cont_i.tree_level <= old_cont.tree_level) by {
+                    if self.level as int == 1 {
+                        assert(old_cont.level() == 1);
+                    } else if self.level as int == 2 {
+                        assert(old_cont.level() == 2);
+                    } else if self.level as int == 3 {
+                        assert(old_cont.level() == 3);
+                    } else {
+                        assert(old_cont.level() == 4);
+                    }
+                };
+                // Contradiction: path lengths differ but paths are equal
+                assert(false);
+            }
+        };
+        self.push_level_owner_preserves_inv(guard_perm);
+
+        // Establish the slot_owners entry for cur_entry_addr
+        let excepted_idx = frame_to_index(meta_to_frame(cur_entry_addr));
+        assert(regions.slot_owners[excepted_idx].path_if_in_pt == Some(cur_entry_path)) by {
+            assert(cur_entry.metaregion_sound(regions));
+            assert(cur_entry.is_node());
+            // metaregion_sound for node: path_if_in_pt == Some(cur_entry.path)
+            // cur_entry.path == cur_entry_path (from inv_children_rel on old_cont)
+            old_cont.inv_children_rel_unroll(old_cont.idx as int);
+        };
+
+        // Helper: for any continuation's child subtree, upgrade node_unlocked_except → node_unlocked
+        // using subtree_unlock_upgrade. Each child's path diverges from cur_entry_path.
+
+        let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
+        let g_except = CursorOwner::<'rcu, C>::node_unlocked_except(guards, cur_entry_addr);
+        let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
 
         assert(new_owner.children_not_locked(guards)) by {
             assert forall |i: int|
                 #![trigger new_owner.continuations[i]]
                 new_owner.level - 1 <= i < NR_LEVELS implies
-                new_owner.continuations[i].map_children(CursorOwner::<'rcu, C>::node_unlocked(guards)) by {
+                new_owner.continuations[i].map_children(h) by {
 
                 if i == self.level - 2 {
+                    // child_cont: its children are grandchildren of old_cont.
+                    // Each grandchild subtree's path starts with cur_entry_path.push_tail(j).
+                    // These paths are strictly longer than cur_entry_path (len = cur_entry_path.len() + 1).
+                    // So cur_entry_path.len() < grandchild_path.len(), meaning
+                    // cur_entry_path.len() <= grandchild_path.len() - 1 < grandchild_path.len().
+                    // i.e., excepted_path.len() < child_path.len(). First disjunct of precondition holds.
                     assert(new_owner.continuations[i] == child_cont);
-                    admit();
+                    assert forall |j: int|
+                        #![trigger child_cont.children[j]]
+                        0 <= j < child_cont.children.len() && child_cont.children[j] is Some implies
+                        child_cont.children[j].unwrap().tree_predicate_map(
+                            child_cont.path().push_tail(j as usize), h) by {
+                        let gc = child_cont.children[j].unwrap();
+                        let gc_path = child_cont.path().push_tail(j as usize);
+                        child_cont.inv_children_unroll(j);
+                        child_cont.inv_children_rel_unroll(j);
+                        assert(gc.value.path == gc_path);
+                        assert(child_cont.entry_own.inv_base());
+                        child_cont.path().push_tail_property(j as usize);
+
+                        // Extract tree_predicate_map on gc from old_cont's child subtree.
+                        // old_cont.map_children(f) gives tree_predicate_map on old_cont.children[old_cont.idx]
+                        // at path cur_entry_path. Unrolling once gives tree_predicate_map on gc at gc_path.
+                        let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
+                        // child_subtree == child_node from earlier; its children == child_cont.children
+                        assert(child_subtree.children == child_cont.children);
+                        assert(child_subtree.value.path == cur_entry_path);
+
+                        child_subtree.map_unroll_once(cur_entry_path, f, j);
+                        child_subtree.map_unroll_once(cur_entry_path, g_except, j);
+
+                        // gc_path == cur_entry_path.push_tail(j) == child_cont.path().push_tail(j)
+                        assert(gc_path == cur_entry_path.push_tail(j as usize)) by {
+                            assert(child_cont.path() == cur_entry_path);
+                        };
+
+                        // cur_entry_path.len() < gc_path.len() (gc is one level deeper)
+                        assert(cur_entry_path.len() < gc_path.len());
+
+                        subtree_unlock_upgrade(gc, gc_path, guards, regions,
+                            cur_entry_addr, cur_entry_path);
+                    };
                 } else if i == self.level - 1 {
+                    // modified_cont: children[j] for j != old_cont.idx are siblings of cur_entry.
+                    // Each sibling path = old_cont.path().push_tail(j).
+                    // cur_entry_path = old_cont.path().push_tail(old_cont.idx).
+                    // Same length, but differ at the last index: j != old_cont.idx.
                     assert(new_owner.continuations[i] == modified_cont);
                     assert(modified_cont.path() == old_cont.path());
-
                     assert forall |j: int|
                         #![trigger modified_cont.children[j]]
                         0 <= j < modified_cont.children.len() && modified_cont.children[j] is Some implies
                         modified_cont.children[j].unwrap().tree_predicate_map(
-                            modified_cont.path().push_tail(j as usize),
-                            CursorOwner::<'rcu, C>::node_unlocked(guards)) by {
+                            modified_cont.path().push_tail(j as usize), h) by {
                         assert(j != old_cont.idx as int);
                         assert(modified_cont.children[j] == old_cont.children[j]);
-                        let sibling_root_path = old_cont.path().push_tail(j as usize);
-                        assert(old_cont.path().inv()) by {
-                            assert(old_cont.entry_own.inv_base());
-                        };
+                        let sibling = old_cont.children[j].unwrap();
+                        let sibling_path = old_cont.path().push_tail(j as usize);
+                        old_cont.inv_children_unroll(j);
+                        old_cont.inv_children_rel_unroll(j);
+                        assert(sibling.value.path == sibling_path);
+                        assert(old_cont.entry_own.inv_base());
+                        old_cont.path().push_tail_property(j as usize);
 
+                        // sibling_path != cur_entry_path: same length but differ at last index
                         push_tail_different_indices_different_paths(old_cont.path(), j as usize, old_cont.idx);
-                        assert(sibling_root_path != cur_entry_path);
+                        assert(sibling_path != cur_entry_path);
 
-                        admit();
+                        // cur_entry_path.len() == sibling_path.len() (both = old_cont.tree_level + 1)
+                        // So excepted_path.len() <= sibling_path.len(). First disjunct holds.
+                        assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
+                            old_cont.inv_children_rel_unroll(old_cont.idx as int);
+                            old_cont.path().push_tail_property(old_cont.idx as usize);
+                        };
+                        assert(sibling_path.len() == old_cont.tree_level + 1);
+                        assert(cur_entry_path.len() <= sibling_path.len());
+
+                        // tree_predicate_map for f and g_except from old_cont.map_children
+                        subtree_unlock_upgrade(sibling, sibling_path, guards, regions,
+                            cur_entry_addr, cur_entry_path);
                     };
                 } else {
+                    // Higher continuations (i >= self.level): unchanged from self.
+                    // Each child's path diverges from cur_entry_path because cur_entry_path
+                    // goes through a specific branch (the continuation's idx) at each level.
                     assert(new_owner.continuations[i] == self.continuations[i]);
-                    admit();
+                    let cont_i = self.continuations[i];
+                    assert forall |j: int|
+                        #![trigger cont_i.children[j]]
+                        0 <= j < cont_i.children.len() && cont_i.children[j] is Some implies
+                        cont_i.children[j].unwrap().tree_predicate_map(
+                            cont_i.path().push_tail(j as usize), h) by {
+                        let child_sub = cont_i.children[j].unwrap();
+                        let child_path = cont_i.path().push_tail(j as usize);
+                        cont_i.inv_children_unroll(j);
+                        cont_i.inv_children_rel_unroll(j);
+                        assert(child_sub.value.path == child_path);
+                        assert(cont_i.entry_own.inv_base());
+                        cont_i.path().push_tail_property(j as usize);
+
+                        // child_path.len() = cont_i.tree_level + 1 <= old_cont.tree_level
+                        //   < cur_entry_path.len() = old_cont.tree_level + 1
+                        // So excepted_path.len() > child_path.len(). Excepted is longer.
+                        // Need divergence: cur_entry_path at some k < child_path.len() differs from child_path.
+                        // cur_entry_path extends through cont_i.idx at position cont_i.tree_level.
+                        // child_path at position cont_i.tree_level = j.
+                        // If j == cont_i.idx: this child IS the one that was extracted (children[cont_i.idx] is None).
+                        // Since children[j] is Some, j != cont_i.idx. So they diverge at k = cont_i.tree_level.
+                        // Divergence: child_path and cur_entry_path differ at position cont_i.tree_level.
+                        // child_path.index(cont_i.tree_level) == j (from push_tail_property on cont_i.path())
+                        assert(child_path.index(cont_i.tree_level as int) == j as usize);
+
+                        // cur_entry_path.index(cont_i.tree_level) == cont_i.idx:
+                        // From path consistency: old_cont.path() extends through each continuation's idx.
+                        // old_cont.path() at position cont_i.tree_level == cont_i.idx.
+                        // cur_entry_path == old_cont.path().push_tail(old_cont.idx), and
+                        // cont_i.tree_level < old_cont.path().len(), so push_tail preserves this index.
+                        assert(cur_entry_path.index(cont_i.tree_level as int) == cont_i.idx as usize) by {
+                            // From path consistency chain in CursorOwner::inv():
+                            // cont[k].path() == cont[k+1].path().push_tail(cont[k+1].idx) for each k
+                            // old_cont = cont[self.level - 1]. old_cont.path() goes through cont[i].idx at cont[i].tree_level.
+                            // cur_entry_path = old_cont.path().push_tail(old_cont.idx).
+                            // At position cont_i.tree_level < old_cont.tree_level < cur_entry_path.len():
+                            // cur_entry_path.index(cont_i.tree_level) == old_cont.path().index(cont_i.tree_level)
+                            old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
+                            // old_cont.path().index(cont_i.tree_level) comes from path consistency.
+                            // For i == self.level: old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
+                            //   so old_cont.path().index(cont[self.level].tree_level) == cont[self.level].idx == cont_i.idx
+                            // For i > self.level: the chain goes up further.
+                            // Case split on self.level to trigger the path consistency conditions:
+                            // Chain: old_cont.path() extends through each cont[k].idx at cont[k].tree_level
+                            // for k from self.level up to NR_LEVELS - 1.
+                            // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
+                            // cont[self.level].path() == cont[self.level+1].path().push_tail(cont[self.level+1].idx)
+                            // etc.
+                            // At position cont_i.tree_level: cont_i.idx was pushed.
+                            // push_tail preserves earlier indices, so old_cont.path().index(cont_i.tree_level) == cont_i.idx.
+
+                            // Case split: for each (self.level, i) pair, unfold the path consistency chain.
+                            if i == self.level as int {
+                                // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
+                                // cont_i == cont[self.level], cont_i.tree_level == cont[self.level].tree_level
+                                assert(old_cont.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                            } else if i == self.level as int + 1 {
+                                // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
+                                // cont[self.level].path() == cont_i.path().push_tail(cont_i.idx)
+                                // So old_cont.path() == cont_i.path().push_tail(cont_i.idx).push_tail(cont[self.level].idx)
+                                let cont_sl = self.continuations[self.level as int];
+                                assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
+                                assert(cont_sl.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                                cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl.idx as usize);
+                            } else {
+                                // i == self.level + 2 (at most, since NR_LEVELS == 4 and self.level >= 1)
+                                // old_cont.path() extends through 3 levels of push_tail
+                                let cont_sl = self.continuations[self.level as int];
+                                let cont_sl1 = self.continuations[self.level as int + 1];
+                                assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
+                                assert(cont_sl.path() == cont_sl1.path().push_tail(cont_sl1.idx as usize));
+                                assert(cont_sl1.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                                cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl1.idx as usize);
+                                cont_sl1.path().push_tail(cont_sl1.idx as usize).push_tail_property(cont_sl.idx as usize);
+                            }
+                        };
+
+                        // j != cont_i.idx (children[cont_i.idx] is None, children[j] is Some)
+                        assert(j != cont_i.idx as int);
+
+                        // Divergence at k = cont_i.tree_level
+                        assert(child_path.index(cont_i.tree_level as int)
+                            != cur_entry_path.index(cont_i.tree_level as int));
+                        assert(cont_i.tree_level < child_path.len());
+
+                        subtree_unlock_upgrade(child_sub, child_path, guards, regions,
+                            cur_entry_addr, cur_entry_path);
+                    };
                 }
             };
         };
@@ -1481,74 +2003,42 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn set_va_preserves_inv(self, new_va: AbstractVaddr)
         requires
             self.inv(),
+            !self.popped_too_high,
+            self.level < self.guard_level,
             new_va.inv(),
+            new_va.offset == 0,
             forall |i: int| #![auto] self.level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.va.index[i],
             forall |i: int| #![auto] self.guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == self.prefix.index[i],
         ensures
             self.set_va_spec(new_va).inv(),
     {
         let r = self.set_va_spec(new_va);
-        // Everything unchanged except va
-        assert(r.va == new_va);
-        assert(r.level == self.level);
-        assert(r.guard_level == self.guard_level);
-        assert(r.prefix == self.prefix);
-        assert(r.popped_too_high == self.popped_too_high);
-        assert(r.continuations == self.continuations);
 
-        // va.inv()
-        assert(r.va.inv());
-
-        // Level bounds, guard_level bounds
-        assert(1 <= r.level <= NR_LEVELS);
-        assert(r.guard_level <= NR_LEVELS);
-
-        // TOP_LEVEL_INDEX_RANGE: new_va.index[NR_LEVELS - 1] == self.va.index[NR_LEVELS - 1] (from precondition)
-        assert(C::TOP_LEVEL_INDEX_RANGE_spec().start <= r.va.index[NR_LEVELS - 1]);
-        assert(r.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
-
-        // in_locked_range: from precondition, new_va.index[i] == prefix.index[i] for i >= guard_level
-        // This means new_va is in the same guard-level subtree as prefix, hence in_locked_range
         assert(r.in_locked_range()) by {
-            r.prefix_in_locked_range();
-        };
-
-        // popped_too_high conditions
-        assert(r.popped_too_high ==> r.level >= r.guard_level && r.in_locked_range()) by {
-            if r.popped_too_high {
-                assert(r.level >= r.guard_level);
-                // r.in_locked_range() already proved above
-            }
-        };
-        assert(!r.popped_too_high ==> r.level < r.guard_level || r.above_locked_range()) by {
-            if !r.popped_too_high {
-                // From self.inv(): !self.popped_too_high ==> match (new invariant).
-                // match + prefix_in_locked_range ==> self.in_locked_range().
-                // But self.in_locked_range() && self.above_locked_range() is contradictory.
-                // So !self.popped_too_high ==> !self.above_locked_range().
-                // Then from !self.popped_too_high ==> level < guard_level || above_locked_range:
-                //   level < guard_level.
-                assert(!self.popped_too_high);
-                self.prefix_in_locked_range();
-                assert(self.in_locked_range());
-                assert(self.level < self.guard_level || self.above_locked_range());
-                // r.level == self.level
+            let gl = self.guard_level;
+            if gl >= 1 && gl <= NR_LEVELS {
+                r.va.align_down_to_vaddr_eq_if_upper_indices_eq(r.prefix, gl as int);
+                r.va.align_down_concrete(gl as int);
+                r.prefix.align_down_concrete(gl as int);
+                r.prefix.align_diff(gl as int);
+                r.prefix.align_up_concrete(gl as int);
+                AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                    nat_align_down(r.va.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+                AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                    nat_align_down(r.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+                AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+                    nat_align_up(r.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+                lemma_page_size_ge_page_size(gl as PagingLevel);
+                lemma_nat_align_down_sound(r.va.to_vaddr() as nat, page_size(gl as PagingLevel) as nat);
+                r.prefix.align_down_shape(gl as int);
+                r.prefix.align_down(gl as int).reflect_prop(
+                    nat_align_down(r.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+                r.prefix.align_up(gl as int).reflect_prop(
+                    nat_align_up(r.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
             }
         };
 
-        // all_some, all_but_index_some — unchanged (continuations unchanged)
         assert(r.continuations[r.level - 1].all_some());
-
-        // prefix.inv() — unchanged
-        assert(r.prefix.inv());
-        assert(forall |i: int| i < r.guard_level ==> r.prefix.index[i] == 0);
-
-        // VA/prefix consistency
-        assert(r.level <= r.guard_level ==> forall |i: int| r.guard_level <= i < NR_LEVELS ==>
-            r.va.index[i] == r.prefix.index[i]);
-
-        // Level conditions: continuations unchanged, va.index matches at levels >= level - 1
-        // so va.index[k] == self.va.index[k] == continuations[k].idx for k >= level - 1
         assert(r.level <= 4 ==> {
             &&& r.continuations.contains_key(3)
             &&& r.continuations[3].inv()
@@ -1650,36 +2140,37 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
             self.level <= NR_LEVELS,
             self.in_locked_range(),
+            !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().va.to_vaddr() > self.va.to_vaddr(),
         decreases NR_LEVELS - self.level
     {
+        self.in_locked_range_level_lt_guard_level();
         if self.index() + 1 < NR_ENTRIES {
             self.inc_and_zero_increases_va();
-        } else if self.level < NR_LEVELS {
+        } else if self.level + 1 < self.guard_level {
             self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_increases_va();
         } else {
-            // self.level == NR_LEVELS (from level <= NR_LEVELS and not < NR_LEVELS)
-            // But in_locked_range + !popped_too_high ==> level < guard_level <= NR_LEVELS
-            // Contradiction: level == NR_LEVELS but level < NR_LEVELS
-            if !self.popped_too_high {
-                self.in_locked_range_level_lt_nr_levels();
-            } else {
-                // popped_too_high + in_locked_range: level >= guard_level
-                // But also level == NR_LEVELS and guard_level <= NR_LEVELS
-                // in_locked_range means va < locked_range.end
-                // At level NR_LEVELS, the cursor is at the root — contradiction with in_locked_range
-                // in_locked_range_level_lt_nr_levels handles !popped_too_high only
-                // For popped_too_high: level >= guard_level, but we'd need level < NR_LEVELS
-                // Since popped_too_high ==> in_locked_range, and in_locked_range ==> !above_locked_range
-                // With !popped_too_high or popped_too_high, the key is level < NR_LEVELS
-                // But we have level == NR_LEVELS. popped_too_high ==> level >= guard_level.
-                // guard_level <= NR_LEVELS. So level >= guard_level is NR_LEVELS >= guard_level — fine.
-                // But this is the "unreachable" case. Actually level == NR_LEVELS with inv() is possible.
-                // The real contradiction comes from in_locked_range + level == NR_LEVELS.
-                admit();
-            }
+            // self.level + 1 >= self.guard_level, combined with
+            // in_locked_range_level_lt_guard_level giving self.level < self.guard_level,
+            // yields self.guard_level == self.level + 1.
+            // From inv: !popped_too_high && level < guard_level ==> va.index[guard_level - 1] == 0,
+            // so self.va.index[self.level] == 0.
+            assert(self.guard_level == self.level + 1);
+            assert(self.va.index[self.level as int] == 0);
+            self.pop_level_owner_preserves_inv();
+            let popped = self.pop_level_owner_spec().0;
+            // popped.level == self.level + 1, popped.index() == self.va.index[self.level] == 0,
+            // so popped.index() + 1 == 1 < NR_ENTRIES, meaning move_forward_owner_spec
+            // takes the inc_index().zero_below_level() branch.
+            assert(popped.index() + 1 < NR_ENTRIES);
+            assert(popped.va == self.va);
+            // Unfold: self.move_forward_owner_spec() == popped.move_forward_owner_spec()
+            //       == popped.inc_index().zero_below_level()
+            assert(self.move_forward_owner_spec() == popped.move_forward_owner_spec());
+            assert(popped.move_forward_owner_spec() == popped.inc_index().zero_below_level());
+            popped.inc_and_zero_increases_va();
         }
     }
 
@@ -1704,19 +2195,121 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level <= NR_LEVELS,
+            self.in_locked_range(),
+            !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().max_steps() < self.max_steps()
-    { admit() }
+        decreases NR_LEVELS - self.level,
+    {
+        if self.index() + 1 < NR_ENTRIES {
+            let inc = self.inc_index();
+            inc.zero_preserves_all_but_va();
+            Self::max_steps_subtree_positive(self.level as usize);
+            if self.level < NR_LEVELS {
+                inc.zero_below_level().max_steps_partial_eq(self, (self.level + 1) as usize);
+            }
+            vstd::arithmetic::mul::lemma_mul_is_distributive_add(
+                Self::max_steps_subtree(self.level as usize) as int,
+                (NR_ENTRIES - self.index() - 1) as int, 1);
+            if self.level as usize == NR_LEVELS {
+                self.in_locked_range_level_lt_nr_levels();
+            }
+        } else if self.level < NR_LEVELS {
+            self.in_locked_range_level_lt_guard_level();
+            self.pop_level_owner_preserves_inv();
+            let popped = self.pop_level_owner_spec().0;
+            if !popped.popped_too_high {
+                popped.move_forward_owner_decreases_steps();
+            } else {
+                admit(); // max_steps termination measure issue
+            }
+            popped.max_steps_partial_eq(self, (self.level + 1) as usize);
+            Self::max_steps_subtree_positive(self.level as usize);
+        } else {
+            self.in_locked_range_level_lt_nr_levels();
+        }
+    }
+
+    /// Trivial: zero_below_level is defined as Self { va: self.va.align_down(level), ..self }.
+    pub proof fn zero_below_level_eq_align_down(self)
+        requires
+            self.va.inv(),
+            self.va.offset == 0,
+            1 <= self.level <= NR_LEVELS,
+        ensures
+            self.zero_below_level().va == self.va.align_down(self.level as int),
+        decreases self.level,
+    {}
 
     pub proof fn move_forward_va_is_align_up(self)
         requires
             self.inv(),
             self.level <= NR_LEVELS,
+            self.in_locked_range(),
+            !self.popped_too_high,
         ensures
             self.move_forward_owner_spec().va == self.va.align_up(self.level as int),
         decreases NR_LEVELS - self.level
     {
-        admit()
+        if self.index() + 1 < NR_ENTRIES {
+            let inc = self.inc_index();
+            inc.zero_preserves_all_but_va();
+            inc.zero_below_level_va();
+            self.va.align_up_concrete(self.level as int);
+            assert(inc.va.inv()) by {
+                assert forall |i: int| 0 <= i < NR_LEVELS implies
+                    inc.va.index.contains_key(i) && 0 <= #[trigger] inc.va.index[i] && inc.va.index[i] < NR_ENTRIES
+                by { if i != self.level - 1 { assert(inc.va.index[i] == self.va.index[i]); } };
+            };
+            inc.va.align_down_concrete(self.level as int);
+            let ps = page_size(self.level as PagingLevel) as nat;
+            let self_va = self.va.to_vaddr() as nat;
+            self.va.align_diff(self.level as int);
+            lemma_page_size_ge_page_size(self.level as PagingLevel);
+            assert(self.va.index[self.level - 1] == self.continuations[self.level - 1].idx);
+            self.va.index_increment_adds_page_size(self.level as int);
+            assert(self_va + ps == ps * 1 + self_va) by (nonlinear_arith);
+            vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(1int, self_va as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(self_va as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_mod_bound(self_va as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_div_pos_is_pos(self_va as int, ps as int);
+        } else if self.level < NR_LEVELS {
+            self.in_locked_range_level_lt_guard_level();
+            self.pop_level_owner_preserves_inv();
+            let popped = self.pop_level_owner_spec().0;
+            if !popped.popped_too_high {
+                popped.move_forward_va_is_align_up();
+            } else {
+                let inc_p = popped.inc_index();
+                inc_p.zero_preserves_all_but_va();
+                inc_p.zero_below_level_va();
+                popped.va.align_up_concrete(popped.level as int);
+                assert(inc_p.va.inv()) by {
+                    assert forall |i: int| 0 <= i < NR_LEVELS implies
+                        inc_p.va.index.contains_key(i) && 0 <= #[trigger] inc_p.va.index[i] && inc_p.va.index[i] < NR_ENTRIES
+                    by { if i != popped.level - 1 { assert(inc_p.va.index[i] == popped.va.index[i]); } };
+                };
+                inc_p.va.align_down_concrete(popped.level as int);
+                let ps_p = page_size(popped.level as PagingLevel) as nat;
+                let popped_va = popped.va.to_vaddr() as nat;
+                let inc_p_va = inc_p.va.to_vaddr() as nat;
+                popped.va.align_diff(popped.level as int);
+                lemma_page_size_ge_page_size(popped.level as PagingLevel);
+                assert(popped.va.index[popped.level as int - 1] == popped.continuations[popped.level as int - 1].idx);
+                popped.va.index_increment_adds_page_size(popped.level as int);
+                assert(popped_va + ps_p == ps_p * 1 + popped_va) by (nonlinear_arith);
+                vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(1int, popped_va as int, ps_p as int);
+                vstd::arithmetic::div_mod::lemma_fundamental_div_mod(popped_va as int, ps_p as int);
+                vstd::arithmetic::div_mod::lemma_mod_bound(popped_va as int, ps_p as int);
+                vstd::arithmetic::div_mod::lemma_div_pos_is_pos(popped_va as int, ps_p as int);
+                assert(nat_align_down(inc_p_va, ps_p) == nat_align_up(popped_va, ps_p));
+                assert(inc_p.va.align_down(popped.level as int) == popped.va.align_up(popped.level as int));
+                assert(popped.move_forward_owner_spec().va == inc_p.zero_below_level().va);
+            }
+            assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);
+            self.va.align_up_carry(self.level as int);
+        } else {
+        }
     }
 
     /// After popping a level, the total view_mappings is preserved.
@@ -2000,72 +2593,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    /// After `move_forward_owner_spec`, the cursor remains within the locked range.
-    pub proof fn move_forward_owner_preserves_in_locked_range(self)
-        requires
-            self.inv(),
-            self.level <= NR_LEVELS,
-            self.in_locked_range(),
-        ensures
-            self.move_forward_owner_spec().in_locked_range(),
-        decreases NR_LEVELS - self.level,
-    {
-        if self.index() + 1 < NR_ENTRIES {
-            // inc_index + zero_below_level: VA advances within the current node.
-            // The node fits within the locked range, so the new VA is still in range.
-            admit();
-        } else if self.level < NR_LEVELS {
-            // Pop + recurse: pop preserves VA (and thus in_locked_range),
-            // then the recursive call preserves it.
-            self.pop_level_owner_preserves_inv();
-            let popped = self.pop_level_owner_spec().0;
-            // pop preserves va, prefix, guard_level, so in_locked_range is preserved.
-            assert(popped.in_locked_range());
-            popped.move_forward_owner_preserves_in_locked_range();
-        } else {
-            // level == NR_LEVELS: unreachable (in_locked_range + inv ==> level < guard_level <= NR_LEVELS,
-            // but level <= NR_LEVELS, so level == NR_LEVELS means guard_level == NR_LEVELS too)
-        }
-    }
-
-    /// After the pop loop in `move_forward`, the cursor level is strictly below guard_level.
-    ///
-    /// The loop exits when `level >= guard_level` OR `pte_index != 0`. The `level >= guard_level`
-    /// case is impossible: reaching guard_level via pop would set `popped_too_high = true`, but
-    /// the loop invariant `owner.move_forward_owner_spec() == owner0.move_forward_owner_spec()`
-    /// combined with `move_forward_not_popped_too_high` gives
-    /// `!owner.move_forward_owner_spec().popped_too_high`, and `move_forward_owner_spec()`
-    /// on a `popped_too_high` state gives a different result — a contradiction.
-    pub proof fn move_forward_pop_loop_level_lt_guard(self, owner0: Self)
-        requires
-            self.inv(),
-            self.in_locked_range(),
-            self.level <= self.guard_level,
-            owner0.inv(),
-            owner0.in_locked_range(),
-            self.move_forward_owner_spec() == owner0.move_forward_owner_spec(),
-            !owner0.move_forward_owner_spec().popped_too_high,
-        ensures
-            self.level < self.guard_level,
-    {
-        // From inv: !popped_too_high ==> level < guard_level || above_locked_range.
-        // in_locked_range ==> !above_locked_range.
-        // So !popped_too_high ==> level < guard_level.
-        if !self.popped_too_high {
-            assert(self.in_locked_range() ==> !self.above_locked_range());
-        } else {
-            // popped_too_high: from inv, level >= guard_level.
-            // With level <= guard_level: level == guard_level.
-            // Need contradiction from move_forward_owner_spec preconditions.
-            // popped_too_high at guard_level + in_locked_range is a valid state,
-            // but move_forward_owner_spec on such a state advances past the locked
-            // range, setting popped_too_high = false but above_locked_range.
-            // owner0 starts in_locked_range with !popped_too_high (from its own inv),
-            // so owner0.move_forward_owner_spec() != self.move_forward_owner_spec()
-            // in this case — contradicting the precondition.
-            admit();
-        }
-    }
+    // NOTE: move_forward_owner_preserves_in_locked_range was removed because it is UNSOUND.
 }
 
 }
+
+ 
+ 
+ 
