@@ -949,25 +949,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         reveal(CursorContinuation::inv_children);
         let new_owner = self.push_level_owner_spec(guard_perm);
-        let new_level = (self.level - 1) as u8;
-
         let old_cont = self.continuations[self.level - 1];
-
         old_cont.inv_children_unroll_all();
-
         let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
-        // Establish relate_guard_perm precondition
-        assert(self.cur_entry_owner().node.unwrap().relate_guard_perm(guard_perm));
 
-        // Establish guard distinctness precondition (node addresses differ across levels).
-        // From metaregion_sound, each node's path is recorded in its metadata slot.
-        // If two nodes had the same meta_perm.addr(), they'd share the same slot, hence same
-        // path_if_in_pt. But the child and each continuation have different path lengths.
         let cur_entry = self.cur_entry_owner();
         let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
         let cur_entry_path = old_cont.path().push_tail(old_cont.idx as usize);
         self.cont_entries_metaregion(regions);
-        assert(cur_entry.metaregion_sound(regions));
 
         assert forall |i: int|
             #![trigger self.continuations[i]]
@@ -979,33 +968,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if cont_i.guard_perm.value().inner.inner@.ptr.addr()
                 == guard_perm.value().inner.inner@.ptr.addr()
             {
-                // Same guard_perm value addr ⟹ same meta_perm.addr() (from relate_guard_perm)
                 let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
                 assert(addr == cur_entry.node.unwrap().meta_perm.addr());
-
-                // Same meta_perm.addr() ⟹ same slot index
                 let idx = frame_to_index(meta_to_frame(addr));
-
-                // From metaregion_sound on both:
-                //   slot_owners[idx].path_if_in_pt == Some(cont_i.path())
-                //   slot_owners[idx].path_if_in_pt == Some(cur_entry_path)
-                assert(cont_i.entry_own.metaregion_sound(regions));
-                assert(cur_entry.metaregion_sound(regions));
                 assert(regions.slot_owners[idx].path_if_in_pt == Some(cont_i.path()));
                 assert(regions.slot_owners[idx].path_if_in_pt == Some(cur_entry_path));
 
-                // Therefore cont_i.path() == cur_entry_path
-                assert(cont_i.path() == cur_entry_path);
-
-                // But their path lengths differ:
-                // cur_entry_path.len() == old_cont.tree_level + 1
-                // cont_i.path().len() == cont_i.tree_level <= old_cont.tree_level
                 assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
-                    assert(old_cont.entry_own.inv_base());
                     old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
                 };
-                assert(cont_i.path().len() == cont_i.tree_level);
                 assert(cont_i.tree_level <= old_cont.tree_level) by {
                     if self.level as int == 1 {
                         assert(old_cont.level() == 1);
@@ -1017,24 +989,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         assert(old_cont.level() == 4);
                     }
                 };
-                // Contradiction: path lengths differ but paths are equal
                 assert(false);
             }
         };
         self.push_level_owner_preserves_inv(guard_perm);
 
-        // Establish the slot_owners entry for cur_entry_addr
         let excepted_idx = frame_to_index(meta_to_frame(cur_entry_addr));
         assert(regions.slot_owners[excepted_idx].path_if_in_pt == Some(cur_entry_path)) by {
-            assert(cur_entry.metaregion_sound(regions));
-            assert(cur_entry.is_node());
-            // metaregion_sound for node: path_if_in_pt == Some(cur_entry.path)
-            // cur_entry.path == cur_entry_path (from inv_children_rel on old_cont)
             old_cont.inv_children_rel_unroll(old_cont.idx as int);
         };
-
-        // Helper: for any continuation's child subtree, upgrade node_unlocked_except → node_unlocked
-        // using subtree_unlock_upgrade. Each child's path diverges from cur_entry_path.
 
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let g_except = CursorOwner::<'rcu, C>::node_unlocked_except(guards, cur_entry_addr);
@@ -1047,12 +1010,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_owner.continuations[i].map_children(h) by {
 
                 if i == self.level - 2 {
-                    // child_cont: its children are grandchildren of old_cont.
-                    // Each grandchild subtree's path starts with cur_entry_path.push_tail(j).
-                    // These paths are strictly longer than cur_entry_path (len = cur_entry_path.len() + 1).
-                    // So cur_entry_path.len() < grandchild_path.len(), meaning
-                    // cur_entry_path.len() <= grandchild_path.len() - 1 < grandchild_path.len().
-                    // i.e., excepted_path.len() < child_path.len(). First disjunct of precondition holds.
                     assert(new_owner.continuations[i] == child_cont);
                     assert forall |j: int|
                         #![trigger child_cont.children[j]]
@@ -1063,37 +1020,20 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let gc_path = child_cont.path().push_tail(j as usize);
                         child_cont.inv_children_unroll(j);
                         child_cont.inv_children_rel_unroll(j);
-                        assert(gc.value.path == gc_path);
-                        assert(child_cont.entry_own.inv_base());
                         child_cont.path().push_tail_property(j as usize);
 
-                        // Extract tree_predicate_map on gc from old_cont's child subtree.
-                        // old_cont.map_children(f) gives tree_predicate_map on old_cont.children[old_cont.idx]
-                        // at path cur_entry_path. Unrolling once gives tree_predicate_map on gc at gc_path.
                         let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
-                        // child_subtree == child_node from earlier; its children == child_cont.children
-                        assert(child_subtree.children == child_cont.children);
-                        assert(child_subtree.value.path == cur_entry_path);
-
                         child_subtree.map_unroll_once(cur_entry_path, f, j);
                         child_subtree.map_unroll_once(cur_entry_path, g_except, j);
 
-                        // gc_path == cur_entry_path.push_tail(j) == child_cont.path().push_tail(j)
                         assert(gc_path == cur_entry_path.push_tail(j as usize)) by {
                             assert(child_cont.path() == cur_entry_path);
                         };
-
-                        // cur_entry_path.len() < gc_path.len() (gc is one level deeper)
                         assert(cur_entry_path.len() < gc_path.len());
-
                         subtree_unlock_upgrade(gc, gc_path, guards, regions,
                             cur_entry_addr, cur_entry_path);
                     };
                 } else if i == self.level - 1 {
-                    // modified_cont: children[j] for j != old_cont.idx are siblings of cur_entry.
-                    // Each sibling path = old_cont.path().push_tail(j).
-                    // cur_entry_path = old_cont.path().push_tail(old_cont.idx).
-                    // Same length, but differ at the last index: j != old_cont.idx.
                     assert(new_owner.continuations[i] == modified_cont);
                     assert(modified_cont.path() == old_cont.path());
                     assert forall |j: int|
@@ -1107,33 +1047,45 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let sibling_path = old_cont.path().push_tail(j as usize);
                         old_cont.inv_children_unroll(j);
                         old_cont.inv_children_rel_unroll(j);
-                        assert(sibling.value.path == sibling_path);
-                        assert(old_cont.entry_own.inv_base());
                         old_cont.path().push_tail_property(j as usize);
 
-                        // sibling_path != cur_entry_path: same length but differ at last index
                         push_tail_different_indices_different_paths(old_cont.path(), j as usize, old_cont.idx);
-                        assert(sibling_path != cur_entry_path);
-
-                        // cur_entry_path.len() == sibling_path.len() (both = old_cont.tree_level + 1)
-                        // So excepted_path.len() <= sibling_path.len(). First disjunct holds.
-                        assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
+                        assert(cur_entry_path.len() <= sibling_path.len()) by {
                             old_cont.inv_children_rel_unroll(old_cont.idx as int);
                             old_cont.path().push_tail_property(old_cont.idx as usize);
                         };
-                        assert(sibling_path.len() == old_cont.tree_level + 1);
-                        assert(cur_entry_path.len() <= sibling_path.len());
 
-                        // tree_predicate_map for f and g_except from old_cont.map_children
                         subtree_unlock_upgrade(sibling, sibling_path, guards, regions,
                             cur_entry_addr, cur_entry_path);
                     };
                 } else {
-                    // Higher continuations (i >= self.level): unchanged from self.
-                    // Each child's path diverges from cur_entry_path because cur_entry_path
-                    // goes through a specific branch (the continuation's idx) at each level.
                     assert(new_owner.continuations[i] == self.continuations[i]);
                     let cont_i = self.continuations[i];
+
+                    // Pre-prove: cur_entry_path goes through cont_i.idx at cont_i.tree_level
+                    assert(cur_entry_path.index(cont_i.tree_level as int) == cont_i.idx as usize) by {
+                        old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
+                        if i == self.level as int {
+                            assert(old_cont.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                            cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                        } else if i == self.level as int + 1 {
+                            let cont_sl = self.continuations[self.level as int];
+                            assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
+                            assert(cont_sl.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                            cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                            cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl.idx as usize);
+                        } else {
+                            let cont_sl = self.continuations[self.level as int];
+                            let cont_sl1 = self.continuations[self.level as int + 1];
+                            assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
+                            assert(cont_sl.path() == cont_sl1.path().push_tail(cont_sl1.idx as usize));
+                            assert(cont_sl1.path() == cont_i.path().push_tail(cont_i.idx as usize));
+                            cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
+                            cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl1.idx as usize);
+                            cont_sl1.path().push_tail(cont_sl1.idx as usize).push_tail_property(cont_sl.idx as usize);
+                        }
+                    };
+
                     assert forall |j: int|
                         #![trigger cont_i.children[j]]
                         0 <= j < cont_i.children.len() && cont_i.children[j] is Some implies
@@ -1143,81 +1095,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let child_path = cont_i.path().push_tail(j as usize);
                         cont_i.inv_children_unroll(j);
                         cont_i.inv_children_rel_unroll(j);
-                        assert(child_sub.value.path == child_path);
-                        assert(cont_i.entry_own.inv_base());
                         cont_i.path().push_tail_property(j as usize);
 
-                        // child_path.len() = cont_i.tree_level + 1 <= old_cont.tree_level
-                        //   < cur_entry_path.len() = old_cont.tree_level + 1
-                        // So excepted_path.len() > child_path.len(). Excepted is longer.
-                        // Need divergence: cur_entry_path at some k < child_path.len() differs from child_path.
-                        // cur_entry_path extends through cont_i.idx at position cont_i.tree_level.
-                        // child_path at position cont_i.tree_level = j.
-                        // If j == cont_i.idx: this child IS the one that was extracted (children[cont_i.idx] is None).
-                        // Since children[j] is Some, j != cont_i.idx. So they diverge at k = cont_i.tree_level.
-                        // Divergence: child_path and cur_entry_path differ at position cont_i.tree_level.
-                        // child_path.index(cont_i.tree_level) == j (from push_tail_property on cont_i.path())
                         assert(child_path.index(cont_i.tree_level as int) == j as usize);
-
-                        // cur_entry_path.index(cont_i.tree_level) == cont_i.idx:
-                        // From path consistency: old_cont.path() extends through each continuation's idx.
-                        // old_cont.path() at position cont_i.tree_level == cont_i.idx.
-                        // cur_entry_path == old_cont.path().push_tail(old_cont.idx), and
-                        // cont_i.tree_level < old_cont.path().len(), so push_tail preserves this index.
-                        assert(cur_entry_path.index(cont_i.tree_level as int) == cont_i.idx as usize) by {
-                            // From path consistency chain in CursorOwner::inv():
-                            // cont[k].path() == cont[k+1].path().push_tail(cont[k+1].idx) for each k
-                            // old_cont = cont[self.level - 1]. old_cont.path() goes through cont[i].idx at cont[i].tree_level.
-                            // cur_entry_path = old_cont.path().push_tail(old_cont.idx).
-                            // At position cont_i.tree_level < old_cont.tree_level < cur_entry_path.len():
-                            // cur_entry_path.index(cont_i.tree_level) == old_cont.path().index(cont_i.tree_level)
-                            old_cont.entry_own.path.push_tail_property(old_cont.idx as usize);
-                            // old_cont.path().index(cont_i.tree_level) comes from path consistency.
-                            // For i == self.level: old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
-                            //   so old_cont.path().index(cont[self.level].tree_level) == cont[self.level].idx == cont_i.idx
-                            // For i > self.level: the chain goes up further.
-                            // Case split on self.level to trigger the path consistency conditions:
-                            // Chain: old_cont.path() extends through each cont[k].idx at cont[k].tree_level
-                            // for k from self.level up to NR_LEVELS - 1.
-                            // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
-                            // cont[self.level].path() == cont[self.level+1].path().push_tail(cont[self.level+1].idx)
-                            // etc.
-                            // At position cont_i.tree_level: cont_i.idx was pushed.
-                            // push_tail preserves earlier indices, so old_cont.path().index(cont_i.tree_level) == cont_i.idx.
-
-                            // Case split: for each (self.level, i) pair, unfold the path consistency chain.
-                            if i == self.level as int {
-                                // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
-                                // cont_i == cont[self.level], cont_i.tree_level == cont[self.level].tree_level
-                                assert(old_cont.path() == cont_i.path().push_tail(cont_i.idx as usize));
-                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
-                            } else if i == self.level as int + 1 {
-                                // old_cont.path() == cont[self.level].path().push_tail(cont[self.level].idx)
-                                // cont[self.level].path() == cont_i.path().push_tail(cont_i.idx)
-                                // So old_cont.path() == cont_i.path().push_tail(cont_i.idx).push_tail(cont[self.level].idx)
-                                let cont_sl = self.continuations[self.level as int];
-                                assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
-                                assert(cont_sl.path() == cont_i.path().push_tail(cont_i.idx as usize));
-                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
-                                cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl.idx as usize);
-                            } else {
-                                // i == self.level + 2 (at most, since NR_LEVELS == 4 and self.level >= 1)
-                                // old_cont.path() extends through 3 levels of push_tail
-                                let cont_sl = self.continuations[self.level as int];
-                                let cont_sl1 = self.continuations[self.level as int + 1];
-                                assert(old_cont.path() == cont_sl.path().push_tail(cont_sl.idx as usize));
-                                assert(cont_sl.path() == cont_sl1.path().push_tail(cont_sl1.idx as usize));
-                                assert(cont_sl1.path() == cont_i.path().push_tail(cont_i.idx as usize));
-                                cont_i.entry_own.path.push_tail_property(cont_i.idx as usize);
-                                cont_i.path().push_tail(cont_i.idx as usize).push_tail_property(cont_sl1.idx as usize);
-                                cont_sl1.path().push_tail(cont_sl1.idx as usize).push_tail_property(cont_sl.idx as usize);
-                            }
-                        };
-
-                        // j != cont_i.idx (children[cont_i.idx] is None, children[j] is Some)
                         assert(j != cont_i.idx as int);
-
-                        // Divergence at k = cont_i.tree_level
                         assert(child_path.index(cont_i.tree_level as int)
                             != cur_entry_path.index(cont_i.tree_level as int));
                         assert(cont_i.tree_level < child_path.len());
@@ -1237,14 +1118,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 if i == self.level - 2 {
                     assert(new_owner.continuations[i] == child_cont);
                     assert(child_cont.guard_perm == guard_perm);
+                } else if i == self.level - 1 {
+                    assert(new_owner.continuations[i] == modified_cont);
+                    assert(modified_cont.guard_perm == old_cont.guard_perm);
                 } else {
-                    assert(i >= self.level - 1);
-                    if i == self.level - 1 {
-                        assert(new_owner.continuations[i] == modified_cont);
-                        assert(modified_cont.guard_perm == old_cont.guard_perm);
-                    } else {
-                        assert(new_owner.continuations[i] == self.continuations[i]);
-                    }
+                    assert(new_owner.continuations[i] == self.continuations[i]);
                 }
             };
         };
@@ -1252,47 +1130,57 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let g = PageTableOwner::<C>::path_tracked_pred(regions);
         let child_subtree = child_cont.as_subtree();
-        self.cont_entries_metaregion(regions);
 
-        // child_subtree.inv() — shared between sound and correct proofs.
-        assert(child_subtree.inv()) by {
-            assert(child_subtree.value.inv());
-            assert(child_subtree.level < INC_LEVELS);
-            assert(child_subtree.children.len() == NR_ENTRIES);
-            assert(child_cont.entry_own.is_node());
-            assert(child_cont.tree_level < INC_LEVELS - 1);
-            assert(child_subtree.inv_node());
-            assert(child_subtree.inv_children()) by {
-                assert(child_subtree.level < INC_LEVELS - 1);
-                assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                    match #[trigger] child_subtree.children[j] {
-                        Some(ch) => {
-                            &&& ch.level == child_subtree.level + 1
-                            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
-                        },
-                        None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
-                    }
-                by {
-                    assert(child_cont.children[j] is Some);
-                    let ch = child_cont.children[j].unwrap();
-                    assert(ch.level == child_cont.tree_level + 1);
-                    assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                        child_cont.entry_own, j, Some(ch.value)));
-                };
-            };
+        assert(child_subtree.inv_children()) by {
             assert forall |j: int| 0 <= j < NR_ENTRIES implies
                 match #[trigger] child_subtree.children[j] {
-                    Some(ch) => ch.inv(),
-                    None => true,
+                    Some(ch) => {
+                        &&& ch.level == child_subtree.level + 1
+                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, Some(ch.value))
+                    },
+                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, j, None),
                 }
             by {
-                child_cont.inv_children_unroll(j);
                 assert(child_cont.children[j] is Some);
-                assert(child_cont.children[j].unwrap().inv());
+                let ch = child_cont.children[j].unwrap();
+                assert(ch.level == child_cont.tree_level + 1);
+                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    child_cont.entry_own, j, Some(ch.value)));
+            };
+        };
+        assert forall |j: int| 0 <= j < NR_ENTRIES implies
+            match #[trigger] child_subtree.children[j] {
+                Some(ch) => ch.inv(),
+                None => true,
+            }
+        by {
+            child_cont.inv_children_unroll(j);
+        };
+        assert(child_subtree.inv()) by {
+            assert(child_subtree.inv_node());
+        };
+
+        // Pre-prove tree_predicate_map for child_subtree (f)
+        assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
+            assert(f(child_subtree.value, child_cont.path()));
+            assert forall |j: int| 0 <= j < child_subtree.children.len() implies
+                match #[trigger] child_subtree.children[j] {
+                    Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), f),
+                    None => true,
+                }
+            by { child_subtree.map_unroll_once(child_cont.path(), f, j); };
+        };
+
+        // Pre-prove map_children for modified_cont (f)
+        assert(modified_cont.map_children(f)) by {
+            assert forall |j: int|
+                0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
+                modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), f) by {
+                assert(j != old_cont.idx as int);
+                assert(modified_cont.children[j] == old_cont.children[j]);
             };
         };
 
-        // metaregion_sound (unconditional)
         assert(new_owner.metaregion_sound(regions)) by {
             assert forall |i: int| #![auto]
                 new_owner.level - 1 <= i < NR_LEVELS implies {
@@ -1301,39 +1189,37 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 } by {
                 if i == self.level - 2 {
                     assert(new_owner.continuations[i] == child_cont);
-                    assert(f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                    assert(child_subtree.tree_predicate_map(child_cont.path(), f)) by {
-                        assert(f(child_subtree.value, child_cont.path()));
-                        assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), f),
-                                None => true,
-                            }
-                        by { child_subtree.map_unroll_once(child_cont.path(), f, j); };
-                    };
-                    assert(new_owner.continuations[i].map_children(f));
                 } else if i == self.level - 1 {
                     assert(new_owner.continuations[i] == modified_cont);
                     assert(modified_cont.entry_own == old_cont.entry_own);
                     assert(modified_cont.path() == old_cont.path());
-                    assert(f(modified_cont.entry_own, modified_cont.path()));
-                    assert(modified_cont.map_children(f)) by {
-                        assert forall |j: int|
-                            0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
-                            modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), f) by {
-                            assert(j != old_cont.idx as int);
-                            assert(modified_cont.children[j] == old_cont.children[j]);
-                        };
-                    };
                 } else {
                     assert(new_owner.continuations[i] == self.continuations[i]);
-                    assert(f(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                    assert(new_owner.continuations[i].map_children(f));
                 }
             };
         };
-        // metaregion_correct (conditional)
         if self.metaregion_correct(regions) {
+            // Pre-prove tree_predicate_map for child_subtree (g)
+            assert(child_subtree.tree_predicate_map(child_cont.path(), g)) by {
+                assert(g(child_subtree.value, child_cont.path()));
+                assert forall |j: int| 0 <= j < child_subtree.children.len() implies
+                    match #[trigger] child_subtree.children[j] {
+                        Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), g),
+                        None => true,
+                    }
+                by { child_subtree.map_unroll_once(child_cont.path(), g, j); };
+            };
+
+            // Pre-prove map_children for modified_cont (g)
+            assert(modified_cont.map_children(g)) by {
+                assert forall |j: int|
+                    0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
+                    modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), g) by {
+                    assert(j != old_cont.idx as int);
+                    assert(modified_cont.children[j] == old_cont.children[j]);
+                };
+            };
+
             assert(new_owner.metaregion_correct(regions)) by {
                 assert forall |i: int| #![auto]
                     new_owner.level - 1 <= i < NR_LEVELS implies {
@@ -1342,34 +1228,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     } by {
                     if i == self.level - 2 {
                         assert(new_owner.continuations[i] == child_cont);
-                        assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                        assert(child_subtree.tree_predicate_map(child_cont.path(), g)) by {
-                            assert(g(child_subtree.value, child_cont.path()));
-                            assert forall |j: int| 0 <= j < child_subtree.children.len() implies
-                                match #[trigger] child_subtree.children[j] {
-                                    Some(ch) => ch.tree_predicate_map(child_cont.path().push_tail(j as usize), g),
-                                    None => true,
-                                }
-                            by { child_subtree.map_unroll_once(child_cont.path(), g, j); };
-                        };
-                        assert(new_owner.continuations[i].map_children(g));
                     } else if i == self.level - 1 {
                         assert(new_owner.continuations[i] == modified_cont);
                         assert(modified_cont.entry_own == old_cont.entry_own);
                         assert(modified_cont.path() == old_cont.path());
-                        assert(g(modified_cont.entry_own, modified_cont.path()));
-                        assert(modified_cont.map_children(g)) by {
-                            assert forall |j: int|
-                                0 <= j < modified_cont.children.len() && #[trigger] modified_cont.children[j] is Some implies
-                                modified_cont.children[j].unwrap().tree_predicate_map(modified_cont.path().push_tail(j as usize), g) by {
-                                assert(j != old_cont.idx as int);
-                                assert(modified_cont.children[j] == old_cont.children[j]);
-                            };
-                        };
                     } else {
                         assert(new_owner.continuations[i] == self.continuations[i]);
-                        assert(g(new_owner.continuations[i].entry_own, new_owner.continuations[i].path()));
-                        assert(new_owner.continuations[i].map_children(g));
                     }
                 };
             };
@@ -1424,23 +1288,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
             self.level < NR_LEVELS,
-            // Required to maintain popped_too_high ==> in_locked_range.
-            // When above_locked_range and level + 1 >= guard_level, popping sets
-            // popped_too_high but in_locked_range is false, violating the invariant.
             self.in_locked_range(),
         ensures
             self.pop_level_owner_spec().0.inv(),
     {
-        reveal(CursorContinuation::inv_children);
         let child = self.continuations[self.level - 1];
         assert(child.inv());
         assert(child.all_some());
-
         let cont = self.continuations[self.level as int];
         assert(cont.inv());
         let (new_cont, _) = cont.restore_spec(child);
         let new_owner = self.pop_level_owner_spec().0;
-        let new_level = (self.level + 1) as u8;
 
         let child_node = OwnerSubtree {
             value: child.entry_own,
@@ -1448,289 +1306,105 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             children: child.children,
         };
 
-        // Basic structural facts about new_cont
-        assert(new_cont.children == cont.children.update(cont.idx as int, Some(child_node)));
-        assert(new_cont.entry_own == cont.entry_own);
-        assert(new_cont.idx == cont.idx);
-        assert(new_cont.tree_level == cont.tree_level);
-        assert(new_cont.guard_perm == cont.guard_perm);
-        assert(new_cont.children[cont.idx as int] == Some(child_node));
-
-        // new_owner structural facts
-        assert(new_owner.level == new_level);
-        assert(new_owner.va == self.va);
-        assert(new_owner.guard_level == self.guard_level);
-        assert(new_owner.prefix == self.prefix);
-
-        // Map reasoning: new_owner.continuations = self.continuations.insert(self.level, new_cont).remove(self.level - 1)
-        // The insert overwrites key self.level with new_cont.
-        // The remove deletes key self.level - 1.
-        // For keys > self.level: unchanged from self.continuations
         let nc = self.continuations.insert(self.level as int, new_cont).remove(self.level - 1);
         assert(new_owner.continuations == nc);
-        assert(nc[self.level as int] == new_cont);
-        // For key 3 when self.level < 3:
         if self.level < 3 {
-            assert(3 != self.level as int && 3 != self.level - 1);
-            assert(nc.contains_key(3));
             assert(nc[3] == self.continuations[3]);
         }
-        // For key 2 when self.level < 2:
         if self.level < 2 {
-            assert(2 != self.level as int && 2 != self.level - 1);
-            assert(nc.contains_key(2));
             assert(nc[2] == self.continuations[2]);
         }
-        // For key 1 when self.level < 1: impossible (level >= 1)
-        // Summary by self.level value:
-        if self.level as int == 3 {
-            assert(nc[3] == new_cont);
-        } else if self.level as int == 2 {
-            assert(nc[2] == new_cont);
-            assert(nc[3] == self.continuations[3]);
-        } else if self.level as int == 1 {
-            assert(nc[1] == new_cont);
-            assert(nc[2] == self.continuations[2]);
-            assert(nc[3] == self.continuations[3]);
-        }
-
-        // (1) va.inv() — unchanged
-        assert(new_owner.va.inv());
-
-        // (2) level bounds
-        assert(1 <= new_owner.level <= NR_LEVELS);
-
-        // (3) guard_level bounds
-        assert(new_owner.guard_level <= NR_LEVELS);
-
-        // (5) in_locked_range || above_locked_range — va, prefix, guard_level unchanged
-        assert(new_owner.in_locked_range() || new_owner.above_locked_range());
-
-        // (6) popped_too_high conditions
-        assert(new_owner.popped_too_high ==> new_owner.level >= new_owner.guard_level && new_owner.in_locked_range()) by {
-            if new_owner.popped_too_high {
-                assert(new_owner.level >= new_owner.guard_level);
-                // va, prefix, guard_level unchanged, so in_locked_range preserved
-            }
-        };
-        assert(!new_owner.popped_too_high ==> new_owner.level < new_owner.guard_level || new_owner.above_locked_range()) by {
-            if !new_owner.popped_too_high {
-                // !popped_too_high means new_level < guard_level
-                assert(new_owner.level < new_owner.guard_level);
-            }
-        };
-
-        // (9) prefix.inv() — unchanged
-        assert(new_owner.prefix.inv());
-
-        // (7) new_cont.all_some() — restored child fills the gap
         assert(new_cont.all_some()) by {
             assert forall |i: int| 0 <= i < NR_ENTRIES implies new_cont.children[i] is Some by {
                 if i == cont.idx as int {
                     assert(new_cont.children[i] == Some(child_node));
                 } else {
-                    // From cont.all_but_index_some()
                     assert(new_cont.children[i] == cont.children[i]);
                 }
             };
         };
 
-        // (8) all_but_index_some at higher levels — unchanged
-        assert(forall |i: int| new_owner.level <= i < NR_LEVELS ==> {
-            (#[trigger] new_owner.continuations[i]).all_but_index_some()
-        }) by {
-            assert forall |i: int| new_owner.level <= i < NR_LEVELS implies
-                (#[trigger] new_owner.continuations[i]).all_but_index_some() by {
-                // i >= self.level + 1, so i > self.level
-                // For i == self.level: new_owner.continuations[i] == new_cont
-                // For i > self.level: new_owner.continuations[i] == self.continuations[i]
-                if i == self.level as int {
-                    // new_cont: all children are Some, so all_but_index_some() holds trivially
-                    assert(new_owner.continuations[i] == new_cont);
-                    assert(new_cont.all_some());
-                    // all_some implies all_but_index_some
-                    assert forall |j: int|
-                        0 <= j < NR_ENTRIES && j != new_cont.idx as int implies
-                        new_cont.children[j] is Some by {};
+        assert forall |i: int| new_owner.level <= i < NR_LEVELS implies
+            (#[trigger] new_owner.continuations[i]).all_but_index_some() by {
+            if i == self.level as int {
+                assert(new_owner.continuations[i] == new_cont);
+                assert(new_cont.all_some());
+            } else {
+                assert(new_owner.continuations[i] == self.continuations[i]);
+            }
+        };
+
+        assert(child.path() == cont.path().push_tail(cont.idx as usize));
+        assert(child.entry_own.path == new_cont.path().push_tail(cont.idx as usize));
+        assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                new_cont.entry_own, cont.idx as int, Some(child.entry_own)));
+
+        assert(child_node.inv_children()) by {
+            assert forall |j: int| 0 <= j < NR_ENTRIES implies
+                match #[trigger] child_node.children[j] {
+                    Some(ch) => {
+                        &&& ch.level == child_node.level + 1
+                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_node.value, j, Some(ch.value))
+                    },
+                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_node.value, j, None),
+                }
+            by {
+                assert(child.children[j] is Some);
+                let ch = child.children[j].unwrap();
+                assert(ch.level == child.tree_level + 1);
+                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    child.entry_own, j, Some(ch.value)));
+            };
+        };
+        assert forall |j: int| 0 <= j < NR_ENTRIES implies
+            match #[trigger] child_node.children[j] {
+                Some(ch) => ch.inv(),
+                None => true,
+            }
+        by {
+            child.inv_children_unroll(j);
+        };
+        assert(child_node.inv()) by {
+            assert(child_node.inv_node());
+        };
+
+        assert(new_cont.inv_children()) by {
+            assert forall |i: int| 0 <= i < new_cont.children.len() && #[trigger] new_cont.children[i] is Some
+                implies new_cont.children[i].unwrap().inv() by {
+                if i == cont.idx as int {
+                    assert(new_cont.children[i].unwrap() == child_node);
                 } else {
-                    assert(new_owner.continuations[i] == self.continuations[i]);
+                    assert(new_cont.children[i] == cont.children[i]);
+                    cont.inv_children_unroll(i);
                 }
             };
         };
 
-        // new_cont.inv()
+        assert(new_cont.inv_children_rel()) by {
+            assert forall |i: int| 0 <= i < NR_ENTRIES && #[trigger] new_cont.children[i] is Some
+                implies {
+                    &&& new_cont.children[i].unwrap().value.parent_level == new_cont.level()
+                    &&& new_cont.children[i].unwrap().level == new_cont.tree_level + 1
+                    &&& !new_cont.children[i].unwrap().value.in_scope
+                    &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                        new_cont.entry_own, i, Some(new_cont.children[i].unwrap().value))
+                    &&& new_cont.children[i].unwrap().value.path == new_cont.path().push_tail(i as usize)
+                } by {
+                if i == cont.idx as int {
+                    assert(new_cont.children[i].unwrap() == child_node);
+                    assert(!child.entry_own.in_scope);
+                } else {
+                    assert(new_cont.children[i] == cont.children[i]);
+                    cont.inv_children_rel_unroll(i);
+                }
+            };
+        };
+
         assert(new_cont.inv()) by {
-            assert(new_cont.children.len() == NR_ENTRIES);
-            assert(0 <= new_cont.idx < NR_ENTRIES);
-            assert(new_cont.entry_own.is_node());
-            assert(new_cont.entry_own.inv());
-            assert(!new_cont.entry_own.in_scope);
-            assert(new_cont.entry_own.node.unwrap().relate_guard_perm(new_cont.guard_perm));
             assert(new_cont.tree_level == INC_LEVELS - new_cont.level() - 1);
-            assert(new_cont.tree_level < INC_LEVELS - 1);
             assert(new_cont.path().len() == new_cont.tree_level);
-
-            // inv_children: all children (including restored child_node) have inv()
-            // First establish child_node.inv() == child.as_subtree().inv()
-            assert(child_node == child.as_subtree());
-            assert(child_node.inv()) by {
-                assert(child_node.value.inv());
-                assert(child_node.level < INC_LEVELS);
-                assert(child_node.children.len() == NR_ENTRIES);
-                assert(child.entry_own.is_node());
-                assert(child.tree_level < INC_LEVELS - 1);
-                assert(child_node.inv_node());
-                assert(child_node.inv_children()) by {
-                    assert(child_node.level < INC_LEVELS - 1);
-                    assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                        match #[trigger] child_node.children[j] {
-                            Some(ch) => {
-                                &&& ch.level == child_node.level + 1
-                                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_node.value, j, Some(ch.value))
-                            },
-                            None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_node.value, j, None),
-                        }
-                    by {
-                        assert(child.children[j] is Some);
-                        let ch = child.children[j].unwrap();
-                        assert(ch.level == child.tree_level + 1);
-                        assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                            child.entry_own, j, Some(ch.value)));
-                    };
-                };
-                assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                    match #[trigger] child_node.children[j] {
-                        Some(ch) => ch.inv(),
-                        None => true,
-                    }
-                by {
-                    child.inv_children_unroll(j);
-                    assert(child.children[j] is Some);
-                    assert(child.children[j].unwrap().inv());
-                };
-            };
-
-            assert(new_cont.inv_children()) by {
-                assert forall |i: int| 0 <= i < new_cont.children.len() && #[trigger] new_cont.children[i] is Some
-                    implies new_cont.children[i].unwrap().inv() by {
-                    if i == cont.idx as int {
-                        assert(new_cont.children[i].unwrap() == child_node);
-                    } else {
-                        assert(new_cont.children[i] == cont.children[i]);
-                        cont.inv_children_unroll(i);
-                    }
-                };
-            };
-
-            // inv_children_rel: restored child has correct parent_level, tree_level, path
-            assert(new_cont.inv_children_rel()) by {
-                assert forall |i: int| 0 <= i < NR_ENTRIES && #[trigger] new_cont.children[i] is Some
-                    implies {
-                        &&& new_cont.children[i].unwrap().value.parent_level == new_cont.level()
-                        &&& new_cont.children[i].unwrap().level == new_cont.tree_level + 1
-                        &&& !new_cont.children[i].unwrap().value.in_scope
-                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                            new_cont.entry_own, i, Some(new_cont.children[i].unwrap().value))
-                        &&& new_cont.children[i].unwrap().value.path == new_cont.path().push_tail(i as usize)
-                    } by {
-                    if i == cont.idx as int {
-                        // Restored child: child_node at cont.idx
-                        assert(new_cont.children[i].unwrap() == child_node);
-                        assert(child_node.value == child.entry_own);
-                        assert(child_node.level == child.tree_level);
-                        // !in_scope: from child.inv() -> entry_own.inv()
-                        assert(!child.entry_own.in_scope);
-                        // tree_level: child.tree_level == cont.tree_level + 1
-                        // From CursorOwner::inv() level conditions
-                        assert(child.tree_level == cont.tree_level + 1) by {
-                            // From CursorOwner::inv() level blocks:
-                            //   continuations[k].level() == k + 1
-                            // So child.level() == self.level, cont.level() == self.level + 1
-                            // From CursorContinuation::inv():
-                            //   tree_level == INC_LEVELS - level() - 1
-                            // Therefore child.tree_level == cont.tree_level + 1
-                            if self.level as int == 1 {
-                                assert(child.level() == 1);
-                                assert(cont.level() == 2);
-                            } else if self.level as int == 2 {
-                                assert(child.level() == 2);
-                                assert(cont.level() == 3);
-                            } else {
-                                // self.level == 3 (since self.level < NR_LEVELS == 4)
-                                assert(child.level() == 3);
-                                assert(cont.level() == 4);
-                            }
-                        };
-                        // parent_level: from CursorOwner::inv() level blocks
-                        // continuations[k].entry_own.parent_level == k + 2
-                        assert(child.entry_own.parent_level == new_cont.level()) by {
-                            if self.level as int == 1 {
-                                assert(child.entry_own.parent_level == 2);
-                                assert(new_cont.level() == 2);
-                            } else if self.level as int == 2 {
-                                assert(child.entry_own.parent_level == 3);
-                                assert(new_cont.level() == 3);
-                            } else {
-                                assert(child.entry_own.parent_level == 4);
-                                assert(new_cont.level() == 4);
-                            }
-                        };
-                        // path: from CursorOwner::inv() path consistency
-                        // continuations[k].path() == continuations[k+1].path().push_tail(continuations[k+1].idx)
-                        assert(child.entry_own.path == new_cont.path().push_tail(cont.idx as usize)) by {
-                            // child.path() == child.entry_own.path
-                            // cont.path() == cont.entry_own.path == new_cont.path() (same entry_own)
-                            assert(new_cont.path() == cont.path());
-                            if self.level as int == 1 {
-                                // child = cont[0], cont = cont[1]
-                                // inv: cont[0].path() == cont[1].path().push_tail(cont[1].idx)
-                                assert(child.path() == cont.path().push_tail(cont.idx as usize));
-                            } else if self.level as int == 2 {
-                                assert(child.path() == cont.path().push_tail(cont.idx as usize));
-                            } else {
-                                assert(child.path() == cont.path().push_tail(cont.idx as usize));
-                            }
-                        };
-                        // rel_children: from CursorOwner::inv() PTE consistency condition
-                        // self.inv() gives: rel_children(cont.entry_own, cont.idx, Some(child.entry_own))
-                        // new_cont.entry_own == cont.entry_own, so this transfers directly
-                        assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                            new_cont.entry_own, cont.idx as int, Some(child.entry_own))) by {
-                            if self.level as int == 1 {
-                            } else if self.level as int == 2 {
-                            } else {
-                            }
-                        };
-                    } else {
-                        assert(new_cont.children[i] == cont.children[i]);
-                        cont.inv_children_rel_unroll(i);
-                    }
-                };
-            };
         };
 
-        // prefix index consistency
-        assert(forall |i: int| i < self.guard_level ==> self.prefix.index[i] == 0);
-        // VA/prefix match: !popped_too_high ==> match
-        // If !new_owner.popped_too_high: new_level < guard_level, so self.level < guard_level.
-        // From self.inv(): popped_too_high ==> level >= guard_level, so !self.popped_too_high.
-        // Match from self.inv(). VA unchanged.
-        // If new_owner.popped_too_high: condition is vacuous.
-        assert(!new_owner.popped_too_high ==> forall |i: int| new_owner.guard_level <= i < NR_LEVELS ==>
-            new_owner.va.index[i] == new_owner.prefix.index[i]) by {
-            if !new_owner.popped_too_high {
-                // new_level < guard_level means self.level < guard_level
-                // so !self.popped_too_high from self.inv()
-            }
-        };
-
-        // Level-specific conditions
-        // The structure mirrors CursorOwner::inv() level conditions.
-        // After pop, new_level = self.level + 1. We need conditions for levels >= new_level.
-        // For levels that were already active (>= self.level + 1 in old state), unchanged.
-        // For level self.level (= new_level - 1): new_cont was just restored.
-
-        // Level 4 condition
         assert(new_owner.level <= 4 ==> {
             &&& new_owner.continuations.contains_key(3)
             &&& new_owner.continuations[3].inv()
@@ -1738,19 +1412,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[3].entry_own.parent_level == 5
             &&& new_owner.va.index[3] == new_owner.continuations[3].idx
         }) by {
-            if new_owner.level <= 4 {
-                if self.level as int == 3 {
-                    assert(new_owner.continuations[3] == new_cont);
-                    // From self.inv() level <= 4: cont == self.continuations[3]
-                    // has level() == 4, parent_level == 5, idx == va.index[3]
-                    // new_cont preserves entry_own, idx from cont
-                    assert(new_cont.entry_own == cont.entry_own);
-                    assert(new_cont.idx == cont.idx);
-                } else {
-                    // self.level < 3 or self.level == 4
-                    // continuations[3] unchanged
-                    assert(new_owner.continuations[3] == self.continuations[3]);
-                }
+            if self.level as int == 3 {
+                assert(new_owner.continuations[3] == new_cont);
+            } else {
+                assert(new_owner.continuations[3] == self.continuations[3]);
             }
         };
 
@@ -1771,21 +1436,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if new_owner.level <= 3 {
                 if self.level as int == 2 {
                     assert(new_owner.continuations[2] == new_cont);
-                    assert(new_owner.continuations[3] == self.continuations[3]);
-                    assert(new_cont.entry_own == cont.entry_own);
-                    assert(new_cont.idx == cont.idx);
-                    assert(new_cont.guard_perm == cont.guard_perm);
-                    // PTE consistency: new_cont.entry_own == cont.entry_own, and
-                    // rel_children(cont.entry_own, cont.idx, Some(child.entry_own)) from self.inv()
-                    // But here the child at cont.idx is the restored child_node,
-                    // and cont[2].entry_own == new_cont.entry_own == cont.entry_own.
-                    // We need rel_children(cont[3].entry_own, cont[3].idx, Some(cont[2].entry_own))
-                    // = rel_children(self.cont[3].entry_own, self.cont[3].idx, Some(cont.entry_own))
-                    // This was in self.inv() level <= 3 block!
                 } else {
-                    assert(self.level as int == 1);
                     assert(new_owner.continuations[2] == self.continuations[2]);
-                    assert(new_owner.continuations[3] == self.continuations[3]);
                 }
             }
         };
@@ -1807,38 +1459,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     Some(new_owner.continuations[1].entry_own))
         }) by {
             if new_owner.level <= 2 {
-                assert(self.level as int == 1);
                 assert(new_owner.continuations[1] == new_cont);
-                assert(new_owner.continuations[2] == self.continuations[2]);
-                assert(new_owner.continuations[3] == self.continuations[3]);
-                assert(new_cont.entry_own == cont.entry_own);
-                assert(new_cont.idx == cont.idx);
-                assert(new_cont.guard_perm == cont.guard_perm);
-                // PTE consistency: from self.inv() level <= 2 block
-                // self.continuations[2].entry_own, self.continuations[2].idx unchanged
-                // new_cont.entry_own == cont.entry_own == self.continuations[1].entry_own
-            }
-        };
-
-        // Level 1 condition
-        assert(new_owner.level == 1 ==> {
-            &&& new_owner.continuations.contains_key(0)
-            &&& new_owner.continuations[0].inv()
-            &&& new_owner.continuations[0].level() == 1
-            &&& new_owner.continuations[0].entry_own.parent_level == 2
-            &&& new_owner.va.index[0] == new_owner.continuations[0].idx
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[0].path() == new_owner.continuations[1].path().push_tail(new_owner.continuations[1].idx as usize)
-        }) by {
-            if new_owner.level == 1 {
-                // new_level = 1 means self.level = 0, but self.level >= 1 contradiction
-                // So this case is impossible
-                assert(false);
             }
         };
     }
@@ -1871,13 +1492,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
         self.pop_level_owner_preserves_inv();
 
-        // in_locked_range: va, prefix, guard_level unchanged by pop (..self)
         assert(new_owner.va == self.va);
-        assert(new_owner.prefix == self.prefix);
-        assert(new_owner.guard_level == self.guard_level);
 
-        // nodes_locked: range shrinks from [self.level-1, NR_LEVELS) to [self.level, NR_LEVELS)
-        // new_cont.guard_perm = cont.guard_perm (restore only changes children)
         assert(new_owner.nodes_locked(guards)) by {
             assert forall |i: int|
                 #![trigger new_owner.continuations[i]]
@@ -1892,24 +1508,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
         };
 
-        // only_current_locked: excepted address is child.entry_own.node.meta_perm.addr()
-        // After pop, cur_entry_owner = child.entry_own (restored as child_node at cont.idx)
         let child_addr = child.entry_own.node.unwrap().meta_perm.addr();
+        let child_subtree = child.as_subtree();
 
-        // node_unlocked implies node_unlocked_except for any address
+        assert forall |j: int| 0 <= j < NR_ENTRIES implies
+            match #[trigger] child_subtree.children[j] {
+                Some(ch) => ch.inv(),
+                None => true,
+            }
+        by { child.inv_children_unroll(j); };
+        assert(child_subtree.inv());
+
         assert(OwnerSubtree::<C>::implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         ));
-
-        // Lift: all old continuations satisfy node_unlocked_except
         self.map_children_implies(
             CursorOwner::<'rcu, C>::node_unlocked(guards),
             CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr),
         );
 
-        // For levels > self.level: new continuations == old continuations, already covered
-        // For level == self.level: new_cont has child restored at cont.idx
         assert(new_owner.only_current_locked(guards)) by {
             assert forall |i: int|
                 #![trigger new_owner.continuations[i]]
@@ -1918,29 +1536,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     CursorOwner::<'rcu, C>::node_unlocked_except(guards, child_addr)) by {
                 if i > self.level as int {
                     assert(new_owner.continuations[i] == self.continuations[i]);
-                    // Already have node_unlocked_except from map_children_implies above
                 } else {
-                    // i == self.level
                     assert(new_owner.continuations[i] == new_cont);
-                    // new_cont = cont with children[cont.idx] = Some(child_node)
-                    // For j != cont.idx: same as cont, node_unlocked_except from above
-                    // For j == cont.idx: child_node.value == child.entry_own,
-                    //   child_addr == child.entry_own addr, so node_unlocked_except is vacuous
-                    //   Children from child.map_children(node_unlocked) -> node_unlocked_except
-                    let child_subtree = child.as_subtree();
-                    assert(child_subtree.inv()) by {
-                        assert(child_subtree.value.inv());
-                        assert(child_subtree.level < INC_LEVELS);
-                        assert(child_subtree.children.len() == NR_ENTRIES);
-                        assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                            match #[trigger] child_subtree.children[j] {
-                                Some(ch) => ch.inv(),
-                                None => true,
-                            }
-                        by {
-                            child.inv_children_unroll(j);
-                        };
-                    };
                     new_cont.map_children_lift_skip_idx(
                         cont,
                         cont.idx as int,
@@ -1951,23 +1548,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        // metaregion: child.entry_own.metaregion_sound(regions) is not directly tracked by
-        // map_full_tree (which only checks map_children, not entry_own of continuations).
-        // This property was established when push extracted the child from the parent's subtree,
-        // and is invariant since no operations modify higher-level entry_owns.
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let g = PageTableOwner::<C>::path_tracked_pred(regions);
-        let child_subtree = child.as_subtree();
         self.cont_entries_metaregion(regions);
-
-        assert(child_subtree.inv()) by {
-            assert forall |j: int| 0 <= j < NR_ENTRIES implies
-                match #[trigger] child_subtree.children[j] {
-                    Some(ch) => ch.inv(),
-                    None => true,
-                }
-            by { child.inv_children_unroll(j); };
-        };
 
         assert(new_owner.metaregion_sound(regions)) by {
             assert forall |i: int| #![auto]
@@ -2152,22 +1735,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.pop_level_owner_preserves_inv();
             self.pop_level_owner_spec().0.move_forward_increases_va();
         } else {
-            // self.level + 1 >= self.guard_level, combined with
-            // in_locked_range_level_lt_guard_level giving self.level < self.guard_level,
-            // yields self.guard_level == self.level + 1.
-            // From inv: !popped_too_high && level < guard_level ==> va.index[guard_level - 1] == 0,
-            // so self.va.index[self.level] == 0.
             assert(self.guard_level == self.level + 1);
             assert(self.va.index[self.level as int] == 0);
             self.pop_level_owner_preserves_inv();
             let popped = self.pop_level_owner_spec().0;
-            // popped.level == self.level + 1, popped.index() == self.va.index[self.level] == 0,
-            // so popped.index() + 1 == 1 < NR_ENTRIES, meaning move_forward_owner_spec
-            // takes the inc_index().zero_below_level() branch.
-            assert(popped.index() + 1 < NR_ENTRIES);
-            assert(popped.va == self.va);
-            // Unfold: self.move_forward_owner_spec() == popped.move_forward_owner_spec()
-            //       == popped.inc_index().zero_below_level()
             assert(self.move_forward_owner_spec() == popped.move_forward_owner_spec());
             assert(popped.move_forward_owner_spec() == popped.inc_index().zero_below_level());
             popped.inc_and_zero_increases_va();
