@@ -26,7 +26,6 @@ pub tracked struct FrameEntryOwner {
     pub mapped_pa: usize,
     pub size: usize,
     pub prop: PageProperty,
-    pub slot_perm: PointsTo<MetaSlot>,
 }
 
 pub tracked struct EntryOwner<C: PageTableConfig> {
@@ -68,10 +67,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty, slot_perm: PointsTo<MetaSlot>) -> Self {
+    pub open spec fn new_frame_spec(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> Self {
         EntryOwner {
             node: None,
-            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop, slot_perm }),
+            frame: Some(FrameEntryOwner { mapped_pa: paddr, size: page_size(parent_level), prop }),
             locked: None,
             absent: false,
             in_scope: true,
@@ -95,23 +94,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
     pub axiom fn new_absent(path: TreePath<NR_ENTRIES>, parent_level: PagingLevel) -> tracked Self
         returns Self::new_absent_spec(path, parent_level);
 
-    pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty, tracked slot_perm: PointsTo<MetaSlot>) -> tracked Self
-        returns Self::new_frame_spec(paddr, path, parent_level, prop, slot_perm);
-
-    /// Produces a slot permission for a frame address without requiring it from `regions.slots`.
-    /// Used as a placeholder in cases (e.g. huge-page split) where the sub-frame slot perms
-    /// are not yet fully tracked.  Replace with real perm threading when the split path is verified.
-    pub axiom fn placeholder_slot_perm(paddr: Paddr, tracked regions: &MetaRegionOwners) -> (tracked res: PointsTo<MetaSlot>)
-        requires
-            regions.inv(),
-            paddr % PAGE_SIZE == 0,
-            paddr < MAX_PADDR,
-        ensures
-            res.addr() == meta_addr(frame_to_index(paddr)),
-            res.is_init(),
-            res.value().wf(regions.slot_owners[frame_to_index(paddr)]),
-            regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
-            regions.slot_owners[frame_to_index(paddr)].path_if_in_pt is None;
+    pub axiom fn new_frame(paddr: Paddr, path: TreePath<NR_ENTRIES>, parent_level: PagingLevel, prop: PageProperty) -> tracked Self
+        returns Self::new_frame_spec(paddr, path, parent_level, prop);
 
     pub axiom fn new_node(node: NodeOwner<C>, path: TreePath<NR_ENTRIES>) -> tracked Self
         returns Self::new_node_spec(node, path);
@@ -141,7 +125,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             res.parent_level == parent_level,
             res.path.inv(),
             res.in_scope,
-            res.inv(),
+            res.inv_base(),
             crate::mm::page_table::Child::<C>::Frame(paddr, parent_level, prop).wf(res);
 
     pub open spec fn match_pte(self, pte: C::E, parent_level: PagingLevel) -> bool {
@@ -287,32 +271,32 @@ impl<C: PageTableConfig> EntryOwner<C> {
         }
     }
 
-    pub open spec fn relate_region(self, regions: MetaRegionOwners) -> bool {
+    pub open spec fn metaregion_sound(self, regions: MetaRegionOwners) -> bool {
         if self.is_node() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
             &&& regions.slot_owners[idx].raw_count == self.expected_raw_count()
             &&& regions.slot_owners[idx].self_addr == self.node.unwrap().meta_perm.addr()
             &&& self.node.unwrap().meta_perm.points_to.value().wf(regions.slot_owners[idx])
-            &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
-                regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
+            // Node path tracking: ensures no two tree nodes share the same slot index.
+            &&& regions.slot_owners[idx].path_if_in_pt == Some(self.path)
         } else if self.is_frame() {
             let idx = frame_to_index(self.meta_slot_paddr().unwrap());
-            &&& self.frame.unwrap().slot_perm.addr() == meta_addr(idx)
-            &&& self.frame.unwrap().slot_perm.is_init()
-            &&& self.frame.unwrap().slot_perm.value().wf(regions.slot_owners[idx])
+            &&& regions.slots.contains_key(idx)
+            &&& regions.slots[idx].addr() == meta_addr(idx)
+            &&& regions.slots[idx].is_init()
+            &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            &&& regions.slot_owners[idx].path_if_in_pt is Some ==>
-                regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path
         } else {
             true
         }
     }
 
     /// PointsTo uniqueness: if meta slot `free_idx` is in the free pool (`regions.slots`),
-    /// no active page table entry can own a PointsTo at the same slot address.
+    /// no active page table NODE entry can own a PointsTo at the same slot address.
     /// Justified by Verus's linear ownership of `PointsTo<MetaSlot>`:
-    /// the slot's PointsTo is either in `regions.slots` OR held by an active entry, never both.
+    /// the node's PointsTo is either in `regions.slots` OR held by the node, never both.
+    /// (Frames no longer own their PointsTo — they read from `regions.slots` directly.)
     pub axiom fn active_entry_not_in_free_pool(
         entry: Self,
         regions: MetaRegionOwners,
@@ -321,9 +305,9 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             regions.inv(),
             entry.inv(),
-            entry.relate_region(regions),
+            entry.is_node(),
+            entry.metaregion_sound(regions),
             regions.slots.contains_key(free_idx),
-            entry.meta_slot_paddr() is Some,
         ensures
             frame_to_index(entry.meta_slot_paddr().unwrap()) != free_idx;
 
@@ -346,65 +330,89 @@ impl<C: PageTableConfig> EntryOwner<C> {
         self.meta_slot_paddr().unwrap() != other.meta_slot_paddr().unwrap()
     }
 
-    /// `relate_region` only uses `regions.slot_owners`, not `regions.slots`.
-    /// So if two `MetaRegionOwners` have the same `slot_owners`, `relate_region` transfers.
-    pub proof fn relate_region_slot_owners_only(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
+    /// `metaregion_sound` transfers when `slot_owners` matches and `slots` is a superset.
+    /// For nodes: only `slot_owners` matters. For frames: `slots.contains_key` and `slots[idx]`
+    /// must be preserved, which holds when `slots` is a superset with values unchanged.
+    pub proof fn metaregion_sound_slot_owners_only(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
         requires
-            self.relate_region(r0),
+            self.metaregion_sound(r0),
             r0.slot_owners == r1.slot_owners,
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
         ensures
-            self.relate_region(r1),
+            self.metaregion_sound(r1),
     {
-        // relate_region is an open spec fn referencing only r.slot_owners[idx],
-        // so equality of slot_owners makes the two predicates equivalent.
     }
 
-    /// If `relate_region(r0)` holds and `r1` differs from `r0` only at one slot index
-    /// that this entry does not reference, then `relate_region(r1)` also holds.
-    pub proof fn relate_region_one_slot_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
+    /// If `metaregion_sound(r0)` holds and `r1` differs from `r0` only at one slot index
+    /// that this entry does not reference, then `metaregion_sound(r1)` also holds.
+    pub proof fn metaregion_sound_one_slot_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
         requires
-            self.relate_region(r0),
+            self.metaregion_sound(r0),
             forall |i: usize| #![trigger r1.slot_owners[i]]
                 i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
             r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            // slots preserved at the entry's index (frames read from slots)
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
             self.meta_slot_paddr() is Some ==>
                 frame_to_index(self.meta_slot_paddr().unwrap()) != changed_idx,
         ensures
-            self.relate_region(r1),
+            self.metaregion_sound(r1),
     {
-        // relate_region only reads slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())]
-        // which is unchanged since frame_to_index != changed_idx.
     }
 
-    /// Under `relate_region` + `path_if_in_pt is Some`, two entries with the same physical
-    /// address must have the same path. Equivalently, different paths ↔ different paddrs.
-    /// This is the fundamental paddr-uniqueness invariant: `path_if_in_pt` encodes the
-    /// unique path for each physical address in the page table.
+    /// `metaregion_sound` is preserved when only `path_if_in_pt` changes at a slot,
+    /// `slots` is unchanged, and the new `path_if_in_pt` is correct for any node at that index.
+    pub proof fn metaregion_sound_path_if_in_pt_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners, changed_idx: usize)
+        requires
+            self.metaregion_sound(r0),
+            r0.slots == r1.slots,
+            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            // All slots other than changed_idx are entirely unchanged.
+            forall |i: usize| #![trigger r1.slot_owners[i]]
+                i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
+            // At changed_idx, only path_if_in_pt differs.
+            r1.slot_owners[changed_idx].inner_perms == r0.slot_owners[changed_idx].inner_perms,
+            r1.slot_owners[changed_idx].self_addr == r0.slot_owners[changed_idx].self_addr,
+            r1.slot_owners[changed_idx].raw_count == r0.slot_owners[changed_idx].raw_count,
+            r1.slot_owners[changed_idx].usage == r0.slot_owners[changed_idx].usage,
+            // For nodes at changed_idx: the new path_if_in_pt must match this entry's path.
+            self.is_node() && self.meta_slot_paddr() is Some
+                && frame_to_index(self.meta_slot_paddr().unwrap()) == changed_idx
+                ==> r1.slot_owners[changed_idx].path_if_in_pt == Some(self.path),
+        ensures
+            self.metaregion_sound(r1),
+    {
+        if self.meta_slot_paddr() is Some {
+            let eidx = frame_to_index(self.meta_slot_paddr().unwrap());
+        }
+    }
+
+    /// Two entries with the same physical address whose `path_if_in_pt` matches their
+    /// respective paths must have the same path.
     pub proof fn same_paddr_implies_same_path(self, other: Self, regions: MetaRegionOwners)
         requires
             self.meta_slot_paddr() is Some,
             self.meta_slot_paddr() == other.meta_slot_paddr(),
-            self.relate_region(regions),
-            other.relate_region(regions),
             regions.slot_owners[
                 frame_to_index(self.meta_slot_paddr().unwrap())
-            ].path_if_in_pt is Some,
+            ].path_if_in_pt == Some(self.path),
+            regions.slot_owners[
+                frame_to_index(self.meta_slot_paddr().unwrap())
+            ].path_if_in_pt == Some(other.path),
         ensures
             self.path == other.path,
     {
-        let pa = self.meta_slot_paddr().unwrap();
-        let idx = frame_to_index(pa);
-        // relate_region for both self and other: path_if_in_pt is Some => path_if_in_pt == self.path
-        // The precondition gives path_if_in_pt is Some, so the conditional fires.
-        assert(regions.slot_owners[idx].path_if_in_pt.unwrap() == self.path);
-        assert(regions.slot_owners[idx].path_if_in_pt.unwrap() == other.path);
     }
 
-    /// `relate_region` is preserved when only `ref_count.value()` changes at this entry's slot.
-    pub proof fn relate_region_rc_value_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
+    /// `metaregion_sound` is preserved when only `ref_count.value()` changes at this entry's slot
+    /// and `slots` is unchanged.
+    pub proof fn metaregion_sound_rc_value_changed(self, r0: MetaRegionOwners, r1: MetaRegionOwners)
         requires
-            self.relate_region(r0),
+            self.metaregion_sound(r0),
             self.meta_slot_paddr() is Some,
+            r0.slots == r1.slots,
             ({
                 let idx = frame_to_index(self.meta_slot_paddr().unwrap());
                 &&& r1.slot_owners[idx].inner_perms.ref_count.id()
@@ -417,17 +425,17 @@ impl<C: PageTableConfig> EntryOwner<C> {
                     == r0.slot_owners[idx].inner_perms.vtable_ptr
                 &&& r1.slot_owners[idx].inner_perms.in_list
                     == r0.slot_owners[idx].inner_perms.in_list
-                &&& r1.slot_owners[idx].path_if_in_pt == r0.slot_owners[idx].path_if_in_pt
                 &&& r1.slot_owners[idx].self_addr == r0.slot_owners[idx].self_addr
                 &&& r1.slot_owners[idx].raw_count == r0.slot_owners[idx].raw_count
+                &&& r1.slot_owners[idx].path_if_in_pt == r0.slot_owners[idx].path_if_in_pt
             }),
         ensures
-            self.relate_region(r1),
+            self.metaregion_sound(r1),
     {
     }
 
-    /// Two nodes satisfying relate_region with the same regions have different addresses
-    /// if and only if they have different paths.
+    /// Two nodes whose `path_if_in_pt` matches their paths have different addresses
+    /// if they have different paths.
     pub proof fn nodes_different_paths_different_addrs(
         self,
         other: Self,
@@ -436,10 +444,8 @@ impl<C: PageTableConfig> EntryOwner<C> {
         requires
             self.is_node(),
             other.is_node(),
-            self.relate_region(regions),
-            self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt is Some,
-            other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(other.meta_slot_paddr().unwrap())].path_if_in_pt is Some,
-            other.relate_region(regions),
+            self.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(self.meta_slot_paddr().unwrap())].path_if_in_pt == Some(self.path),
+            other.meta_slot_paddr() is Some ==> regions.slot_owners[frame_to_index(other.meta_slot_paddr().unwrap())].path_if_in_pt == Some(other.path),
             self.path != other.path,
         ensures
             self.node.unwrap().meta_perm.addr() != other.node.unwrap().meta_perm.addr(),
@@ -452,7 +458,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
         if self_addr == other_addr {
             assert(regions.slot_owners[self_idx].path_if_in_pt == Some(self.path));
             assert(regions.slot_owners[other_idx].path_if_in_pt == Some(other.path));
-//            assert(Some(self.path) == Some(other.path));
             assert(self.path == other.path);
             assert(false); // Contradiction
         }
@@ -468,6 +473,7 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.locked is None
             &&& self.node.unwrap().inv()
             &&& !self.absent
+            &&& self.parent_level == self.node.unwrap().level + 1
         }
         &&& self.frame is Some ==> {
             &&& self.node is None
@@ -485,6 +491,10 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& !self.absent
         }
         &&& self.path.inv()
+    }
+
+    pub open spec fn set_in_scope(self, in_scope: bool) -> Self {
+        EntryOwner { in_scope, ..self }
     }
 }
 

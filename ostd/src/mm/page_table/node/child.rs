@@ -218,6 +218,7 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             res.invariants(*entry_owner, *regions),
             regions.slot_owners =~= old(regions).slot_owners,
             forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] regions.slots[k],
     {
         if !pte.is_present() {
             return ChildRef::None;
@@ -238,6 +239,24 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
                 // Since raw_count was already 1 (entry is in PTE, in_scope == false),
                 // slot_owners[idx] == old(slot_owners[idx]) follows field by field.
                 assert(regions.slot_owners =~= old(regions).slot_owners);
+                // slots: borrow_paddr inserts at borrow_idx. Prove existing keys preserved.
+                // The node's slot was NOT in old.slots: by active_entry_not_in_free_pool,
+                // a node entry's index can't equal any free-pool index.
+                let borrow_idx = frame_to_index(paddr);
+                assert(entry_owner.is_node());
+                let ghost entry_snap = *entry_owner;
+                assert(!old(regions).slots.contains_key(borrow_idx)) by {
+                    if old(regions).slots.contains_key(borrow_idx) {
+                        EntryOwner::<C>::active_entry_not_in_free_pool(entry_snap, *old(regions), borrow_idx);
+                        // gives borrow_idx != borrow_idx — contradiction
+                    }
+                };
+                // Since borrow_idx was not in old.slots, insert preserves all old keys.
+                assert forall |k: usize| old(regions).slots.contains_key(k)
+                    implies old(regions).slots[k] == #[trigger] regions.slots[k] by {
+                    assert(k != borrow_idx);
+                    // regions.slots == old.slots.insert(borrow_idx, _), and k != borrow_idx
+                };
             }
 
             return ChildRef::PageTable(node);

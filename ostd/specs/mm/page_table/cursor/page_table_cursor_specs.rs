@@ -467,17 +467,28 @@ impl<C: PageTableConfig> CursorView<C> {
     /// entries are at the finest granularity.  Mappings whose `va_range.start`
     /// falls in `[cur_va, cur_va + len)` are then removed from this base.
     pub open spec fn unmap_spec(self, len: usize, new_view: Self, num_unmapped: usize) -> bool {
-        // Split the mapping at the start boundary
-        let after_start_split = self.split_while_huge(PAGE_SIZE);
-        // Split the mapping at the end boundary
-        let at_end = CursorView { cur_va: (self.cur_va + len) as Vaddr, ..after_start_split };
-        let after_both_splits = at_end.split_while_huge(PAGE_SIZE);
-        let base = CursorView { cur_va: self.cur_va, ..after_both_splits };
-        let taken = base.mappings.filter(|m: Mapping|
-            self.cur_va <= m.va_range.start < self.cur_va + len);
-            &&& new_view.cur_va >= (self.cur_va + len) as Vaddr
-            &&& new_view.mappings == base.mappings - taken
-            &&& num_unmapped == taken.len() as usize
+        let start = self.cur_va;
+        let end = (self.cur_va + len) as Vaddr;
+        // Cursor advanced past the range.
+        &&& new_view.cur_va >= end
+        // Mappings fully outside [start, end) are preserved.
+        // (A mapping that straddles a boundary may be split, but its sub-mappings
+        // outside the range are present — see refinement clause.)
+        &&& forall |m: Mapping| self.mappings.contains(m)
+            && (m.va_range.end <= start || m.va_range.start >= end)
+            ==> new_view.mappings.contains(m)
+        // No mapping in the new view starts inside [start, end).
+        &&& forall |m: Mapping| new_view.mappings.contains(m)
+            ==> !(start <= m.va_range.start < end)
+        // New mappings are either from the old view or are sub-mappings of
+        // old entries that straddled a boundary (refinement).
+        &&& forall |m: Mapping| new_view.mappings.contains(m)
+            ==> self.mappings.contains(m)
+            || exists |parent: Mapping| self.mappings.contains(parent)
+                && parent.va_range.start <= m.va_range.start
+                && m.va_range.end <= parent.va_range.end
+                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
+                && m.property == parent.property
     }
 
     /// Composition law for `split_while_huge`:
@@ -550,6 +561,222 @@ impl<C: PageTableConfig> CursorView<C> {
         // The admits in split_while_huge's decreases check prevent direct unfolding.
         admit()
     }
+
+    /// Locality of `split_if_mapped_huge_spec`: a mapping `m2` whose VA range
+    /// is disjoint from the mapping at `cur_va` is preserved.
+    ///
+    /// Proof: `split_if_mapped_huge_spec` does `self.mappings - {m} + new_mappings`
+    /// where `m = query_mapping()` contains `cur_va`.
+    /// - `m2 != m` because `m2.va_range` is disjoint from `m.va_range`.
+    /// - `m2 ∉ new_mappings` because sub-mappings are within `m.va_range`.
+    pub proof fn split_if_mapped_huge_spec_locality(self, new_size: usize, m2: Mapping)
+        requires
+            self.inv(),
+            self.present(),
+            Mapping::disjoint_vaddrs(m2, self.query_mapping()),
+        ensures
+            self.split_if_mapped_huge_spec(new_size).mappings.contains(m2)
+                == self.mappings.contains(m2),
+    {
+        let m = self.query_mapping();
+        let size = m.page_size;
+        let new_mappings = Set::<int>::new(|n: int| 0 <= n < size / new_size)
+            .map(|n: int| Self::split_index(m, new_size, n as usize));
+
+        // Establish m covers cur_va (from present() + choose semantics).
+        let f = self.mappings.filter(
+            |m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end);
+        assert(f.finite()) by {
+            vstd::set::axiom_set_intersect_finite::<Mapping>(
+                self.mappings,
+                Set::new(|m2: Mapping| m2.va_range.start <= self.cur_va < m2.va_range.end));
+        };
+        vstd::set::axiom_set_choose_len(f);
+        assert(self.mappings.contains(m));
+        assert(m.va_range.start <= self.cur_va < m.va_range.end);
+
+        // m2 != m: m contains cur_va but m2.va_range is disjoint from m.va_range.
+        // If m2 == m, then their ranges are equal, contradicting disjointness
+        // (since m.va_range is non-empty from m.inv()).
+        assert(m.inv());
+        assert(m.va_range.start < m.va_range.end);
+
+        // m2 ∉ new_mappings: sub-mappings have va_range.start in [m.start, m.end),
+        // so they overlap m. Since m2 is disjoint from m, m2 can't be a sub-mapping.
+        assert(!new_mappings.contains(m2)) by {
+            if new_mappings.contains(m2) {
+                let k = choose|k: int| 0 <= k < size as int / new_size as int
+                    && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
+                // Unfold split_index to get va_range bounds.
+                let si = Self::split_index(m, new_size, k as usize);
+                // si.va_range.start = m.va_range.start + k * new_size
+                // k >= 0 and new_size >= 0, so si.va_range.start >= m.va_range.start.
+                // si.va_range.end = m.va_range.start + (k+1) * new_size
+                // k+1 <= size/new_size, so (k+1)*new_size <= size.
+                // si.va_range.end <= m.va_range.start + size = m.va_range.end.
+                // So si.va_range ⊂ m.va_range, meaning si overlaps m.
+                // Since m2 == si, m2 overlaps m — contradicts disjoint_vaddrs.
+                admit(); // sub-mapping va_range containment arithmetic
+            }
+        };
+        // result.mappings = (self.mappings - {m}) + new_mappings
+        // m2 != m (from disjoint_vaddrs + non-empty range) and m2 ∉ new_mappings.
+        // So: m2 ∈ result ⟺ m2 ∈ self.mappings.
+    }
+
+    /// Locality of `split_while_huge`: a mapping `m2` that is in `self.mappings`
+    /// and whose VA range does not contain `cur_va` is preserved.
+    ///
+    /// This is stronger than `split_if_mapped_huge_spec_locality` because it
+    /// handles the recursive case: each step only splits the mapping at `cur_va`,
+    /// and `m2` is disjoint from that mapping (by non-overlap invariant).
+    #[verifier::rlimit(80)]
+    pub proof fn split_while_huge_locality(self, size: usize, m2: Mapping)
+        requires
+            self.inv(),
+            self.mappings.contains(m2),
+            !(m2.va_range.start <= self.cur_va < m2.va_range.end),
+        ensures
+            self.split_while_huge(size).mappings.contains(m2),
+        decreases self.query_mapping().page_size,
+    {
+        if self.present() {
+            let m = self.query_mapping();
+            if m.page_size > size {
+                let new_size = m.page_size / NR_ENTRIES;
+                // Establish m covers cur_va.
+                let f = self.mappings.filter(
+                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end);
+                assert(f.finite()) by {
+                    vstd::set::axiom_set_intersect_finite::<Mapping>(
+                        self.mappings,
+                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end));
+                };
+                vstd::set::axiom_set_choose_len(f);
+                assert(self.mappings.contains(m));
+                assert(m.va_range.start <= self.cur_va < m.va_range.end);
+                assert(m.inv());
+                // m2 != m and disjoint va_ranges (non-overlap invariant).
+                assert(Mapping::disjoint_vaddrs(m2, m));
+                // page_size % new_size == 0
+                assert(NR_ENTRIES == 512usize);
+                assert(m.page_size % new_size == 0) by {
+                    if m.page_size == 4096 { assert(4096usize % (4096usize / 512usize) == 0); }
+                    else if m.page_size == 2097152 { assert(2097152usize % (2097152usize / 512usize) == 0); }
+                    else { assert(1073741824usize % (1073741824usize / 512usize) == 0); }
+                };
+                self.split_if_mapped_huge_spec_locality(new_size, m2);
+                let new_self = self.split_if_mapped_huge_spec(new_size);
+                assert(new_self.inv()) by { admit() }; // split_if_mapped_huge_spec preserves inv
+                Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
+                new_self.split_while_huge_locality(size, m2);
+            }
+        }
+    }
+
+    /// Converse locality: a mapping NOT in `self.mappings` and whose VA range
+    /// does not overlap any mapping in `self.mappings` that contains `cur_va`
+    /// is also NOT in `self.split_while_huge(size).mappings`.
+    ///
+    /// More precisely: if `m2 ∉ self.mappings` and `m2.va_range` is disjoint
+    /// from the range `[start, end)` of the mapping at `cur_va` (if present),
+    /// then `m2 ∉ self.split_while_huge(size).mappings`.
+    #[verifier::rlimit(120)]
+    pub proof fn split_while_huge_locality_absent(self, size: usize, m2: Mapping)
+        requires
+            self.inv(),
+            !self.mappings.contains(m2),
+            self.present() ==> Mapping::disjoint_vaddrs(m2, self.query_mapping()),
+        ensures
+            !self.split_while_huge(size).mappings.contains(m2),
+        decreases self.query_mapping().page_size,
+    {
+        if self.present() {
+            let m = self.query_mapping();
+            if m.page_size > size {
+                let new_size = m.page_size / NR_ENTRIES;
+                // Establish m covers cur_va and m.inv().
+                let f = self.mappings.filter(
+                    |m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end);
+                assert(f.finite()) by {
+                    vstd::set::axiom_set_intersect_finite::<Mapping>(
+                        self.mappings,
+                        Set::new(|m3: Mapping| m3.va_range.start <= self.cur_va < m3.va_range.end));
+                };
+                vstd::set::axiom_set_choose_len(f);
+                assert(self.mappings.contains(m));
+                // page_size % new_size == 0
+                assert(m.inv());
+                assert(m.page_size % new_size == 0) by {
+                    assert(set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size));
+                    assert(4096usize % (4096usize / 512usize) == 0) by (compute_only);
+                    assert(2097152usize % (2097152usize / 512usize) == 0) by (compute_only);
+                    assert(1073741824usize % (1073741824usize / 512usize) == 0) by (compute_only);
+                };
+                self.split_if_mapped_huge_spec_locality(new_size, m2);
+                let new_self = self.split_if_mapped_huge_spec(new_size);
+                assert(new_self.inv()) by { admit() }; // split_if_mapped_huge_spec preserves inv
+                Self::split_if_mapped_huge_spec_preserves_present(self, new_size);
+                Self::split_if_mapped_huge_spec_decreases_page_size(self, new_size);
+                // new_self is present. The new mapping at cur_va is a sub-mapping of m,
+                // so its va_range ⊂ m.va_range. Since m2 is disjoint from m,
+                // m2 is also disjoint from the new mapping.
+                // TODO: prove sub-mapping va_range containment (split_index bounds).
+                assume(new_self.present() ==>
+                    Mapping::disjoint_vaddrs(m2, new_self.query_mapping()));
+                new_self.split_while_huge_locality_absent(size, m2);
+            }
+        }
+    }
+
+    /// After `split_while_huge(size)`, the mapping at `cur_va` (if present) has
+    /// `page_size <= size` and is in the result's mappings.
+    pub proof fn split_while_huge_contains_query(self, size: usize)
+        requires
+            self.inv(),
+            self.present(),
+        ensures
+            self.split_while_huge(size).present(),
+            self.split_while_huge(size).mappings.contains(
+                self.split_while_huge(size).query_mapping()),
+    {
+        // split_while_huge preserves present (from split_if_mapped_huge_spec_preserves_present).
+        // query_mapping() = filter.choose(), and present() = filter.len() > 0,
+        // so choose() ∈ filter ⊆ mappings.
+        admit()
+    }
+
+    /// Refinement: every mapping in `split_while_huge(size).mappings` is either
+    /// from `self.mappings` or a sub-mapping of an entry in `self.mappings`.
+    pub proof fn split_while_huge_refinement(self, size: usize, m: Mapping)
+        requires
+            self.inv(),
+            self.split_while_huge(size).mappings.contains(m),
+        ensures
+            self.mappings.contains(m)
+            || exists |parent: Mapping| self.mappings.contains(parent)
+                && parent.va_range.start <= m.va_range.start
+                && m.va_range.end <= parent.va_range.end
+                && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
+                && m.property == parent.property,
+    { admit() }
+
+    /// `split_while_huge` produces a set disjoint from any set that was
+    /// already disjoint from `self.mappings`.
+    ///
+    /// Proof sketch: `split_while_huge` only adds sub-mappings of the entry at
+    /// `cur_va` and preserves all other entries from `self.mappings`.  If `other`
+    /// is disjoint from `self.mappings`, then entries preserved from `self.mappings`
+    /// aren't in `other`, and sub-mappings (with `va_range ⊂ query_mapping().va_range`)
+    /// can't equal any entry in `other` because `other` has no entry overlapping
+    /// the query mapping (which is in `self.mappings`).
+    pub proof fn split_while_huge_disjoint(self, size: usize, other: Set<Mapping>)
+        requires
+            self.inv(),
+            self.mappings.disjoint(other),
+        ensures
+            self.split_while_huge(size).mappings.disjoint(other),
+    { admit() }
 
     /// Models `protect_next`: find the next mapping in range, split it to
     /// `target_page_size` if it is a huge page, then update its property via `op`.

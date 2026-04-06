@@ -342,7 +342,7 @@ impl AbstractVaddr {
     ;
 
     pub open spec fn align_up(self, level: int) -> Self {
-        let lower_aligned = self.align_down(level - 1);
+        let lower_aligned = self.align_down(level);
         lower_aligned.next_index(level)
     }
 
@@ -368,6 +368,24 @@ impl AbstractVaddr {
             nat_align_up(self.to_vaddr() as nat, page_size(level as PagingLevel) as nat)
                 < usize::MAX,
     ;
+
+    /// When at the last entry of a level (index[level-1] == NR_ENTRIES - 1),
+    /// align_up carries: align_up(level) == align_up(level + 1).
+    pub proof fn align_up_carry(self, level: int)
+        requires
+            self.inv(),
+            1 <= level,
+            level < NR_LEVELS,
+            self.index[level - 1] == NR_ENTRIES - 1,
+        ensures
+            self.align_up(level) == self.align_up(level + 1),
+        decreases NR_LEVELS - level,
+    {
+        self.align_down_shape(level);
+        self.align_down_shape(level + 1);
+        assert(self.align_down(level).index.insert(level - 1, 0)
+            =~= self.align_down(level + 1).index);
+    }
 
     pub open spec fn next_index(self, level: int) -> Self
         decreases NR_LEVELS - level,
@@ -442,6 +460,37 @@ impl AbstractVaddr {
         if level < NR_LEVELS {
             self.wrapped_after_carry_equiv(start_level, level + 1);
         }
+    }
+
+    /// Contrapositive of `use_wrapped`: index + 1 < NR_ENTRIES ==> next_index != 0.
+    pub proof fn wrapped_index_nonzero(self, start_level: int, level: int)
+        requires
+            1 <= start_level <= level <= NR_LEVELS,
+            self.wrapped(start_level, level),
+            self.index[level - 1] + 1 < NR_ENTRIES,
+        ensures
+            self.next_index(start_level).index[level - 1] != 0,
+    {
+        if self.next_index(start_level).index[level - 1] == 0 {
+            if level < NR_LEVELS { self.use_wrapped(start_level, level); }
+        }
+    }
+
+    /// Index 0 + wrapped ==> next_index nonzero at that level.
+    pub proof fn wrapped_nonzero_at_level(
+        abs_va_down: Self, abs_next_va: Self,
+        start_level: int, level: int, owner_index_at_level: int,
+    )
+        requires
+            1 <= start_level <= level <= NR_LEVELS,
+            abs_va_down.wrapped(start_level, level),
+            abs_va_down.next_index(start_level) == abs_next_va,
+            abs_va_down.index[level - 1] == owner_index_at_level,
+            owner_index_at_level == 0,
+        ensures
+            abs_next_va.index[level - 1] != 0,
+    {
+        abs_va_down.wrapped_index_nonzero(start_level, level);
     }
 
     pub proof fn next_index_preserves_lower_indices(self, start_level: int, lower_level: int)

@@ -596,6 +596,7 @@ impl<T: TreeNodeValue<L>, const N: usize, const L: usize> Node<T, N, L> {
         requires
             0 <= lv < L,
             N > 0,
+            val.inv(),
         ensures
             res.inv(),
         returns

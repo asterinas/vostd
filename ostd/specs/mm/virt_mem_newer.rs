@@ -390,7 +390,6 @@ impl MemView {
 impl Inv for VirtPtr {
     open spec fn inv(self) -> bool {
         &&& self.range@.start <= self.vaddr <= self.range@.end
-        &&& self.range@.start > 0
         &&& self.range@.end >= self.range@.start
     }
 }
@@ -564,6 +563,7 @@ impl VirtPtr {
     pub fn write_offset(&self, Tracked(mem): Tracked<&mut MemView>, n: usize, x: u8)
         requires
             self.inv(),
+            0 < self.vaddr + n < usize::MAX,
             self.range@.start <= self.vaddr + n < self.range@.end,
             old(mem).addr_transl((self.vaddr + n) as usize) is Some,
     {
@@ -597,6 +597,8 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
+            0 < src.vaddr + n < usize::MAX,
+            0 < dst.vaddr + n < usize::MAX,
             src.range@.start <= src.vaddr + n < src.range@.end,
             mem_src.addr_transl((src.vaddr + n) as usize) is Some,
             mem_src.memory.contains_key(mem_src.addr_transl((src.vaddr + n) as usize).unwrap().0),
@@ -659,6 +661,8 @@ impl VirtPtr {
         requires
             src.inv(),
             dst.inv(),
+            src.vaddr > 0,
+            dst.vaddr > 0,
             src.range@.end <= dst.range@.start || dst.range@.end <= src.range@.start,
             src.range@.start <= src.vaddr,
             src.vaddr + n <= src.range@.end,
@@ -718,12 +722,13 @@ impl VirtPtr {
     /// - `r.range@.end == (vaddr + len) as usize`.
     pub fn from_vaddr(vaddr: usize, len: usize) -> (r: Self)
         requires
-            vaddr != 0,
-            0 < len <= usize::MAX - vaddr,
+            len <= usize::MAX - vaddr,
         ensures
-            r.is_valid(),
+            r.inv(),
+            r.vaddr == vaddr,
             r.range@.start == vaddr,
             r.range@.end == (vaddr + len) as usize,
+            vaddr != 0 && len > 0 ==> r.is_valid(),
     {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }

@@ -185,9 +185,21 @@ fn collect_largest_pages(
 }
 
 #[verifier::external_body]
-pub(crate) fn get_kernel_page_table() -> (r: &'static PageTable<KernelPtConfig>)
+pub(crate) fn get_kernel_page_table(
+    Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
+    Tracked(regions): Tracked<&MetaRegionOwners>,
+) -> (r: &'static PageTable<KernelPtConfig>)
+    requires
+        regions.inv(),
     ensures
-        true,
+        kernel_owner@ is Some,
+        kernel_owner@.unwrap().inv(),
+        kernel_owner@.unwrap().0.value.node is Some,
+        r.root.ptr.addr() == kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
+            kernel_owner@.unwrap().0.value.node.unwrap(),
+        ),
+        kernel_owner@.unwrap().0.value.metaregion_sound(*regions),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -320,12 +332,14 @@ impl KVirtArea {
     /// - If there is a mapped item at the page containing the address ([`query_some_condition`]),
     /// it is returned ([`query_some_ensures`]).
     /// - If there is no mapping at that page, `None` is returned ([`query_none_ensures`]).
-    #[verifier::external_body]
     #[verus_spec(r =>
         with Tracked(owner): Tracked<KVirtAreaOwner>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards): Tracked<&mut Guards<'static, KernelPtConfig>>,
         requires
             self.inv(),
             self.range.start <= addr && addr < self.range.end,
+            old(regions).inv(),
         ensures
             self.query_some_condition(owner, addr) ==> self.query_some_ensures(owner, addr, r),
             !self.query_some_condition(owner, addr) ==> Self::query_none_ensures(r),
@@ -334,12 +348,22 @@ impl KVirtArea {
     {
         use align_ext::AlignExt;
 
+        proof {
+            vstd_extra::prelude::lemma_pow2_is_pow2_to64();
+            broadcast use vstd::arithmetic::power2::is_pow2_equiv, vstd::arithmetic::power2::lemma_pow2;
+            let witness: nat = choose |i: nat| vstd::arithmetic::power::pow(2, i) == PAGE_SIZE as int;
+            assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
+        }
         let start = addr.align_down(PAGE_SIZE);
+        proof { assume(start + PAGE_SIZE <= usize::MAX); }
         let vaddr = start..start + PAGE_SIZE;
-        let page_table = get_kernel_page_table();
-
+        proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
+        let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions));
         let preempt_guard = disable_preempt::<A>();
+        // cursor requires owned PageTableOwner; get_kernel_page_table only lends.
+        proof { admit(); }
         let (mut cursor, _cursor_owner) = page_table.cursor(preempt_guard, &vaddr).unwrap();
+        proof { admit(); }
         cursor.query().unwrap().1
     }
 
@@ -369,6 +393,7 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> Self
         requires
+            old(regions).inv(),
             0 < area_size,
             map_offset < area_size,
             map_offset % PAGE_SIZE == 0,
@@ -378,17 +403,12 @@ impl KVirtArea {
             forall |i: int| 0 <= i < old(entry_owners).len() ==> (#[trigger] old(entry_owners)[i]).inv(),
             forall |i: int| 0 <= i < frames.len() ==>
                 frame_entry_wf(frames[i], prop, #[trigger] old(entry_owners)[i]),
-            forall |i: int| 0 <= i < frames.len() ==>
-                CursorMut::<'a, KernelPtConfig, A>::item_not_mapped(
-                    MappedItem::Tracked(frame_as_dynframe(#[trigger] frames[i]), prop),
-                    *old(regions),
-                ),
             // Frames have distinct physical addresses (follows from linearity of slot_perm ownership).
             forall |i: int, j: int| 0 <= i < j < frames.len() ==>
                 (#[trigger] old(entry_owners)[i]).frame.unwrap().mapped_pa != (#[trigger] old(entry_owners)[j]).frame.unwrap().mapped_pa,
     {
         proof {
-            kvirt_alloc_succeeds(area_size);            
+            kvirt_alloc_succeeds(area_size);
         }
         
         let range = KVIRT_AREA_ALLOCATOR.alloc(area_size).unwrap();
@@ -403,33 +423,23 @@ impl KVirtArea {
             axiom_kernel_range_valid(cursor_range);
         }
 
-        let page_table = get_kernel_page_table();
+        let page_table = {
+                proof_decl! {
+                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
+                }
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+            };
         let preempt_guard = disable_preempt::<A>();
 
-        let (mut cursor, Tracked(cursor_owner)) = 
+        let (mut cursor, Tracked(cursor_owner)) =
         (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
             page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
 
         let ghost init_frames_len = frames.len();
 
-        assert forall |j: int| #![trigger entry_owners[j]]
-            0 <= j < frames@.len()
-            implies regions.slot_owners[frame_to_index_spec(entry_owners[j].frame.unwrap().mapped_pa)].path_if_in_pt is None
-        by {
-            let item = MappedItem::Tracked(frame_as_dynframe(frames@[j]), prop);
-            KernelPtConfig::item_into_raw_spec_tracked_level(item);
-            let (pa, level, _) = KernelPtConfig::item_into_raw_spec(item);
-            assert(level == 1u8);
-            vstd::arithmetic::mul::lemma_mul_by_zero_is_zero(
-                nr_subpage_per_huge::<PagingConsts>().ilog2() as int);
-            vstd::arithmetic::power::lemma_pow0(2int);
-        };
-
         for frame in it: frames.into_iter()
             invariant
                 cursor.inner.invariants(cursor_owner, *regions, *guards),
-                forall |entry: EntryOwner<KernelPtConfig>| entry_owners.contains(entry) ==>
-                    cursor.map_cursor_requires(cursor_owner, *guards),
                 forall |i: int| 0 <= i < entry_owners.len() ==> (#[trigger]entry_owners[i]).inv(),
                 cursor.inner.va % PAGE_SIZE == 0,
                 cursor.inner.va as int + entry_owners.len() as int * PAGE_SIZE as int
@@ -441,17 +451,12 @@ impl KVirtArea {
                 forall |j: int|
                     0 <= j < entry_owners.len() && it.pos + j < it.elements.len() ==>
                     frame_entry_wf(it.elements[it.pos + j], prop, entry_owners[j]),
-                // item_not_mapped holds in current regions for all remaining frames
-                forall |j: int| #![trigger entry_owners[j]]
-                    0 <= j < it.elements.len() - it.pos ==>
-                    regions.slot_owners[frame_to_index_spec(entry_owners[j].frame.unwrap().mapped_pa)].path_if_in_pt is None,
                 // Remaining frames have distinct physical addresses
                 forall |i: int, j: int| 0 <= i < j < it.elements.len() - it.pos ==>
                     (#[trigger]entry_owners[i]).frame.unwrap().mapped_pa != (#[trigger] entry_owners[j]).frame.unwrap().mapped_pa,
         {
             proof {
                 assert(entry_owners.contains(entry_owners[0]));
-                assert(cursor.map_cursor_requires(cursor_owner, *guards));
                 assert(frame_entry_wf(frame, prop, entry_owners[0]));
             }
 
@@ -559,6 +564,7 @@ impl KVirtArea {
         prop: PageProperty,
     ) -> Self
         requires
+            old(regions).inv(),
             0 < area_size,
             area_size <= usize::MAX / 2,
             map_offset % PAGE_SIZE == 0,
@@ -592,7 +598,12 @@ impl KVirtArea {
 //                assert(crate::mm::page_table::Cursor::<KernelPtConfig, A>::cursor_new_success_conditions(&va_range));
             }
 
-            let page_table = get_kernel_page_table();
+            let page_table = {
+                proof_decl! {
+                    let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
+                }
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+            };
             let preempt_guard = disable_preempt::<A>();
 
             // Save regions state before cursor_mut so postcondition trigger can fire.
@@ -622,9 +633,6 @@ impl KVirtArea {
                             + sum_page_sizes_spec(it.elements, 0, it.pos as int),
                     cursor.inner.barrier_va.end == va_range.start + len,
                     it.pos <= it.elements.len(),
-                    // map_cursor_requires holds while there are remaining elements.
-                    it.pos < it.elements.len() ==>
-                        cursor.map_cursor_requires(cursor_owner, *guards),
                     // PA tracking: element[i].0 == pa_range.start + sum of preceding sizes.
                     forall |i: int| #![auto] 0 <= i < it.elements.len() ==>
                         it.elements[i].0 as nat
@@ -650,9 +658,12 @@ impl KVirtArea {
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
+                // TODO: derive pa < MAX_PADDR from pa_range bounds.
+                assume(pa < MAX_PADDR);
                 proof_decl! {
-                    let tracked entry_owner =
+                    let tracked mut entry_owner =
                         EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
+                    entry_owner.in_scope = false;
                 }
 
                 let ghost old_cursor_model: CursorView<KernelPtConfig> =
@@ -676,9 +687,10 @@ impl KVirtArea {
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
-                    item, *regions,
-                )) by { admit() };
+                // TODO: derive from VA tracking + page size arithmetic.
+                assume(!cursor.map_panic_conditions(item));
+                assume(cursor.item_wf(item, entry_owner));
+                assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
 

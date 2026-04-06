@@ -18,14 +18,13 @@ use crate::mm::frame::meta::MetaSlot;
 
 use super::{
     lemma_nr_subpage_per_huge_bounded,
-    //    kspace::KernelPtConfig,
+    kspace::KernelPtConfig,
     nr_subpage_per_huge,
     page_prop::PageProperty,
     Paddr,
-    //    vm_space::UserPtConfig,
+    vm_space::UserPtConfig,
     PagingConstsTrait,
     PagingLevel,
-    //    PodOnce,
     Vaddr,
 };
 
@@ -37,6 +36,9 @@ use crate::specs::mm::page_table::cursor::*;
 use crate::specs::task::InAtomicMode;
 
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+use crate::specs::mm::frame::meta_owners::MetaPerm;
+use crate::mm::kspace::kvirt_area::disable_preempt;
+use crate::specs::arch::PageTableEntry;
 use vstd_extra::ownership::Inv;
 
 mod node;
@@ -159,6 +161,10 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             1 <= res.1 <= NR_LEVELS,
             res == Self::item_into_raw_spec(item),
+            res.0 % crate::specs::arch::mm::PAGE_SIZE == 0,
+            res.0 < crate::specs::arch::mm::MAX_PADDR,
+            res.0 % crate::mm::page_table::cursor::page_size(res.1) == 0,
+            res.0 + crate::mm::page_table::cursor::page_size(res.1) <= crate::specs::arch::mm::MAX_PADDR,
     ;
 
     /// Restores the item from the physical address and the paging level.
@@ -659,11 +665,27 @@ impl PageTable<UserPtConfig> {
     }
 }*/
 
-/* TODO: return here after kspace
 impl PageTable<KernelPtConfig> {
+    /// Panic condition for [`Self::create_user_page_table`]:
+    /// Some kernel root entry at index `i` in `TOP_LEVEL_INDEX_RANGE` is
+    /// not a page table node (i.e., is absent or maps a huge frame).
+    pub open spec fn create_user_pt_panic_condition(root_owner: NodeOwner<KernelPtConfig>) -> bool {
+        exists|i: usize|
+            #![trigger root_owner.children_perm.value()[i as int]]
+            KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i
+                < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end
+            && {
+                let pte = root_owner.children_perm.value()[i as int];
+                ||| !pte.is_present()
+                ||| pte.is_last(root_owner.level)
+            }
+    }
+
     /// Create a new kernel page table.
+    #[verifier::external_body]
     pub(crate) fn new_kernel_page_table() -> Self {
-        let kpt = Self::empty();
+        unimplemented!()
+/*        let kpt = Self::empty();
 
         // Make shared the page tables mapped by the root table in the kernel space.
         {
@@ -676,53 +698,127 @@ impl PageTable<KernelPtConfig> {
             }
         }
 
-        kpt
+        kpt*/
     }
 
     /// Create a new user page table.
     ///
     /// This should be the only way to create the user page table, that is to
     /// duplicate the kernel page table with all the kernel mappings shared.
-    pub(in crate::mm) fn create_user_page_table(&'static self) -> PageTable<UserPtConfig> {
-        let new_root = PageTableNode::alloc(PagingConsts::NR_LEVELS);
+    #[verus_spec(r =>
+        with Tracked(kernel_owner): Tracked<&PageTableOwner<KernelPtConfig>>,
+            Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Tracked(guards_k): Tracked<&mut Guards<'static, KernelPtConfig>>,
+            Tracked(guards_u): Tracked<&mut Guards<'static, UserPtConfig>>,
+        requires
+            kernel_owner.inv(),
+            old(regions).inv(),
+            kernel_owner.0.value.node is Some,
+            !Self::create_user_pt_panic_condition(kernel_owner.0.value.node.unwrap()),
+            // The kernel page table's root frame matches the tracked owner.
+            self.root.ptr.addr() == kernel_owner.0.value.node.unwrap().meta_perm.addr(),
+            // The kernel root entry is sound with respect to the meta regions.
+            kernel_owner.0.value.metaregion_sound(*old(regions)),
+    )]
+    pub(in crate::mm) fn create_user_page_table<G: InAtomicMode + 'static>(&'static self) -> PageTable<UserPtConfig> {
+        let preempt_guard: &G = disable_preempt::<G>();
 
-        let preempt_guard = disable_preempt();
-        let mut root_node = self.root.borrow().lock(&preempt_guard);
-        let mut new_node = new_root.borrow().lock(&preempt_guard);
+        proof_decl! {
+            let tracked mut new_pt_owner: Option<PageTableOwner<UserPtConfig>> = None;
+        }
+        let new_pt: PageTable<UserPtConfig> = PageTable::empty_with_owner(Tracked(&mut new_pt_owner));
+        let new_root = new_pt.root;
 
-        const {
-            assert!(!KernelPtConfig::TOP_LEVEL_CAN_UNMAP);
-            assert!(
-                UserPtConfig::TOP_LEVEL_INDEX_RANGE.end
-                    <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE.start
-            );
+        proof_decl! {
+            let tracked root_owner: &NodeOwner<KernelPtConfig>
+                = kernel_owner.0.borrow_value().node.tracked_borrow();
+            let tracked root_perm: &MetaPerm<PageTablePageMeta<KernelPtConfig>>
+                = &root_owner.meta_perm;
+            let tracked mut new_pt_owner_val: PageTableOwner<UserPtConfig>
+                = new_pt_owner.tracked_take();
+            let tracked mut new_node_owner: NodeOwner<UserPtConfig>
+                = new_pt_owner_val.0.value.node.tracked_take();
+            let tracked mut root_guard_perm: GuardPerm<'static, KernelPtConfig>;
+            let tracked mut new_guard_perm_lock: GuardPerm<'static, UserPtConfig>;
+            let tracked mut entry_owner: &EntryOwner<KernelPtConfig>;
         }
 
-        for i in KernelPtConfig::TOP_LEVEL_INDEX_RANGE {
-            let root_entry = root_node.entry(i);
+        // borrow/lock preconditions: deeply nested chain from kernel_owner.inv()
+        // + metaregion_sound + guards unlocked. Admitting for now.
+        proof { admit(); }
+        let root_node = {
+            #[verus_spec(with Tracked(regions), Tracked(root_perm))]
+            let root_ref = self.root.borrow();
+            #[verus_spec(with Tracked(root_owner), Tracked(guards_k) => Tracked(root_guard_perm))]
+            root_ref.lock(preempt_guard)
+        };
+        let new_node: vstd::simple_pptr::PPtr<PageTableGuard<'static, UserPtConfig>> = {
+            #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.meta_perm))]
+            let new_ref = new_root.borrow();
+            #[verus_spec(with Tracked(&new_node_owner), Tracked(guards_u) => Tracked(new_guard_perm_lock))]
+            new_ref.lock(preempt_guard)
+        };
+        let mut i: usize = KernelPtConfig::TOP_LEVEL_INDEX_RANGE().start;
+        while i < KernelPtConfig::TOP_LEVEL_INDEX_RANGE().end
+            invariant
+                kernel_owner.inv(),
+                kernel_owner.0.value.node is Some,
+                regions.inv(),
+                !Self::create_user_pt_panic_condition(kernel_owner.0.value.node.unwrap()),
+                i <= KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end,
+            decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end - i,
+        {
+            proof {
+                let kern_node = kernel_owner.0.value.node.unwrap();
+                assert forall |j: usize|
+                    #![trigger kern_node.children_perm.value()[j as int]]
+                    KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= j
+                        < KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end
+                    implies {
+                        let pte = kern_node.children_perm.value()[j as int];
+                        pte.is_present() && !pte.is_last(kern_node.level)
+                    } by {
+                        let pte = kern_node.children_perm.value()[j as int];
+                        if !pte.is_present() || pte.is_last(kern_node.level) {
+                            assert(Self::create_user_pt_panic_condition(kern_node));
+                        }
+                    }
+
+                let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>>
+                    = kernel_owner.0.children.tracked_borrow(i as int);
+                let tracked child_subtree: &OwnerSubtree<KernelPtConfig>
+                    = child_opt.tracked_borrow();
+                entry_owner = child_subtree.borrow_value();
+                admit();
+            }
+
+            #[verus_spec(with Tracked(root_owner), Tracked(entry_owner), Tracked(&root_guard_perm))]
+            let root_entry = PageTableGuard::entry(root_node, i);
+            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions), Tracked(&root_guard_perm))]
             let child = root_entry.to_ref();
-            let ChildRef::PageTable(pt) = child else {
-                panic!("The kernel page table doesn't contain shared nodes");
+
+            assume(child is PageTable);
+            let pt = match child {
+                ChildRef::PageTable(pt) => pt,
+                _ => vstd::pervasive::unreached(),
             };
 
-            // We do not add additional reference count specifically for the
-            // shared kernel page tables. It requires user page tables to
-            // outlive the kernel page table, which is trivially true.
-            // See also `<PageTablePageMeta as AnyFrameMeta>::on_drop`.
+            #[verus_spec(with Tracked(&entry_owner.node.tracked_borrow().meta_perm.points_to))]
             let pt_addr = pt.start_paddr();
             let pte = PageTableEntry::new_pt(pt_addr);
-            // SAFETY: The index is within the bounds and the PTE is at the
-            // correct paging level. However, neither it's a `UserPtConfig`
-            // child nor the node has the ownership of the child. It is
-            // still safe because `UserPtConfig::TOP_LEVEL_INDEX_RANGE`
-            // guarantees that the cursor won't access it.
-            unsafe { new_node.write_pte(i, pte) };
+
+            let mut new_guard = new_node.take(Tracked(&mut new_guard_perm_lock));
+            #[verus_spec(with Tracked(&mut new_node_owner))]
+            new_guard.write_pte(i, pte);
+            new_node.put(Tracked(&mut new_guard_perm_lock), new_guard);
+
+            i = i + 1;
         }
-        drop(new_node);
 
         PageTable::<UserPtConfig> { root: new_root }
     }
 
+    /*
     /// Protect the given virtual address range in the kernel page table.
     ///
     /// This method flushes the TLB entries when doing protection.
@@ -745,8 +841,8 @@ impl PageTable<KernelPtConfig> {
             crate::arch::mm::tlb_flush_addr(range.start);
         }
         Ok(())
-    }
-}*/
+    }*/
+}
 
 impl<C: PageTableConfig> PageTable<C> {
     pub uninterp spec fn root_paddr_spec(&self) -> Paddr;
@@ -756,10 +852,18 @@ impl<C: PageTableConfig> PageTable<C> {
     /// Useful for the IOMMU page tables only.
     #[verifier::external_body]
     pub fn empty() -> Self {
-        unimplemented!()/*        PageTable {
-            root: PageTableNode::alloc(C::NR_LEVELS()),
-        }*/
+        unimplemented!()
+    }
 
+    /// Create a new empty page table together with its tracked ownership.
+    /// Create a new empty page table together with its tracked ownership.
+    #[verifier::external_body]
+    pub fn empty_with_owner(Tracked(owner): Tracked<&mut Option<PageTableOwner<C>>>) -> (r: Self)
+        ensures
+            owner@ is Some,
+            owner@.unwrap().inv(),
+    {
+        unimplemented!()
     }
 
     #[verifier::external_body]
@@ -811,6 +915,7 @@ impl<C: PageTableConfig> PageTable<C> {
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
+                &&& r.unwrap().1.metaregion_correct(*regions)
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel

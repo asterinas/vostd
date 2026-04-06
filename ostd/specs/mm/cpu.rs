@@ -6,6 +6,13 @@ pub struct CpuId(u32);
 
 pub struct AtomicCpuSet;
 
+impl AtomicCpuSet {
+    #[verifier::external_body]
+    pub fn new(_initial: CpuSet) -> Self {
+        unimplemented!()
+    }
+}
+
 pub struct CpuSet {
     pub cpus: Set<CpuId>,
 }
