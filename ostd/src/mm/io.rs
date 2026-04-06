@@ -250,8 +250,6 @@ pub tracked struct VmIoOwner<'a> {
     pub range: Ghost<Range<usize>>,
     /// Whether this reader is fallible.
     pub is_fallible: bool,
-    /// The mem view associated with this owner.
-    // pub mem_view: MemView,
     pub phantom: PhantomData<&'a [u8]  /*, Fallibility)*/ >,
     /// Whether this owner is for kernel space.
     pub is_kernel: bool,
@@ -1002,6 +1000,20 @@ type Result<T> = core::result::Result<T, Error>;
 pub trait VmIo<P: Sized>: Send + Sync + Sized {
     spec fn obeys_vmio_spec() -> bool;
 
+    open spec fn obeys_vmio_read_requires() -> bool
+        recommends
+            Self::obeys_vmio_spec(),
+    {
+        false
+    }
+
+    open spec fn obeys_vmio_write_requires() -> bool
+        recommends
+            Self::obeys_vmio_spec(),
+    {
+        false
+    }
+
     spec fn obeys_vmio_read_spec() -> bool
         recommends
             Self::obeys_vmio_spec(),
@@ -1011,6 +1023,26 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
         recommends
             Self::obeys_vmio_spec(),
     ;
+
+    open spec fn read_requires(
+        self,
+        offset: usize,
+        writer: VmWriter<'_>,
+        writer_own: VmIoOwner<'_>,
+        owner: P,
+    ) -> bool {
+        true
+    }
+
+    open spec fn write_requires(
+        self,
+        offset: usize,
+        reader: VmReader<'_>,
+        reader_own: VmIoOwner<'_>,
+        owner: P,
+    ) -> bool {
+        true
+    }
 
     spec fn read_spec(
         self,
@@ -1050,6 +1082,14 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
         Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut P>,
     ) -> (r: Result<()>)
+        requires
+            Self::obeys_vmio_read_requires() ==> Self::read_requires(
+                *self,
+                offset,
+                *old(writer),
+                *old(writer_own),
+                *old(owner),
+            ),
         ensures
             Self::obeys_vmio_read_spec() ==> Self::read_spec(
                 *self,
@@ -1078,6 +1118,14 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
         Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
         Tracked(owner): Tracked<&mut P>,
     ) -> (r: Result<()>)
+        requires
+            Self::obeys_vmio_write_requires() ==> Self::write_requires(
+                *self,
+                offset,
+                *old(reader),
+                *old(writer_own),
+                *old(owner),
+            ),
         ensures
             Self::obeys_vmio_write_spec() ==> Self::write_spec(
                 *self,

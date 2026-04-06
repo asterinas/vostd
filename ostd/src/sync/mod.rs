@@ -15,7 +15,7 @@ pub use self::{
     atomic_data::*,
     guard::{GuardTransfer, LocalIrqDisabled, PreemptDisabled, SpinGuardian, /*WriteIrqDisabled*/},
     mutex::{Mutex, MutexGuard},
-    once::{OnceImpl, TrivialPred},
+    once::{OnceImpl, Once, TrivialPred},
     rcu::{non_null /*, Rcu, RcuDrop, RcuOption, RcuOptionReadGuard, RcuReadGuard*/},
     rwarc::{RoArc, RwArc},
     rwlock::{RwLock, RwLockReadGuard, RwLockUpgradeableGuard, RwLockWriteGuard},

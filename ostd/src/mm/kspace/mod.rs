@@ -148,7 +148,7 @@ pub exec static KERNEL_PAGE_TABLE: OnceImpl<PageTable<KernelPtConfig>, TrivialPr
 );
 
 #[derive(Clone, Debug)]
-pub(crate) struct KernelPtConfig {}
+pub struct KernelPtConfig {}
 
 // We use the first available PTE bit to mark the frame as tracked.
 // SAFETY: `item_into_raw` and `item_from_raw` are implemented correctly,

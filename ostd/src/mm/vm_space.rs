@@ -133,16 +133,16 @@ verus! {
 ///    }
 /// }
 /// ```
-pub struct VmSpace<'a> {
+pub struct VmSpace {
     pub pt: PageTable<UserPtConfig>,
     pub cpus: AtomicCpuSet,
-    pub _marker: PhantomData<&'a ()>,
+    // pub _marker: PhantomData<&'a ()>,
 }
 
 type Result<A> = core::result::Result<A, Error>;
 
 #[verus_verify]
-impl<'a> VmSpace<'a> {
+impl<'a> VmSpace {
     /// A spec function to create a new [`VmSpace`] instance.
     ///
     /// The reason why this function is marked as `uninterp` is that the implementation details
