@@ -172,8 +172,10 @@ unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
+#[verus_verify]
 pub struct MutexGuard<'a, T  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
+    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
 }
 
@@ -190,7 +192,8 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     )]
     unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
     {
-        MutexGuard { mutex, v_perm: Tracked(perm) }
+        proof_with!{v_perm: Tracked(perm)}
+        MutexGuard { mutex }
     }
 
     #[verifier::type_invariant]
