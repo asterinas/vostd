@@ -578,14 +578,19 @@ impl MetaSlot {
 
                         // For Err ==> *regions == *old(regions)
                         if res is Err {
-                            // On Err, ref_count unchanged so slot_own == orig
-                            // PermissionU64 equality is opaque, so we need admit for
-                            // the ref_count field equality despite value+id matching.
+                            // On Err, ref_count unchanged so slot_own == orig.
+                            // Use extensional equality axiom for PermissionU64.
                             assert(regions.slot_owners[idx].inner_perms.ref_count.value()
                                 == regions0.slot_owners[idx].inner_perms.ref_count.value());
                             assert(regions.slot_owners[idx].inner_perms.ref_count.id()
                                 == regions0.slot_owners[idx].inner_perms.ref_count.id());
-                            admit(); // PermissionU64 equality is opaque
+                            vstd_extra::auxiliary::axiom_permission_u64_ext_eq(
+                                regions.slot_owners[idx].inner_perms.ref_count,
+                                regions0.slot_owners[idx].inner_perms.ref_count,
+                            );
+                            assert(regions.slot_owners[idx] == regions0.slot_owners[idx]);
+                            assert(regions.slot_owners =~= regions0.slot_owners);
+                            assert(*regions == *old(regions));
                         }
                     }
 

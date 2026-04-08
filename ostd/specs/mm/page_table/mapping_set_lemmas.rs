@@ -3,6 +3,7 @@ use vstd::set_lib::*;
 
 use crate::mm::Vaddr;
 use crate::specs::arch::mm::{MAX_USERSPACE_VADDR, PAGE_SIZE};
+use crate::specs::arch::MAX_PADDR;
 
 use super::view::Mapping;
 
@@ -189,6 +190,38 @@ pub proof fn lemma_wf_union(a: Set<Mapping>, b: Set<Mapping>)
     assert forall|m: Mapping, n: Mapping| #![auto]
         a.union(b).contains(m) && a.union(b).contains(n) && m != n implies
         m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start by {};
+}
+
+/// If `m` is a sub-mapping of `p` and `p` is a sub-mapping of `orig`,
+/// then `m` is a sub-mapping of `orig` (PA arithmetic composes).
+pub proof fn lemma_sub_mapping_pa_compose(m: Mapping, p: Mapping, orig: Mapping)
+    requires
+        m.inv(),
+        orig.inv(),
+        p.va_range.start >= orig.va_range.start,
+        p.va_range.end <= orig.va_range.end,
+        p.pa_range.start == (orig.pa_range.start + (p.va_range.start - orig.va_range.start)) as usize,
+        p.property == orig.property,
+        m.va_range.start >= p.va_range.start,
+        m.va_range.end <= p.va_range.end,
+        m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as usize,
+        m.property == p.property,
+    ensures
+        orig.va_range.start <= m.va_range.start,
+        m.va_range.end <= orig.va_range.end,
+        m.pa_range.start == (orig.pa_range.start + (m.va_range.start - orig.va_range.start)) as usize,
+        m.property == orig.property,
+{
+    assert(MAX_PADDR < usize::MAX) by (compute_only);
+    // All VA offsets fit within orig's page_size, so PA offsets don't overflow.
+    assert(p.va_range.start - orig.va_range.start <= orig.page_size);
+    assert(m.va_range.start - orig.va_range.start <= orig.page_size);
+    assert(orig.pa_range.start + (p.va_range.start - orig.va_range.start) < usize::MAX);
+    assert(p.pa_range.start as int == orig.pa_range.start as int + (p.va_range.start as int - orig.va_range.start as int));
+    assert(orig.pa_range.start + (m.va_range.start - orig.va_range.start) < usize::MAX);
+    assert(p.pa_range.start + (m.va_range.start - p.va_range.start) < usize::MAX);
+    assert(m.pa_range.start as int == p.pa_range.start as int + (m.va_range.start as int - p.va_range.start as int));
+    assert(m.pa_range.start as int == orig.pa_range.start as int + (m.va_range.start as int - orig.va_range.start as int));
 }
 
 } // verus!

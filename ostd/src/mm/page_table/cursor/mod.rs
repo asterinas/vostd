@@ -2564,12 +2564,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
         }
 
-        proof {
-            // After map_loop, the entry at the target level is not a node
-            // (map_loop descends through nodes via map_branch_pt/map_branch_none).
-            // This satisfies replace_cur_entry's is_node() ==> mc precondition vacuously.
-            assume(!owner.cur_entry_owner().is_node());
-        }
+        // replace_cur_entry handles both node and non-node old entries:
+        // - node old: write_path=false, uses neq_old_from_path_disjoint
+        // - non-node old: uses metaregion_sound_preserved or write_path logic
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
