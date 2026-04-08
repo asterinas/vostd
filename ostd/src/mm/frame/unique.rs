@@ -63,17 +63,20 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, true);
 
-        if let Err(err) = from_unused {
-            proof_with!(|= Tracked(None));
-            Err(err)
-        } else {
-            let (ptr, Tracked(perm)) = from_unused.unwrap();
-            proof_decl! {
-                let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, perm);
+        match from_unused {
+            Err(err) => {
+                proof_with!(|= Tracked(None));
+                Err(err)
             }
+            Ok(res) => {
+                let (ptr, Tracked(perm)) = res;
+                proof_decl! {
+                    let tracked owner = UniqueFrameOwner::<M>::from_unused_owner(regions, paddr, perm);
+                }
 
-            proof_with!(|= Tracked(Some(owner)));
-            Ok(Self { ptr, _marker: PhantomData })
+                proof_with!(|= Tracked(Some(owner)));
+                Ok(Self { ptr, _marker: PhantomData })
+            }
         }
     }
 

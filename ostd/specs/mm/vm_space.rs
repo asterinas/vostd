@@ -335,7 +335,7 @@ impl<'a> VmSpaceOwner<'a> {
                 (old(owner_r).range@.end - old(owner_r).range@.start) as usize,
             ))),
     )]
-    pub proof fn activate_reader(tracked &mut self, reader: &'a VmReader<'a>, owner_r: &'a mut VmIoOwner<'a>) {
+    pub proof fn activate_reader(tracked &'a mut self, reader: &'a VmReader<'a>, tracked owner_r: &'a mut VmIoOwner<'a>) {
             let tracked mv = match self.mem_view {
                 Some(ref mv) => mv,
                 _ => { proof_from_false() },
@@ -413,7 +413,7 @@ impl<'a> VmSpaceOwner<'a> {
                 (old(owner_w).range@.end - old(owner_w).range@.start) as usize,
             ).0)),
     )]
-    pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, owner_w: &'a mut VmIoOwner<'a>) {
+    pub proof fn activate_writer(tracked &mut self, writer: &'a VmWriter<'a>, tracked owner_w: &'a mut VmIoOwner<'a>) {
             let tracked mut mv = self.mem_view.tracked_take();
             let ghost old_mv = mv;
             let tracked (lhs, rhs) = mv.split(

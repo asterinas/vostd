@@ -216,13 +216,16 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
         let from_unused = MetaSlot::get_from_unused(paddr, metadata, false);
-        if let Err(err) = from_unused {
-            proof_with!(|= Tracked(None));
-            Err(err)
-        } else {
-            let (ptr, Tracked(perm)) = from_unused.unwrap();
-            proof_with!(|= Tracked(Some(perm)));
-            Ok(Self { ptr, _marker: PhantomData })
+        match from_unused {
+            Err(err) => {
+                proof_with!(|= Tracked(None));
+                Err(err)
+            }
+            Ok(res) => {
+                let (ptr, Tracked(perm)) = res;
+                proof_with!(|= Tracked(Some(perm)));
+                Ok(Self { ptr, _marker: PhantomData })
+            }
         }
     }
 

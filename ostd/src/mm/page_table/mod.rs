@@ -42,10 +42,10 @@ use crate::specs::arch::PageTableEntry;
 use vstd_extra::ownership::Inv;
 
 mod node;
-pub use node::*;
+pub use self::node::*;
 mod cursor;
 
-pub(crate) use cursor::*;
+pub(crate) use self::cursor::*;
 
 #[cfg(ktest)]
 mod test;
