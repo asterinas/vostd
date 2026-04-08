@@ -81,14 +81,14 @@ verus! {
             old(writer).wf(*old(owner_w)),
             old(owner_r).is_fallible && old(owner_w).is_fallible, // both fallible
         ensures
-            reader.inv(),
-            writer.inv(),
-            owner_r.inv(),
-            owner_w.inv(),
-            reader.wf(*owner_r),
-            writer.wf(*owner_w),
-            owner_r.params_eq(*old(owner_r)),
-            owner_w.params_eq(*old(owner_w)),
+            final(reader).inv(),
+            final(writer).inv(),
+            final(owner_r).inv(),
+            final(owner_w).inv(),
+            final(reader).wf(*final(owner_r)),
+            final(writer).wf(*final(owner_w)),
+            final(owner_r).params_eq(*old(owner_r)),
+            final(owner_w).params_eq(*old(owner_w)),
     )]
 pub fn rw_fallible(reader: &mut VmReader<'_>, writer: &mut VmWriter<'_>)
 -> core::result::Result<usize, (Error, usize)> {
@@ -347,8 +347,8 @@ impl VmIoOwner<'_> {
             old(self).inv(),
             old(self).is_fallible != fallible,
         ensures
-            self.inv(),
-            self.is_fallible == fallible,
+            final(self).inv(),
+            final(self).is_fallible == fallible,
     {
         self.is_fallible = fallible;
     }
@@ -374,12 +374,12 @@ impl VmIoOwner<'_> {
             old(self).mem_view is Some,
             nbytes <= old(self).range@.end - old(self).range@.start,
         ensures
-            self.inv(),
-            self.range@.start == old(self).range@.start + nbytes,
-            self.range@.end == old(self).range@.end,
-            self.is_fallible == old(self).is_fallible,
-            self.id == old(self).id,
-            self.is_kernel == old(self).is_kernel,
+            final(self).inv(),
+            final(self).range@.start == old(self).range@.start + nbytes,
+            final(self).range@.end == old(self).range@.end,
+            final(self).is_fallible == old(self).is_fallible,
+            final(self).id == old(self).id,
+            final(self).is_kernel == old(self).is_kernel,
     {
         let start = self.range@.start;
         let old_end = self.range@.end;
@@ -1109,7 +1109,7 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
                 *self,
                 *old(owner),
                 offset,
-                *owner,
+                *final(owner),
                 r,
             ),
     ;
@@ -1186,11 +1186,11 @@ impl VmReader<'_> {
             old(self).inv(),
             len <= old(self).remain_spec(),
         ensures
-            self.inv(),
-            self.cursor.vaddr == old(self).cursor.vaddr + len,
-            self.remain_spec() == old(self).remain_spec() - len,
-            self.id == old(self).id,
-            self.end == old(self).end,
+            final(self).inv(),
+            final(self).cursor.vaddr == old(self).cursor.vaddr + len,
+            final(self).remain_spec() == old(self).remain_spec() - len,
+            final(self).id == old(self).id,
+            final(self).end == old(self).end,
     )]
     pub fn advance(&mut self, len: usize) {
         self.cursor.vaddr = self.cursor.vaddr + len;
@@ -1254,17 +1254,17 @@ impl VmReader<'_> {
                         &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
                     },
         ensures
-            self.inv(),
-            writer.inv(),
-            owner_r.inv(),
-            owner_w.inv(),
-            self.wf(*owner_r),
-            writer.wf(*owner_w),
+            final(self).inv(),
+            final(writer).inv(),
+            final(owner_r).inv(),
+            final(owner_w).inv(),
+            final(self).wf(*final(owner_r)),
+            final(writer).wf(*final(owner_w)),
             r == vstd::math::min(old(self).remain_spec() as int, old(writer).avail_spec() as int),
-            self.remain_spec() == old(self).remain_spec() - r as usize,
-            self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            writer.avail_spec() == old(writer).avail_spec() - r as usize,
-            writer.cursor.vaddr == old(writer).cursor.vaddr + r as usize,
+            final(self).remain_spec() == old(self).remain_spec() - r as usize,
+            final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
+            final(writer).avail_spec() == old(writer).avail_spec() - r as usize,
+            final(writer).cursor.vaddr == old(writer).cursor.vaddr + r as usize,
     )]
     pub fn read(&mut self, writer: &mut VmWriter) -> usize {
         let mut copy_len = if self.remain() < writer.avail() {
@@ -1353,16 +1353,16 @@ impl VmReader<'_> {
                     }
             },
         ensures
-            self.inv(),
-            owner.inv(),
-            self.wf(*owner),
+            final(self).inv(),
+            final(owner).inv(),
+            final(self).wf(*final(owner)),
             match r {
                 Ok(_) => {
-                    &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *self
+                    *old(self) == *final(self)
                 },
             }
     )]
@@ -1426,16 +1426,16 @@ impl VmReader<'_> {
                     }
             },
         ensures
-            self.inv(),
-            owner.inv(),
-            self.wf(*owner),
+            final(self).inv(),
+            final(owner).inv(),
+            final(self).wf(*final(owner)),
             match r {
                 Ok(_) => {
-                    &&& self.remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                    &&& final(self).remain_spec() == old(self).remain_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *self
+                    *old(self) == *final(self)
                 },
             }
     )]
@@ -1555,13 +1555,13 @@ impl<'a> VmWriter<'a> {
             old(self).inv(),
             len <= old(self).avail_spec(),
         ensures
-            self.inv(),
-            self.avail_spec() == old(self).avail_spec() - len,
-            self.cursor.vaddr == old(self).cursor.vaddr + len,
-            self.cursor.range@ == old(self).cursor.range@,
-            self.id == old(self).id,
-            self.end == old(self).end,
-            self.cursor.range@ == old(self).cursor.range@,
+            final(self).inv(),
+            final(self).avail_spec() == old(self).avail_spec() - len,
+            final(self).cursor.vaddr == old(self).cursor.vaddr + len,
+            final(self).cursor.range@ == old(self).cursor.range@,
+            final(self).id == old(self).id,
+            final(self).end == old(self).end,
+            final(self).cursor.range@ == old(self).cursor.range@,
     )]
     pub fn advance(&mut self, len: usize) {
         self.cursor.vaddr = self.cursor.vaddr + len;
@@ -1619,17 +1619,17 @@ impl<'a> VmWriter<'a> {
                         &&& mem_src.memory[mem_src.addr_transl(i).unwrap().0].contents[mem_src.addr_transl(i).unwrap().1 as int] is Init
                     },
         ensures
-            self.inv(),
-            reader.inv(),
-            owner_w.inv(),
-            owner_r.inv(),
-            self.wf(*owner_w),
-            reader.wf(*owner_r),
+            final(self).inv(),
+            final(reader).inv(),
+            final(owner_w).inv(),
+            final(owner_r).inv(),
+            final(self).wf(*final(owner_w)),
+            final(reader).wf(*final(owner_r)),
             r == vstd::math::min(old(self).avail_spec() as int, old(reader).remain_spec() as int),
-            self.avail_spec() == old(self).avail_spec() - r as usize,
-            self.cursor.vaddr == old(self).cursor.vaddr + r as usize,
-            reader.remain_spec() == old(reader).remain_spec() - r as usize,
-            reader.cursor.vaddr == old(reader).cursor.vaddr + r as usize,
+            final(self).avail_spec() == old(self).avail_spec() - r as usize,
+            final(self).cursor.vaddr == old(self).cursor.vaddr + r as usize,
+            final(reader).remain_spec() == old(reader).remain_spec() - r as usize,
+            final(reader).cursor.vaddr == old(reader).cursor.vaddr + r as usize,
     )]
     pub fn write(&mut self, reader: &mut VmReader) -> usize {
         proof_with!(Tracked(owner_r), Tracked(owner_w));
@@ -1662,16 +1662,16 @@ impl<'a> VmWriter<'a> {
             old(self).wf(*old(owner_w)),
             old(owner_w).mem_view is Some,
         ensures
-            self.inv(),
-            owner_w.inv(),
-            self.wf(*owner_w),
+            final(self).inv(),
+            final(owner_w).inv(),
+            final(self).wf(*final(owner_w)),
             match r {
                 Ok(_) => {
-                    &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *self
+                    *old(self) == *final(self)
                 },
             }
     )]
@@ -1722,16 +1722,16 @@ impl<'a> VmWriter<'a> {
             old(owner_w).inv(),
             old(self).wf(*old(owner_w)),
         ensures
-            self.inv(),
-            owner_w.inv(),
-            self.wf(*owner_w),
+            final(self).inv(),
+            final(owner_w).inv(),
+            final(self).wf(*final(owner_w)),
             match r {
                 Ok(_) => {
-                    &&& self.avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
-                    &&& self.cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
+                    &&& final(self).avail_spec() == old(self).avail_spec() - core::mem::size_of::<T>()
+                    &&& final(self).cursor.vaddr == old(self).cursor.vaddr + core::mem::size_of::<T>()
                 },
                 Err(_) => {
-                    *old(self) == *self
+                    *old(self) == *final(self)
                 },
             }
     )]

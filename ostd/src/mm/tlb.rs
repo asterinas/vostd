@@ -64,8 +64,8 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *model == old(model).issue_tlb_flush_spec(op),
-            model.inv(),
+            *final(model) == old(model).issue_tlb_flush_spec(op),
+            final(model).inv(),
     )]
     #[verifier::external_body]
     pub fn issue_tlb_flush<M: AnyFrameMeta>(&mut self, op: TlbFlushOp) {
@@ -82,8 +82,8 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
     #[verus_spec(r =>
         with Tracked(model): Tracked<&mut TlbModel>
         ensures
-            *model == old(model).issue_tlb_flush_spec(op),
-            model.inv(),
+            *final(model) == old(model).issue_tlb_flush_spec(op),
+            final(model).inv(),
     )]
     #[verifier::external_body]
     pub fn issue_tlb_flush_with<M: AnyFrameMeta>(
@@ -106,8 +106,8 @@ impl<'a  /*, G: PinCurrentCpu*/ > TlbFlusher<'a  /*, G*/ > {
         requires
             old(model).inv(),
         ensures
-            *model == old(model).dispatch_tlb_flush_spec(),
-            model.inv(),
+            *final(model) == old(model).dispatch_tlb_flush_spec(),
+            final(model).inv(),
     )]
     pub fn dispatch_tlb_flush(&mut self) {
         unimplemented!()/*let irq_guard = crate::trap::irq::disable_local();

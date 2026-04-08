@@ -72,7 +72,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).children[old(self).idx as int] is Some,
         ensures
             res == old(self).take_child_spec().0,
-            *self == old(self).take_child_spec().1,
+            *final(self) == old(self).take_child_spec().1,
             res.inv()
     {
         self.inv_children_unroll(self.idx as int);
@@ -94,7 +94,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is None,
         ensures
-            *self == old(self).put_child_spec(child)
+            *final(self) == old(self).put_child_spec(child)
     {
         let _ = self.children.tracked_remove(old(self).idx as int);
         self.children.tracked_insert(old(self).idx as int, Some(child));
@@ -136,7 +136,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont_spec(idx, guard_perm@).0,
-            *self == old(self).make_cont_spec(idx, guard_perm@).1;
+            *final(self) == old(self).make_cont_spec(idx, guard_perm@).1;
 
     pub open spec fn restore_spec(self, child: Self) -> (Self, GuardPerm<'rcu, C>) {
         let child_node = OwnerSubtree {
@@ -150,7 +150,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     #[verifier::returns(proof)]
     pub axiom fn restore(tracked &mut self, tracked child: Self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
         ensures
-            *self == old(self).restore_spec(child).0,
+            *final(self) == old(self).restore_spec(child).0,
             guard_perm == old(self).restore_spec(child).1;
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
@@ -356,7 +356,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         requires
             old(self).idx + 1 < NR_ENTRIES,
         ensures
-            *self == old(self).inc_index(),
+            *final(self) == old(self).inc_index(),
     {
         self.idx = (self.idx + 1) as usize;
     }
@@ -546,8 +546,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr + page_size(self.level()) <= MAX_PADDR,
             self.path().push_tail(self.idx as usize).inv(),
         ensures
-            regions.slot_owners == old(regions).slot_owners,
-            regions.slots == old(regions).slots,
+            final(regions).slot_owners == old(regions).slot_owners,
+            final(regions).slots == old(regions).slots,
             res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop).set_in_scope(false),
             res.inv(),
             res.level == self.tree_level + 1,
@@ -892,8 +892,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             old(self).inv(),
         ensures
-            *self == old(self).zero_below_level(),
-            self.inv();
+            *final(self) == old(self).zero_below_level(),
+            final(self).inv();
 
     pub proof fn do_inc_index(tracked &mut self)
         requires
@@ -903,8 +903,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).level == NR_LEVELS ==>
                 (old(self).continuations[old(self).level - 1].idx + 1) < C::TOP_LEVEL_INDEX_RANGE_spec().end,
         ensures
-            self.inv(),
-            *self == old(self).inc_index(),
+            final(self).inv(),
+            *final(self) == old(self).inc_index(),
     {
         reveal(CursorContinuation::inv_children);
         self.popped_too_high = false;
@@ -2561,7 +2561,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             forall |i: int| #![auto] old(self).level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).va.index[i],
             forall |i: int| #![auto] old(self).guard_level - 1 <= i < NR_LEVELS ==> new_va.index[i] == old(self).prefix.index[i],
         ensures
-            *self == old(self).set_va_spec(new_va);
+            *final(self) == old(self).set_va_spec(new_va);
 
     pub open spec fn set_va_in_node_spec(self, new_va: AbstractVaddr) -> Self {
         let old_cont = self.continuations[self.level - 1];
@@ -2590,8 +2590,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).locked_range().start <= new_va.to_vaddr()
                 < old(self).locked_range().end,
         ensures
-            *self == old(self).set_va_in_node_spec(new_va),
-            self.inv(),;
+            *final(self) == old(self).set_va_in_node_spec(new_va),
+            final(self).inv(),;
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
         let va = AbstractVaddr {

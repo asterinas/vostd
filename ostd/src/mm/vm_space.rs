@@ -308,7 +308,7 @@ impl<'a> VmSpace<'a> {
         requires
             old(owner).inv(),
         ensures
-            owner.inv(),
+            final(owner).inv(),
             self.reader_success_cond(vaddr, len) ==> r is Ok && reader_owner@ is Some,
             r is Ok && reader_owner@ is Some ==> {
                 &&& r.unwrap().wf(reader_owner@.unwrap())
@@ -362,7 +362,7 @@ impl<'a> VmSpace<'a> {
         requires
             old(owner).inv(),
         ensures
-            owner.inv(),
+            final(owner).inv(),
             self.writer_success_cond(vaddr, len) ==> r is Ok && writer_owner@ is Some,
             r is Ok && writer_owner@ is Some ==> {
                 &&& r.unwrap().wf(writer_owner@.unwrap())
@@ -427,18 +427,18 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
         ensures
-            self.0.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
-            self.0.query_some_condition(*owner) ==> {
+            final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
+            final(self).0.query_some_condition(*final(owner)) ==> {
                 &&& r is Ok
-                &&& self.0.query_some_ensures(*owner, r.unwrap())
+                &&& final(self).0.query_some_ensures(*final(owner), r.unwrap())
             },
-            !self.0.query_some_condition(*owner) ==> {
+            !final(self).0.query_some_condition(*final(owner)) ==> {
                 &&& r is Ok
-                &&& self.0.query_none_ensures(*owner, r.unwrap())
+                &&& final(self).0.query_none_ensures(*final(owner), r.unwrap())
             },
-            old(owner)@.mappings == owner@.mappings,
-            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*regions),
+            old(owner)@.mappings == final(owner)@.mappings,
+            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -480,12 +480,12 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             !old(self).0.find_next_panic_condition(len),
         ensures
-            self.0.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
+            final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
-                &&& res.unwrap() == self.0.va
-                &&& owner.level < owner.guard_level
-                &&& owner.in_locked_range()
+                &&& res.unwrap() == final(self).0.va
+                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).in_locked_range()
             },
     )]
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>) {
@@ -525,13 +525,13 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(owner).in_locked_range(),
             !old(self).0.jump_panic_condition(va),
         ensures
-            self.0.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
-            self.0.barrier_va.start <= va < self.0.barrier_va.end ==> {
+            final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
+            final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
-                &&& self.0.va == va
+                &&& final(self).0.va == va
             },
-            !(self.0.barrier_va.start <= va < self.0.barrier_va.end) ==> res is Err,
+            !(final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end) ==> res is Err,
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -592,17 +592,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
         ensures
-            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
+            final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
-                self.pt_cursor.inner.query_some_condition(*owner) ==>
-                self.pt_cursor.inner.query_some_ensures(*owner, state),
+                final(self).pt_cursor.inner.query_some_condition(*final(owner)) ==>
+                final(self).pt_cursor.inner.query_some_ensures(*final(owner), state),
             res matches Ok(state) ==>
-                !self.pt_cursor.inner.query_some_condition(*owner) ==>
-                self.pt_cursor.inner.query_none_ensures(*owner, state),
-            old(owner)@.mappings == owner@.mappings,
-            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*regions),
+                !final(self).pt_cursor.inner.query_some_condition(*final(owner)) ==>
+                final(self).pt_cursor.inner.query_none_ensures(*final(owner), state),
+            old(owner)@.mappings == final(owner)@.mappings,
+            forall |e: EntryOwner<UserPtConfig>| #[trigger] e.inv() && e.metaregion_sound(*old(regions)) ==> e.metaregion_sound(*final(regions)),
     )]
     pub fn query(&mut self) -> Result<(Range<Vaddr>, Option<MappedItem>)> {
         Ok(
@@ -641,12 +641,12 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
         ensures
-            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
+            final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
-                &&& res.unwrap() == self.pt_cursor.inner.va
-                &&& owner.level < owner.guard_level
-                &&& owner.in_locked_range()
+                &&& res.unwrap() == final(self).pt_cursor.inner.va
+                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).in_locked_range()
             },
     {
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -686,13 +686,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).in_locked_range(),
             !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
-            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
-            self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end ==> {
+            final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
+            final(self).pt_cursor.inner.barrier_va.start <= va < final(self).pt_cursor.inner.barrier_va.end ==> {
                 &&& res is Ok
-                &&& self.pt_cursor.inner.va == va
+                &&& final(self).pt_cursor.inner.va == va
             },
-            !(self.pt_cursor.inner.barrier_va.start <= va < self.pt_cursor.inner.barrier_va.end) ==> res is Err,
+            !(final(self).pt_cursor.inner.barrier_va.start <= va < final(self).pt_cursor.inner.barrier_va.end) ==> res is Err,
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<()> {
         (#[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -750,16 +750,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
-            self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
+            final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
             old(cursor_owner).metaregion_correct(*old(regions))
                 && crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
                     MappedItem { frame: frame, prop: prop }, *old(regions))
-                ==> cursor_owner.metaregion_correct(*regions),
+                ==> final(cursor_owner).metaregion_correct(*final(regions)),
             old(self).map_item_ensures(
                 frame,
                 prop,
                 old(self).pt_cursor.inner.model(*old(cursor_owner)),
-                self.pt_cursor.inner.model(*cursor_owner),
+                final(self).pt_cursor.inner.model(*final(cursor_owner)),
             ),
     )]
     pub fn map(&mut self, frame: UFrame, prop: PageProperty) {
@@ -838,10 +838,10 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
             old(tlb_model).inv(),
         ensures
-            self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
-            old(cursor_owner).metaregion_correct(*old(regions)) ==> cursor_owner.metaregion_correct(*regions),
-            old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, self.pt_cursor.inner.model(*cursor_owner), r),
-            tlb_model.inv(),
+            final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
+            old(cursor_owner).metaregion_correct(*old(regions)) ==> final(cursor_owner).metaregion_correct(*final(regions)),
+            old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.inner.model(*final(cursor_owner)), r),
+            final(tlb_model).inv(),
     )]
     pub fn unmap(&mut self, len: usize) -> usize {
         proof {
@@ -1271,9 +1271,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
             forall |p: PageProperty| op.requires((p,)),
         ensures
-            self.pt_cursor.inner.invariants(*owner, *regions, *guards),
-            old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
-            self.pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
+            final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
+            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
+            final(self).pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
     )]
     pub fn protect_next(
         &mut self,

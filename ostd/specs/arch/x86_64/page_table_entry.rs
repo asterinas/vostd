@@ -84,7 +84,7 @@ impl PageTableEntry {
 
     #[inline(always)]
     pub fn prop_assign(&mut self, flags: usize)
-        ensures self.0 == old(self).prop_assign_spec(flags).0
+        ensures final(self).0 == old(self).prop_assign_spec(flags).0
     {
         self.0 = (self.0 & !Self::PROP_MASK()) | flags as usize;
     }
@@ -237,7 +237,7 @@ impl PageTableEntryTrait for PageTableEntry {
     }
 
     fn set_prop(&mut self, prop: PageProperty)
-        ensures *self == old(self).set_prop_spec(prop)
+        ensures *final(self) == old(self).set_prop_spec(prop)
     {
         let flags = Self::format_flags(prop);
         self.prop_assign(flags)

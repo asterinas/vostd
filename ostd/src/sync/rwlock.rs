@@ -31,8 +31,8 @@ verus! {
 
 axiom fn is_exclusive<T>(tracked value: &mut PointsTo<T>, tracked other: &PointsTo<T>)
     ensures
-        *value == *old(value),
-        value.id() != other.id(),
+        *final(value) == *old(value),
+        final(value).id() != other.id(),
 ;
 
 const MAX_READER_U64: u64 = MAX_READER as u64;

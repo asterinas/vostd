@@ -192,14 +192,14 @@ pub(crate) fn get_kernel_page_table(
     requires
         regions.inv(),
     ensures
-        kernel_owner@ is Some,
-        kernel_owner@.unwrap().inv(),
-        kernel_owner@.unwrap().0.value.node is Some,
-        r.root.ptr.addr() == kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        final(kernel_owner)@ is Some,
+        final(kernel_owner)@.unwrap().inv(),
+        final(kernel_owner)@.unwrap().0.value.node is Some,
+        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
-            kernel_owner@.unwrap().0.value.node.unwrap(),
+            final(kernel_owner)@.unwrap().0.value.node.unwrap(),
         ),
-        kernel_owner@.unwrap().0.value.metaregion_sound(*regions),
+        final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }

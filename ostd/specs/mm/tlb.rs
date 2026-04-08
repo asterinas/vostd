@@ -47,7 +47,7 @@ impl TlbModel {
             forall|m: Mapping| old(self).mappings has m ==> !(m.va_range.start <= va < m.va_range.end),
             exists|m: Mapping| pt.mappings has m ==> m.va_range.start <= va < m.va_range.end,
         ensures
-            *self == old(self).update_spec(pt, va);
+            *final(self) == old(self).update_spec(pt, va);
 
     pub open spec fn flush_spec(self, va: Vaddr) -> Self
     {
@@ -62,7 +62,7 @@ impl TlbModel {
         requires
             old(self).inv(),
         ensures
-            *self == old(self).flush_spec(va);
+            *final(self) == old(self).flush_spec(va);
 
     pub open spec fn consistent_with_pt(self, pt: PageTableView) -> bool {
         self.mappings <= pt.mappings
@@ -119,8 +119,8 @@ impl TlbModel {
         requires
             old(self).inv(),
         ensures
-            *self == old(self).issue_tlb_flush_spec(op),
-            self.inv()
+            *final(self) == old(self).issue_tlb_flush_spec(op),
+            final(self).inv()
         {
             self.pending.tracked_push(op);
         }

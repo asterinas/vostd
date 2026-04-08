@@ -329,8 +329,8 @@ impl<'a> VmSpaceOwner<'a> {
             old(owner_r).mem_view is None,
             reader.inv(),
         ensures
-            reader.wf(*owner_r),
-            owner_r.mem_view == Some(VmIoMemView::ReadView(&old(self).mem_view@.unwrap().borrow_at_spec(
+            reader.wf(*final(owner_r)),
+            final(owner_r).mem_view == Some(VmIoMemView::ReadView(&old(self).mem_view@.unwrap().borrow_at_spec(
                 old(owner_r).range@.start,
                 (old(owner_r).range@.end - old(owner_r).range@.start) as usize,
             ))),
@@ -407,8 +407,8 @@ impl<'a> VmSpaceOwner<'a> {
             old(owner_w).mem_view is None,
             writer.inv(),
         ensures
-            writer.wf(*owner_w),
-            owner_w.mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split_spec(
+            writer.wf(*final(owner_w)),
+            final(owner_w).mem_view == Some(VmIoMemView::WriteView(old(self).mem_view@.unwrap().split_spec(
                 old(owner_w).range@.start,
                 (old(owner_w).range@.end - old(owner_w).range@.start) as usize,
             ).0)),
@@ -473,10 +473,10 @@ impl<'a> VmSpaceOwner<'a> {
             old(self).mem_view is Some,
             0 <= idx < old(self).readers.len() as int,
         ensures
-            self.inv(),
-            self.active == old(self).active,
-            self.shared_reader == old(self).shared_reader,
-            self.readers == old(self).readers.remove(idx),
+            final(self).inv(),
+            final(self).active == old(self).active,
+            final(self).shared_reader == old(self).shared_reader,
+            final(self).readers == old(self).readers.remove(idx),
     {
         self.readers.tracked_remove(idx);
     }
@@ -501,10 +501,10 @@ impl<'a> VmSpaceOwner<'a> {
             old(self).mv_range@ is Some,
             0 <= idx < old(self).writers.len() as int,
         ensures
-            self.inv(),
-            self.active == old(self).active,
-            self.shared_reader == old(self).shared_reader,
-            self.writers == old(self).writers.remove(idx as int),
+            final(self).inv(),
+            final(self).active == old(self).active,
+            final(self).shared_reader == old(self).shared_reader,
+            final(self).writers == old(self).writers.remove(idx as int),
     {
         let tracked writer = self.writers.tracked_remove(idx as int);
 
@@ -615,10 +615,10 @@ impl<'a> VmSpaceOwner<'a> {
                 #![trigger old(self).readers[i]]
                 0 <= i < old(self).readers.len() ==> old(self).readers[i].disjoint(owner),
         ensures
-            self.inv(),
-            self.active == old(self).active,
-            self.shared_reader == old(self).shared_reader,
-            owner.range@.start < owner.range@.end ==> self.readers == old(self).readers.push(owner),
+            final(self).inv(),
+            final(self).active == old(self).active,
+            final(self).shared_reader == old(self).shared_reader,
+            owner.range@.start < owner.range@.end ==> final(self).readers == old(self).readers.push(owner),
     {
         let tracked mv = match owner.mem_view {
             Some(VmIoMemView::ReadView(mv)) => mv,
@@ -665,10 +665,10 @@ impl<'a> VmSpaceOwner<'a> {
                 #![trigger old(self).readers[i]]
                 0 <= i < old(self).readers.len() as int ==> old(self).readers[i].disjoint(owner),
         ensures
-            self.inv(),
-            self.active == old(self).active,
-            self.shared_reader == old(self).shared_reader,
-            owner.range@.start < owner.range@.end ==> self.writers == old(self).writers.push(owner),
+            final(self).inv(),
+            final(self).active == old(self).active,
+            final(self).shared_reader == old(self).shared_reader,
+            owner.range@.start < owner.range@.end ==> final(self).writers == old(self).writers.push(owner),
     {
         // If the writer has consumed all the memory, nothing to do;
         // just discard the writer and return the permission back to

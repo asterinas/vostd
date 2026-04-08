@@ -74,8 +74,8 @@ pub trait RCClone: Sized {
             old(rc_perm).value() < u64::MAX,
         ensures
             res == *self,
-            rc_perm.value() == old(rc_perm).value() + 1,
-            rc_perm.id() == old(rc_perm).id(),
+            final(rc_perm).value() == old(rc_perm).value() + 1,
+            final(rc_perm).id() == old(rc_perm).id(),
     ;
 }
 
@@ -393,7 +393,7 @@ pub trait PageTableEntryTrait: Clone + Copy + Debug + Sized + Send + Sync + 'sta
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            old(self).set_prop_spec(prop) == *self,
+            old(self).set_prop_spec(prop) == *final(self),
     ;
 
     proof fn set_prop_properties(self, prop: PageProperty)
@@ -860,8 +860,8 @@ impl<C: PageTableConfig> PageTable<C> {
     #[verifier::external_body]
     pub fn empty_with_owner(Tracked(owner): Tracked<&mut Option<PageTableOwner<C>>>) -> (r: Self)
         ensures
-            owner@ is Some,
-            owner@.unwrap().inv(),
+            final(owner)@ is Some,
+            final(owner)@.unwrap().inv(),
     {
         unimplemented!()
     }
@@ -914,8 +914,8 @@ impl<C: PageTableConfig> PageTable<C> {
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
-                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
-                &&& r.unwrap().1.metaregion_correct(*regions)
+                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *final(regions), *final(guards))
+                &&& r.unwrap().1.metaregion_correct(*final(regions))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel
@@ -925,10 +925,10 @@ impl<C: PageTableConfig> PageTable<C> {
             },
             forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *regions),
+                CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
             // cursor_mut only locks page-table node slots; path_if_in_pt is unchanged for all slots.
             forall |idx: usize| #![auto]
-                (*regions).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
+                (*final(regions)).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
     )]
     #[verifier::external_body]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
@@ -1081,10 +1081,10 @@ pub fn load_pte<E: PageTableEntryTrait>(
         0 <= ptr.index < NR_ENTRIES,
         old(perm).is_init_all(),
     ensures
-        perm.value()[ptr.index as int] == new_val,
-        perm.value() == old(perm).value().update(ptr.index as int, new_val),
-        perm.addr() == old(perm).addr(),
-        perm.is_init_all(),
+        final(perm).value()[ptr.index as int] == new_val,
+        final(perm).value() == old(perm).value().update(ptr.index as int, new_val),
+        final(perm).addr() == old(perm).addr(),
+        final(perm).is_init_all(),
 )]
 pub fn store_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,
