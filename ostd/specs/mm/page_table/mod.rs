@@ -5,10 +5,10 @@ pub mod node;
 mod owners;
 mod view;
 
-pub use self::cursor::*;
-pub use self::node::*;
-pub use self::owners::*;
-pub use self::view::*;
+pub use cursor::*;
+pub use node::*;
+pub use owners::*;
+pub use view::*;
 
 use vstd::arithmetic::power2::pow2;
 use vstd::prelude::*;
