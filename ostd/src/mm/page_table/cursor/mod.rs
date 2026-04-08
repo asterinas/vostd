@@ -3236,6 +3236,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             owner0.view_mappings_take_lowest(owner1);
             owner1.view_mappings_put_lowest(*owner, continuation);
+            assert(owner.view_mappings() =~= owner0.view_mappings().difference(
+                PageTableOwner(owner0.cur_subtree())@.mappings,
+            ).union(PageTableOwner(new_owner)@.mappings));
+            assert(owner@.mappings =~= owner0@.mappings.difference(
+                PageTableOwner(owner0.cur_subtree())@.mappings,
+            ).union(PageTableOwner(new_owner)@.mappings));
+            assert(owner@.mappings == owner0@.mappings.difference(
+                PageTableOwner(owner0.cur_subtree())@.mappings,
+            ).union(PageTableOwner(new_owner)@.mappings)) by {
+                broadcast use vstd::set::axiom_set_ext_equal;
+            };
 
             let level = owner0.level;
             let idx = cont0.idx as int;

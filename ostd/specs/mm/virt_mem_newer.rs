@@ -702,6 +702,10 @@ impl VirtPtr {
                     dst.vaddr <= i < dst.vaddr + n - 1 ==>
                     mem_dst.addr_transl(i) == mem0.addr_transl(i)
                 );
+                assert forall|i: usize|
+                    dst.vaddr <= i < dst.vaddr + n - 1 ==> mem_dst.addr_transl(i) is Some by {
+                    assert(mem_dst.addr_transl(i) == mem0.addr_transl(i));
+                }
             }
 
             Self::copy_nonoverlapping(src, dst, Tracked(mem_src), Tracked(mem_dst), n - 1);
