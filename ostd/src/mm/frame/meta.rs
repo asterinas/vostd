@@ -170,9 +170,6 @@ pub const fn meta_slot_size() -> (res: usize)
     returns
         64usize,
 {
-    proof {
-        size_of_meta_slot();
-    }
     size_of::<MetaSlot>()
 }
 
@@ -521,30 +518,15 @@ impl MetaSlot {
                     proof {
                         let idx = frame_to_index(paddr);
 
-                        // get_from_in_use_loop preserves ref_count id and other fields
                         assert(inner_perms.ref_count.id()
                             == regions0.slot_owners[idx].inner_perms.ref_count.id());
 
-                        // The original slot_own from regions0 satisfied inv()
                         let ghost orig = regions0.slot_owners[idx];
                         assert(orig.inv());
                         assert(pre == orig.inner_perms.ref_count.value());
 
-                        // Original ref_count was in valid range: pre + 1 < REF_COUNT_MAX
-                        // and inv() held. Since REF_COUNT_MAX < REF_COUNT_UNIQUE < REF_COUNT_UNUSED,
-                        // pre is not UNUSED, UNIQUE, or in the illegal range.
-                        // If pre > 0: vtable_ptr was init.
-                        // If pre == 0: vtable_ptr was uninit, but on Ok, pre > 0.
-                        // On Err: inner_perms unchanged, so inv conditions match original.
-
-                        // vtable_ptr is preserved from original
                         assert(inner_perms.vtable_ptr == orig.inner_perms.vtable_ptr);
 
-                        // If the new ref_count > 0 (Ok path or pre was already > 0),
-                        // then we need vtable_ptr.is_init(). This holds because:
-                        // - On Ok: pre > 0 (postcondition), so orig had vtable_ptr.is_init()
-                        // - On Err: pre unchanged, so if pre > 0 then vtable_ptr.is_init()
-                        //           if pre == 0, then new rc == 0, so inv() doesn't require init
                         if inner_perms.ref_count.value() > 0 {
                             // Either Ok (pre > 0) or Err with pre > 0
                             assert(pre > 0);
@@ -554,18 +536,11 @@ impl MetaSlot {
                             assert(inner_perms.vtable_ptr.is_init());
                         }
 
-                        // sync_inner restores inner_perms into slot_own
                         slot_own.sync_inner(&inner_perms);
                         assert(slot_own.inv());
-
-                        // wf: slot cell ids match the (updated) inner_perms ids
                         assert(slot_perm.value().wf(slot_own));
-
-                        // self_addr matches slot address
                         assert(slot_own.self_addr == slot_perm.addr());
 
-                        // On Err path: inner_perms unchanged, so slot_own matches original
-                        // This helps prove Err ==> *regions == *old(regions)
                         if res is Err {
                             assert(inner_perms.ref_count.value() == pre);
                             assert(inner_perms.ref_count.id() == orig.inner_perms.ref_count.id());
@@ -577,19 +552,12 @@ impl MetaSlot {
                         regions.slot_owners.tracked_insert(idx, slot_own);
                         regions.slots.tracked_insert(idx, slot_perm);
 
-                        // After insert: regions maps are restored
                         assert(regions.slot_owners.dom() =~= regions0.slot_owners.dom());
                         assert(regions.slots =~= regions0.slots);
 
-                        // regions0 == *old(regions) (get_slot doesn't modify regions)
-                        // For all other indices: slot_owners restored from regions0
                         assert forall|i: usize| i != idx
-                            implies #[trigger] regions.slot_owners[i]
-                                == regions0.slot_owners[i] by {};
+                            implies #[trigger] regions.slot_owners[i] == regions0.slot_owners[i] by {};
 
-                        // get_from_in_use_success: field-by-field for slot_owners[idx]
-                        // After sync_inner, slot_own.inner_perms == inner_perms
-                        // inner_perms fields match regions0 (from loop invariants)
                         assert(regions.slot_owners[idx].inner_perms.ref_count.id()
                             == regions0.slot_owners[idx].inner_perms.ref_count.id());
                         assert(regions.slot_owners[idx].inner_perms.storage
@@ -604,8 +572,6 @@ impl MetaSlot {
                             == regions0.slot_owners[idx].usage);
                         assert(regions.slot_owners[idx].raw_count
                             == regions0.slot_owners[idx].raw_count);
-                        assert(regions.slot_owners[idx].path_if_in_pt
-                            == regions0.slot_owners[idx].path_if_in_pt);
 
                         // For ptr postcondition: slot_perm.pptr() == old(regions).slots[idx].pptr()
                         assert(slot_perm == regions0.slots[idx]);

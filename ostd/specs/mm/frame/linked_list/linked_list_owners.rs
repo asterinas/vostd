@@ -766,25 +766,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
         ReprPtr { addr: ptr.addr, ptr: ptr.ptr, _T: PhantomData }
     }
 
-    #[verifier::external_body]
-    pub proof fn cast_points_to_metadata(tracked perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, MetadataAsLink<M>>) -> (tracked result: vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>)
-        ensures
-            result.addr() == perm.addr(),
-            result.is_init() == perm.is_init(),
-            result.points_to.pptr() == perm.points_to.pptr(),
-    {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    pub proof fn cast_points_to_as_link(tracked perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>) -> (tracked result: vstd_extra::cast_ptr::PointsTo<MetaSlot, MetadataAsLink<M>>)
-        ensures
-            result.addr() == perm.addr(),
-            result.is_init() == perm.is_init(),
-            result.points_to.pptr() == perm.points_to.pptr(),
-    {
-        unimplemented!()
-    }
 }
 
 } // verus!

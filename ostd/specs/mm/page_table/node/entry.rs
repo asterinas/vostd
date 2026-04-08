@@ -199,6 +199,10 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
         &&& guard_perm0.value().inner.inner@.ptr.addr() == guard_perm1.value().inner.inner@.ptr.addr()
         &&& forall|i: int| 0 <= i < NR_ENTRIES ==> i != self.idx ==>
             parent_owner0.children_perm.value()[i] == parent_owner1.children_perm.value()[i]
+        // meta_perm is unchanged: only children_perm and meta_own are modified by entry operations.
+        &&& parent_owner1.meta_perm.addr == parent_owner0.meta_perm.addr
+        &&& parent_owner1.meta_perm.points_to == parent_owner0.meta_perm.points_to
+        &&& parent_owner1.meta_perm.inner_perms == parent_owner0.meta_perm.inner_perms
     }
 }
 
