@@ -65,11 +65,11 @@ impl<T> FracStorage<T> {
     /// Split one token into two tokens whose quantities sum to the original.
     pub proof fn split(tracked &mut self) -> (tracked r: FracStorage<T>)
         ensures
-            self.id() == old(self).id(),
-            self.resource() == old(self).resource(),
+            final(self).id() == old(self).id(),
+            final(self).resource() == old(self).resource(),
             r.resource() == old(self).resource(),
             r.id() == old(self).id(),
-            r.frac() + self.frac() == old(self).frac(),
+            r.frac() + final(self).frac() == old(self).frac(),
     {
         use_type_invariant(&*self);
         Self::split_helper(&mut self.r)
@@ -84,15 +84,15 @@ impl<T> FracStorage<T> {
             old(r)@->Some_0.value().frac() > 0.0real,
             old(r)@->Some_0.value().frac() <= 1.0real,
         ensures
-            r@ is Some,
-            r@->Some_0.value() is Frac,
-            r@->Some_0.value().frac() > 0.0real,
-            r@->Some_0.value().frac() <= 1.0real,
+            final(r)@ is Some,
+            final(r)@->Some_0.value() is Frac,
+            final(r)@->Some_0.value().frac() > 0.0real,
+            final(r)@->Some_0.value().frac() <= 1.0real,
             res.id() == old(r)@->Some_0.loc(),
-            r@->Some_0.loc() == old(r)@->Some_0.loc(),
-            r@->Some_0.value().value() == old(r)@->Some_0.value().value(),
+            final(r)@->Some_0.loc() == old(r)@->Some_0.loc(),
+            final(r)@->Some_0.value().value() == old(r)@->Some_0.value().value(),
             res.resource() == old(r)@->Some_0.value().value(),
-            res.frac() + r@->Some_0.value().frac() == old(r)@->Some_0.value().frac(),
+            res.frac() + final(r)@->Some_0.value().frac() == old(r)@->Some_0.value().frac(),
     {
         let tracked mut storage_resource = r.borrow_mut().tracked_take();
         let frac = storage_resource.value().frac();

@@ -100,14 +100,14 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         requires
             old(self).not_empty(),
         ensures
-            self.id() == old(self).id(),
-            self.frac() + 1 == old(self).frac(),
-            self@ == old(self)@,
+            final(self).id() == old(self).id(),
+            final(self).frac() + 1 == old(self).frac(),
+            final(self)@ == old(self)@,
             res.frac() == 1,
-            res.id() == self.id(),
-            res@ == self@,
-            old(self).frac() == 1 ==> self.is_empty(),
-            self.wf(),
+            res.id() == final(self).id(),
+            res@ == final(self)@,
+            old(self).frac() == 1 ==> final(self).is_empty(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         if self.frac() == 1 {
@@ -126,14 +126,14 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         requires
             1 <= n <= old(self).frac(),
         ensures
-            self.id() == old(self).id(),
-            self.frac() + n == old(self).frac(),
-            self@ == old(self)@,
+            final(self).id() == old(self).id(),
+            final(self).frac() + n == old(self).frac(),
+            final(self)@ == old(self)@,
             res.frac() == n,
-            res.id() == self.id(),
-            res@ == self@,
-            old(self).frac() == n ==> self.is_empty(),
-            self.wf(),
+            res.id() == final(self).id(),
+            res@ == final(self)@,
+            old(self).frac() == n ==> final(self).is_empty(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         self.r.tracked_borrow().bounded();
@@ -155,10 +155,10 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         ensures
             old(self).frac() + other.frac() > TOTAL ==> false,
             old(self).frac() + other.frac() <= TOTAL ==> {
-                &&& self.id() == old(self).id()
-                &&& self@ == old(self)@
-                &&& self.frac() == old(self).frac() + other.frac()
-                &&& self.wf()
+                &&& final(self).id() == old(self).id()
+                &&& final(self)@ == old(self)@
+                &&& final(self).frac() == old(self).frac() + other.frac()
+                &&& final(self).wf()
             },
     {
         if self.is_empty() {
@@ -203,10 +203,10 @@ impl<T, const TOTAL: u64> FracGhostResource<T, TOTAL> {
         requires
             old(self).is_full(),
         ensures
-            self.is_full(),
-            self@ == value,
-            self.id() == old(self).id(),
-            self.wf(),
+            final(self).is_full(),
+            final(self)@ == value,
+            final(self).id() == old(self).id(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         let tracked mut r = self.r.tracked_take();
@@ -332,14 +332,14 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         requires
             old(self).not_empty(),
         ensures
-            self.id() == old(self).id(),
-            self.frac() + 1 == old(self).frac(),
-            old(self).frac() > 1 ==> self@ == old(self)@,
+            final(self).id() == old(self).id(),
+            final(self).frac() + 1 == old(self).frac(),
+            old(self).frac() > 1 ==> final(self)@ == old(self)@,
             res.frac() == 1,
-            res.id() == self.id(),
+            res.id() == final(self).id(),
             res.resource() == old(self)@,
-            old(self).frac() == 1 ==> self.is_empty(),
-            self.wf(),
+            old(self).frac() == 1 ==> final(self).is_empty(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         if self.frac() == 1 {
@@ -358,14 +358,14 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         requires
             1 <= n <= old(self).frac(),
         ensures
-            self.id() == old(self).id(),
-            self.frac() + n == old(self).frac(),
-            old(self).frac() > n ==> self@ == old(self)@,
+            final(self).id() == old(self).id(),
+            final(self).frac() + n == old(self).frac(),
+            old(self).frac() > n ==> final(self)@ == old(self)@,
             res.frac() == n,
-            res.id() == self.id(),
+            res.id() == final(self).id(),
             res.resource() == old(self)@,
-            old(self).frac() == n ==> self.is_empty(),
-            self.wf(),
+            old(self).frac() == n ==> final(self).is_empty(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         self.r.tracked_borrow().bounded();
@@ -386,11 +386,11 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         ensures
             old(self).frac() + other.frac() > TOTAL ==> false,
             old(self).frac() + other.frac() <= TOTAL ==> {
-                &&& self.id() == old(self).id()
-                &&& self.resource() == other.resource()
-                &&& self.frac() == old(self).frac() + other.frac()
-                &&& self.wf()
-                &&& old(self).frac() > 0 ==> self@ == old(self)@
+                &&& final(self).id() == old(self).id()
+                &&& final(self).resource() == other.resource()
+                &&& final(self).frac() == old(self).frac() + other.frac()
+                &&& final(self).wf()
+                &&& old(self).frac() > 0 ==> final(self)@ == old(self)@
             },
     {
         if self.is_empty() {
@@ -460,10 +460,10 @@ impl<T, const TOTAL: u64> FracResource<T, TOTAL> {
         requires
             old(self).is_full(),
         ensures
-            self.is_full(),
+            final(self).is_full(),
             res == old(self)@,
-            self.id() == old(self).id(),
-            self.wf(),
+            final(self).id() == old(self).id(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         let tracked mut r = self.r.tracked_take();

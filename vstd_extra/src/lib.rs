@@ -9,7 +9,6 @@
 #![allow(rustdoc::invalid_rust_codeblocks)]
 #![allow(rustdoc::invalid_html_tags)]
 #![allow(rustdoc::broken_intra_doc_links)]
-#![verifier::deprecated_postcondition_mut_ref_style(true)]
 
 extern crate alloc;
 

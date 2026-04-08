@@ -62,9 +62,9 @@ impl<T> ExclusiveGhost<T> {
     /// Updates the ghost value and returns the old value.
     pub proof fn update(tracked &mut self, value: T) -> (res: T)
         ensures
-            self.id() == old(self).id(),
-            self.view() == value,
-            self.wf(),
+            final(self).id() == old(self).id(),
+            final(self).view() == value,
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         Self::update_helper(&mut self.0, value)
@@ -75,11 +75,11 @@ impl<T> ExclusiveGhost<T> {
             Self::type_inv_inner(old(r).value()),
             old(r).value() is Excl,
         ensures
-            Self::type_inv_inner(r.value()),
-            r.value() is Excl,
-            r.loc() == old(r).loc(),
+            Self::type_inv_inner(final(r).value()),
+            final(r).value() is Excl,
+            final(r).loc() == old(r).loc(),
             res == old(r).value().value(),
-            r.value().value() == value,
+            final(r).value().value() == value,
     {
         let ghost res = r.value().value();
         let tracked mut tmp = Resource::<ExclR<T>>::alloc(ExclR::Unit);
@@ -92,9 +92,9 @@ impl<T> ExclusiveGhost<T> {
     /// The existence of two `ExclusiveGhost` tokens ensures that they do not have the same id.
     pub proof fn validate_with_other(tracked &mut self, tracked other: &Self)
         ensures
-            *old(self) == *self,
-            self.id() != other.id(),
-            self.wf(),
+            *old(self) == *final(self),
+            final(self).id() != other.id(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -162,9 +162,9 @@ impl<T> Exclusive<T> {
     /// The existence of two `Exclusive` tokens ensures that they do not have the same id.
     pub proof fn validate_with_other(tracked &mut self, tracked other: &Self)
         ensures
-            *old(self) == *self,
-            self.wf(),
-            self.id() != other.id(),
+            *old(self) == *final(self),
+            final(self).wf(),
+            final(self).id() != other.id(),
     {
         use_type_invariant(&*self);
         use_type_invariant(other);
@@ -189,9 +189,9 @@ impl<T> Exclusive<T> {
         requires
             old(self).has_resource(),
         ensures
-            self.has_no_resource(),
+            final(self).has_no_resource(),
             res == old(self).resource(),
-            self.wf(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         Self::take_resource_helper(&mut self.r)
@@ -203,9 +203,9 @@ impl<T> Exclusive<T> {
             Self::type_inv_inner(old(r).value()),
             old(r).value()->Excl_0 is Some,
         ensures
-            Self::type_inv_inner(r.value()),
-            r.value()->Excl_0 is None,
-            r.loc() == old(r).loc(),
+            Self::type_inv_inner(final(r).value()),
+            final(r).value()->Excl_0 is None,
+            final(r).loc() == old(r).loc(),
             res == old(r).value()->Excl_0->Some_0,
     {
         let tracked mut tmp = StorageResource::<(), T, ExclP<T>>::alloc(
@@ -226,9 +226,9 @@ impl<T> Exclusive<T> {
         requires
             old(self).has_no_resource(),
         ensures
-            self.has_resource(),
-            self.resource() == value,
-            self.wf(),
+            final(self).has_resource(),
+            final(self).resource() == value,
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         Self::put_resource_helper(&mut self.r, value)
@@ -239,10 +239,10 @@ impl<T> Exclusive<T> {
             Self::type_inv_inner(old(r).value()),
             old(r).value()->Excl_0 is None,
         ensures
-            Self::type_inv_inner(r.value()),
-            r.value()->Excl_0 is Some,
-            r.loc() == old(r).loc(),
-            r.value()->Excl_0->Some_0 == value,
+            Self::type_inv_inner(final(r).value()),
+            final(r).value()->Excl_0 is Some,
+            final(r).loc() == old(r).loc(),
+            final(r).value()->Excl_0->Some_0 == value,
     {
         let ghost g = value;
         let tracked mut tmp = StorageResource::<(), T, ExclP<T>>::alloc(
@@ -260,14 +260,14 @@ impl<T> Exclusive<T> {
     /// Updates the owned resource and returns the old resource if it exists.
     pub proof fn update(tracked &mut self, tracked value: T) -> (tracked res: Option<T>)
         ensures
-            self.has_resource(),
-            self.resource() == value,
+            final(self).has_resource(),
+            final(self).resource() == value,
             res == if old(self).has_resource() {
                 Some(old(self).resource())
             } else {
                 None
             },
-            self.wf(),
+            final(self).wf(),
     {
         use_type_invariant(&*self);
         let tracked mut res = None;
