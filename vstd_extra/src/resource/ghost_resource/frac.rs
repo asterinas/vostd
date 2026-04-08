@@ -15,20 +15,20 @@ verus! {
 /// `Frac`(https://verus-lang.github.io/verus/verusdoc/vstd/tokens/frac/struct.FracGhost.html).
 use vstd::map::*;
 
-pub struct FracStorage<T> {
-    r: Option<StorageResource<(), T, FracP<T>>>,
+pub tracked struct FracStorage<T> {
+    tracked r: Tracked<Option<StorageResource<(), T, FracP<T>>>>,
 }
 
 impl<T> FracStorage<T> {
     #[verifier::type_invariant]
     spec fn type_inv(self) -> bool {
-        &&& self.r is Some
+        &&& self.r@ is Some
         &&& self.protocol_monoid() is Frac
         &&& 0.0real < self.frac() && self.frac() <= 1.0real
     }
 
     pub closed spec fn storage_resource(self) -> StorageResource<(), T, FracP<T>> {
-        self.r->Some_0
+        self.r@->Some_0
     }
 
     pub closed spec fn id(self) -> Loc {
@@ -59,7 +59,7 @@ impl<T> FracStorage<T> {
         let tracked mut m = Map::<(), T>::tracked_empty();
         m.tracked_insert((), v);
         let tracked resource = StorageResource::alloc(FracP::new(v), m);
-        FracStorage { r: Some(resource) }
+        FracStorage { r: Tracked(Some(resource)) }
     }
 
     /// Split one token into two tokens whose quantities sum to the original.
@@ -76,31 +76,31 @@ impl<T> FracStorage<T> {
     }
 
     /// Avoid breaking the type invariant.
-    proof fn split_helper(tracked r: &mut Option<StorageResource<(), T, FracP<T>>>) -> (tracked res:
+    proof fn split_helper(tracked r: &mut Tracked<Option<StorageResource<(), T, FracP<T>>>>) -> (tracked res:
         Self)
         requires
-            *old(r) is Some,
-            old(r)->Some_0.value() is Frac,
-            old(r)->Some_0.value().frac() > 0.0real,
-            old(r)->Some_0.value().frac() <= 1.0real,
+            old(r)@ is Some,
+            old(r)@->Some_0.value() is Frac,
+            old(r)@->Some_0.value().frac() > 0.0real,
+            old(r)@->Some_0.value().frac() <= 1.0real,
         ensures
-            *r is Some,
-            r->Some_0.value() is Frac,
-            r->Some_0.value().frac() > 0.0real,
-            r->Some_0.value().frac() <= 1.0real,
-            res.id() == old(r)->Some_0.loc(),
-            r->Some_0.loc() == old(r)->Some_0.loc(),
-            r->Some_0.value().value() == old(r)->Some_0.value().value(),
-            res.resource() == old(r)->Some_0.value().value(),
-            res.frac() + r->Some_0.value().frac() == old(r)->Some_0.value().frac(),
+            r@ is Some,
+            r@->Some_0.value() is Frac,
+            r@->Some_0.value().frac() > 0.0real,
+            r@->Some_0.value().frac() <= 1.0real,
+            res.id() == old(r)@->Some_0.loc(),
+            r@->Some_0.loc() == old(r)@->Some_0.loc(),
+            r@->Some_0.value().value() == old(r)@->Some_0.value().value(),
+            res.resource() == old(r)@->Some_0.value().value(),
+            res.frac() + r@->Some_0.value().frac() == old(r)@->Some_0.value().frac(),
     {
-        let tracked mut storage_resource = r.tracked_take();
+        let tracked mut storage_resource = r.borrow_mut().tracked_take();
         let frac = storage_resource.value().frac();
         let half_frac = frac / 2.0real;
         let m = FracP::construct_frac(half_frac, storage_resource.value().value());
         let tracked (resource_1, resource_2) = storage_resource.split(m, m);
-        *r = Some(resource_1);
-        FracStorage { r: Some(resource_2) }
+        *r.borrow_mut() = Some(resource_1);
+        FracStorage { r: Tracked::new(Some(resource_2)) }
     }
 
     /// Obtain shared access to the underlying resource.
@@ -111,7 +111,7 @@ impl<T> FracStorage<T> {
         use_type_invariant(self);
         let m = Map::<(), T>::empty().insert((), self.resource());
         self.protocol_monoid().lemma_guards();
-        let tracked resource = StorageResource::guard(self.r.tracked_borrow(), m);
+        let tracked resource = StorageResource::guard(self.r.borrow().tracked_borrow(), m);
         resource.tracked_borrow(())
     }
 }
