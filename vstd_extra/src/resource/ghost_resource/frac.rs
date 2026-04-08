@@ -99,8 +99,8 @@ impl<T> FracStorage<T> {
         let half_frac = frac / 2.0real;
         let m = FracP::construct_frac(half_frac, storage_resource.value().value());
         let tracked (resource_1, resource_2) = storage_resource.split(m, m);
-        *r.borrow_mut() = Some(resource_1);
-        FracStorage { r: Tracked::new(Some(resource_2)) }
+        **r = Some(resource_1);
+        FracStorage { r: Tracked(Some(resource_2)) }
     }
 
     /// Obtain shared access to the underlying resource.
