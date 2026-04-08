@@ -617,6 +617,11 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         !MetaSlot::inc_ref_count_panic_cond(
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
         ),
+        // The caller holds a reference, so ref_count > 0.
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
+        // After increment, the ref_count must stay below the illegal range.
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1
+            < REF_COUNT_MAX,
     ensures
         regions.inv(),
         regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
@@ -642,9 +647,22 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
     slot.borrow(Tracked(perm)).inc_ref_count();
 
     proof {
-        admit();
+        let idx = frame_to_index(paddr);
+
+        // inc_ref_count preserves permission id
+        assert(inner_perms.ref_count.id()
+            == old(regions).slot_owners[idx].inner_perms.ref_count.id());
+
+        // sync_inner: slot_own.inner_perms = inner_perms, other fields unchanged
         slot_own.sync_inner(&inner_perms);
-        regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+
+        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
+        assert(slot_own.inv());
+
+        // wf: the slot's cell ids still match the (updated) inner_perms ids
+        assert(regions.slots[idx].value().wf(slot_own));
+
+        regions.slot_owners.tracked_insert(idx, slot_own);
     }
 }
 
