@@ -1,18 +1,18 @@
-name: Format and Verify VOSTD (new-mut-ref)
+name: Format and Verify VOSTD (Main)
 
 on:
   push:
     branches:
-      - new-mut-ref
+      - main
   pull_request:
     branches:
-      - new-mut-ref
+      - main
   workflow_dispatch:
     inputs:
       branch:
         description: "Branch to run the workflow on"
         required: true
-        default: "new-mut-ref"
+        default: "main"
 
 jobs:
   format-and-verify:
