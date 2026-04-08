@@ -414,6 +414,7 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
+#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
@@ -473,6 +474,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a read lock.
     ///
     /// This function will never spin-wait and will return immediately.
+    #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         proof_decl!{
             let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
@@ -506,10 +508,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
             Some(
+                #[verus_spec(with v_token: Tracked(read_token.tracked_unwrap()))]
                 RwLockReadGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(read_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -532,6 +534,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a write lock.
     ///
     /// This function will never spin-wait and will return immediately.
+    #[verus_spec]
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
@@ -575,11 +578,13 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         ).is_ok() {
             Some(
+                #[verus_spec(with
+                    v_perm: Tracked(guard_perm.tracked_unwrap()),
+                    v_token: Tracked(guard_token.tracked_unwrap()),
+                )]
                 RwLockWriteGuard {
                     inner: self,
                     guard,
-                    v_perm: Tracked(guard_perm.tracked_unwrap()),
-                    v_token: Tracked(guard_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -619,10 +624,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
             return Some(
+                #[verus_spec(with v_token: Tracked(upgrade_guard_token.tracked_unwrap()))]
                 RwLockUpgradeableGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
                 },
             );
         } else if lock == WRITER {
@@ -698,9 +703,11 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 #[verifier::reject_recursive_types(G)]
 #[clippy::has_significant_drop]
 #[must_use]
+#[verus_verify]
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
+    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
 }
 
@@ -760,15 +767,19 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     }
 } */
 
+#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[verus_spec]
     fn drop(self) {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(token) = self.v_token;
+        proof_decl! {
+            let tracked token = self.v_token.get();
+        }
         // self.inner.lock.fetch_sub(READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
@@ -801,7 +812,9 @@ pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
+    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
+    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
@@ -867,8 +880,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(mut perm) = self.v_perm;
-        let Tracked(token) = self.v_token;
+        proof_decl! {
+            let tracked mut perm = self.v_perm.get();
+            let tracked token = self.v_token.get();
+        }
         //self.inner.lock.fetch_and(!WRITER, Release);
         atomic_with_ghost!{
             self.inner.lock => fetch_and(!WRITER);
@@ -910,6 +925,7 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
+    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 /*
@@ -986,8 +1002,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             lemma_consts_properties();
         }
         let mut this = self;
-        let Tracked(upread_guard_token) = this.v_token;
         proof_decl! {
+            let tracked mut upread_guard_token = this.v_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -1050,19 +1066,21 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                 }
             );
             Ok(
+                #[verus_spec(with
+                    v_perm: Tracked(write_perm.tracked_unwrap()),
+                    v_token: Tracked(write_guard_token.tracked_unwrap()),
+                )]
                 RwLockWriteGuard {
                     inner,
                     guard,
-                    v_perm: Tracked(write_perm.tracked_unwrap()),
-                    v_token: Tracked(write_guard_token.tracked_unwrap()),
                 },
             )
         } else {
-            Err(
+            Err(       
+                #[verus_spec(with v_token: Tracked(err_upread_guard_token.tracked_unwrap()))]
                 RwLockUpgradeableGuard {
                     inner: this.inner,
                     guard: this.guard,
-                    v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )
         }
@@ -1100,7 +1118,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(guard_token) = self.v_token;
+        proof_decl!{
+            let tracked guard_token = self.v_token.get();
+        }
         //self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);

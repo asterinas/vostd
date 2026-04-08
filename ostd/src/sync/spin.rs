@@ -170,6 +170,7 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     }
 }*/
 
+#[verus_verify]
 impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// Acquires the spin lock.
     ///
@@ -207,10 +208,10 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
         let inner_guard = G::guard();
         proof_with! {=> Tracked(perm)}
         self.acquire_lock();
+        proof_with! {v_perm: Tracked(perm)}
         SpinLockGuard {
             lock: self,
             guard: inner_guard,
-            v_perm: Tracked(perm),
         }
     }
 
@@ -225,16 +226,17 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// If `Some(guard)` is returned, it satisfies its type invariant:
     /// - An exclusive permission to access the protected data is held by the guard.
     /// - The guard's permission matches the lock's internal cell ID.
+    #[verus_spec]
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
             let tracked mut perm: Option<PointsTo<T>> = None;
         }
         if #[verus_spec(with => Tracked(perm))] self.try_acquire_lock() {
+            proof_with! {v_perm: Tracked(perm.tracked_unwrap()) }
             let lock_guard = SpinLockGuard {
                 lock: self,
                 guard: inner_guard,
-                v_perm: Tracked(perm.tracked_unwrap()),
             };
             return Some(lock_guard);
         }
@@ -392,10 +394,12 @@ unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 #[verifier::reject_recursive_types(G)]
 #[clippy::has_significant_drop]
 #[must_use]
+#[verus_verify]
 pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     lock: &'a SpinLock<T, G>,
     /// Ghost permission for verification
+    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
 }
 

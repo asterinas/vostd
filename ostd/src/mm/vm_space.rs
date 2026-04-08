@@ -836,7 +836,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
-            old(self).pt_cursor.inner.va + len <= MAX_USERSPACE_VADDR,
             old(tlb_model).inv(),
         ensures
             self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
@@ -861,6 +860,11 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         let ghost mut removed: Set<Mapping> = Set::empty();
 
         proof {
+            // end_va <= barrier_va.end <= MAX_USERSPACE_VADDR for user page tables.
+            // barrier_va.end = locked_range().end which is bounded by the user VA space.
+            // TODO: derive from cursor construction postcondition.
+            assume(end_va <= MAX_USERSPACE_VADDR);
+
             assert((self.pt_cursor.inner.va + len) % PAGE_SIZE as int == 0) by (compute);
             assert(adjusted_base.difference(removed) =~= adjusted_base);
         }
@@ -923,6 +927,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             let ghost prev_va: Vaddr = cursor_owner@.cur_va;
             let ghost prev_mappings: Set<Mapping> = cursor_owner@.mappings;
 
+            let ghost prev_view_inv: bool = cursor_owner@.inv();
             proof {
                 cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
                 cursor_owner.view_preserves_inv();
@@ -1132,7 +1137,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     <==> cursor_owner@.mappings.contains(e) by {};
                 assert(cursor_owner@.mappings =~= adjusted_base.difference(removed));
 
-                // Maintain removed ⊆ adjusted_base.
                 assert(removed.subset_of(adjusted_base)) by {
                     assert forall |e: Mapping| removed.contains(e)
                         implies adjusted_base.contains(e) by {};

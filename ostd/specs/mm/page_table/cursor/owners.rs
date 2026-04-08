@@ -2120,10 +2120,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 cont.children[j].unwrap().map_implies_and(cont.path().push_tail(j as usize), f, nsp, g);
             };
         };
-        // Path entries: nodes with !in_scope. For eidx != changed_idx, slot_owners unchanged.
-        // For eidx == changed_idx, metaregion_sound(r0) requires raw_count==expected_raw_count.
-        // For !in_scope nodes, expected_raw_count==1, but r0.raw_count==0 → contradiction with
-        // metaregion_sound(r0), so this case is vacuous.
+
         assert(self.path_metaregion_sound(regions1)) by {
             assert forall|i: int| #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS implies
