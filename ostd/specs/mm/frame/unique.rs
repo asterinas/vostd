@@ -101,6 +101,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
     ) -> bool {
         &&& <M as OwnerOf>::wf(metadata, res.meta_own)
         &&& res.meta_perm.addr() == frame_to_meta(paddr)
+        &&& res.meta_perm.value().metadata == metadata
         &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
         &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage

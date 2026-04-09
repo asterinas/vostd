@@ -54,7 +54,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     }
 
     proof fn constructor_spec(self, tracked s: &mut Self::State) {
-        admit()
     }
 
     open spec fn drop_requires(self, s: Self::State) -> bool {
@@ -66,7 +65,6 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
     }
 
     proof fn drop_spec(self, tracked s: &mut Self::State) {
-        admit()
     }
 }
 

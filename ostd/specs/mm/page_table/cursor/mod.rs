@@ -1,11 +1,15 @@
 pub mod cursor_fn_specs;
 pub mod cursor_steps;
+pub mod mapping_set_lemmas;
 pub mod owners;
 pub mod page_size_lemmas;
 pub mod page_table_cursor_specs;
+pub mod split_while_huge_lemmas;
 
 pub use cursor_fn_specs::*;
 pub use cursor_steps::*;
+pub use mapping_set_lemmas::*;
 pub use owners::*;
 pub use page_size_lemmas::*;
 pub use page_table_cursor_specs::*;
+pub use split_while_huge_lemmas::*;

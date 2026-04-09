@@ -1,6 +1,7 @@
 #![allow(hidden_glob_reexports)]
 
 pub mod cursor;
+pub mod mapping_set_lemmas;
 pub mod node;
 mod owners;
 mod view;

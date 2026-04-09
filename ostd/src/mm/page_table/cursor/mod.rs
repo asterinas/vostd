@@ -134,7 +134,7 @@ pub fn page_size(level: PagingLevel) -> (ret: usize)
     ensures
         ret == page_size_spec(level),
         exists|e| ret == pow2(e),
-        ret >= 2,
+        ret >= PAGE_SIZE,
 {
     PAGE_SIZE << (nr_subpage_per_huge::<PagingConsts>().ilog2() as usize * (level as usize - 1))
 }
@@ -1990,6 +1990,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             cont_final.map_children_lift_skip_idx(cont0, idx, f_unlocked, g_unlocked);
             cont_final.map_children_lift_skip_idx(cont0, idx, f_sound, g_sound);
 
+            assert(owner.path_metaregion_sound(*regions)) by {
+                let new_pt_idx = frame_to_index(new_child_value.meta_slot_paddr().unwrap());
+                assert forall|i: int| #![trigger owner.continuations[i]]
+                    owner.level - 1 <= i < NR_LEVELS implies
+                        owner.continuations[i].entry_own.metaregion_sound(*regions) by {
+                    if i >= owner.level as int {
+                        assert(owner.continuations[i] == owner0.continuations[i]);
+                    }
+                    owner0.inv_continuation(i);
+                    let eo = owner0.continuations[i].entry_own;
+                    assert(eo.inv() && eo.is_node());
+                    assert(eo.metaregion_sound(*old(regions)));
+                    let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
+                    assert(old(regions).slot_owners[eo_idx].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED);
+                    assert(eo_idx != new_pt_idx);
+                    assert(regions.slot_owners[eo_idx] == old(regions).slot_owners[eo_idx]);
+                };
+            };
+
             assert(owner.continuations[owner.level - 1].idx
                 == owner0.continuations[owner0.level - 1].idx);
             assert(owner.continuations[owner.level - 1].entry_own.parent_level
@@ -2537,12 +2557,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             };
         }
 
-        proof {
-            // After map_loop, the entry at the target level is not a node
-            // (map_loop descends through nodes via map_branch_pt/map_branch_none).
-            // This satisfies replace_cur_entry's is_node() ==> mc precondition vacuously.
-            assume(!owner.cur_entry_owner().is_node());
-        }
+        // replace_cur_entry handles both node and non-node old entries:
+        // - node old: write_path=false, uses neq_old_from_path_disjoint
+        // - non-node old: uses metaregion_sound_preserved or write_path logic
         #[verus_spec(with Tracked(owner), Tracked(new_owner), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::Frame(pa, level, prop));
 
@@ -2741,6 +2758,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
                 &&& final(owner)@.mappings =~= view.split_while_huge(m.page_size).mappings - set![m]
                 &&& view.split_while_huge(m.page_size).mappings.contains(m)
+                &&& m.page_size >= PAGE_SIZE
             },
             res is Some && res.unwrap() is StrayPageTable ==> {
                 let va = res.unwrap()->StrayPageTable_va;
@@ -3301,14 +3319,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // Old child is absent or frame, no path write: metaregion_sound_preserved.
                     cont.map_children_lift(f_sound, g_sound);
                 } else {
-                    // Old child is absent or frame, write_path=true. path_if_in_pt written at new_idx.
-                    // metaregion_sound_preserved holds for tree entries: no tree node at new_idx
-                    // (from not_in_tree), frames don't check path_if_in_pt.
-                    // The OwnerSubtree::implies universal fails for hypothetical non-tree nodes,
-                    // but they don't exist by PointsTo uniqueness.
-                    // write_path: path_if_in_pt at new_idx was None (from condition).
-                    // No node has metaregion_sound(r0) at new_idx (requires path_if_in_pt == Some).
-                    // Frames don't check path_if_in_pt. So OwnerSubtree::implies holds.
+
                     let ghost new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
                     assert(OwnerSubtree::implies(f_sound, g_sound)) by {
                         assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
@@ -3382,6 +3393,69 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
                 final_cont.map_children_lift_skip_idx(cont0, idx as int, f_sound, g_sound);
             }
+
+            assert(owner.path_metaregion_sound(*regions)) by {
+                assert forall|i: int| #![trigger owner.continuations[i]]
+                    owner.level - 1 <= i < NR_LEVELS implies
+                        owner.continuations[i].entry_own.metaregion_sound(*regions) by {
+                    if i >= owner.level as int {
+                        assert(owner.continuations[i] == owner0.continuations[i]);
+                    }
+                    owner0.inv_continuation(i);
+                    let eo = owner0.continuations[i].entry_own;
+                    assert(eo.inv() && eo.is_node() && !eo.in_scope);
+                    assert(eo.metaregion_sound(regions0));
+                    let eo_idx = frame_to_index(eo.meta_slot_paddr().unwrap());
+
+                    if old_child_pre_replace.is_node() {
+                        assert(!write_path);
+                        let old_idx = frame_to_index(old_child_pre_replace.meta_slot_paddr().unwrap());
+
+                        owner0.inv_continuation(owner0.level - 1);
+                        assert(cont0 == owner0.continuations[(owner0.level - 1) as int]);
+                        assert(cont0.inv());
+                        assert(cont0.children[cont0.idx as int] is Some);
+                        cont0.inv_children_unroll(cont0.idx as int);
+                        let old_child_subtree = cont0.children[cont0.idx as int].unwrap();
+                        assert(old_child_subtree.inv());
+                        assert(old_child_subtree.value == old_child_pre_replace);
+                        assert(cont0.map_children(
+                            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0)));
+                        assert(old_child_subtree.tree_predicate_map(
+                            cont0.path().push_tail(cont0.idx as usize),
+                            |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e.metaregion_sound(regions0)));
+                        assert(old_child_pre_replace.metaregion_sound(regions0));
+
+                        if eo_idx == old_idx {
+                            assert(regions0.slot_owners[eo_idx].path_if_in_pt == Some(eo.path));
+                            assert(regions0.slot_owners[old_idx].path_if_in_pt == Some(old_child_pre_replace.path));
+                            assert(eo.path == old_child_pre_replace.path);
+                            cont0.inv_children_rel_unroll(cont0.idx as int);
+                            assert(old_child_pre_replace.path == cont0.path().push_tail(cont0.idx as usize));
+                            cont0.path().push_tail_property_len(cont0.idx as usize);
+                            assert(old_child_pre_replace.path.len() == cont0.tree_level + 1);
+                            assert(eo.path.len() as nat == owner0.continuations[i].tree_level);
+                            assert(false);
+                        }
+                        assert(eo.meta_slot_paddr_neq(old_child_pre_replace));
+                        assert(g_sound(eo, owner0.continuations[i].path()));
+                    } else if !pre_new_owner_value.is_node() {
+                        if write_path && pre_new_owner_value.meta_slot_paddr() is Some {
+                            let new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
+                            if eo_idx == new_idx2 {
+                                assert(false);
+                            }
+                        }
+                    } else {
+                        if pre_new_owner_value.meta_slot_paddr() is Some {
+                            let new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
+                            if eo_idx == new_idx2 {
+                                assert(false);
+                            }
+                        }
+                    }
+                };
+            };
 
             assert(owner.metaregion_sound(*regions));
 
@@ -3461,6 +3535,30 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
                 };
 
+                // path_metaregion_correct: path entries transfer via implies(f_path && f_neq_new, g_path).
+                assert(owner.path_metaregion_correct(*regions)) by {
+                    assert forall|i: int| #![trigger owner.continuations[i]]
+                        owner.level - 1 <= i < NR_LEVELS implies
+                            PageTableOwner::<C>::path_tracked_pred(*regions)(
+                                owner.continuations[i].entry_own,
+                                owner.continuations[i].path()) by {
+                        if i >= owner.level as int {
+                            assert(owner.continuations[i] == owner0.continuations[i]);
+                        }
+                        owner0.inv_continuation(i);
+                        let eo = owner0.continuations[i].entry_own;
+                        assert(eo.inv() && eo.is_node());
+                        // path entries at new_child's idx would contradict path_if_in_pt is None.
+                        if pre_new_owner_value.meta_slot_paddr() is Some && eo.meta_slot_paddr() is Some {
+                            let eidx = frame_to_index(eo.meta_slot_paddr().unwrap());
+                            let nidx = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
+                            if eidx == nidx {
+                                // eo.metaregion_sound(regions0) gives path_if_in_pt == Some(eo.path).
+                                // But precondition requires path_if_in_pt is None → contradiction.
+                            }
+                        }
+                    };
+                };
                 assert(owner.metaregion_correct(*regions));
             }
 
