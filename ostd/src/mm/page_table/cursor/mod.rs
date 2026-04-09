@@ -643,6 +643,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 &&& self.va >= old(self).va + len
                 &&& owner@.mappings == old(owner)@.mappings
             },
+            // If the found entry is past old_va, old_va was not covered by any mapping.
+            res is Some && self.va > old(self).va ==> !old(owner)@.present(),
     )]
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<Vaddr>
     {
@@ -703,6 +705,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     owner.cur_entry_owner().frame.unwrap().prop
                         == old(owner).cur_entry_owner().frame.unwrap().prop,
                 (self.va > old(self).va && !split_happened) ==> !old(owner)@.present(),
+                split_happened ==> self.va == old(self).va,
             decreases owner.max_steps(),
         {
             proof {
@@ -755,6 +758,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 owner.va.align_down(self.level as int).reflect_prop(
                                     nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
                             }
+                            // !present postcondition: split_happened ==> self.va == old(self).va,
+                            // so self.va > old(self).va ==> !split_happened ==> !old(owner)@.present().
                         }
                         return Some(cur_va);
                     }
@@ -966,6 +971,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 owner.va.align_down(self.level as int).reflect_prop(
                                     nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
                             }
+                            // !present postcondition: split_happened ==> self.va == old(self).va,
+                            // so self.va > old(self).va ==> !split_happened ==> !old(owner)@.present().
                         }
                         return Some(cur_va);
                     }
@@ -2887,11 +2894,22 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 CursorOwner::<'rcu, C>::split_while_huge_cur_va_independent(
                     old(owner)@, view, page_size_spec(level_after_find));
 
-                // Prove m ∈ split_result: the mapping at va in the split view has
-                // page_size == m.page_size, so query_mapping() after split equals m.
-                // split_while_huge_contains_query gives query_mapping ∈ split_result.
-                // TODO: connect query_mapping() == m (from cursor model).
-                assume(view.split_while_huge(m.page_size).mappings.contains(m));
+                owner_before_replace.cur_subtree_eq_filtered_mappings();
+                let ghost target = Mapping {
+                    va_range: owner_before_replace@.cur_slot_range(m.page_size),
+                    pa_range: cur_st.value.frame.unwrap().mapped_pa
+                        ..(cur_st.value.frame.unwrap().mapped_pa + m.page_size) as usize,
+                    page_size: m.page_size,
+                    property: cur_st.value.frame.unwrap().prop,
+                };
+                assert(PageTableOwner(cur_st)@.mappings == set![target]);
+                assert(owner_before_replace@.mappings.filter(
+                    |m2: Mapping| owner_before_replace@.cur_va <= m2.va_range.start
+                        < owner_before_replace@.cur_va + m.page_size).contains(target));
+                assert(owner_before_replace@.mappings.contains(target));
+                assert(m == target);
+                assert(owner_before_replace@.mappings.contains(m));
+                assert(view.split_while_huge(m.page_size).mappings.contains(m));
             }
             if frag.unwrap() is StrayPageTable {
                 let va = frag.unwrap()->StrayPageTable_va;
@@ -2904,12 +2922,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 assert(old_cur_subtree_mappings =~= subtree_mappings);
             }
-        }
 
-        proof {
-            // F2-empty: no mappings in old_mappings with start in [old_va, found_va).
-            // Directly from find_next_impl's postcondition: it scanned [old_va, va_after_find)
-            // and found nothing. frag_va == va_after_find from replace_cur_entry postcondition.
             let ghost frag_va: Vaddr = va_after_find;
             if frag.unwrap() is Mapped {
                 assert(frag.unwrap()->Mapped_va == frag_va);
@@ -2917,22 +2930,53 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             if frag.unwrap() is StrayPageTable {
                 assert(frag.unwrap()->StrayPageTable_va == frag_va);
             }
-            // find_next_impl postcondition gives us this directly:
             assert(old(owner)@.mappings.filter(|m: Mapping|
                 old_va <= m.va_range.start < frag_va) =~= Set::<Mapping>::empty());
 
+            let ghost ps = page_size_spec(level_after_find);
             assert forall |m: Mapping|
                 owner@.mappings.contains(m) && old_va <= m.va_range.start
                 && m.va_range.start < frag_va
             implies old(owner)@.mappings.contains(m)
             by {
                 assert(owner_before_replace@.mappings.contains(m));
-                // OBR.mappings = split_while_huge(ps).mappings
-                // Use locality_absent contrapositively: if m ∉ old(owner)@.mappings,
-                // then m was created by the split, but all split sub-mappings have
-                // start >= frag_va, contradicting m.start < frag_va.
-                // So m ∈ old(owner)@.mappings.
-                assume(old(owner)@.mappings.contains(m));
+                let view = CursorView::<C> {
+                    cur_va: frag_va as Vaddr,
+                    mappings: old(owner)@.mappings,
+                    phantom: PhantomData,
+                };
+                old(owner).view_preserves_inv();
+                owner_before_replace.view_preserves_inv();
+                if !old(owner)@.mappings.contains(m) {
+                    assert(view.inv());
+                    assert(ps >= PAGE_SIZE) by {
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(level_after_find);
+                    };
+                    assert(view.split_while_huge(ps).mappings.contains(m));
+                    view.split_while_huge_refinement(ps, m);
+                    let p = choose |p: Mapping| old(owner)@.mappings.contains(p)
+                        && p.va_range.start <= m.va_range.start
+                        && m.va_range.end <= p.va_range.end;
+                    if p.va_range.start >= old_va && p.va_range.start < frag_va {
+                        assert(old(owner)@.mappings.filter(|m2: Mapping|
+                            old_va <= m2.va_range.start < frag_va).contains(p));
+                    } else if p.va_range.start < old_va {
+                        assert(frag_va > old_va);
+                        assert(!old(owner)@.present());
+                        let ghost cover_filter = old(owner)@.mappings.filter(
+                            |m2: Mapping| m2.va_range.start <= old(owner)@.cur_va
+                                && old(owner)@.cur_va < m2.va_range.end);
+                        assert(cover_filter.contains(p));
+                        vstd::set::axiom_set_intersect_finite::<Mapping>(
+                            old(owner)@.mappings,
+                            Set::new(|m2: Mapping| m2.va_range.start <= old(owner)@.cur_va
+                                && old(owner)@.cur_va < m2.va_range.end));
+                        vstd::set::axiom_set_choose_len(cover_filter);
+                        assert(old(owner)@.present());
+                    } else {
+                        assert(m.va_range.start >= frag_va);
+                    }
+                }
             };
 
             owner_before_replace.va.reflect_prop(va_after_find);
