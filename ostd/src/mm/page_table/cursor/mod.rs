@@ -831,9 +831,21 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             // Empty filter proof (same pattern as ChildRef::None case):
                             if !split_happened {
                                 assert(owner@.mappings == old(owner)@.mappings);
+                                let ghost aligned_start = nat_align_down(va_before_move as nat, cur_slot_size as nat) as Vaddr;
+                                // From cur_subtree_eq_filtered_mappings: subtree mappings (empty) ==
+                                // mappings.filter(aligned_start <= start < aligned_start + ps)
                                 assert(old(owner)@.mappings.filter(|m: Mapping|
-                                    va_before_move <= m.va_range.start < va_before_move + cur_slot_size as usize)
+                                    aligned_start <= m.va_range.start < aligned_start + cur_slot_size as usize)
                                     =~= Set::<Mapping>::empty());
+                                // self.va == nat_align_up(va_before_move, ps) <= aligned_start + ps
+                                owner_before_move.va.align_up_concrete(owner_before_move.level as int);
+                                owner_before_move.va.align_up(owner_before_move.level as int).reflect_prop(
+                                    nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
+                                assert(self.va == nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
+                                lemma_nat_align_up_sound(va_before_move as nat, cur_slot_size as nat);
+                                lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
+                                assert(self.va <= aligned_start + cur_slot_size as usize);
+
                                 assert(owner@.mappings.filter(|m: Mapping|
                                     old(self).va <= m.va_range.start < self.va)
                                     =~= Set::<Mapping>::empty()) by {
@@ -849,9 +861,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                                     old(self).va <= m2.va_range.start < va_before_move)
                                                     .contains(m));
                                             } else {
-                                                assert(m.va_range.start < va_before_move + cur_slot_size as usize);
                                                 assert(old(owner)@.mappings.filter(|m2: Mapping|
-                                                    va_before_move <= m2.va_range.start < va_before_move + cur_slot_size as usize)
+                                                    aligned_start <= m2.va_range.start < aligned_start + cur_slot_size as usize)
                                                     .contains(m));
                                             }
                                         }
@@ -888,9 +899,19 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         owner_before_move.move_forward_owner_preserves_mappings();
                         if !split_happened {
                             assert(owner@.mappings == old(owner)@.mappings);
+                            let ghost aligned_start = nat_align_down(va_before_move as nat, cur_slot_size as nat) as Vaddr;
                             assert(old(owner)@.mappings.filter(|m: Mapping|
-                                va_before_move <= m.va_range.start < va_before_move + cur_slot_size as usize)
+                                aligned_start <= m.va_range.start < aligned_start + cur_slot_size as usize)
                                 =~= Set::<Mapping>::empty());
+                            // self.va == nat_align_up(va_before_move, ps) <= aligned_start + ps
+                            owner_before_move.va.align_up_concrete(owner_before_move.level as int);
+                            owner_before_move.va.align_up(owner_before_move.level as int).reflect_prop(
+                                nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
+                            assert(self.va == nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
+                            lemma_nat_align_up_sound(va_before_move as nat, cur_slot_size as nat);
+                            lemma_nat_align_down_sound(va_before_move as nat, cur_slot_size as nat);
+                            assert(self.va <= aligned_start + cur_slot_size as usize);
+
                             assert(owner@.mappings.filter(|m: Mapping|
                                 old(self).va <= m.va_range.start < self.va)
                                 =~= Set::<Mapping>::empty()) by {
@@ -906,9 +927,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                                 old(self).va <= m2.va_range.start < va_before_move)
                                                 .contains(m));
                                         } else {
-                                            assert(m.va_range.start < va_before_move + cur_slot_size as usize);
                                             assert(old(owner)@.mappings.filter(|m2: Mapping|
-                                                va_before_move <= m2.va_range.start < va_before_move + cur_slot_size as usize)
+                                                aligned_start <= m2.va_range.start < aligned_start + cur_slot_size as usize)
                                                 .contains(m));
                                         }
                                     }
@@ -2888,49 +2908,43 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         proof {
             // F2-empty: no mappings in old_mappings with start in [old_va, found_va).
-            // find_next scanned [old_va, va_after_find) finding nothing.
-            // This comes from find_next_impl's invariant (line 691):
-            //   old(owner)@.mappings.filter(old_va <= start < self.va) = empty
-            // at the point where the entry was found (self.va = va_after_find).
+            // Directly from find_next_impl's postcondition: it scanned [old_va, va_after_find)
+            // and found nothing. frag_va == va_after_find from replace_cur_entry postcondition.
+            let ghost frag_va: Vaddr = va_after_find;
             if frag.unwrap() is Mapped {
-                assume(old(owner)@.mappings.filter(|m: Mapping|
-                    old_va <= m.va_range.start < frag.unwrap()->Mapped_va)
-                    =~= Set::<Mapping>::empty());
+                assert(frag.unwrap()->Mapped_va == frag_va);
             }
             if frag.unwrap() is StrayPageTable {
-                assume(old(owner)@.mappings.filter(|m: Mapping|
-                    old_va <= m.va_range.start < frag.unwrap()->StrayPageTable_va)
-                    =~= Set::<Mapping>::empty());
+                assert(frag.unwrap()->StrayPageTable_va == frag_va);
             }
+            // find_next_impl postcondition gives us this directly:
+            assert(old(owner)@.mappings.filter(|m: Mapping|
+                old_va <= m.va_range.start < frag_va) =~= Set::<Mapping>::empty());
 
-            // F2c-stable: mappings in [old_va, frag_va) are unchanged by take_next.
-            // The split only affects the entry at frag_va; find_next_impl doesn't
-            // modify entries before frag_va.
-            if frag.unwrap() is Mapped {
-                assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
-                    && m.va_range.start < frag.unwrap()->Mapped_va
-                    ==> old(owner)@.mappings.contains(m));
-            }
-            if frag.unwrap() is StrayPageTable {
-                assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
-                    && m.va_range.start < frag.unwrap()->StrayPageTable_va
-                    ==> old(owner)@.mappings.contains(m));
-            }
+            assert forall |m: Mapping|
+                owner@.mappings.contains(m) && old_va <= m.va_range.start
+                && m.va_range.start < frag_va
+            implies old(owner)@.mappings.contains(m)
+            by {
+                assert(owner_before_replace@.mappings.contains(m));
+                // OBR.mappings = split_while_huge(ps).mappings
+                // Use locality_absent contrapositively: if m ∉ old(owner)@.mappings,
+                // then m was created by the split, but all split sub-mappings have
+                // start >= frag_va, contradicting m.start < frag_va.
+                // So m ∈ old(owner)@.mappings.
+                assume(old(owner)@.mappings.contains(m));
+            };
 
-            // F2b-empty: nothing between frag end and cursor_va in new mappings.
-            // After removing the entry and move_forward, the gap contains only absent entries.
-            if frag.unwrap() is Mapped {
-                assume(owner@.mappings.filter(|m: Mapping|
-                    frag.unwrap()->Mapped_va <= m.va_range.start < self.inner.va)
-                    =~= Set::<Mapping>::empty());
-            }
-            if frag.unwrap() is StrayPageTable {
-                assume(owner@.mappings.filter(|m: Mapping|
-                    frag.unwrap()->StrayPageTable_va <= m.va_range.start < self.inner.va)
-                    =~= Set::<Mapping>::empty());
-            }
+            owner_before_replace.va.reflect_prop(va_after_find);
+            owner_before_replace.cur_subtree_eq_filtered_mappings();
+            let ghost ps = page_size_spec(level_after_find);
+            let ghost obr_subtree = PageTableOwner(owner_before_replace.cur_subtree())@.mappings;
+            assert(owner@.mappings =~= owner_before_replace@.mappings - obr_subtree);
+            assert(obr_subtree =~=
+                owner_before_replace@.mappings.filter(|m: Mapping| frag_va <= m.va_range.start < (frag_va + ps) as Vaddr));
+            assert(self.inner.va <= (frag_va + ps) as Vaddr);
+            assert(owner@.mappings.filter(|m: Mapping| frag_va <= m.va_range.start < self.inner.va) =~=
+                Set::<Mapping>::empty());
         }
 
         frag
@@ -3252,8 +3266,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             let ghost final_cont = continuation;
             owner.continuations.tracked_insert((owner.level - 1) as int, continuation);
 
-            owner0.view_mappings_take_lowest(owner1);
-            owner1.view_mappings_put_lowest(*owner, continuation);
+            CursorOwner::view_mappings_replace_lowest(owner0, *owner, cont0, final_cont);
 
             let level = owner0.level;
             let idx = cont0.idx as int;

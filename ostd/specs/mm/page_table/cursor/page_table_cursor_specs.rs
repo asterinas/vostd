@@ -186,8 +186,9 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 
     pub open spec fn remove_subtree(self, size: usize) -> Set<Mapping> {
+        let start = nat_align_down(self.cur_va as nat, size as nat) as Vaddr;
         let subtree = self.mappings.filter(|m: Mapping|
-            self.cur_va <= m.va_range.start < self.cur_va + size);
+            start <= m.va_range.start < start + size);
         self.mappings - subtree
     }
 
