@@ -502,10 +502,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
         );
         if lock & (WRITER | MAX_READER | BEING_UPGRADED) == 0 {
             Some(
-                #[verus_spec(with v_token: Tracked(read_token.tracked_unwrap()))]
                 RwLockReadGuard {
                     inner: self,
                     guard,
+                    v_token: Tracked(read_token.tracked_unwrap())
                 },
             )
         } else {
@@ -572,13 +572,11 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             }
         ).is_ok() {
             Some(
-                #[verus_spec(with
-                    v_perm: Tracked(guard_perm.tracked_unwrap()),
-                    v_token: Tracked(guard_token.tracked_unwrap()),
-                )]
                 RwLockWriteGuard {
                     inner: self,
                     guard,
+                    v_perm: Tracked(guard_perm.tracked_unwrap()),
+                    v_token: Tracked(guard_token.tracked_unwrap()),
                 },
             )
         } else {
@@ -618,10 +616,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
             & (WRITER | UPGRADEABLE_READER);
         if lock == 0 {
             return Some(
-                #[verus_spec(with v_token: Tracked(upgrade_guard_token.tracked_unwrap()))]
                 RwLockUpgradeableGuard {
                     inner: self,
                     guard,
+                    v_token: Tracked(upgrade_guard_token.tracked_unwrap())
                 },
             );
         } else if lock == WRITER {
@@ -701,7 +699,6 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
 }
 
@@ -806,9 +803,7 @@ pub struct RwLockWriteGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
     /// Ghost permission for verification
-    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
@@ -853,13 +848,22 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     }
 }
 
-/*
-impl<T: ?Sized, G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.val.get() }
+#[verus_verify]
+impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
+    #[verus_spec]
+    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
+        ensures
+            final(self).view() == *final(ret)
+    {
+        proof!{
+            use_type_invariant(&*self);
+        }
+        //unsafe { &mut *self.inner.val.get() }
+        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
     }
 }
 
+/*
 impl<T: ?Sized, G: SpinGuardian> Drop for RwLockWriteGuard<'_, T, G> {
     fn drop(&mut self) {
         self.inner.lock.fetch_and(!WRITER, Release);
@@ -919,7 +923,6 @@ impl<T: ?Sized + fmt::Debug, G: SpinGuardian> fmt::Debug for RwLockWriteGuard<'_
 pub struct RwLockUpgradeableGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     inner: &'a RwLock<T, G>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 /*
@@ -1060,21 +1063,19 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                 }
             );
             Ok(
-                #[verus_spec(with
-                    v_perm: Tracked(write_perm.tracked_unwrap()),
-                    v_token: Tracked(write_guard_token.tracked_unwrap()),
-                )]
                 RwLockWriteGuard {
                     inner,
                     guard,
+                    v_perm: Tracked(write_perm.tracked_unwrap()),
+                    v_token: Tracked(write_guard_token.tracked_unwrap()),
                 },
             )
         } else {
             Err(       
-                #[verus_spec(with v_token: Tracked(err_upread_guard_token.tracked_unwrap()))]
                 RwLockUpgradeableGuard {
                     inner: this.inner,
                     guard: this.guard,
+                    v_token: Tracked(err_upread_guard_token.tracked_unwrap()),
                 },
             )
         }

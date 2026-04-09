@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*};
+use vstd::cell::{self, pcell::{self, *}};
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 use vstd_extra::resource::ghost_resource::excl::*;
 
 use alloc::sync::Arc;
@@ -175,8 +176,24 @@ unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 #[verus_verify]
 pub struct MutexGuard<'a, T  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
-    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
+}
+
+impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.v_perm@.id() == self.mutex.cell_id()
+    }
+
+    /// The value stored in the mutex.
+    pub closed spec fn value(self) -> T {
+        *self.v_perm@.value()
+    }
+
+    /// The value stored in the mutex. It is an alias of `Self::value`.
+    pub open spec fn view(self) -> T {
+        self.value()
+    }
 }
 
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
@@ -192,13 +209,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     )]
     unsafe fn new(mutex: &'a Mutex<T>) -> (r: MutexGuard<'a, T>)
     {
-        proof_with!{v_perm: Tracked(perm)}
-        MutexGuard { mutex }
-    }
-
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.v_perm@.id() == self.mutex.cell_id()
+        MutexGuard { mutex, v_perm: Tracked(perm) }
     }
 
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
@@ -215,9 +226,11 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     }
 }
 
+#[verus_verify]
 impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
+    #[verus_spec(returns self.view())]
     fn deref(&self) -> &Self::Target {
         proof! {
             use_type_invariant(self);
@@ -227,12 +240,20 @@ impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     }
 }
 
-/* impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
-    #[verifier::external_body]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.mutex.val.get() }
+#[verus_verify]
+impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
+    #[verus_spec]
+    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
+        ensures
+            final(self).view() == *final(ret),
+    {
+        proof!{
+            use_type_invariant(&*self);
+        }
+        //unsafe { &mut *self.mutex.val.get() }
+        pcell_borrow_mut(&self.mutex.val, &mut self.v_perm)
     }
-} */
+} 
 
 /* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     fn drop(&mut self)

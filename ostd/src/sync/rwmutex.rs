@@ -5,6 +5,7 @@ use vstd::cell::{self, pcell::*, CellId};
 use vstd::pcm::Loc;
 use vstd::prelude::*;
 use vstd::tokens::frac::{Empty, Frac};
+use vstd_extra::auxiliary::pcell_borrow_mut;
 use vstd_extra::resource::ghost_resource::{csum::*, excl::*, tokens::*};
 use vstd_extra::sum::*;
 
@@ -408,9 +409,9 @@ impl<T /*: ?Sized*/> RwMutex<T> {
 
         if lock & (WRITER | BEING_UPGRADED | MAX_READER) == 0 {
             Some(
-                #[verus_spec(with v_token: Tracked(read_token.tracked_unwrap()))]
                 RwMutexReadGuard {
-                inner: self,
+                    inner: self,
+                    v_token: Tracked(read_token.tracked_unwrap())
             })
         } else {
             atomic_with_ghost!(
@@ -468,8 +469,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
             }
         ).is_ok() {
             Some(
-                #[verus_spec(with v_perm: Tracked(guard_perm.tracked_unwrap()), v_token: Tracked(guard_token.tracked_unwrap()))]
-                RwMutexWriteGuard { inner: self }
+                RwMutexWriteGuard { inner: self , v_perm: Tracked(guard_perm.tracked_unwrap()), v_token: Tracked(guard_token.tracked_unwrap())}
             )
         } else {
             None
@@ -505,8 +505,7 @@ impl<T /*: ?Sized*/> RwMutex<T> {
 
         if lock == 0 {
             return Some(
-                #[verus_spec(with v_token: Tracked(upgrade_guard_token.tracked_unwrap()))]
-                RwMutexUpgradeableGuard { inner: self }
+                RwMutexUpgradeableGuard { inner: self, v_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
             );
         } else if lock == WRITER {
             atomic_with_ghost!(
@@ -569,7 +568,6 @@ unsafe impl<T: /*: ?Sized +*/ Sync> Sync for RwMutexUpgradeableGuard<'_, T> {}
 #[must_use]
 pub struct RwMutexReadGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
 }
 
@@ -646,9 +644,7 @@ impl<T/* : ?Sized */> RwMutexReadGuard<'_, T> {
 #[verifier::reject_recursive_types(T)]
 pub struct RwMutexWriteGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
-    #[cfg(verus_keep_ghost_body)]
     v_perm: Tracked<PointsTo<T>>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneRightKnowledge<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
@@ -764,13 +760,11 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
             };
             self.inner.queue.wake_all();
             Ok(
-                #[verus_spec(with v_token: Tracked(upgrade_guard_token.tracked_unwrap()))]
-                RwMutexUpgradeableGuard { inner }
+                RwMutexUpgradeableGuard { inner, v_token: Tracked(upgrade_guard_token.tracked_unwrap()) }
             )
         } else {
             Err(
-                #[verus_spec(with v_perm: Tracked(err_perm.tracked_unwrap()), v_token: Tracked(err_write_guard_token.tracked_unwrap()))]
-                RwMutexWriteGuard { inner }
+                RwMutexWriteGuard { inner, v_perm: Tracked(err_perm.tracked_unwrap()), v_token: Tracked(err_write_guard_token.tracked_unwrap()) }
             )
         }
     }
@@ -818,12 +812,26 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
     }
 }
 
+#[verus_verify]
+impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
+    #[verus_spec]
+    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
+        ensures
+            final(self).view() == *final(ret)
+    {
+        proof! {
+            use_type_invariant(&*self);
+        }
+        //unsafe { &mut *self.inner.val.get() }
+        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
+    }
+}
+
 /// A guard that provides immutable data access but can be atomically
 /// upgraded to [`RwMutexWriteGuard`].
 #[verifier::reject_recursive_types(T)]
 pub struct RwMutexUpgradeableGuard<'a, T /*: ?Sized*/> {
     inner: &'a RwMutex<T>,
-    #[cfg(verus_keep_ghost_body)]
     v_token: Tracked<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>>,
 }
 
@@ -950,13 +958,11 @@ impl<'a, T> RwMutexUpgradeableGuard<'a, T> {
                 }
             );
             Ok(
-                #[verus_spec(with v_perm: Tracked(write_perm.tracked_unwrap()), v_token: Tracked(write_guard_token.tracked_unwrap()))]
-                RwMutexWriteGuard { inner }
+                RwMutexWriteGuard { inner, v_perm: Tracked(write_perm.tracked_unwrap()), v_token: Tracked(write_guard_token.tracked_unwrap()) }
             )
         } else {
             Err(
-                #[verus_spec(with v_token: Tracked(err_upread_guard_token.tracked_unwrap()))]
-                RwMutexUpgradeableGuard { inner: self.inner }
+                RwMutexUpgradeableGuard { inner: self.inner, v_token: Tracked(err_upread_guard_token.tracked_unwrap()) }
             )
         }
     }
