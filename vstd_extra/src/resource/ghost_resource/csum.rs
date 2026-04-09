@@ -412,7 +412,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.frac() == n,
             !res.is_resource_owner(),
             final(self).is_resource_owner() <==> old(self).is_resource_owner(),
-            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(self).has_resource()),
+            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(
+                self,
+            ).has_resource()),
             final(self).has_resource() ==> final(self).resource() == old(self).resource(),
             final(self).wf(),
             res.wf(),
@@ -540,7 +542,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             res.frac() == n,
             !res.is_resource_owner(),
             final(self).is_resource_owner() <==> old(self).is_resource_owner(),
-            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(self).has_resource()),
+            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(
+                self,
+            ).has_resource()),
             final(self).has_resource() ==> final(self).resource() == old(self).resource(),
             final(self).wf(),
             res.wf(),
@@ -940,7 +944,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             old(self).frac() == TOTAL,
         ensures
             final(self).id() == old(self).id(),
-            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), old(self).frac(), true),
+            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(
+                Some(a),
+                old(self).frac(),
+                true,
+            ),
             final(self).frac() == old(self).frac(),
             final(self).is_left(),
             final(self).is_resource_owner(),
@@ -1007,7 +1015,11 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             old(self).frac() == TOTAL,
         ensures
             final(self).id() == old(self).id(),
-            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), old(self).frac(), true),
+            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(
+                Some(b),
+                old(self).frac(),
+                true,
+            ),
             final(self).frac() == old(self).frac(),
             final(self).is_right(),
             final(self).is_resource_owner(),
@@ -1072,7 +1084,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             final(self).is_resource_owner() == (old(self).is_resource_owner()
                 || other.is_resource_owner()),
             final(self).has_resource() == (old(self).has_resource() || other.has_resource()),
-            final(self).has_resource() ==> final(self).resource() == if old(self).is_resource_owner() {
+            final(self).has_resource() ==> final(self).resource() == if old(
+                self,
+            ).is_resource_owner() {
                 old(self).resource()
             } else {
                 Sum::Left(other.resource())
@@ -1128,7 +1142,9 @@ impl<A, B, const TOTAL: u64> SumResource<A, B, TOTAL> {
             final(self).is_resource_owner() == (old(self).is_resource_owner()
                 || other.is_resource_owner()),
             final(self).has_resource() == (old(self).has_resource() || other.has_resource()),
-            final(self).has_resource() ==> final(self).resource() == if old(self).is_resource_owner() {
+            final(self).has_resource() ==> final(self).resource() == if old(
+                self,
+            ).is_resource_owner() {
                 old(self).resource()
             } else {
                 Sum::Right(other.resource())
@@ -1381,7 +1397,11 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             old(self).has_no_resource(),
         ensures
             final(self).id() == old(self).id(),
-            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(Some(a), final(self).frac(), true),
+            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinl(
+                Some(a),
+                final(self).frac(),
+                true,
+            ),
             final(self).is_resource_owner(),
             final(self).has_resource(),
             final(self).resource() == a,
@@ -1424,7 +1444,9 @@ impl<A, B, const TOTAL: u64> Left<A, B, TOTAL> {
             res.frac() == n,
             !res.is_resource_owner(),
             final(self).is_resource_owner() <==> old(self).is_resource_owner(),
-            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(self).has_resource()),
+            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(
+                self,
+            ).has_resource()),
             final(self).has_resource() ==> final(self).resource() == old(self).resource(),
             final(self).wf(),
             res.wf(),
@@ -1584,7 +1606,11 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             old(self).has_no_resource(),
         ensures
             final(self).id() == old(self).id(),
-            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(Some(b), final(self).frac(), true),
+            final(self).protocol_monoid() == CsumP::<A, B, TOTAL>::Cinr(
+                Some(b),
+                final(self).frac(),
+                true,
+            ),
             final(self).is_resource_owner(),
             final(self).has_resource(),
             final(self).resource() == b,
@@ -1627,7 +1653,9 @@ impl<A, B, const TOTAL: u64> Right<A, B, TOTAL> {
             res.frac() == n,
             !res.is_resource_owner(),
             final(self).is_resource_owner() <==> old(self).is_resource_owner(),
-            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(self).has_resource()),
+            final(self).is_resource_owner() ==> (final(self).has_resource() <==> old(
+                self,
+            ).has_resource()),
             final(self).has_resource() ==> final(self).resource() == old(self).resource(),
             final(self).wf(),
             res.wf(),

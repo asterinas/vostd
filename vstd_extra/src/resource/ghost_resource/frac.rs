@@ -76,8 +76,9 @@ impl<T> FracStorage<T> {
     }
 
     /// Avoid breaking the type invariant.
-    proof fn split_helper(tracked r: &mut Tracked<Option<StorageResource<(), T, FracP<T>>>>) -> (tracked res:
-        Self)
+    proof fn split_helper(
+        tracked r: &mut Tracked<Option<StorageResource<(), T, FracP<T>>>>,
+    ) -> (tracked res: Self)
         requires
             old(r)@ is Some,
             old(r)@->Some_0.value() is Frac,
