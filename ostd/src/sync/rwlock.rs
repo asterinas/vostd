@@ -29,12 +29,6 @@ use super::{
 
 verus! {
 
-axiom fn is_exclusive<T>(tracked value: &mut PointsTo<T>, tracked other: &PointsTo<T>)
-    ensures
-        *final(value) == *old(value),
-        final(value).id() != other.id(),
-;
-
 const MAX_READER_U64: u64 = MAX_READER as u64;
 
 spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
