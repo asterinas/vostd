@@ -814,10 +814,11 @@ impl<'a, T /*: ?Sized*/> RwMutexWriteGuard<'a, T> {
 
 #[verus_verify]
 impl<T /*: ?Sized*/ > DerefMut for RwMutexWriteGuard<'_, T> {
-    #[verus_spec]
-    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
+    #[verus_spec(ret =>
         ensures
-            final(self).view() == *final(ret)
+            final(self).view() == *final(ret),
+    )]
+    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
     {
         proof! {
             use_type_invariant(&*self);

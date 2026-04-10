@@ -448,10 +448,11 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
 
 #[verus_verify]
 impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
-    #[verus_spec]
-    fn deref_mut(&mut self) -> (ret: &mut Self::Target) 
+    #[verus_spec(ret =>
         ensures
             final(self).view() == *final(ret),
+    )]
+    fn deref_mut(&mut self) -> &mut Self::Target
     {
         // unsafe { &mut *self.lock.inner.val.get() }
         proof!{
