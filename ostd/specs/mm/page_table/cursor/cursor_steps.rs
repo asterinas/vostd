@@ -1706,6 +1706,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level when self.level <= NR_LEVELS
     {
         if self.index() + 1 < NR_ENTRIES {
+            // Standard advance. At the very last in-range top-level slot, this
+            // produces a "one-past-end" cursor with idx == TOP_LEVEL_INDEX_RANGE.end,
+            // which the cursor inv allows (relaxed `<= top_end`). Such a cursor is
+            // `above_locked_range`.
             self.inc_index().zero_below_level()
         } else if self.level < NR_LEVELS {
             self.pop_level_owner_spec().0.move_forward_owner_spec()
@@ -1729,6 +1733,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         decreases NR_LEVELS - self.level
     {
         self.in_locked_range_level_lt_guard_level();
+        assert(self.level < NR_LEVELS);
         if self.index() + 1 < NR_ENTRIES {
             self.inc_and_zero_increases_va();
         } else if self.level + 1 < self.guard_level {
@@ -1792,7 +1797,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if !popped.popped_too_high {
                 popped.move_forward_owner_decreases_steps();
             } else {
-                admit(); // max_steps termination measure issue
+                admit(); // TODO: discharge max_steps comparison in popped_too_high case
             }
             popped.max_steps_partial_eq(self, (self.level + 1) as usize);
             Self::max_steps_subtree_positive(self.level as usize);
@@ -1875,6 +1880,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 vstd::arithmetic::div_mod::lemma_div_pos_is_pos(popped_va as int, ps_p as int);
                 assert(nat_align_down(inc_p_va, ps_p) == nat_align_up(popped_va, ps_p));
                 assert(inc_p.va.align_down(popped.level as int) == popped.va.align_up(popped.level as int));
+                // popped.idx + 1 < NR_ENTRIES — derive from popped_too_high state and inv.
+                // (The popped state has level == guard_level, and idx == va.index[level-1] == 0
+                //  because of cursor inv line 526, so idx + 1 == 1 < NR_ENTRIES.)
+                assert(popped.index() + 1 < NR_ENTRIES);
                 assert(popped.move_forward_owner_spec().va == inc_p.zero_below_level().va);
             }
             assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);

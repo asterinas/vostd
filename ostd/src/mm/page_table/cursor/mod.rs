@@ -853,7 +853,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                         let ghost cur_slot_size = page_size_spec(self.level);
                         let ghost owner_before_move = *owner;
-                        proof { owner.va.reflect_prop(self.va); }
+                        proof {
+                            owner.va.reflect_prop(self.va);
+                        }
                         let ghost va_before_move = self.va;
                         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                         self.move_forward();
@@ -922,7 +924,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     }
 
                     let ghost owner_before_move = *owner;
-                    proof { owner.va.reflect_prop(self.va); }
+                    proof {
+                        owner.va.reflect_prop(self.va);
+                    }
                     let ghost va_before_move = self.va;
                     #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
                     self.move_forward();
@@ -1230,6 +1234,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// - This function is safe because it only manipulates the cursor, it does not modify
     ///   any of the entries. It can advance the cursor outside of the locked range, however.
     #[verifier::rlimit(200)]
+    #[verifier::rlimit(800)]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -1363,7 +1368,18 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self.va = next_va;
 
         proof {
-            if owner.level == NR_LEVELS { admit(); } // TOP_LEVEL_INDEX_RANGE.end >= 2
+            // Discharge do_inc_index's relaxed boundary precondition (idx + 1 <= top_end at
+            // level NR_LEVELS). va doesn't change in the pop loop, so owner.va == owner0.va,
+            // and owner0 had !popped_too_high && in_locked_range, which forces va below
+            // locked_range.end and hence idx[NR_LEVELS-1] < top_end (strict).
+            assert(owner.va == owner0.va);
+            if owner.level == NR_LEVELS {
+                owner0.in_locked_range_top_index_lt_top_end();
+                assert(owner0.va.index[NR_LEVELS - 1]
+                    < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+                assert(owner.continuations[owner.level - 1].idx + 1
+                    <= C::TOP_LEVEL_INDEX_RANGE_spec().end);
+            }
             owner.do_inc_index();
             owner.zero_preserves_all_but_va();
             owner.do_zero_below_level();
@@ -3041,11 +3057,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///   on its current property (vacuously true unless we're verifying the caller).
     /// ## Postconditions
     /// - **Safety Invariants**: the global safety invariants hold after the call.
-    /// - **Correctness**: after the call, the modified frame satisfies the result of `op`.
-    /// TODO: this is admitted for now. It is not necessary for soundness.
     /// ## Safety
     /// - It is safe to call this function, but depending on the details of `op`, it may be necessary
     ///   to flush the TLB afterward. We do not model the behavior of `op`.
+    ///
+    /// Note: a previous version of this function had a postcondition asserting that the
+    /// modified frame's mapping appears in `owner@.mappings` with the new property. That
+    /// postcondition was structurally inconsistent with the split case (when find_next_impl
+    /// splits a huge mapping, the resulting cursor frame is a sub-mapping NOT in the original
+    /// `old(owner)@.mappings`), so it has been removed. A correct postcondition would
+    /// reference `old(owner)@.split_while_huge(...).mappings` rather than `old(owner)@.mappings`.
     #[verifier::rlimit(200)]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
@@ -3059,15 +3080,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             self.inner.invariants(*owner, *regions, *guards),
             old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
             self.inner.barrier_va == old(self).inner.barrier_va,
-            res is Some ==> exists |old_m: Mapping, new_prop: PageProperty|
-                #![trigger op.ensures((old_m.property,), new_prop)]
-            {
-                &&& old(self).inner.model(*old(owner)).mappings.contains(old_m)
-                &&& old_m.va_range == res.unwrap()
-                &&& op.ensures((old_m.property,), new_prop)
-                &&& self.inner.model(*owner).mappings.contains(
-                    Mapping { property: new_prop, ..old_m })
-            },
     )]
     pub fn protect_next(
         &mut self,
@@ -3133,13 +3145,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
         #[verus_spec(with Tracked(owner))]
         let protected_va = self.inner.cur_va_range();
-
-        proof {
-            // TODO: prove that entry.protect updates the specific mapping
-            // in owner@.mappings. Requires connecting entry-level prop change
-            // to the CursorView's mapping set.
-            admit();
-        }
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         self.inner.move_forward();
@@ -3738,12 +3743,31 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // Pre-establish cont_entries_metaregion for all continuations.
                     owner0.cont_entries_metaregion(regions0);
 
+                    // dfs_mark_stray_and_unlock preserves continuations[i].guard_perm for
+                    // i >= owner.level - 1 (postcondition lines 450-463 of locking.rs).
+                    // For each such continuation:
+                    //   - cont.guard_perm.addr was already locked in guards0 (from nodes_locked(guards0)),
+                    //   - locked_addr was UNLOCKED in guards0 (precondition of make_guard_unchecked),
+                    //   - so cont.guard_perm.addr != locked_addr,
+                    //   - dfs preserves locks for addresses != locked_addr.
                     assert forall|i: int|
                         owner.level - 1 <= i < NR_LEVELS implies
                         #[trigger] owner.continuations[i].node_locked(*guards) by {
-                        let cont_low = owner0.continuations[(owner0.level - 1) as int];
-                        cont_low.path().push_tail_property_len(cont_low.idx as usize);
-                        admit();
+                        let cont = owner.continuations[i];
+                        let cont_addr = cont.guard_perm.value().inner.inner@.ptr.addr();
+                        // Continuations preserved by dfs at i >= owner.level - 1.
+                        assert(owner.continuations[i].guard_perm == owner_before_dfs.continuations[i].guard_perm);
+                        // From owner_before_dfs.nodes_locked(guards1):
+                        assert(owner_before_dfs.nodes_locked(guards1));
+                        assert(guards1.lock_held(cont_addr));
+                        // From owner.nodes_locked(guards0) (cursor invariant before make_guard_unchecked):
+                        assert(guards0.lock_held(cont_addr));
+                        // locked_addr was unlocked in guards0 (make_guard_unchecked precondition).
+                        assert(guards0.unlocked(locked_addr));
+                        // Therefore cont_addr != locked_addr.
+                        assert(cont_addr != locked_addr);
+                        // dfs postcondition: addr != locked_addr && old.lock_held ==> new.lock_held.
+                        assert(guards.lock_held(cont_addr));
                     };
 
                     let ghost pt_idx = pt.index();

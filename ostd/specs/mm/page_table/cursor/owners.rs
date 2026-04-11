@@ -505,7 +505,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // managed range. This ensures cursors for UserPtConfig and KernelPtConfig operate
         // on disjoint portions of the virtual address space.
         &&& C::TOP_LEVEL_INDEX_RANGE_spec().start <= self.va.index[NR_LEVELS - 1]
-        &&& self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end
+        // The top index may equal TOP_LEVEL_INDEX_RANGE.end as a "one-past-end"
+        // sentinel meaning the cursor has been advanced past the very last in-range
+        // top-level slot. In this state the cursor is `above_locked_range`.
+        &&& self.va.index[NR_LEVELS - 1] <= C::TOP_LEVEL_INDEX_RANGE_spec().end
         // The cursor's VA is always at or above the start of the locked range.
         &&& self.in_locked_range() || self.above_locked_range()
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
@@ -518,6 +521,10 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         }
         &&& self.prefix.inv()
         &&& forall|i: int| i < self.guard_level ==> self.prefix.index[i] == 0
+        // The prefix's top-level index is within the configured page-table range.
+        // This is established at construction (when prefix == va, which itself starts
+        // strictly in-range) and preserved by all cursor operations (none touch prefix).
+        &&& self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end
         // The cursor's VA shares upper indices with the prefix as long as
         // the cursor hasn't popped above guard_level.
         &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
@@ -827,7 +834,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).level <= old(self).guard_level,
             old(self).continuations[old(self).level - 1].idx + 1 < NR_ENTRIES,
             old(self).level == NR_LEVELS ==>
-                (old(self).continuations[old(self).level - 1].idx + 1) < C::TOP_LEVEL_INDEX_RANGE_spec().end,
+                (old(self).continuations[old(self).level - 1].idx + 1) <= C::TOP_LEVEL_INDEX_RANGE_spec().end,
         ensures
             self.inv(),
             *self == old(self).inc_index(),
@@ -853,6 +860,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
         if old(self).popped_too_high { old(self).in_locked_range_prefix_match(); }
         assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);
+        // The new prefix.index[NR_LEVELS-1] < top_end clause is preserved trivially
+        // (prefix is unchanged); make this explicit for the postcondition.
+        assert(self.prefix == old(self).prefix);
+        assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
     }
 
     pub proof fn inc_and_zero_increases_va(self)
@@ -1567,6 +1578,35 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures self.level < NR_LEVELS,
     {
         self.in_locked_range_level_lt_guard_level();
+    }
+
+    /// When the cursor is in the locked range and not popped, its top-level
+    /// index is strictly less than `TOP_LEVEL_INDEX_RANGE.end` (the relaxed inv
+    /// only allows `<=`, but the operational state is strict).
+    pub proof fn in_locked_range_top_index_lt_top_end(self)
+        requires
+            self.inv(),
+            self.in_locked_range(),
+            !self.popped_too_high,
+        ensures
+            self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end,
+    {
+        // From in_locked_range && !popped_too_high we get level < guard_level.
+        self.in_locked_range_level_lt_guard_level();
+        if self.guard_level as int == NR_LEVELS as int {
+            // Cursor inv (line `va.index[guard_level - 1] == 0` clause): when
+            // !popped_too_high && level < guard_level, va.index[guard_level - 1] == 0.
+            // With guard_level == NR_LEVELS, this gives va.index[NR_LEVELS - 1] == 0,
+            // and TOP_LEVEL_INDEX_RANGE.start < TOP_LEVEL_INDEX_RANGE.end so 0 < top_end.
+            assert(self.va.index[self.guard_level - 1] == 0);
+            assert(self.va.index[NR_LEVELS - 1] == 0);
+        } else {
+            // guard_level < NR_LEVELS, so NR_LEVELS - 1 is in [guard_level, NR_LEVELS).
+            // Cursor inv: !popped_too_high ==> va.index[i] == prefix.index[i] for that range.
+            // Combined with the new prefix.index[NR_LEVELS - 1] < top_end inv clause.
+            assert(self.va.index[NR_LEVELS - 1]
+                == self.prefix.index[NR_LEVELS - 1]);
+        }
     }
 
     pub proof fn in_locked_range_level_lt_guard_level(self)
