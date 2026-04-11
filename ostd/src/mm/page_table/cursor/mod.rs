@@ -464,6 +464,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     proof {
                         assert(slot_own.inner_perms.ref_count.id() ==
                             old_regions.slot_owners[idx].inner_perms.ref_count.id());
+                        // Ref count bounds for clone:
+                        //   - 0 < rc: frames in the page table are always in active use,
+                        //     never in UNDER_CONSTRUCTION (rc=0). Currently not tracked in
+                        //     metaregion_sound — would require strengthening the invariant.
+                        //   - rc + 1 < REF_COUNT_MAX: increment doesn't overflow into the
+                        //     reserved REF_COUNT_MAX..=REF_COUNT_UNUSED range. Requires either
+                        //     a global cardinality argument on shared count or runtime check.
+                        // TODO: track these via either a strengthened metaregion_sound
+                        //   invariant or a runtime check at the clone call site.
                         assume(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value()
                             && old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX);
                         regions.slot_owners.tracked_insert(idx, slot_own);
@@ -487,6 +496,26 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 by {
                     if e.is_node() || e.is_frame() {
                         regions.inv_implies_correct_addr(e.meta_slot_paddr().unwrap());
+                    }
+                    if e.is_frame() && e.parent_level > 1 {
+                        // For any 4KB sub-page j > 0 of e, the sub-page slot at sub_idx is either:
+                        //   - equal to the cursor's idx: rc went from rc to rc+1, still != UNUSED.
+                        //   - different from idx: slot is entirely unchanged.
+                        // Either way the sub-page validity conditions hold in *regions.
+                        let pa = e.frame.unwrap().mapped_pa;
+                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
+                        assert forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                            0 < j < nr_pages implies {
+                            let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            &&& regions.slots.contains_key(sub_idx)
+                            &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        } by {
+                            let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            assert(old(regions).slots.contains_key(sub_idx));
+                            assert(old(regions).slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                            assert(regions.slots.contains_key(sub_idx));
+                            assert(regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                        }
                     }
                 };
             }
@@ -991,20 +1020,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         };
                     }
 
-                    // Sub-page slot validity for huge-page split.
-                    // TODO: derive from physical memory allocator invariant.
-                    assume(child_owner.value.is_frame() && parent_owner.level > 1 ==> {
-                        let pa = child_owner.value.frame.unwrap().mapped_pa;
-                        let sub_level = (parent_owner.level - 1) as PagingLevel;
-                        forall |j: usize| #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                            j < NR_ENTRIES ==> {
-                            &&& regions.slots.contains_key(frame_to_index((pa + j * page_size(sub_level)) as usize))
-                            &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                                .inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                            &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                                .path_if_in_pt is None
+                    // Sub-page slot validity for huge-page split: from frame_sub_pages_valid
+                    // (part of metaregion_sound for frames at parent_level > 1).
+                    proof {
+                        assert(child_owner.value.metaregion_sound(*regions));
+                        if child_owner.value.is_frame() {
+                            assert(child_owner.value.frame_sub_pages_valid(*regions));
                         }
-                    });
+                    }
                     let split_child = (
                     #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
                         Tracked(guards), Tracked(&mut continuation.guard_perm))]
@@ -2143,21 +2166,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut child_owner = continuation.take_child();
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
-        // Sub-page slot validity: all pages of the huge frame have valid metadata.
-        // TODO: derive from physical memory allocator invariant.
-        assume(child_owner.value.is_frame() && parent_owner.level > 1 ==>
-            {
-                let pa = child_owner.value.frame.unwrap().mapped_pa;
-                let sub_level = (parent_owner.level - 1) as PagingLevel;
-                forall |j: usize| #![trigger frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                    j < NR_ENTRIES ==> {
-                    &&& regions.slots.contains_key(frame_to_index((pa + j * page_size(sub_level)) as usize))
-                    &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                        .inner_perms.ref_count.value() != REF_COUNT_UNUSED
-                    &&& regions.slot_owners[frame_to_index((pa + j * page_size(sub_level)) as usize)]
-                        .path_if_in_pt is None
-                }
-            });
+        // Sub-page slot validity: from frame_sub_pages_valid (part of metaregion_sound for frames).
+        proof {
+            assert(child_owner.value.metaregion_sound(*regions));
+            if child_owner.value.is_frame() {
+                assert(child_owner.value.frame_sub_pages_valid(*regions));
+            }
+        }
         let split_child = (
         #[verus_spec(with Tracked(&mut child_owner), Tracked(&mut parent_owner), Tracked(regions),
                 Tracked(guards), Tracked(&mut continuation.guard_perm))]
@@ -3161,7 +3176,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
     ///   subtree's VA range and mapping count.
     /// - **Correctness**: `path_if_in_pt` is preserved for all metadata slots except
     ///   the one belonging to `new_owner.value`.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(800)]
     #[verus_spec(
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(new_owner): Tracked<OwnerSubtree<C>>,
@@ -3381,6 +3396,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                                     // Frame at new_idx2: slots unchanged, slot_owners fields
                                     // besides path_if_in_pt unchanged → metaregion_sound preserved.
                                 }
+                                // Sub-page validity preservation (for frames with parent_level > 1):
+                                // The change at new_idx2 only affects path_if_in_pt, which
+                                // sub-page validity no longer depends on.
+                                if e.is_frame() && e.parent_level > 1 {
+                                    assert(e.frame_sub_pages_valid(*regions));
+                                }
                             }
                         };
                     };
@@ -3433,6 +3454,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
                             if eidx == new_idx2 && e.is_node() {
                                 assert(regions0.slot_owners[new_idx2].path_if_in_pt is None);
+                            }
+                            if e.is_frame() && e.parent_level > 1 {
+                                assert(e.frame_sub_pages_valid(*regions));
                             }
                         }
                     };

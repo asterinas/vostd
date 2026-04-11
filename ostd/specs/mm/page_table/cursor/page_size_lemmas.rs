@@ -146,6 +146,30 @@ proof fn lemma_page_size_spec_values()
     vstd::bits::lemma_usize_pow2_no_overflow(48);
 }
 
+/// `(page_size(level) / PAGE_SIZE) * PAGE_SIZE == page_size(level)` for level in [1, NR_LEVELS+1].
+/// page_size(level) is divisible by PAGE_SIZE so the integer division is exact.
+pub proof fn lemma_page_size_div_mul_eq(level: PagingLevel)
+    requires
+        1 <= level <= NR_LEVELS + 1,
+    ensures
+        (page_size_spec(level) / PAGE_SIZE) * PAGE_SIZE == page_size_spec(level),
+{
+    lemma_page_size_spec_values();
+}
+
+/// `NR_ENTRIES * page_size(level - 1) == page_size(level)` for level in [2, NR_LEVELS + 1].
+/// A huge page at `level` consists of NR_ENTRIES sub-pages each of size `page_size(level - 1)`.
+pub proof fn lemma_nr_entries_times_sub_page_size(level: PagingLevel)
+    requires
+        2 <= level <= NR_LEVELS + 1,
+    ensures
+        crate::specs::arch::mm::NR_ENTRIES as int * page_size_spec((level - 1) as PagingLevel) as int
+            == page_size_spec(level) as int,
+{
+    lemma_page_size_spec_values();
+    crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+}
+
 /// page_size(l2) is divisible by page_size(l1) when l1 <= l2.
 /// This holds because page_size(l) = PAGE_SIZE * 512^(l-1), so
 /// page_size(l2) / page_size(l1) = 512^(l2-l1), which is a positive integer.

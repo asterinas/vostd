@@ -2357,6 +2357,18 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             res == Self::new_spec(owner_subtree, idx, guard_perm);
 
+    pub proof fn lemma_page_size_spec_5_eq_pow2_48()
+        ensures
+            page_size_spec(5) == pow2(48nat) as usize,
+    {
+        crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
+        vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        vstd::arithmetic::power2::lemma_pow2_adds(12nat, 36nat);
+    }
+
+    #[verifier::rlimit(300)]
     pub proof fn jump_above_locked_range_va_in_node(
         self,
         va: Vaddr,
@@ -2403,13 +2415,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             lemma_nat_align_down_within_block(pv, ps_gl, ps_gl1);
         } else {
             // guard_level == NR_LEVELS: ps_gl1 covers the entire VA space.
+            Self::lemma_page_size_spec_5_eq_pow2_48();
             crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             vstd::arithmetic::power2::lemma2_to64();
             vstd::arithmetic::power2::lemma2_to64_rest();
-            assert(page_size_spec(5) == pow2(48nat) as usize) by {
-                vstd::arithmetic::power2::lemma_pow2_adds(12nat, 36nat);
-            };
             self.va.to_vaddr_bounded();
             self.va.to_vaddr_indices_gap_bound(0);
             assert(node_start == 0) by {

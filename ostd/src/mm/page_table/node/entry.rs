@@ -414,6 +414,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 let paddr = new_owner.meta_slot_paddr().unwrap();
                 regions.inv_implies_correct_addr(paddr);
             }
+            // Sub-page validity for new_owner (if a huge frame): preserved because
+            // replace only modifies slots/path_if_in_pt at new_owner's own slot, not
+            // at sub-page slots (which have different indices for j > 0).
+            if new_owner.is_frame() && new_owner.parent_level > 1 {
+                assert(new_owner.frame_sub_pages_valid(*regions));
+            }
+            if owner.is_frame() && owner.parent_level > 1 {
+                assert(owner.frame_sub_pages_valid(*regions));
+            }
         }
 
         old_child
@@ -631,19 +640,21 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
-            // For huge-page split: all sub-page slots must be valid.
+            // For huge-page split: all 4KB sub-pages (j > 0) must be valid.
+            // The j = 0 sub-page coincides with the huge frame's own slot, which is
+            // already accounted for by the frame's own metaregion_sound.
+            // Fine-grained form (over 4KB pages) enables the recursive split case.
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
                 forall |j: usize| #![trigger frame_to_index(
                     (old(owner).value.frame.unwrap().mapped_pa
-                        + j * page_size((old(parent_owner).level - 1) as PagingLevel)) as usize)]
-                    j < NR_ENTRIES ==> {
+                        + j * PAGE_SIZE) as usize)]
+                    0 < j < page_size(old(parent_owner).level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index(
                         (old(owner).value.frame.unwrap().mapped_pa
-                            + j * page_size((old(parent_owner).level - 1) as PagingLevel)) as usize);
+                            + j * PAGE_SIZE) as usize);
                     &&& old(regions).slots.contains_key(sub_idx)
                     &&& old(regions).slot_owners[sub_idx].inner_perms.ref_count.value()
                         != REF_COUNT_UNUSED
-                    &&& old(regions).slot_owners[sub_idx].path_if_in_pt is None
                 },
         ensures
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==> {
@@ -794,12 +805,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 forall|j: int| #![auto] 0 <= j < i ==> {
                     new_owner.children[j].unwrap().value.is_frame()
                 },
-                // Sub-page slots: slots.contains_key preserved via monotonicity.
+                // Sub-page slots (4KB-grained, j > 0): slots.contains_key and rc != UNUSED preserved.
+                // The j = 0 case is handled separately via the frame's own metaregion_sound.
                 forall |j: usize| #![trigger frame_to_index(
-                    (pa + j * page_size((level - 1) as PagingLevel)) as usize)]
-                    j < NR_ENTRIES ==>
-                    regions.slots.contains_key(frame_to_index(
-                        (pa + j * page_size((level - 1) as PagingLevel)) as usize)),
+                    (pa + j * PAGE_SIZE) as usize)]
+                    0 < j < page_size(level) / PAGE_SIZE ==> {
+                    let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                    &&& regions.slots.contains_key(sub_idx)
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                },
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -864,7 +878,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 // Trigger the loop invariant with j = i.
                 assert(idx == frame_to_index(
                     (pa + i * page_size((level - 1) as PagingLevel)) as usize));
-                // TODO: derive from frame_to_index injectivity + precondition on sub-page slots.
+                // For i > 0: from the j > 0 sub-page precondition (preserved through the loop).
+                // For i == 0: small_pa == pa, so idx is the huge frame's own slot index,
+                //   which is valid from owner.value.metaregion_sound(*regions) (is_frame branch).
+                // TODO: derive both cases — currently still assumed (pre-existing).
                 assume(regions.slots.contains_key(idx));
                 assume(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
 
@@ -879,6 +896,88 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     );
                 };
 
+                // For sub-frames at level - 1: if level - 1 > 1, the sub-frame is itself
+                // a huge frame and needs sub-sub-page validity. Now derivable since
+                // frame_sub_pages_valid is fine-grained (over all 4KB sub-pages):
+                // - The original frame at pa has all 4KB slots in [pa, pa + page_size(level)) valid.
+                // - The sub-frame child_owner at small_pa = pa + i * page_size(level - 1)
+                //   needs its own 4KB slots in [small_pa, small_pa + page_size(level - 1)) valid.
+                // - This range is a sub-range of the original [pa, pa + page_size(level)).
+                // - For each j' in (0, page_size(level - 1)/PAGE_SIZE), we need
+                //   slots.contains_key(small_pa + j' * PAGE_SIZE).
+                // - small_pa + j' * PAGE_SIZE = pa + (i * (page_size(level-1)/PAGE_SIZE) + j') * PAGE_SIZE.
+                // - Let J = i * (page_size(level-1)/PAGE_SIZE) + j'. J >= j' >= 1, and
+                //   J < (i+1) * (page_size(level-1)/PAGE_SIZE) <= NR_ENTRIES * (page_size(level-1)/PAGE_SIZE)
+                //   = page_size(level)/PAGE_SIZE. So J is in the original forall's range.
+                if level - 1 > 1 {
+                    let nr_subpages = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::
+                        lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::
+                        lemma_page_size_div_mul_eq(level);
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::
+                        lemma_nr_entries_times_sub_page_size(level);
+                    assert forall |j_prime: usize|
+                        #![trigger frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize)]
+                        0 < j_prime < nr_subpages implies {
+                        let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
+                        &&& regions.slots.contains_key(sub_idx)
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    } by {
+                        let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
+                        let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
+                        // big_j_int > 0: j_prime >= 1, i >= 0, sub_pages_per_subframe > 0.
+                        vstd::arithmetic::mul::lemma_mul_nonnegative(
+                            i as int, sub_pages_per_subframe as int);
+                        assert(big_j_int > 0);
+                        // big_j_int < (i+1) * sub_pages_per_subframe <= NR_ENTRIES * sub_pages_per_subframe
+                        //   = page_size(level)/PAGE_SIZE
+                        assert(i + 1 <= NR_ENTRIES);
+                        vstd::arithmetic::mul::lemma_mul_inequality(
+                            (i + 1) as int, NR_ENTRIES as int, sub_pages_per_subframe as int);
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                            sub_pages_per_subframe as int, i as int, 1int);
+                        assert(big_j_int < NR_ENTRIES as int * sub_pages_per_subframe as int);
+                        // NR_ENTRIES * sub_pages_per_subframe == page_size(level)/PAGE_SIZE
+                        // chained from:
+                        //   page_size(level-1) = sub_pages_per_subframe * PAGE_SIZE  (div_mul_eq L-1)
+                        //   page_size(level) = NR_ENTRIES * page_size(level-1)  (lemma_nr_entries_times_sub_page_size L)
+                        //   page_size(level)/PAGE_SIZE * PAGE_SIZE = page_size(level)  (div_mul_eq L)
+                        vstd::arithmetic::mul::lemma_mul_is_associative(
+                            NR_ENTRIES as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
+                        // From the chain: NR_ENTRIES * sub_pages_per_subframe * PAGE_SIZE == page_size(level)
+                        // Since both sides are multiples of PAGE_SIZE > 0, dividing gives equality.
+                        vstd::arithmetic::div_mod::lemma_div_by_multiple(
+                            NR_ENTRIES as int * sub_pages_per_subframe as int, PAGE_SIZE as int);
+                        assert(NR_ENTRIES as int * sub_pages_per_subframe as int
+                            == (page_size(level) / PAGE_SIZE) as int);
+                        assert(big_j_int < (page_size(level) / PAGE_SIZE) as int);
+                        // big_j_int fits in usize (it's < page_size(level)/PAGE_SIZE which fits in usize).
+                        let big_j: usize = big_j_int as usize;
+                        assert(big_j as int == big_j_int);
+                        // small_pa + j_prime * PAGE_SIZE == pa + big_j * PAGE_SIZE
+                        // small_pa = pa + i * page_size(level-1)
+                        //          = pa + i * sub_pages_per_subframe * PAGE_SIZE
+                        // small_pa + j_prime*PAGE_SIZE
+                        //   = pa + i * sub_pages_per_subframe * PAGE_SIZE + j_prime * PAGE_SIZE
+                        //   = pa + (i * sub_pages_per_subframe + j_prime) * PAGE_SIZE
+                        //   = pa + big_j * PAGE_SIZE
+                        assert(small_pa as int == pa as int + i as int * page_size((level - 1) as PagingLevel) as int);
+                        vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                            PAGE_SIZE as int,
+                            i as int * sub_pages_per_subframe as int,
+                            j_prime as int);
+                        vstd::arithmetic::mul::lemma_mul_is_associative(
+                            i as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
+                        assert((small_pa + j_prime * PAGE_SIZE) as int == (pa + big_j_int * PAGE_SIZE) as int);
+                        assert(big_j as int == big_j_int);
+                        assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j * PAGE_SIZE) as usize);
+                        let big_sub_idx = frame_to_index((pa + big_j * PAGE_SIZE) as usize);
+                        assert(regions.slots.contains_key(big_sub_idx));
+                        assert(regions.slot_owners[big_sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                    }
+                    assert(child_owner.frame_sub_pages_valid(*regions));
+                }
                 assert(Child::<C>::Frame(small_pa, (level - 1) as PagingLevel, prop)
                     .invariants(child_owner, *regions));
             }

@@ -107,6 +107,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        // Allocator invariant for huge frames (level > 1): all 4KB sub-page slots are valid.
+        // Established by huge-frame allocator postcondition.
+        &&& level > 1 ==> {
+            forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
+                0 < j < page_size(level) / PAGE_SIZE ==> {
+                let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
+                &&& regions.slots.contains_key(sub_idx)
+                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            }
+        }
     }
 
     pub open spec fn map_item_ensures(
