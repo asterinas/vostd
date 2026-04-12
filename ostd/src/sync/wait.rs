@@ -119,16 +119,6 @@ impl WaitQueue {
             }
             waiter.wait();
         }
-<<<<<<< HEAD
-        waiter.wait_until_or_cancelled(
-            cond,
-            || -> (ret: Result<(), ()>)
-                ensures
-                    ret == Ok::<(), ()>(()),
-                { Ok::<(), ()>(()) },
-        ).unwrap()
-=======
->>>>>>> vostd/main
     }
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is

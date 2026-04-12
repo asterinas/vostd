@@ -703,7 +703,7 @@ impl VirtPtr {
                     mem_dst.addr_transl(i) == mem0.addr_transl(i)
                 );
                 assert forall|i: usize|
-                    dst.vaddr <= i < dst.vaddr + n - 1 ==> mem_dst.addr_transl(i) is Some by {
+                    dst.vaddr <= i < dst.vaddr + n - 1 implies mem_dst.addr_transl(i) is Some by {
                     assert(mem_dst.addr_transl(i) == mem0.addr_transl(i));
                 }
             }

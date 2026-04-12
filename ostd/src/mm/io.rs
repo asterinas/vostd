@@ -1089,11 +1089,11 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
                 *self,
                 offset,
                 *old(writer),
-                *writer,
+                *final(writer),
                 *old(writer_own),
-                *writer_own,
+                *final(writer_own),
                 *old(owner),
-                *owner,
+                *final(owner),
                 r,
             ),
     ;
@@ -1125,11 +1125,11 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
                 *self,
                 offset,
                 *old(reader),
-                *reader,
+                *final(reader),
                 *old(writer_own),
-                *writer_own,
+                *final(writer_own),
                 *old(owner),
-                *owner,
+                *final(owner),
                 r,
             ),
     ;
@@ -1164,8 +1164,8 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //     ),
     ;
 
-    fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
-        Result<()>)
+    // fn write_val<T: Pod>(&self, offset: usize, val: T, Tracked(owner): Tracked<&mut P>) -> (r:
+    //     Result<()>)
     // requires
     //     Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
     //         *self,
@@ -1180,30 +1180,30 @@ pub trait VmIo<P: Sized>: Send + Sync + Sized {
     //         *owner,
     //         r,
     //     ),
-    ;
+    // ;
 
-    fn write_slice<T: Pod, const N: usize>(
-        &self,
-        offset: usize,
-        slice: ArrayPtr<T, N>,
-        Tracked(slice_owner): Tracked<&mut PointsToArray<T, N>>,
-        Tracked(owner): Tracked<&mut P>,
-    ) -> (r: Result<()>)
-        requires
-            Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
-                *self,
-                *old(owner),
-                offset,
-            ),
-        ensures
-            Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
-                *self,
-                *old(owner),
-                offset,
-                *final(owner),
-                r,
-            ),
-    ;
+    // fn write_slice<T: Pod, const N: usize>(
+    //     &self,
+    //     offset: usize,
+    //     slice: ArrayPtr<T, N>,
+    //     Tracked(slice_owner): Tracked<&mut PointsToArray<T, N>>,
+    //     Tracked(owner): Tracked<&mut P>,
+    // ) -> (r: Result<()>)
+    //     requires
+    //         Self::obeys_vmio_write_requires() ==> Self::vmio_write_requires(
+    //             *self,
+    //             *old(owner),
+    //             offset,
+    //         ),
+    //     ensures
+    //         Self::obeys_vmio_write_ensures() ==> Self::vmio_write_ensures(
+    //             *self,
+    //             *old(owner),
+    //             offset,
+    //             *final(owner),
+    //             r,
+    //         ),
+    // ;
 }
 
 /// A trait that enables reading/writing data from/to a VM object using one non-tearing memory

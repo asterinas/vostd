@@ -587,7 +587,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         ensures
             this@.data.direction == DmaDirection::ToDevice ==> {
                 &&& r == Err::<(), Error>(Error::AccessDenied)
-                &&& *writer == *old(writer)
+                &&& *final(writer) == *old(writer)
             },
     )]
     pub fn read_inner_vmio(
@@ -615,7 +615,7 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         ensures
             this@.data.direction == DmaDirection::FromDevice ==> {
                 &&& r == Err::<(), Error>(Error::AccessDenied)
-                &&& *reader == *old(reader)
+                &&& *final(reader) == *old(reader)
             },
     )]
     pub fn write_inner_vmio(

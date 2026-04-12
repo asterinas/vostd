@@ -1282,8 +1282,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     };
                 }
             }
-        }
-
         proof {
             cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
 
@@ -1317,7 +1315,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             assert forall|m: Mapping| #[trigger]
                 new_view.mappings.contains(m) implies old_view.mappings.contains(m) || exists|
-                parent: Mapping,
+                parent: Mapping
             | #[trigger]
                 old_view.mappings.contains(parent) && parent.va_range.start <= m.va_range.start
                     && m.va_range.end <= parent.va_range.end && m.pa_range.start == (
