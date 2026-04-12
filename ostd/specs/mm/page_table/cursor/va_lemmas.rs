@@ -207,6 +207,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),
+            self@.present(),
         ensures
             self.cur_va_range().start.reflect(self@.query_range().start),
             self.cur_va_range().end.reflect(self@.query_range().end),

@@ -490,7 +490,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             let size = page_size(level);
 
             proof {
-                owner.cur_va_range_reflects_view();
+                if owner.cur_entry_owner().is_frame() {
+                    owner.cur_entry_frame_present();
+                    owner.cur_va_range_reflects_view();
+                }
                 assert forall |e: EntryOwner<C>|
                     #[trigger] e.inv() && e.metaregion_sound(*old(regions)) implies e.metaregion_sound(*regions)
                 by {
