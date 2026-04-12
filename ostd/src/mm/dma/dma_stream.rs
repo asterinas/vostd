@@ -253,6 +253,42 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
         this.segment.start_paddr()
     }
 
+    /// Returns the number of frames from a read guard.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The caller must hold the [`DmaStreaInnerOwner`] invariant for the inner data of the [`DmaStream`].
+    /// ## Postconditions
+    /// - The returned frame count matches the size of the inner segment.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            this@.inv(),
+        returns
+            this@.data.segment.size() / PAGE_SIZE,
+    )]
+    fn nframes_inner(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> usize {
+        this.segment.size() / PAGE_SIZE
+    }
+
+    /// Returns the number of bytes from a read guard.
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// - The caller must hold the [`DmaStreaInnerOwner`] invariant for the inner data of the [`DmaStream`].
+    /// ## Postconditions
+    /// - The returned byte count matches the size of the inner segment.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            this@.inv(),
+        returns
+            this@.data.segment.size(),
+    )]
+    fn nbytes_inner(this: &RwLockReadGuard<DmaStreanInnerAtomic<M>, PreemptDisabled>) -> usize {
+        this.segment.size()
+    }
+
     /// Returns a reader to read data from it using a read guard.
     ///
     /// # Verified Properties
@@ -479,6 +515,42 @@ impl<M: AnyUFrameMeta + ?Sized + OwnerOf> DmaStream<M> {
     pub fn paddr(&self) -> Paddr {
         let inner = self.read_inner();
         Self::paddr_inner(&inner)
+    }
+
+    // /// Returns the underlying [`Segment<M>`].
+    // ///
+    // /// This cannot currently mirror the simplified API because the segment
+    // /// is accessed through a temporary `RwLockReadGuard`, so an `&Segment<M>`
+    // /// would be tied to the guard rather than to `&self`.
+    // pub fn segment(&self) -> &Segment<M> {
+    //     let inner = self.read_inner();
+    //     &inner.segment
+    // }
+
+    /// Returns the number of frames.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+    )]
+    pub fn nframes(&self) -> usize {
+        let inner = self.read_inner();
+        Self::nframes_inner(&inner)
+    }
+
+    /// Returns the number of bytes.
+    #[inline(always)]
+    #[verus_spec(r =>
+        requires
+            self.inner.wf(),
+        ensures
+            self.inner.wf(),
+    )]
+    pub fn nbytes(&self) -> usize {
+        let inner = self.read_inner();
+        Self::nbytes_inner(&inner)
     }
 
     /// Returns a reader to read data from it.
