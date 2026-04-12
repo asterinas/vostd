@@ -28,12 +28,6 @@ use super::{
 
 verus! {
 
-axiom fn is_exclusive<T>(tracked value: &mut PointsTo<T>, tracked other: &PointsTo<T>)
-    ensures
-        *value == *old(value),
-        value.id() != other.id(),
-;
-
 const MAX_READER_U64: u64 = MAX_READER as u64;
 
 spec const V_MAX_READ_RETRACT_FRACS_SPEC: u64 = (MAX_READER_MASK + 1) as u64;
@@ -413,6 +407,7 @@ impl<T, G> RwLock<T, G> {
     }
 }
 
+#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Acquires a read lock and spin-wait until it can be acquired.
     ///
@@ -472,6 +467,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a read lock.
     ///
     /// This function will never spin-wait and will return immediately.
+    #[verus_spec]
     pub fn try_read(&self) -> Option<RwLockReadGuard<T, G>> {
         proof_decl!{
             let tracked mut read_token: Option<Frac<ReadPerm<T>,MAX_READER_U64>> = None;
@@ -508,7 +504,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockReadGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(read_token.tracked_unwrap()),
+                    v_token: Tracked(read_token.tracked_unwrap())
                 },
             )
         } else {
@@ -531,6 +527,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
     /// Attempts to acquire a write lock.
     ///
     /// This function will never spin-wait and will return immediately.
+    #[verus_spec]
     pub fn try_write(&self) -> Option<RwLockWriteGuard<T, G>> {
         proof_decl!{
             let tracked mut guard_perm: Option<PointsTo<T>> = None;
@@ -621,7 +618,7 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLock<T, G> {
                 RwLockUpgradeableGuard {
                     inner: self,
                     guard,
-                    v_token: Tracked(upgrade_guard_token.tracked_unwrap()),
+                    v_token: Tracked(upgrade_guard_token.tracked_unwrap())
                 },
             );
         } else if lock == WRITER {
@@ -718,7 +715,8 @@ unsafe impl<T: Sync, G: SpinGuardian> Sync for RwLockUpgradeableGuard<'_, T, G> 
 #[verifier::reject_recursive_types(G)]
 #[clippy::has_significant_drop]
 #[must_use]
-pub struct RwLockReadGuard<'a, T  /*: ?Sized*/ , G: SpinGuardian> {
+#[verus_verify]
+pub struct RwLockReadGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::ReadGuard,
     inner: &'a RwLock<T, G>,
     v_token: Tracked<Frac<ReadPerm<T>, MAX_READER_U64>>,
@@ -789,15 +787,19 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockReadGuard<'_, T, G> {
     }
 } */
 
+#[verus_verify]
 impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockReadGuard<'_, T, G> {
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for `Drop` is incomplete for now.
+    #[verus_spec]
     fn drop(self) {
         proof! {
             use_type_invariant(&self);
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(token) = self.v_token;
+        proof_decl! {
+            let tracked token = self.v_token.get();
+        }
         // self.inner.lock.fetch_sub(READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(READER);
@@ -884,13 +886,23 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> Deref for RwLockWriteGuard<'_, T, G> {
     }
 }
 
-/*
-impl<T: ?Sized, G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.inner.val.get() }
+#[verus_verify]
+impl<T  /*: ?Sized*/ , G: SpinGuardian> DerefMut for RwLockWriteGuard<'_, T, G> {
+    #[verus_spec(ret =>
+        ensures
+            final(self).view() == *final(ret),
+    )]
+    fn deref_mut(&mut self) -> &mut Self::Target 
+    {
+        proof!{
+            use_type_invariant(&*self);
+        }
+        //unsafe { &mut *self.inner.val.get() }
+        pcell_borrow_mut(&self.inner.val, &mut self.v_perm)
     }
 }
 
+/*
 impl<T: ?Sized, G: SpinGuardian> Drop for RwLockWriteGuard<'_, T, G> {
     fn drop(&mut self) {
         self.inner.lock.fetch_and(!WRITER, Release);
@@ -905,8 +917,10 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockWriteGuard<'_, T, G> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(mut perm) = self.v_perm;
-        let Tracked(token) = self.v_token;
+        proof_decl! {
+            let tracked mut perm = self.v_perm.get();
+            let tracked token = self.v_token.get();
+        }
         //self.inner.lock.fetch_and(!WRITER, Release);
         atomic_with_ghost!{
             self.inner.lock => fetch_and(!WRITER);
@@ -1027,8 +1041,8 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
             lemma_consts_properties();
         }
         let mut this = self;
-        let Tracked(upread_guard_token) = this.v_token;
         proof_decl! {
+            let tracked mut upread_guard_token = this.v_token.get();
             let tracked mut write_perm: Option<PointsTo<T>> = None;
             let tracked mut err_upread_guard_token: Option<OneLeftOwner<HalfPerm<T>, NoPerm<T>, 3>> = None;
             let tracked mut retract_upgrade_token: Option<UniqueToken> = None;
@@ -1099,7 +1113,7 @@ impl<'a, T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'a, T, G> {
                 },
             )
         } else {
-            Err(
+            Err(       
                 RwLockUpgradeableGuard {
                     inner: this.inner,
                     guard: this.guard,
@@ -1140,7 +1154,9 @@ impl<T  /*: ?Sized*/ , G: SpinGuardian> RwLockUpgradeableGuard<'_, T, G> {
             use_type_invariant(self.inner);
             lemma_consts_properties();
         }
-        let Tracked(guard_token) = self.v_token;
+        proof_decl!{
+            let tracked guard_token = self.v_token.get();
+        }
         //self.inner.lock.fetch_sub(UPGRADEABLE_READER, Release);
         atomic_with_ghost!(
             self.inner.lock => fetch_sub(UPGRADEABLE_READER);

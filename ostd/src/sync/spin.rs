@@ -175,6 +175,7 @@ impl<T: ?Sized> SpinLock<T, PreemptDisabled> {
     }
 }*/
 
+#[verus_verify]
 impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// Acquires the spin lock.
     ///
@@ -230,6 +231,7 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
     /// If `Some(guard)` is returned, it satisfies its type invariant:
     /// - An exclusive permission to access the protected data is held by the guard.
     /// - The guard's permission matches the lock's internal cell ID.
+    #[verus_spec]
     pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T, G>> {
         let inner_guard = G::guard();
         proof_decl!{
@@ -397,6 +399,7 @@ unsafe impl<T: Send, G> Sync for SpinLock<T, G> {}
 #[verifier::reject_recursive_types(G)]
 #[clippy::has_significant_drop]
 #[must_use]
+#[verus_verify]
 pub struct SpinLockGuard<'a, T /*: ?Sized*/, G: SpinGuardian> {
     guard: G::Guard,
     lock: &'a SpinLock<T, G>,
@@ -428,6 +431,7 @@ impl<T: ?Sized, G: SpinGuardian> AsAtomicModeGuard for SpinLockGuard<'_, T, G> {
     }
 }*/
 
+#[verus_verify]
 impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
     type Target = T;
 
@@ -445,16 +449,23 @@ impl<T: /*?Sized*/, G: SpinGuardian> Deref for SpinLockGuard<'_, T, G> {
         self.lock.inner.val.borrow(Tracked(read_perm))
     }
 }
-}
 
-impl<T /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // unsafe { &mut *self.lock.inner.val.get() }
-        unsafe {
-            let ucell: *const UnsafeCell<T> = (&self.lock.inner.val as *const PCell<T>).cast();
-            &mut *(*ucell).get()
+
+#[verus_verify]
+impl<T: /* ?Sized */, G: SpinGuardian> DerefMut for SpinLockGuard<'_, T, G> {
+    #[verus_spec(ret =>
+        ensures
+            final(self).view() == *final(ret),
+    )]
+    fn deref_mut(&mut self) -> &mut Self::Target
+    {
+        proof!{
+            use_type_invariant(&*self);
         }
+        // unsafe { &mut *self.lock.inner.val.get() }
+        pcell_borrow_mut(&self.lock.inner.val, &mut self.v_perm)
     }
+}
 }
 
 /* impl<T: ?Sized, G: SpinGuardian> Drop for SpinLockGuard<'_, T, G> {

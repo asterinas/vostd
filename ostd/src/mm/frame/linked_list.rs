@@ -200,11 +200,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
         ensures
-            owner.inv(),
-            owner.list == old(owner).list.insert(0, frame_own.meta_own),
-            owner.list_id == old(owner).list_id,
-            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
-            frame_own.meta_own.in_list == old(owner).list_id,
+            final(owner).inv(),
+            final(owner).list == old(owner).list.insert(0, final(frame_own).meta_own),
+            final(owner).list_id == old(owner).list_id,
+            final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
+            final(frame_own).meta_own.in_list == old(owner).list_id,
     )]
     pub fn push_front(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
         let ll = ptr.borrow(Tracked(&perm));
@@ -295,14 +295,14 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 old(regions).slots[old(frame_own).slot_index].value().in_list,
             ),
         ensures
-            owner.inv(),
-            old(owner).list.len() > 0 ==> owner.list == old(owner).list.insert(
-                old(owner).list.len() as int - 1, frame_own.meta_own),
-            old(owner).list.len() == 0 ==> owner.list == old(owner).list.insert(
-                0, frame_own.meta_own),
-            owner.list_id == old(owner).list_id,
-            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
-            frame_own.meta_own.in_list == old(owner).list_id,
+            final(owner).inv(),
+            old(owner).list.len() > 0 ==> final(owner).list == old(owner).list.insert(
+                old(owner).list.len() as int - 1, final(frame_own).meta_own),
+            old(owner).list.len() == 0 ==> final(owner).list == old(owner).list.insert(
+                0, final(frame_own).meta_own),
+            final(owner).list_id == old(owner).list_id,
+            final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
+            final(frame_own).meta_own.in_list == old(owner).list_id,
     )]
     pub fn push_back(ptr: PPtr<Self>, frame: UniqueFrame<Link<M>>) {
         let ll = ptr.borrow(Tracked(&perm));
@@ -388,7 +388,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
                 old(regions).slots[frame_to_index(frame)].mem_contents().value().in_list,
             ),
         ensures
-            old(owner).list_id != 0 ==> *owner == *old(owner),
+            old(owner).list_id != 0 ==> *final(owner) == *old(owner),
     )]
     pub fn contains(ptr: PPtr<Self>, frame: Paddr) -> bool {
         let Ok(slot_ptr) = get_slot(frame) else {
@@ -617,9 +617,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             owner.inv(),
             old(self).wf(owner),
         ensures
-            self.model(owner.move_next_owner_spec()) == old(self).model(owner).move_next_spec(),
+            final(self).model(owner.move_next_owner_spec()) == old(self).model(owner).move_next_spec(),
             owner.move_next_owner_spec().inv(),
-            self.wf(owner.move_next_owner_spec()),
+            final(self).wf(owner.move_next_owner_spec()),
     {
         let ghost old_self = *self;
 
@@ -663,9 +663,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             owner.inv(),
             old(self).wf(owner),
         ensures
-            self.model(owner.move_prev_owner_spec()) == old(self).model(owner).move_prev_spec(),
+            final(self).model(owner.move_prev_owner_spec()) == old(self).model(owner).move_prev_spec(),
             owner.move_prev_owner_spec().inv(),
-            self.wf(owner.move_prev_owner_spec()),
+            final(self).wf(owner.move_prev_owner_spec()),
     {
         let ghost old_self = *self;
 
@@ -762,7 +762,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             res.is_some() ==> res.unwrap().0.model(res.unwrap().1@).meta == old(
                 owner,
             ).list_own.list[old(owner).index]@,
-            res.is_some() ==> self.model(*owner) == old(self).model(*old(owner)).remove(),
+            res.is_some() ==> final(self).model(*final(owner)) == old(self).model(*old(owner)).remove(),
             res.is_some() ==> res.unwrap().1@.frame_link_inv(),
     {
         let ghost owner0 = *owner;
@@ -885,13 +885,13 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
             old(frame_own).meta_perm.addr() == frame.ptr.addr(),
             old(frame_own).frame_link_inv(),
         ensures
-            self.model(*owner) == old(self).model(*old(owner)).insert(frame_own.meta_own@),
-            self.wf(*owner),
-            owner.inv(),
-            owner.list_own.list == old(owner).list_own.list.insert(old(owner).index, frame_own.meta_own),
-            owner.list_own.list_id == old(owner).list_own.list_id,
-            frame_own.meta_own.paddr == old(frame_own).meta_own.paddr,
-            frame_own.meta_own.in_list == old(owner).list_own.list_id,
+            final(self).model(*final(owner)) == old(self).model(*old(owner)).insert(final(frame_own).meta_own@),
+            final(self).wf(*final(owner)),
+            final(owner).inv(),
+            final(owner).list_own.list == old(owner).list_own.list.insert(old(owner).index, final(frame_own).meta_own),
+            final(owner).list_own.list_id == old(owner).list_own.list_id,
+            final(frame_own).meta_own.paddr == old(frame_own).meta_own.paddr,
+            final(frame_own).meta_own.in_list == old(owner).list_own.list_id,
     {
         let ghost owner0 = *owner;
 

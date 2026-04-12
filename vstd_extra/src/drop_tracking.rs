@@ -15,7 +15,7 @@ pub trait TrackDrop {
         requires
             self.constructor_requires(*old(s)),
         ensures
-            self.constructor_ensures(*old(s), *s),
+            self.constructor_ensures(*old(s), *final(s)),
     ;
 
     spec fn drop_requires(self, s: Self::State) -> bool;
@@ -26,7 +26,7 @@ pub trait TrackDrop {
         requires
             self.drop_requires(*old(s)),
         ensures
-            self.drop_ensures(*old(s), *s),
+            self.drop_ensures(*old(s), *final(s)),
     ;
 }
 
@@ -38,7 +38,7 @@ impl<T: TrackDrop> ManuallyDrop<T> {
         requires
             t.constructor_requires(*old(s)),
         ensures
-            t.constructor_ensures(*old(s), *s),
+            t.constructor_ensures(*old(s), *final(s)),
             res.0 == t,
     {
         proof {
@@ -51,7 +51,7 @@ impl<T: TrackDrop> ManuallyDrop<T> {
         requires
             self.0.drop_requires(*old(s)),
         ensures
-            self.0.drop_ensures(*old(s), *s),
+            self.0.drop_ensures(*old(s), *final(s)),
     {
         proof {
             self.0.drop_spec(s);

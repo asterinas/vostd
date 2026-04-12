@@ -22,7 +22,7 @@ pub trait Repr<R: Sized>: Sized {
     fn to_repr(self, Tracked(perm): Tracked<&mut Self::Perm>) -> (res: R)
         ensures
             res == self.to_repr_spec(*old(perm)).0,
-            *perm == self.to_repr_spec(*old(perm)).1,
+            *final(perm) == self.to_repr_spec(*old(perm)).1,
     ;
 
     spec fn from_repr_spec(r: R, perm: Self::Perm) -> Self;
@@ -135,8 +135,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             old(perm).is_init(),
             old(perm).wf(&old(perm).inner_perms),
         ensures
-            perm.pptr() == old(perm).pptr(),
-            perm.mem_contents() == MemContents::Uninit::<T>,
+            final(perm).pptr() == old(perm).pptr(),
+            final(perm).mem_contents() == MemContents::Uninit::<T>,
             v == old(perm).value(),
     {
         proof {
@@ -150,9 +150,9 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
             old(perm).pptr() == self,
             old(perm).mem_contents() == MemContents::Uninit::<T>,
         ensures
-            perm.pptr() == old(perm).pptr(),
-            perm.mem_contents() == MemContents::Init(v),
-            perm.wf(&perm.inner_perms),
+            final(perm).pptr() == old(perm).pptr(),
+            final(perm).mem_contents() == MemContents::Init(v),
+            final(perm).wf(&final(perm).inner_perms),
     {
         proof {
             v.from_to_repr(perm.inner_perms);
@@ -243,22 +243,22 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
     pub axiom fn take_inner_perms(tracked &mut self) -> (tracked result: T::Perm)
         ensures
             result == old(self).inner_perms,
-            self.addr == old(self).addr,
-            self.points_to == old(self).points_to,
+            final(self).addr == old(self).addr,
+            final(self).points_to == old(self).points_to,
     ;
 
     pub axiom fn put_inner_perms(tracked &mut self, tracked perms: T::Perm)
         ensures
-            self.inner_perms == perms,
-            self.addr == old(self).addr,
-            self.points_to == old(self).points_to,
+            final(self).inner_perms == perms,
+            final(self).addr == old(self).addr,
+            final(self).points_to == old(self).points_to,
     ;
 
     pub axiom fn take_points_to(tracked &mut self) -> (tracked result: simple_pptr::PointsTo<R>)
         ensures
             result == old(self).points_to,
-            self.addr == old(self).addr,
-            self.inner_perms == old(self).inner_perms,
+            final(self).addr == old(self).addr,
+            final(self).inner_perms == old(self).inner_perms,
     ;
 }
 

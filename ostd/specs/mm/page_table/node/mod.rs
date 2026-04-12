@@ -43,7 +43,7 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
             old(self).locked(addr),
             old(self).guards[addr] is Some,
         ensures
-            self.lock_held(addr),
+            final(self).lock_held(addr),
             guard == old(self).guards[addr].unwrap(),
     {
         let tracked guard = self.guards.tracked_remove(addr).tracked_unwrap();
@@ -55,8 +55,8 @@ impl<'rcu, C: PageTableConfig> Guards<'rcu, C> {
         requires
             old(self).lock_held(addr),
         ensures
-            self.locked(addr),
-            self.guards[addr] == Some(guard),
+            final(self).locked(addr),
+            final(self).guards[addr] == Some(guard),
     {
         let _ = self.guards.tracked_remove(addr);
         self.guards.tracked_insert(addr, Some(guard));

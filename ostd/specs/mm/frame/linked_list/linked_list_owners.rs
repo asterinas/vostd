@@ -478,21 +478,21 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         tracked perm: &vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>,
     )
         ensures
-            link.paddr == old(link).paddr,
-            link.in_list == cursor.list_own.list_id,
-            cursor.list_own.list == old(cursor).list_own.list.insert(old(cursor).index, *link),
-            cursor.list_own.list_id == old(cursor).list_own.list_id,
-            forall|idx: int| 0 <= idx < cursor.length() ==> cursor.list_own.perms.contains_key(idx),
+            final(link).paddr == old(link).paddr,
+            final(link).in_list == final(cursor).list_own.list_id,
+            final(cursor).list_own.list == old(cursor).list_own.list.insert(old(cursor).index, *final(link)),
+            final(cursor).list_own.list_id == old(cursor).list_own.list_id,
+            forall|idx: int| 0 <= idx < final(cursor).length() ==> final(cursor).list_own.perms.contains_key(idx),
             forall|idx: int|
-                0 <= idx < cursor.index ==> cursor.list_own.perms[idx] == old(
+                0 <= idx < final(cursor).index ==> final(cursor).list_own.perms[idx] == old(
                     cursor,
                 ).list_own.perms[idx],
             forall|idx: int|
-                old(cursor).index < idx <= old(cursor).length() ==> cursor.list_own.perms[idx]
+                old(cursor).index < idx <= old(cursor).length() ==> final(cursor).list_own.perms[idx]
                     == old(cursor).list_own.perms[idx - 1],
-            cursor.list_own.perms[old(cursor).index] == perm,
-            cursor.index == old(cursor).index + 1,
-            cursor.list_perm == old(cursor).list_perm;
+            final(cursor).list_own.perms[old(cursor).index] == perm,
+            final(cursor).index == old(cursor).index + 1,
+            final(cursor).list_perm == old(cursor).list_perm;
 
     pub open spec fn front_owner_spec(
         list_own: LinkedListOwner<M>,
@@ -766,25 +766,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
         ReprPtr { addr: ptr.addr, ptr: ptr.ptr, _T: PhantomData }
     }
 
-    #[verifier::external_body]
-    pub proof fn cast_points_to_metadata(tracked perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, MetadataAsLink<M>>) -> (tracked result: vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>)
-        ensures
-            result.addr() == perm.addr(),
-            result.is_init() == perm.is_init(),
-            result.points_to.pptr() == perm.points_to.pptr(),
-    {
-        unimplemented!()
-    }
-
-    #[verifier::external_body]
-    pub proof fn cast_points_to_as_link(tracked perm: vstd_extra::cast_ptr::PointsTo<MetaSlot, Metadata<Link<M>>>) -> (tracked result: vstd_extra::cast_ptr::PointsTo<MetaSlot, MetadataAsLink<M>>)
-        ensures
-            result.addr() == perm.addr(),
-            result.is_init() == perm.is_init(),
-            result.points_to.pptr() == perm.points_to.pptr(),
-    {
-        unimplemented!()
-    }
 }
 
 } // verus!

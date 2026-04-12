@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 use vstd::atomic_ghost::*;
-use vstd::cell::{self, pcell::*};
+use vstd::cell::{self, pcell::{self, *}};
 use vstd::prelude::*;
+use vstd_extra::prelude::*;
 use vstd_extra::resource::ghost_resource::excl::*;
 
 use alloc::sync::Arc;
@@ -172,9 +173,27 @@ unsafe impl<T: /*?Sized + */Send> Sync for Mutex<T> {}
 #[verifier::reject_recursive_types(T)]
 #[clippy::has_significant_drop]
 #[must_use]
+#[verus_verify]
 pub struct MutexGuard<'a, T  /* : ?Sized */ > {
     mutex: &'a Mutex<T>,
     v_perm: Tracked<PointsTo<T>>,
+}
+
+impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
+    #[verifier::type_invariant]
+    closed spec fn type_inv(self) -> bool {
+        self.v_perm@.id() == self.mutex.cell_id()
+    }
+
+    /// The value stored in the mutex.
+    pub closed spec fn value(self) -> T {
+        *self.v_perm@.value()
+    }
+
+    /// The value stored in the mutex. It is an alias of `Self::value`.
+    pub open spec fn view(self) -> T {
+        self.value()
+    }
 }
 
 impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
@@ -193,28 +212,6 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
         MutexGuard { mutex, v_perm: Tracked(perm) }
     }
 
-    #[verifier::type_invariant]
-    closed spec fn type_inv(self) -> bool {
-        self.v_perm@.id() == self.mutex.cell_id()
-    }
-
-    pub closed spec fn value(self) -> T {
-        *self.v_perm@.value()
-    }
-
-    pub open spec fn view(self) -> T {
-        self.value()
-    }
-
-    /// Borrows the inner value in tracked mode.
-    #[verifier::external_body]
-    pub proof fn tracked_borrow(tracked &self) -> (tracked r: &'a T)
-        returns
-            self.view(),
-    {
-        unimplemented!()
-    }
-
     /// VERUS LIMITATION: We implement `drop` and call it manually because Verus's support for
     /// `Drop` is incomplete for now.
     #[verus_spec]
@@ -229,6 +226,7 @@ impl<'a, T  /* : ?Sized */ > MutexGuard<'a, T> {
     }
 }
 
+#[verus_verify]
 impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     type Target = T;
 
@@ -242,12 +240,21 @@ impl<T/* : ?Sized */> Deref for MutexGuard<'_, T> {
     }
 }
 
-/* impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
-    #[verifier::external_body]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.mutex.val.get() }
+#[verus_verify]
+impl<T/* : ?Sized */> DerefMut for MutexGuard<'_, T> {
+    #[verus_spec(ret =>
+        ensures
+            final(self).view() == *final(ret),
+    )]
+    fn deref_mut(&mut self) -> &mut Self::Target 
+    {
+        proof!{
+            use_type_invariant(&*self);
+        }
+        //unsafe { &mut *self.mutex.val.get() }
+        pcell_borrow_mut(&self.mutex.val, &mut self.v_perm)
     }
-} */
+} 
 
 /* impl<T  /* : ?Sized */ > Drop for MutexGuard<'_, T> {
     fn drop(&mut self)

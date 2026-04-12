@@ -61,27 +61,27 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
             perm.points_to.addr() == frame_to_meta(raw),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             r.inner.0.ptr.addr() == frame_to_meta(raw),
             // raw_count is always 1 after borrow (from_raw → 0, ManuallyDrop::new → 1)
-            regions.slot_owners[frame_to_index(raw)].raw_count == 1,
+            final(regions).slot_owners[frame_to_index(raw)].raw_count == 1,
             // All other fields of this slot are preserved
-            regions.slot_owners[frame_to_index(raw)].inner_perms
+            final(regions).slot_owners[frame_to_index(raw)].inner_perms
                 == old(regions).slot_owners[frame_to_index(raw)].inner_perms,
-            regions.slot_owners[frame_to_index(raw)].self_addr
+            final(regions).slot_owners[frame_to_index(raw)].self_addr
                 == old(regions).slot_owners[frame_to_index(raw)].self_addr,
-            regions.slot_owners[frame_to_index(raw)].usage
+            final(regions).slot_owners[frame_to_index(raw)].usage
                 == old(regions).slot_owners[frame_to_index(raw)].usage,
-            regions.slot_owners[frame_to_index(raw)].path_if_in_pt
+            final(regions).slot_owners[frame_to_index(raw)].path_if_in_pt
                 == old(regions).slot_owners[frame_to_index(raw)].path_if_in_pt,
             // Other slots are unchanged
             forall |i: usize|
-                #![trigger regions.slot_owners[i]]
-                i != frame_to_index(raw) ==> regions.slot_owners[i]
+                #![trigger final(regions).slot_owners[i]]
+                i != frame_to_index(raw) ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
-            regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
             // Slots: from_raw inserts perm, ManuallyDrop::new preserves
-            regions.slots == old(regions).slots.insert(frame_to_index(raw), perm.points_to),
+            final(regions).slots == old(regions).slots.insert(frame_to_index(raw), perm.points_to),
     )]
     pub(in crate::mm) fn borrow_paddr(raw: Paddr) -> Self {
         proof {

@@ -208,9 +208,9 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             r matches Ok(res) ==> perm@ is Some && MetaSlot::get_from_unused_perm_spec(paddr, metadata, false, res.ptr, perm@.unwrap()),
-            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *regions),
+            r is Ok ==> MetaSlot::get_from_unused_spec(paddr, false, *old(regions), *final(regions)),
             !has_safe_slot(paddr) ==> r is Err,
     )]
     pub fn from_unused(paddr: Paddr, metadata: M) -> Result<Self, GetFrameError> {
@@ -285,16 +285,16 @@ impl<M: AnyFrameMeta> Frame<M> {
             old(regions).slots.contains_key(frame_to_index(paddr)),
             !MetaSlot::get_from_in_use_panic_cond(paddr, *old(regions)),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             res is Ok ==>
-                regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
+                final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() ==
                 old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
             res matches Ok(res) ==>
                 res.ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
             !has_safe_slot(paddr) ==> res is Err,
             forall|i: usize|
-                #![trigger regions.slot_owners[i]]
-                i != frame_to_index(paddr) ==> regions.slot_owners[i] == old(regions).slot_owners[i]
+                #![trigger final(regions).slot_owners[i]]
+                i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
         #[verus_spec(with Tracked(regions))]
@@ -404,29 +404,29 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.is_init(),
             self.inv(),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             res.inner@.ptr.addr() == self.ptr.addr(),
             // raw_count is always 1 after borrow
-            regions.slot_owners[self.index()].raw_count == 1,
+            final(regions).slot_owners[self.index()].raw_count == 1,
             // All other fields of this slot are preserved
-            regions.slot_owners[self.index()].inner_perms
+            final(regions).slot_owners[self.index()].inner_perms
                 == old(regions).slot_owners[self.index()].inner_perms,
-            regions.slot_owners[self.index()].self_addr
+            final(regions).slot_owners[self.index()].self_addr
                 == old(regions).slot_owners[self.index()].self_addr,
-            regions.slot_owners[self.index()].usage
+            final(regions).slot_owners[self.index()].usage
                 == old(regions).slot_owners[self.index()].usage,
-            regions.slot_owners[self.index()].path_if_in_pt
+            final(regions).slot_owners[self.index()].path_if_in_pt
                 == old(regions).slot_owners[self.index()].path_if_in_pt,
             // Other slots are unchanged
             forall |i: usize|
-                #![trigger regions.slot_owners[i]]
-                i != self.index() ==> regions.slot_owners[i]
+                #![trigger final(regions).slot_owners[i]]
+                i != self.index() ==> final(regions).slot_owners[i]
                     == old(regions).slot_owners[i],
-            regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
             // slots: borrow inserts the PointsTo at self.index(); existing keys are preserved.
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
             forall |k: usize| old(regions).slots.contains_key(k) && k != self.index()
-                ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+                ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
     )]
     pub fn borrow(&self) -> FrameRef<'a, M> {
         assert(regions.slot_owners.contains_key(self.index()));
@@ -470,12 +470,12 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             self.inv(),
             old(regions).slot_owners[self.index()].inner_perms.ref_count.value() != REF_COUNT_UNUSED,
         ensures
-            regions.inv(),
+            final(regions).inv(),
             r == self.paddr(),
             frame_perm@.points_to == old(regions).slots[self.index()],
-            regions.slot_owners[self.index()].raw_count
+            final(regions).slot_owners[self.index()].raw_count
                 == (old(regions).slot_owners[self.index()].raw_count + 1) as usize,
-            self.into_raw_post_noninterference(*old(regions), *regions),
+            self.into_raw_post_noninterference(*old(regions), *final(regions)),
     )]
     pub(in crate::mm) fn into_raw(self) -> Paddr {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
@@ -542,8 +542,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             perm.points_to.addr() == frame_to_meta(paddr),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(paddr)]),
         ensures
-            Self::from_raw_ensures(*old(regions), *regions, paddr, r),
-            regions.slots == old(regions).slots.insert(frame_to_index(paddr), perm.points_to),
+            Self::from_raw_ensures(*old(regions), *final(regions), paddr, r),
+            final(regions).slots == old(regions).slots.insert(frame_to_index(paddr), perm.points_to),
             debt@.frame_index == frame_to_index(paddr),
             debt@.raw_count_at_issue == old(regions).slot_owners[frame_to_index(paddr)].raw_count,
     )]
@@ -617,17 +617,22 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
         !MetaSlot::inc_ref_count_panic_cond(
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count,
         ),
+        // The caller holds a reference, so ref_count > 0.
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() > 0,
+        // After increment, the ref_count must stay below the illegal range.
+        old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1
+            < REF_COUNT_MAX,
     ensures
-        regions.inv(),
-        regions.slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
+        final(regions).inv(),
+        final(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() == old(
             regions,
         ).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.value() + 1,
-        regions.slots =~= old(regions).slots,
+        final(regions).slots =~= old(regions).slots,
         forall|i: usize|
-            i != frame_to_index(paddr) ==> (#[trigger] regions.slot_owners[i] == old(
+            i != frame_to_index(paddr) ==> (#[trigger] final(regions).slot_owners[i] == old(
                 regions,
             ).slot_owners[i]),
-        regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+        final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
 {
     let tracked mut slot_own = regions.slot_owners.tracked_remove(frame_to_index(paddr));
     let tracked perm = regions.slots.tracked_borrow(frame_to_index(paddr));
@@ -642,9 +647,22 @@ pub(in crate::mm) fn inc_frame_ref_count(paddr: Paddr)
     slot.borrow(Tracked(perm)).inc_ref_count();
 
     proof {
-        admit();
+        let idx = frame_to_index(paddr);
+
+        // inc_ref_count preserves permission id
+        assert(inner_perms.ref_count.id()
+            == old(regions).slot_owners[idx].inner_perms.ref_count.id());
+
+        // sync_inner: slot_own.inner_perms = inner_perms, other fields unchanged
         slot_own.sync_inner(&inner_perms);
-        regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
+
+        // slot_own.inv() holds: rc in (0, REF_COUNT_MAX), vtable_ptr init, self_addr ok
+        assert(slot_own.inv());
+
+        // wf: the slot's cell ids still match the (updated) inner_perms ids
+        assert(regions.slots[idx].value().wf(slot_own));
+
+        regions.slot_owners.tracked_insert(idx, slot_own);
     }
 }
 

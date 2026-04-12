@@ -101,19 +101,25 @@ impl WaitQueue {
         ensures
             cond.ensures((), Some(ret)),
     )]
+    #[verifier::exec_allows_no_decreases_clause]
     pub fn wait_until<F, R>(&self, mut cond: F) -> R where F: FnMut() -> Option<R> {
         if let Some(res) = cond() {
             return res;
         }
         let (waiter, _) = Waiter::new_pair();
-        let cond = ||
-            {
-                self.enqueue(waiter.waker());
-                cond()
-            };
-        proof!{
-            admit(); // FIXME: The Verus type inference of the closure is wrong if we add an `ensures` clause to the closure.
+        #[verus_spec(invariant
+            cond.requires(()),
+        )]
+        loop {
+            self.enqueue(waiter.waker());
+            if let Some(res) = cond() {
+                assert(cond.ensures((), Some(res)));
+                proof! { admit(); } // FIXME: https://github.com/verus-lang/verus/issues/2295
+                return res;
+            }
+            waiter.wait();
         }
+<<<<<<< HEAD
         waiter.wait_until_or_cancelled(
             cond,
             || -> (ret: Result<(), ()>)
@@ -121,6 +127,8 @@ impl WaitQueue {
                     ret == Ok::<(), ()>(()),
                 { Ok::<(), ()>(()) },
         ).unwrap()
+=======
+>>>>>>> vostd/main
     }
 
     /// Wakes up one waiting thread, if there is one at the point of time when this method is
