@@ -480,6 +480,176 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         self.0.tree_predicate_map(self.0.value.path, Self::metaregion_sound_pred(regions))
     }
 
+    /// `PageTableOwner::metaregion_sound` is preserved across regions changes
+    /// that (a) keep `slot_owners` exactly equal and (b) only grow the `slots`
+    /// map (existing keys preserved with the same values). Both conditions are
+    /// satisfied by `Entry::to_ref` and similar `borrow_paddr` operations.
+    pub proof fn metaregion_sound_preserved_slot_owners_eq(
+        self,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+    )
+        requires
+            self.inv(),
+            self.metaregion_sound(r0),
+            r0.slot_owners == r1.slot_owners,
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+        ensures
+            self.metaregion_sound(r1),
+    {
+        Self::metaregion_sound_preserved_slot_owners_eq_subtree(
+            self.0, self.0.value.path, r0, r1);
+    }
+
+    /// Recursive helper: same preservation property, applied to an arbitrary subtree.
+    pub proof fn metaregion_sound_preserved_slot_owners_eq_subtree(
+        subtree: OwnerSubtree<C>,
+        path: TreePath<NR_ENTRIES>,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+    )
+        requires
+            subtree.inv(),
+            subtree.tree_predicate_map(path, Self::metaregion_sound_pred(r0)),
+            r0.slot_owners == r1.slot_owners,
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+        ensures
+            subtree.tree_predicate_map(path, Self::metaregion_sound_pred(r1)),
+        decreases INC_LEVELS - subtree.level
+    {
+        // The root entry: its metaregion_sound transfers via the per-entry lemma.
+        subtree.value.metaregion_sound_slot_owners_only(r0, r1);
+        // Recursively for each Some child.
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                #![trigger subtree.children[i]]
+                0 <= i < NR_ENTRIES && subtree.children[i] is Some
+                implies subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize),
+                    Self::metaregion_sound_pred(r1),
+                ) by {
+                Self::metaregion_sound_preserved_slot_owners_eq_subtree(
+                    subtree.children[i].unwrap(),
+                    path.push_tail(i as usize),
+                    r0, r1,
+                );
+            }
+        }
+    }
+
+    /// `PageTableOwner::metaregion_sound` is preserved across a single
+    /// `slot_owner` change at index `changed_idx`, provided no entry in the
+    /// tree references `changed_idx` (neither as its primary slot nor as a
+    /// huge-frame sub-page slot). This is the right shape for `borrow`-style
+    /// operations that bump `raw_count` at one slot.
+    pub proof fn metaregion_sound_preserved_one_slot_changed(
+        self,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+        changed_idx: usize,
+    )
+        requires
+            self.inv(),
+            self.metaregion_sound(r0),
+            forall |i: usize| #![trigger r1.slot_owners[i]]
+                i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
+            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            // No tree entry's primary slot is at changed_idx.
+            self.0.tree_predicate_map(
+                self.0.value.path,
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                    e.meta_slot_paddr() is Some
+                        ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx,
+            ),
+            // For huge-frame entries, none of their sub-page slots is at changed_idx
+            // either; provided as a separate condition because the per-entry lemma
+            // requires it.
+            self.0.tree_predicate_map(
+                self.0.value.path,
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                    e.is_frame() && e.parent_level > 1 ==> {
+                        let pa = e.frame.unwrap().mapped_pa;
+                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
+                        forall |j: usize| 0 < j < nr_pages ==> {
+                            let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            sub_idx != changed_idx
+                            || (
+                                r1.slots.contains_key(sub_idx)
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                            )
+                        }
+                    },
+            ),
+        ensures
+            self.metaregion_sound(r1),
+    {
+        Self::metaregion_sound_preserved_one_slot_changed_subtree(
+            self.0, self.0.value.path, r0, r1, changed_idx);
+    }
+
+    pub proof fn metaregion_sound_preserved_one_slot_changed_subtree(
+        subtree: OwnerSubtree<C>,
+        path: TreePath<NR_ENTRIES>,
+        r0: MetaRegionOwners,
+        r1: MetaRegionOwners,
+        changed_idx: usize,
+    )
+        requires
+            subtree.inv(),
+            subtree.tree_predicate_map(path, Self::metaregion_sound_pred(r0)),
+            forall |i: usize| #![trigger r1.slot_owners[i]]
+                i != changed_idx ==> r0.slot_owners[i] == r1.slot_owners[i],
+            r0.slot_owners.dom() =~= r1.slot_owners.dom(),
+            forall |k: usize| r0.slots.contains_key(k) ==> #[trigger] r1.slots.contains_key(k),
+            forall |k: usize| r0.slots.contains_key(k) ==> r0.slots[k] == #[trigger] r1.slots[k],
+            subtree.tree_predicate_map(
+                path,
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                    e.meta_slot_paddr() is Some
+                        ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx,
+            ),
+            subtree.tree_predicate_map(
+                path,
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                    e.is_frame() && e.parent_level > 1 ==> {
+                        let pa = e.frame.unwrap().mapped_pa;
+                        let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
+                        forall |j: usize| 0 < j < nr_pages ==> {
+                            let sub_idx = #[trigger] frame_to_index((pa + j * PAGE_SIZE) as usize);
+                            sub_idx != changed_idx
+                            || (
+                                r1.slots.contains_key(sub_idx)
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                            )
+                        }
+                    },
+            ),
+        ensures
+            subtree.tree_predicate_map(path, Self::metaregion_sound_pred(r1)),
+        decreases INC_LEVELS - subtree.level
+    {
+        subtree.value.metaregion_sound_one_slot_changed(r0, r1, changed_idx);
+        if subtree.level < INC_LEVELS - 1 {
+            assert forall |i: int|
+                #![trigger subtree.children[i]]
+                0 <= i < NR_ENTRIES && subtree.children[i] is Some
+                implies subtree.children[i].unwrap().tree_predicate_map(
+                    path.push_tail(i as usize),
+                    Self::metaregion_sound_pred(r1),
+                ) by {
+                Self::metaregion_sound_preserved_one_slot_changed_subtree(
+                    subtree.children[i].unwrap(),
+                    path.push_tail(i as usize),
+                    r0, r1, changed_idx,
+                );
+            }
+        }
+    }
+
     /// Predicate: all entries in the tree have their paths correctly tracked in regions.
     /// Strengthened form: `path_if_in_pt == Some(entry.path)` (not just `is Some`).
     pub open spec fn path_tracked_pred(regions: MetaRegionOwners)

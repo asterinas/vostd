@@ -1794,13 +1794,58 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range_level_lt_guard_level();
             self.pop_level_owner_preserves_inv();
             let popped = self.pop_level_owner_spec().0;
+            popped.max_steps_partial_eq(self, (self.level + 1) as usize);
+            Self::max_steps_subtree_positive(self.level as usize);
+            Self::max_steps_subtree_positive((self.level + 1) as usize);
             if !popped.popped_too_high {
                 popped.move_forward_owner_decreases_steps();
             } else {
-                admit(); // TODO: discharge max_steps comparison in popped_too_high case
+                // popped.popped_too_high means popped.level >= popped.guard_level.
+                // pop_level_owner_spec sets popped_too_high iff new_level >= guard_level,
+                // and new_level == self.level + 1, so self.level + 1 == self.guard_level.
+                assert(popped.level == self.level + 1);
+                assert(popped.level == self.guard_level);
+                assert(popped.guard_level == self.guard_level);
+                // From cursor inv: !self.popped_too_high && self.level < self.guard_level
+                // ==> self.va.index[self.guard_level - 1] == 0. So popped.va.index[L] == 0,
+                // which means popped.continuations[L].idx == 0 (cursor inv tying va.index to cont.idx).
+                assert(self.va.index[self.guard_level - 1] == 0);
+                assert(popped.va == self.va);
+                assert(popped.continuations[popped.level - 1].idx == 0);
+                assert(popped.index() == 0);
+                // popped.move_forward_owner_spec() unfolds to inc_index().zero_below_level()
+                // because popped.index() + 1 == 1 < NR_ENTRIES.
+                let inc = popped.inc_index();
+                let q = inc.zero_below_level();
+                assert(popped.move_forward_owner_spec() == q);
+                inc.zero_preserves_all_but_va();
+                // q has continuations[i] == popped.continuations[i] for all i (inc only changes
+                // cont[popped.level - 1] = cont[L], zero_below_level doesn't touch cont).
+                // max_steps_partial at L+2 (which only sees cont[L+1..]) is unaffected.
+                let lp1 = (self.level + 1) as usize;
+                let lp2 = (self.level + 2) as usize;
+                // self.cont[L].idx == 0 (mirrors popped.cont[L].idx via va.index[L] == 0)
+                assert(self.va.index[self.level as int] == 0);
+                assert(self.continuations[self.level as int].idx == 0);
+                // Establish that self.max_steps_partial(lp1) and q.max_steps_partial(lp1)
+                // share the same tail at lp2.
+                if (self.level + 1) < NR_LEVELS {
+                    q.max_steps_partial_eq(self, lp2);
+                }
+                // Compute self.max_steps_partial(L) explicitly.
+                // self.cont[L-1].idx == NR_ENTRIES - 1 (we are in the !idx+1<NR_ENTRIES branch).
+                assert(self.continuations[self.level - 1].idx + 1 == NR_ENTRIES);
+                // q.cont[L].idx == 1 (popped.cont[L].idx == 0, then inc).
+                assert(q.continuations[self.level as int].idx == 1);
+                // Arithmetic: max_steps_subtree(L+1) * (NR_ENTRIES - 1) + 1 * max_steps_subtree(L+1)
+                //           == max_steps_subtree(L+1) * NR_ENTRIES.
+                let st_l = Self::max_steps_subtree(self.level as usize) as int;
+                let st_lp1 = Self::max_steps_subtree(lp1) as int;
+                vstd::arithmetic::mul::lemma_mul_is_distributive_add(
+                    st_lp1, (NR_ENTRIES - 1) as int, 1);
+                vstd::arithmetic::mul::lemma_mul_is_distributive_add(
+                    st_l, (NR_ENTRIES - 1) as int, 1);
             }
-            popped.max_steps_partial_eq(self, (self.level + 1) as usize);
-            Self::max_steps_subtree_positive(self.level as usize);
         } else {
             self.in_locked_range_level_lt_nr_levels();
         }

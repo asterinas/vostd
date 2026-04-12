@@ -169,7 +169,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut kernel_owner_opt: Option<&PageTableOwner<KernelPtConfig>> = None;
         }
         let kpt = crate::mm::kspace::kvirt_area::get_kernel_page_table(
-            Tracked(&mut kernel_owner_opt), Tracked(regions),
+            Tracked(&mut kernel_owner_opt), Tracked(regions), Tracked(guards_k),
         );
         proof_decl! {
             let tracked kernel_owner = kernel_owner_opt.tracked_take();

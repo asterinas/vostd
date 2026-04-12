@@ -185,9 +185,10 @@ fn collect_largest_pages(
 }
 
 #[verifier::external_body]
-pub(crate) fn get_kernel_page_table(
+pub(crate) fn get_kernel_page_table<'rcu>(
     Tracked(kernel_owner): Tracked<&mut Option<&PageTableOwner<KernelPtConfig>>>,
     Tracked(regions): Tracked<&MetaRegionOwners>,
+    Tracked(guards_k): Tracked<&Guards<'rcu, KernelPtConfig>>,
 ) -> (r: &'static PageTable<KernelPtConfig>)
     requires
         regions.inv(),
@@ -200,6 +201,10 @@ pub(crate) fn get_kernel_page_table(
             kernel_owner@.unwrap().0.value.node.unwrap(),
         ),
         kernel_owner@.unwrap().0.value.metaregion_sound(*regions),
+        // Tree-wide soundness: every node entry in the kernel PT has its metaregion bookkeeping.
+        kernel_owner@.unwrap().metaregion_sound(*regions),
+        // The kernel root frame is not currently locked.
+        guards_k.unlocked(kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }
@@ -358,7 +363,7 @@ impl KVirtArea {
         proof { assume(start + PAGE_SIZE <= usize::MAX); }
         let vaddr = start..start + PAGE_SIZE;
         proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
-        let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions));
+        let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards));
         let preempt_guard = disable_preempt::<A>();
         // cursor requires owned PageTableOwner; get_kernel_page_table only lends.
         proof { admit(); }
@@ -427,7 +432,7 @@ impl KVirtArea {
                 proof_decl! {
                     let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
                 }
-                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))
             };
         let preempt_guard = disable_preempt::<A>();
 
@@ -602,7 +607,7 @@ impl KVirtArea {
                 proof_decl! {
                     let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None;
                 }
-                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions))
+                get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards))
             };
             let preempt_guard = disable_preempt::<A>();
 
