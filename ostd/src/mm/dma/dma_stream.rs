@@ -735,19 +735,12 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &&& new_writer.inv()
         &&& new_writer_own.inv()
         &&& new_writer.wf(new_writer_own)
-        &&& new_writer_own.mem_view matches Some(VmIoMemView::WriteView(_))
         &&& match r {
             Ok(_) => {
                 &&& new_writer.avail_spec() == 0
                 &&& new_writer.cursor.vaddr == old_writer.cursor.vaddr + old_writer.avail_spec()
-                &&& new_writer.end == old_writer.end
-                &&& new_writer.id == old_writer.id
                 &&& new_writer_own.range@.start == old_writer_own.range@.start
                     + old_writer.avail_spec()
-                &&& new_writer_own.range@.end == old_writer_own.range@.end
-                &&& new_writer_own.id == old_writer_own.id
-                &&& new_writer_own.is_fallible == old_writer_own.is_fallible
-                &&& new_writer_own.is_kernel == old_writer_own.is_kernel
             },
             Err(_) => {
                 &&& new_writer == old_writer
@@ -772,19 +765,12 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         &&& new_reader.inv()
         &&& new_reader_own.inv()
         &&& new_reader.wf(new_reader_own)
-        &&& new_reader_own.mem_view matches Some(VmIoMemView::ReadView(_))
         &&& match r {
             Ok(_) => {
                 &&& new_reader.remain_spec() == 0
                 &&& new_reader.cursor.vaddr == old_reader.cursor.vaddr + old_reader.remain_spec()
-                &&& new_reader.end == old_reader.end
-                &&& new_reader.id == old_reader.id
                 &&& new_reader_own.range@.start == old_reader_own.range@.start
                     + old_reader.remain_spec()
-                &&& new_reader_own.range@.end == old_reader_own.range@.end
-                &&& new_reader_own.id == old_reader_own.id
-                &&& new_reader_own.is_fallible == old_reader_own.is_fallible
-                &&& new_reader_own.is_kernel == old_reader_own.is_kernel
             },
             Err(_) => {
                 &&& new_reader == old_reader
@@ -799,7 +785,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         offset: usize,
         writer: &mut VmWriter<'_>,
         Tracked(writer_own): Tracked<&mut VmIoOwner<'_>>,
-        Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
+        Tracked(owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
         let inner = self.read_inner();
         if matches!(inner.direction, DmaDirection::ToDevice) {
@@ -843,6 +829,10 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         proof {
             assert(copied == len);
             assert(len == old(writer).avail_spec());
+            assert(writer.avail_spec() == 0);
+            assert(writer.cursor.vaddr == old(writer).cursor.vaddr + old(writer).avail_spec());
+            assert(writer_own.range@.start == old(writer_own).range@.start + old(writer).avail_spec());
+            assert(*owner == *old(owner));
         }
 
         Ok(())
@@ -853,7 +843,7 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         offset: usize,
         reader: &mut VmReader<'_>,
         Tracked(reader_own): Tracked<&mut VmIoOwner<'_>>,
-        Tracked(_owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
+        Tracked(owner): Tracked<&mut DmaStreamVmIoOwner<M>>,
     ) -> core::result::Result<(), Error> {
         let inner = self.read_inner();
         if matches!(inner.direction, DmaDirection::FromDevice) {
@@ -897,6 +887,10 @@ impl<M: AnyUFrameMeta + ?Sized + Send + Sync + OwnerOf> VmIo<DmaStreamVmIoOwner<
         proof {
             assert(copied == len);
             assert(len == old(reader).remain_spec());
+            assert(reader.remain_spec() == 0);
+            assert(reader.cursor.vaddr == old(reader).cursor.vaddr + old(reader).remain_spec());
+            assert(reader_own.range@.start == old(reader_own).range@.start + old(reader).remain_spec());
+            assert(*owner == *old(owner));
         }
 
         Ok(())

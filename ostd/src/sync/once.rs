@@ -1,9 +1,5 @@
-use vstd::{
-    atomic_with_ghost,
-    cell::{MemContents, PCell, PointsTo},
-    modes::tracked_static_ref,
-    prelude::*,
-};
+use vstd::cell::pcell_maybe_uninit::{PCell, PointsTo};
+use vstd::{atomic_with_ghost, cell::MemContents, modes::tracked_static_ref, prelude::*};
 
 use super::AtomicDataWithOwner;
 

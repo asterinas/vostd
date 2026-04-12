@@ -423,6 +423,9 @@ impl VmIoOwner<'_> {
             final(self).is_fallible == old(self).is_fallible,
             final(self).id == old(self).id,
             final(self).is_kernel == old(self).is_kernel,
+            old(self).mem_view matches Some(VmIoMemView::ReadView(_)) ==> final(self).mem_view matches Some(VmIoMemView::ReadView(_)),
+            old(self).mem_view matches Some(VmIoMemView::WriteView(_)) ==> final(self).mem_view matches Some(VmIoMemView::WriteView(_)),
+            old(self).read_view_initialized() ==> final(self).read_view_initialized(),
     {
         arbitrary()
     }
