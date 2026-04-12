@@ -1020,6 +1020,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             assert(cur_entry_fits_range == (
                                 cur_va == owner0.cur_va_range().start.to_vaddr()
                                 && owner0.cur_va_range().end.to_vaddr() <= end));
+                            assert(cur_va == owner0.cur_va()) by {
+                                owner0.va.reflect_prop(self.va);
+                            };
                             owner0.frame_not_fits_implies_level_gt_1(cur_entry_fits_range, cur_va, end);
                         };
                     }
