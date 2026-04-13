@@ -606,63 +606,35 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.as_page_table_owner().0.level == self.continuations[3].tree_level,
     {
         if self.level == 4 {
-            // Only cont[3], which has all_some
             self.continuations[3].as_page_table_owner_preserves_view_mappings();
-            // view_mappings() with range [3, 4) = just cont[3].vm()
             assert(self.view_mappings() =~= self.continuations[3].view_mappings());
         } else if self.level == 3 {
             let c2 = self.continuations[2];
             let c3 = self.continuations[3];
 
-            // Lemma 1: c2 (all_some) view_rec equals view_mappings
             c2.as_page_table_owner_preserves_view_mappings();
-
-            // Path consistency from inv
-            assert(c2.path() == c3.path().push_tail(c3.idx as usize));
-
-            // c2.as_subtree() has Node::inv()
             c2.as_subtree_inv();
-
-            // Put c2 back into c3 via view_mappings_put_child
             c3.view_mappings_put_child(c2.as_subtree());
-
-            // Connect restore_spec and put_child_spec
             c3.as_subtree_restore(c2);
 
-            // l4 = c3.restore_spec(c2).0
             let l4 = c3.restore_spec(c2).0;
-
-            // l4 has all_some (c3 was all_but_index_some, child filled in)
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {
-                        assert(l4.children[i] == Some(c2.as_subtree()));
                     } else {
                         assert(l4.children[i] == c3.children[i]);
                     }
                 };
             };
 
-            // l4.inv() — needed for Lemma 1 on l4
-            // Assert children inv for l4
             c2.inv_children_unroll_all();
             c3.inv_children_unroll_all();
-
             l4.as_page_table_owner_preserves_view_mappings();
 
-            // view_mappings for level 3: union of cont[2] and cont[3]
             assert(self.view_mappings() =~= self.continuations[2].view_mappings().union(self.continuations[3].view_mappings())) by {
                 assert forall |m: Mapping| self.view_mappings().contains(m) implies
                     self.continuations[2].view_mappings().contains(m) || self.continuations[3].view_mappings().contains(m) by {
                     let i = choose |i: int| 2 <= i < NR_LEVELS && #[trigger] self.continuations[i].view_mappings().contains(m);
-                };
-                assert forall |m: Mapping| (self.continuations[2].view_mappings().contains(m) || self.continuations[3].view_mappings().contains(m))
-                    implies self.view_mappings().contains(m) by {
-                    if self.continuations[2].view_mappings().contains(m) {
-                        assert(self.continuations[2].view_mappings().contains(m));
-                    } else {
-                        assert(self.continuations[3].view_mappings().contains(m));
-                    }
                 };
             };
         } else if self.level == 2 {
@@ -670,52 +642,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let c2 = self.continuations[2];
             let c3 = self.continuations[3];
 
-            // Lemma 1: c1 (all_some) view_rec equals view_mappings
             c1.as_page_table_owner_preserves_view_mappings();
-
-            // Path consistency from inv
-            assert(c1.path() == c2.path().push_tail(c2.idx as usize));
-            assert(c2.path() == c3.path().push_tail(c3.idx as usize));
-
-            // c1.as_subtree() has Node::inv()
             c1.as_subtree_inv();
-
-            // Put c1 back into c2
             c2.view_mappings_put_child(c1.as_subtree());
-
-            // Connect restore_spec and put_child_spec
             c2.as_subtree_restore(c1);
 
             let l3 = c2.restore_spec(c1).0;
-
-            // l3 has all_some
             assert(l3.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
                     if i == c2.idx as int {
-                        assert(l3.children[i] == Some(c1.as_subtree()));
                     } else {
                         assert(l3.children[i] == c2.children[i]);
                     }
                 };
             };
 
-            // l3.inv() for Lemma 1 and as_subtree_inv
             c1.inv_children_unroll_all();
             c2.inv_children_unroll_all();
-
-            // Lemma 1 on l3 (now all_some)
             l3.as_page_table_owner_preserves_view_mappings();
-
-            // l3.as_subtree() has Node::inv()
             l3.as_subtree_inv();
-
-            // Put l3 back into c3
             c3.as_subtree_restore(l3);
             c3.view_mappings_put_child(l3.as_subtree());
 
             let l4 = c3.restore_spec(l3).0;
-
-            // l4 has all_some
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {
@@ -729,21 +678,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.inv_children_unroll_all();
             l4.as_page_table_owner_preserves_view_mappings();
 
-            // view_mappings for level 2: union of cont[1], cont[2], cont[3]
             assert(self.view_mappings() =~= c1.view_mappings().union(c2.view_mappings()).union(c3.view_mappings())) by {
                 assert forall |m: Mapping| self.view_mappings().contains(m) implies
                     (c1.view_mappings().contains(m) || c2.view_mappings().contains(m) || c3.view_mappings().contains(m)) by {
                     let i = choose |i: int| 1 <= i < NR_LEVELS && #[trigger] self.continuations[i].view_mappings().contains(m);
-                };
-                assert forall |m: Mapping| (c1.view_mappings().contains(m) || c2.view_mappings().contains(m) || c3.view_mappings().contains(m))
-                    implies self.view_mappings().contains(m) by {
-                    if c1.view_mappings().contains(m) {
-                        assert(self.continuations[1].view_mappings().contains(m));
-                    } else if c2.view_mappings().contains(m) {
-                        assert(self.continuations[2].view_mappings().contains(m));
-                    } else {
-                        assert(self.continuations[3].view_mappings().contains(m));
-                    }
                 };
             };
         } else {
@@ -753,27 +691,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let c2 = self.continuations[2];
             let c3 = self.continuations[3];
 
-            // Lemma 1: c0 (all_some) view_rec equals view_mappings
             c0.as_page_table_owner_preserves_view_mappings();
-
-            // Path consistency from inv
-            assert(c0.path() == c1.path().push_tail(c1.idx as usize));
-            assert(c1.path() == c2.path().push_tail(c2.idx as usize));
-            assert(c2.path() == c3.path().push_tail(c3.idx as usize));
-
-            // c0.as_subtree() has Node::inv()
             c0.as_subtree_inv();
-
-            // Put c0 back into c1
             c1.view_mappings_put_child(c0.as_subtree());
             c1.as_subtree_restore(c0);
             let l2 = c1.restore_spec(c0).0;
-
-            // l2 has all_some
             assert(l2.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l2.children[i] is Some by {
                     if i == c1.idx as int {
-                        assert(l2.children[i] == Some(c0.as_subtree()));
                     } else {
                         assert(l2.children[i] == c1.children[i]);
                     }
@@ -782,21 +707,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             c0.inv_children_unroll_all();
             c1.inv_children_unroll_all();
-
-            // Lemma 1 on l2 (now all_some)
             l2.as_page_table_owner_preserves_view_mappings();
             l2.as_subtree_inv();
-
-            // Put l2 back into c2
             c2.view_mappings_put_child(l2.as_subtree());
             c2.as_subtree_restore(l2);
             let l3 = c2.restore_spec(l2).0;
-
-            // l3 has all_some
             assert(l3.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l3.children[i] is Some by {
                     if i == c2.idx as int {
-                        assert(l3.children[i] == Some(l2.as_subtree()));
                     } else {
                         assert(l3.children[i] == c2.children[i]);
                     }
@@ -806,17 +724,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c2.inv_children_unroll_all();
             l3.as_page_table_owner_preserves_view_mappings();
             l3.as_subtree_inv();
-
-            // Put l3 back into c3
             c3.view_mappings_put_child(l3.as_subtree());
             c3.as_subtree_restore(l3);
             let l4 = c3.restore_spec(l3).0;
-
-            // l4 has all_some
             assert(l4.all_some()) by {
                 assert forall |i: int| 0 <= i < NR_ENTRIES implies l4.children[i] is Some by {
                     if i == c3.idx as int {
-                        assert(l4.children[i] == Some(l3.as_subtree()));
                     } else {
                         assert(l4.children[i] == c3.children[i]);
                     }
@@ -826,23 +739,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             c3.inv_children_unroll_all();
             l4.as_page_table_owner_preserves_view_mappings();
 
-            // view_mappings for level 1: union of all four
             assert(self.view_mappings() =~= c0.view_mappings().union(c1.view_mappings()).union(c2.view_mappings()).union(c3.view_mappings())) by {
                 assert forall |m: Mapping| self.view_mappings().contains(m) implies
                     (c0.view_mappings().contains(m) || c1.view_mappings().contains(m) || c2.view_mappings().contains(m) || c3.view_mappings().contains(m)) by {
                     let i = choose |i: int| 0 <= i < NR_LEVELS && #[trigger] self.continuations[i].view_mappings().contains(m);
-                };
-                assert forall |m: Mapping| (c0.view_mappings().contains(m) || c1.view_mappings().contains(m) || c2.view_mappings().contains(m) || c3.view_mappings().contains(m))
-                    implies self.view_mappings().contains(m) by {
-                    if c0.view_mappings().contains(m) {
-                        assert(self.continuations[0].view_mappings().contains(m));
-                    } else if c1.view_mappings().contains(m) {
-                        assert(self.continuations[1].view_mappings().contains(m));
-                    } else if c2.view_mappings().contains(m) {
-                        assert(self.continuations[2].view_mappings().contains(m));
-                    } else {
-                        assert(self.continuations[3].view_mappings().contains(m));
-                    }
                 };
             };
         }

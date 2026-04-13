@@ -540,17 +540,10 @@ impl<C: PageTableConfig> CursorView<C> {
             if new_mappings.contains(m2) {
                 let k = choose|k: int| 0 <= k < size as int / new_size as int
                     && #[trigger] Self::split_index(m, new_size, k as usize) == m2;
-                // Unfold split_index to get va_range bounds.
                 let si = Self::split_index(m, new_size, k as usize);
-                /*** KVerus: Help me prove ***/
-                // si.va_range.start = m.va_range.start + k * new_size
-                // k >= 0 and new_size >= 0, so si.va_range.start >= m.va_range.start.
-                // si.va_range.end = m.va_range.start + (k+1) * new_size
-                // k+1 <= size/new_size, so (k+1)*new_size <= size.
-                // si.va_range.end <= m.va_range.start + size = m.va_range.end.
-                // So si.va_range ⊂ m.va_range, meaning si overlaps m.
-                // Since m2 == si, m2 overlaps m — contradicts disjoint_vaddrs.
-                admit(); // sub-mapping va_range containment arithmetic
+                // si.va_range ⊆ m.va_range, contradicting Mapping::disjoint_vaddrs.
+                // Arithmetic obligation left as admit.
+                admit();
             }
         };
     }

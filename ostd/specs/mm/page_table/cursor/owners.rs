@@ -571,45 +571,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ensures
         self.children_not_locked(guards1),
     {
-        // After dropping the guard, guards1.guards == guards0.guards.remove(guard_addr).
-        let guard_addr = guard.inner.inner@.ptr.addr();
         let current_addr = self.cur_entry_owner().node.unwrap().meta_perm.addr();
         let f = Self::node_unlocked_except(guards0, current_addr);
         let g = Self::node_unlocked(guards1);
-        assert(OwnerSubtree::implies(f, g)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                entry.inv() && f(entry, path) implies #[trigger] g(entry, path) by {
-                if entry.is_node() {
-                    let a = entry.node.unwrap().meta_perm.addr();
-                    if a != current_addr {
-                        // f says unlocked in guards0. guards1 only removes
-                        // guard_addr, so !guards0.contains_key(a) ==>
-                        // !guards1.contains_key(a).
-                    } else {
-                        // a == current_addr. f is vacuous here, but we need
-                        // unlocked(guards1, a). lock_held(guard_addr) means
-                        // guards0.contains_key(guard_addr). For a !=
-                        // guard_addr: f would have required unlocked in
-                        // guards0, contradicting contains_key IF a were also
-                        // guard_addr... Since a == current_addr and f says all
-                        // entries at guard_addr != current_addr are unlocked,
-                        // but lock_held(guard_addr) means guard_addr IS in
-                        // guards0: if guard_addr != current_addr, then any
-                        // entry at guard_addr should be unlocked, but it's
-                        // actually locked — contradiction with no such entry
-                        // existing. So either guard_addr == current_addr (and
-                        // guards1 removes it → unlocked), or a == current_addr
-                        // != guard_addr and the entry is genuinely unlocked in
-                        // guards0 (since the only held lock is guard_addr).
-                        // Either way, unlocked in guards1.
-                        // guard_addr == current_addr from the new precondition
-                        // (the entry is a node since it's in the tree with
-                        // a meta_perm addr). After removing guard_addr from
-                        // guards0, current_addr is unlocked in guards1.
-                    }
-                }
-            };
-        };
+        assert(OwnerSubtree::implies(f, g));
         self.map_children_implies(f, g);
     }
 
@@ -707,8 +672,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
         if old(self).popped_too_high { old(self).in_locked_range_prefix_match(); }
         assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);
-        // The new prefix.index[NR_LEVELS-1] < top_end clause is preserved trivially
-        // (prefix is unchanged); make this explicit for the postcondition.
         assert(self.prefix == old(self).prefix);
         assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
     }
@@ -992,18 +955,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
     {
         let gl = self.guard_level;
-        // From inv: !popped_too_high && level < guard_level && gl >= 1 ==> va.index[gl - 1] == 0
-        // From inv: prefix.index[i] == 0 for i < gl, so prefix.index[gl - 1] == 0
-        // Combined: va.index[i] == prefix.index[i] for ALL i >= gl - 1
-        // align_down_to_vaddr_eq_if_upper_indices_eq(va, prefix, gl):
-        //   va.align_down(gl).to_vaddr() == prefix.align_down(gl).to_vaddr() = locked_range.start
-        // nat_align_down: start <= va < start + page_size(gl) = end
         if gl >= 1 && gl <= NR_LEVELS {
-            // Establish match at gl - 1
-            assert(self.va.index[gl as int - 1] == self.prefix.index[gl as int - 1]) by {
-                assert(self.va.index[gl as int - 1] == 0);
-                assert(self.prefix.index[gl as int - 1] == 0);
-            };
             self.va.align_down_to_vaddr_eq_if_upper_indices_eq(self.prefix, gl as int);
             self.va.align_down_concrete(gl as int);
             self.prefix.align_down_concrete(gl as int);
@@ -1018,30 +970,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             lemma_nat_align_down_sound(self.va.to_vaddr() as nat, page_size(gl as PagingLevel) as nat);
 
             let ps = page_size(gl as PagingLevel) as nat;
-            let va_val = self.va.to_vaddr() as nat;
             let prefix_val = self.prefix.to_vaddr() as nat;
 
-            // Chain: locked_range.start == prefix.align_down(gl).to_vaddr()
-            //   == nat_align_down(prefix_val, ps)  [from align_down_concrete + roundtrip]
-            //   == nat_align_down(va_val, ps)       [from align_down_to_vaddr_eq]
-            //   <= va_val                            [from lemma_nat_align_down_sound]
-            // And: va_val < nat_align_down(va_val, ps) + ps
-            //   == nat_align_down(prefix_val, ps) + ps
-            //   == nat_align_up(prefix_val, ps)      [from align_diff]
-            //   == locked_range.end                  [from align_up_concrete + roundtrip]
-            // Connect locked_range to nat_align via reflect_prop
             self.prefix.align_down_shape(gl as int);
             self.prefix.align_down(gl as int).reflect_prop(
                 nat_align_down(prefix_val, ps) as Vaddr);
             self.prefix.align_up_concrete(gl as int);
             self.prefix.align_up(gl as int).reflect_prop(
                 nat_align_up(prefix_val, ps) as Vaddr);
-
-            assert(self.locked_range().start == nat_align_down(prefix_val, ps) as usize);
-            assert(self.locked_range().end == nat_align_up(prefix_val, ps) as usize);
-            assert(nat_align_down(va_val, ps) == nat_align_down(prefix_val, ps));
-            assert(nat_align_down(va_val, ps) as usize <= self.va.to_vaddr());
-            assert(self.va.to_vaddr() < (nat_align_down(va_val, ps) + ps) as usize);
         }
     }
 
@@ -1190,12 +1126,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.locked_range().start <= nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize,
             nat_align_down(self.va.to_vaddr() as nat, page_size((level + 1) as PagingLevel) as nat) as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end,
     {
-        // locked_range = [align_down(pv, ps_gl), align_up(pv, ps_gl)]
-        // = [start, start + ps_gl] where ps_gl = page_size(guard_level).
-        // Since level + 1 <= guard_level, ps_{level+1} divides ps_gl.
-        // Both start and end are ps_{level+1}-aligned.
-        // va is in [start, end), so align_down(va, ps_{level+1}) is in
-        // [start, end - ps_{level+1}].
         let gl = self.guard_level;
         let ps_gl = page_size(gl as PagingLevel) as nat;
         let ps = page_size((level + 1) as PagingLevel) as nat;
@@ -1215,40 +1145,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let start = nat_align_down(pv, ps_gl);
         let end = nat_align_up(pv, ps_gl);
 
-        // start and end are ps-aligned because ps | ps_gl.
         lemma_nat_align_down_sound(pv, ps_gl);
         lemma_nat_align_up_sound(pv, ps_gl);
-        vstd::arithmetic::div_mod::lemma_mod_mod(
-            start as int, ps as int, (ps_gl / ps) as int);
-        vstd::arithmetic::div_mod::lemma_mod_mod(
-            end as int, ps as int, (ps_gl / ps) as int);
-
         lemma_nat_align_down_sound(va, ps);
         let ad = nat_align_down(va, ps);
 
-        // start and end are ps_gl-aligned. Since ps | ps_gl, they're also ps-aligned.
-        assert(start as nat % ps_gl == 0);
-        assert(end as nat % ps_gl == 0);
-        // ps | ps_gl means ps_gl % ps == 0.
-        assert(ps_gl as int % ps as int == 0);
-        // ps * (ps_gl / ps) == ps_gl (exact division).
-        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps_gl as int, ps as int);
-        assert(ps as int * (ps_gl as int / ps as int) == ps_gl as int);
-        // A ps_gl-aligned number is also ps-aligned.
-        // lemma_mod_mod(x, a, b): (x % (a*b)) % a == x % a.
-        // With a = ps, b = ps_gl/ps, a*b = ps_gl: (x % ps_gl) % ps == x % ps.
-        // Since x % ps_gl == 0: 0 % ps == x % ps, so x % ps == 0.
+        // `start` and `end` are ps-aligned because ps | ps_gl.
         let q = (ps_gl / ps) as int;
-        assert(ps as int * q == ps_gl as int);
-        // x % ps_gl == 0 means x = ps_gl * k. Since ps_gl = ps * q,
-        // x = ps * (q * k), so x % ps == 0.
-        // start = nat_align_down(pv, ps_gl). From lemma_nat_align_down_sound:
-        // start % ps_gl == 0. Since ps | ps_gl: start % ps == 0.
-        // Same for end (= nat_align_up(pv, ps_gl)).
-        // Use vstd_extra::arithmetic which may have a suitable helper, or
-        // prove inline via fundamental_div_mod + mul.
-        // Prove start % ps == 0 and end % ps == 0 from the chain:
-        // start == ps_gl * ks, ps_gl == ps * q, so start == ps * (q * ks).
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ps_gl as int, ps as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, ps_gl as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps_gl as int);
         let ks = start as int / ps_gl as int;
@@ -1257,56 +1161,28 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::mul::lemma_mul_is_associative(ps as int, q, ke);
         vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(q * ks, 0int, ps as int);
         vstd::arithmetic::div_mod::lemma_mod_multiples_vanish(q * ke, 0int, ps as int);
-        assert(start as int == ps as int * (q * ks) + 0int);
-        assert(end as int == ps as int * (q * ke) + 0int);
-        // The vanish lemma gives (ps * (q*ks) + 0) % ps == 0. Substituting start:
-        assert(start as int % ps as int == (ps as int * (q * ks) + 0int) % ps as int);
-        assert((ps as int * (q * ks) + 0int) % ps as int == 0int % ps as int);
         vstd::arithmetic::div_mod::lemma_small_mod(0nat, ps);
         assert(start as int % ps as int == 0int);
-        assert(end as int % ps as int == (ps as int * (q * ke) + 0int) % ps as int);
-        assert((ps as int * (q * ke) + 0int) % ps as int == 0int % ps as int);
         assert(end as int % ps as int == 0int);
 
-        // ad >= start: va >= start, start is ps-aligned, so align_down(va, ps) >= start.
-        assert(start as nat % ps == 0);
-        assert(end as nat % ps == 0);
         assert(ad >= start) by {
             vstd::arithmetic::div_mod::lemma_div_is_ordered(start as int, va as int, ps as int);
             vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, ps as int);
-            // va/ps >= start/ps, and start = (start/ps) * ps.
-            // ad = (va/ps) * ps >= (start/ps) * ps = start.
             vstd::arithmetic::mul::lemma_mul_inequality(
                 start as int / ps as int, va as int / ps as int, ps as int);
         };
 
-        // ad + ps <= end: ad <= va < end, ad and end both ps-aligned, so ad + ps <= end.
-        assert(ad as int % ps as int == 0int);
-        assert(end as int % ps as int == 0int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
-        // fundamental_div_mod gives x == d * (x/d) + x%d. With x%d == 0: x == d * (x/d).
-        assert(ad as int == ps as int * (ad as int / ps as int));
-        assert(end as int == ps as int * (end as int / ps as int));
-        // ad < end ⟹ ps*(ad/ps) < ps*(end/ps). Since ps > 0: ad/ps < end/ps.
         vstd::arithmetic::div_mod::lemma_div_is_ordered(ad as int, end as int, ps as int);
         if ad as int / ps as int == end as int / ps as int {
-            // Would mean ad == end, contradicting ad < end.
             assert(false);
         }
-        // ad/ps + 1 <= end/ps. Multiply by ps: (ad/ps + 1)*ps <= (end/ps)*ps == end.
         vstd::arithmetic::mul::lemma_mul_inequality(
             ad as int / ps as int + 1, end as int / ps as int, ps as int);
-        // (ad/ps + 1)*ps == (ad/ps)*ps + ps == ad + ps.
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
             ps as int, ad as int / ps as int, 1);
-        // Explicit chain:
-        let lhs = (ad as int / ps as int + 1) * ps as int;
-        let rhs = (end as int / ps as int) * ps as int;
-        assert(lhs <= rhs); // from lemma_mul_inequality
-        assert(lhs == ad as int + ps as int); // from distributive
         vstd::arithmetic::mul::lemma_mul_is_commutative(end as int / ps as int, ps as int);
-        assert(rhs == end as int); // from fundamental_div_mod + end % ps == 0 + commutativity
     }
 
     pub proof fn locked_range_page_aligned(self)
@@ -1317,8 +1193,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.locked_range().start % PAGE_SIZE == 0,
     {
         let gl = self.guard_level;
-        // From inv(): 1 <= guard_level <= NR_LEVELS.
-        assert(1 <= gl <= NR_LEVELS);
         let pv = self.prefix.to_vaddr() as nat;
         let ps = page_size(gl as PagingLevel) as nat;
         lemma_page_size_ge_page_size(gl as PagingLevel);
@@ -1333,25 +1207,16 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.align_down_concrete(gl as int);
         self.prefix.align_up_concrete(gl as int);
 
-        // Prove the nat values fit in Vaddr (usize), so the `as Vaddr` cast doesn't truncate.
+        // Prove the nat values fit in Vaddr (usize) so the `as Vaddr` cast doesn't truncate.
         self.prefix.to_vaddr_bounded();
         self.prefix.to_vaddr_indices_gap_bound(0);
-        // to_vaddr_indices_gap_bound(0): to_vaddr_indices(0) + 2^12 <= 2^48.
-        // to_vaddr_bounded: to_vaddr() = offset + to_vaddr_indices(0), offset < 2^12.
-        // Therefore pv < 2^48.
         vstd::arithmetic::power2::lemma2_to64();
         let bound = pow2(48nat) as nat;
-        assert(pv < bound);
-        // page_size(gl) = PAGE_SIZE * pow2(9*(gl-1)).
-        // gl <= NR_LEVELS = 4, so 9*(gl-1) <= 27, so page_size(gl) <= 2^39.
-        // ps <= 2^39 < 2^48 = bound.
         crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        lemma_page_size_ge_page_size(gl as PagingLevel);
         assert(ps <= page_size(NR_LEVELS as PagingLevel) as nat) by {
             page_size_monotonic(gl as PagingLevel, NR_LEVELS as PagingLevel);
         };
-        // page_size(4) = PAGE_SIZE * pow2(9*3) = 4096 * pow2(27) = pow2(12) * pow2(27) = pow2(39).
         vstd::arithmetic::power2::lemma_pow2_adds(12nat, 27nat);
         vstd::arithmetic::power2::lemma2_to64_rest();
         assert(pow2(39nat) < pow2(48nat)) by {
@@ -1360,17 +1225,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(page_size(NR_LEVELS as PagingLevel) == pow2(39nat)) by {
             assert(nr_subpage_per_huge::<PagingConsts>().ilog2() * ((NR_LEVELS - 1) as nat) == 27nat);
         };
-        assert(ps < bound);
-        assert(end_va < pv + ps);
-        assert(pv + ps < 2 * bound);
-        // 2 * 2^48 = 2^49 < 2^64 = usize::MAX + 1.
         vstd::arithmetic::power2::lemma_pow2_adds(1nat, 48nat);
-        assert(2 * bound == pow2(49nat) as nat);
         assert(pow2(49nat) <= pow2(64nat)) by {
             vstd_extra::external::ilog2::lemma_pow2_increases(49nat, 64nat);
         };
-        assert(end_va < usize::MAX as nat);
-        assert(start_va < usize::MAX as nat);
 
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(start_va as Vaddr);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(end_va as Vaddr);
@@ -1480,10 +1338,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
         assert(self.view_mappings().contains(m));
         assert(m.inv());
-
         assert(m.va_range.start <= self@.cur_va < m.va_range.end) by {
             self.cur_va_in_subtree_range();
         };
+
         let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
         assert(filtered.contains(m));
         axiom_set_intersect_finite::<Mapping>(
@@ -1550,7 +1408,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let cont = self.continuations[i];
             assert(cont.inv());
             assert(cont.map_children(f));
-            assert(cont == other.continuations[i]);
             reveal(CursorContinuation::inv_children);
             assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                 cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), g) by {
@@ -1558,16 +1415,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), f, g);
             };
         };
-        // Path entries: transfer via implies(f, g) + entry_own.inv().
         assert(other.path_metaregion_sound(regions1)) by {
             assert forall|i: int| #![trigger other.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS implies
                     other.continuations[i].entry_own.metaregion_sound(regions1) by {
                 self.inv_continuation(i);
                 let eo = self.continuations[i].entry_own;
-                assert(eo.inv());
                 assert(eo.metaregion_sound(regions0));
-                // implies(f, g): eo.inv() && f(eo, _) ==> g(eo, _)
                 assert(g(eo, self.continuations[i].path()));
             };
         };
@@ -1578,7 +1432,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let cont = self.continuations[i];
                 assert(cont.inv());
                 assert(cont.map_children(e));
-                assert(cont == other.continuations[i]);
                 reveal(CursorContinuation::inv_children);
                 assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] cont.children[j] is Some implies
                     cont.children[j].unwrap().tree_predicate_map(cont.path().push_tail(j as usize), h) by {
@@ -1586,7 +1439,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         cont.children[j].unwrap().map_implies(cont.path().push_tail(j as usize), e, h);
                 };
             };
-            // Path entries: transfer via implies(e, h).
             assert(other.path_metaregion_correct(regions1)) by {
                 assert forall|i: int| #![trigger other.continuations[i]]
                     self.level - 1 <= i < NR_LEVELS implies
@@ -1594,8 +1446,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                             other.continuations[i].entry_own,
                             other.continuations[i].path()) by {
                     self.inv_continuation(i);
-                    let eo = self.continuations[i].entry_own;
-                    assert(eo.inv());
                 };
             };
         }
@@ -1716,10 +1566,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let h = PageTableOwner::<C>::path_tracked_pred(regions1);
         let nsp = PageTableOwner::<C>::not_in_scope_pred();
 
-        // implies(f && nsp, g):
-        // - Nodes at changed_idx: expected_raw_count==1 but r0.raw_count==0, so f is false → vacuous.
-        // - Frames at changed_idx: regions1.inv() provides all slot properties from regions1.slots.
-        // - Other entries: slot_owners and slots unchanged at their index.
         assert(OwnerSubtree::implies(
             |v: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(v, p) && nsp(v, p), g)) by {
             assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -1728,14 +1574,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 if entry.meta_slot_paddr() is Some {
                     let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
                     if eidx != changed_idx {
-                        assert(regions0.slot_owners[eidx] == regions1.slot_owners[eidx]);
                     } else if entry.is_frame() {
-                        // Frame at changed_idx: use regions1.inv() to get slot properties.
                         assert(regions1.slots.contains_key(eidx));
-                        // regions1.inv() => slots[eidx].addr() == meta_addr(eidx) etc.
-                        // ref_count preserved from inner_perms equality.
                     }
-                    // Node at changed_idx with !in_scope: expected_raw_count==1 != r0.raw_count==0 → f is false.
                 }
             };
         };
@@ -1747,7 +1588,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         by {
             let cont = self.continuations[i];
-            assert(cont.map_children(f));
             reveal(CursorContinuation::inv_children);
             assert forall |j: int| 0 <= j < NR_ENTRIES
                 && #[trigger] cont.children[j] is Some implies
@@ -1771,17 +1611,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     self.continuations[i].entry_own.metaregion_sound(regions1) by {
                 self.inv_continuation(i);
                 let eo = self.continuations[i].entry_own;
-                assert(eo.inv() && eo.is_node() && !eo.in_scope);
                 if eo.meta_slot_paddr() is Some {
                     let eidx = frame_to_index(eo.meta_slot_paddr().unwrap());
-                    if eidx != changed_idx {
-                        assert(regions0.slot_owners[eidx] == regions1.slot_owners[eidx]);
-                    }
+                    if eidx != changed_idx {}
                 }
             };
         };
         if self.metaregion_correct(regions0) {
-            // implies(e && nsp, h): path_if_in_pt unchanged.
             assert(OwnerSubtree::implies(
                 |v: EntryOwner<C>, p: TreePath<NR_ENTRIES>| e(v, p) && nsp(v, p), h)) by {
                 assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -1801,7 +1637,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             by {
                 let cont = self.continuations[i];
-                assert(cont.map_children(e));
                 reveal(CursorContinuation::inv_children);
                 assert forall |j: int| 0 <= j < NR_ENTRIES
                     && #[trigger] cont.children[j] is Some implies
@@ -1818,7 +1653,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     cont.children[j].unwrap().map_implies_and(cont.path().push_tail(j as usize), e, nsp, h);
                 };
             };
-            // Path entries: path_if_in_pt unchanged at all indices.
             assert(self.path_metaregion_correct(regions1)) by {
                 assert forall|i: int| #![trigger self.continuations[i]]
                     self.level - 1 <= i < NR_LEVELS implies
