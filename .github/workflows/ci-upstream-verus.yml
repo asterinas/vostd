@@ -27,4 +27,4 @@ jobs:
         run: cargo dv bootstrap --upstream-verus
 
       - name: Verify ostd with upstream verus
-        run: cargo dv verify --targets ostd
+        run: cargo dv verify --targets ostd -- -V new-mut-ref

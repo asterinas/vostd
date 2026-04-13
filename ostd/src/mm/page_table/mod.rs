@@ -74,8 +74,8 @@ pub trait RCClone: Sized {
             old(rc_perm).value() < u64::MAX,
         ensures
             res == *self,
-            rc_perm.value() == old(rc_perm).value() + 1,
-            rc_perm.id() == old(rc_perm).id(),
+            final(rc_perm).value() == old(rc_perm).value() + 1,
+            final(rc_perm).id() == old(rc_perm).id(),
     ;
 }
 
@@ -403,7 +403,7 @@ pub trait PageTableEntryTrait: Clone + Copy + Debug + Sized + Send + Sync + 'sta
 
     fn set_prop(&mut self, prop: PageProperty)
         ensures
-            old(self).set_prop_spec(prop) == *self,
+            old(self).set_prop_spec(prop) == *final(self),
     ;
 
     proof fn set_prop_properties(self, prop: PageProperty)
@@ -1108,31 +1108,31 @@ impl<C: PageTableConfig> PageTable<C> {
         requires
             old(regions).inv(),
         ensures
-            owner@ is Some,
-            owner@.unwrap().inv(),
-            owner@.unwrap().0.value.is_node(),
-            owner@.unwrap().0.value.node is Some,
-            r.root.ptr.addr() == owner@.unwrap().0.value.node.unwrap().meta_perm.addr(),
-            owner@.unwrap().0.value.metaregion_sound(*regions),
-            regions.inv(),
-            guards.unlocked(owner@.unwrap().0.value.node.unwrap().meta_perm.addr()),
+            final(owner)@ is Some,
+            final(owner)@.unwrap().inv(),
+            final(owner)@.unwrap().0.value.is_node(),
+            final(owner)@.unwrap().0.value.node is Some,
+            r.root.ptr.addr() == final(owner)@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+            final(owner)@.unwrap().0.value.metaregion_sound(*final(regions)),
+            final(regions).inv(),
+            final(guards).unlocked(final(owner)@.unwrap().0.value.node.unwrap().meta_perm.addr()),
             // The newly allocated slot was in the free pool before the call.
             old(regions).slots.contains_key(
                 crate::specs::mm::frame::mapping::frame_to_index(
-                    owner@.unwrap().0.value.meta_slot_paddr().unwrap())),
+                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())),
             // After the alloc, the slot is removed from the free pool (now owned
             // by the new pt's NodeOwner).
-            !regions.slots.contains_key(
+            !final(regions).slots.contains_key(
                 crate::specs::mm::frame::mapping::frame_to_index(
-                    owner@.unwrap().0.value.meta_slot_paddr().unwrap())),
+                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())),
             // Other slots and lock state are preserved.
-            forall |i: usize| #![trigger regions.slot_owners[i]]
+            forall |i: usize| #![trigger final(regions).slot_owners[i]]
                 i != crate::specs::mm::frame::mapping::frame_to_index(
-                    owner@.unwrap().0.value.meta_slot_paddr().unwrap())
-                ==> regions.slot_owners[i] == old(regions).slot_owners[i],
-            forall |a: usize| old(guards).lock_held(a) ==> guards.lock_held(a),
-            forall |idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-                regions.slot_owners[idx].path_if_in_pt
+                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())
+                ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
+            forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
+            forall |idx: usize| #![trigger final(regions).slot_owners[idx].path_if_in_pt]
+                final(regions).slot_owners[idx].path_if_in_pt
                     == old(regions).slot_owners[idx].path_if_in_pt,
             // Allocation preserves the soundness of the kernel page-table tree:
             // a fresh allocation cannot collide with any active node or frame entry
@@ -1140,9 +1140,9 @@ impl<C: PageTableConfig> PageTable<C> {
             // postcondition because deriving it requires a freshness axiom on the
             // underlying frame allocator.
             forall |kt: PageTableOwner<KernelPtConfig>|
-                #![trigger kt.metaregion_sound(*regions)]
+                #![trigger kt.metaregion_sound(*final(regions))]
                 kt.inv() && kt.metaregion_sound(*old(regions))
-                ==> kt.metaregion_sound(*regions),
+                ==> kt.metaregion_sound(*final(regions)),
             // Freshness: the new PT's slot index is not used (as a primary slot
             // or huge-frame sub-page slot) by any entry in any KernelPtConfig PT
             // tree that was sound before the alloc. Used to discharge the borrow
@@ -1158,7 +1158,7 @@ impl<C: PageTableConfig> PageTable<C> {
                             ==> crate::specs::mm::frame::mapping::frame_to_index(
                                 e.meta_slot_paddr().unwrap()) !=
                                 crate::specs::mm::frame::mapping::frame_to_index(
-                                    owner@.unwrap().0.value.meta_slot_paddr().unwrap()),
+                                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap()),
                 ),
             // Sub-page freshness: for any huge frame entry in any pre-existing
             // sound KernelPtConfig tree, the new PT's slot index isn't a sub-page
@@ -1179,7 +1179,7 @@ impl<C: PageTableConfig> PageTable<C> {
                                     #[trigger] crate::specs::mm::frame::mapping::frame_to_index(
                                         (pa + j * crate::specs::arch::mm::PAGE_SIZE) as usize);
                                 sub_idx != crate::specs::mm::frame::mapping::frame_to_index(
-                                    owner@.unwrap().0.value.meta_slot_paddr().unwrap())
+                                    final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())
                             }
                         },
                 ),
@@ -1236,8 +1236,8 @@ impl<C: PageTableConfig> PageTable<C> {
         ensures
             Cursor::<C, G>::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
-                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *regions, *guards)
-                &&& r.unwrap().1.metaregion_correct(*regions)
+                &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *final(regions), *final(guards))
+                &&& r.unwrap().1.metaregion_correct(*final(regions))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel
@@ -1247,10 +1247,10 @@ impl<C: PageTableConfig> PageTable<C> {
             },
             forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
-                CursorMut::<'rcu, C, G>::item_not_mapped(item, *regions),
+                CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
             // cursor_mut only locks page-table node slots; path_if_in_pt is unchanged for all slots.
             forall |idx: usize| #![auto]
-                (*regions).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
+                (*final(regions)).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
     )]
     #[verifier::external_body]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(
@@ -1403,10 +1403,10 @@ pub fn load_pte<E: PageTableEntryTrait>(
         0 <= ptr.index < NR_ENTRIES,
         old(perm).is_init_all(),
     ensures
-        perm.value()[ptr.index as int] == new_val,
-        perm.value() == old(perm).value().update(ptr.index as int, new_val),
-        perm.addr() == old(perm).addr(),
-        perm.is_init_all(),
+        final(perm).value()[ptr.index as int] == new_val,
+        final(perm).value() == old(perm).value().update(ptr.index as int, new_val),
+        final(perm).addr() == old(perm).addr(),
+        final(perm).is_init_all(),
 )]
 pub fn store_pte<E: PageTableEntryTrait>(
     ptr: vstd_extra::array_ptr::ArrayPtr<E, NR_ENTRIES>,

@@ -21,8 +21,6 @@ use crate::mm::page_table::page_size_spec as page_size;
 
 verus! {
 
-// ─── vaddr containment helpers ───────────────────────────────────────────────
-
 // ─── CursorContinuation mapping lemmas ───────────────────────────────────────
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
@@ -460,32 +458,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let level = old_self.level;
 
-        // Helper: mappings from higher continuations (i >= level) are disjoint from
-        // the lowest continuation's mappings.
-        // This follows from the page table tree structure: the lowest continuation
-        // covers subtrees within the current node, while higher continuations cover
-        // sibling subtrees at coarser levels.
-
         assert forall |m: Mapping| new_self.view_mappings().contains(m) implies
             ((old_self.view_mappings().contains(m) && !old_cont.view_mappings().contains(m)) || new_cont.view_mappings().contains(m))
         by {
             let i = choose|i: int| level - 1 <= i < NR_LEVELS
                 && #[trigger] new_self.continuations[i].view_mappings().contains(m);
             if i == level - 1 {
-                // m from new_cont
                 assert(new_cont.view_mappings().contains(m));
             } else {
-                // m from higher continuation, same in old and new
                 assert(old_self.continuations[i] == new_self.continuations[i]);
                 assert(old_self.continuations[i].view_mappings().contains(m));
-                // m is in old_self.view_mappings()
                 assert(old_self.view_mappings().contains(m));
 
-                // m is NOT in old_cont.view_mappings() (inter-level disjointness)
-                // Proof: m comes from sibling at higher level, disjoint VA from lowest continuation
                 if old_cont.view_mappings().contains(m) {
-                    // m is in both old_cont (level-1) and cont[i] (i >= level)
-                    // Get VA bounds for both sources
                     old_self.inv_continuation(i);
                     old_self.inv_continuation(level - 1);
                     let cont_i = old_self.continuations[i];
@@ -505,26 +490,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     PageTableOwner(old_cont.children[k].unwrap()).view_rec_vaddr_range(
                         old_cont.path().push_tail(k as usize), m);
 
-                    // m's VA from cont_i source: within sibling j (j != cont_i.idx) at level i
-                    // m's VA from old_cont source: within child k at level-1
-                    // old_cont is within cont_i.idx child, so its VA is disjoint from sibling j
                     if j as usize != cont_i.idx as usize {
                         assert(cont_i.level() == (i + 1) as PagingLevel) by {
                             if i == 0 {} else if i == 1 {} else if i == 2 {} else {}
                         };
 
-                        // m.va_range.start is in old_cont's child k, hence within old_cont's node range.
-                        // old_cont's node range is [vaddr(old_cont.path()), + page_size(level+1)).
-                        // We show this range is within [idx_path_va, + page_size(i+1)) via nat_align_down.
-
-                        // Connect old_cont.path() to nat_align_down(cur_va, page_size(level+1)).
-                        // old_cont.path() == cont[level].path().push_tail(cont[level].idx) from inv.
-                        // cur_va_in_cont_child_range(level) gives its vaddr == vaddr(va.to_path(level)).
-                        // to_path_vaddr_concrete(level) gives vaddr(va.to_path(level)) == nat_align_down(cur_va, page_size(level+1)).
-                        // Note: level < NR_LEVELS since i >= level and i < NR_LEVELS.
                         old_self.cur_va_in_cont_child_range(level as int);
                         old_self.va.to_path_vaddr_concrete(level as int);
-                        // Connect idx_path_va to nat_align_down(cur_va, page_size(i+1))
                         old_self.cur_va_in_cont_child_range(i);
                         old_self.va.to_path_vaddr_concrete(i);
 
@@ -532,38 +504,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         let ps_node = page_size((level + 1) as PagingLevel) as nat;
                         let ps_anc = page_size((i + 1) as PagingLevel) as nat;
 
-                        // Page sizes are positive and divide properly
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size((level + 1) as PagingLevel);
                         crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size((i + 1) as PagingLevel);
                         lemma_page_size_divides((level + 1) as PagingLevel, (i + 1) as PagingLevel);
 
-                        // Nested containment: old_cont's node range fits within ancestor child
                         lemma_nat_align_down_monotone(x, ps_node, ps_anc);
                         lemma_nat_align_down_within_block(x, ps_node, ps_anc);
                         vstd_extra::arithmetic::lemma_nat_align_down_sound(x, ps_node);
                         vstd_extra::arithmetic::lemma_nat_align_down_sound(x, ps_anc);
 
-                        // Also: m.va_range.start < vaddr(old_cont.path().push_tail(k)) + page_size(level)
-                        //       <= vaddr(old_cont.path()) + page_size(level+1) [child fits in node]
-                        //       <= idx_path_va + page_size(i+1) [node fits in ancestor]
-                        // And: m.va_range.start >= vaddr(old_cont.path().push_tail(k)) >= vaddr(old_cont.path())
-                        //       >= idx_path_va [node start >= ancestor start from nat_align_down_monotone]
-                        // So m.va_range.start is in [idx_path_va, idx_path_va + page_size(i+1))
-
-                        // But sibling j's range is disjoint from [idx_path_va, ...+sib_size)
                         let sib_size = page_size((INC_LEVELS - cont_i.path().len()) as PagingLevel);
                         sibling_paths_disjoint(cont_i.path(), cont_i.idx, j as usize, sib_size);
                         page_size_monotonic((i + 1) as PagingLevel, (INC_LEVELS - cont_i.path().len()) as PagingLevel);
 
-                        // Need: m.va_range.start from old_cont child k is within old_cont node range.
-                        // view_rec_vaddr_range gives m.va_range.start < vaddr(old_cont.path().push_tail(k)) + page_size(level)
-                        // And vaddr(old_cont.path().push_tail(k)) < vaddr(old_cont.path()) + page_size(level+1) [from the node structure]
-                        // Together: m.va_range.start < vaddr(old_cont.path()) + page_size(level+1)
-                        // This requires vaddr(old_cont.path().push_tail(k)) < vaddr(old_cont.path()) + page_size(level+1)
-                        // i.e., the child vaddr is within the node. This is view_rec_vaddr_range at the node level.
-                        // Since old_cont has inv(), old_cont.as_subtree().inv(), and child k is in the node's children:
-                        // PageTableOwner(old_cont.as_subtree()).view_rec_vaddr_range(old_cont.path(), m)
-                        // This gives: vaddr(old_cont.path()) <= m.va_range.start < vaddr(old_cont.path()) + page_size(level + 1)
                         old_cont.as_subtree_inv();
                         PageTableOwner(old_cont.as_subtree()).view_rec_vaddr_range(old_cont.path(), m);
                     } else {

@@ -14,7 +14,7 @@ $(VERIFICATION_TARGETS):
 all: verify
 
 verify:
-	cargo dv verify --targets $(VERIFICATION_TARGETS)
+	cargo dv verify --targets $(VERIFICATION_TARGETS) -- -V new-mut-ref
 
 fmt:
 	cargo dv fmt

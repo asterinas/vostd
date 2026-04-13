@@ -325,20 +325,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let old_cont = self.continuations[self.level - 1];
         let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
 
-        reveal(CursorContinuation::inv_children);
-
-        // old_cont.view_mappings() == child_cont.view_mappings() + modified_cont.view_mappings()
-        // From view_mappings_take_child: modified_cont.view_mappings() == old_cont.view_mappings() - child_spec
-        // And child_cont.view_mappings() == child_spec (via as_page_table_owner_preserves_view_mappings)
         assert(old_cont.all_some());
         old_cont.view_mappings_take_child();
-        // take_child_spec().1.view_mappings() == old_cont.view_mappings() - view_mappings_take_child_spec()
 
-        // modified_cont.view_mappings() == take_child_spec().1.view_mappings()
-        // They have the same children (both have children[idx] = None, rest unchanged)
-        // and same path/entry_own.
         let taken = old_cont.take_child_spec().1;
-        // Hoisted out of the view_mappings equality proof below to keep nesting depth <= 2.
+
         assert(modified_cont.children =~= taken.children) by {
             assert forall |j: int| 0 <= j < modified_cont.children.len()
                 implies modified_cont.children[j] == taken.children[j] by {
@@ -351,17 +342,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
         assert(modified_cont.view_mappings() =~= taken.view_mappings()) by {
-            // `modified_cont.children =~= taken.children` hoisted above.
             assert(modified_cont.path() == taken.path());
         };
 
-        // child_cont.view_mappings() == view_mappings_take_child_spec()
-        // Both are the set of mappings from the child subtree's children.
-        // child_cont.view_mappings() = union over j of PTO(child_cont.children[j]).view_rec(child_cont.path().push_tail(j))
-        // view_mappings_take_child_spec() = PTO(old_cont.children[old_cont.idx]).view_rec(old_cont.path().push_tail(old_cont.idx))
-        // Since child_cont.children == old_cont.children[old_cont.idx].children
-        //   and child_cont.path() == old_cont.path().push_tail(old_cont.idx) (from inv_children_rel)
-        // The child_cont.view_mappings() is exactly the view_rec decomposition of the child subtree.
         old_cont.inv_children_rel_unroll(old_cont.idx as int);
         let child_subtree = old_cont.children[old_cont.idx as int].unwrap();
         let child_path = old_cont.path().push_tail(old_cont.idx as usize);
@@ -376,8 +359,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         old_cont.inv_children_unroll(old_cont.idx as int);
         assert(child_subtree.inv());
         let pto = PageTableOwner(child_subtree);
-        // Hoisted out of the view_mappings equality below so the inner set
-        // double-inclusion proof sits at depth 2, not 3.
         assert(pto.view_rec(child_path) =~= child_cont.view_mappings()) by {
             assert forall |m: Mapping| child_cont.view_mappings().contains(m) implies
                 pto.view_rec(child_path).contains(m) by {
@@ -403,15 +384,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(child_cont.view_mappings() =~= old_cont.view_mappings_take_child_spec());
 
-        // new_owner.view_mappings() == child_cont.view_mappings() + modified_cont.view_mappings()
-        //                              + (higher continuations unchanged)
-        // == view_mappings_take_child_spec() + (old_cont.view_mappings() - view_mappings_take_child_spec())
-        //    + higher
-        // == old_cont.view_mappings() + higher
-        // == self.view_mappings()
-        // Flattened: the two directions of the set equality live at depth 1,
-        // and the inner `assert(...) by { ... }` helpers have been inlined
-        // as plain asserts so the forall bodies stay at depth 2.
         assert forall |m: Mapping| self.view_mappings().contains(m)
             implies new_owner.view_mappings().contains(m) by {
             let i = choose |i: int|
@@ -1143,7 +1115,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
             old(self).level > 1,
         ensures
-            *self == old(self).push_level_owner_spec(guard_perm@),
+            *final(self) == old(self).push_level_owner_spec(guard_perm@),
     {
         assert(self.va.index.contains_key(self.level - 2));
 
@@ -1573,7 +1545,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).inv(),
             old(self).level < NR_LEVELS,
         ensures
-            *self == old(self).pop_level_owner_spec().0,
+            *final(self) == old(self).pop_level_owner_spec().0,
             guard_perm == old(self).pop_level_owner_spec().1,
     {
         let ghost self0 = *self;

@@ -304,13 +304,13 @@ impl MetaSlotOwner {
     pub axiom fn take_inner_perms(tracked &mut self) -> (tracked res: MetadataInnerPerms)
         ensures
             res == old(self).inner_perms,
-            self.self_addr == old(self).self_addr,
-            self.usage == old(self).usage,
-            self.raw_count == old(self).raw_count,
-            self.path_if_in_pt == old(self).path_if_in_pt;
+            final(self).self_addr == old(self).self_addr,
+            final(self).usage == old(self).usage,
+            final(self).raw_count == old(self).raw_count,
+            final(self).path_if_in_pt == old(self).path_if_in_pt;
 
     pub axiom fn sync_inner(tracked &mut self, inner_perms: &MetadataInnerPerms)
-        ensures *self == (Self { inner_perms: *inner_perms, ..*old(self) });
+        ensures *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) });
 }
 
 pub struct Metadata<M: AnyFrameMeta> {

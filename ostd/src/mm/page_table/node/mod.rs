@@ -156,17 +156,17 @@ impl<C: PageTableConfig> PageTableNode<C> {
             old(regions).inv(),
             old(parent_owner).inv(),
         ensures
-            regions.inv(),
-            parent_owner.inv(),
+            final(regions).inv(),
+            final(parent_owner).inv(),
             allocated_empty_node_owner(owner@, level),
             res.ptr.addr() == owner@.value.node.unwrap().meta_perm.addr(),
             guards.unlocked(owner@.value.node.unwrap().meta_perm.addr()),
-            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *regions),
+            MetaSlot::get_from_unused_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()), false, *old(regions), *final(regions)),
             old(regions).slots.contains_key(frame_to_index(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
-            owner@.value.metaregion_sound(*regions),
+            owner@.value.metaregion_sound(*final(regions)),
             owner@.value.in_scope,
             owner@.value.match_pte(C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr())), level as PagingLevel),
-            *parent_owner == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
+            *final(parent_owner) == old(parent_owner).set_children_perm(idx, C::E::new_pt_spec(meta_to_frame(owner@.value.node.unwrap().meta_perm.addr()))),
     )]
     #[verifier::external_body]
     pub fn alloc<'rcu>(level: PagingLevel) -> Self {
@@ -261,8 +261,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_perm.addr()),
         ensures
-            guards.lock_held(owner.meta_perm.addr()),
-            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *guards),
+            final(guards).lock_held(owner.meta_perm.addr()),
+            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
@@ -286,8 +286,8 @@ impl<'a, C: PageTableConfig> PageTableNodeRef<'a, C> {
             self.inner@.invariants(*owner),
             old(guards).unlocked(owner.meta_perm.addr()),
         ensures
-            guards.lock_held(owner.meta_perm.addr()),
-            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *guards),
+            final(guards).lock_held(owner.meta_perm.addr()),
+            Self::locks_preserved_except(owner.meta_perm.addr(), *old(guards), *final(guards)),
             res.addr() == guard_perm@.addr(),
             owner.relate_guard_perm(guard_perm@),
     )]
@@ -387,7 +387,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_perm.wf(&meta_perm.inner_perms),
         ensures
             res.id() == meta_perm.value().metadata.stray.id(),
-            *self == *old(self),
+            *final(self) == *old(self),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]
@@ -449,14 +449,14 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             old(self).inner.inner@.invariants(*old(owner)),
             idx < NR_ENTRIES,
         ensures
-            owner.inv(),
-            owner.meta_perm.addr() == old(owner).meta_perm.addr(),
-            owner.level == old(owner).level,
-            owner.meta_own == old(owner).meta_own,
-            owner.meta_perm.points_to == old(owner).meta_perm.points_to,
-            owner.meta_perm.inner_perms == old(owner).meta_perm.inner_perms,
-            owner.children_perm.value() == old(owner).children_perm.value().update(idx as int, pte),
-            *self == *old(self),
+            final(owner).inv(),
+            final(owner).meta_perm.addr() == old(owner).meta_perm.addr(),
+            final(owner).level == old(owner).level,
+            final(owner).meta_own == old(owner).meta_own,
+            final(owner).meta_perm.points_to == old(owner).meta_perm.points_to,
+            final(owner).meta_perm.inner_perms == old(owner).meta_perm.inner_perms,
+            final(owner).children_perm.value() == old(owner).children_perm.value().update(idx as int, pte),
+            *final(self) == *old(self),
     {
         // debug_assert!(idx < nr_subpage_per_huge::<C>());
         #[verusfmt::skip]
@@ -486,7 +486,7 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             meta_perm.wf(&meta_perm.inner_perms),
         ensures
             res.id() == meta_perm.value().metadata.nr_children.id(),
-            *self == *old(self),
+            *final(self) == *old(self),
     {
         // SAFETY: The lock is held so we have an exclusive access.
         #[verus_spec(with Tracked(meta_perm))]

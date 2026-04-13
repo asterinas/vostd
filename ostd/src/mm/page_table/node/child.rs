@@ -67,9 +67,9 @@ impl<C: PageTableConfig> Child<C> {
             self.invariants(*old(owner), *old(regions)),
             old(owner).in_scope,
         ensures
-            owner.pte_invariants(res, *regions),
-            *regions == old(owner).into_pte_regions_spec(*old(regions)),
-            *owner == old(owner).into_pte_owner_spec(),
+            final(owner).pte_invariants(res, *final(regions)),
+            *final(regions) == old(owner).into_pte_regions_spec(*old(regions)),
+            *final(owner) == old(owner).into_pte_owner_spec(),
             old(owner).node is Some ==>
                 res == C::E::new_pt_spec(meta_to_frame(old(owner).node.unwrap().meta_perm.addr())),
     {
@@ -131,10 +131,10 @@ impl<C: PageTableConfig> Child<C> {
             old(entry_own).pte_invariants(pte, *old(regions)),
             level == old(entry_own).parent_level,
         ensures
-            res.invariants(*entry_own, *regions),
-            res == Child::<C>::from_pte_spec(pte, level, *regions),
-            *entry_own == old(entry_own).from_pte_owner_spec(),
-            *regions == entry_own.from_pte_regions_spec(*old(regions)),
+            res.invariants(*final(entry_own), *final(regions)),
+            res == Child::<C>::from_pte_spec(pte, level, *final(regions)),
+            *final(entry_own) == old(entry_own).from_pte_owner_spec(),
+            *final(regions) == final(entry_own).from_pte_regions_spec(*old(regions)),
     {
         if !pte.is_present() {
             proof {
@@ -215,10 +215,10 @@ impl<C: PageTableConfig> ChildRef<'_, C> {
             entry_owner.pte_invariants(*pte, *old(regions)),
             level == entry_owner.parent_level,
         ensures
-            res.invariants(*entry_owner, *regions),
-            regions.slot_owners =~= old(regions).slot_owners,
-            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] regions.slots.contains_key(k),
-            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+            res.invariants(*entry_owner, *final(regions)),
+            final(regions).slot_owners =~= old(regions).slot_owners,
+            forall |k: usize| old(regions).slots.contains_key(k) ==> #[trigger] final(regions).slots.contains_key(k),
+            forall |k: usize| old(regions).slots.contains_key(k) ==> old(regions).slots[k] == #[trigger] final(regions).slots[k],
     {
         if !pte.is_present() {
             return ChildRef::None;

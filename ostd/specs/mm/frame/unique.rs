@@ -116,7 +116,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         meta_perm: PointsTo<MetaSlot, Metadata<M>>,
     ) -> (tracked res: Self)
     ensures
-        Self::from_unused_owner_spec(*old(regions), paddr, meta_perm.value().metadata, res, *regions);
+        Self::from_unused_owner_spec(*old(regions), paddr, meta_perm.value().metadata, res, *final(regions));
     /* {
         let tracked perm = regions.slots.tracked_remove(frame_to_index(paddr));
         UniqueFrameOwner::<M> {

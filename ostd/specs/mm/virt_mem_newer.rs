@@ -349,7 +349,7 @@ impl MemView {
         requires
             old(self).mappings.disjoint(other.mappings),
         ensures
-            *self == old(self).join_spec(other),
+            *final(self) == old(self).join_spec(other),
     {
         unimplemented!()
     }
@@ -479,7 +479,7 @@ impl VirtPtr {
             old(mem).addr_transl(self.vaddr) is Some,
             self.is_valid(),
         ensures
-            *mem == old(mem).write(self.vaddr, x),
+            *final(mem) == old(mem).write(self.vaddr, x),
     {
         unimplemented!()
     }
@@ -507,7 +507,7 @@ impl VirtPtr {
 
             0 <= old(self).vaddr + n < usize::MAX,
         ensures
-            *self == old(self).add_spec(n),
+            *final(self) == old(self).add_spec(n),
     // If we take option 1, we can also ensure:
     // self.is_defined()
 
@@ -607,9 +607,9 @@ impl VirtPtr {
             dst.range@.start <= dst.vaddr + n < dst.range@.end,
             old(mem_dst).addr_transl((dst.vaddr + n) as usize) is Some,
         ensures
-            *mem_dst == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n),
-            mem_dst.mappings == old(mem_dst).mappings,
-            mem_dst.memory.dom() == old(mem_dst).memory.dom(),
+            *final(mem_dst) == Self::copy_offset_spec(*src, *dst, *mem_src, *old(mem_dst), n),
+            final(mem_dst).mappings == old(mem_dst).mappings,
+            final(mem_dst).memory.dom() == old(mem_dst).memory.dom(),
 
     {
         let x = src.read_offset(Tracked(mem_src), n);
@@ -680,13 +680,13 @@ impl VirtPtr {
                     &&& old(mem_dst).addr_transl(i) is Some
                 },
         ensures
-            *mem_dst == Self::memcpy_spec(*src, *dst, *mem_src, *old(mem_dst), n),
-            mem_dst.mappings == old(mem_dst).mappings,
-            mem_dst.memory.dom() == old(mem_dst).memory.dom(),
+            *final(mem_dst) == Self::memcpy_spec(*src, *dst, *mem_src, *old(mem_dst), n),
+            final(mem_dst).mappings == old(mem_dst).mappings,
+            final(mem_dst).memory.dom() == old(mem_dst).memory.dom(),
             forall|i: usize|
-                #![trigger mem_dst.addr_transl(i)]
+                #![trigger final(mem_dst).addr_transl(i)]
                 dst.vaddr <= i < dst.vaddr + n ==> {
-                    &&& mem_dst.addr_transl(i) is Some
+                    &&& final(mem_dst).addr_transl(i) is Some
             },
         decreases n,
     {
@@ -700,8 +700,12 @@ impl VirtPtr {
             proof {
                 assert(forall|i: usize|
                     dst.vaddr <= i < dst.vaddr + n - 1 ==>
-                    mem_dst.addr_transl(i) == mem0.addr_transl(i)
+                    mem_dst.addr_transl(i) == #[trigger] mem0.addr_transl(i)
                 );
+                assert forall|i: usize|
+                    dst.vaddr <= i < dst.vaddr + n - 1 implies mem_dst.addr_transl(i) is Some by {
+                    assert(mem_dst.addr_transl(i) == mem0.addr_transl(i));
+                }
             }
 
             Self::copy_nonoverlapping(src, dst, Tracked(mem_src), Tracked(mem_dst), n - 1);
@@ -879,7 +883,7 @@ impl GlobalMemView {
 
     pub axiom fn take_view(tracked &mut self, vaddr: usize, len: usize) -> (tracked view: MemView)
         ensures
-            *self == old(self).take_view_spec(vaddr, len).0,
+            *final(self) == old(self).take_view_spec(vaddr, len).0,
             view == old(self).take_view_spec(vaddr, len).1;
 
     pub open spec fn return_view_spec(self, view: MemView) -> Self {
@@ -892,7 +896,7 @@ impl GlobalMemView {
 
     pub axiom fn return_view(&mut self, view: MemView)
         ensures
-            *self == old(self).return_view_spec(view);
+            *final(self) == old(self).return_view_spec(view);
 
     pub open spec fn tlb_flush_vaddr_spec(self, vaddr: Vaddr) -> Self {
         let tlb_mappings = self.tlb_mappings.filter(
@@ -908,8 +912,8 @@ impl GlobalMemView {
         requires
             old(self).inv()
         ensures
-            *self == old(self).tlb_flush_vaddr_spec(vaddr),
-            self.inv();
+            *final(self) == old(self).tlb_flush_vaddr_spec(vaddr),
+            final(self).inv();
 
     pub open spec fn tlb_soft_fault_spec(self, vaddr: Vaddr) -> Self {
         let mapping = self.pt_mappings.filter(|m: Mapping| m.va_range.start <= vaddr < m.va_range.end).choose();
@@ -924,8 +928,8 @@ impl GlobalMemView {
             old(self).inv(),
             old(self).addr_transl(vaddr) is None,
         ensures
-            *self == old(self).tlb_soft_fault_spec(vaddr),
-            self.inv();
+            *final(self) == old(self).tlb_soft_fault_spec(vaddr),
+            final(self).inv();
 
     pub open spec fn pt_map_spec(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.insert(m);
@@ -946,7 +950,7 @@ impl GlobalMemView {
                 old(self).unmapped_pas.contains(pa),
             old(self).inv()
         ensures
-            *self == old(self).pt_map_spec(m);
+            *final(self) == old(self).pt_map_spec(m);
 
     pub open spec fn pt_unmap_spec(self, m: Mapping) -> Self {
         let pt_mappings = self.pt_mappings.remove(m);
@@ -965,8 +969,8 @@ impl GlobalMemView {
             old(self).pt_mappings.contains(m),
             old(self).inv()
         ensures
-            *self == old(self).pt_unmap_spec(m),
-            self.inv();
+            *final(self) == old(self).pt_unmap_spec(m),
+            final(self).inv();
 
     pub proof fn lemma_va_mapping_unique(self, va: usize)
         requires

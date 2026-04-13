@@ -72,7 +72,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).children[old(self).idx as int] is Some,
         ensures
             res == old(self).take_child_spec().0,
-            *self == old(self).take_child_spec().1,
+            *final(self) == old(self).take_child_spec().1,
             res.inv()
     {
         self.inv_children_unroll(self.idx as int);
@@ -94,7 +94,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             old(self).idx < old(self).children.len(),
             old(self).children[old(self).idx as int] is None,
         ensures
-            *self == old(self).put_child_spec(child)
+            *final(self) == old(self).put_child_spec(child)
     {
         let _ = self.children.tracked_remove(old(self).idx as int);
         self.children.tracked_insert(old(self).idx as int, Some(child));
@@ -136,7 +136,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             idx < NR_ENTRIES,
         ensures
             res == old(self).make_cont_spec(idx, guard_perm@).0,
-            *self == old(self).make_cont_spec(idx, guard_perm@).1;
+            *final(self) == old(self).make_cont_spec(idx, guard_perm@).1;
 
     pub open spec fn restore_spec(self, child: Self) -> (Self, GuardPerm<'rcu, C>) {
         let child_node = OwnerSubtree {
@@ -150,7 +150,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     #[verifier::returns(proof)]
     pub axiom fn restore(tracked &mut self, tracked child: Self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
         ensures
-            *self == old(self).restore_spec(child).0,
+            *final(self) == old(self).restore_spec(child).0,
             guard_perm == old(self).restore_spec(child).1;
 
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
@@ -214,7 +214,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.children[i].unwrap().inv()
     {
         let pred = |child: Option<OwnerSubtree<C>>| child is Some ==> child.unwrap().inv();
-        assert forall |i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
+        assert forall |i:int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some implies
             self.children[i].unwrap().inv()
         by {
             self.inv_children_unroll(i)
@@ -288,7 +288,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         requires
             old(self).idx + 1 < NR_ENTRIES,
         ensures
-            *self == old(self).inc_index(),
+            *final(self) == old(self).inc_index(),
     {
         self.idx = (self.idx + 1) as usize;
     }
@@ -318,8 +318,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub open spec fn as_page_table_owner(self) -> PageTableOwner<C> {
         PageTableOwner(self.as_subtree())
     }
-
-    // as_subtree_restore moved to tree_lemmas.rs.
 
     pub open spec fn view_mappings_take_child_spec(self) -> Set<Mapping> {
         PageTableOwner(self.children[self.idx as int].unwrap()).view_rec(self.path().push_tail(self.idx as usize))
@@ -393,8 +391,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             paddr + page_size(self.level()) <= MAX_PADDR,
             self.path().push_tail(self.idx as usize).inv(),
         ensures
-            regions.slot_owners == old(regions).slot_owners,
-            regions.slots == old(regions).slots,
+            final(regions).slot_owners == old(regions).slot_owners,
+            final(regions).slots == old(regions).slots,
             res.value == EntryOwner::<C>::new_frame_spec(paddr, self.path().push_tail(self.idx as usize), self.level(), prop).set_in_scope(false),
             res.inv(),
             res.level == self.tree_level + 1,
@@ -637,9 +635,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    // zero_below_level_rec, zero_below_level, and related VA lemmas
-    // have been moved to va_lemmas.rs.
-
     pub proof fn do_inc_index(tracked &mut self)
         requires
             old(self).inv(),
@@ -648,8 +643,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             old(self).level == NR_LEVELS ==>
                 (old(self).continuations[old(self).level - 1].idx + 1) <= C::TOP_LEVEL_INDEX_RANGE_spec().end,
         ensures
-            self.inv(),
-            *self == old(self).inc_index(),
+            final(self).inv(),
+            *final(self) == old(self).inc_index(),
     {
         reveal(CursorContinuation::inv_children);
         self.popped_too_high = false;
@@ -675,11 +670,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.prefix == old(self).prefix);
         assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
     }
-
-    // inc_and_zero_increases_va, zero_rec_preserves_all_but_va,
-    // zero_preserves_all_but_va, cur_va, cur_va_range,
-    // cur_va_range_reflects_view, cur_va_in_subtree_range
-    // have been moved to va_lemmas.rs.
 
     pub proof fn inv_continuation(self, i: int)
         requires
@@ -825,14 +815,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.metaregion_slot_owners_rc_increment(old_regions, new_regions, idx);
     }
 
-    /// If the current entry is a page table node, the cursor must be at level >= 2.
-    ///
-    /// Proof: the current child subtree has `is_node()`, so by the ghost-tree `la_inv`
-    /// (`is_node() ==> tree_level < INC_LEVELS - 1`), its tree level satisfies
-    /// `INC_LEVELS - self.level < INC_LEVELS - 1`, i.e., `self.level > 1`.
-    // cur_entry_node_implies_level_gt_1, frame_not_fits_implies_level_gt_1
-    // have been moved to tree_lemmas.rs.
-
     /// A new frame subtree at the current position has mappings equal to the singleton
     /// mapping covering the current slot range.
     pub proof fn new_child_mappings_eq_target(
@@ -900,11 +882,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             AbstractVaddr::rec_vaddr_eq_if_indices_eq(path, va_path, 0);
         };
     }
-
-    /// After alloc_if_none (absent→node) + restore, the cursor invariant holds.
-    // map_branch_none_inv_holds, map_branch_none_path_tracked_holds,
-    // map_branch_none_no_new_mappings, map_branch_none_cur_entry_absent
-    // have been moved to cursor_fn_lemmas.rs.
 
     pub open spec fn locked_range(self) -> Range<Vaddr> {
         let start = self.prefix.align_down(self.guard_level as int).to_vaddr();
@@ -1043,21 +1020,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             lemma_nat_align_down_sound(pv, ps2);
             lemma_nat_align_down_sound(pv, ps1);
 
-            // locked_range.end = start_4k + ps1 where start_4k = align_down(prefix, ps1)
             self.prefix.align_up_concrete(1);
             self.prefix.align_diff(1);
             AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(pv, ps1) as Vaddr);
 
-            // prefix is in [node_start, node_start + ps2) (from align_down(prefix, ps2) = node_start)
-            // va is in [start_4k, start_4k + ps1) from in_locked_range.
-            // start_4k = align_down(prefix, ps1) >= align_down(prefix, ps2) = node_start (monotone)
             lemma_nat_align_down_monotone(pv, ps1, ps2);
-            // start_4k < node_start + ps2 (since start_4k <= prefix < node_start + ps2)
-            // start_4k + ps1 <= node_start + ps2 (from within_block: start_4k is ps1-aligned
-            //   in the ps2-block, and ps1 | ps2, so last ps1-block ends at node_start + ps2)
             lemma_nat_align_down_within_block(pv, ps1, ps2);
-            // So va < start_4k + ps1 <= node_start + ps2.
-            // And va >= start_4k >= node_start.
 
             AbstractVaddr::same_node_indices_match(
                 self.va.to_vaddr(),
@@ -1067,8 +1035,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             );
             AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va);
             AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.prefix);
-        } else {
-            // gl == NR_LEVELS: forall i >= NR_LEVELS is vacuous
         }
     }
 
@@ -1090,19 +1056,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end,
     {
-        // From in_locked_range && !popped_too_high we get level < guard_level.
         self.in_locked_range_level_lt_guard_level();
         if self.guard_level as int == NR_LEVELS as int {
-            // Cursor inv (line `va.index[guard_level - 1] == 0` clause): when
-            // !popped_too_high && level < guard_level, va.index[guard_level - 1] == 0.
-            // With guard_level == NR_LEVELS, this gives va.index[NR_LEVELS - 1] == 0,
-            // and TOP_LEVEL_INDEX_RANGE.start < TOP_LEVEL_INDEX_RANGE.end so 0 < top_end.
             assert(self.va.index[self.guard_level - 1] == 0);
             assert(self.va.index[NR_LEVELS - 1] == 0);
         } else {
-            // guard_level < NR_LEVELS, so NR_LEVELS - 1 is in [guard_level, NR_LEVELS).
-            // Cursor inv: !popped_too_high ==> va.index[i] == prefix.index[i] for that range.
-            // Combined with the new prefix.index[NR_LEVELS - 1] < top_end inv clause.
             assert(self.va.index[NR_LEVELS - 1]
                 == self.prefix.index[NR_LEVELS - 1]);
         }
@@ -1178,6 +1136,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         if ad as int / ps as int == end as int / ps as int {
             assert(false);
         }
+        assert(ad as int / ps as int + 1 <= end as int / ps as int);
         vstd::arithmetic::mul::lemma_mul_inequality(
             ad as int / ps as int + 1, end as int / ps as int, ps as int);
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(
@@ -1700,17 +1659,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // which are now part of metaregion_sound / metaregion_correct.
     }
 
-    /// Cursor path nesting: for two continuations where `i > j >= self.level - 1`,
-    /// `cont_i` is an ancestor of `cont_j` in the page table tree.
-    /// The path from the root to `cont_j` passes through `cont_i.idx` at level `cont_i`,
-    /// i.e., `cont_j.path()[cont_i.path().len()] == cont_i.idx`.
-    ///
-    /// This holds because the cursor was built by descending through `cont_i.idx` at each level.
-    // cursor_path_nesting moved to cursor_fn_lemmas.rs.
-
-    // set_va_spec, set_va, set_va_in_node_spec, set_va_in_node
-    // have been moved to va_lemmas.rs.
-
     pub open spec fn new_spec(owner_subtree: OwnerSubtree<C>, idx: usize, guard_perm: GuardPerm<'rcu, C>) -> Self {
         let va = AbstractVaddr {
             offset: 0,
@@ -1730,10 +1678,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     -> (tracked res: Self)
         ensures
             res == Self::new_spec(owner_subtree, idx, guard_perm);
-
-    // lemma_page_size_spec_5_eq_pow2_48, jump_above_locked_range_va_in_node,
-    // jump_not_in_node_level_lt_guard_minus_one
-    // have been moved to cursor_fn_lemmas.rs.
 }
 
 pub tracked struct CursorView<C: PageTableConfig> {

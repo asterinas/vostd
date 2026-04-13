@@ -94,8 +94,8 @@ impl<L, R> Sum<L, R> {
             *old(self) is Left,
         ensures
             res == old(self)->Left_0,
-            *self is Left,
-            self->Left_0 == new_left,
+            *final(self) is Left,
+            final(self)->Left_0 == new_left,
     {
         let tracked mut tmp = Self::new_left(new_left);
         tracked_swap(self, &mut tmp);
@@ -107,8 +107,8 @@ impl<L, R> Sum<L, R> {
             *old(self) is Right,
         ensures
             res == old(self)->Right_0,
-            *self is Right,
-            self->Right_0 == new_right,
+            *final(self) is Right,
+            final(self)->Right_0 == new_right,
     {
         let tracked mut tmp = Self::new_right(new_right);
         tracked_swap(self, &mut tmp);

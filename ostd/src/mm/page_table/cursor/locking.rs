@@ -39,8 +39,8 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
     ensures
-        ret.0.invariants(*ret.1, *regions, *guards),
-        (*ret.1).metaregion_correct(*regions),
+        ret.0.invariants(*ret.1, *final(regions), *final(guards)),
+        (*ret.1).metaregion_correct(*final(regions)),
         (*ret.1).in_locked_range(),
         ret.0.level < ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
@@ -48,12 +48,12 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.barrier_va == *va,
         // Locking only acquires locks on page-table node slots; it does not
         // modify path_if_in_pt for any slot.
-        forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-            regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx].path_if_in_pt]
+            final(regions).slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
         // Frames that were item_not_mapped before remain so after locking.
         forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-            CursorMut::<C, A>::item_not_mapped(item, *regions),
+            CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
 )]
 pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     pt: &'rcu PageTable<C>,
@@ -163,14 +163,14 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).continuations[(NR_LEVELS - 1) as int].all_some(),
     ensures
         r is Some ==> {
-            &&& cursor_own.va == old(cursor_own).va
-            &&& cursor_own.prefix == old(cursor_own).prefix
-            &&& cursor_own.view_mappings() == old(cursor_own).view_mappings()
-            &&& cursor_own.popped_too_high == false
-            &&& 1 <= cursor_own.level <= NR_LEVELS
-            &&& cursor_own.continuations.dom().contains(cursor_own.level - 1)
-            &&& cursor_own.continuations[(cursor_own.level - 1) as int].inv()
-            &&& cursor_own.continuations[(cursor_own.level - 1) as int].guard_perm.pptr() == r.unwrap()
+            &&& final(cursor_own).va == old(cursor_own).va
+            &&& final(cursor_own).prefix == old(cursor_own).prefix
+            &&& final(cursor_own).view_mappings() == old(cursor_own).view_mappings()
+            &&& final(cursor_own).popped_too_high == false
+            &&& 1 <= final(cursor_own).level <= NR_LEVELS
+            &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
+            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
+            &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard_perm.pptr() == r.unwrap()
         }
 )]
 #[verifier::external_body]
@@ -441,33 +441,33 @@ unsafe fn dfs_release_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
         // The return value equals the number of mappings in the subtree.
         // This connects the physical DFS frame count to the ghost view_rec mappings count.
         res as nat == subtree_mappings_count,
-        owner.inv(),
-        owner.guard_level == old(owner).guard_level,
-        owner.level == old(owner).level,
-        owner.va == old(owner).va,
-        owner.prefix == old(owner).prefix,
+        final(owner).inv(),
+        final(owner).guard_level == old(owner).guard_level,
+        final(owner).level == old(owner).level,
+        final(owner).va == old(owner).va,
+        final(owner).prefix == old(owner).prefix,
         // Preserve the guard_perm for each continuation level
-        owner.level <= 4 ==> owner.continuations[3].guard_perm == old(owner).continuations[3].guard_perm,
-        owner.level <= 3 ==> owner.continuations[2].guard_perm == old(owner).continuations[2].guard_perm,
-        owner.level <= 2 ==> owner.continuations[1].guard_perm == old(owner).continuations[1].guard_perm,
-        owner.level == 1 ==> owner.continuations[0].guard_perm == old(owner).continuations[0].guard_perm,
-        owner.continuations[owner.level - 1].children[owner.continuations[owner.level - 1].idx as int].unwrap().value.is_absent(),
+        final(owner).level <= 4 ==> final(owner).continuations[3].guard_perm == old(owner).continuations[3].guard_perm,
+        final(owner).level <= 3 ==> final(owner).continuations[2].guard_perm == old(owner).continuations[2].guard_perm,
+        final(owner).level <= 2 ==> final(owner).continuations[1].guard_perm == old(owner).continuations[1].guard_perm,
+        final(owner).level == 1 ==> final(owner).continuations[0].guard_perm == old(owner).continuations[0].guard_perm,
+        final(owner).continuations[final(owner).level - 1].children[final(owner).continuations[final(owner).level - 1].idx as int].unwrap().value.is_absent(),
         // entry_own at current level is preserved
-        owner.continuations[owner.level - 1].entry_own == old(owner).continuations[owner.level - 1].entry_own,
+        final(owner).continuations[final(owner).level - 1].entry_own == old(owner).continuations[old(owner).level - 1].entry_own,
         // Children at current level are preserved
         forall |i: int| 0 <= i < NR_ENTRIES ==>
             #[trigger]
-            owner.continuations[owner.level - 1].children[i] == old(owner).continuations[owner.level - 1].children[i],
+            final(owner).continuations[final(owner).level - 1].children[i] == old(owner).continuations[old(owner).level - 1].children[i],
         // Continuations at higher levels are completely preserved
-        forall |lvl: int| #![trigger owner.continuations[lvl]]
-            owner.level <= lvl < NR_LEVELS ==> owner.continuations[lvl] == old(owner).continuations[lvl],
+        forall |lvl: int| #![trigger final(owner).continuations[lvl]]
+            final(owner).level <= lvl < NR_LEVELS ==> final(owner).continuations[lvl] == old(owner).continuations[lvl],
         // Guards postconditions:
         // 1. Everything that was unlocked before is still unlocked (no new locks added)
-        forall |addr: usize| old(guards).unlocked(addr) ==> guards.unlocked(addr),
+        forall |addr: usize| old(guards).unlocked(addr) ==> final(guards).unlocked(addr),
         // 2. The locked address is now unlocked
-        guards.unlocked(locked_addr),
+        final(guards).unlocked(locked_addr),
         // 3. Other locked addresses remain locked
-        forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> guards.lock_held(addr),
+        forall |addr: usize| addr != locked_addr && old(guards).lock_held(addr) ==> final(guards).lock_held(addr),
 )]
 #[verifier::external_body]
 pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(

@@ -481,7 +481,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         requires
             Self::from_unused_requires(*old(regions), range, metadata_fn),
         ensures
-            Self::from_unused_ensures(*old(regions), *regions, owner@, range, metadata_fn, r),
+            Self::from_unused_ensures(*old(regions), *final(regions), owner@, range, metadata_fn, r),
     )]
     pub fn from_unused(range: Range<Paddr>, metadata_fn: impl Fn(Paddr) -> (Paddr, M)) -> (res:
         Result<Self, GetFrameError>) {
@@ -669,7 +669,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         requires
             Self::into_raw_requires(self, *old(regions), owner),
         ensures
-            Self::into_raw_ensures(self, *old(regions), *regions, r),
+            Self::into_raw_ensures(self, *old(regions), *final(regions), r),
             frame_perms@ == owner,
     )]
     pub(crate) fn into_raw(self) -> Range<Paddr> {
@@ -700,7 +700,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         requires
             Self::from_raw_requires(*old(regions), range, owner),
         ensures
-            Self::from_raw_ensures(r, *old(regions), *regions, owner, range),
+            Self::from_raw_ensures(r, *old(regions), *final(regions), owner, range),
     )]
     pub(crate) unsafe fn from_raw(range: Range<Paddr>) -> Self {
         Self { range, _marker: core::marker::PhantomData }
@@ -782,7 +782,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
         requires
             Self::next_requires(*old(self), *old(regions), *old(owner)),
         ensures
-            Self::next_ensures(*old(self), *self, *old(regions), *regions, res),
+            Self::next_ensures(*old(self), *final(self), *old(regions), *final(regions), res),
     )]
     pub fn next(&mut self) -> Option<Frame<M>> {
         if self.range.start < self.range.end {

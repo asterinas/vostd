@@ -190,8 +190,8 @@ impl MetaRegionOwners {
         perm: &MetaPerm<M>,
     )
         ensures
-            self.slots == old(self).slots.insert(index, perm.points_to),
-            self.slot_owners == old(self).slot_owners;
+            final(self).slots == old(self).slots.insert(index, perm.points_to),
+            final(self).slot_owners == old(self).slot_owners;
 
     pub axiom fn copy_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
         tracked &mut self,
@@ -201,8 +201,8 @@ impl MetaRegionOwners {
             old(self).slots.contains_key(index),
         ensures
             perm.points_to == old(self).slots[index],
-            self.slots == old(self).slots.remove(index),
-            self.slot_owners == old(self).slot_owners;
+            final(self).slots == old(self).slots.remove(index),
+            final(self).slot_owners == old(self).slot_owners;
 
     /// Inserting a valid frame slot permission into `slots` preserves `inv()`.
     ///

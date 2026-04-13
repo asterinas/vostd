@@ -34,7 +34,7 @@ git submodule update --init --recursive
 
 #### Build Verus
 
-You can build Verus with the following command:
+The recommended way to build Verus is by running the following command:
 
 ```
 make verus
@@ -52,6 +52,7 @@ Verus should be automatically cloned and built in the `tools` directory. If down
 >
 > We use [our own fork](https://github.com/asterinas/verus) of Verus, which we continuously synchronize with the upstream repository. You may choose to install the [upstream Verus source](https://github.com/verus-lang/verus) via `cargo dv bootstrap --upstream-verus`, however, we cannot guarantee that it will always verify successfully with our project. That said, our CI continuously tests against upstream, and we typically resolve any breaking changes within about a week.
 >
+> If you have already installed Verus, you can either set `VERUS_PATH` to the directory containing the Verus binary and `VERUS_Z3_PATH` to the Z3 binary, or simply add them to your `PATH`. Please also note that our project relies on the experimental `new-mut-ref` feature by default, so a newer version of Verus is required.
 
 
 #### Build Verification Targets
@@ -65,18 +66,24 @@ make
 or
 
 ```
-cargo dv verify --targets ostd
+cargo dv verify --targets ostd -- -V new-mut-ref
 ```
 
 The `ostd` crate relies on a verified library: `vstd_extra`. To compile and verify the library independently, run:
 
 ```
-cargo dv compile --targets vstd_extra
+cargo dv compile --targets vstd_extra -- -V new-mut-ref
 ```
 
 #### Clean Build Artifacts
 
 `dv` automatically skips recompilation and reverification for libraries that have not changed since the last build. To remove the build artifact of a particular library and force a fresh build, run:
+
+```
+cargo dv clean --targets vstd_extra
+```
+
+To clean all artifacts at once, run:
 
 ```
 make clean
@@ -85,10 +92,10 @@ make clean
 or
 
 ```
-cargo dv clean --targets vstd_extra
+cargo dv clean
 ```
 
-You can also run `cargo dv clean` to clean all artifacts at once.
+
 
 #### Documentation
 

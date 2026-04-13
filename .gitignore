@@ -50,3 +50,6 @@ doc
 # cspell
 .vscode/cspell.json
 .vscode/vostd-words.txt
+
+# build artifacts
+*.rlib

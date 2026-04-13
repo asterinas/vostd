@@ -193,18 +193,17 @@ pub(crate) fn get_kernel_page_table<'rcu>(
     requires
         regions.inv(),
     ensures
-        kernel_owner@ is Some,
-        kernel_owner@.unwrap().inv(),
-        kernel_owner@.unwrap().0.value.node is Some,
-        r.root.ptr.addr() == kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr(),
+        final(kernel_owner)@ is Some,
+        final(kernel_owner)@.unwrap().inv(),
+        final(kernel_owner)@.unwrap().0.value.node is Some,
+        r.root.ptr.addr() == final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr(),
         !PageTable::<KernelPtConfig>::create_user_pt_panic_condition(
-            kernel_owner@.unwrap().0.value.node.unwrap(),
+            final(kernel_owner)@.unwrap().0.value.node.unwrap(),
         ),
-        kernel_owner@.unwrap().0.value.metaregion_sound(*regions),
-        // Tree-wide soundness: every node entry in the kernel PT has its metaregion bookkeeping.
-        kernel_owner@.unwrap().metaregion_sound(*regions),
-        // The kernel root frame is not currently locked.
-        guards_k.unlocked(kernel_owner@.unwrap().0.value.node.unwrap().meta_perm.addr()),
+        final(kernel_owner)@.unwrap().0.value.metaregion_sound(*regions),
+        final(kernel_owner)@.unwrap().metaregion_sound(*regions),
+        guards_k.unlocked(
+            final(kernel_owner)@.unwrap().0.value.node.unwrap().meta_perm.addr()),
 {
     KERNEL_PAGE_TABLE.get().unwrap()
 }

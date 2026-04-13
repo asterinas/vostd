@@ -161,6 +161,8 @@ global layout MetaSlot is size == 64, align == 8;
 
 pub broadcast axiom fn size_of_meta_slot()
     ensures
+        #![trigger size_of::<MetaSlot>()]
+        #![trigger align_of::<MetaSlot>()]
         size_of::<MetaSlot>() == 64,
         align_of::<MetaSlot>() == 8;
 
@@ -278,9 +280,9 @@ impl MetaSlot {
             old(regions).inv(),
             old(regions).slots.contains_key(frame_to_index(paddr)),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             res matches Ok((res, perm)) ==> Self::get_from_unused_perm_spec(paddr, metadata, as_unique_ptr, res, perm@),
-            res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *regions),
+            res is Ok ==> Self::get_from_unused_spec(paddr, as_unique_ptr, *old(regions), *final(regions)),
             // If we can make the failure conditions exhaustive, we can add this as a liveness condition.
             !has_safe_slot(paddr) ==> res is Err,
     )]
@@ -376,16 +378,16 @@ impl MetaSlot {
             // In order to not panic, the reference count shouldn't be at the maximum.
             old(inner_perms).ref_count.value() + 1 < REF_COUNT_MAX,
         ensures
-            res is Ok ==> inner_perms.ref_count.value() == old(inner_perms).ref_count.value() + 1,
+            res is Ok ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value() + 1,
             // On Ok, the old ref_count was > 0 (the 0 case returns Err(Busy)).
             res is Ok ==> old(inner_perms).ref_count.value() > 0,
             // On Ok, the returned PPtr is the slot argument.
             res matches Ok(ptr) ==> ptr == slot,
-            res is Err ==> inner_perms.ref_count.value() == old(inner_perms).ref_count.value(),
-            inner_perms.ref_count.id() == old(inner_perms).ref_count.id(),
-            inner_perms.storage == old(inner_perms).storage,
-            inner_perms.vtable_ptr == old(inner_perms).vtable_ptr,
-            inner_perms.in_list == old(inner_perms).in_list,
+            res is Err ==> final(inner_perms).ref_count.value() == old(inner_perms).ref_count.value(),
+            final(inner_perms).ref_count.id() == old(inner_perms).ref_count.id(),
+            final(inner_perms).storage == old(inner_perms).storage,
+            final(inner_perms).vtable_ptr == old(inner_perms).vtable_ptr,
+            final(inner_perms).in_list == old(inner_perms).in_list,
     )]
     fn get_from_in_use_loop(slot: PPtr<MetaSlot>) -> Result<PPtr<Self>, GetFrameError> {
         match slot.borrow(Tracked(perm)).ref_count.load(Tracked(&mut inner_perms.ref_count)) {
@@ -448,11 +450,11 @@ impl MetaSlot {
             old(regions).slot_owners[frame_to_index(paddr)].inner_perms.ref_count.id() ==
                 old(regions).slots[frame_to_index(paddr)].value().ref_count.id(),
         ensures
-            regions.inv(),
+            final(regions).inv(),
             !has_safe_slot(paddr) ==> res is Err,
-            res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *regions),
+            res is Ok ==> Self::get_from_in_use_success(paddr, *old(regions), *final(regions)),
             res matches Ok(ptr) ==> ptr == old(regions).slots[frame_to_index(paddr)].pptr(),
-            res is Err ==> *regions == *old(regions),
+            res is Err ==> *final(regions) == *old(regions),
     )]
     #[verifier::exec_allows_no_decreases_clause]
     pub(super) fn get_from_in_use(paddr: Paddr) -> Result<PPtr<Self>, GetFrameError> {
@@ -618,8 +620,8 @@ impl MetaSlot {
             old(rc_perm).is_for(self.ref_count),
             !Self::inc_ref_count_panic_cond(*old(rc_perm)),
         ensures
-            rc_perm.value() == old(rc_perm).value() + 1,
-            rc_perm.id() == old(rc_perm).id(),
+            final(rc_perm).value() == old(rc_perm).value() + 1,
+            final(rc_perm).id() == old(rc_perm).id(),
     {
         let last_ref_cnt = self.ref_count.fetch_add(Tracked(rc_perm), 1);
 
@@ -730,11 +732,11 @@ impl MetaSlot {
             self.vtable_ptr == old(vtable_perm).pptr(),
             old(vtable_perm).is_uninit(),
         ensures
-            meta_perm.id() == old(meta_perm).id(),
-            meta_perm.is_init(),
-            vtable_perm.pptr() == old(vtable_perm).pptr(),
-            vtable_perm.is_init(),
-            Metadata::<M>::metadata_from_inner_perms(*meta_perm) == metadata,
+            final(meta_perm).id() == old(meta_perm).id(),
+            final(meta_perm).is_init(),
+            final(vtable_perm).pptr() == old(vtable_perm).pptr(),
+            final(vtable_perm).is_init(),
+            Metadata::<M>::metadata_from_inner_perms(*final(meta_perm)) == metadata,
     )]
     #[verifier::external_body]
     pub(super) fn write_meta<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf>(
@@ -780,18 +782,18 @@ impl MetaSlot {
             self.ref_count.id() == old(owner).inner_perms.ref_count.id(),
             Self::drop_last_in_place_safety_cond(*old(owner)),
         ensures
-            owner.inv(),
-            owner.inner_perms.ref_count.value() == REF_COUNT_UNUSED,
-            owner.inner_perms.ref_count.id() == old(owner).inner_perms.ref_count.id(),
-            owner.inner_perms.storage.id() == old(owner).inner_perms.storage.id(),
-            owner.inner_perms.storage.is_uninit(),
-            owner.inner_perms.vtable_ptr.is_uninit(),
-            owner.inner_perms.vtable_ptr.pptr() == old(owner).inner_perms.vtable_ptr.pptr(),
-            owner.inner_perms.in_list == old(owner).inner_perms.in_list,
-            owner.self_addr == old(owner).self_addr,
-            owner.usage == old(owner).usage,
-            owner.raw_count == old(owner).raw_count,
-            owner.path_if_in_pt == old(owner).path_if_in_pt,
+            final(owner).inv(),
+            final(owner).inner_perms.ref_count.value() == REF_COUNT_UNUSED,
+            final(owner).inner_perms.ref_count.id() == old(owner).inner_perms.ref_count.id(),
+            final(owner).inner_perms.storage.id() == old(owner).inner_perms.storage.id(),
+            final(owner).inner_perms.storage.is_uninit(),
+            final(owner).inner_perms.vtable_ptr.is_uninit(),
+            final(owner).inner_perms.vtable_ptr.pptr() == old(owner).inner_perms.vtable_ptr.pptr(),
+            final(owner).inner_perms.in_list == old(owner).inner_perms.in_list,
+            final(owner).self_addr == old(owner).self_addr,
+            final(owner).usage == old(owner).usage,
+            final(owner).raw_count == old(owner).raw_count,
+            final(owner).path_if_in_pt == old(owner).path_if_in_pt,
     {
         // This should be guaranteed as a safety requirement.
         //        debug_assert_eq!(self.ref_count.load(Tracked(&*rc_perm)), 0);
@@ -835,16 +837,16 @@ impl MetaSlot {
             old(slot_own).inner_perms.storage.is_init(),
             old(slot_own).inner_perms.in_list.value() == 0,
         ensures
-            slot_own.inner_perms.ref_count == old(slot_own).inner_perms.ref_count,
-            slot_own.inner_perms.storage.is_uninit(),
-            slot_own.inner_perms.storage.id() == old(slot_own).inner_perms.storage.id(),
-            slot_own.inner_perms.in_list == old(slot_own).inner_perms.in_list,
-            slot_own.inner_perms.vtable_ptr.is_uninit(),
-            slot_own.inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
-            slot_own.self_addr == old(slot_own).self_addr,
-            slot_own.usage == old(slot_own).usage,
-            slot_own.raw_count == old(slot_own).raw_count,
-            slot_own.path_if_in_pt == old(slot_own).path_if_in_pt,
+            final(slot_own).inner_perms.ref_count == old(slot_own).inner_perms.ref_count,
+            final(slot_own).inner_perms.storage.is_uninit(),
+            final(slot_own).inner_perms.storage.id() == old(slot_own).inner_perms.storage.id(),
+            final(slot_own).inner_perms.in_list == old(slot_own).inner_perms.in_list,
+            final(slot_own).inner_perms.vtable_ptr.is_uninit(),
+            final(slot_own).inner_perms.vtable_ptr.pptr() == old(slot_own).inner_perms.vtable_ptr.pptr(),
+            final(slot_own).self_addr == old(slot_own).self_addr,
+            final(slot_own).usage == old(slot_own).usage,
+            final(slot_own).raw_count == old(slot_own).raw_count,
+            final(slot_own).path_if_in_pt == old(slot_own).path_if_in_pt,
     )]
     #[verifier::external_body]
     pub(super) fn drop_meta_in_place(&self) {
