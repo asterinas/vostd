@@ -57,6 +57,8 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 &&& M::wf(link.slot, perm.storage)
                 &&& (link.next is Some) == (perm.next_ptr is Some)
                 &&& (link.prev is Some) == (perm.prev_ptr is Some)
+                &&& link.next is Some ==> link.next->Some_0 == perm.next_ptr->Some_0.addr()
+                &&& link.prev is Some ==> link.prev->Some_0 == perm.prev_ptr->Some_0.addr()
             },
             _ => false,
         }
@@ -67,11 +69,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
         (
             MetaSlotStorage::FrameLink(StoredLink {
                 next: match self.next {
-                    Some(ptr) => Some(ptr.addr),
+                    Some(ptr) => Some(ptr.ptr.addr()),
                     None => None,
                 },
                 prev: match self.prev {
-                    Some(ptr) => Some(ptr.addr),
+                    Some(ptr) => Some(ptr.ptr.addr()),
                     None => None,
                 },
                 slot,
@@ -100,7 +102,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
             MetaSlotStorage::FrameLink(link) => Link {
                 next: match link.next {
                     Some(addr) => Some(ReprPtr {
-                        addr,
                         ptr: perm.next_ptr.unwrap(),
                         _T: PhantomData,
                     }),
@@ -108,7 +109,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
                 },
                 prev: match link.prev {
                     Some(addr) => Some(ReprPtr {
-                        addr,
                         ptr: perm.prev_ptr.unwrap(),
                         _T: PhantomData,
                     }),
@@ -605,11 +605,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlot> for MetadataAsLink<M>
 
     open spec fn wf(r: MetaSlot, perm: MetadataInnerPerms) -> bool {
         &&& <Metadata<Link<M>> as Repr<MetaSlot>>::wf(r, perm)
-        &&& ({
-            let md = <Metadata<Link<M>> as Repr<MetaSlot>>::from_repr_spec(r, perm);
-            &&& (md.metadata.next matches Some(next) ==> next.addr == next.ptr.addr())
-            &&& (md.metadata.prev matches Some(prev) ==> prev.addr == prev.ptr.addr())
-        })
     }
 
     open spec fn to_repr_spec(self, perm: MetadataInnerPerms) -> (MetaSlot, MetadataInnerPerms) {
@@ -714,11 +709,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<MetadataAsLink<M>> for 
         Metadata {
             metadata: Link {
                 next: match m.next {
-                    Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
+                    Some(pptr) => Some(ReprPtr { ptr: pptr, _T: PhantomData }),
                     None => None,
                 },
                 prev: match m.prev {
-                    Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
+                    Some(pptr) => Some(ReprPtr { ptr: pptr, _T: PhantomData }),
                     None => None,
                 },
                 meta: m.metadata,
@@ -733,11 +728,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> FromSpecImpl<MetadataAsLink<M>> for 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> From<MetadataAsLink<M>> for Metadata<Link<M>> {
     fn from(m: MetadataAsLink<M>) -> Self {
         let next = match m.next {
-            Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
+            Some(pptr) => Some(ReprPtr { ptr: pptr, _T: PhantomData }),
             None => None,
         };
         let prev = match m.prev {
-            Some(pptr) => Some(ReprPtr { addr: pptr.addr(), ptr: pptr, _T: PhantomData }),
+            Some(pptr) => Some(ReprPtr { ptr: pptr, _T: PhantomData }),
             None => None,
         };
         Metadata {
@@ -755,7 +750,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
             res.addr() == ptr.addr(),
             res.ptr == ptr.ptr,
     {
-        ReprPtr { addr: ptr.addr, ptr: ptr.ptr, _T: PhantomData }
+        ReprPtr { ptr: ptr.ptr, _T: PhantomData }
     }
 
     pub fn cast_from_metadata(ptr: ReprPtr<MetaSlot, Metadata<Link<M>>>) -> (res: ReprPtr<MetaSlot, Self>)
@@ -763,7 +758,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> MetadataAsLink<M> {
             res.addr() == ptr.addr(),
             res.ptr == ptr.ptr,
     {
-        ReprPtr { addr: ptr.addr, ptr: ptr.ptr, _T: PhantomData }
+        ReprPtr { ptr: ptr.ptr, _T: PhantomData }
     }
 
 }

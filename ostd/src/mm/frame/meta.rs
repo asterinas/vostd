@@ -232,23 +232,21 @@ impl MetaSlot {
             addr == perm.addr(),
         ensures
             res.ptr.addr() == addr,
-            res.addr == addr,
+            res.addr() == addr,
     {
-        ReprPtr::<MetaSlot, Metadata<M>> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
     }
 
     /// A helper function that casts `MetaSlot` permission to a `Metadata` permission of type `M`.
     pub fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        addr: usize,
         Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
         Tracked(inner_perms): Tracked<MetadataInnerPerms>,
     ) -> (res: Tracked<PointsTo<MetaSlot, Metadata<M>>>)
         ensures
-            res@.addr == addr,
             res@.points_to == perm,
             res@.inner_perms == inner_perms,
     {
-        Tracked(PointsTo { addr, points_to: perm, inner_perms, _T: PhantomData })
+        Tracked(PointsTo { points_to: perm, inner_perms, _T: PhantomData })
     }
 
     /// Initializes the metadata slot of a frame assuming it is unused.
@@ -353,7 +351,7 @@ impl MetaSlot {
             assert(regions.inv());
         }
 
-        let perm = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm), Tracked(inner_perms));
+        let perm = MetaSlot::cast_perm::<M>(Tracked(slot_perm), Tracked(inner_perms));
 
         Ok((slot, perm))
     }
@@ -706,7 +704,7 @@ impl MetaSlot {
             self == perm.value(),
         ensures
             res.ptr.addr() == perm.addr(),
-            res.addr == perm.addr(),
+            res.addr() == perm.addr(),
     {
         let addr = self.addr_of(Tracked(perm));
         self.cast_slot(addr, Tracked(perm))

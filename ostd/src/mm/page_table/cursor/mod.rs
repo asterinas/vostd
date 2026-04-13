@@ -1519,7 +1519,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         let tracked child = parent_continuation.take_child();
         let tracked parent_own = parent_continuation.entry_own.node.tracked_take();
 
-        let ghost index = frame_to_index(meta_to_frame(parent_own.meta_perm.addr));
+        let ghost index = frame_to_index(meta_to_frame(parent_own.meta_perm.addr()));
 
         let ghost ptei = AbstractVaddr::from_vaddr(self.va).index[owner.level - 1];
 

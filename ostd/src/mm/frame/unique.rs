@@ -169,7 +169,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
         proof { slot_own.sync_inner(&inner_perms); }
 
         let Tracked(meta_perm) = MetaSlot::cast_perm::<M1>(
-            self.ptr.addr(),
             Tracked(slot_perm),
             Tracked(inner_perms),
         );
