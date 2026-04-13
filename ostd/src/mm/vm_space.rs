@@ -891,7 +891,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     start_va <= m.va_range.start < end_va,
                 // Nothing in [start_va, end_va) with start < cursor_va remains,
                 // unless it is a sub-mapping of a boundary-straddling entry.
-                forall |m: Mapping| adjusted_base.contains(m) && !removed.contains(m)
+                forall |m: Mapping| #![auto] adjusted_base.contains(m) && !removed.contains(m)
                     && start_va <= m.va_range.start && m.va_range.start < end_va ==>
                     m.va_range.start >= cursor_owner@.cur_va
                     || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
@@ -943,7 +943,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     // At break: take_next returned None, so no mappings in [prev_va, end_va).
                     // Any m with start >= prev_va leads to contradiction via the empty filter.
                     assert forall |m: Mapping|
-                        adjusted_base.contains(m) && !removed.contains(m)
+                        #![auto] adjusted_base.contains(m) && !removed.contains(m)
                         && start_va <= m.va_range.start && m.va_range.start < end_va
                     implies m.va_range.start >= cursor_owner@.cur_va
                         || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
@@ -1144,7 +1144,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
                 // Maintain: not-yet-removed mappings in [start, end) are either
                 // ahead of the cursor or sub-mappings of a boundary-straddling parent.
-                assert forall |m: Mapping| adjusted_base.contains(m) && !removed.contains(m)
+                assert forall |m: Mapping| #![auto] adjusted_base.contains(m) && !removed.contains(m)
                     && start_va <= m.va_range.start && m.va_range.start < end_va
                     implies m.va_range.start >= cursor_owner@.cur_va
                         || exists |parent: Mapping| #[trigger] old(cursor_owner)@.mappings.contains(parent)
@@ -1288,7 +1288,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
             assert(new_view.cur_va >= end);
 
-            assert forall |m: Mapping| old_view.mappings.contains(m)
+            assert forall |m: Mapping| #![auto] old_view.mappings.contains(m)
                 && (m.va_range.end <= start || m.va_range.start >= end)
                 implies new_view.mappings.contains(m) by {
                 assert(adjusted_base.contains(m));
