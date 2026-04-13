@@ -192,8 +192,8 @@ impl<R, T: Repr<R>> ReprPtr<R, T> {
 
 #[verifier::accept_recursive_types(T)]
 pub tracked struct PointsTo<R, T: Repr<R>> {
-    pub points_to: simple_pptr::PointsTo<R>,
-    pub inner_perms: T::Perm,
+    pub tracked points_to: simple_pptr::PointsTo<R>,
+    pub tracked inner_perms: T::Perm,
     pub _T: PhantomData<T>,
 }
 
