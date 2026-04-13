@@ -1,6 +1,6 @@
 use vstd::{
     atomic_with_ghost,
-    cell::{MemContents, PCell, PointsTo},
+    cell::pcell::{PCell, PointsTo},
     modes::tracked_static_ref,
     prelude::*,
 };
@@ -116,7 +116,7 @@ pub closed spec fn wf(&self) -> bool {
             OnceState::Uninit(points_to) => {
                 &&& v == UNINIT
                 &&& points_to.id() == cell.id()
-                &&& points_to.mem_contents() matches MemContents::Init(None)
+                &&& points_to.value() is None
             }
             OnceState::Occupied => {
                 &&& v == OCCUPIED
@@ -124,8 +124,8 @@ pub closed spec fn wf(&self) -> bool {
             OnceState::Init(points_to) => {
                 &&& v == INITED
                 &&& points_to.id() == cell.id()
-                &&& points_to.mem_contents() matches MemContents::Init(Some(value))
-                &&& f@.inv(value)
+                &&& points_to.value() is Some 
+                &&& f@.inv(points_to.value()->Some_0)
             }
         }
     }
