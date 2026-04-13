@@ -5,6 +5,7 @@ use vstd::raw_ptr::MemContents;
 use vstd::set;
 use vstd::set_lib;
 use vstd::simple_pptr::{self, PPtr};
+use vstd::std_specs::convert::{FromSpec, FromSpecImpl};
 
 use core::marker::PhantomData;
 use core::ops::Deref;
@@ -77,15 +78,33 @@ impl<R, T: Repr<R>> Copy for ReprPtr<R, T> {
 
 }
 
+impl<R, T: Repr<R>> FromSpecImpl<PPtr<R>> for ReprPtr<R, T> {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    open spec fn from_spec(ptr: PPtr<R>) -> Self {
+        Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
+    }
+}
+
 impl<R, T: Repr<R>> From<PPtr<R>> for ReprPtr<R, T> {
-    #[verifier::external_body]
     fn from(ptr: PPtr<R>) -> Self {
         Self { addr: ptr.addr(), ptr: ptr, _T: PhantomData }
     }
 }
 
+impl<R, T: Repr<R>> FromSpecImpl<ReprPtr<R, T>> for PPtr<R> {
+    open spec fn obeys_from_spec() -> bool {
+        true
+    }
+
+    open spec fn from_spec(ptr: ReprPtr<R, T>) -> Self {
+        ptr.ptr
+    }
+}
+
 impl<R, T: Repr<R>> From<ReprPtr<R, T>> for PPtr<R> {
-    #[verifier::external_body]
     fn from(ptr: ReprPtr<R, T>) -> Self {
         ptr.ptr
     }
