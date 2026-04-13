@@ -158,6 +158,10 @@ unsafe impl PageTableConfig for KernelPtConfig {
         256..512
     }
 
+    open spec fn VADDR_RANGE_spec() -> Range<Vaddr> {
+        crate::mm::KERNEL_VADDR_RANGE.start..crate::mm::KERNEL_VADDR_RANGE.end
+    }
+
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
         ensures
             r == Self::TOP_LEVEL_INDEX_RANGE_spec(),

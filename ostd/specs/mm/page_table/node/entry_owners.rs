@@ -631,7 +631,11 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& self.node is None
             &&& self.locked is None
             &&& !self.absent
-            &&& 1 <= self.parent_level <= NR_LEVELS
+            // Architectural constraint: frames only exist at PT levels that the
+            // ISA actually supports as leaves (4K, 2M, 1G on x86). `parent_level
+            // == NR_LEVELS` would be a 512 GiB huge page, which no current arch
+            // permits — and `Mapping::inv` would reject its page_size.
+            &&& 1 <= self.parent_level < NR_LEVELS
             &&& self.frame.unwrap().mapped_pa % PAGE_SIZE == 0
             &&& self.frame.unwrap().mapped_pa < MAX_PADDR
             &&& self.frame.unwrap().size == page_size(self.parent_level)

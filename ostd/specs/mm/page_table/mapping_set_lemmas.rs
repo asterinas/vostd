@@ -115,16 +115,17 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
     }
 }
 
-/// **Main lemma**: A well-formed mapping set has cardinality at most
-/// `MAX_USERSPACE_VADDR / PAGE_SIZE`.
+/// **Main lemma**: A well-formed mapping set whose VA ranges all lie within
+/// `[0, MAX_USERSPACE_VADDR)` has cardinality at most
+/// `MAX_USERSPACE_VADDR / PAGE_SIZE`. The VA upper-bound is now a caller
+/// obligation — `Mapping::inv` is config-agnostic and no longer asserts it.
 pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
+        forall|m: Mapping| s.contains(m) ==> m.va_range.end <= MAX_USERSPACE_VADDR,
     ensures
         s.len() <= MAX_USERSPACE_VADDR / PAGE_SIZE,
 {
-    // All mappings have va_range in (0, MAX_USERSPACE_VADDR).
-    // m.inv() gives 0 < m.va.start and m.va.end < MAX_USERSPACE_VADDR, so within [0, MAX_USERSPACE_VADDR].
     assert forall|m: Mapping| s.contains(m)
         implies 0 <= m.va_range.start && m.va_range.end <= MAX_USERSPACE_VADDR by {
         assert(m.inv());
@@ -152,6 +153,7 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>)
 pub proof fn lemma_mapping_set_cardinality_fits_usize(s: Set<Mapping>)
     requires
         wf_mapping_set(s),
+        forall|m: Mapping| s.contains(m) ==> m.va_range.end <= MAX_USERSPACE_VADDR,
     ensures
         s.len() < usize::MAX,
 {

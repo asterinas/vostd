@@ -1429,6 +1429,10 @@ unsafe impl PageTableConfig for UserPtConfig {
         0..256
     }
 
+    open spec fn VADDR_RANGE_spec() -> Range<Vaddr> {
+        0..MAX_USERSPACE_VADDR
+    }
+
     open spec fn TOP_LEVEL_CAN_UNMAP_spec() -> (b: bool) {
         true
     }

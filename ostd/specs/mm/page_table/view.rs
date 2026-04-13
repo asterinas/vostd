@@ -7,7 +7,7 @@ use core::ops::Range;
 
 use crate::mm::page_prop::PageProperty;
 use crate::mm::{Paddr, Vaddr};
-use crate::specs::arch::mm::{MAX_PADDR, MAX_USERSPACE_VADDR};
+use crate::specs::arch::mm::MAX_PADDR;
 
 use super::*;
 
@@ -44,11 +44,15 @@ impl Mapping {
         &&& self.pa_range.start % self.page_size == 0
         &&& self.pa_range.end % self.page_size == 0
         &&& self.pa_range.start + self.page_size == self.pa_range.end
-        &&& self.pa_range.start <= self.pa_range.end < MAX_PADDR
+        &&& self.pa_range.start <= self.pa_range.end <= MAX_PADDR
         &&& self.va_range.start % self.page_size == 0
         &&& self.va_range.end % self.page_size == 0
         &&& self.va_range.start + self.page_size == self.va_range.end
-        &&& 0 < self.va_range.start <= self.va_range.end < MAX_USERSPACE_VADDR
+        &&& self.va_range.start <= self.va_range.end
+        // Per-config VA range bounds (e.g. `0..MAX_USERSPACE_VADDR` for user
+        // page tables, `KERNEL_VADDR_RANGE` for kernel) are enforced by
+        // `CursorView<C>::inv` via `C::VADDR_RANGE_spec()`, not here — a
+        // single config-agnostic `Mapping::inv` cannot express them.
     }
 }
 

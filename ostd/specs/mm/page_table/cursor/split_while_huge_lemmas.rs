@@ -294,7 +294,6 @@ impl<C: PageTableConfig> CursorView<C> {
                 // (k+1)*ns <= count*ns = ps, so m.start + (k+1)*ns <= m.start + ps = m.end.
                 assert(sub.va_range.start >= m.va_range.start);
                 assert(sub.va_range.end <= m.va_range.end);
-                assert(0 < sub.va_range.start);
                 assert(sub.va_range.start <= sub.va_range.end);
 
                 assert(sub.pa_range.start >= m.pa_range.start);

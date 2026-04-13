@@ -22,7 +22,7 @@ use crate::specs::arch::*;
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::*;
 use crate::specs::mm::page_table::cursor::page_size_lemmas::{
-    lemma_page_size_divides, lemma_page_size_ge_page_size,
+    lemma_page_size_divides, lemma_page_size_ge_page_size, lemma_page_size_spec_values,
 };
 
 use core::ops::Deref;
@@ -441,6 +441,314 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     ;
                 }
             }
+        }
+    }
+
+    /// `view_rec` is finite: bounded by NR_ENTRIES branching and INC_LEVELS depth.
+    /// Proven by induction on `INC_LEVELS - path.len()`, collapsing the
+    /// `Set::new` existential into a `flatten` of a finite domain-map.
+    pub proof fn view_rec_finite(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+        ensures
+            self.view_rec(path).finite(),
+        decreases INC_LEVELS - path.len()
+    {
+        broadcast use group_set_properties;
+
+        if self.0.value.is_frame() {
+            // Singleton set is finite.
+            assert(self.view_rec(path).finite());
+        } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
+            // Recurse into each child: establish finiteness for each Some child.
+            assert forall |i: int| 0 <= i < NR_ENTRIES && self.0.children[i] is Some implies
+                PageTableOwner(self.0.children[i].unwrap())
+                    .view_rec(path.push_tail(i as usize)).finite()
+            by {
+                let child = self.0.children[i].unwrap();
+                // From self.0.inv(): inv_children gives child.level == self.0.level + 1
+                // and child.inv() (since path.len() < INC_LEVELS - 1 means not a leaf).
+                PageTableOwner(child).view_rec_finite(path.push_tail(i as usize));
+            };
+
+            // Domain map: map each index to the child's view_rec set (or empty).
+            let f = |i: int| -> Set<Mapping> {
+                if 0 <= i < NR_ENTRIES && self.0.children[i] is Some {
+                    PageTableOwner(self.0.children[i].unwrap())
+                        .view_rec(path.push_tail(i as usize))
+                } else {
+                    Set::<Mapping>::empty()
+                }
+            };
+            let dom: Set<int> = Set::new(|i: int| 0 <= i < NR_ENTRIES);
+            assert(dom =~= int::range_set(0int, NR_ENTRIES as int));
+            vstd::set_lib::range_set_properties::<int>(0int, NR_ENTRIES as int);
+            assert(dom.finite());
+            dom.lemma_map_finite(f);
+            let ss = dom.map(f);
+            assert(ss.finite());
+
+            // Every element of ss is finite.
+            assert forall |s: Set<Mapping>| ss.contains(s) implies s.finite() by {
+                let i = choose |i: int| dom.contains(i) && f(i) == s;
+                if 0 <= i < NR_ENTRIES && self.0.children[i] is Some {
+                    // finiteness established above
+                } else {
+                    assert(s =~= Set::<Mapping>::empty());
+                }
+            };
+
+            ss.lemma_flatten_finite();
+            // view_rec(path) = { m | exists i, children[i] is Some ∧ child.view_rec(...).contains(m) }
+            //                = union over i of f(i)
+            //                = ss.flatten()
+            assert(self.view_rec(path) =~= ss.flatten()) by {
+                assert forall |m: Mapping| self.view_rec(path).contains(m) implies
+                    ss.flatten().contains(m)
+                by {
+                    let i = choose |i: int|
+                        #![trigger self.0.children[i]]
+                        0 <= i < self.0.children.len() &&
+                        self.0.children[i] is Some &&
+                        PageTableOwner(self.0.children[i].unwrap())
+                            .view_rec(path.push_tail(i as usize)).contains(m);
+                    assert(dom.contains(i));
+                    assert(ss.contains(f(i)));
+                    assert(f(i).contains(m));
+                };
+                assert forall |m: Mapping| ss.flatten().contains(m) implies
+                    self.view_rec(path).contains(m)
+                by {
+                    let s = choose |s: Set<Mapping>| ss.contains(s) && s.contains(m);
+                    let i = choose |i: int| dom.contains(i) && f(i) == s;
+                    assert(0 <= i < NR_ENTRIES && self.0.children[i] is Some);
+                };
+            };
+        } else {
+            // Empty set
+            assert(self.view_rec(path) =~= Set::<Mapping>::empty());
+        }
+    }
+
+    /// Every mapping in `view_rec` has `page_size ∈ {4K, 2M, 1G}`.
+    ///
+    /// Structural induction using the invariant that `parent_level` of each
+    /// subtree equals `INC_LEVELS - tree_level`, chained through `rel_children`.
+    /// At a leaf frame, `parent_level < NR_LEVELS` (from the tightened
+    /// `inv_base`) ensures the page size is one of the allowed values.
+    pub proof fn view_rec_mapping_page_size(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+            self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
+        ensures
+            forall |m: Mapping| #[trigger] self.view_rec(path).contains(m) ==>
+                set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size),
+        decreases INC_LEVELS - path.len()
+    {
+        if self.0.value.is_frame() {
+            // `inv_base` (tightened) gives `1 <= parent_level < NR_LEVELS`.
+            // Combined with `parent_level == INC_LEVELS - path.len()`,
+            // `INC_LEVELS - path.len() ∈ {1, 2, 3}`, and `page_size` lands in
+            // {4K, 2M, 1G} by the arithmetic lemma.
+            lemma_page_size_spec_values();
+        } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
+            // `inv_base` for nodes: `parent_level == node.level + 1`.
+            // So `node.level == parent_level - 1 == INC_LEVELS - self.0.level - 1`.
+            // `rel_children`: child's parent_level == node.level.
+            // Child's tree_level == self.0.level + 1. Hence
+            // `child.parent_level == INC_LEVELS - child.level`.
+            assert forall |m: Mapping| #[trigger] self.view_rec(path).contains(m) implies
+                set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size)
+            by {
+                let i = choose |i: int|
+                    #![trigger self.0.children[i]]
+                    0 <= i < self.0.children.len() &&
+                    self.0.children[i] is Some &&
+                    PageTableOwner(self.0.children[i].unwrap())
+                        .view_rec(path.push_tail(i as usize)).contains(m);
+                let child = self.0.children[i].unwrap();
+                PageTableOwner(child).view_rec_mapping_page_size(path.push_tail(i as usize));
+            };
+        } else {
+            // Empty set.
+        }
+    }
+
+    /// Path-level arithmetic facts consumed by `view_rec_mapping_inv`:
+    /// every `vaddr(path)` is aligned to `page_size(INC_LEVELS - path.len())`
+    /// and `vaddr(path) + page_size(...)` cannot overflow usize.
+    ///
+    /// Proved by case analysis on `path.len() ∈ {0, 1, 2, 3, 4}`, unrolling
+    /// `rec_vaddr` and using concrete `pow2` values.
+    #[verifier::rlimit(400)]
+    proof fn lemma_vaddr_path_alignment_and_bound(path: TreePath<NR_ENTRIES>)
+        requires
+            path.inv(),
+            path.len() <= INC_LEVELS - 1,
+            1 <= INC_LEVELS - path.len() <= NR_LEVELS,
+        ensures
+            vaddr(path) % page_size((INC_LEVELS - path.len()) as PagingLevel) == 0,
+            vaddr(path) + page_size((INC_LEVELS - path.len()) as PagingLevel) <= usize::MAX,
+    {
+        lemma_page_size_spec_values();
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        broadcast use TreePath::index_satisfies_elem_inv;
+        // NR_LEVELS = 4; each index is < 512.
+        // rec_vaddr values per path.len():
+        //   0: 0
+        //   1: i0 * 2^39
+        //   2: i0 * 2^39 + i1 * 2^30
+        //   3: i0 * 2^39 + i1 * 2^30 + i2 * 2^21
+        //   4: i0 * 2^39 + i1 * 2^30 + i2 * 2^21 + i3 * 2^12
+        // page_size(INC_LEVELS - path.len()) per path.len():
+        //   1: 2^39, 2: 2^30, 3: 2^21, 4: 2^12
+        // In each case every term is a multiple of the smallest (= page_size).
+        if path.len() == 0 {
+            assert(rec_vaddr(path, 0) == 0);
+        } else if path.len() == 1 {
+            let i0 = path.index(0);
+            assert(0 <= i0 < NR_ENTRIES);
+            assert(rec_vaddr(path, 1) == 0);
+            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + rec_vaddr(path, 1)) as usize);
+            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+            assert(rec_vaddr(path, 0) == 0x80_0000_0000usize * i0);
+            assert(page_size(4) == 0x80_0000_0000usize);
+            assert((0x80_0000_0000usize * i0) % 0x80_0000_0000 == 0) by (nonlinear_arith);
+            assert(0x80_0000_0000usize * i0 + 0x80_0000_0000 <= usize::MAX) by (nonlinear_arith)
+                requires i0 < 512;
+        } else if path.len() == 2 {
+            let i0 = path.index(0); let i1 = path.index(1);
+            assert(0 <= i0 < NR_ENTRIES); assert(0 <= i1 < NR_ENTRIES);
+            assert(rec_vaddr(path, 2) == 0);
+            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + rec_vaddr(path, 2)) as usize);
+            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + rec_vaddr(path, 1)) as usize);
+            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1) as int;
+            assert(rec_vaddr(path, 0) == s);
+            assert(page_size(3) == 0x4000_0000usize);
+            assert(s % 0x4000_0000 == 0) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1;
+            assert(s + 0x4000_0000 <= usize::MAX) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1, i0 < 512, i1 < 512;
+        } else if path.len() == 3 {
+            let i0 = path.index(0); let i1 = path.index(1); let i2 = path.index(2);
+            assert(0 <= i0 < NR_ENTRIES); assert(0 <= i1 < NR_ENTRIES); assert(0 <= i2 < NR_ENTRIES);
+            assert(rec_vaddr(path, 3) == 0);
+            assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + rec_vaddr(path, 3)) as usize);
+            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + rec_vaddr(path, 2)) as usize);
+            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + rec_vaddr(path, 1)) as usize);
+            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1 + 0x20_0000usize * i2) as int;
+            assert(rec_vaddr(path, 0) == s);
+            assert(page_size(2) == 0x20_0000usize);
+            assert(s % 0x20_0000 == 0) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2;
+            assert(s + 0x20_0000 <= usize::MAX) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2,
+                i0 < 512, i1 < 512, i2 < 512;
+        } else {
+            assert(path.len() == 4);
+            let i0 = path.index(0); let i1 = path.index(1);
+            let i2 = path.index(2); let i3 = path.index(3);
+            assert(0 <= i0 < NR_ENTRIES); assert(0 <= i1 < NR_ENTRIES);
+            assert(0 <= i2 < NR_ENTRIES); assert(0 <= i3 < NR_ENTRIES);
+            assert(rec_vaddr(path, 4) == 0);
+            assert(rec_vaddr(path, 3) == (vaddr_make::<NR_LEVELS>(3, i3) + rec_vaddr(path, 4)) as usize);
+            assert(rec_vaddr(path, 2) == (vaddr_make::<NR_LEVELS>(2, i2) + rec_vaddr(path, 3)) as usize);
+            assert(rec_vaddr(path, 1) == (vaddr_make::<NR_LEVELS>(1, i1) + rec_vaddr(path, 2)) as usize);
+            assert(rec_vaddr(path, 0) == (vaddr_make::<NR_LEVELS>(0, i0) + rec_vaddr(path, 1)) as usize);
+            assert(vaddr_make::<NR_LEVELS>(0, i0) == 0x80_0000_0000usize * i0) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(1, i1) == 0x4000_0000usize * i1) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(2, i2) == 0x20_0000usize * i2) by (compute);
+            assert(vaddr_make::<NR_LEVELS>(3, i3) == 0x1000usize * i3) by (compute);
+            let s = (0x80_0000_0000usize * i0 + 0x4000_0000usize * i1
+                + 0x20_0000usize * i2 + 0x1000usize * i3) as int;
+            assert(rec_vaddr(path, 0) == s);
+            assert(page_size(1) == 0x1000usize);
+            assert(s % 0x1000 == 0) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2 + 0x1000 * i3;
+            assert(s + 0x1000 <= usize::MAX) by (nonlinear_arith)
+                requires s == 0x80_0000_0000 * i0 + 0x4000_0000 * i1 + 0x20_0000 * i2 + 0x1000 * i3,
+                i0 < 512, i1 < 512, i2 < 512, i3 < 512;
+        }
+    }
+
+    /// Every mapping in `view_rec` satisfies `Mapping::inv()`.
+    ///
+    /// Structural induction on the subtree. At a leaf frame, the PA-side
+    /// clauses follow from `FrameEntryOwner::inv_base`, the VA-size clause
+    /// by construction, the page-size clause from the tightened
+    /// `parent_level < NR_LEVELS` constraint plus the arithmetic identity
+    /// `page_size(k) ∈ {4K, 2M, 1G}` for `k ∈ {1, 2, 3}`, and VA alignment
+    /// + no-overflow via `lemma_vaddr_path_alignment_and_bound`.
+    pub proof fn view_rec_mapping_inv(self, path: TreePath<NR_ENTRIES>)
+        requires
+            self.0.inv(),
+            path.inv(),
+            path.len() <= INC_LEVELS - 1,
+            path.len() == self.0.level,
+            self.0.value.parent_level == (INC_LEVELS - self.0.level) as PagingLevel,
+        ensures
+            forall |m: Mapping| #[trigger] self.view_rec(path).contains(m) ==> m.inv(),
+        decreases INC_LEVELS - path.len()
+    {
+        if self.0.value.is_frame() {
+            lemma_page_size_spec_values();
+            let frame = self.0.value.frame.unwrap();
+            let pt_level = (INC_LEVELS - path.len()) as PagingLevel;
+            // Establish path.inv() → indices are all < NR_ENTRIES.
+            // The frame's owner invariant carries path == self.0.value.path
+            // with .inv() via inv_base. We rely on path being this value.
+            Self::lemma_vaddr_path_alignment_and_bound(path);
+            // Build the unique mapping explicitly and prove its inv(), then
+            // lift to the singleton set. Doing it this way avoids Verus
+            // trigger flakiness inside `assert forall`.
+            let m = Mapping {
+                va_range: Range {
+                    start: vaddr(path),
+                    end: (vaddr(path) + page_size(pt_level)) as Vaddr,
+                },
+                pa_range: Range {
+                    start: frame.mapped_pa,
+                    end: (frame.mapped_pa + page_size(pt_level)) as Paddr,
+                },
+                page_size: page_size(pt_level),
+                property: frame.prop,
+            };
+            assert(self.view_rec(path) =~= set![m]);
+            assert(set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size));
+            // End-alignment: `start + page_size` with `start % page_size == 0`
+            // and `page_size > 0` implies `(start + page_size) % page_size == 0`.
+            let ps = page_size(pt_level) as int;
+            assert(ps > 0);
+            assert((frame.mapped_pa as int + ps) % ps == 0) by (nonlinear_arith)
+                requires (frame.mapped_pa as int) % ps == 0, ps > 0;
+            assert((vaddr(path) as int + ps) % ps == 0) by (nonlinear_arith)
+                requires (vaddr(path) as int) % ps == 0, ps > 0;
+            assert(m.inv());
+        } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
+            assert forall |m: Mapping| #[trigger] self.view_rec(path).contains(m) implies m.inv()
+            by {
+                let i = choose |i: int|
+                    #![trigger self.0.children[i]]
+                    0 <= i < self.0.children.len() &&
+                    self.0.children[i] is Some &&
+                    PageTableOwner(self.0.children[i].unwrap())
+                        .view_rec(path.push_tail(i as usize)).contains(m);
+                let child = self.0.children[i].unwrap();
+                path.push_tail_preserves_inv(i as usize);
+                PageTableOwner(child).view_rec_mapping_inv(path.push_tail(i as usize));
+            };
+        } else {
+            // Empty set — trivially true.
         }
     }
 

@@ -385,6 +385,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     pub proof fn new_child(tracked &self, paddr: Paddr, prop: PageProperty, tracked regions: &mut MetaRegionOwners) -> (tracked res: OwnerSubtree<C>)
         requires
             self.inv(),
+            self.level() < NR_LEVELS,
             old(regions).slots.contains_key(frame_to_index(paddr)),
             paddr % PAGE_SIZE == 0,
             paddr < MAX_PADDR,
@@ -1923,6 +1924,13 @@ impl<C: PageTableConfig> Inv for CursorView<C> {
     open spec fn inv(self) -> bool {
         &&& self.mappings.finite()
         &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> m.inv()
+        // Config-aware VA range: user page tables live in `0..MAX_USERSPACE_VADDR`,
+        // kernel page tables live in `KERNEL_VADDR_RANGE`, etc. `C::VADDR_RANGE_spec`
+        // encapsulates this, so `Mapping::inv` can stay config-agnostic.
+        &&& forall|m: Mapping| #![auto] self.mappings.contains(m) ==> {
+            &&& C::VADDR_RANGE_spec().start <= m.va_range.start
+            &&& m.va_range.end <= C::VADDR_RANGE_spec().end
+        }
         &&& self.non_overlapping()
     }
 }
@@ -1942,37 +1950,60 @@ impl<C: PageTableConfig> CursorView<C> {
     }
 }
 
+/// Config-specific axiom: every mapping in a cursor's view has its VA range
+/// contained in `C::VADDR_RANGE_spec()`. For `UserPtConfig` this follows from
+/// arithmetic on `TOP_LEVEL_INDEX_RANGE_spec() * page_size(top)`; for
+/// `KernelPtConfig` it requires canonical high-half sign-extension reasoning
+/// at the arch boundary. Kept as a free axiom to avoid a cyclic trait
+/// dependency between `PageTableConfig` and `CursorOwner`.
+pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(
+    owner: &CursorOwner<'rcu, C>,
+)
+    requires
+        owner.inv(),
+    ensures
+        forall |m: Mapping| #![auto] owner.view_mappings().contains(m) ==> {
+            &&& C::VADDR_RANGE_spec().start <= m.va_range.start
+            &&& m.va_range.end <= C::VADDR_RANGE_spec().end
+        };
+
 impl<'rcu, C: PageTableConfig> InvView for CursorOwner<'rcu, C> {
     proof fn view_preserves_inv(self) {
-        // CursorView::inv() = finite + mapping inv.
-        // Both follow from the tree structure: bounded depth (NR_LEVELS)
-        // and bounded branching (NR_ENTRIES) give finite view_mappings,
-        // and each entry produces well-formed mappings.
-        // TODO: prove via tree induction on view_rec.
-        admit();
+        // (1) Non-overlapping: tree collapse + view_rec_disjoint_vaddrs.
+        self.view_non_overlapping();
+        // (2) Finite: tree collapse + view_rec_finite.
+        self.view_mappings_finite();
+        // (3) Per-mapping `Mapping::inv()`: page_size ∈ {4K,2M,1G}, PA/VA
+        //     alignment, PA/VA size equal page_size, and PA bound. Proved
+        //     by `view_mapping_inv`, which internally `assume`s two narrow
+        //     arithmetic facts about `vaddr(path)` (alignment modulo
+        //     page_size and no-overflow).
+        self.view_mapping_inv();
+        // (4) Config-aware VA bound: every mapping's VA range is contained
+        //     in `C::VADDR_RANGE_spec()`. Discharged by a per-config axiom
+        //     (`PageTableConfig::axiom_view_in_vaddr_range`). For
+        //     `UserPtConfig` the proof is simple arithmetic on
+        //     `TOP_LEVEL_INDEX_RANGE_spec * page_size(top)`; for
+        //     `KernelPtConfig` it requires canonical high-half sign-extension
+        //     reasoning, which lives at the arch boundary rather than in
+        //     cursor proofs.
+        axiom_view_in_vaddr_range::<C>(&self);
     }
 }
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
-    /// The cursor's view has non-overlapping mappings when `metaregion_correct`
-    /// holds. This is separated from `CursorView::inv()` because it requires
-    /// `metaregion_correct` (which tracks unique node paths via `path_if_in_pt`).
-    ///
-    /// The argument: `metaregion_correct` ensures distinct nodes have distinct
-    /// paths. Since each frame's VA range is determined by its path
-    /// (`vaddr(path)..vaddr(path) + page_size(level)`), and distinct paths at
-    /// the same level produce disjoint VA ranges (they index into different
-    /// sub-regions of the address space), the mappings are non-overlapping.
-    pub proof fn view_non_overlapping(self, regions: MetaRegionOwners)
+    /// The cursor's view has non-overlapping mappings. This follows from the
+    /// tree structure alone: `as_page_table_owner_preserves_view_mappings`
+    /// collapses the union-over-continuations view into a single root-rooted
+    /// `view_rec`, after which `view_rec_disjoint_vaddrs` gives pairwise
+    /// disjointness directly. `metaregion_correct` is *not* required.
+    pub proof fn view_non_overlapping(self)
         requires
             self.inv(),
-            self.metaregion_correct(regions),
         ensures
             self@.non_overlapping(),
     {
-        // Requires tree induction: distinct tree paths produce disjoint
-        // VA ranges, so no two mappings in view_mappings overlap.
-        admit();
+        self.as_page_table_owner_view_non_overlapping();
     }
 }
 

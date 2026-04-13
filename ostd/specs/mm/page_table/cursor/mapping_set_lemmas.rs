@@ -33,8 +33,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.all_some(),
         ensures
             self.as_page_table_owner().view_rec(self.path()) == self.view_mappings(),
+            self.as_subtree().inv(),
     {
         self.inv_children_unroll_all();
+        self.as_subtree_inv();
     }
 
     pub proof fn view_mappings_take_child(self)
@@ -600,6 +602,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.inv(),
         ensures
             self.as_page_table_owner().view_rec(self.continuations[3].path()) == self.view_mappings(),
+            self.as_page_table_owner().0.inv(),
+            self.as_page_table_owner().0.level == self.continuations[3].tree_level,
     {
         if self.level == 4 {
             // Only cont[3], which has all_some
@@ -842,6 +846,101 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
             };
         }
+    }
+
+    /// Every mapping in the cursor view satisfies `Mapping::inv()`.
+    ///
+    /// Collapses the cursor view into a single-root `view_rec` and applies
+    /// `view_rec_mapping_inv`. Inherits the latter's two narrow `assume`s
+    /// on `vaddr(path)` arithmetic.
+    pub proof fn view_mapping_inv(self)
+        requires
+            self.inv(),
+        ensures
+            forall |m: Mapping| self.view_mappings().contains(m) ==> m.inv(),
+    {
+        self.as_page_table_owner_preserves_view_mappings();
+        let pto = self.as_page_table_owner();
+        let root_path = self.continuations[3].path();
+        self.inv_continuation(NR_LEVELS as int - 1);
+        pto.view_rec_mapping_inv(root_path);
+    }
+
+    /// Every mapping in the cursor view has `page_size ∈ {4K, 2M, 1G}`.
+    ///
+    /// Uses the standard collapse trick: `view_mappings` equals
+    /// `as_page_table_owner().view_rec(continuations[3].path())`, then applies
+    /// `view_rec_mapping_page_size`. The root's `parent_level == 5 == INC_LEVELS`
+    /// is given by the cursor invariant (continuations[3].entry_own.parent_level == 5).
+    pub proof fn view_mapping_page_size_valid(self)
+        requires
+            self.inv(),
+        ensures
+            forall |m: Mapping| self.view_mappings().contains(m) ==>
+                set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size),
+    {
+        self.as_page_table_owner_preserves_view_mappings();
+        let pto = self.as_page_table_owner();
+        let root_path = self.continuations[3].path();
+        self.inv_continuation(NR_LEVELS as int - 1);
+        // pto.0.level == continuations[3].tree_level == 0
+        // pto.0.value.parent_level == continuations[3].entry_own.parent_level == 5
+        // == INC_LEVELS == INC_LEVELS - 0 == INC_LEVELS - pto.0.level
+        pto.view_rec_mapping_page_size(root_path);
+    }
+
+    /// Finiteness of the cursor view.
+    ///
+    /// Collapses the union-over-continuations `view_mappings` into a single
+    /// `view_rec` rooted at the reconstructed root page table, then uses
+    /// `view_rec_finite` (bounded depth / branching).
+    pub proof fn view_mappings_finite(self)
+        requires
+            self.inv(),
+        ensures
+            self.view_mappings().finite(),
+    {
+        self.as_page_table_owner_preserves_view_mappings();
+        let pto = self.as_page_table_owner();
+        let root_path = self.continuations[3].path();
+        self.inv_continuation(NR_LEVELS as int - 1);
+        pto.view_rec_finite(root_path);
+    }
+
+    /// Non-overlapping mappings in the cursor view.
+    ///
+    /// Collapses the union-over-continuations `view_mappings` into a single
+    /// `view_rec` rooted at the reconstructed root page table, then applies
+    /// `view_rec_disjoint_vaddrs` on that single subtree. No `metaregion_correct`
+    /// needed — it follows from tree structure alone.
+    pub proof fn as_page_table_owner_view_non_overlapping(self)
+        requires
+            self.inv(),
+        ensures
+            self@.non_overlapping(),
+    {
+        self.as_page_table_owner_preserves_view_mappings();
+        let pto = self.as_page_table_owner();
+        let root_path = self.continuations[3].path();
+
+        assert(root_path.len() == self.continuations[3].tree_level);
+        assert(self.continuations[3].tree_level == 0) by {
+            self.inv_continuation(NR_LEVELS as int - 1);
+            // continuations[3].tree_level == INC_LEVELS - continuations[3].level() - 1
+            // and continuations[3].level() == 4 (root).
+        };
+        assert(root_path.len() == 0);
+        assert(pto.0.level == 0);
+
+        assert forall |m: Mapping, n: Mapping|
+            self@.mappings.contains(m) && self@.mappings.contains(n) && m != n implies
+            m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
+        by {
+            assert(self@.mappings == self.view_mappings());
+            assert(pto.view_rec(root_path).contains(m));
+            assert(pto.view_rec(root_path).contains(n));
+            pto.view_rec_disjoint_vaddrs(root_path, m, n);
+        };
     }
 }
 

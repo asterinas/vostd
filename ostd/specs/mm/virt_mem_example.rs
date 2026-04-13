@@ -33,6 +33,7 @@ pub fn read_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pad
         mapping.va_range.start == va,
         mapping.pa_range.start == pa,
         mapping.page_size == 4096,
+        va > 0,
         old(gm).memory[pa].contents[0] is Init,
         old(gm).memory[pa].contents[0].value() == 42,
 {
@@ -61,6 +62,7 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
         mapping.va_range.start == va,
         mapping.pa_range.start == pa,
         mapping.page_size == 4096,
+        va > 0,
 {
     let virt_ptr = VirtPtr::new(va, 16);
 
@@ -97,6 +99,7 @@ pub fn write_example(Tracked(gm): Tracked<&mut GlobalMemView>, va: Vaddr, pa: Pa
         old(cursor).item_wf(frame, prop, entry_owner, *old(regions)),
         old(gm).inv(),
         old(tlb_model).inv(),
+        va > 0,
 )]
 pub fn map_example<'a, G: InAtomicMode>(cursor: &mut CursorMut<'a, G>,
                                         frame: UFrame, va: Vaddr, pa: Paddr, prop: PageProperty)

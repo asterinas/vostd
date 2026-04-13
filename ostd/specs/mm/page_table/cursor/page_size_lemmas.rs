@@ -131,7 +131,7 @@ pub proof fn lemma_page_size_monotone(l1: PagingLevel, l2: PagingLevel)
     }
 }
 
-proof fn lemma_page_size_spec_values()
+pub proof fn lemma_page_size_spec_values()
     ensures
         page_size_spec(1) == 4096,
         page_size_spec(2) == 2097152,

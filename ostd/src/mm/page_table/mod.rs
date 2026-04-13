@@ -105,6 +105,15 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
     /// specified by the hardware MMU (limited by `C::ADDRESS_WIDTH`).
     spec fn TOP_LEVEL_INDEX_RANGE_spec() -> Range<usize>;
 
+    /// The virtual address range that this page table config manages.
+    ///
+    /// For user page tables this is `0..MAX_USERSPACE_VADDR`; for the kernel
+    /// page table this is `KERNEL_VADDR_RANGE` (canonical high half). It is
+    /// *not* always derivable from `TOP_LEVEL_INDEX_RANGE_spec` alone, because
+    /// architectures with sign-extended canonical addresses (x86-64) place
+    /// the kernel half at a non-linear offset in VA space.
+    spec fn VADDR_RANGE_spec() -> Range<Vaddr>;
+
     fn TOP_LEVEL_INDEX_RANGE() -> (r: Range<usize>)
         ensures
             r == Self::TOP_LEVEL_INDEX_RANGE_spec(),
@@ -134,6 +143,7 @@ pub unsafe trait PageTableConfig: Clone + Debug + Send + Sync + 'static {
         ensures
             Self::C::BASE_PAGE_SIZE() / Self::C::PTE_SIZE() == NR_ENTRIES,
     ;
+
 
     /// The item that can be mapped into the virtual memory space using the
     /// page table.
