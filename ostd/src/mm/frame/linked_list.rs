@@ -1006,7 +1006,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
         proof {
             CursorOwner::<M>::list_insert(owner, &mut frame_own.meta_own, &frame_own.meta_perm);
 
-            assert(forall|i: int| 0 <= i < owner.index - 1 ==> owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by {};
+            assert(forall|i: int| 0 <= i < owner.index - 1 ==> #[trigger] owner0.list_own.inv_at(i) ==> owner.list_own.inv_at(i)) by {};
             assert(forall|i: int| owner.index <= i < owner.length() ==> owner0.list_own.inv_at(i - 1) == owner.list_own.inv_at(i)) by {};
             assert(owner.list_own.inv_at(owner0.index as int));
 

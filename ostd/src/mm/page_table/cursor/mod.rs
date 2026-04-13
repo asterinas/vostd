@@ -3717,7 +3717,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
 
                     assert(forall|m: Mapping|
-                        owner.view_mappings().contains(m) <==> owner_before_dfs.view_mappings().contains(m));
+                        owner.view_mappings().contains(m) <==> #[trigger] owner_before_dfs.view_mappings().contains(m));
                 }
 
                 // num_frames == subtree mappings count: from dfs_mark_stray_and_unlock postcondition.

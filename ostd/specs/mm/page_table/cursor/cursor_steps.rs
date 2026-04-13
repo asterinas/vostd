@@ -382,7 +382,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(child_subtree.inv());
             let pto = PageTableOwner(child_subtree);
             assert(pto.view_rec(child_path) =~= child_cont.view_mappings()) by {
-                assert forall |m: Mapping| child_cont.view_mappings().contains(m) implies
+                assert forall |m: Mapping| #[trigger] child_cont.view_mappings().contains(m) implies
                     pto.view_rec(child_path).contains(m) by {
                     let j = choose |j: int| #![auto]
                         0 <= j < child_cont.children.len()
@@ -395,7 +395,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(pto.0.children[j] == child_cont.children[j]);
                 };
                 assert forall |m: Mapping| pto.view_rec(child_path).contains(m) implies
-                    child_cont.view_mappings().contains(m) by {
+                    #[trigger] child_cont.view_mappings().contains(m) by {
                     // view_rec for node: exists i s.t. children[i] is Some && PTO(children[i]).view_rec(...)
                     let j = choose |j: int|
                         #![trigger pto.0.children[j]]

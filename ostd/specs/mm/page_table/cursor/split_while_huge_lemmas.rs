@@ -251,7 +251,7 @@ impl<C: PageTableConfig> CursorView<C> {
         };
 
         // --- (3) All mappings satisfy Mapping::inv() ---
-        assert forall|e: Mapping| new_self.mappings.contains(e) implies e.inv() by {
+        assert forall|e: Mapping| new_self.mappings.contains(e) implies #[trigger] e.inv() by {
             if v.mappings.remove(m).contains(e) {
                 assert(v.mappings.contains(e));
             } else {
@@ -305,8 +305,8 @@ impl<C: PageTableConfig> CursorView<C> {
 
         // --- (4) Non-overlapping ---
         assert forall|e1: Mapping, e2: Mapping|
-            new_self.mappings.contains(e1) &&
-            new_self.mappings.contains(e2) &&
+            #[trigger] new_self.mappings.contains(e1) &&
+            #[trigger] new_self.mappings.contains(e2) &&
             e1 != e2
         implies
             e1.va_range.end <= e2.va_range.start || e2.va_range.end <= e1.va_range.start
@@ -745,7 +745,7 @@ impl<C: PageTableConfig> CursorView<C> {
             self.split_while_huge(size).mappings.contains(m),
         ensures
             self.mappings.contains(m)
-            || exists |parent: Mapping| self.mappings.contains(parent)
+            || exists |parent: Mapping| #[trigger] self.mappings.contains(parent)
                 && parent.va_range.start <= m.va_range.start
                 && m.va_range.end <= parent.va_range.end
                 && m.pa_range.start == (parent.pa_range.start + (m.va_range.start - parent.va_range.start)) as Paddr
@@ -783,7 +783,7 @@ impl<C: PageTableConfig> CursorView<C> {
                     self.split_if_mapped_huge_spec_refinement(new_size, m);
                 } else {
                     let p = choose|p: Mapping|
-                        new_self.mappings.contains(p)
+                        #[trigger] new_self.mappings.contains(p)
                         && p.va_range.start <= m.va_range.start
                         && m.va_range.end <= p.va_range.end
                         && m.pa_range.start == (p.pa_range.start + (m.va_range.start - p.va_range.start)) as Paddr
