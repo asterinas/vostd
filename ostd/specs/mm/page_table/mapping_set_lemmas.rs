@@ -72,7 +72,6 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
                 assert(s.contains(a) && s.contains(b));
             };
         };
-
         assert(wf_mapping_set(above)) by {
             assert forall|a: Mapping, b: Mapping|
                 #[trigger] above.contains(a) && #[trigger] above.contains(b) && a != b implies
