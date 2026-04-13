@@ -282,7 +282,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 self.children[i].unwrap().inv()
     {
         let pred = |child: Option<OwnerSubtree<C>>| child is Some ==> child.unwrap().inv();
-        assert forall |i:int| 0 <= i < self.children.len() && self.children[i] is Some implies
+        assert forall |i:int| 0 <= i < self.children.len() && #[trigger] self.children[i] is Some implies
             self.children[i].unwrap().inv()
         by {
             self.inv_children_unroll(i)

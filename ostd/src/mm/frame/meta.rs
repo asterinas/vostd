@@ -161,6 +161,8 @@ global layout MetaSlot is size == 64, align == 8;
 
 pub broadcast axiom fn size_of_meta_slot()
     ensures
+        #![trigger size_of::<MetaSlot>()]
+        #![trigger align_of::<MetaSlot>()]
         size_of::<MetaSlot>() == 64,
         align_of::<MetaSlot>() == 8;
 

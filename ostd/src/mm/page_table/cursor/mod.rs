@@ -2729,12 +2729,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // (Splits only affect the entry at frag_va; entries before it are untouched.)
             res is Some && res.unwrap() is Mapped ==>
                 forall |m2: Mapping|
-                    final(owner)@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    #![auto] final(owner)@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
                     && m2.va_range.start < res.unwrap()->Mapped_va
                     ==> old(owner)@.mappings.contains(m2),
             res is Some && res.unwrap() is StrayPageTable ==>
                 forall |m2: Mapping|
-                    final(owner)@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
+                    #![auto] final(owner)@.mappings.contains(m2) && old(self).inner.va <= m2.va_range.start
                     && m2.va_range.start < res.unwrap()->StrayPageTable_va
                     ==> old(owner)@.mappings.contains(m2),
             // F3-VA: found entry VA is within [old_va, old_va + len).
@@ -2908,13 +2908,13 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             // modify entries before frag_va.
             if frag.unwrap() is Mapped {
                 assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
+                    #![auto] owner@.mappings.contains(m) && old_va <= m.va_range.start
                     && m.va_range.start < frag.unwrap()->Mapped_va
                     ==> old(owner)@.mappings.contains(m));
             }
             if frag.unwrap() is StrayPageTable {
                 assume(forall |m: Mapping|
-                    owner@.mappings.contains(m) && old_va <= m.va_range.start
+                    #![auto] owner@.mappings.contains(m) && old_va <= m.va_range.start
                     && m.va_range.start < frag.unwrap()->StrayPageTable_va
                     ==> old(owner)@.mappings.contains(m));
             }
@@ -3717,7 +3717,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
 
                     assert(forall|m: Mapping|
-                        owner.view_mappings().contains(m) <==> owner_before_dfs.view_mappings().contains(m));
+                        owner.view_mappings().contains(m) <==> #[trigger] owner_before_dfs.view_mappings().contains(m));
                 }
 
                 // num_frames == subtree mappings count: from dfs_mark_stray_and_unlock postcondition.

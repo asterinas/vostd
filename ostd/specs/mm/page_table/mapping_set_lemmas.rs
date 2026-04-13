@@ -26,7 +26,7 @@ pub open spec fn wf_mapping_set(s: Set<Mapping>) -> bool {
 pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, hi: Vaddr)
     requires
         wf_mapping_set(s),
-        forall|m: Mapping| s.contains(m) ==> lo <= m.va_range.start && m.va_range.end <= hi,
+        forall|m: Mapping| #[trigger] s.contains(m) ==> lo <= m.va_range.start && m.va_range.end <= hi,
         lo <= hi,
         hi <= MAX_USERSPACE_VADDR,
     ensures
@@ -80,7 +80,7 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
         // below is a wf_mapping_set within [lo, m.va_range.start).
         assert(wf_mapping_set(below)) by {
             assert forall|a: Mapping, b: Mapping|
-                below.contains(a) && below.contains(b) && a != b implies
+                #[trigger] below.contains(a) && #[trigger] below.contains(b) && a != b implies
                 a.va_range.end <= b.va_range.start || b.va_range.end <= a.va_range.start by {
                 assert(s.contains(a) && s.contains(b));
             };
@@ -88,7 +88,7 @@ pub proof fn lemma_mapping_set_cardinality_in_range(s: Set<Mapping>, lo: Vaddr, 
         // above is a wf_mapping_set within [m.va_range.end, hi).
         assert(wf_mapping_set(above)) by {
             assert forall|a: Mapping, b: Mapping|
-                above.contains(a) && above.contains(b) && a != b implies
+                #[trigger] above.contains(a) && #[trigger] above.contains(b) && a != b implies
                 a.va_range.end <= b.va_range.start || b.va_range.end <= a.va_range.start by {
                 assert(s.contains(a) && s.contains(b));
             };
@@ -125,7 +125,7 @@ pub proof fn lemma_mapping_set_cardinality_bound(s: Set<Mapping>)
 {
     // All mappings have va_range in (0, MAX_USERSPACE_VADDR).
     // m.inv() gives 0 < m.va.start and m.va.end < MAX_USERSPACE_VADDR, so within [0, MAX_USERSPACE_VADDR].
-    assert forall|m: Mapping| s.contains(m)
+    assert forall|m: Mapping| #[trigger] s.contains(m)
         implies 0 <= m.va_range.start && m.va_range.end <= MAX_USERSPACE_VADDR by {
         assert(m.inv());
     };
@@ -180,7 +180,7 @@ pub proof fn lemma_wf_union(a: Set<Mapping>, b: Set<Mapping>)
         wf_mapping_set(a),
         wf_mapping_set(b),
         forall|m: Mapping, n: Mapping|
-            a.contains(m) && b.contains(n) ==>
+            #[trigger] a.contains(m) && #[trigger] b.contains(n) ==>
                 m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start,
     ensures
         wf_mapping_set(a.union(b)),
