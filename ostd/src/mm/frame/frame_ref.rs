@@ -74,8 +74,8 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
                 == old(regions).slot_owners[frame_to_index(raw)].self_addr,
             final(regions).slot_owners[frame_to_index(raw)].usage
                 == old(regions).slot_owners[frame_to_index(raw)].usage,
-            final(regions).slot_owners[frame_to_index(raw)].path_if_in_pt
-                == old(regions).slot_owners[frame_to_index(raw)].path_if_in_pt,
+            final(regions).slot_owners[frame_to_index(raw)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index(raw)].paths_in_pt,
             // Other slots are unchanged
             forall |i: usize|
                 #![trigger final(regions).slot_owners[i]]

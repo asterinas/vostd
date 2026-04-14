@@ -492,6 +492,11 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     || (parent_ps == 0x20_0000 && child_ps == 0x1000);
             assert((i + 1) * child_ps <= 512 * child_ps) by (nonlinear_arith)
                 requires 0 <= i < 512, child_ps >= 0;
+            assert(m.va_range.end <= vaddr(path.push_tail(i as usize)) + child_ps);
+            assert(vaddr(path.push_tail(i as usize)) == vaddr(path) + i * child_ps);
+            assert(i * child_ps + child_ps == (i + 1) * child_ps) by (nonlinear_arith);
+            assert(m.va_range.end <= vaddr(path) + (i + 1) * child_ps);
+            assert(m.va_range.end <= vaddr(path) + parent_ps);
         }
     }
 
@@ -1055,16 +1060,16 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     }
 
     /// Predicate: all entries in the tree have their paths correctly tracked in regions.
-    /// Strengthened form: `path_if_in_pt == Some(entry.path)` (not just `is Some`).
+    /// Strengthened form: `paths_in_pt == set![entry.path]` (not just non-empty).
     pub open spec fn path_tracked_pred(regions: MetaRegionOwners)
         -> spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool
     {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
-            // Only nodes track path_if_in_pt (frames can be shared).
+            // Only nodes track paths_in_pt as a singleton (frames can be shared).
             entry.is_node() && entry.meta_slot_paddr() is Some ==> {
                 &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt
-                        == Some(entry.path)
+                &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].paths_in_pt
+                        == set![entry.path]
             }
         }
     }
@@ -1075,8 +1080,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>| {
             &&& entry.meta_slot_paddr() is Some
             &&& regions.slot_owners.contains_key(frame_to_index(entry.meta_slot_paddr().unwrap()))
-            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt is Some
-            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].path_if_in_pt.unwrap() == path
+            &&& regions.slot_owners[frame_to_index(entry.meta_slot_paddr().unwrap())].paths_in_pt
+                == set![path]
         }
     }
 
@@ -1346,8 +1351,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
     /// uniqueness (via `same_paddr_implies_same_path`), same paddr would force same path — contradiction.
     /// Entries in a subtree whose path is disjoint from `old_entry`'s path
     /// have different physical addresses from `old_entry`.
-    /// Uses `metaregion_sound` (which includes `path_if_in_pt` for nodes) to derive
-    /// that same-paddr entries would share `path_if_in_pt`, contradicting path disjointness.
+    /// Uses `metaregion_sound` (which includes `paths_in_pt` for nodes) to derive
+    /// that same-paddr entries would share `paths_in_pt`, contradicting path disjointness.
     pub axiom fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
         path_j: TreePath<NR_ENTRIES>,
@@ -1365,7 +1370,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             old_entry.meta_slot_paddr() is Some,
             regions.slot_owners[
                 frame_to_index(old_entry.meta_slot_paddr().unwrap())
-            ].path_if_in_pt == Some(old_entry.path),
+            ].paths_in_pt == set![old_entry.path],
             !Self::is_prefix_of(path_j, old_entry.path),
         ensures
             subtree.tree_predicate_map(
@@ -1436,7 +1441,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             self.0.tree_predicate_map(path, Self::relate_region_tracked_pred(regions)),
         ensures
             Self::is_prefix_of(path, entry.path),
-            regions.slot_owners[frame_to_index(m.pa_range.start)].path_if_in_pt == Some(entry.path),
+            regions.slot_owners[frame_to_index(m.pa_range.start)].paths_in_pt == set![entry.path],
             m.va_range.start == vaddr(entry.path),
             m.page_size == page_size((INC_LEVELS - entry.path.len()) as PagingLevel),
             entry.is_frame(),
@@ -1516,6 +1521,13 @@ impl<C: PageTableConfig> PageTableOwner<C> {
 
         assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry1, entry1.path)));
         assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry2, entry2.path)));
+
+        // Same paddr ⇒ same slot ⇒ same singleton paths_in_pt ⇒ same entry path.
+        let idx = frame_to_index(m1.pa_range.start);
+        assert(regions.slot_owners[idx].paths_in_pt == set![entry1.path]);
+        assert(regions.slot_owners[idx].paths_in_pt == set![entry2.path]);
+        assert(set![entry1.path].contains(entry2.path));
+        assert(entry1.path == entry2.path);
 
         Self::is_at_eq_rec(self.0, path, entry1.path, entry1, entry2);
     }

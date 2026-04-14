@@ -202,7 +202,12 @@ pub tracked struct MetaSlotOwner {
     pub self_addr: usize,
     pub usage: PageUsage,
     pub raw_count: usize,
-    pub path_if_in_pt: Option<TreePath<NR_ENTRIES>>,
+    /// The set of tree paths at which this slot is referenced. For PT-node
+    /// slots this is a singleton. For data-frame slots this tracks every
+    /// location the frame is currently mapped — allowing a single frame to be
+    /// mapped at multiple addresses. Content is maintained by the page-table
+    /// write sites and checked by `metaregion_sound`.
+    pub ghost paths_in_pt: Set<TreePath<NR_ENTRIES>>,
 }
 
 impl Inv for MetaSlotOwner {
@@ -307,7 +312,7 @@ impl MetaSlotOwner {
             final(self).self_addr == old(self).self_addr,
             final(self).usage == old(self).usage,
             final(self).raw_count == old(self).raw_count,
-            final(self).path_if_in_pt == old(self).path_if_in_pt;
+            final(self).paths_in_pt == old(self).paths_in_pt;
 
     pub axiom fn sync_inner(tracked &mut self, inner_perms: &MetadataInnerPerms)
         ensures *final(self) == (Self { inner_perms: *inner_perms, ..*old(self) });

@@ -70,7 +70,7 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
     }
 
     /// When the new child is NOT a node, `into_pte` doesn't modify `raw_count`.
-    /// Only `path_if_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
+    /// Only `paths_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
     /// So entries with `paddr_neq(old_child)` preserve `metaregion_sound` — no
     /// `paddr_neq(new_child)` needed.
     pub open spec fn metaregion_sound_neq_old_preserved(

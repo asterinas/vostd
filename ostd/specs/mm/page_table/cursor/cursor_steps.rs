@@ -103,8 +103,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         subtree.inv(),
         subtree.tree_predicate_map(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
         subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr)),
-        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].path_if_in_pt
-            == Some(excepted_path),
+        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].paths_in_pt
+            == set![excepted_path],
         // Structural path == value path
         path == subtree.value.path,
         path.inv(),
@@ -124,8 +124,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
 
     // Root: value.path == path != excepted_path.
-    // If addr == excepted_addr: metaregion_sound gives slot.path_if_in_pt == Some(value.path)
-    // == Some(path). And slot.path_if_in_pt == Some(excepted_path). So path == excepted_path.
+    // If addr == excepted_addr: metaregion_sound gives slot.paths_in_pt == set![value.path]
+    // == set![path]. And slot.paths_in_pt == set![excepted_path]. So path == excepted_path.
     // Contradiction.
     assert(f(subtree.value, path));
     assert(g(subtree.value, path));
@@ -133,7 +133,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
             let idx = frame_to_index(meta_to_frame(excepted_addr));
             assert(subtree.value.metaregion_sound(regions));
-            assert(regions.slot_owners[idx].path_if_in_pt == Some(subtree.value.path));
+            assert(regions.slot_owners[idx].paths_in_pt == set![subtree.value.path]);
+            assert(set![subtree.value.path].contains(excepted_path));
             assert(subtree.value.path == path);
             // path == excepted_path: contradiction with precondition
             assert(false);
@@ -838,8 +839,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
                 assert(addr == cur_entry.node.unwrap().meta_perm.addr());
                 let idx = frame_to_index(meta_to_frame(addr));
-                assert(regions.slot_owners[idx].path_if_in_pt == Some(cont_i.path()));
-                assert(regions.slot_owners[idx].path_if_in_pt == Some(cur_entry_path));
+                assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
+                assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
+                assert(set![cont_i.path()].contains(cur_entry_path));
 
                 assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
@@ -862,7 +864,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.push_level_owner_preserves_inv(guard_perm);
 
         let excepted_idx = frame_to_index(meta_to_frame(cur_entry_addr));
-        assert(regions.slot_owners[excepted_idx].path_if_in_pt == Some(cur_entry_path)) by {
+        assert(regions.slot_owners[excepted_idx].paths_in_pt == set![cur_entry_path]) by {
             old_cont.inv_children_rel_unroll(old_cont.idx as int);
         };
 

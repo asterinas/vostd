@@ -100,8 +100,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             old_regions.slot_owners[frame_to_index(paddr)].inner_perms
         &&& new_regions.slot_owners[frame_to_index(paddr)].usage ==
             old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& new_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt ==
-            old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& new_regions.slot_owners[frame_to_index(paddr)].paths_in_pt ==
+            old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
         &&& new_regions.slot_owners[frame_to_index(paddr)].self_addr == r.ptr.addr()
         &&& forall|i: usize|
             #![trigger new_regions.slot_owners[i], old_regions.slot_owners[i]]

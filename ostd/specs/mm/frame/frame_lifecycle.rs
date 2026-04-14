@@ -55,8 +55,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                         == regions0.slot_owners[frame_to_index(raw)].self_addr
                     &&& regions2.slot_owners[frame_to_index(raw)].usage
                         == regions0.slot_owners[frame_to_index(raw)].usage
-                    &&& regions2.slot_owners[frame_to_index(raw)].path_if_in_pt
-                        == regions0.slot_owners[frame_to_index(raw)].path_if_in_pt
+                    &&& regions2.slot_owners[frame_to_index(raw)].paths_in_pt
+                        == regions0.slot_owners[frame_to_index(raw)].paths_in_pt
                     // Other slots are unchanged
                     &&& forall |i: usize|
                         #![trigger regions2.slot_owners[i]]
@@ -82,8 +82,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
             && regions2.slot_owners[idx].self_addr
                 == regions0.slot_owners[idx].self_addr
             && regions2.slot_owners[idx].usage == regions0.slot_owners[idx].usage
-            && regions2.slot_owners[idx].path_if_in_pt
-                == regions0.slot_owners[idx].path_if_in_pt
+            && regions2.slot_owners[idx].paths_in_pt
+                == regions0.slot_owners[idx].paths_in_pt
             && (forall |i: usize|
                 #![trigger regions2.slot_owners[i]]
                 i != idx ==> regions2.slot_owners[i] == regions0.slot_owners[i])

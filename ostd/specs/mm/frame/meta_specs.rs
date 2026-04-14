@@ -62,7 +62,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].usage == PageUsage::Frame
             &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
-            &&& post.slot_owners[idx].path_if_in_pt == pre.slot_owners[idx].path_if_in_pt
+            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
             &&& pre.slot_owners[idx].inner_perms.ref_count.value() == REF_COUNT_UNUSED
         }
@@ -122,7 +122,7 @@ impl MetaSlot {
             &&& post.slot_owners[idx].self_addr == pre.slot_owners[idx].self_addr
             &&& post.slot_owners[idx].usage == pre.slot_owners[idx].usage
             &&& post.slot_owners[idx].raw_count == pre.slot_owners[idx].raw_count
-            &&& post.slot_owners[idx].path_if_in_pt == pre.slot_owners[idx].path_if_in_pt
+            &&& post.slot_owners[idx].paths_in_pt == pre.slot_owners[idx].paths_in_pt
             &&& forall|i: usize| i != idx ==> (#[trigger] post.slot_owners[i] == pre.slot_owners[i])
         }
     }

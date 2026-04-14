@@ -1131,9 +1131,9 @@ impl<C: PageTableConfig> PageTable<C> {
                     final(owner)@.unwrap().0.value.meta_slot_paddr().unwrap())
                 ==> final(regions).slot_owners[i] == old(regions).slot_owners[i],
             forall |a: usize| old(guards).lock_held(a) ==> final(guards).lock_held(a),
-            forall |idx: usize| #![trigger final(regions).slot_owners[idx].path_if_in_pt]
-                final(regions).slot_owners[idx].path_if_in_pt
-                    == old(regions).slot_owners[idx].path_if_in_pt,
+            forall |idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+                final(regions).slot_owners[idx].paths_in_pt
+                    == old(regions).slot_owners[idx].paths_in_pt,
             // Allocation preserves the soundness of the kernel page-table tree:
             // a fresh allocation cannot collide with any active node or frame entry
             // (the allocator returns a slot that wasn't in use). Stated as a
@@ -1248,9 +1248,9 @@ impl<C: PageTableConfig> PageTable<C> {
             forall |item: C::Item| #![trigger CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions))]
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *old(regions)) ==>
                 CursorMut::<'rcu, C, G>::item_not_mapped(item, *final(regions)),
-            // cursor_mut only locks page-table node slots; path_if_in_pt is unchanged for all slots.
+            // cursor_mut only locks page-table node slots; paths_in_pt is unchanged for all slots.
             forall |idx: usize| #![auto]
-                (*final(regions)).slot_owners[idx].path_if_in_pt == (*old(regions)).slot_owners[idx].path_if_in_pt,
+                (*final(regions)).slot_owners[idx].paths_in_pt == (*old(regions)).slot_owners[idx].paths_in_pt,
     )]
     #[verifier::external_body]
     pub fn cursor_mut<'rcu, G: InAtomicMode>(

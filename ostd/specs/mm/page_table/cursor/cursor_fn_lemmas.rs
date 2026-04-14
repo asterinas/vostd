@@ -73,6 +73,39 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].path()
                 == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
+            // Phase 6 additions: the bottom continuation's non-idx children are
+            // unchanged by protect, and the modified child subtree + parent
+            // entry_own still satisfy `metaregion_sound_pred` / `path_tracked_pred`.
+            // Protect only mutates `children[idx].value.frame.prop` and
+            // `entry_own.node.children_perm[idx]` — none of these are inspected
+            // by `metaregion_sound` or `path_tracked_pred`, so the caller can
+            // discharge these explicitly from the frame/node shape equalities.
+            forall |j: int| 0 <= j < NR_ENTRIES
+                && j != self.continuations[self.level - 1].idx as int ==>
+                #[trigger] other.continuations[self.level - 1].children[j]
+                    == self.continuations[self.level - 1].children[j],
+            ({
+                let new_child = other.continuations[self.level - 1].children[
+                    other.continuations[self.level - 1].idx as int].unwrap();
+                let new_path = other.continuations[self.level - 1].path()
+                    .push_tail(other.continuations[self.level - 1].idx as usize);
+                new_child.tree_predicate_map(new_path,
+                    PageTableOwner::<C>::metaregion_sound_pred(regions))
+            }),
+            other.continuations[self.level - 1].entry_own.metaregion_sound(regions),
+            // For `metaregion_correct` transfer (only needed in the correct branch).
+            self.metaregion_correct(regions) ==> ({
+                let new_child = other.continuations[self.level - 1].children[
+                    other.continuations[self.level - 1].idx as int].unwrap();
+                let new_path = other.continuations[self.level - 1].path()
+                    .push_tail(other.continuations[self.level - 1].idx as usize);
+                new_child.tree_predicate_map(new_path,
+                    PageTableOwner::<C>::path_tracked_pred(regions))
+            }),
+            self.metaregion_correct(regions) ==>
+                PageTableOwner::<C>::path_tracked_pred(regions)(
+                    other.continuations[self.level - 1].entry_own,
+                    other.continuations[self.level - 1].path()),
         ensures
             other.inv(),
             other.metaregion_sound(regions),
@@ -81,24 +114,111 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // Part 1: other.inv() — derive from map_branch_none_inv_holds.
         other.map_branch_none_inv_holds(self);
 
-        // Part 2: metaregion_sound transfer.
-        // Protect only changes frame.prop. metaregion_sound doesn't depend on prop.
-        // For the bottom continuation, we need to show its children still satisfy
-        // metaregion_sound_pred. Since only the prop changed and metaregion_sound
-        // for frames checks mapped_pa, slot_owners, and slot data (not prop), the
-        // bottom child's soundness is preserved.
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let h = PageTableOwner::<C>::path_tracked_pred(regions);
-        // metaregion_sound + metaregion_correct transfer.
-        // Protect only changes frame.prop which doesn't affect metaregion_sound
-        // (checks slot_owners, not prop) or path_tracked_pred (checks path_if_in_pt).
-        // Full discharge requires preconditions about entry_own and children
-        // equality that are hard to thread through tracked take/put operations.
-        // The admits below cover:
-        // (a) bottom continuation children satisfy metaregion_sound_pred
-        // (b) bottom entry_own satisfies metaregion_sound
-        // (c) metaregion_correct transfer
-        admit();
+        let L = self.level as int;
+        let idx = self.continuations[L - 1].idx as int;
+
+        // Part 2a: map_full_tree(f) for `other`.
+        //
+        // For continuations i > L - 1: they equal self's continuations, and
+        //   self.map_full_tree(f) gives us the fact directly.
+        // For continuation at i == L - 1: children at j != idx are equal to
+        //   self's (by precondition), so `tree_predicate_map(f)` transfers
+        //   for those j. At j == idx, the caller provided
+        //   `tree_predicate_map(f)` directly.
+        assert forall |i: int| #![trigger other.continuations[i]]
+            other.level - 1 <= i < NR_LEVELS
+        implies
+            other.continuations[i].map_children(f)
+        by {
+            if i > L - 1 {
+                assert(other.continuations[i] == self.continuations[i]);
+                assert(self.continuations[i].map_children(f));
+            } else {
+                assert(i == L - 1);
+                let o_cont = other.continuations[L - 1];
+                let s_cont = self.continuations[L - 1];
+                reveal(CursorContinuation::inv_children);
+                assert forall |j: int| #![trigger o_cont.children[j]]
+                    0 <= j < o_cont.children.len() && o_cont.children[j] is Some
+                implies
+                    o_cont.children[j].unwrap()
+                        .tree_predicate_map(o_cont.path().push_tail(j as usize), f)
+                by {
+                    if j == idx {
+                        // Directly from the caller-provided precondition.
+                    } else {
+                        // children[j] == self.children[j]; path() equal;
+                        // transfer self.cont.map_children(f) at index j.
+                        assert(o_cont.children[j] == s_cont.children[j]);
+                        s_cont.inv_children_unroll(j);
+                    }
+                };
+            }
+        };
+
+        // Part 2b: path_metaregion_sound(regions) for `other`.
+        //
+        // For i > L - 1: entry_own equals self's, and self's is metaregion_sound.
+        // For i == L - 1: caller-provided precondition.
+        assert forall |i: int| #![trigger other.continuations[i]]
+            other.level - 1 <= i < NR_LEVELS
+        implies
+            other.continuations[i].entry_own.metaregion_sound(regions)
+        by {
+            if i > L - 1 {
+                assert(other.continuations[i] == self.continuations[i]);
+                self.inv_continuation(i);
+            }
+            // i == L - 1: directly from precondition.
+        };
+
+        // Part 3: metaregion_correct transfer.
+        if self.metaregion_correct(regions) {
+            // Tree: for each continuation, `map_children(h)`.
+            assert forall |i: int| #![trigger other.continuations[i]]
+                other.level - 1 <= i < NR_LEVELS
+            implies
+                other.continuations[i].map_children(h)
+            by {
+                if i > L - 1 {
+                    assert(other.continuations[i] == self.continuations[i]);
+                    assert(self.continuations[i].map_children(h));
+                } else {
+                    assert(i == L - 1);
+                    let o_cont = other.continuations[L - 1];
+                    let s_cont = self.continuations[L - 1];
+                    reveal(CursorContinuation::inv_children);
+                    assert forall |j: int| #![trigger o_cont.children[j]]
+                        0 <= j < o_cont.children.len() && o_cont.children[j] is Some
+                    implies
+                        o_cont.children[j].unwrap()
+                            .tree_predicate_map(o_cont.path().push_tail(j as usize), h)
+                    by {
+                        if j == idx {
+                            // From caller-provided precondition.
+                        } else {
+                            assert(o_cont.children[j] == s_cont.children[j]);
+                            s_cont.inv_children_unroll(j);
+                        }
+                    };
+                }
+            };
+
+            // path_metaregion_correct: entry_own for each continuation.
+            assert forall |i: int| #![trigger other.continuations[i]]
+                other.level - 1 <= i < NR_LEVELS
+            implies
+                h(other.continuations[i].entry_own, other.continuations[i].path())
+            by {
+                if i > L - 1 {
+                    assert(other.continuations[i] == self.continuations[i]);
+                    self.inv_continuation(i);
+                }
+                // i == L - 1: from precondition.
+            };
+        }
     }
 
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)

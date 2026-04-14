@@ -105,7 +105,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrameOwner<M> {
         &&& regions.slots == old_regions.slots.remove(frame_to_index(paddr))
         &&& regions.slot_owners[frame_to_index(paddr)].raw_count == old_regions.slot_owners[frame_to_index(paddr)].raw_count
         &&& regions.slot_owners[frame_to_index(paddr)].usage == old_regions.slot_owners[frame_to_index(paddr)].usage
-        &&& regions.slot_owners[frame_to_index(paddr)].path_if_in_pt == old_regions.slot_owners[frame_to_index(paddr)].path_if_in_pt
+        &&& regions.slot_owners[frame_to_index(paddr)].paths_in_pt == old_regions.slot_owners[frame_to_index(paddr)].paths_in_pt
         &&& forall|i: usize| i != frame_to_index(paddr) ==> regions.slot_owners[i] == old_regions.slot_owners[i]
         &&& regions.inv()
     }

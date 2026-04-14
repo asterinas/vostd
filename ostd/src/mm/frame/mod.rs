@@ -417,8 +417,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                 == old(regions).slot_owners[self.index()].self_addr,
             final(regions).slot_owners[self.index()].usage
                 == old(regions).slot_owners[self.index()].usage,
-            final(regions).slot_owners[self.index()].path_if_in_pt
-                == old(regions).slot_owners[self.index()].path_if_in_pt,
+            final(regions).slot_owners[self.index()].paths_in_pt
+                == old(regions).slot_owners[self.index()].paths_in_pt,
             // Other slots are unchanged
             forall |i: usize|
                 #![trigger final(regions).slot_owners[i]]

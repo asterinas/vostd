@@ -486,7 +486,7 @@ impl MetaSlot {
                 slot_own.self_addr == regions0.slot_owners[frame_to_index(paddr)].self_addr,
                 slot_own.usage == regions0.slot_owners[frame_to_index(paddr)].usage,
                 slot_own.raw_count == regions0.slot_owners[frame_to_index(paddr)].raw_count,
-                slot_own.path_if_in_pt == regions0.slot_owners[frame_to_index(paddr)].path_if_in_pt,
+                slot_own.paths_in_pt == regions0.slot_owners[frame_to_index(paddr)].paths_in_pt,
                 FRAME_METADATA_RANGE.start <= slot_own.self_addr < FRAME_METADATA_RANGE.end,
                 slot_own.self_addr % META_SLOT_SIZE == 0,
                 slot_own.self_addr == slot_perm.addr(),
@@ -790,7 +790,7 @@ impl MetaSlot {
             final(owner).self_addr == old(owner).self_addr,
             final(owner).usage == old(owner).usage,
             final(owner).raw_count == old(owner).raw_count,
-            final(owner).path_if_in_pt == old(owner).path_if_in_pt,
+            final(owner).paths_in_pt == old(owner).paths_in_pt,
     {
         // This should be guaranteed as a safety requirement.
         //        debug_assert_eq!(self.ref_count.load(Tracked(&*rc_perm)), 0);
@@ -843,7 +843,7 @@ impl MetaSlot {
             final(slot_own).self_addr == old(slot_own).self_addr,
             final(slot_own).usage == old(slot_own).usage,
             final(slot_own).raw_count == old(slot_own).raw_count,
-            final(slot_own).path_if_in_pt == old(slot_own).path_if_in_pt,
+            final(slot_own).paths_in_pt == old(slot_own).paths_in_pt,
     )]
     #[verifier::external_body]
     pub(super) fn drop_meta_in_place(&self) {

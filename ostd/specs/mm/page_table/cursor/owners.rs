@@ -790,8 +790,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_regions.slot_owners[idx].inner_perms.in_list ==
                 old_regions.slot_owners[idx].inner_perms.in_list,
             // Other MetaSlotOwner fields at idx unchanged
-            new_regions.slot_owners[idx].path_if_in_pt ==
-                old_regions.slot_owners[idx].path_if_in_pt,
+            new_regions.slot_owners[idx].paths_in_pt ==
+                old_regions.slot_owners[idx].paths_in_pt,
             new_regions.slot_owners[idx].self_addr == old_regions.slot_owners[idx].self_addr,
             new_regions.slot_owners[idx].raw_count == old_regions.slot_owners[idx].raw_count,
             new_regions.slot_owners[idx].usage == old_regions.slot_owners[idx].usage,
@@ -1453,7 +1453,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 regions0.slot_owners[idx].inner_perms.vtable_ptr,
             regions1.slot_owners[idx].inner_perms.in_list ==
                 regions0.slot_owners[idx].inner_perms.in_list,
-            regions1.slot_owners[idx].path_if_in_pt == regions0.slot_owners[idx].path_if_in_pt,
+            regions1.slot_owners[idx].paths_in_pt == regions0.slot_owners[idx].paths_in_pt,
             regions1.slot_owners[idx].self_addr == regions0.slot_owners[idx].self_addr,
             regions1.slot_owners[idx].raw_count == regions0.slot_owners[idx].raw_count,
             regions1.slot_owners[idx].usage == regions0.slot_owners[idx].usage,
@@ -1509,8 +1509,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 == regions0.slot_owners[changed_idx].self_addr,
             regions1.slot_owners[changed_idx].usage
                 == regions0.slot_owners[changed_idx].usage,
-            regions1.slot_owners[changed_idx].path_if_in_pt
-                == regions0.slot_owners[changed_idx].path_if_in_pt,
+            regions1.slot_owners[changed_idx].paths_in_pt
+                == regions0.slot_owners[changed_idx].paths_in_pt,
             // All other slots unchanged
             forall |i: usize| #![trigger regions1.slot_owners[i]]
                 i != changed_idx ==> regions0.slot_owners[i] == regions1.slot_owners[i],
@@ -1718,7 +1718,7 @@ impl<C: PageTableConfig> CursorView<C> {
     /// Mappings in the view are non-overlapping. This is a consequence of the
     /// page table tree structure: distinct paths map to disjoint VA ranges.
     /// Proving this formally requires `metaregion_correct` (which tracks
-    /// unique paths via `path_if_in_pt`), plus tree induction showing that
+    /// unique paths via `paths_in_pt`), plus tree induction showing that
     /// distinct paths produce disjoint VA ranges.
     pub open spec fn non_overlapping(self) -> bool {
         forall|m: Mapping, n: Mapping| #![auto]

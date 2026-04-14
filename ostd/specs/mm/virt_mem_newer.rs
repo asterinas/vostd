@@ -289,7 +289,6 @@ impl MemView {
             assert(o_mappings.subset_of(l_mappings)) by {
                 assert forall|m: Mapping| #[trigger]
                     o_mappings.contains(m) implies l_mappings.contains(m) by {
-                    assume(o_mappings.contains(m));
                     assert(m.va_range.start < vaddr + len);
                     assert(m.va_range.end > vaddr);
                     assert(m.va_range.start <= va < m.va_range.end);
