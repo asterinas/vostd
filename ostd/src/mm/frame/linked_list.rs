@@ -967,14 +967,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<M> {
         #[verus_spec(with Tracked(&mut owner.list_own))]
         let list_id = LinkedList::<M>::lazy_get_id(self.list);
 
-        let tracked mut inner_perms;
-        proof {
-            inner_perms = frame_own.meta_perm.take_inner_perms();
-        }
         #[verus_spec(with Tracked(&frame_own.meta_perm.points_to))]
         let slot = frame.slot();
-        slot.in_list.store(Tracked(&mut inner_perms.in_list), list_id);
-        proof { frame_own.meta_perm.put_inner_perms(inner_perms); }
+        slot.in_list.store(Tracked(&mut frame_own.meta_perm.inner_perms.in_list), list_id);
 
         proof {
             // The store only changed in_list.value(); ref_count is unchanged.
