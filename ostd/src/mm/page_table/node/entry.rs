@@ -582,7 +582,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             #[verus_spec(with Tracked(&parent_owner.meta_perm))]
             let nr_children = parent_guard.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
-            assume(_tmp < NR_ENTRIES);
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
 
             self.node.put(Tracked(parent_guard_perm), parent_guard);
