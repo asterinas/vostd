@@ -167,12 +167,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
 
         // Re-sync slot_own with the updated inner_perms (now storage+vtable are init).
         proof { slot_own.sync_inner(&inner_perms); }
-
-        let Tracked(meta_perm) = MetaSlot::cast_perm::<M1>(
-            self.ptr.addr(),
-            Tracked(slot_perm),
-            Tracked(inner_perms),
-        );
+        let tracked meta_perm = MetaSlot::cast_perm::<M1>(slot_perm, inner_perms);
 
         let tracked mut new_owner = UniqueFrameOwner::<M1>::from_unused_owner(
             regions,

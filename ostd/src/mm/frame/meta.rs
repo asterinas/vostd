@@ -234,23 +234,21 @@ impl MetaSlot {
             addr == perm.addr(),
         ensures
             res.ptr.addr() == addr,
-            res.addr == addr,
+            res.addr() == addr,
     {
-        ReprPtr::<MetaSlot, Metadata<M>> { addr: addr, ptr: PPtr::from_addr(addr), _T: PhantomData }
+        ReprPtr::<MetaSlot, Metadata<M>> { ptr: PPtr::from_addr(addr), _T: PhantomData }
     }
 
     /// A helper function that casts `MetaSlot` permission to a `Metadata` permission of type `M`.
-    pub fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
-        addr: usize,
-        Tracked(perm): Tracked<vstd::simple_pptr::PointsTo<MetaSlot>>,
-        Tracked(inner_perms): Tracked<MetadataInnerPerms>,
-    ) -> (res: Tracked<PointsTo<MetaSlot, Metadata<M>>>)
+    pub proof fn cast_perm<M: AnyFrameMeta + Repr<MetaSlotStorage>>(
+        tracked perm: vstd::simple_pptr::PointsTo<MetaSlot>,
+        tracked inner_perms: MetadataInnerPerms,
+    ) -> (tracked res: PointsTo<MetaSlot, Metadata<M>>)
         ensures
-            res@.addr == addr,
-            res@.points_to == perm,
-            res@.inner_perms == inner_perms,
+            res.points_to == perm,
+            res.inner_perms == inner_perms,
     {
-        Tracked(PointsTo { addr, points_to: perm, inner_perms, _T: PhantomData })
+        PointsTo { points_to: perm, inner_perms, _T: PhantomData }
     }
 
     /// Initializes the metadata slot of a frame assuming it is unused.
@@ -354,10 +352,9 @@ impl MetaSlot {
             regions.slot_owners.tracked_insert(frame_to_index(paddr), slot_own);
             assert(regions.inv());
         }
+        let tracked perm = MetaSlot::cast_perm::<M>(slot_perm, inner_perms);
 
-        let perm = MetaSlot::cast_perm::<M>(slot.addr(), Tracked(slot_perm), Tracked(inner_perms));
-
-        Ok((slot, perm))
+        Ok((slot, Tracked(perm)))
     }
 
     /// The inner loop of `Self::get_from_in_use`.
@@ -708,7 +705,7 @@ impl MetaSlot {
             self == perm.value(),
         ensures
             res.ptr.addr() == perm.addr(),
-            res.addr == perm.addr(),
+            res.addr() == perm.addr(),
     {
         let addr = self.addr_of(Tracked(perm));
         self.cast_slot(addr, Tracked(perm))
