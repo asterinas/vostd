@@ -52,8 +52,7 @@ impl Inv for AbstractVaddr {
             #![trigger self.index.contains_key(i)]
             0 <= i < NR_LEVELS ==> {
                 &&& self.index.contains_key(i)
-                &&& 0 <= self.index[i]
-                &&& self.index[i] < NR_ENTRIES
+                &&& 0 <= self.index[i] < NR_ENTRIES
             }
         // `top_bits` is the 16-bit slot above the 48-bit positional body.
         &&& 0 <= self.top_bits < 0x1_0000int
