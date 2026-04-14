@@ -46,7 +46,7 @@ pub struct VirtPtr {
     /// Current virtual address represented by this pointer value.
     pub vaddr: Vaddr,
     /// Logical bounds of the pointer's valid object/range.
-    pub ghost range: Ghost<Range<Vaddr>>,
+    pub range: Ghost<Range<Vaddr>>,
 }
 
 /// Byte contents of one physical frame range tracked in a [`MemView`].
@@ -54,13 +54,13 @@ pub struct VirtPtr {
 /// This is the physical-memory side of the model: each frame base `Paddr` maps
 /// to a [`FrameContents`] value whose metadata (`size`, `range`) constrains how
 /// `contents` can be interpreted.
-pub struct FrameContents {
+pub ghost struct FrameContents {
     /// Per-byte initialization/value state for this frame.
     pub contents: Seq<raw_ptr::MemContents<u8>>,
     /// Frame size in bytes.
-    pub ghost size: Ghost<usize>,
+    pub size: usize,
     /// Physical range covered by this frame, modeled as `[start, end)`.
-    pub ghost range: Ghost<Range<Paddr>>,
+    pub range: Range<Paddr>,
 }
 
 impl Inv for FrameContents {
@@ -73,10 +73,10 @@ impl Inv for FrameContents {
     /// - `range` is ordered and remains below [`MAX_PADDR`].
     open spec fn inv(self) -> bool {
         &&& self.contents.len() == self.size@
-        &&& self.size@ == self.range@.end - self.range@.start
-        &&& self.range@.start % self.size@ == 0
-        &&& self.range@.end % self.size@ == 0
-        &&& self.range@.start <= self.range@.end < MAX_PADDR
+        &&& self.size@ == self.range.end - self.range.start
+        &&& self.range.start % self.size == 0
+        &&& self.range.end % self.size == 0
+        &&& self.range.start <= self.range.end < MAX_PADDR
     }
 }
 
@@ -613,8 +613,7 @@ impl VirtPtr {
 
     {
         let x = src.read_offset(Tracked(mem_src), n);
-        proof { admit() }
-        ;
+        proof { admit() };
         dst.write_offset(Tracked(mem_dst), n, x)
     }
 
