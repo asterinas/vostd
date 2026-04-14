@@ -28,17 +28,26 @@ verus! {
 
 /// An abstract representation of a virtual address as a sequence of indices, representing the
 /// values of the bit-fields that index into each level of the page table.
-/// `offset` is the lowest 12 bits (the offset into a 4096 byte page)
-/// `index[0]` is the next 9 bits (index into the 512 entries of the first level page table)
-/// and so on up to index[NR_LEVELS-1].
+/// - `offset` is the lowest 12 bits (the offset into a 4096 byte page).
+/// - `index[0]` is the next 9 bits, `index[1]` the 9 above that, up to
+///   `index[NR_LEVELS-1]`, covering a total of `12 + 9 * NR_LEVELS = 48` bits.
+/// - `top_bits` holds whatever's in bits `[48, 64)` of the original `Vaddr`.
+///   For canonical x86_64 addresses this is either `0` (user half) or the
+///   sign-extended high bits (kernel half, e.g. `0xffff`). `next_index`
+///   carries into `top_bits` on overflow at `NR_LEVELS`, so `align_up`
+///   preserves `inv()` for any cursor state that stays inside the 64-bit
+///   address space.
 pub struct AbstractVaddr {
     pub offset: int,
     pub index: Map<int, int>,
+    pub top_bits: int,
 }
 
 impl Inv for AbstractVaddr {
     open spec fn inv(self) -> bool {
         &&& 0 <= self.offset < PAGE_SIZE
+        // `index` has exactly `[0, NR_LEVELS)` as its domain.
+        &&& self.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS)
         &&& forall|i: int|
             #![trigger self.index.contains_key(i)]
             0 <= i < NR_LEVELS ==> {
@@ -46,6 +55,8 @@ impl Inv for AbstractVaddr {
                 &&& 0 <= self.index[i]
                 &&& self.index[i] < NR_ENTRIES
             }
+        // `top_bits` is the 16-bit slot above the 48-bit positional body.
+        &&& 0 <= self.top_bits < 0x1_0000int
     }
 }
 
@@ -53,6 +64,7 @@ impl AbstractVaddr {
     /// Extract the AbstractVaddr components from a concrete virtual address.
     /// - offset = lowest 12 bits
     /// - index[i] = bits (12 + 9*i) to (12 + 9*(i+1) - 1) for each level
+    /// - top_bits = bits [48, 64)
     pub open spec fn from_vaddr(va: Vaddr) -> Self {
         AbstractVaddr {
             offset: (va % PAGE_SIZE) as int,
@@ -60,6 +72,7 @@ impl AbstractVaddr {
                 |i: int| 0 <= i < NR_LEVELS,
                 |i: int| ((va / pow2((12 + 9 * i) as nat) as usize) % NR_ENTRIES) as int,
             ),
+            top_bits: (va as int / 0x1_0000_0000_0000int),
         }
     }
 
@@ -72,15 +85,19 @@ impl AbstractVaddr {
             &&& abs.index.contains_key(i)
             &&& 0 <= abs.index[i]
             &&& abs.index[i] < NR_ENTRIES
-        } by {
-            // index[i] = (va / 2^(12+9*i)) % NR_ENTRIES, which is in [0, NR_ENTRIES)
-        };
+        } by {};
+        let va_i = va as int;
+        assert(0 <= abs.top_bits < 0x1_0000int) by (nonlinear_arith)
+            requires
+                abs.top_bits == va_i / 0x1_0000_0000_0000int,
+                0 <= va_i < 0x1_0000_0000_0000_0000int;
     }
 
     /// Reconstruct the concrete virtual address from the AbstractVaddr components.
-    /// va = offset + sum(index[i] * 2^(12 + 9*i)) for i in 0..NR_LEVELS
+    /// va = offset + sum(index[i] * 2^(12 + 9*i)) + top_bits * 2^48
     pub open spec fn to_vaddr(self) -> Vaddr {
-        (self.offset + self.to_vaddr_indices(0)) as Vaddr
+        (self.offset + self.to_vaddr_indices(0)
+            + self.top_bits * 0x1_0000_0000_0000int) as Vaddr
     }
 
     /// Helper: sum of index[i] * 2^(12 + 9*i) for i in start..NR_LEVELS
@@ -119,15 +136,34 @@ impl AbstractVaddr {
     }
 
     /// Round-trip property: extracting and reconstructing a VA gives back the original.
+    ///
+    /// With `top_bits` carrying the high 16 bits of the VA, this now
+    /// holds **unconditionally** for any 64-bit `Vaddr` — the positional
+    /// decomposition covers all 64 bits (12 offset + 4×9 index + 16 top).
     pub proof fn from_vaddr_to_vaddr_roundtrip(va: Vaddr)
         ensures
             Self::from_vaddr(va).to_vaddr() == va,
     {
-        // va = offset + sum(index[i] * 2^(12+9*i))
-        // from_vaddr extracts: offset = va % 2^12, index[i] = (va / 2^(12+9*i)) % 2^9
-        // to_vaddr reconstructs: offset + sum(index[i] * 2^(12+9*i))
-        // This equals va by the uniqueness of positional representation in mixed radix.
-        admit()
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        let abs = Self::from_vaddr(va);
+        assert(abs.to_vaddr_indices(4) == 0);
+        assert(abs.to_vaddr_indices(3)
+            == abs.index[3] * pow2(39nat) as int + abs.to_vaddr_indices(4));
+        assert(abs.to_vaddr_indices(2)
+            == abs.index[2] * pow2(30nat) as int + abs.to_vaddr_indices(3));
+        assert(abs.to_vaddr_indices(1)
+            == abs.index[1] * pow2(21nat) as int + abs.to_vaddr_indices(2));
+        assert(abs.to_vaddr_indices(0)
+            == abs.index[0] * pow2(12nat) as int + abs.to_vaddr_indices(1));
+        assert(
+            va == (va % 4096usize)
+                + ((va / 4096usize) % 512usize) * 4096usize
+                + ((va / 0x20_0000usize) % 512usize) * 0x20_0000usize
+                + ((va / 0x4000_0000usize) % 512usize) * 0x4000_0000usize
+                + ((va / 0x80_0000_0000usize) % 512usize) * 0x80_0000_0000usize
+                + (va / 0x1_0000_0000_0000usize) * 0x1_0000_0000_0000usize
+        ) by (bit_vector);
     }
 
     /// from_vaddr(va) reflects va (by definition of reflect).
@@ -149,15 +185,94 @@ impl AbstractVaddr {
         Self::to_vaddr_from_vaddr_roundtrip(self);
     }
 
-    /// Inverse round-trip: to_vaddr then from_vaddr gives back the original AbstractVaddr.
+    /// Inverse round-trip: reconstruct then extract gives back the
+    /// original `AbstractVaddr`.
     pub proof fn to_vaddr_from_vaddr_roundtrip(abs: Self)
         requires
             abs.inv(),
         ensures
             Self::from_vaddr(abs.to_vaddr()) == abs,
     {
-        // Similar reasoning: the positional representation is unique
-        admit()
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        abs.to_vaddr_bounded();
+        assert(abs.to_vaddr_indices(4) == 0);
+        assert(abs.to_vaddr_indices(3)
+            == abs.index[3] * pow2(39nat) as int + abs.to_vaddr_indices(4));
+        assert(abs.to_vaddr_indices(2)
+            == abs.index[2] * pow2(30nat) as int + abs.to_vaddr_indices(3));
+        assert(abs.to_vaddr_indices(1)
+            == abs.index[1] * pow2(21nat) as int + abs.to_vaddr_indices(2));
+        assert(abs.to_vaddr_indices(0)
+            == abs.index[0] * pow2(12nat) as int + abs.to_vaddr_indices(1));
+
+        assert(abs.index.contains_key(0));
+        assert(abs.index.contains_key(1));
+        assert(abs.index.contains_key(2));
+        assert(abs.index.contains_key(3));
+        let i0 = abs.index[0] as usize;
+        let i1 = abs.index[1] as usize;
+        let i2 = abs.index[2] as usize;
+        let i3 = abs.index[3] as usize;
+        let o = abs.offset as usize;
+        let tb = abs.top_bits as usize;
+        let va = abs.to_vaddr();
+        assert(i0 < 512usize);
+        assert(i1 < 512usize);
+        assert(i2 < 512usize);
+        assert(i3 < 512usize);
+        assert(
+            va == o
+                + i0 * 4096usize
+                + i1 * 0x20_0000usize
+                + i2 * 0x4000_0000usize
+                + i3 * 0x80_0000_0000usize
+                + tb * 0x1_0000_0000_0000usize
+        );
+
+        assert(va % 4096usize == o) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+        assert((va / 4096usize) % 512usize == i0) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+        assert((va / 0x20_0000usize) % 512usize == i1) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+        assert((va / 0x4000_0000usize) % 512usize == i2) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+        assert((va / 0x80_0000_0000usize) % 512usize == i3) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+        assert(va / 0x1_0000_0000_0000usize == tb) by (bit_vector)
+            requires
+                va == o + i0 * 4096usize + i1 * 0x20_0000usize + i2 * 0x4000_0000usize
+                    + i3 * 0x80_0000_0000usize + tb * 0x1_0000_0000_0000usize,
+                o < 4096usize, i0 < 512usize, i1 < 512usize, i2 < 512usize,
+                i3 < 512usize, tb < 0x1_0000usize;
+
+        let back = Self::from_vaddr(va);
+        assert forall|i: int| 0 <= i < NR_LEVELS
+            implies #[trigger] back.index[i] == abs.index[i] by {
+            if i == 0 {} else if i == 1 {} else if i == 2 {} else if i == 3 {}
+        }
+        assert(back.index =~= abs.index);
     }
 
     /// If two AbstractVaddrs reflect the same va, they are equal.
@@ -175,7 +290,7 @@ impl AbstractVaddr {
         when level >= 1
     {
         if level == 1 {
-            AbstractVaddr { offset: 0, index: self.index }
+            AbstractVaddr { offset: 0, ..self }
         } else {
             let tmp = self.align_down(level - 1);
             AbstractVaddr { index: tmp.index.insert(level - 2, 0), ..tmp }
@@ -195,9 +310,35 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
+            assert(self.align_down(1).index =~= self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_inv(level - 1);
+            let new = self.align_down(level);
+            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert forall |i: int|
+                #![trigger new.index.contains_key(i)]
+                0 <= i < NR_LEVELS implies {
+                    &&& new.index.contains_key(i)
+                    &&& 0 <= new.index[i]
+                    &&& new.index[i] < NR_ENTRIES
+                } by {
+                if i != level - 2 {
+                    assert(tmp.index.contains_key(i));
+                }
+            }
+        }
+    }
+
+    pub proof fn align_down_top_bits(self, level: int)
+        requires
+            1 <= level <= NR_LEVELS,
+        ensures
+            self.align_down(level).top_bits == self.top_bits,
+        decreases level,
+    {
+        if level > 1 {
+            self.align_down_top_bits(level - 1);
         }
     }
 
@@ -215,22 +356,23 @@ impl AbstractVaddr {
         decreases level,
     {
         if level == 1 {
-            assert forall|i: int| 0 <= i < level - 1 implies #[trigger] self.align_down(
-                level,
-            ).index[i] == 0 by {};
-            assert forall|i: int| level - 1 <= i < NR_LEVELS implies #[trigger] self.align_down(
-                level,
-            ).index[i] == self.index[i] by {};
+            assert(self.align_down(1).index =~= self.index);
         } else {
             let tmp = self.align_down(level - 1);
             self.align_down_shape(level - 1);
-            assert forall|i: int| 0 <= i < level - 1 implies #[trigger] self.align_down(
-                level,
-            ).index[i] == 0 by {};
-            assert forall|i: int| level - 1 <= i < NR_LEVELS implies #[trigger] self.align_down(
-                level,
-            ).index[i] == self.index[i] by {
-            };
+            let new = self.align_down(level);
+            assert(new.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
+            assert forall |i: int|
+                #![trigger new.index.contains_key(i)]
+                0 <= i < NR_LEVELS implies {
+                    &&& new.index.contains_key(i)
+                    &&& 0 <= new.index[i]
+                    &&& new.index[i] < NR_ENTRIES
+                } by {
+                if i != level - 2 {
+                    assert(tmp.index.contains_key(i));
+                }
+            }
         }
     }
 
@@ -274,6 +416,8 @@ impl AbstractVaddr {
             other.inv(),
             // Indices at level-1 and above are equal
             forall|i: int| level - 1 <= i < NR_LEVELS ==> self.index[i] == other.index[i],
+            // Both live in the same canonical half.
+            self.top_bits == other.top_bits,
         ensures
             self.align_down(level).to_vaddr() == other.align_down(level).to_vaddr(),
         decreases level,
@@ -283,11 +427,13 @@ impl AbstractVaddr {
 
         self.align_down_shape(level);
         other.align_down_shape(level);
+        self.align_down_top_bits(level);
+        other.align_down_top_bits(level);
 
         lhs.to_vaddr_indices_drop_zero_range(0, level - 1);
         rhs.to_vaddr_indices_drop_zero_range(0, level - 1);
         lhs.to_vaddr_indices_eq_if_indices_eq(rhs, level - 1);
-
+        assert(lhs.top_bits == rhs.top_bits);
     }
 
     pub axiom fn align_down_concrete(self, level: int)
@@ -395,12 +541,17 @@ impl AbstractVaddr {
         let index = self.index[level - 1];
         let next_index = index + 1;
         if next_index == NR_ENTRIES && level < NR_LEVELS {
-            let next_va = Self { offset: self.offset, index: self.index.insert(level - 1, 0) };
+            let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
             next_va.next_index(level + 1)
         } else if next_index == NR_ENTRIES && level == NR_LEVELS {
-            Self { offset: self.offset, index: self.index.insert(level - 1, 0) }
+            // Top-level carry: wrap the top index and bump `top_bits`.
+            Self {
+                index: self.index.insert(level - 1, 0),
+                top_bits: self.top_bits + 1,
+                ..self
+            }
         } else {
-            Self { offset: self.offset, index: self.index.insert(level - 1, next_index) }
+            Self { index: self.index.insert(level - 1, next_index), ..self }
         }
     }
 
@@ -448,14 +599,14 @@ impl AbstractVaddr {
         ensures
             ({
                 let next_va = Self {
-                    offset: self.offset,
                     index: self.index.insert(start_level - 1, 0),
+                    ..self
                 };
                 self.wrapped(start_level, level) == next_va.wrapped(start_level + 1, level)
             }),
         decreases NR_LEVELS - level,
     {
-        let next_va = Self { offset: self.offset, index: self.index.insert(start_level - 1, 0) };
+        let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
         assert forall|i: int| start_level <= i < NR_LEVELS implies next_va.index[i]
             == self.index[i] by {};
         if level < NR_LEVELS {
@@ -505,13 +656,10 @@ impl AbstractVaddr {
         let index = self.index[start_level - 1];
         let next_index = index + 1;
         if next_index == NR_ENTRIES && start_level < NR_LEVELS {
-            let next_va = Self {
-                offset: self.offset,
-                index: self.index.insert(start_level - 1, 0),
-            };
+            let next_va = Self { index: self.index.insert(start_level - 1, 0), ..self };
             next_va.next_index_preserves_lower_indices(start_level + 1, lower_level);
         } else if next_index == NR_ENTRIES && start_level == NR_LEVELS {
-        } 
+        }
     }
 
     pub proof fn next_index_wrap_condition(self, level: int)
@@ -526,7 +674,7 @@ impl AbstractVaddr {
         let next_index = index + 1;
         if next_index == NR_ENTRIES {
             if level < NR_LEVELS {
-                let next_va = Self { offset: self.offset, index: self.index.insert(level - 1, 0) };
+                let next_va = Self { index: self.index.insert(level - 1, 0), ..self };
                 next_va.next_index_wrap_condition(level + 1);
                 self.wrapped_after_carry_equiv(level, level + 1);
                 next_va.next_index_preserves_lower_indices(level + 1, level);
@@ -789,14 +937,27 @@ impl AbstractVaddr {
         requires
             self.inv(),
         ensures
-            0 <= self.offset + self.to_vaddr_indices(0) < usize::MAX,
-            self.to_vaddr() as int == self.offset + self.to_vaddr_indices(0),
+            0 <= self.offset + self.to_vaddr_indices(0) < 0x1_0000_0000_0000int,
+            self.to_vaddr() as int
+                == self.offset
+                    + self.to_vaddr_indices(0)
+                    + self.top_bits * 0x1_0000_0000_0000int,
+            self.offset
+                + self.to_vaddr_indices(0)
+                + self.top_bits * 0x1_0000_0000_0000int
+                < 0x1_0000_0000_0000_0000int,
     {
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         self.to_vaddr_indices_gap_bound(0);
-        let shift0 = pow2(12nat) as int;
-        let top = pow2((12 + 9 * NR_LEVELS) as nat) as int;
+        assert(pow2((12 + 9 * NR_LEVELS) as nat) as int == 0x1_0000_0000_0000int)
+            by (compute);
+        assert(self.top_bits * 0x1_0000_0000_0000int
+            + 0x1_0000_0000_0000int
+            <= 0x1_0000 * 0x1_0000_0000_0000int) by (nonlinear_arith)
+            requires 0 <= self.top_bits < 0x1_0000int;
+        assert(0x1_0000 * 0x1_0000_0000_0000int == 0x1_0000_0000_0000_0000int)
+            by (compute);
     }
 
     pub proof fn index_increment_adds_page_size(self, level: int)
@@ -814,29 +975,34 @@ impl AbstractVaddr {
             index: self.index.insert(level - 1, self.index[level - 1] + 1),
             ..self
         };
-        // Establish new_va.inv()
         assert forall|i: int| #![trigger new_va.index.contains_key(i)] 0 <= i < NR_LEVELS implies {
             &&& new_va.index.contains_key(i)
             &&& 0 <= new_va.index[i]
             &&& new_va.index[i] < NR_ENTRIES
         } by {
-            // Use self.inv() to establish bounds on self.index[i]
             assert(self.index.contains_key(i));
         };
+        assert(new_va.inv());
         self.to_vaddr_bounded();
         new_va.to_vaddr_bounded();
+        assert(new_va.to_vaddr() as int - self.to_vaddr() as int
+            == new_va.to_vaddr_indices(0) - self.to_vaddr_indices(0));
         vstd::arithmetic::power2::lemma2_to64();
         vstd::arithmetic::power2::lemma2_to64_rest();
         if level == 1 {
             lemma_page_size_spec_level1();
             assert forall|i: int| 1 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 1);
+            assert((self.index[0] + 1) * 0x1000 == self.index[0] * 0x1000 + 0x1000)
+                by (nonlinear_arith);
         } else if level == 2 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
             assert forall|i: int| 2 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 2);
             assert(self.to_vaddr_indices(0) == self.index[0] * pow2(12nat) as int
                 + self.to_vaddr_indices(1));
+            assert((self.index[1] + 1) * 0x20_0000 == self.index[1] * 0x20_0000 + 0x20_0000)
+                by (nonlinear_arith);
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x20_0000);
         } else if level == 3 {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
@@ -846,7 +1012,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x4000_0000);
         } else {
             vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-            let ps4 = crate::mm::page_table::page_size_spec(4);
             assert forall|i: int| 4 <= i < NR_LEVELS implies new_va.index[i] == self.index[i] by {};
             new_va.to_vaddr_indices_eq_if_indices_eq(self, 4);
             assert(self.to_vaddr_indices(1) == self.index[1] * pow2(21nat) as int
@@ -858,8 +1023,6 @@ impl AbstractVaddr {
             assert(new_va.to_vaddr_indices(3) == self.to_vaddr_indices(3) + 0x80_0000_0000);
             assert(new_va.to_vaddr_indices(2) == self.to_vaddr_indices(2) + 0x80_0000_0000);
             assert(new_va.to_vaddr_indices(1) == self.to_vaddr_indices(1) + 0x80_0000_0000);
-            assert(new_va.to_vaddr() as int == self.offset + self.to_vaddr_indices(0)
-                + 0x80_0000_0000);
         }
     }
 

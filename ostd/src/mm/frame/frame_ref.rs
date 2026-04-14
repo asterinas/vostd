@@ -57,6 +57,8 @@ impl<M: AnyFrameMeta> FrameRef<'_, M> {
         requires
             Frame::<M>::from_raw_requires_safety(*old(regions), raw),
             old(regions).slot_owners[frame_to_index(raw)].raw_count <= 1,
+            old(regions).slot_owners[frame_to_index(raw)].inner_perms.ref_count.value()
+                != crate::mm::frame::meta::REF_COUNT_UNUSED,
             perm.points_to.is_init(),
             perm.points_to.addr() == frame_to_meta(raw),
             perm.points_to.value().wf(old(regions).slot_owners[frame_to_index(raw)]),

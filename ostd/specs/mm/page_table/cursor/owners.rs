@@ -444,6 +444,9 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // This is established at construction (when prefix == va, which itself starts
         // strictly in-range) and preserved by all cursor operations (none touch prefix).
         &&& self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end
+        // The cursor stays within the same canonical half of the address
+        // space as its prefix — so `top_bits` agrees throughout traversal.
+        &&& self.va.top_bits == self.prefix.top_bits
         // The cursor's VA shares upper indices with the prefix as long as
         // the cursor hasn't popped above guard_level.
         &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
@@ -627,8 +630,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         Self {
             continuations: self.continuations.insert(self.level - 1, self.continuations[self.level - 1].inc_index()),
             va: AbstractVaddr {
-                offset: self.va.offset,
-                index: self.va.index.insert(self.level - 1, self.continuations[self.level - 1].inc_index().idx as int)
+                index: self.va.index.insert(self.level - 1, self.continuations[self.level - 1].inc_index().idx as int),
+                ..self.va
             },
             popped_too_high: false,
             ..self
@@ -653,6 +656,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.va.index.tracked_insert(self.level - 1, cont.idx as int);
         self.continuations.tracked_insert(self.level - 1, cont);
         assert(self.continuations == old(self).continuations.insert(self.level - 1, cont));
+        assert(self.va.index.dom() =~= Set::new(|i: int| 0 <= i < NR_LEVELS));
 
         old(self).va.index_increment_adds_page_size(old(self).level as int);
         lemma_page_size_ge_page_size(old(self).level as PagingLevel);
@@ -723,13 +727,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.continuations[self.level - 1].children[self.index() as int].unwrap()
     }
 
-    /// Axiom: the item reconstructed from the current frame's physical address satisfies `clone_requires`.
+    /// Axiom: the item reconstructed from the current frame's physical address satisfies
+    /// `clone_requires`.
     ///
     /// Safety: When `metaregion_sound` holds for a frame entry, the item reconstructed via
     /// `item_from_raw_spec(pa, ...)` is the original frame item.  The frame's slot permission
     /// (owned by the cursor) has the correct address, is initialised, and its ref count is in the
     /// valid clonable range (> 0, < REF_COUNT_MAX), so `clone_requires` is satisfied.
-    pub proof fn cur_frame_clone_requires(
+    ///
+    /// This is a *trait-level* axiom: `C::Item::clone_requires` is fully generic in the
+    /// `PageTableConfig` trait, so the postcondition cannot be discharged without knowing
+    /// the concrete item type.  It holds for every `PageTableConfig` used in `ostd` because
+    /// `item_from_raw_spec` always returns a freshly-constructed `Frame<M>` handle whose
+    /// `Frame::<M>::clone_requires` unfolds to slot-address equality, initialisation, and a
+    /// bounded ref-count — all delivered by `metaregion_sound` for frame entries.
+    pub axiom fn cur_frame_clone_requires(
         self,
         item: C::Item,
         pa: Paddr,
@@ -747,8 +759,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             item.clone_requires(
                 regions.slots[frame_to_index(pa)],
                 regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count,
-            )
-    { admit() }
+            );
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and
     /// `self.metaregion_sound(new_regions) && self.metaregion_correct(new_regions)`.
@@ -1074,7 +1085,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(1200)]
+    #[verifier::rlimit(8000)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
@@ -1137,11 +1148,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             assert(false);
         }
         assert(ad as int / ps as int + 1 <= end as int / ps as int);
-        vstd::arithmetic::mul::lemma_mul_inequality(
-            ad as int / ps as int + 1, end as int / ps as int, ps as int);
-        vstd::arithmetic::mul::lemma_mul_is_distributive_add(
-            ps as int, ad as int / ps as int, 1);
-        vstd::arithmetic::mul::lemma_mul_is_commutative(end as int / ps as int, ps as int);
+        let ad_q = ad as int / ps as int;
+        let end_q = end as int / ps as int;
+        let ps_i = ps as int;
+        assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
+            requires ad_q + 1 <= end_q, ps_i >= 0;
+        vstd::arithmetic::mul::lemma_mul_is_distributive_add(ps_i, ad_q, 1);
+        vstd::arithmetic::mul::lemma_mul_is_commutative(end_q, ps_i);
     }
 
     pub proof fn locked_range_page_aligned(self)
@@ -1166,34 +1179,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.prefix.align_down_concrete(gl as int);
         self.prefix.align_up_concrete(gl as int);
 
-        // Prove the nat values fit in Vaddr (usize) so the `as Vaddr` cast doesn't truncate.
         self.prefix.to_vaddr_bounded();
         self.prefix.to_vaddr_indices_gap_bound(0);
         vstd::arithmetic::power2::lemma2_to64();
-        let bound = pow2(48nat) as nat;
+        vstd::arithmetic::power2::lemma2_to64_rest();
         crate::specs::arch::paging_consts::lemma_nr_subpage_per_huge_eq_nr_entries();
         vstd_extra::external::ilog2::lemma_usize_ilog2_to32();
-        assert(ps <= page_size(NR_LEVELS as PagingLevel) as nat) by {
-            page_size_monotonic(gl as PagingLevel, NR_LEVELS as PagingLevel);
-        };
+        page_size_monotonic(gl as PagingLevel, NR_LEVELS as PagingLevel);
         vstd::arithmetic::power2::lemma_pow2_adds(12nat, 27nat);
-        vstd::arithmetic::power2::lemma2_to64_rest();
-        assert(pow2(39nat) < pow2(48nat)) by {
-            vstd_extra::external::ilog2::lemma_pow2_increases(39nat, 48nat);
-        };
-        assert(page_size(NR_LEVELS as PagingLevel) == pow2(39nat)) by {
-            assert(nr_subpage_per_huge::<PagingConsts>().ilog2() * ((NR_LEVELS - 1) as nat) == 27nat);
-        };
+        assert(page_size(NR_LEVELS as PagingLevel) == pow2(39nat));
         vstd::arithmetic::power2::lemma_pow2_adds(1nat, 48nat);
-        assert(pow2(49nat) <= pow2(64nat)) by {
-            vstd_extra::external::ilog2::lemma_pow2_increases(49nat, 64nat);
-        };
+        vstd_extra::external::ilog2::lemma_pow2_increases(49nat, 64nat);
 
+        self.prefix.align_down_shape(gl as int);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(start_va as Vaddr);
         AbstractVaddr::from_vaddr_to_vaddr_roundtrip(end_va as Vaddr);
-
-        self.prefix.align_down(gl as int).reflect_prop(start_va as Vaddr);
-        self.prefix.align_up(gl as int).reflect_prop(end_va as Vaddr);
     }
 
     pub proof fn cur_subtree_inv(self)
@@ -1663,6 +1663,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let va = AbstractVaddr {
             offset: 0,
             index: Map::new(|i: int| 0 <= i < NR_LEVELS, |i: int| 0).insert(NR_LEVELS - 1, idx as int),
+            top_bits: 0,
         };
         Self {
             level: NR_LEVELS as PagingLevel,

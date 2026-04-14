@@ -37,8 +37,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         } else {
             Self {
                 va: AbstractVaddr {
-                    offset: self.va.offset,
-                    index: self.va.index.insert(level - 1, 0)
+                    index: self.va.index.insert(level - 1, 0),
+                    ..self.va
                 },
                 ..self.zero_below_level_rec((level + 1) as u8)
             }

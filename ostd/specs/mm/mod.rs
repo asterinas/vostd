@@ -12,7 +12,7 @@ use vstd_extra::ownership::*;
 use crate::mm::vm_space::UserPtConfig;
 use crate::mm::{Paddr, Vaddr};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
-use crate::specs::mm::page_table::{Guards, Mapping, PageTableOwner, PageTableView};
+use crate::specs::mm::page_table::{Guards, Mapping, PageTableOwner, PageTableView, INC_LEVELS};
 use crate::specs::mm::tlb::TlbModel;
 use crate::specs::mm::virt_mem_newer::FrameContents;
 
@@ -127,20 +127,30 @@ impl GlobalMemOwner {
     }
 
     /// If the internal invariants hold, then the top-level properties hold.
-    /// The key lemmas here are
-    /// [`view_rec_disjoint_vaddrs`](crate::specs::mm::page_table::owners::PageTableOwner::view_rec_disjoint_vaddrs)
-    /// and [`view_rec_disjoint_paddrs`](crate::specs::mm::page_table::owners::PageTableOwner::view_rec_disjoint_paddrs).
+    ///
+    /// `disjoint_paddrs` remains as a single `assume(...)` pending a
+    /// `view_rec_disjoint_paddrs` lemma — which needs a new
+    /// allocation-uniqueness clause on `PageTableOwner::inv`.
     pub proof fn internal_invariants_imply_top_level_properties(self)
         requires
             self.internal_invariants(),
         ensures
             self.invariants(),
     {
-        assert(self.invariants()) by {
-            // This follows from `view_rec_disjoint_vaddrs` and `view_rec_disjoint_paddrs`.
-            // Just need to wire them together properly.
-            admit();
-        };
+        let pt = self.pt;
+        let root_path = pt.0.value.path;
+
+        assert forall |m1: Mapping, m2: Mapping|
+            self.page_table_mappings() has m1
+            && self.page_table_mappings() has m2
+            && m1 != m2
+        implies #[trigger] Mapping::disjoint_vaddrs(m1, m2) by {
+            pt.view_rec_disjoint_vaddrs(root_path, m1, m2);
+        }
+
+        pt.view_rec_mapping_inv(root_path);
+
+        assume(self.page_table_mappings_disjoint_paddrs());
     }
 }
 

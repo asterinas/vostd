@@ -398,6 +398,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         requires
             old(regions).inv(),
             old(regions).slot_owners[self.index()].raw_count <= 1,
+            old(regions).slot_owners[self.index()].inner_perms.ref_count.value()
+                != crate::mm::frame::meta::REF_COUNT_UNUSED,
             old(regions).slot_owners[self.index()].self_addr == self.ptr.addr(),
             perm.points_to.pptr() == self.ptr,
             perm.points_to.value().wf(old(regions).slot_owners[self.index()]),

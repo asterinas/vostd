@@ -68,12 +68,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 PageTableOwner(self.children[self.idx as int].unwrap()).view_rec_vaddr_range(self.path().push_tail(self.idx as usize), m);
                 PageTableOwner(left.children[i as int].unwrap()).view_rec_vaddr_range(left.path().push_tail(i as usize), m);
 
-                let size = page_size((INC_LEVELS - self.path().len()) as PagingLevel);
+                let size = page_size((INC_LEVELS - self.path().len() - 1) as PagingLevel);
 
-                // Sibling paths have disjoint VA ranges
-                sibling_paths_disjoint(self.path(), self.idx, i as usize, size);
-                page_size_monotonic((INC_LEVELS - self.path().len() - 1) as PagingLevel, (INC_LEVELS - self.path().len()) as PagingLevel);
-
+                // Sibling paths have disjoint VA ranges (separated by child page size).
+                sibling_paths_disjoint::<C>(self.path(), self.idx, i as usize, size);
             }
         };
     }
@@ -194,9 +192,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(cont.level() == self.level) by {
                         if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
                     };
-                    let sib_size = page_size((INC_LEVELS - cont.path().len()) as PagingLevel);
-                    sibling_paths_disjoint(cont.path(), self.index(), j as usize, sib_size);
-                    page_size_monotonic(self.level as PagingLevel, (INC_LEVELS - cont.path().len()) as PagingLevel);
+                    let sib_size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
+                    sibling_paths_disjoint::<C>(cont.path(), self.index(), j as usize, sib_size);
                 }
             } else {
                 if j as usize != cont_i.idx as usize {
@@ -208,9 +205,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(cont_i.level() == (i + 1) as PagingLevel) by {
                         if i == 0 {} else if i == 1 {} else if i == 2 {} else {}
                     };
-                    let sib_size = page_size((INC_LEVELS - cont_i.path().len()) as PagingLevel);
-                    sibling_paths_disjoint(cont_i.path(), cont_i.idx, j as usize, sib_size);
-                    page_size_monotonic((i + 1) as PagingLevel, (INC_LEVELS - cont_i.path().len()) as PagingLevel);
+                    let sib_size = page_size((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
+                    sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx, j as usize, sib_size);
                 } else {
                     assert(cont_i.children[cont_i.idx as int] is None);
                 }
@@ -355,12 +351,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // cur_va is within the child at cont[level-1].idx
         self.cur_va_in_cont_child_range(self.level - 1);
 
-        // Sibling paths have disjoint VA ranges (with size = page_size(level+1))
-        let size = page_size((INC_LEVELS - cont.path().len()) as PagingLevel);
-        sibling_paths_disjoint(cont.path(), idx, j as usize, size);
-
-        // page_size(level) <= page_size(level+1) = size
-        page_size_monotonic(self.level as PagingLevel, (INC_LEVELS - cont.path().len()) as PagingLevel);
+        // Sibling paths are separated by `page_size(self.level)` (child page size).
+        let size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
+        sibling_paths_disjoint::<C>(cont.path(), idx, j as usize, size);
     }
 
     /// Children of higher-level continuations have VA ranges that don't include cur_va,
@@ -386,12 +379,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         // cur_va is within the child at cont[i].idx
         self.cur_va_in_cont_child_range(i);
 
-        // Sibling paths have disjoint VA ranges (with size = page_size(i+2))
-        let size = page_size((INC_LEVELS - cont.path().len()) as PagingLevel);
-        sibling_paths_disjoint(cont.path(), cont.idx, j as usize, size);
-
-        // page_size(i+1) <= page_size(i+2) = size
-        page_size_monotonic((i + 1) as PagingLevel, (INC_LEVELS - cont.path().len()) as PagingLevel);
+        // Siblings at this depth are separated by `page_size(i+1)` (child page size).
+        let size = page_size((INC_LEVELS - cont.path().len() - 1) as PagingLevel);
+        sibling_paths_disjoint::<C>(cont.path(), cont.idx, j as usize, size);
     }
 
     /// Any mapping that covers cur_va must come from the current subtree.
@@ -513,9 +503,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         vstd_extra::arithmetic::lemma_nat_align_down_sound(x, ps_node);
                         vstd_extra::arithmetic::lemma_nat_align_down_sound(x, ps_anc);
 
-                        let sib_size = page_size((INC_LEVELS - cont_i.path().len()) as PagingLevel);
-                        sibling_paths_disjoint(cont_i.path(), cont_i.idx, j as usize, sib_size);
-                        page_size_monotonic((i + 1) as PagingLevel, (INC_LEVELS - cont_i.path().len()) as PagingLevel);
+                        let sib_size = page_size((INC_LEVELS - cont_i.path().len() - 1) as PagingLevel);
+                        sibling_paths_disjoint::<C>(cont_i.path(), cont_i.idx, j as usize, sib_size);
 
                         old_cont.as_subtree_inv();
                         PageTableOwner(old_cont.as_subtree()).view_rec_vaddr_range(old_cont.path(), m);

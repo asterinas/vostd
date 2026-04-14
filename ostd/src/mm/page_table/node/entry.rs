@@ -554,10 +554,11 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             self.pte = new_pte;
 
             proof {
-                // Preserve into_pte postcondition before we mutate owner
                 assert(new_node_owner.value.pte_invariants(self.pte, *regions));
                 assert(new_node_owner.value.match_pte(self.pte, new_node_owner.value.parent_level));
                 broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+                assert(new_node_owner.value.metaregion_sound(*regions));
+                assert(new_node_owner.value.meta_slot_paddr().unwrap() == paddr);
             }
 
             #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.value.node.tracked_borrow().meta_perm))]
@@ -749,6 +750,8 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
 
         proof {
             broadcast use crate::mm::frame::meta::mapping::group_page_meta;
+            assert(new_owner.value.metaregion_sound(*regions));
+            assert(new_owner.value.meta_slot_paddr().unwrap() == paddr);
         }
 
         #[verus_spec(with Tracked(regions), Tracked(&new_owner.value.node.tracked_borrow().meta_perm))]
