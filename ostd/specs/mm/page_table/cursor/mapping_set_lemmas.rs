@@ -574,7 +574,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             l4.as_page_table_owner_preserves_view_mappings();
 
             assert(self.view_mappings() =~= self.continuations[2].view_mappings().union(self.continuations[3].view_mappings())) by {
-                assert forall |m: Mapping| self.view_mappings().contains(m) implies
+                assert forall |m: Mapping| #[trigger] self.view_mappings().contains(m) implies
                     self.continuations[2].view_mappings().contains(m) || self.continuations[3].view_mappings().contains(m) by {
                     let i = choose |i: int| 2 <= i < NR_LEVELS && #[trigger] self.continuations[i].view_mappings().contains(m);
                 };
@@ -699,7 +699,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
         ensures
-            forall |m: Mapping| self.view_mappings().contains(m) ==> m.inv(),
+            forall |m: Mapping| self.view_mappings().contains(m) ==> #[trigger] m.inv(),
     {
         self.as_page_table_owner_preserves_view_mappings();
         let pto = self.as_page_table_owner();
@@ -718,7 +718,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         requires
             self.inv(),
         ensures
-            forall |m: Mapping| self.view_mappings().contains(m) ==>
+            forall |m: Mapping| #[trigger] self.view_mappings().contains(m) ==>
                 set![4096usize, 2097152usize, 1073741824usize].contains(m.page_size),
     {
         self.as_page_table_owner_preserves_view_mappings();
@@ -775,7 +775,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(pto.0.level == 0);
 
         assert forall |m: Mapping, n: Mapping|
-            self@.mappings.contains(m) && self@.mappings.contains(n) && m != n implies
+            #[trigger] self@.mappings.contains(m) && #[trigger] self@.mappings.contains(n) && m != n implies
             m.va_range.end <= n.va_range.start || n.va_range.end <= m.va_range.start
         by {
             assert(self@.mappings == self.view_mappings());

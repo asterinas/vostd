@@ -2972,7 +2972,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let ghost ps = page_size_spec(level_after_find);
             assert forall |m: Mapping|
-                owner@.mappings.contains(m) && old_va <= m.va_range.start
+                #![auto] owner@.mappings.contains(m) && old_va <= m.va_range.start
                 && m.va_range.start < frag_va
             implies old(owner)@.mappings.contains(m)
             by {
@@ -2991,7 +2991,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
                     assert(view.split_while_huge(ps).mappings.contains(m));
                     view.split_while_huge_refinement(ps, m);
-                    let p = choose |p: Mapping| old(owner)@.mappings.contains(p)
+                    let p = choose |p: Mapping| #[trigger] old(owner)@.mappings.contains(p)
                         && p.va_range.start <= m.va_range.start
                         && m.va_range.end <= p.va_range.end;
                     if p.va_range.start >= old_va && p.va_range.start < frag_va {

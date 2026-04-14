@@ -559,7 +559,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(self.view_rec(path).finite());
         } else if self.0.value.is_node() && path.len() < INC_LEVELS - 1 {
             // Recurse into each child: establish finiteness for each Some child.
-            assert forall |i: int| 0 <= i < NR_ENTRIES && self.0.children[i] is Some implies
+            assert forall |i: int| 0 <= i < NR_ENTRIES && #[trigger] self.0.children[i] is Some implies
                 PageTableOwner(self.0.children[i].unwrap())
                     .view_rec(path.push_tail(i as usize)).finite()
             by {
@@ -587,7 +587,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             assert(ss.finite());
 
             // Every element of ss is finite.
-            assert forall |s: Set<Mapping>| ss.contains(s) implies s.finite() by {
+            assert forall |s: Set<Mapping>| ss.contains(s) implies #[trigger] s.finite() by {
                 let i = choose |i: int| dom.contains(i) && f(i) == s;
                 if 0 <= i < NR_ENTRIES && self.0.children[i] is Some {
                     // finiteness established above
@@ -602,7 +602,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             //                = ss.flatten()
             assert(self.view_rec(path) =~= ss.flatten()) by {
                 assert forall |m: Mapping| self.view_rec(path).contains(m) implies
-                    ss.flatten().contains(m)
+                    #[trigger] ss.flatten().contains(m)
                 by {
                     let i = choose |i: int|
                         #![trigger self.0.children[i]]
@@ -614,7 +614,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                     assert(ss.contains(f(i)));
                     assert(f(i).contains(m));
                 };
-                assert forall |m: Mapping| ss.flatten().contains(m) implies
+                assert forall |m: Mapping| #[trigger] ss.flatten().contains(m) implies
                     self.view_rec(path).contains(m)
                 by {
                     let s = choose |s: Set<Mapping>| ss.contains(s) && s.contains(m);
