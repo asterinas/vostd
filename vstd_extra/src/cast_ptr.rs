@@ -253,29 +253,6 @@ impl<R, T: Repr<R>> PointsTo<R, T> {
             self.addr() == #[trigger] self.pptr().addr(),
     {
     }
-
-    // FIXME: https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/Returning.20a.20mutable.20reference.20in.20proof.20fn/with/585146634
-    #[verifier::external_body]
-    pub proof fn borrow_mut_inner_perms(tracked &mut self) -> (tracked result: &mut T::Perm)
-        ensures
-            *result == old(self).inner_perms,
-            final(self).addr() == old(self).addr(),
-            final(self).points_to == old(self).points_to,
-            final(self).inner_perms == *final(result),
-    {
-        &mut self.inner_perms
-    }
-
-    // FIXME: https://verus-lang.zulipchat.com/#narrow/channel/399078-help/topic/Returning.20a.20mutable.20reference.20in.20proof.20fn/with/585146634
-    #[verifier::external_body]
-    pub proof fn borrow_mut_points_to(tracked &mut self) -> (tracked result: &mut simple_pptr::PointsTo<R>)
-        ensures
-            *result == old(self).points_to,
-            final(self).inner_perms == old(self).inner_perms,
-            final(self).points_to == *final(result),
-    {
-        &mut self.points_to
-    }
 }
 
 impl<R, T: Repr<R>> From<PointsTo<R, T>> for vstd::simple_pptr::PointsTo<R> {
