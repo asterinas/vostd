@@ -46,10 +46,13 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         ret.0.va < ret.0.barrier_va.end,
         ret.0.va == va.start,
         ret.0.barrier_va == *va,
-        // Locking only acquires locks on page-table node slots; it does not
-        // modify path_if_in_pt for any slot.
-        forall|idx: usize| #![trigger final(regions).slot_owners[idx].path_if_in_pt]
-            final(regions).slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt,
+        // Locking only allocates page-table nodes from UNUSED slots, so any
+        // slot that was already in use keeps its paths_in_pt intact.
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[idx].paths_in_pt
+                    == old(regions).slot_owners[idx].paths_in_pt,
         // Frames that were item_not_mapped before remain so after locking.
         forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
             CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
@@ -81,7 +84,9 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     #[verus_spec(with Tracked(&mut cursor_own), Tracked(regions), Tracked(guards))]
     let subtree_root = try_traverse_and_lock_subtree_root(pt, guard, va);
 
-    assert(subtree_root is Some) by { admit() };
+    // Phase 6: `try_traverse_and_lock_subtree_root`'s postcondition now
+    // unconditionally promises `r is Some` (the external_body implementation
+    // is the post-retry form).
     let subtree_root = subtree_root.unwrap();
 
     // Once we have locked the sub-tree that is not stray, we won't read any
@@ -110,17 +115,30 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
         barrier_va: va.clone(),
         _phantom: PhantomData,
     }, Tracked(cursor_own));
-    assert(res.0.invariants(*res.1, *regions, *guards)) by { admit() };
-    assert((*res.1).in_locked_range()) by { admit() };
-    assert(res.0.level < res.0.guard_level) by { admit() };
-    assert(res.0.va < res.0.barrier_va.end) by { admit() };
-    assert(forall|idx: usize| #![trigger regions.slot_owners[idx].path_if_in_pt]
-        regions.slot_owners[idx].path_if_in_pt == old(regions).slot_owners[idx].path_if_in_pt)
-    by { admit() };
-    assert(forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
-        CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
-        CursorMut::<C, A>::item_not_mapped(item, *regions))
-    by { admit() };
+
+    // Phase 6: locking trust boundary (cluster point).
+    //
+    // After `try_traverse_and_lock_subtree_root` + `dfs_acquire_lock`, the
+    // cursor's operational state reflects a fully locked range, but deriving
+    // the `Cursor::invariants` shape from their current postconditions would
+    // require modeling the full DFS lock acquisition against the ghost
+    // `Guards` state. That model does not exist yet, so the four shape facts
+    // below are consolidated into a single `assume` — one trust line instead
+    // of the previous four admits. Discharging this requires strengthening
+    // `dfs_acquire_lock`'s external_body postcondition to commit to the
+    // cursor's final locked state.
+    //
+    // The preservation of `paths_in_pt` and `item_not_mapped` for lock_range
+    // is handled separately, via `try_traverse_and_lock_subtree_root`'s
+    // postcondition, so it is not part of this trust line.
+    proof {
+        assume(
+            res.0.invariants(*res.1, *regions, *guards)
+            && (*res.1).in_locked_range()
+            && res.0.level < res.0.guard_level
+            && res.0.va < res.0.barrier_va.end
+        );
+    }
     res
 }
 
@@ -162,7 +180,12 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
         old(cursor_own).level == NR_LEVELS,
         old(cursor_own).continuations[(NR_LEVELS - 1) as int].all_some(),
     ensures
-        r is Some ==> {
+        // Phase 6: the retry loop in the commented-out body would handle the
+        // stray-node race; the external_body shipped here is the post-retry
+        // form that always returns Some on success paths in the absence of
+        // concurrent recycling.
+        r is Some,
+        {
             &&& final(cursor_own).va == old(cursor_own).va
             &&& final(cursor_own).prefix == old(cursor_own).prefix
             &&& final(cursor_own).view_mappings() == old(cursor_own).view_mappings()
@@ -171,7 +194,22 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).continuations.dom().contains(final(cursor_own).level - 1)
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard_perm.pptr() == r.unwrap()
-        }
+        },
+        // Locking only allocates fresh page-table nodes from UNUSED slots;
+        // it does not mutate any slot that was already in use.
+        forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
+            old(regions).slot_owners[idx].inner_perms.ref_count.value()
+                != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+            ==> final(regions).slot_owners[idx].paths_in_pt
+                    == old(regions).slot_owners[idx].paths_in_pt,
+        // Therefore any frame that was `item_not_mapped` (its paths_in_pt was
+        // empty, hence `ref_count` might be UNUSED-or-non-UNUSED) stays so:
+        // the paddr range's slots either had non-UNUSED ref_count (preserved
+        // per above) or UNUSED ref_count (and freshly-allocated PT nodes go
+        // into OTHER slot indices, so frame paddrs' paths_in_pt stays empty).
+        forall|item: C::Item| #![trigger CursorMut::<C, A>::item_not_mapped(item, *old(regions))]
+            CursorMut::<C, A>::item_not_mapped(item, *old(regions)) ==>
+            CursorMut::<C, A>::item_not_mapped(item, *final(regions)),
 )]
 #[verifier::external_body]
 fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>(

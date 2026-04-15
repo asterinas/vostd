@@ -73,32 +73,121 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].path()
                 == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
+            forall |j: int| 0 <= j < NR_ENTRIES
+                && j != self.continuations[self.level - 1].idx as int ==>
+                #[trigger] other.continuations[self.level - 1].children[j]
+                    == self.continuations[self.level - 1].children[j],
+            ({
+                let new_child = other.continuations[self.level - 1].children[
+                    other.continuations[self.level - 1].idx as int].unwrap();
+                let new_path = other.continuations[self.level - 1].path()
+                    .push_tail(other.continuations[self.level - 1].idx as usize);
+                new_child.tree_predicate_map(new_path,
+                    PageTableOwner::<C>::metaregion_sound_pred(regions))
+            }),
+            other.continuations[self.level - 1].entry_own.metaregion_sound(regions),
+            // For `metaregion_correct` transfer (only needed in the correct branch).
+            self.metaregion_correct(regions) ==> ({
+                let new_child = other.continuations[self.level - 1].children[
+                    other.continuations[self.level - 1].idx as int].unwrap();
+                let new_path = other.continuations[self.level - 1].path()
+                    .push_tail(other.continuations[self.level - 1].idx as usize);
+                new_child.tree_predicate_map(new_path,
+                    PageTableOwner::<C>::path_tracked_pred(regions))
+            }),
+            self.metaregion_correct(regions) ==>
+                PageTableOwner::<C>::path_tracked_pred(regions)(
+                    other.continuations[self.level - 1].entry_own,
+                    other.continuations[self.level - 1].path()),
         ensures
             other.inv(),
             other.metaregion_sound(regions),
             self.metaregion_correct(regions) ==> other.metaregion_correct(regions),
     {
-        // Part 1: other.inv() — derive from map_branch_none_inv_holds.
         other.map_branch_none_inv_holds(self);
 
-        // Part 2: metaregion_sound transfer.
-        // Protect only changes frame.prop. metaregion_sound doesn't depend on prop.
-        // For the bottom continuation, we need to show its children still satisfy
-        // metaregion_sound_pred. Since only the prop changed and metaregion_sound
-        // for frames checks mapped_pa, slot_owners, and slot data (not prop), the
-        // bottom child's soundness is preserved.
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
         let h = PageTableOwner::<C>::path_tracked_pred(regions);
-        // metaregion_sound + metaregion_correct transfer.
-        // Protect only changes frame.prop which doesn't affect metaregion_sound
-        // (checks slot_owners, not prop) or path_tracked_pred (checks path_if_in_pt).
-        // Full discharge requires preconditions about entry_own and children
-        // equality that are hard to thread through tracked take/put operations.
-        // The admits below cover:
-        // (a) bottom continuation children satisfy metaregion_sound_pred
-        // (b) bottom entry_own satisfies metaregion_sound
-        // (c) metaregion_correct transfer
-        admit();
+        let L = self.level as int;
+        let idx = self.continuations[L - 1].idx as int;
+
+        assert forall |i: int| #![trigger other.continuations[i]]
+            other.level - 1 <= i < NR_LEVELS
+        implies
+            other.continuations[i].map_children(f)
+        by {
+            if i > L - 1 {
+                assert(other.continuations[i] == self.continuations[i]);
+                assert(self.continuations[i].map_children(f));
+            } else {
+                assert(i == L - 1);
+                let o_cont = other.continuations[L - 1];
+                let s_cont = self.continuations[L - 1];
+                reveal(CursorContinuation::inv_children);
+                assert forall |j: int| #![trigger o_cont.children[j]]
+                    0 <= j < o_cont.children.len() && o_cont.children[j] is Some
+                implies
+                    o_cont.children[j].unwrap()
+                        .tree_predicate_map(o_cont.path().push_tail(j as usize), f)
+                by {
+                    if j != idx {
+                        assert(o_cont.children[j] == s_cont.children[j]);
+                        s_cont.inv_children_unroll(j);
+                    }
+                };
+            }
+        };
+
+        assert forall |i: int| #![trigger other.continuations[i]]
+            other.level - 1 <= i < NR_LEVELS
+        implies
+            other.continuations[i].entry_own.metaregion_sound(regions)
+        by {
+            if i > L - 1 {
+                assert(other.continuations[i] == self.continuations[i]);
+                self.inv_continuation(i);
+            }
+        };
+
+        if self.metaregion_correct(regions) {
+            assert forall |i: int| #![trigger other.continuations[i]]
+                other.level - 1 <= i < NR_LEVELS
+            implies
+                other.continuations[i].map_children(h)
+            by {
+                if i > L - 1 {
+                    assert(other.continuations[i] == self.continuations[i]);
+                    assert(self.continuations[i].map_children(h));
+                } else {
+                    assert(i == L - 1);
+                    let o_cont = other.continuations[L - 1];
+                    let s_cont = self.continuations[L - 1];
+                    reveal(CursorContinuation::inv_children);
+                    assert forall |j: int| #![trigger o_cont.children[j]]
+                        0 <= j < o_cont.children.len() && o_cont.children[j] is Some
+                    implies
+                        o_cont.children[j].unwrap()
+                            .tree_predicate_map(o_cont.path().push_tail(j as usize), h)
+                    by {
+                        if j != idx {
+                            assert(o_cont.children[j] == s_cont.children[j]);
+                            s_cont.inv_children_unroll(j);
+                        }
+                    };
+                }
+            };
+
+            assert forall |i: int| #![trigger other.continuations[i]]
+                other.level - 1 <= i < NR_LEVELS
+            implies
+                h(other.continuations[i].entry_own, other.continuations[i].path())
+            by {
+                if i > L - 1 {
+                    assert(other.continuations[i] == self.continuations[i]);
+                    self.inv_continuation(i);
+                }
+            };
+        }
     }
 
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)
@@ -251,11 +340,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.cur_entry_owner().is_absent(),
     {
-        // cur_entry_owner() = continuations[level-1].children[index()].unwrap().value
-        // From inv(): 0 <= index() < NR_ENTRIES, so precondition gives is_absent().
     }
-
-    // ─── Theme 14: Cursor path structure & jump utilities ────────────────
 
     pub proof fn cursor_path_nesting(self, i: int, j: int)
         requires
@@ -332,30 +417,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::power2::lemma2_to64_rest();
         vstd::arithmetic::power2::lemma_pow2_adds(12nat, 36nat);
     }
-
-    /// **Axiom**: dead-code helper kept for documentation.
-    ///
-    /// This lemma was written as scaffolding for the `jump` implementation
-    /// but ended up unused. Under the `top_bits` representation, the
-    /// `guard_level == NR_LEVELS` branch requires a `locked_range → same
-    /// top_bits` subsidiary lemma that hasn't been written. Since the
-    /// lemma is unused, we axiomatize it rather than write that machinery.
-    /// If a future refactor calls it, replace this with a proof.
-    pub axiom fn jump_above_locked_range_va_in_node(
-        self,
-        va: Vaddr,
-        node_start: Vaddr,
-    )
-        requires
-            self.inv(),
-            self.level == self.guard_level,
-            self.above_locked_range(),
-            self.locked_range().start <= va < self.locked_range().end,
-            node_start == nat_align_down(self.va.to_vaddr() as nat,
-                page_size((self.level + 1) as PagingLevel) as nat) as usize,
-        ensures
-            node_start <= va,
-            va < node_start + page_size((self.level + 1) as PagingLevel);
 
     pub proof fn jump_not_in_node_level_lt_guard_minus_one(
         self,

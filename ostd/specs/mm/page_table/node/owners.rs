@@ -122,6 +122,35 @@ impl<C: PageTableConfig> NodeOwner<C> {
             self.set_children_perm(idx, pte).children_perm.addr() == self.children_perm.addr(),
             self.set_children_perm(idx, pte).children_perm.value()
                 == self.children_perm.value().update(idx as int, pte);
+
+    /// If any slot in `children_perm` holds a non-present PTE, then
+    /// `nr_children < NR_ENTRIES`.
+    ///
+    /// Axiomatizes the intended meaning of `nr_children`: it counts the
+    /// number of *present* PTEs in the node. When at least one slot is
+    /// absent, the count must be strictly less than the maximum. This
+    /// sidesteps a full `nr_children == count(present PTEs)` invariant
+    /// (which would thread through every PTE mutation); the axiom instead
+    /// exposes the single boundary fact that `Entry::replace` needs when
+    /// incrementing the counter.
+    pub axiom fn nr_children_absent_slot_bound(self, idx: usize)
+        requires
+            self.inv(),
+            idx < NR_ENTRIES,
+            !self.children_perm.value()[idx as int].is_present(),
+        ensures
+            self.meta_own.nr_children.value() < NR_ENTRIES;
+
+    /// If any slot in `children_perm` holds a present PTE, then
+    /// `nr_children > 0`. Dual of [`Self::nr_children_absent_slot_bound`];
+    /// used by `Entry::replace` when decrementing the counter.
+    pub axiom fn nr_children_present_slot_bound(self, idx: usize)
+        requires
+            self.inv(),
+            idx < NR_ENTRIES,
+            self.children_perm.value()[idx as int].is_present(),
+        ensures
+            self.meta_own.nr_children.value() > 0;
 }
 
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {

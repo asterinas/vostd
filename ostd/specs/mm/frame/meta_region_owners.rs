@@ -145,7 +145,7 @@ impl MetaRegionOwners {
         forall|paddr: Paddr|
             #![trigger frame_to_index_spec(paddr)]
             (range.start <= paddr < range.end && paddr % PAGE_SIZE == 0)
-                ==> self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None
+                ==> self.slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty()
     }
 
     pub open spec fn paddr_range_not_in_region(self, range: Range<Paddr>) -> bool
@@ -167,7 +167,7 @@ impl MetaRegionOwners {
             paddr < range.end,
             paddr % PAGE_SIZE == 0,
         ensures
-            self.slot_owners[frame_to_index_spec(paddr)].path_if_in_pt is None,
+            self.slot_owners[frame_to_index_spec(paddr)].paths_in_pt.is_empty(),
     {
         // The trigger frame_to_index_spec(paddr) fires from the ensures clause,
         // instantiating the forall in paddr_range_not_mapped at this paddr.

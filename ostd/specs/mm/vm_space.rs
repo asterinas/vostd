@@ -366,13 +366,11 @@ impl<'a> VmSpaceOwner<'a> {
                     );
                     assert(mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
-                    assert(o_borrow_mv.len() > 0) by {
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m)) by {
-                            vstd::set::axiom_set_choose_len(o_mv);
-                        }
-                        assert(o_borrow_mv.contains(m));
-                    }
+                    let m = o_mv.choose();
+                    vstd::set::axiom_set_choose_len(o_mv);
+                    assert(o_mv.contains(m));
+                    assert(o_borrow_mv.contains(m));
+                    assert(o_borrow_mv.len() > 0);
                 }
             }
 
@@ -444,14 +442,12 @@ impl<'a> VmSpaceOwner<'a> {
 
                     assert(old_mv.addr_transl(va) is Some);
                     assert(o_mv.len() > 0);
-                    assert(o_lhs.len() > 0) by {
-                        broadcast use vstd::set::axiom_set_choose_len;
-
-                        let m = o_mv.choose();
-                        assert(o_mv.contains(m));
-                        assert(m.va_range.start <= va < m.va_range.end);
-                        assert(o_lhs.contains(m));
-                    }
+                    broadcast use vstd::set::axiom_set_choose_len;
+                    let m = o_mv.choose();
+                    assert(o_mv.contains(m));
+                    assert(m.va_range.start <= va < m.va_range.end);
+                    assert(o_lhs.contains(m));
+                    assert(o_lhs.len() > 0);
                 }
             }
 
@@ -508,13 +504,11 @@ impl<'a> VmSpaceOwner<'a> {
     {
         let tracked writer = self.writers.tracked_remove(idx as int);
 
-        // Now we need to "return" the memory view back to the vm space owner.
         let tracked mv = match writer.mem_view {
             Some(VmIoMemView::WriteView(mv)) => mv,
             _ => { proof_from_false() },
         };
 
-        // "Join" the memory view back.
         let tracked mut remaining = self.mem_view.tracked_take();
         let ghost old_remaining = remaining;
         remaining.join(mv);
@@ -545,13 +539,11 @@ impl<'a> VmSpaceOwner<'a> {
                 assert(w_mappings.subset_of(t_mappings));
 
                 if r_mappings.len() > 0 {
-                    assert(t_mappings.len() > 0) by {
-                        let r = r_mappings.choose();
-                        assert(r_mappings.contains(r)) by {
-                            vstd::set::axiom_set_choose_len(r_mappings);
-                        }
-                        assert(t_mappings.contains(r));
-                    }
+                    let r = r_mappings.choose();
+                    vstd::set::axiom_set_choose_len(r_mappings);
+                    assert(r_mappings.contains(r));
+                    assert(t_mappings.contains(r));
+                    assert(t_mappings.len() > 0);
                 }
             }
 
@@ -571,14 +563,13 @@ impl<'a> VmSpaceOwner<'a> {
                     _ => { proof_from_false() },
                 };
 
-                assert(mv.mappings.disjoint(writer_mv.mappings)) by {
-                    assert(exists|i: int|
-                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
-                            == other_writer);
-                    assert(exists|i: int|
-                        0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
-                            == writer);
-                }
+                assert(exists|i: int|
+                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                        == other_writer);
+                assert(exists|i: int|
+                    0 <= i < old(self).writers.len() as int ==> #[trigger] old(self).writers[i]
+                        == writer);
+                assert(mv.mappings.disjoint(writer_mv.mappings));
             }
         }
     }
@@ -626,7 +617,6 @@ impl<'a> VmSpaceOwner<'a> {
         };
 
         if owner.range.start < owner.range.end {
-            // Return the memory view back to the vm space owner.
             self.readers.tracked_push(owner);
         }
     }

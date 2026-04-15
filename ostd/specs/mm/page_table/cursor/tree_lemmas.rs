@@ -27,7 +27,7 @@ use core::ops::Range;
 
 verus! {
 
-// ─── Theme 5: Tree predicate lifting (CursorContinuation) ───────────────────
+// ─── Tree predicate lifting (CursorContinuation) ───────────────────
 
 impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
@@ -117,7 +117,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
     }
 }
 
-// ─── Theme 5: Tree predicate lifting (CursorOwner) ──────────────────────────
+// ─── Tree predicate lifting (CursorOwner) ──────────────────────────
 
 impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
@@ -154,7 +154,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
     }
 
-    // ─── Theme 11: Tree entry level constraints ──────────────────────────
+    // ─── Tree entry level constraints ──────────────────────────
 
     pub proof fn cur_entry_node_implies_level_gt_1(self)
         requires
@@ -214,7 +214,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    // ─── Theme 12: Tree membership & tracking ────────────────────────────
+    // ─── Tree membership & tracking ────────────────────────────
 
     pub open spec fn not_in_tree(self, owner: EntryOwner<C>) -> bool {
         self.map_full_tree(|owner0: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -252,14 +252,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// If the cursor owner's tree satisfies `metaregion_correct(regions)`, and a new entry's
-    /// physical address is not currently tracked in the page table (`path_if_in_pt is None`),
+    /// physical address is not currently tracked in the page table (`paths_in_pt.is_empty()`),
     /// then no existing entry in the tree has the same physical address as the new entry.
     ///
     /// This lemma encapsulates the `map_children_implies` proof for `not_in_tree`, factored out
     /// so it runs in its own Z3 context (avoiding rlimit issues when called from large functions).
-    /// If `path_if_in_pt is None` at the new entry's slot, then no NODE in the tree
-    /// has the same paddr (node metaregion_sound requires path_if_in_pt == Some).
-    /// Frames CAN share paddrs (they don't track path_if_in_pt).
+    /// If `paths_in_pt.is_empty()` at the new entry's slot, then no NODE in the tree
+    /// has the same paddr (node metaregion_sound requires a singleton path set).
+    /// Frames CAN share paddrs (tracked separately by `paths_in_pt` membership).
     pub proof fn not_in_tree_from_not_mapped(
         self,
         regions: MetaRegionOwners,
@@ -271,7 +271,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             new_entry.meta_slot_paddr() is Some,
             regions.slot_owners[
                 frame_to_index(new_entry.meta_slot_paddr().unwrap())
-            ].path_if_in_pt is None,
+            ].paths_in_pt.is_empty(),
         ensures
             // Only guarantees paddr_neq for node entries (frames can share paddrs).
             self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
@@ -286,8 +286,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 implies #[trigger] g(entry, path) by {
                 if entry.is_node() && entry.meta_slot_paddr() is Some
                     && entry.meta_slot_paddr().unwrap() == pa {
-                    // Node: path_tracked_pred gives path_if_in_pt == Some(entry.path).
-                    // But precondition says path_if_in_pt is None. Contradiction.
+                    // Node: path_tracked_pred gives paths_in_pt == set![entry.path] (non-empty).
+                    // But precondition says paths_in_pt.is_empty(). Contradiction.
                     assert(false);
                 }
             };

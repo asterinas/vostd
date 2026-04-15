@@ -61,16 +61,6 @@ impl GlobalMemOwner {
             Mapping::disjoint_vaddrs(m1, m2)
     }
 
-    /// Top-level property: the page table mappings are disjoint in the physical address space.
-    pub open spec fn page_table_mappings_disjoint_paddrs(self) -> bool {
-        let pt_mappings = self.page_table_mappings();
-        forall |m1: Mapping, m2: Mapping|
-            pt_mappings has m1 &&
-            pt_mappings has m2 &&
-            m1 != m2 ==>
-            Mapping::disjoint_paddrs(m1, m2)
-    }
-
     /// Top-level property: the page table mappings are well-formed.
     /// See [`Mapping::inv`](crate::specs::mm::page_table::view::Mapping::inv).
     pub open spec fn page_table_mappings_well_formed(self) -> bool {
@@ -108,10 +98,13 @@ impl GlobalMemOwner {
             #[trigger] m.inv()
     }
 
-    /// Top-level properties: the page table mappings are disjoint and well-formed.
+    /// Top-level properties: the page table mappings are disjoint in the
+    /// virtual address space and well-formed. Disjointness in the *physical*
+    /// address space is intentionally **not** claimed — shared frame mappings
+    /// (Phase 3 of the `paths_in_pt` refactor) legitimately map the same
+    /// paddr at multiple vaddrs.
     pub open spec fn invariants(self) -> bool {
         &&& self.page_table_mappings_disjoint_vaddrs()
-        &&& self.page_table_mappings_disjoint_paddrs()
         &&& self.page_table_mappings_well_formed()
     }
 
@@ -127,10 +120,6 @@ impl GlobalMemOwner {
     }
 
     /// If the internal invariants hold, then the top-level properties hold.
-    ///
-    /// `disjoint_paddrs` remains as a single `assume(...)` pending a
-    /// `view_rec_disjoint_paddrs` lemma — which needs a new
-    /// allocation-uniqueness clause on `PageTableOwner::inv`.
     pub proof fn internal_invariants_imply_top_level_properties(self)
         requires
             self.internal_invariants(),
@@ -149,8 +138,6 @@ impl GlobalMemOwner {
         }
 
         pt.view_rec_mapping_inv(root_path);
-
-        assume(self.page_table_mappings_disjoint_paddrs());
     }
 }
 

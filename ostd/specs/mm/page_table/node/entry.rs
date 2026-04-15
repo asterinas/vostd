@@ -70,7 +70,7 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
     }
 
     /// When the new child is NOT a node, `into_pte` doesn't modify `raw_count`.
-    /// Only `path_if_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
+    /// Only `paths_in_pt` changes at `new_idx`, which `metaregion_sound` doesn't inspect.
     /// So entries with `paddr_neq(old_child)` preserve `metaregion_sound` — no
     /// `paddr_neq(new_child)` needed.
     pub open spec fn metaregion_sound_neq_old_preserved(
@@ -92,9 +92,6 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
     ///
     /// Justification: `metaregion_sound_neq_preserved` gives preservation for entries whose paddr
     /// differs from both old_child and new_child. Old_child is absent (paddr_neq trivially true).
-    /// New_child was freshly allocated from `regions0.slots` (a free slot). By PointsTo
-    /// uniqueness (`active_entry_not_in_free_pool`), no existing entry can share its slot index.
-    /// With both `paddr_neq` conditions, `metaregion_sound_neq_preserved` yields the result.
     pub proof fn alloc_if_none_metaregion_sound_preserved(
         old_child: EntryOwner<C>,
         new_child: EntryOwner<C>,
@@ -114,55 +111,17 @@ impl<'rcu, C: PageTableConfig> Entry<'rcu, C> {
             Self::metaregion_sound_preserved(regions0, regions1),
     {
         let new_idx = frame_to_index(new_child.meta_slot_paddr().unwrap());
-        // Use metaregion_sound_pred to get spec_fn values whose application covers both variables,
-        // satisfying Verus's trigger-coverage requirement.
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
-        assert(Self::metaregion_sound_preserved(regions0, regions1)) by {
-            assert(OwnerSubtree::implies(f, g)) by {
-                assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                    entry.inv() && f(entry, path) implies
-                    #[trigger] g(entry, path)
-                by {
-                    // Part 1: meta_slot_paddr_neq(old_child) — trivial since old_child is absent.
-                    // old_child.inv() + is_absent() ==> node is None && frame is None ==> meta_slot_paddr() is None.
-                    assert(old_child.meta_slot_paddr() is None) by {
-                        assert(!old_child.is_node());
-                        assert(!old_child.is_frame());
-                    };
-                    assert(entry.meta_slot_paddr_neq(old_child));
 
-                    // Part 2: meta_slot_paddr_neq(new_child) — by slot disjointness.
-                    // If this entry has a paddr, it can't be the same as new_child's free-pool slot.
-                    assert(entry.meta_slot_paddr_neq(new_child)) by {
-                        if entry.meta_slot_paddr() is Some {
-                            let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
-                            if entry.is_node() {
-                                // PointsTo uniqueness: a node's slot can't also be in the free pool.
-                                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
-                            } else {
-                                // Frame: metaregion_sound requires ref_count != UNUSED at eidx.
-                                // The free pool slot at new_idx has ref_count == UNUSED (alloc precondition).
-                                // So eidx != new_idx by contradiction.
-                                assert(regions0.slot_owners[eidx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
-                            }
-                            assert(eidx != new_idx);
-                            if entry.meta_slot_paddr().unwrap() == new_child.meta_slot_paddr().unwrap() {
-                                assert(frame_to_index(entry.meta_slot_paddr().unwrap())
-                                    == frame_to_index(new_child.meta_slot_paddr().unwrap()));
-                                assert(false);
-                            }
-                        }
-                    };
+        assert(old_child.meta_slot_paddr() is None);
 
-                    // Part 3: apply metaregion_sound_neq_preserved.
-                    // The antecedent f(entry, path) = paddr_neq(old) && paddr_neq(new) && relate(r0)
-                    // is fully established; the conclusion g(entry, path) = relate(r1) follows.
-                    assert(entry.meta_slot_paddr_neq(old_child)
-                        && entry.meta_slot_paddr_neq(new_child)
-                        && entry.metaregion_sound(regions0));
-                };
-            };
+        assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+            entry.inv() && f(entry, path) implies #[trigger] g(entry, path)
+        by {
+            if entry.meta_slot_paddr() is Some && entry.is_node() {
+                EntryOwner::<C>::active_entry_not_in_free_pool(entry, regions0, new_idx);
+            }
         };
     }
 

@@ -270,7 +270,6 @@ impl MemView {
                     #[trigger] original.addr_transl(va) == right.addr_transl(va)
                 },
     {
-        // Auto.
         assert(right.memory.dom().subset_of(original.memory.dom()));
 
         assert forall|va: usize| vaddr <= va < vaddr + len implies original.addr_transl(va)
@@ -286,17 +285,14 @@ impl MemView {
             );
 
             assert(l_mappings.subset_of(o_mappings));
-            assert(o_mappings.subset_of(l_mappings)) by {
-                assert forall|m: Mapping| #[trigger]
-                    o_mappings.contains(m) implies l_mappings.contains(m) by {
-                    assume(o_mappings.contains(m));
-                    assert(m.va_range.start < vaddr + len);
-                    assert(m.va_range.end > vaddr);
-                    assert(m.va_range.start <= va < m.va_range.end);
-                    assert(left.mappings.contains(m));
-                }
+            assert forall|m: Mapping| #[trigger]
+                o_mappings.contains(m) implies l_mappings.contains(m) by {
+                assert(m.va_range.start < vaddr + len);
+                assert(m.va_range.end > vaddr);
+                assert(m.va_range.start <= va < m.va_range.end);
+                assert(left.mappings.contains(m));
             };
-
+            assert(o_mappings.subset_of(l_mappings));
             assert(o_mappings =~= l_mappings);
         }
 

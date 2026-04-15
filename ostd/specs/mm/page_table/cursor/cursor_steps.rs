@@ -103,8 +103,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         subtree.inv(),
         subtree.tree_predicate_map(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
         subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr)),
-        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].path_if_in_pt
-            == Some(excepted_path),
+        regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].paths_in_pt
+            == set![excepted_path],
         // Structural path == value path
         path == subtree.value.path,
         path.inv(),
@@ -124,8 +124,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
 
     // Root: value.path == path != excepted_path.
-    // If addr == excepted_addr: metaregion_sound gives slot.path_if_in_pt == Some(value.path)
-    // == Some(path). And slot.path_if_in_pt == Some(excepted_path). So path == excepted_path.
+    // If addr == excepted_addr: metaregion_sound gives slot.paths_in_pt == set![value.path]
+    // == set![path]. And slot.paths_in_pt == set![excepted_path]. So path == excepted_path.
     // Contradiction.
     assert(f(subtree.value, path));
     assert(g(subtree.value, path));
@@ -133,7 +133,8 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
         if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
             let idx = frame_to_index(meta_to_frame(excepted_addr));
             assert(subtree.value.metaregion_sound(regions));
-            assert(regions.slot_owners[idx].path_if_in_pt == Some(subtree.value.path));
+            assert(regions.slot_owners[idx].paths_in_pt == set![subtree.value.path]);
+            assert(set![subtree.value.path].contains(excepted_path));
             assert(subtree.value.path == path);
             // path == excepted_path: contradiction with precondition
             assert(false);
@@ -525,22 +526,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(child.inv());
 
         assert(new_owner.continuations[new_owner.level - 1].all_some()) by {
-            // new_owner.continuations[new_level - 1] == child
-            // child.children == child_node.children
-            // From child.entry_own.is_node() and rel_children definition:
-            // is_node() ==> child is Some for all indices
-            // So child_node.inv_children() gives all children are Some
             assert(new_owner.continuations[new_owner.level - 1] == child);
             assert forall |j: int| 0 <= j < NR_ENTRIES implies child.children[j] is Some by {
-                // From child_node.inv() -> inv_children() (since is_node => level < INC_LEVELS - 1):
-                //   for each j: if children[j] is Some, rel_children(value, j, Some(ch.value))
-                //                if children[j] is None, rel_children(value, j, None)
-                // Since is_node(), rel_children(value, j, None) is false (it requires child is Some)
-                // So children[j] must be Some
                 if child.children[j] is None {
                     assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                         child.entry_own, j, None));
-                    // rel_children with is_node() and child == None: requires child is Some — contradiction
                 }
             };
         };
@@ -838,8 +828,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
                 assert(addr == cur_entry.node.unwrap().meta_perm.addr());
                 let idx = frame_to_index(meta_to_frame(addr));
-                assert(regions.slot_owners[idx].path_if_in_pt == Some(cont_i.path()));
-                assert(regions.slot_owners[idx].path_if_in_pt == Some(cur_entry_path));
+                assert(regions.slot_owners[idx].paths_in_pt == set![cont_i.path()]);
+                assert(regions.slot_owners[idx].paths_in_pt == set![cur_entry_path]);
+                assert(set![cont_i.path()].contains(cur_entry_path));
 
                 assert(cur_entry_path.len() == old_cont.tree_level + 1) by {
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
@@ -862,7 +853,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.push_level_owner_preserves_inv(guard_perm);
 
         let excepted_idx = frame_to_index(meta_to_frame(cur_entry_addr));
-        assert(regions.slot_owners[excepted_idx].path_if_in_pt == Some(cur_entry_path)) by {
+        assert(regions.slot_owners[excepted_idx].paths_in_pt == set![cur_entry_path]) by {
             old_cont.inv_children_rel_unroll(old_cont.idx as int);
         };
 
@@ -1824,48 +1815,29 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let popped = self.pop_level_owner_spec().0;
         let child_subtree = child.as_subtree();
 
-        // From cursor invariant
         assert(child.inv());
         assert(child.all_some());
         assert(parent.inv());
         assert(parent.all_but_index_some());
-
-        // Path relationship follows from CursorOwner::inv() path consistency conditions
         assert(child.path() == parent.path().push_tail(parent.idx as usize));
 
-        // child.as_subtree().inv() follows from child.inv() + child.all_some()
         assert(child_subtree.inv()) by {
-            // inv_node: value.inv(), la_inv(level), level < L, children.len() == N
-            assert(child_subtree.value.inv());
-            assert(child_subtree.level < INC_LEVELS);
-            assert(child_subtree.children.len() == NR_ENTRIES);
-            // la_inv: is_node() ==> tree_level < INC_LEVELS - 1
-            assert(child.entry_own.is_node());
-            assert(child.tree_level < INC_LEVELS - 1);
             assert(child_subtree.inv_node());
-
-            // inv_children: for each i, child.level == tree_level + 1, rel_children holds
-            assert(child_subtree.inv_children()) by {
-                assert(child_subtree.level < INC_LEVELS - 1);
-                assert forall |i: int| 0 <= i < NR_ENTRIES implies
-                    match #[trigger] child_subtree.children[i] {
-                        Some(ch) => {
-                            &&& ch.level == child_subtree.level + 1
-                            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, Some(ch.value))
-                        },
-                        None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, None),
-                    }
-                by {
-                    assert(child.children[i] is Some);
-                    let ch = child.children[i].unwrap();
-                    assert(ch.level == child.tree_level + 1);
-                    // rel_children body is identical for TreeNodeValue<NR_LEVELS> and <INC_LEVELS>
-                    assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                        child.entry_own, i, Some(ch.value)));
-                };
+            assert forall |i: int| 0 <= i < NR_ENTRIES implies
+                match #[trigger] child_subtree.children[i] {
+                    Some(ch) => {
+                        &&& ch.level == child_subtree.level + 1
+                        &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, Some(ch.value))
+                    },
+                    None => <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(child_subtree.value, i, None),
+                }
+            by {
+                let ch = child.children[i].unwrap();
+                assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
+                    child.entry_own, i, Some(ch.value)));
             };
+            assert(child_subtree.inv_children());
 
-            // Recursive child invariants
             assert forall |i: int| 0 <= i < NR_ENTRIES implies
                 match #[trigger] child_subtree.children[i] {
                     Some(ch) => ch.inv(),
@@ -1873,33 +1845,25 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             by {
                 child.inv_children_unroll(i);
-                assert(child.children[i] is Some);
-                assert(child.children[i].unwrap().inv());
             };
         };
 
-        // Connect restore_spec to put_child_spec via as_subtree_restore
         parent.as_subtree_restore(child);
-        // restored_parent.as_subtree() == parent.put_child_spec(child_subtree).as_subtree()
 
-        // Since view_mappings depends only on children and path() (= entry_own.path),
-        // and as_subtree() captures both, equal subtrees give equal view_mappings.
+        let r = restored_parent;
+        let p = parent.put_child_spec(child_subtree);
+        assert forall |j: int| 0 <= j < r.children.len()
+            implies r.children[j] == p.children[j] by {
+            if j == parent.idx as int {
+                assert(r.children[j] == Some(child_subtree));
+            } else {
+                assert(r.children[j] == parent.children[j]);
+            }
+        };
+        assert(r.children =~= p.children);
         assert(restored_parent.view_mappings() =~=
             parent.put_child_spec(child_subtree).view_mappings()) by {
-            let r = restored_parent;
-            let p = parent.put_child_spec(child_subtree);
-            assert(r.children =~= p.children) by {
-                assert forall |j: int| 0 <= j < r.children.len()
-                    implies r.children[j] == p.children[j] by {
-                    if j == parent.idx as int {
-                        assert(r.children[j] == Some(child_subtree));
-                    } else {
-                        assert(r.children[j] == parent.children[j]);
-                    }
-                };
-            };
             assert(r.path() == p.path());
-            // With same children and path, view_mappings are the same
             assert forall |m: Mapping| r.view_mappings().contains(m)
                 implies p.view_mappings().contains(m) by {
                 let j = choose |j: int| #![auto]
@@ -1924,58 +1888,36 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        // view_mappings_put_child: parent.put_child_spec(child_subtree).view_mappings()
-        //   == parent.view_mappings() + PTO(child_subtree).view_rec(parent.path().push_tail(parent.idx))
         parent.view_mappings_put_child(child_subtree);
-
-        // as_page_table_owner_preserves_view_mappings:
-        //   PTO(child.as_subtree()).view_rec(child.path()) == child.view_mappings()
         child.as_page_table_owner_preserves_view_mappings();
 
-        // Combined with path relationship:
-        //   PTO(child_subtree).view_rec(parent.path().push_tail(parent.idx)) == child.view_mappings()
-        // Therefore:
-        //   restored_parent.view_mappings() == parent.view_mappings() + child.view_mappings()
-
-        // Now show popped.view_mappings() == self.view_mappings()
-        // popped has level = self.level + 1, continuations[self.level] = restored_parent
-        // self has level, continuations[self.level - 1] = child, continuations[self.level] = parent
         assert(popped.level == (self.level + 1) as u8);
         assert(popped.continuations[self.level as int] == restored_parent);
 
-        // The restored parent at index self.level is within the
-        // view_mappings range [self.level, NR_LEVELS).
         assert(popped.view_mappings() =~= self.view_mappings()) by {
-            // Forward: self.view_mappings() ⊆ popped.view_mappings()
             assert forall |m: Mapping| self.view_mappings().contains(m)
                 implies popped.view_mappings().contains(m) by {
                 let i = choose |i: int|
                     self.level - 1 <= i < NR_LEVELS
                     && (#[trigger] self.continuations[i]).view_mappings().contains(m);
                 if i == self.level - 1 {
-                    // m in child.view_mappings() ⊆ restored_parent.view_mappings()
                     assert(child.view_mappings().contains(m));
                     assert(restored_parent.view_mappings().contains(m));
                     assert(popped.continuations[self.level as int].view_mappings().contains(m));
                 } else if i == self.level as int {
-                    // m in parent.view_mappings() ⊆ restored_parent.view_mappings()
                     assert(parent.view_mappings().contains(m));
                     assert(restored_parent.view_mappings().contains(m));
                     assert(popped.continuations[self.level as int].view_mappings().contains(m));
                 } else {
-                    // i > self.level, unchanged
                     assert(popped.continuations[i] == self.continuations[i]);
                 }
             };
-            // Backward: popped.view_mappings() ⊆ self.view_mappings()
             assert forall |m: Mapping| popped.view_mappings().contains(m)
                 implies self.view_mappings().contains(m) by {
                 let i = choose |i: int|
                     popped.level - 1 <= i < NR_LEVELS
                     && (#[trigger] popped.continuations[i]).view_mappings().contains(m);
                 if i == self.level as int {
-                    // m in restored_parent.view_mappings()
-                    //   = parent.view_mappings() ∪ child.view_mappings()
                     assert(restored_parent.view_mappings().contains(m));
                     if child.view_mappings().contains(m) {
                         assert(self.continuations[self.level - 1].view_mappings().contains(m));
@@ -1999,23 +1941,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     decreases NR_LEVELS - self.level,
     {
         if self.index() + 1 < NR_ENTRIES {
-            // Case 1: result = self.inc_index().zero_below_level()
             let inc = self.inc_index();
             let result = inc.zero_below_level();
 
-            // zero_below_level preserves continuations and level
             inc.zero_preserves_all_but_va();
             assert(result.continuations =~= inc.continuations);
             assert(result.level == inc.level);
 
-            // inc_index only changes idx at level-1; children and entry_own unchanged
             let old_cont = self.continuations[self.level - 1];
             let new_cont = old_cont.inc_index();
             assert(new_cont.children =~= old_cont.children);
             assert(new_cont.entry_own == old_cont.entry_own);
             assert(new_cont.path() == old_cont.path());
 
-            // CursorContinuation::view_mappings depends on children and path(), not idx
             assert(new_cont.view_mappings() =~= old_cont.view_mappings()) by {
                 assert forall |m: Mapping| old_cont.view_mappings().contains(m)
                     implies new_cont.view_mappings().contains(m) by {
@@ -2041,7 +1979,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
             };
 
-            // Now result.view_mappings() == self.view_mappings()
             assert(result.view_mappings() =~= self.view_mappings()) by {
                 assert forall |m: Mapping| self.view_mappings().contains(m)
                     implies result.view_mappings().contains(m) by {
@@ -2067,10 +2004,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 };
             };
         } else if self.level < NR_LEVELS {
-            // Case 2: result = self.pop_level_owner_spec().0.move_forward_owner_spec()
             let popped = self.pop_level_owner_spec().0;
 
-            // Pop preserves inv and in_locked_range
             self.pop_level_owner_preserves_inv();
             assert(popped.in_locked_range()) by {
                 assert(popped.va == self.va);
@@ -2078,13 +2013,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(popped.guard_level == self.guard_level);
             };
 
-            // Pop preserves mappings (restored parent within view_mappings range)
             self.pop_level_owner_preserves_mappings();
-            // Inductive step
             popped.move_forward_owner_preserves_mappings();
-        } else {
-            // Case 3: level >= NR_LEVELS, only popped_too_high changes
-            // continuations and level unchanged, view_mappings trivially preserved
         }
     }
 
