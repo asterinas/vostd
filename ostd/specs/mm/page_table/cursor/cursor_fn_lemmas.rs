@@ -73,13 +73,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].path()
                 == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
-            // Phase 6 additions: the bottom continuation's non-idx children are
-            // unchanged by protect, and the modified child subtree + parent
-            // entry_own still satisfy `metaregion_sound_pred` / `path_tracked_pred`.
-            // Protect only mutates `children[idx].value.frame.prop` and
-            // `entry_own.node.children_perm[idx]` — none of these are inspected
-            // by `metaregion_sound` or `path_tracked_pred`, so the caller can
-            // discharge these explicitly from the frame/node shape equalities.
             forall |j: int| 0 <= j < NR_ENTRIES
                 && j != self.continuations[self.level - 1].idx as int ==>
                 #[trigger] other.continuations[self.level - 1].children[j]
@@ -111,7 +104,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.metaregion_sound(regions),
             self.metaregion_correct(regions) ==> other.metaregion_correct(regions),
     {
-        // Part 1: other.inv() — derive from map_branch_none_inv_holds.
         other.map_branch_none_inv_holds(self);
 
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
@@ -119,14 +111,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let L = self.level as int;
         let idx = self.continuations[L - 1].idx as int;
 
-        // Part 2a: map_full_tree(f) for `other`.
-        //
-        // For continuations i > L - 1: they equal self's continuations, and
-        //   self.map_full_tree(f) gives us the fact directly.
-        // For continuation at i == L - 1: children at j != idx are equal to
-        //   self's (by precondition), so `tree_predicate_map(f)` transfers
-        //   for those j. At j == idx, the caller provided
-        //   `tree_predicate_map(f)` directly.
         assert forall |i: int| #![trigger other.continuations[i]]
             other.level - 1 <= i < NR_LEVELS
         implies
@@ -146,11 +130,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     o_cont.children[j].unwrap()
                         .tree_predicate_map(o_cont.path().push_tail(j as usize), f)
                 by {
-                    if j == idx {
-                        // Directly from the caller-provided precondition.
-                    } else {
-                        // children[j] == self.children[j]; path() equal;
-                        // transfer self.cont.map_children(f) at index j.
+                    if j != idx {
                         assert(o_cont.children[j] == s_cont.children[j]);
                         s_cont.inv_children_unroll(j);
                     }
@@ -158,10 +138,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             }
         };
 
-        // Part 2b: path_metaregion_sound(regions) for `other`.
-        //
-        // For i > L - 1: entry_own equals self's, and self's is metaregion_sound.
-        // For i == L - 1: caller-provided precondition.
         assert forall |i: int| #![trigger other.continuations[i]]
             other.level - 1 <= i < NR_LEVELS
         implies
@@ -171,12 +147,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(other.continuations[i] == self.continuations[i]);
                 self.inv_continuation(i);
             }
-            // i == L - 1: directly from precondition.
         };
 
-        // Part 3: metaregion_correct transfer.
         if self.metaregion_correct(regions) {
-            // Tree: for each continuation, `map_children(h)`.
             assert forall |i: int| #![trigger other.continuations[i]]
                 other.level - 1 <= i < NR_LEVELS
             implies
@@ -196,9 +169,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                         o_cont.children[j].unwrap()
                             .tree_predicate_map(o_cont.path().push_tail(j as usize), h)
                     by {
-                        if j == idx {
-                            // From caller-provided precondition.
-                        } else {
+                        if j != idx {
                             assert(o_cont.children[j] == s_cont.children[j]);
                             s_cont.inv_children_unroll(j);
                         }
@@ -206,7 +177,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 }
             };
 
-            // path_metaregion_correct: entry_own for each continuation.
             assert forall |i: int| #![trigger other.continuations[i]]
                 other.level - 1 <= i < NR_LEVELS
             implies
@@ -216,7 +186,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(other.continuations[i] == self.continuations[i]);
                     self.inv_continuation(i);
                 }
-                // i == L - 1: from precondition.
             };
         }
     }
@@ -371,11 +340,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.cur_entry_owner().is_absent(),
     {
-        // cur_entry_owner() = continuations[level-1].children[index()].unwrap().value
-        // From inv(): 0 <= index() < NR_ENTRIES, so precondition gives is_absent().
     }
-
-    // ─── Theme 14: Cursor path structure & jump utilities ────────────────
 
     pub proof fn cursor_path_nesting(self, i: int, j: int)
         requires
@@ -452,30 +417,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         vstd::arithmetic::power2::lemma2_to64_rest();
         vstd::arithmetic::power2::lemma_pow2_adds(12nat, 36nat);
     }
-
-    /// **Axiom**: dead-code helper kept for documentation.
-    ///
-    /// This lemma was written as scaffolding for the `jump` implementation
-    /// but ended up unused. Under the `top_bits` representation, the
-    /// `guard_level == NR_LEVELS` branch requires a `locked_range → same
-    /// top_bits` subsidiary lemma that hasn't been written. Since the
-    /// lemma is unused, we axiomatize it rather than write that machinery.
-    /// If a future refactor calls it, replace this with a proof.
-    pub axiom fn jump_above_locked_range_va_in_node(
-        self,
-        va: Vaddr,
-        node_start: Vaddr,
-    )
-        requires
-            self.inv(),
-            self.level == self.guard_level,
-            self.above_locked_range(),
-            self.locked_range().start <= va < self.locked_range().end,
-            node_start == nat_align_down(self.va.to_vaddr() as nat,
-                page_size((self.level + 1) as PagingLevel) as nat) as usize,
-        ensures
-            node_start <= va,
-            va < node_start + page_size((self.level + 1) as PagingLevel);
 
     pub proof fn jump_not_in_node_level_lt_guard_minus_one(
         self,

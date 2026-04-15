@@ -2988,7 +2988,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             let ghost ps = page_size_spec(level_after_find);
             assert forall |m: Mapping|
-                owner@.mappings.contains(m) && old_va <= m.va_range.start
+                #![auto] owner@.mappings.contains(m) && old_va <= m.va_range.start
                 && m.va_range.start < frag_va
             implies old(owner)@.mappings.contains(m)
             by {
@@ -3007,7 +3007,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     };
                     assert(view.split_while_huge(ps).mappings.contains(m));
                     view.split_while_huge_refinement(ps, m);
-                    let p = choose |p: Mapping| old(owner)@.mappings.contains(p)
+                    let p = choose |p: Mapping| #[trigger] old(owner)@.mappings.contains(p)
                         && p.va_range.start <= m.va_range.start
                         && m.va_range.end <= p.va_range.end;
                     if p.va_range.start >= old_va && p.va_range.start < frag_va {
@@ -3416,20 +3416,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     cont.map_children_lift(f_sound, g_sound);
                 } else {
                     let ghost new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
-                    // Flattened: prove the universal f_sound ==> g_sound directly
-                    // as a single `assert forall`. Verus recognizes this as
-                    // establishing `OwnerSubtree::implies(f_sound, g_sound)`.
                     assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                         e.inv() && f_sound(e, p) implies #[trigger] g_sound(e, p) by {
                         if e.meta_slot_paddr() is Some {
                             let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
                             if eidx == new_idx2 && e.is_node() {
-                                // paths_in_pt at new_idx2 is empty in r0 →
-                                // metaregion_sound(r0) for node requires non-empty → vacuous.
                                 assert(regions0.slot_owners[new_idx2].paths_in_pt.is_empty());
                             }
-                            // Sub-page validity preservation (frames with parent_level > 1):
-                            // the change at new_idx2 only affects paths_in_pt.
+
                             if e.is_frame() && e.parent_level > 1 {
                                 assert(e.frame_sub_pages_valid(*regions));
                             }
@@ -3485,6 +3479,9 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                             let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
                             if eidx == new_idx2 && e.is_node() {
                                 assert(regions0.slot_owners[new_idx2].paths_in_pt.is_empty());
+                            }
+                            if e.is_frame() && e.parent_level > 1 {
+                                assert(e.frame_sub_pages_valid(*regions));
                             }
                             if e.is_frame() && e.parent_level > 1 {
                                 assert(e.frame_sub_pages_valid(*regions));

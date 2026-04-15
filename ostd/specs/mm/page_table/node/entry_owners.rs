@@ -375,8 +375,6 @@ impl<C: PageTableConfig> EntryOwner<C> {
             &&& regions.slots[idx].is_init()
             &&& regions.slots[idx].value().wf(regions.slot_owners[idx])
             &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
-            // Phase 3b: frames track their map location via paths_in_pt membership.
-            // Supports sharing — one frame's slot may contain multiple tree paths.
             &&& regions.slot_owners[idx].paths_in_pt.contains(self.path)
             &&& self.frame_sub_pages_valid(regions)
         } else {

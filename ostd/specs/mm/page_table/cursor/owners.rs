@@ -1155,6 +1155,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             requires ad_q + 1 <= end_q, ps_i >= 0;
         vstd::arithmetic::mul::lemma_mul_is_distributive_add(ps_i, ad_q, 1);
         vstd::arithmetic::mul::lemma_mul_is_commutative(end_q, ps_i);
+        assert(ad + ps <= end);
+        assert(ad as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end);
     }
 
     pub proof fn locked_range_page_aligned(self)
