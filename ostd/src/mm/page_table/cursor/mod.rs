@@ -2256,6 +2256,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost owner0 = *owner;
         proof {
             assert(owner0.inv());
+            owner0.view_preserves_inv();
             owner0.split_while_huge_at_level_noop();
         }
 
@@ -2356,6 +2357,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         lemma_page_size_monotone(self.inner.level, level_pre_pt);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(level_pre_pt);
+                        owner0.view_preserves_inv();
                         owner0@.split_while_huge_compose(page_size(level_pre_pt), page_size(self.inner.level));
                         owner_pre_pt.split_while_huge_node_noop();
                         assert(child_entry_val == owner1.cur_entry_owner());
@@ -2373,6 +2376,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                     proof {
                         lemma_page_size_monotone(self.inner.level, level_pre_none);
+                        crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(level_pre_none);
+                        owner0.view_preserves_inv();
                         owner0@.split_while_huge_compose(page_size(level_pre_none), page_size(self.inner.level));
                         owner_pre_none.split_while_huge_absent_noop(page_size(self.inner.level));
                         assert(owner@ == owner0@.split_while_huge(page_size(self.inner.level)));
