@@ -564,11 +564,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
             };
 
             proof {
-                assert(metadata_fn.ensures((paddr_in,), (paddr, meta)));
-                assert(frame_perm.addr() == frame_to_meta(paddr));
-                assert(frame_perm.wf(&frame_perm.inner_perms));
-                assert(frame_perm.is_init());
-                assert(frame.constructor_requires(*regions)) by {};
                 perms.tracked_push(frame_perm);
             }
 
@@ -591,17 +586,9 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
                 range.start <= addr < range.end && addr % PAGE_SIZE == 0 implies {
                 &&& !regions.slots.contains_key(frame_to_index_spec(addr))
             } by {
-                // proof by contradiction
-                assert(addrs.contains(addr)) by {
-                    if !addrs.contains(addr) {
-                        let j = (addr - range.start) / PAGE_SIZE as int;
-                        assert(0 <= j < addrs.len() as usize) by {
-                            assert(addr >= range.start);
-                            assert(addr < range.end);
-                            assert(addr % PAGE_SIZE == 0);
-                        };
-                        assert(addrs[j as int] == addr);
-                    }
+                if !addrs.contains(addr) {
+                    let j = (addr - range.start) / PAGE_SIZE as int;
+                    assert(addrs[j as int] == addr);
                 }
             }
         }

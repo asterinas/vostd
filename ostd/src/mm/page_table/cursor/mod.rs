@@ -507,10 +507,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         regions.inv_implies_correct_addr(e.meta_slot_paddr().unwrap());
                     }
                     if e.is_frame() && e.parent_level > 1 {
-                        // For any 4KB sub-page j > 0 of e, the sub-page slot at sub_idx is either:
-                        //   - equal to the cursor's idx: rc went from rc to rc+1, still != UNUSED.
-                        //   - different from idx: slot is entirely unchanged.
-                        // Either way the sub-page validity conditions hold in *regions.
                         let pa = e.frame.unwrap().mapped_pa;
                         let nr_pages = page_size(e.parent_level) / PAGE_SIZE;
                         assert forall |j: usize| #![trigger frame_to_index((pa + j * PAGE_SIZE) as usize)]
@@ -873,16 +869,12 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                             owner.va.reflect_prop(self.va);
                             assert(*owner == owner_before_move.move_forward_owner_spec());
                             owner_before_move.move_forward_owner_preserves_mappings();
-                            // Empty filter proof (same pattern as ChildRef::None case):
                             if !split_happened {
                                 assert(owner@.mappings == old(owner)@.mappings);
                                 let ghost aligned_start = nat_align_down(va_before_move as nat, cur_slot_size as nat) as Vaddr;
-                                // From cur_subtree_eq_filtered_mappings: subtree mappings (empty) ==
-                                // mappings.filter(aligned_start <= start < aligned_start + ps)
                                 assert(old(owner)@.mappings.filter(|m: Mapping|
                                     aligned_start <= m.va_range.start < aligned_start + cur_slot_size as usize)
                                     =~= Set::<Mapping>::empty());
-                                // self.va == nat_align_up(va_before_move, ps) <= aligned_start + ps
                                 owner_before_move.va.align_up_concrete(owner_before_move.level as int);
                                 owner_before_move.va.align_up(owner_before_move.level as int).reflect_prop(
                                     nat_align_up(va_before_move as nat, cur_slot_size as nat) as Vaddr);
@@ -1036,8 +1028,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                         };
                     }
 
-                    // Sub-page slot validity for huge-page split: from frame_sub_pages_valid
-                    // (part of metaregion_sound for frames at parent_level > 1).
                     proof {
                         assert(child_owner.value.metaregion_sound(*regions));
                         if child_owner.value.is_frame() {
@@ -2198,7 +2188,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let tracked mut child_owner = continuation.take_child();
         let tracked mut parent_owner = continuation.entry_own.node.tracked_take();
 
-        // Sub-page slot validity: from frame_sub_pages_valid (part of metaregion_sound for frames).
         proof {
             assert(child_owner.value.metaregion_sound(*regions));
             if child_owner.value.is_frame() {
@@ -2584,10 +2573,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 CursorOwner::<'rcu, C>::node_unlocked(*guards),
             ));
 
-            // Phase 3b: install the new frame's path into paths_in_pt[pa_idx]
-            // so the frame-arm `contains(self.path)` clause of metaregion_sound
-            // is satisfied. Use `metaregion_preserved_under_path_insert` to
-            // propagate the edit through the cursor invariants.
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value.path;
             let tracked mut pa_slot_install = regions.slot_owners.tracked_remove(pa_idx_install);
@@ -2603,18 +2588,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
             assert(new_owner.value.metaregion_sound(*regions)) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
-                // Frame arm's `contains(new_frame_path)`: the insert just
-                // added it at `pa_idx_install`.
                 assert(regions.slot_owners[pa_idx_install].paths_in_pt
                     .contains(new_frame_path));
-                // Frame arm's `frame_sub_pages_valid`: sub-pages at j>0
-                // have indices != pa_idx_install, so slots at those
-                // indices are unchanged from regions_before_new_child.
                 assert(new_owner.value.frame_sub_pages_valid(*regions));
             };
 
-            // metaregion_correct: conditional on mc AND item_not_mapped.
-            // item_not_mapped gives paths_in_pt.is_empty() at pa_idx → enables write_path.
             if owner1.metaregion_correct(regions_before_new_child)
                 && Self::item_not_mapped(item, *old(regions))
             {
@@ -2630,10 +2608,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(new_owner.value.meta_slot_paddr() == Some(pa));
             }
 
-            // Phase 3b: regions differs from regions_before_new_child only at
-            // pa_idx_install (inserted path). Slots are unchanged. Every
-            // slot_owner's inv() only constrains inner_perms/self_addr/usage
-            // (not paths_in_pt), so slot-wise inv() is preserved.
             assert(regions.inv()) by {
                 assert(regions.slots =~= regions_before_new_child.slots);
                 assert forall |i: usize| #[trigger] regions.slots.contains_key(i) implies {
@@ -2645,11 +2619,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     &&& regions.slot_owners[i].self_addr == regions.slots[i].addr()
                 } by {
                     assert(regions_before_new_child.slots.contains_key(i));
-                    if i != pa_idx_install {
-                        // Slot entirely unchanged.
-                    } else {
-                        // Only paths_in_pt differs; inv() and wf() don't
-                        // touch paths_in_pt.
+                    if i == pa_idx_install {
                         assert(regions_before_new_child.slot_owners[pa_idx_install].inv());
                     }
                 };
@@ -3266,10 +3236,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 old(owner).cur_subtree(),
             )@.mappings + PageTableOwner(new_owner)@.mappings,
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            // metaregion_correct is maintained when mc holds and either (a) the
-            // new_owner's slot had an empty paths_in_pt (legacy item_not_mapped
-            // path) or (b) no PT node in the cursor tree has the new_owner's
-            // slot index (Phase 3b: frame slot ≠ node metadata slot).
             old(owner).metaregion_correct(*old(regions))
                 && (new_owner.value.is_absent() || old(regions).slot_owners[
                     frame_to_index(new_owner.value.meta_slot_paddr().unwrap())
@@ -3449,31 +3415,27 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     // Old child is absent or frame, no path write: metaregion_sound_preserved.
                     cont.map_children_lift(f_sound, g_sound);
                 } else {
-
                     let ghost new_idx2 = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
-                    assert(OwnerSubtree::implies(f_sound, g_sound)) by {
-                        assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                            e.inv() && f_sound(e, p) implies #[trigger] g_sound(e, p) by {
-                            if e.meta_slot_paddr() is Some {
-                                let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
-                                if eidx == new_idx2 {
-                                    if e.is_node() {
-                                        // paths_in_pt at new_idx2 is empty in r0 →
-                                        // metaregion_sound(r0) for node requires Some → false → vacuous.
-                                        assert(regions0.slot_owners[new_idx2].paths_in_pt.is_empty());
-                                    }
-                                    // Frame at new_idx2: slots unchanged, slot_owners fields
-                                    // besides paths_in_pt unchanged → metaregion_sound preserved.
-                                }
-                                // Sub-page validity preservation (for frames with parent_level > 1):
-                                // The change at new_idx2 only affects paths_in_pt, which
-                                // sub-page validity no longer depends on.
-                                if e.is_frame() && e.parent_level > 1 {
-                                    assert(e.frame_sub_pages_valid(*regions));
-                                }
+                    // Flattened: prove the universal f_sound ==> g_sound directly
+                    // as a single `assert forall`. Verus recognizes this as
+                    // establishing `OwnerSubtree::implies(f_sound, g_sound)`.
+                    assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+                        e.inv() && f_sound(e, p) implies #[trigger] g_sound(e, p) by {
+                        if e.meta_slot_paddr() is Some {
+                            let eidx = frame_to_index(e.meta_slot_paddr().unwrap());
+                            if eidx == new_idx2 && e.is_node() {
+                                // paths_in_pt at new_idx2 is empty in r0 →
+                                // metaregion_sound(r0) for node requires non-empty → vacuous.
+                                assert(regions0.slot_owners[new_idx2].paths_in_pt.is_empty());
                             }
-                        };
+                            // Sub-page validity preservation (frames with parent_level > 1):
+                            // the change at new_idx2 only affects paths_in_pt.
+                            if e.is_frame() && e.parent_level > 1 {
+                                assert(e.frame_sub_pages_valid(*regions));
+                            }
+                        }
                     };
+                    assert(OwnerSubtree::implies(f_sound, g_sound));
                     cont.map_children_lift(f_sound, g_sound);
                     cont.map_children_lift(f_sound, g_sound);
                 }
@@ -3610,20 +3572,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     || (!pre_new_owner_value.is_node()
                         && owner0.no_node_at_idx(frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap()))))
             {
-                // Since path_tracked_pred is now node-only, f_neq_new only needs to cover nodes.
                 let f_neq_new = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.is_node() ==> entry.meta_slot_paddr_neq(pre_new_owner_value);
                 let f_path = PageTableOwner::<C>::path_tracked_pred(regions0);
                 let g_path = PageTableOwner::<C>::path_tracked_pred(*regions);
 
-                // Derive `map_full_tree(f_neq_new)`: no PT node in the tree
-                // shares the new entry's paddr. Three cases:
-                //  (1) absent: f_neq_new vacuously true (meta_slot_paddr_neq
-                //      of an absent entry is always true).
-                //  (2) is_empty: universal implication f_sound ==> f_neq_new
-                //      holds, so transfer via `not_in_tree_from_not_mapped`.
-                //  (3) no_node_at_idx: use the tree-wide no-node guard to
-                //      transfer src ==> f_neq_new via `map_children_implies`.
                 if pre_new_owner_value.meta_slot_paddr() is Some {
                     let new_idx = frame_to_index(pre_new_owner_value.meta_slot_paddr().unwrap());
                     if regions0.slot_owners[new_idx].paths_in_pt.is_empty() {
@@ -3642,10 +3595,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         owner0.map_children_implies(src, f_neq_new);
                     }
                 } else {
-                    // Absent: `f_neq_new` is vacuously true (meta_slot_paddr_neq
-                    // of an absent entry is trivially satisfied), so
-                    // `implies(f_sound, f_neq_new)` holds universally and we
-                    // can lift `f_sound` tree-wide to `f_neq_new`.
                     assert(OwnerSubtree::implies(f_sound, f_neq_new)) by {
                         assert forall |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
                             e.inv() && f_sound(e, p)
@@ -3866,25 +3815,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                         #[trigger] owner.continuations[i].node_locked(*guards) by {
                         let cont = owner.continuations[i];
                         let cont_addr = cont.guard_perm.value().inner.inner@.ptr.addr();
-                        // Continuations preserved by dfs at i >= owner.level - 1.
                         assert(owner.continuations[i].guard_perm == owner_before_dfs.continuations[i].guard_perm);
-                        // From owner_before_dfs.nodes_locked(guards1):
                         assert(owner_before_dfs.nodes_locked(guards1));
                         assert(guards1.lock_held(cont_addr));
-                        // From owner.nodes_locked(guards0) (cursor invariant before make_guard_unchecked):
                         assert(guards0.lock_held(cont_addr));
-                        // locked_addr was unlocked in guards0 (make_guard_unchecked precondition).
                         assert(guards0.unlocked(locked_addr));
-                        // Therefore cont_addr != locked_addr.
-                        assert(cont_addr != locked_addr);
-                        // dfs postcondition: addr != locked_addr && old.lock_held ==> new.lock_held.
                         assert(guards.lock_held(cont_addr));
                     };
 
                     let ghost pt_idx = pt.index();
                     assert(regions_before_borrow =~= regions_after_replace);
-                    // Frame::borrow postcondition gives slots monotonicity with value
-                    // preservation for k != pt_idx. metaregion_borrow_slot uses changed_idx = pt_idx.
 
                     owner_after_replace.metaregion_borrow_slot(
                         regions_after_replace,

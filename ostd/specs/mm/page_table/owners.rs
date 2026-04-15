@@ -1406,19 +1406,19 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         } else if subtree.level == INC_LEVELS - 1 || !subtree.value.is_node() {
             proof_from_false()
         } else {
-            assert(root_path.len() < dest_path.len()) by {
-                assert(root_path.len() <= dest_path.len());
-                if root_path.len() == dest_path.len() {
-                    assert(root_path =~= dest_path) by {
-                        assert(root_path.0.len() == dest_path.0.len());
-                        assert forall |i: int| 0 <= i < root_path.0.len() implies #[trigger] root_path.0[i] == dest_path.0[i] by {
-                            assert(root_path.index(i) == dest_path.index(i));
-                        };
-                    };
-                    assert(root_path == dest_path);
-                    assert(false);
-                }
-            };
+            assert(root_path.len() <= dest_path.len());
+            if root_path.len() == dest_path.len() {
+                assert(root_path.0.len() == dest_path.0.len());
+                assert forall |i: int| 0 <= i < root_path.0.len()
+                    implies #[trigger] root_path.0[i] == dest_path.0[i]
+                by {
+                    assert(root_path.index(i) == dest_path.index(i));
+                };
+                assert(root_path =~= dest_path);
+                assert(root_path == dest_path);
+                assert(false);
+            }
+            assert(root_path.len() < dest_path.len());
             let i = dest_path.index(root_path.len() as int);
             assert(0 <= i < NR_ENTRIES);
             assert(subtree.children[i as int] is Some);
@@ -1461,34 +1461,31 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i = self.view_rec_contains_choose(path, m);
             let entry = PageTableOwner(self.0.children[i].unwrap()).view_rec_inversion(path.push_tail(i as usize), regions, m);
             Self::prefix_transitive(path, path.push_tail(i as usize), entry.path);
-            assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
-                    self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
-                        Self::is_at_pred(entry, entry.path))
-                by {
-                    if j != i {
-                        assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path)) by {
-                            Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
-                        }
-                        Self::is_at_holds_when_on_wrong_path(self.0.children[j].unwrap(),
-                            path.push_tail(j as usize), entry.path, entry);
-                    }
-                };
+            assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
+                self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
+                    Self::is_at_pred(entry, entry.path))
+            by {
+                if j != i {
+                    Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
+                    assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path));
+                    Self::is_at_holds_when_on_wrong_path(self.0.children[j].unwrap(),
+                        path.push_tail(j as usize), entry.path, entry);
+                }
             };
-            assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path))) by {
-                assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
-                    self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
-                        Self::path_in_tree_pred(entry.path))
-                by {
-                    if j != i {
-                        assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path)) by {
-                            Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
-                        }
-                        Self::path_in_tree_holds_when_on_wrong_path(self.0.children[j].unwrap(),
-                            path.push_tail(j as usize), entry.path);
-                    }
-                };
+            assert(self.0.tree_predicate_map(path, Self::is_at_pred(entry, entry.path)));
+
+            assert forall |j: int| 0 <= j < NR_ENTRIES && #[trigger] self.0.children[j] is Some implies
+                self.0.children[j].unwrap().tree_predicate_map(path.push_tail(j as usize),
+                    Self::path_in_tree_pred(entry.path))
+            by {
+                if j != i {
+                    Self::prefix_push_different_indices(path, entry.path, i as usize, j as usize);
+                    assert(!Self::is_prefix_of(path.push_tail(j as usize), entry.path));
+                    Self::path_in_tree_holds_when_on_wrong_path(self.0.children[j].unwrap(),
+                        path.push_tail(j as usize), entry.path);
+                }
             };
+            assert(self.0.tree_predicate_map(path, Self::path_in_tree_pred(entry.path)));
             entry
         } else {
             proof_from_false()

@@ -31,18 +31,58 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// lives in `FRAME_METADATA_RANGE`, which is disjoint from any data-frame
     /// paddr (where `paths_in_pt` inserts happen).
     pub open spec fn no_node_at_idx(self, idx: usize) -> bool {
-        // No node among the tree's children has slot index `idx`.
         &&& self.map_full_tree(
             |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
                 e.is_node() && e.meta_slot_paddr() is Some
                     ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx)
-        // No node along the continuation path has slot index `idx`.
         &&& forall |i: int| #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS ==> {
                 let e = self.continuations[i].entry_own;
                 e.is_node() && e.meta_slot_paddr() is Some
                     ==> frame_to_index(e.meta_slot_paddr().unwrap()) != idx
             }
+    }
+
+    /// Pointwise conjunction of two tree-wide predicates: if `self.map_full_tree(f)`
+    /// and `self.map_full_tree(guard)` hold, then `self.map_full_tree(f && guard)`
+    /// holds. A thin wrapper around `OwnerSubtree::map_implies_and` applied per
+    /// continuation + per child; extracted so callers don't have to re-derive
+    /// the same nested `assert forall ... by { map_implies_and(...) }` block.
+    pub proof fn and_map_full_tree(
+        self,
+        f: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+        guard: spec_fn(EntryOwner<C>, TreePath<NR_ENTRIES>) -> bool,
+    )
+        requires
+            self.inv(),
+            self.map_full_tree(f),
+            self.map_full_tree(guard),
+        ensures
+            self.map_full_tree(
+                |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>| f(e, p) && guard(e, p)),
+    {
+        let combined = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
+            f(e, p) && guard(e, p);
+        assert forall |i: int| #![trigger self.continuations[i]]
+            self.level - 1 <= i < NR_LEVELS
+        implies
+            self.continuations[i].map_children(combined)
+        by {
+            let cont = self.continuations[i];
+            reveal(CursorContinuation::inv_children);
+            assert forall |j: int| #![trigger cont.children[j]]
+                0 <= j < cont.children.len() && cont.children[j] is Some
+            implies
+                cont.children[j].unwrap()
+                    .tree_predicate_map(cont.path().push_tail(j as usize), combined)
+            by {
+                cont.inv_children_unroll(j);
+                OwnerSubtree::map_implies_and(
+                    cont.children[j].unwrap(),
+                    cont.path().push_tail(j as usize),
+                    f, guard, combined);
+            };
+        };
     }
 
     /// Discharge `no_node_at_idx(changed_idx)` from the observation that
@@ -70,57 +110,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.no_node_at_idx(changed_idx),
     {
-        // Tree children: for each continuation i, for each child at index j,
-        // each entry in that child's subtree is either a non-node or a node
-        // whose paddr idx is != changed_idx (by active_entry_not_in_free_pool).
-        assert(self.map_full_tree(
-            |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                e.is_node() && e.meta_slot_paddr() is Some
-                    ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx))
-        by {
-            assert forall |i: int| #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-            implies
-                self.continuations[i].map_children(
-                    |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                        e.is_node() && e.meta_slot_paddr() is Some
-                            ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx)
-            by {
-                let cont = self.continuations[i];
-                reveal(CursorContinuation::inv_children);
-                // Derive the no-node fact from metaregion_sound_pred via
-                // active_entry_not_in_free_pool on each child subtree.
-                let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
-                let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                    e.is_node() && e.meta_slot_paddr() is Some
-                        ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx;
-                assert(OwnerSubtree::implies(msp, target)) by {
-                    assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                        entry.inv() && msp(entry, path)
-                    implies #[trigger] target(entry, path) by {
-                        if entry.is_node() && entry.meta_slot_paddr() is Some {
-                            EntryOwner::<C>::active_entry_not_in_free_pool(
-                                entry, regions, changed_idx);
-                        }
-                    };
-                };
-                assert forall |j: int| #![trigger cont.children[j]]
-                    0 <= j < cont.children.len() && cont.children[j] is Some
-                implies
-                    cont.children[j].unwrap()
-                        .tree_predicate_map(cont.path().push_tail(j as usize), target)
-                by {
-                    cont.inv_children_unroll(j);
-                    OwnerSubtree::map_implies(
-                        cont.children[j].unwrap(),
-                        cont.path().push_tail(j as usize),
-                        msp, target);
+        let msp = PageTableOwner::<C>::metaregion_sound_pred(regions);
+        let target = |e: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            e.is_node() && e.meta_slot_paddr() is Some
+                ==> frame_to_index(e.meta_slot_paddr().unwrap()) != changed_idx;
+
+        assert(OwnerSubtree::implies(msp, target)) by {
+            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
+                entry.inv() && msp(entry, path)
+            implies #[trigger] target(entry, path) by {
+                if entry.is_node() && entry.meta_slot_paddr() is Some {
+                    EntryOwner::<C>::active_entry_not_in_free_pool(
+                        entry, regions, changed_idx);
                 }
             };
         };
+        self.map_children_implies(msp, target);
 
-        // Continuation path: every continuation entry is a page-table node,
-        // and its metaregion_sound gives us active_entry_not_in_free_pool.
         assert forall |i: int| #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS
         implies {
@@ -172,11 +178,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions0);
         let g = PageTableOwner::<C>::metaregion_sound_pred(regions1);
-
+        let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
+            entry.is_node() && entry.meta_slot_paddr() is Some
+                ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx;
         let f_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-            f(entry, path)
-            && (entry.is_node() && entry.meta_slot_paddr() is Some
-                ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx);
+            f(entry, path) && guard(entry, path);
 
         assert(OwnerSubtree::implies(f_strong, g)) by {
             assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
@@ -198,31 +204,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             };
         };
 
-        assert(self.map_full_tree(f_strong)) by {
-            assert forall |i: int| #![trigger self.continuations[i]]
-                self.level - 1 <= i < NR_LEVELS
-            implies
-                self.continuations[i].map_children(f_strong) by {
-                let cont = self.continuations[i];
-                reveal(CursorContinuation::inv_children);
-                assert forall |j: int| #![trigger cont.children[j]]
-                    0 <= j < cont.children.len() && cont.children[j] is Some
-                implies
-                    cont.children[j].unwrap()
-                        .tree_predicate_map(cont.path().push_tail(j as usize), f_strong)
-                by {
-                    cont.inv_children_unroll(j);
-                    let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                        entry.is_node() && entry.meta_slot_paddr() is Some
-                            ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx;
-                    OwnerSubtree::map_implies_and(
-                        cont.children[j].unwrap(),
-                        cont.path().push_tail(j as usize),
-                        f, guard, f_strong);
-                }
-            };
-        };
-
+        self.and_map_full_tree(f, guard);
         self.map_children_implies(f_strong, g);
 
         assert forall |i: int| #![trigger self.continuations[i]]
@@ -231,7 +213,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[i].entry_own.metaregion_sound(regions1)
         by {
             let cont_entry = self.continuations[i].entry_own;
-            assert(cont_entry.metaregion_sound(regions0));
             if cont_entry.meta_slot_paddr() is Some {
                 cont_entry.metaregion_sound_one_slot_changed(
                     regions0, regions1, changed_idx);
@@ -242,46 +223,15 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             let e = PageTableOwner::<C>::path_tracked_pred(regions0);
             let h = PageTableOwner::<C>::path_tracked_pred(regions1);
             let e_strong = |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                e(entry, path)
-                && (entry.is_node() && entry.meta_slot_paddr() is Some
-                    ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx);
+                e(entry, path) && guard(entry, path);
 
             assert(OwnerSubtree::implies(e_strong, h)) by {
                 assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
                     entry.inv() && e_strong(entry, path)
-                implies #[trigger] h(entry, path) by {
-                    if entry.is_node() && entry.meta_slot_paddr() is Some {
-                        let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
-                        assert(eidx != changed_idx);
-                    }
-                };
+                implies #[trigger] h(entry, path) by {};
             };
 
-            assert(self.map_full_tree(e_strong)) by {
-                assert forall |i: int| #![trigger self.continuations[i]]
-                    self.level - 1 <= i < NR_LEVELS
-                implies
-                    self.continuations[i].map_children(e_strong) by {
-                    let cont = self.continuations[i];
-                    reveal(CursorContinuation::inv_children);
-                    assert forall |j: int| #![trigger cont.children[j]]
-                        0 <= j < cont.children.len() && cont.children[j] is Some
-                    implies
-                        cont.children[j].unwrap()
-                            .tree_predicate_map(cont.path().push_tail(j as usize), e_strong)
-                    by {
-                        cont.inv_children_unroll(j);
-                        let guard = |entry: EntryOwner<C>, _p: TreePath<NR_ENTRIES>|
-                            entry.is_node() && entry.meta_slot_paddr() is Some
-                                ==> frame_to_index(entry.meta_slot_paddr().unwrap()) != changed_idx;
-                        OwnerSubtree::map_implies_and(
-                            cont.children[j].unwrap(),
-                            cont.path().push_tail(j as usize),
-                            e, guard, e_strong);
-                    }
-                };
-            };
-
+            self.and_map_full_tree(e, guard);
             self.map_children_implies(e_strong, h);
 
             assert forall |i: int| #![trigger self.continuations[i]]
@@ -290,13 +240,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 PageTableOwner::<C>::path_tracked_pred(regions1)(
                     self.continuations[i].entry_own,
                     self.continuations[i].path())
-            by {
-                let entry = self.continuations[i].entry_own;
-                if entry.is_node() && entry.meta_slot_paddr() is Some {
-                    let eidx = frame_to_index(entry.meta_slot_paddr().unwrap());
-                    assert(eidx != changed_idx);
-                }
-            };
+            by {};
         }
     }
 }

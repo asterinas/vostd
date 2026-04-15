@@ -384,7 +384,6 @@ impl VmIoOwner<'_> {
         let start = self.range@.start;
         let old_end = self.range@.end;
         self.range = Ghost((start + nbytes) as usize..self.range@.end);
-        // Take this option and leaves the `None` in its place temporarily.
         let tracked inner = self.mem_view.tracked_take();
         let tracked ret_perm = match inner {
             VmIoMemView::WriteView(mv) => {
@@ -393,16 +392,15 @@ impl VmIoOwner<'_> {
                 assert(forall|va: usize|
                     start <= va < start + nbytes ==> mv.addr_transl(va) is Some);
 
-                // Update the mem view to the remaining part.
                 self.mem_view = Some(VmIoMemView::WriteView(rhs));
 
                 assert(self.inv()) by {
+                    broadcast use vstd::set::group_set_axioms;
+                    assert(old(self).inv());
                     assert forall|va: usize| start + nbytes <= va < old_end implies {
                         #[trigger] rhs.addr_transl(va) is Some
                     } by {
-                        assert(mv.addr_transl(va) is Some) by {
-                            assert(old(self).inv());
-                        }
+                        assert(mv.addr_transl(va) is Some);
 
                         let old_mappings = mv.mappings.filter(
                             |m: Mapping| m.va_range.start <= va < m.va_range.end,
@@ -420,24 +418,19 @@ impl VmIoOwner<'_> {
                                     + nbytes,
                         ));
 
-                        assert(new_mappings.len() != 0) by {
-                            broadcast use vstd::set::group_set_axioms;
-
-                            let m = old_mappings.choose();
-                            // m.start <= va < m.end
-                            assert(start + nbytes <= va);
-                            assert(m.va_range.end > va) by {
-                                if (m.va_range.end <= va) {
-                                    assert(!old_mappings.contains(m));
-                                }
-                            }
-                            assert(m.va_range.end > start + nbytes);
-                            assert(old_mappings.contains(m));
-                            assert(old_mappings.subset_of(mv.mappings));
-                            assert(rhs.mappings.contains(m));
-                            assert(new_mappings.contains(m));
-                            assert(new_mappings.len() >= 1);
+                        let m = old_mappings.choose();
+                        assert(start + nbytes <= va);
+                        if (m.va_range.end <= va) {
+                            assert(!old_mappings.contains(m));
                         }
+                        assert(m.va_range.end > va);
+                        assert(m.va_range.end > start + nbytes);
+                        assert(old_mappings.contains(m));
+                        assert(old_mappings.subset_of(mv.mappings));
+                        assert(rhs.mappings.contains(m));
+                        assert(new_mappings.contains(m));
+                        assert(new_mappings.len() >= 1);
+                        assert(new_mappings.len() != 0);
                     }
                 }
 
@@ -445,9 +438,6 @@ impl VmIoOwner<'_> {
             },
             VmIoMemView::ReadView(mv) => {
                 let tracked sub_view = mv.borrow_at(start, nbytes);
-                // Since reads are shared so we don't need to
-                // modify the original view; here we just put
-                // it back.
                 self.mem_view = Some(VmIoMemView::ReadView(mv));
                 VmIoMemView::ReadView(sub_view)
             },

@@ -355,13 +355,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             let nr_children = guard.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
-                // `old_child.is_none()` means `owner` is absent. By match_pte,
-                // the stored PTE at `self.idx` is then non-present. Apply the
-                // boundary axiom to get `nr_children < NR_ENTRIES`.
-                assert(owner.is_absent());
-                let stored = parent_owner.children_perm.value()[self.idx as int];
-                assert(owner.match_pte(stored, owner.parent_level));
-                assert(!stored.is_present());
                 parent_owner.nr_children_absent_slot_bound(self.idx);
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp + 1);
@@ -370,13 +363,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             let nr_children = guard.nr_children_mut();
             let _tmp = nr_children.read(Tracked(&parent_owner.meta_own.nr_children));
             proof {
-                // `!old_child.is_none()` means `owner` is a node or frame.
-                // Either way, match_pte forces the stored PTE to be present.
-                // Apply the boundary axiom to get `nr_children > 0`.
-                assert(owner.is_node() || owner.is_frame());
-                let stored = parent_owner.children_perm.value()[self.idx as int];
-                assert(owner.match_pte(stored, owner.parent_level));
-                assert(stored.is_present());
                 parent_owner.nr_children_present_slot_bound(self.idx);
             }
             nr_children.write(Tracked(&mut parent_owner.meta_own.nr_children), _tmp - 1);
@@ -596,17 +582,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
             #[verus_spec(with Tracked(&new_node_owner.value.node.tracked_borrow()), Tracked(guards) => Tracked(guard_perm))]
             let pt_lock_guard = pt_ref.lock(guard);
 
-            // Before the write, the slot at self.idx is absent (the alloc
-            // branch only fires when `!entry_is_present`, which by match_pte
-            // forces the stored PTE to be non-present). Apply the boundary
-            // axiom to get `nr_children < NR_ENTRIES`. `write_pte` below
-            // preserves `meta_own` (and hence nr_children), so the bound
-            // still holds when we read it.
             proof {
-                assert(owner.value.is_absent());
-                let stored = parent_owner.children_perm.value()[self.idx as int];
-                assert(owner.value.match_pte(stored, owner.value.parent_level));
-                assert(!stored.is_present());
                 parent_owner.nr_children_absent_slot_bound(self.idx);
             }
 
@@ -924,55 +900,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 let idx = frame_to_index(small_pa);
                 assert(idx == frame_to_index(
                     (pa + i * page_size((level - 1) as PagingLevel)) as usize));
-                // Case split: i == 0 uses the j=0 loop invariant; i > 0
-                // instantiates the j > 0 sub-page forall at j = i * sub_pages_per_entry.
-                if i == 0 {
-                    assert(small_pa == pa);
-                    assert(idx == frame_to_index(pa));
-                } else {
-                    let ghost sub_pages_per_entry: int =
-                        (page_size((level - 1) as PagingLevel) / PAGE_SIZE) as int;
-                    let ghost big_j_int: int = i as int * sub_pages_per_entry;
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_page_size_div_mul_eq((level - 1) as PagingLevel);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_page_size_div_mul_eq(level);
-                    crate::specs::mm::page_table::cursor::page_size_lemmas::
-                        lemma_nr_entries_times_sub_page_size(level);
-                    // sub_pages_per_entry > 0.
-                    assert(sub_pages_per_entry > 0);
-                    // big_j_int > 0: i >= 1 and sub_pages_per_entry >= 1.
-                    vstd::arithmetic::mul::lemma_mul_strictly_positive(
-                        i as int, sub_pages_per_entry);
-                    assert(big_j_int > 0);
-                    // big_j_int < page_size(level)/PAGE_SIZE:
-                    //   big_j_int = i * sub_pages_per_entry
-                    //             < NR_ENTRIES * sub_pages_per_entry
-                    //             = page_size(level) / PAGE_SIZE.
-                    assert(i < NR_ENTRIES);
-                    vstd::arithmetic::mul::lemma_mul_strict_inequality(
-                        i as int, NR_ENTRIES as int, sub_pages_per_entry);
-                    vstd::arithmetic::mul::lemma_mul_is_associative(
-                        NR_ENTRIES as int, sub_pages_per_entry, PAGE_SIZE as int);
-                    vstd::arithmetic::div_mod::lemma_div_by_multiple(
-                        NR_ENTRIES as int * sub_pages_per_entry, PAGE_SIZE as int);
-                    assert(NR_ENTRIES as int * sub_pages_per_entry
-                        == (page_size(level) / PAGE_SIZE) as int);
-                    assert(big_j_int < (page_size(level) / PAGE_SIZE) as int);
-                    let ghost big_j: usize = big_j_int as usize;
-                    assert(big_j as int == big_j_int);
-                    assert(0 < big_j < page_size(level) / PAGE_SIZE);
-                    // small_pa = pa + i * page_size(level-1)
-                    //          = pa + big_j * PAGE_SIZE
-                    vstd::arithmetic::mul::lemma_mul_is_associative(
-                        i as int, sub_pages_per_entry, PAGE_SIZE as int);
-                    assert(small_pa as int == pa as int + big_j_int * PAGE_SIZE as int);
+                if i != 0 {
+                    let ghost big_j = crate::specs::mm::page_table::cursor::
+                        page_size_lemmas::lemma_split_sub_page_big_j(pa, level, i);
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
-                    assert(idx == frame_to_index((pa + big_j * PAGE_SIZE) as usize));
-                    // Instantiate the j > 0 forall at big_j.
-                    assert(regions.slots.contains_key(idx));
-                    assert(regions.slot_owners[idx].inner_perms.ref_count.value()
-                        != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED);
                 }
 
                 assert(entry.node_matching(new_owner_child.value, new_owner_node, new_guard_perm)) by {
@@ -986,19 +917,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     );
                 };
 
-                // For sub-frames at level - 1: if level - 1 > 1, the sub-frame is itself
-                // a huge frame and needs sub-sub-page validity. Now derivable since
-                // frame_sub_pages_valid is fine-grained (over all 4KB sub-pages):
-                // - The original frame at pa has all 4KB slots in [pa, pa + page_size(level)) valid.
-                // - The sub-frame child_owner at small_pa = pa + i * page_size(level - 1)
-                //   needs its own 4KB slots in [small_pa, small_pa + page_size(level - 1)) valid.
-                // - This range is a sub-range of the original [pa, pa + page_size(level)).
-                // - For each j' in (0, page_size(level - 1)/PAGE_SIZE), we need
-                //   slots.contains_key(small_pa + j' * PAGE_SIZE).
-                // - small_pa + j' * PAGE_SIZE = pa + (i * (page_size(level-1)/PAGE_SIZE) + j') * PAGE_SIZE.
-                // - Let J = i * (page_size(level-1)/PAGE_SIZE) + j'. J >= j' >= 1, and
-                //   J < (i+1) * (page_size(level-1)/PAGE_SIZE) <= NR_ENTRIES * (page_size(level-1)/PAGE_SIZE)
-                //   = page_size(level)/PAGE_SIZE. So J is in the original forall's range.
                 if level - 1 > 1 {
                     let nr_subpages = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                     crate::specs::mm::page_table::cursor::page_size_lemmas::
@@ -1016,71 +934,34 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
-                        // big_j_int > 0: j_prime >= 1, i >= 0, sub_pages_per_subframe > 0.
                         vstd::arithmetic::mul::lemma_mul_nonnegative(
                             i as int, sub_pages_per_subframe as int);
-                        assert(big_j_int > 0);
-                        // big_j_int < (i+1) * sub_pages_per_subframe <= NR_ENTRIES * sub_pages_per_subframe
-                        //   = page_size(level)/PAGE_SIZE
-                        assert(i + 1 <= NR_ENTRIES);
                         vstd::arithmetic::mul::lemma_mul_inequality(
                             (i + 1) as int, NR_ENTRIES as int, sub_pages_per_subframe as int);
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             sub_pages_per_subframe as int, i as int, 1int);
-                        assert(big_j_int < NR_ENTRIES as int * sub_pages_per_subframe as int);
-                        // NR_ENTRIES * sub_pages_per_subframe == page_size(level)/PAGE_SIZE
-                        // chained from:
-                        //   page_size(level-1) = sub_pages_per_subframe * PAGE_SIZE  (div_mul_eq L-1)
-                        //   page_size(level) = NR_ENTRIES * page_size(level-1)  (lemma_nr_entries_times_sub_page_size L)
-                        //   page_size(level)/PAGE_SIZE * PAGE_SIZE = page_size(level)  (div_mul_eq L)
                         vstd::arithmetic::mul::lemma_mul_is_associative(
                             NR_ENTRIES as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
-                        // From the chain: NR_ENTRIES * sub_pages_per_subframe * PAGE_SIZE == page_size(level)
-                        // Since both sides are multiples of PAGE_SIZE > 0, dividing gives equality.
                         vstd::arithmetic::div_mod::lemma_div_by_multiple(
                             NR_ENTRIES as int * sub_pages_per_subframe as int, PAGE_SIZE as int);
-                        assert(NR_ENTRIES as int * sub_pages_per_subframe as int
-                            == (page_size(level) / PAGE_SIZE) as int);
-                        assert(big_j_int < (page_size(level) / PAGE_SIZE) as int);
-                        // big_j_int fits in usize (it's < page_size(level)/PAGE_SIZE which fits in usize).
                         let big_j: usize = big_j_int as usize;
-                        assert(big_j as int == big_j_int);
-                        // small_pa + j_prime * PAGE_SIZE == pa + big_j * PAGE_SIZE
-                        // small_pa = pa + i * page_size(level-1)
-                        //          = pa + i * sub_pages_per_subframe * PAGE_SIZE
-                        // small_pa + j_prime*PAGE_SIZE
-                        //   = pa + i * sub_pages_per_subframe * PAGE_SIZE + j_prime * PAGE_SIZE
-                        //   = pa + (i * sub_pages_per_subframe + j_prime) * PAGE_SIZE
-                        //   = pa + big_j * PAGE_SIZE
-                        assert(small_pa as int == pa as int + i as int * page_size((level - 1) as PagingLevel) as int);
                         vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
                             PAGE_SIZE as int,
                             i as int * sub_pages_per_subframe as int,
                             j_prime as int);
                         vstd::arithmetic::mul::lemma_mul_is_associative(
                             i as int, sub_pages_per_subframe as int, PAGE_SIZE as int);
-                        assert((small_pa + j_prime * PAGE_SIZE) as int == (pa + big_j_int * PAGE_SIZE) as int);
-                        assert(big_j as int == big_j_int);
                         assert((small_pa + j_prime * PAGE_SIZE) as usize == (pa + big_j * PAGE_SIZE) as usize);
-                        let big_sub_idx = frame_to_index((pa + big_j * PAGE_SIZE) as usize);
-                        assert(regions.slots.contains_key(big_sub_idx));
-                        assert(regions.slot_owners[big_sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
                     }
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
 
-                // Phase 3b: install the sub-frame's path into
-                // paths_in_pt[small_idx] so the frame-arm
-                // `contains(child_owner.path)` clause holds before the
-                // `replace(Child::Frame(...))` call.
                 let small_idx = frame_to_index(small_pa);
                 regions.inv_implies_correct_addr(small_pa);
                 let tracked mut small_slot = regions.slot_owners.tracked_remove(small_idx);
                 small_slot.paths_in_pt = small_slot.paths_in_pt.insert(child_owner.path);
                 regions.slot_owners.tracked_insert(small_idx, small_slot);
 
-                // After the insert, sub-page validity for j>0 indices
-                // (which are != small_idx) is unchanged.
                 if (level - 1) > 1 {
                     assert(child_owner.frame_sub_pages_valid(*regions));
                 }
