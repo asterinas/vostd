@@ -78,7 +78,7 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
                 i != idx ==> regions2.slot_owners[i] == regions0.slot_owners[i])
             && regions2.slot_owners.dom() =~= regions0.slot_owners.dom()
             && regions2.slots =~= regions1.slots
-            && regions2.inv()
+            && #[trigger] regions2.inv()
         by {
             assert forall |i: usize| i != idx implies
                 #[trigger] regions2.slot_owners[i] == regions0.slot_owners[i]
