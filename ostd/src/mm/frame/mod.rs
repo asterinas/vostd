@@ -438,11 +438,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
         // SAFETY: Both the lifetime and the type matches `self`.
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let paddr = self.start_paddr();
-
-        #[verus_spec(with Tracked(regions), Tracked(perm))]
-        FrameRef::borrow_paddr(paddr)
+        unsafe { 
+            #[verus_spec(with Tracked(regions), Tracked(perm))]
+            FrameRef::borrow_paddr(#[verus_spec(with Tracked(&perm.points_to))] self.start_paddr())
+        }
     }
 
     /// Forgets the handle to the frame.
