@@ -1683,7 +1683,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             res == Self::new_spec(owner_subtree, idx, guard_perm);
 }
 
-pub tracked struct CursorView<C: PageTableConfig> {
+pub ghost struct CursorView<C: PageTableConfig> {
     pub cur_va: Vaddr,
     pub mappings: Set<Mapping>,
     pub phantom: PhantomData<C>,
