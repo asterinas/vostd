@@ -379,9 +379,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         returns
             perm.value().ref_count,
     {
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let slot = self.slot();
-        slot.ref_count.load(Tracked(&perm.inner_perms.ref_count))
+        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))] self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        refcnt
     }
 
     /// Borrows a reference from the given frame.
