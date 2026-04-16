@@ -7,22 +7,27 @@ verus! {
 
 broadcast use {group_seq_axioms, group_seq_lib_default};
 
-#[verifier::external_body]
-pub proof fn seq_tracked_map_values<T, U>(s: Seq<T>, f: spec_fn(T) -> U) -> (tracked res: Seq<U>)
-    ensures
-        res == s.map_values(f),
-{
-    unimplemented!();
-}
-
-#[verifier::external_body]
-pub proof fn seq_tracked_subrange<T>(s: Seq<T>, start: int, end: int) -> (tracked res: Seq<T>)
+/// Splits a tracked sequence at position `n`, leaving `[0, n)` in `s`
+/// and returning `[n, len)`.
+pub proof fn seq_tracked_split_at<T>(tracked s: &mut Seq<T>, n: int) -> (tracked result: Seq<T>)
     requires
-        0 <= start <= end <= s.len(),
+        0 <= n <= old(s).len(),
     ensures
-        res == s.subrange(start, end),
+        *final(s) =~= old(s).subrange(0, n),
+        result =~= old(s).subrange(n, old(s).len() as int),
+    decreases
+        old(s).len() - n,
 {
-    unimplemented!();
+    if n == s.len() {
+        Seq::tracked_empty()
+    } else {
+        let ghost orig = *s;
+        let ghost orig_len = orig.len() as int;
+        let tracked last = s.tracked_pop();
+        let tracked mut result = seq_tracked_split_at(s, n);
+        result.tracked_push(last);
+        result
+    }
 }
 
 pub broadcast proof fn lemma_seq_add_head_back<T>(s: Seq<T>)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! A contiguous range of frames.
 use vstd::prelude::*;
-use vstd_extra::seq_extra::{seq_tracked_map_values, seq_tracked_subrange};
+use vstd_extra::seq_extra::seq_tracked_split_at;
 
 use core::{fmt::Debug, ops::Range};
 
@@ -628,16 +628,10 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Segment<M> {
 
         let _ = ManuallyDrop::new(self, Tracked(regions));
 
-        let tracked frame_perms1 = SegmentOwner {
-            perms: seq_tracked_subrange(owner.perms, 0, idx as int),
-        };
-        let tracked frame_perms2 = SegmentOwner {
-            perms: seq_tracked_subrange(owner.perms, idx as int, owner.perms.len() as int),
-        };
-
-        proof {
-            owner.perms.lemma_split_at(idx as int);
-        }
+        let tracked mut perms = owner.perms;
+        let tracked rest = seq_tracked_split_at(&mut perms, idx as int);
+        let tracked frame_perms1 = SegmentOwner { perms };
+        let tracked frame_perms2 = SegmentOwner { perms: rest };
 
         proof_with!(|= (Tracked(frame_perms1), Tracked(frame_perms2)));
         res
