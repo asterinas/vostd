@@ -297,9 +297,10 @@ impl<M: AnyFrameMeta> Frame<M> {
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        #[verus_spec(with Tracked(regions))]
-        let from_in_use = MetaSlot::get_from_in_use(paddr);
-        Ok(Self { ptr: from_in_use?, _marker: PhantomData })
+        Ok(Self { 
+            ptr: (#[verus_spec(with Tracked(regions))] MetaSlot::get_from_in_use(paddr))?, 
+            _marker: PhantomData 
+        })
     }
 }
 
