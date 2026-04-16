@@ -205,8 +205,7 @@ pub tracked struct MetaSlotOwner {
     /// The set of tree paths at which this slot is referenced. For PT-node
     /// slots this is a singleton. For data-frame slots this tracks every
     /// location the frame is currently mapped — allowing a single frame to be
-    /// mapped at multiple addresses. Content is maintained by the page-table
-    /// write sites and checked by `metaregion_sound`.
+    /// mapped at multiple addresses.
     pub ghost paths_in_pt: Set<TreePath<NR_ENTRIES>>,
 }
 
@@ -286,8 +285,7 @@ impl View for MetaSlotOwner {
 }
 
 impl InvView for MetaSlotOwner {
-    proof fn view_preserves_inv(self) {
-    }
+    proof fn view_preserves_inv(self) { }
 }
 
 impl OwnerOf for MetaSlot {

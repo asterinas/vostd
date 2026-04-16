@@ -261,11 +261,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
         proof {
             assert(pt_own.0.value.is_node());
-            assert(pt_own.0.inv_children());
             assert forall|i: int| 0 <= i < NR_ENTRIES implies pt_own.0.children[i] is Some by {
-                if pt_own.0.children[i] is None {
-                    assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(pt_own.0.value, i, None));
-                }
+                pt_own.pt_inv_unroll(i);
             };
         }
 
@@ -2573,10 +2570,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 assert(new_owner.inv());
             };
 
-            assert(new_owner.tree_predicate_map(
-                new_owner.value.path,
-                CursorOwner::<'rcu, C>::node_unlocked(*guards),
-            ));
+            OwnerSubtree::new_val_tree_predicate_map(new_owner, new_owner.value.path,
+                CursorOwner::<'rcu, C>::node_unlocked(*guards));
 
             let ghost pa_idx_install = frame_to_index(pa);
             let ghost new_frame_path = new_owner.value.path;
@@ -2895,6 +2890,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         proof {
             // subtree.value is absent, so not_in_tree is vacuously true.
             owner.absent_not_in_tree(subtree.value);
+            OwnerSubtree::new_val_tree_predicate_map(subtree, subtree.value.path,
+                CursorOwner::<'rcu, C>::node_unlocked(*guards));
         }
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
@@ -3443,8 +3440,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             assert(new_owner.value.metaregion_sound(*regions));
             let child_path = final_cont.path().push_tail(idx as usize);
             assert(new_owner.tree_predicate_map(child_path, g_sound)) by {
-                assert forall|lv: nat, p: TreePath<NR_ENTRIES>| lv < INC_LEVELS implies
-                    #[trigger] g_sound(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv), p) by {};
                 OwnerSubtree::new_val_tree_predicate_map(new_owner, child_path, g_sound);
             };
 
@@ -3648,8 +3643,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 };
 
                 assert(new_owner.tree_predicate_map(child_path, g_path)) by {
-                    assert forall|lv: nat, p: TreePath<NR_ENTRIES>| lv < INC_LEVELS implies
-                        #[trigger] g_path(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::default(lv), p) by {};
                     OwnerSubtree::new_val_tree_predicate_map(new_owner, child_path, g_path);
                 };
 

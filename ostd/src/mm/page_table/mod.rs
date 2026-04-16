@@ -959,25 +959,19 @@ impl PageTable<KernelPtConfig> {
                         }
                     }
 
+                assert(kernel_owner.0.inv());
+                assert(kernel_owner.0.value.inv());
+                assert(kernel_owner.0.value.is_node());
+                assert(kernel_owner.0.value.node.unwrap().inv());
+                assert(kernel_owner.pt_inv());
+                kernel_owner.pt_inv_unroll(i as int);
+                assert(kernel_owner.0.children[i as int] is Some);
                 let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>>
                     = kernel_owner.0.children.tracked_borrow(i as int);
                 let tracked child_subtree: &OwnerSubtree<KernelPtConfig>
                     = child_opt.tracked_borrow();
                 entry_owner = child_subtree.borrow_value();
-                // Partial proof of the entry/to_ref preconditions (the
-                // structural facts about the i-th child of the kernel root).
-                // The remaining gap is discharging the lock-related and
-                // entry-state preconditions, plus the new_node take/put/write
-                // chain. These are tracked in the function-level admit below.
-                assert(kernel_owner.0.inv());
-                assert(kernel_owner.0.value.inv());
-                assert(kernel_owner.0.value.is_node());
-                assert(kernel_owner.0.value.node.unwrap().inv());
-                assert(kernel_owner.0.children[i as int] is Some);
                 let kern_node = kernel_owner.0.value.node.unwrap();
-                assert(<crate::specs::mm::page_table::node::entry_owners::EntryOwner<KernelPtConfig>
-                    as vstd_extra::ghost_tree::TreeNodeValue<INC_LEVELS>>::rel_children(
-                    kernel_owner.0.value, i as int, Some(child_subtree.value)));
                 assert(entry_owner.match_pte(
                     kern_node.children_perm.value()[i as int],
                     entry_owner.parent_level));

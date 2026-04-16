@@ -227,7 +227,12 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
                 &&& child.unwrap().value.parent_level == self.level()
                 &&& child.unwrap().level == self.tree_level + 1
                 &&& !child.unwrap().value.in_scope
-                &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(child.unwrap().value))
+                // Inlined rel_children node-branch facts (previously
+                // delegated to `TreeNodeValue::rel_children`).
+                &&& child.unwrap().value.path.len() == self.entry_own.node.unwrap().tree_level + 1
+                &&& child.unwrap().value.match_pte(
+                    self.entry_own.node.unwrap().children_perm.value()[i],
+                    self.entry_own.node.unwrap().level)
                 &&& child.unwrap().value.path == self.path().push_tail(i as usize)
             }
         }
@@ -235,6 +240,29 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
 
     pub open spec fn inv_children_rel(self) -> bool {
         forall_seq(self.children, self.inv_children_rel_pred())
+    }
+
+    /// PT-specific recursive invariant: every Some child's subtree
+    /// satisfies `pt_inv`. Uses `forall_seq` so the trigger is
+    /// `self.children[i]`, matching the pattern in `inv_children_rel`.
+    pub open spec fn pt_inv_children_pred() -> spec_fn(int, Option<OwnerSubtree<C>>) -> bool {
+        |i: int, child: Option<OwnerSubtree<C>>|
+            child is Some ==> PageTableOwner(child.unwrap()).pt_inv()
+    }
+
+    pub open spec fn pt_inv_children(self) -> bool {
+        forall_seq(self.children, Self::pt_inv_children_pred())
+    }
+
+    pub proof fn pt_inv_children_unroll(self, i: int)
+        requires
+            self.pt_inv_children(),
+            0 <= i < self.children.len(),
+            self.children[i] is Some,
+        ensures
+            PageTableOwner(self.children[i].unwrap()).pt_inv(),
+    {
+        lemma_forall_seq_index(self.children, Self::pt_inv_children_pred(), i);
     }
 
     pub proof fn inv_children_rel_unroll(self, i: int)
@@ -246,7 +274,10 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[i].unwrap().value.parent_level == self.level(),
             self.children[i].unwrap().level == self.tree_level + 1,
             !self.children[i].unwrap().value.in_scope,
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(self.entry_own, i, Some(self.children[i].unwrap().value)),
+            self.children[i].unwrap().value.path.len() == self.entry_own.node.unwrap().tree_level + 1,
+            self.children[i].unwrap().value.match_pte(
+                self.entry_own.node.unwrap().children_perm.value()[i],
+                self.entry_own.node.unwrap().level),
             self.children[i].unwrap().value.path == self.path().push_tail(i as usize),
     {
         lemma_forall_seq_index(
@@ -258,6 +289,7 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         &&& 0 <= self.idx < NR_ENTRIES
         &&& self.inv_children()
         &&& self.inv_children_rel()
+        &&& self.pt_inv_children()
         &&& self.entry_own.is_node()
         &&& self.entry_own.inv()
         &&& !self.entry_own.in_scope
@@ -349,10 +381,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             child_value.path == entry_own.path.push_tail(idx),
             child_value.path.len() == parent_owner.tree_level + 1,
         ensures
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                entry_own,
-                idx as int,
-                Some(child_value)),
+            // Inlined rel_children node-branch facts.
+            child_value.path.len() == parent_owner.tree_level + 1,
+            child_value.match_pte(parent_owner.children_perm.value()[idx as int], parent_owner.level),
+            child_value.path == entry_own.path.push_tail(idx),
+            child_value.parent_level == parent_owner.level,
     { }
 
     /// After restoring `entry_own.node = Some(parent_owner)` and putting the child back
@@ -374,8 +407,11 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.children[self.idx as int].unwrap().value.parent_level == self.level(),
             self.children[self.idx as int].unwrap().value.path == self.path().push_tail(self.idx as usize),
             self.children[self.idx as int].unwrap().level == self.tree_level + 1,
-            <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                self.entry_own, self.idx as int, Some(self.children[self.idx as int].unwrap().value)),
+            self.children[self.idx as int].unwrap().value.path.len()
+                == self.entry_own.node.unwrap().tree_level + 1,
+            self.children[self.idx as int].unwrap().value.match_pte(
+                self.entry_own.node.unwrap().children_perm.value()[self.idx as int],
+                self.entry_own.node.unwrap().level),
             !self.children[self.idx as int].unwrap().value.in_scope,
         ensures
             self.inv();
@@ -471,10 +507,16 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[2].path() == self.continuations[3].path().push_tail(self.continuations[3].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[3].entry_own, self.continuations[3].idx as int,
-                    Some(self.continuations[2].entry_own))
+            // PTE consistency: child entry matches parent's PTE at parent's index.
+            // Previously delegated to `rel_children`; inlined now that rel_children
+            // is being weakened.
+            &&& self.continuations[2].entry_own.path.len()
+                == self.continuations[3].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[2].entry_own.match_pte(
+                self.continuations[3].entry_own.node.unwrap().children_perm.value()[self.continuations[3].idx as int],
+                self.continuations[3].entry_own.node.unwrap().level)
+            &&& self.continuations[2].entry_own.parent_level
+                == self.continuations[3].entry_own.node.unwrap().level
         }
         &&& self.level <= 2 ==> {
             &&& self.continuations.contains_key(1)
@@ -488,10 +530,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[1].path() == self.continuations[2].path().push_tail(self.continuations[2].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[2].entry_own, self.continuations[2].idx as int,
-                    Some(self.continuations[1].entry_own))
+            // PTE consistency: child entry matches parent's PTE at parent's index.
+            &&& self.continuations[1].entry_own.path.len()
+                == self.continuations[2].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[1].entry_own.match_pte(
+                self.continuations[2].entry_own.node.unwrap().children_perm.value()[self.continuations[2].idx as int],
+                self.continuations[2].entry_own.node.unwrap().level)
+            &&& self.continuations[1].entry_own.parent_level
+                == self.continuations[2].entry_own.node.unwrap().level
         }
         &&& self.level == 1 ==> {
             &&& self.continuations.contains_key(0)
@@ -507,10 +553,14 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
                 self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
             // Path consistency: child path = parent path pushed with parent's index
             &&& self.continuations[0].path() == self.continuations[1].path().push_tail(self.continuations[1].idx as usize)
-            // PTE consistency: child entry matches parent's PTE at parent's index
-            &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                    self.continuations[1].entry_own, self.continuations[1].idx as int,
-                    Some(self.continuations[0].entry_own))
+            // PTE consistency: child entry matches parent's PTE at parent's index.
+            &&& self.continuations[0].entry_own.path.len()
+                == self.continuations[1].entry_own.node.unwrap().tree_level + 1
+            &&& self.continuations[0].entry_own.match_pte(
+                self.continuations[1].entry_own.node.unwrap().children_perm.value()[self.continuations[1].idx as int],
+                self.continuations[1].entry_own.node.unwrap().level)
+            &&& self.continuations[0].entry_own.parent_level
+                == self.continuations[1].entry_own.node.unwrap().level
         }
     }
 }
@@ -673,6 +723,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(self.va.index[self.level as int - 1] == self.continuations[self.level as int - 1].idx);
         assert(self.prefix == old(self).prefix);
         assert(self.prefix.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end);
+        // pt_inv_children on the modified continuation: children are unchanged
+        // by inc_index so the forall_seq still holds.
+        assert(cont.children == old(self).continuations[self.level - 1].children);
+        assert(cont.pt_inv_children());
     }
 
     pub proof fn inv_continuation(self, i: int)
@@ -1085,7 +1139,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(8000)]
+    #[verifier::rlimit(10000)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
@@ -1151,10 +1205,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let ad_q = ad as int / ps as int;
         let end_q = end as int / ps as int;
         let ps_i = ps as int;
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(va, ps);
+        vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps_gl);
+        assert(ad as int % ps as int == 0);
+        assert(end as int % ps as int == 0);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
+        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
+        assert(ad as int == ad_q * ps_i);
+        assert(end as int == end_q * ps_i);
         assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
             requires ad_q + 1 <= end_q, ps_i >= 0;
-        vstd::arithmetic::mul::lemma_mul_is_distributive_add(ps_i, ad_q, 1);
-        vstd::arithmetic::mul::lemma_mul_is_commutative(end_q, ps_i);
+        assert((ad_q + 1) * ps_i == ad_q * ps_i + ps_i) by (nonlinear_arith);
         assert(ad + ps <= end);
         assert(ad as usize + page_size((level + 1) as PagingLevel) <= self.locked_range().end);
     }

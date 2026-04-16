@@ -16,7 +16,9 @@ use vstd_extra::ghost_tree::*;
 use vstd_extra::ownership::*;
 
 use crate::mm::page_table::*;
-use crate::mm::{PagingLevel, Vaddr};
+use crate::mm::{Paddr, PagingLevel, Vaddr};
+use crate::specs::mm::page_table::Mapping;
+use vstd_extra::arithmetic::{nat_align_down, nat_align_up};
 use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS};
 use crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size;
 use crate::specs::mm::page_table::cursor::owners::{CursorOwner, CursorContinuation};
@@ -207,12 +209,86 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     pub proof fn cur_va_range_reflects_view(self)
         requires
             self.inv(),
-            self@.present(),
+            self.cur_entry_owner().is_frame(),
         ensures
             self.cur_va_range().start.reflect(self@.query_range().start),
             self.cur_va_range().end.reflect(self@.query_range().end),
     {
-        admit()
+        self.cur_subtree_inv();
+        self.cur_va_in_subtree_range();
+        self.view_preserves_inv();
+        self.cur_entry_frame_present();
+        let subtree = self.cur_subtree();
+        let path = subtree.value.path;
+        let frame = self.cur_entry_owner().frame.unwrap();
+        let pt_level = INC_LEVELS - path.len();
+        let cont = self.continuations[self.level - 1];
+
+        cont.path().push_tail_property_len(cont.idx as usize);
+        assert(cont.level() == self.level) by {
+            if self.level == 1 {} else if self.level == 2 {} else if self.level == 3 {} else {}
+        };
+        assert(pt_level == self.level);
+
+        let ps = page_size(self.level as PagingLevel);
+        let m = Mapping {
+            va_range: Range { start: vaddr(path), end: (vaddr(path) + ps) as Vaddr },
+            pa_range: Range { start: frame.mapped_pa, end: (frame.mapped_pa + ps) as Paddr },
+            page_size: ps,
+            property: frame.prop,
+        };
+        assert(PageTableOwner(subtree).view_rec(path) =~= set![m]);
+        assert(self.view_mappings().contains(m));
+        assert(m.inv());
+        assert(m.va_range.start <= self@.cur_va < m.va_range.end);
+
+        let filtered = self@.mappings.filter(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end);
+        assert(filtered.contains(m));
+        vstd::set::axiom_set_intersect_finite::<Mapping>(
+            self@.mappings, Set::new(|m2: Mapping| m2.va_range.start <= self@.cur_va < m2.va_range.end));
+        vstd::set::axiom_set_choose_len(filtered);
+        let qm = self@.query_mapping();
+        assert(filtered.contains(qm));
+        assert(qm == m) by {
+            if qm != m {
+                assert(self@.mappings.contains(qm));
+                assert(self@.mappings.contains(m));
+                assert(!(qm.va_range.end <= m.va_range.start || m.va_range.end <= qm.va_range.start));
+            }
+        };
+
+        let cur_va = self.va.to_vaddr() as nat;
+        let ps_nat = ps as nat;
+        self.va.align_down_concrete(self.level as int);
+        self.va.align_up_concrete(self.level as int);
+        self.va.align_diff(self.level as int);
+        lemma_page_size_ge_page_size(self.level as PagingLevel);
+        vstd_extra::arithmetic::lemma_nat_align_down_sound(cur_va, ps_nat);
+
+        assert(vaddr(path) as int % ps as int == 0);
+        assert(vaddr(path) <= cur_va < vaddr(path) + ps);
+        assert(nat_align_down(cur_va, ps_nat) == vaddr(path) as nat) by {
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(cur_va as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(vaddr(path) as int, ps as int);
+            vstd::arithmetic::div_mod::lemma_div_is_ordered(
+                vaddr(path) as int, cur_va as int, ps as int);
+            let q_cur = cur_va as int / ps as int;
+            let q_path = vaddr(path) as int / ps as int;
+            assert(q_path * ps as int == vaddr(path) as int);
+            vstd::arithmetic::mul::lemma_mul_inequality(
+                q_path, q_cur, ps as int);
+            if q_path < q_cur {
+                vstd::arithmetic::mul::lemma_mul_inequality(
+                    q_path + 1, q_cur, ps as int);
+                vstd::arithmetic::mul::lemma_mul_is_distributive_add_other_way(
+                    ps as int, q_path, 1int);
+                assert(false);
+            }
+        };
+        assert(nat_align_up(cur_va, ps_nat) == (vaddr(path) + ps) as nat);
+
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_down(cur_va, ps_nat) as Vaddr);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(nat_align_up(cur_va, ps_nat) as Vaddr);
     }
 
     /// The current virtual address falls within the VA range of the current subtree's path.

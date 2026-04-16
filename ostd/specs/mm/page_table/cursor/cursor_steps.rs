@@ -101,6 +101,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
 )
     requires
         subtree.inv(),
+        PageTableOwner::<C>(subtree).pt_inv(),
         subtree.tree_predicate_map(path, PageTableOwner::<C>::metaregion_sound_pred(regions)),
         subtree.tree_predicate_map(path, CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr)),
         regions.slot_owners[frame_to_index(meta_to_frame(excepted_addr))].paths_in_pt
@@ -148,7 +149,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     // excepted_path is also not a descendant of path.push_tail(i) (if excepted_path
     // diverges from path at some k < path.len(), it diverges from path.push_tail(i) at the
     // same k; if excepted_path.len() <= path.len(), then excepted_path.len() < path.push_tail(i).len()).
-    if subtree.level < INC_LEVELS - 1 {
+    if subtree.level < INC_LEVELS - 1 && subtree.value.is_node() {
         assert forall |i: int|
             #![trigger subtree.children[i]]
             0 <= i < subtree.children.len() && subtree.children[i] is Some implies
@@ -157,9 +158,7 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
             subtree.map_unroll_once(path, f, i);
             subtree.map_unroll_once(path, g, i);
 
-            // child.value.path == path.push_tail(i) from rel_children
-            assert(<EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
-                subtree.value, i, Some(child.value)));
+            PageTableOwner::<C>(subtree).pt_inv_unroll(i);
             let child_path = path.push_tail(i as usize);
             assert(child.value.path == child_path);
             path.push_tail_property(i as usize);
@@ -194,6 +193,15 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
             };
 
             subtree_unlock_upgrade(child, child_path, guards, regions, excepted_addr, excepted_path);
+        };
+    } else if subtree.level < INC_LEVELS - 1 && !subtree.value.is_node() {
+        // Non-node: pt_inv gives children[i] is None, so tree_predicate_map
+        // has no children to recurse into.
+        assert forall |i: int|
+            #![trigger subtree.children[i]]
+            0 <= i < subtree.children.len() && subtree.children[i] is Some implies
+            subtree.children[i].unwrap().tree_predicate_map(path.push_tail(i as usize), h) by {
+            PageTableOwner::<C>(subtree).pt_inv_non_node(i);
         };
     }
 }
@@ -889,6 +897,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(child_cont.path() == cur_entry_path);
                     assert(gc_path == cur_entry_path.push_tail(j as usize));
                     assert(cur_entry_path.len() < gc_path.len());
+                    child_cont.pt_inv_children_unroll(j);
                     subtree_unlock_upgrade(gc, gc_path, guards, regions,
                         cur_entry_addr, cur_entry_path);
                 };
@@ -914,7 +923,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     old_cont.inv_children_rel_unroll(old_cont.idx as int);
                     old_cont.path().push_tail_property(old_cont.idx as usize);
                     assert(cur_entry_path.len() <= sibling_path.len());
-
+                    old_cont.pt_inv_children_unroll(j);
                     subtree_unlock_upgrade(sibling, sibling_path, guards, regions,
                         cur_entry_addr, cur_entry_path);
                 };
@@ -963,7 +972,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     assert(child_path.index(cont_i.tree_level as int)
                         != cur_entry_path.index(cont_i.tree_level as int));
                     assert(cont_i.tree_level < child_path.len());
-
+                    cont_i.pt_inv_children_unroll(j);
                     subtree_unlock_upgrade(child_sub, child_path, guards, regions,
                         cur_entry_addr, cur_entry_path);
                 };
