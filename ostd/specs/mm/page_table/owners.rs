@@ -237,7 +237,7 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubt
         owner.children[i].unwrap().value.parent_level == owner.value.node.unwrap().level
 }
 
-pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
+pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
 
