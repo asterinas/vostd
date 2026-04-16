@@ -34,7 +34,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     type Target;
 
     /// The verification-only permission type that represents the ownership of the smart pointer.
-    type Permission: RawPtrPerm<SmartPtr = Self, Target = Self::Target> + Inv;
+    type Permission: RawPtrPerm<Ptr = Self, Target = Self::Target> + Inv;
 
     // VERUS LIMITATION: Cannot use associated type with lifetime yet.
     /*/// A type that behaves just like a shared reference to the `NonNullPtr`.

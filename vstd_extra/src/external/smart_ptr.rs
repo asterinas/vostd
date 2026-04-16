@@ -10,10 +10,10 @@ verus! {
 
 /// A verification-only trait that abstracts the permission that can be obtained from a raw pointer.
 pub trait RawPtrPerm {
-    /// The type of the smart pointer.
-    type SmartPtr;
+    /// The type of the pointer.
+    type Ptr;
     
-    /// The type of the value that the smart pointer points to.
+    /// The type of the value that the pointer points to.
     type Target;
     
     spec fn ptr(self) -> *mut Self::Target;
@@ -22,7 +22,8 @@ pub trait RawPtrPerm {
 }
 
 impl<T> RawPtrPerm for BoxPointsTo<T> {
-    type SmartPtr = Box<T>;
+    type Ptr = Box<T>;
+    
     type Target = T;
 
     open spec fn ptr(self) -> *mut T {
@@ -35,7 +36,8 @@ impl<T> RawPtrPerm for BoxPointsTo<T> {
 }
 
 impl<T> RawPtrPerm for ArcPointsTo<T> {
-    type SmartPtr = Arc<T>;
+    type Ptr = Arc<T>;
+    
     type Target = T;
 
     open spec fn ptr(self) -> *mut T {
