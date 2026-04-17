@@ -203,6 +203,7 @@ impl<'a> VmSpace<'a> {
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Tracked(root_guard): Tracked<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
             -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
@@ -216,7 +217,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
             self.pt.cursor(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -252,6 +253,7 @@ impl<'a> VmSpace<'a> {
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
+            Tracked(root_guard): Tracked<PageTableGuard<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
             -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
@@ -264,7 +266,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
             self.pt.cursor_mut(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {

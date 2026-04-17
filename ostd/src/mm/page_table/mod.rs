@@ -796,7 +796,7 @@ impl PageTable<KernelPtConfig> {
             assert(kernel_owner.0.value.metaregion_sound(*regions));
         }
         let ghost regions_before_self_borrow: MetaRegionOwners = *regions;
-        let root_node = {
+        let mut root_node = {
             #[verus_spec(with Tracked(regions), Tracked(root_perm))]
             let root_ref = self.root.borrow();
             #[verus_spec(with Tracked(root_owner), Tracked(guards_k))]
@@ -1213,6 +1213,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// previous cursor is dropped.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<C>>,
+            Tracked(root_guard): Tracked<PageTableGuard<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
@@ -1222,7 +1223,7 @@ impl<C: PageTableConfig> PageTable<C> {
                 &&& r.unwrap().0.inner.invariants(*r.unwrap().1, *final(regions), *final(guards))
                 &&& r.unwrap().1.metaregion_correct(*final(regions))
                 &&& r.unwrap().1.in_locked_range()
-                &&& r.unwrap().0.inner.level < r.unwrap().0.inner.guard_level
+                &&& r.unwrap().0.inner.level <= r.unwrap().0.inner.guard_level
                 &&& r.unwrap().0.inner.guard_level == NR_LEVELS as PagingLevel
                 &&& r.unwrap().0.inner.va < r.unwrap().0.inner.barrier_va.end
                 &&& r.unwrap().0.inner.va == va.start
@@ -1241,7 +1242,7 @@ impl<C: PageTableConfig> PageTable<C> {
         guard: &'rcu G,
         va: &Range<Vaddr>,
     ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
-        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
         CursorMut::new(self, guard, va)
     }
 
@@ -1252,6 +1253,7 @@ impl<C: PageTableConfig> PageTable<C> {
     /// block or be overridden by the mapping of another cursor.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<C>>,
+            Tracked(root_guard): Tracked<PageTableGuard<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
@@ -1261,7 +1263,7 @@ impl<C: PageTableConfig> PageTable<C> {
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>)
     -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
-        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard, va)
     }
     

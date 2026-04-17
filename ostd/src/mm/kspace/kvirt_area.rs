@@ -385,6 +385,7 @@ impl KVirtArea {
     // TODO: T should be any AnyFrameMeta + Repr<MetaSlotStorage>
     #[verus_spec(
         with Tracked(owner): Tracked<KVirtAreaOwner>,
+            Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(entry_owners): Tracked<&mut Seq<EntryOwner<KernelPtConfig>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
@@ -435,7 +436,7 @@ impl KVirtArea {
         let preempt_guard = disable_preempt::<A>();
 
         let (mut cursor, Tracked(cursor_owner)) =
-        (#[verus_spec(with Tracked(owner.pt_owner), Tracked(regions), Tracked(guards))]
+        (#[verus_spec(with Tracked(owner.pt_owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
             page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
 
         let ghost init_frames_len = frames.len();
@@ -559,6 +560,7 @@ impl KVirtArea {
     ///  - the provided physical range contains tracked physical addresses.
     #[verus_spec(
         with Tracked(owner): Tracked<KVirtAreaOwner>,
+            Tracked(root_guard): Tracked<PageTableGuard<'a, KernelPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
     )]
@@ -615,7 +617,7 @@ impl KVirtArea {
             let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
             let (mut cursor, Tracked(cursor_owner)) =
-            (#[verus_spec(with Tracked(owner.pt_owner), Tracked(regions), Tracked(guards))]
+            (#[verus_spec(with Tracked(owner.pt_owner), Tracked(root_guard), Tracked(regions), Tracked(guards))]
                 page_table.cursor_mut(preempt_guard, &va_range)).unwrap();
 
             let pages = collect_largest_pages(va_range.start, pa_range.start, len);

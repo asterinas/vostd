@@ -80,8 +80,10 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
         Self { pte, idx, node }
     }
 
-    #[verifier::when_used_as_spec(new_spec)]
-    pub fn new(pte: C::E, idx: usize, node: &'a mut PageTableGuard<'rcu, C>) -> Self {
+    #[verifier::external_body]
+    pub fn new(pte: C::E, idx: usize, node: &'a mut PageTableGuard<'rcu, C>) -> (res: Self)
+        ensures res == Self::new_spec(pte, idx, node),
+    {
         Self { pte, idx, node }
     }
 }
@@ -585,7 +587,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(regions).inv(),
             old(owner).inv(),
             old(self).wf(old(owner).value),
-            old(parent_owner).relate_guard(old(self).node),
+            old(parent_owner).relate_guard(*old(self).node),
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
@@ -610,7 +612,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& res is Some
                 &&& final(owner).value.is_node()
                 &&& final(owner).level == old(owner).level
-                &&& final(parent_owner).relate_guard(final(self).node)
+                &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value.node.unwrap().relate_guard(res.unwrap())
                 &&& final(owner).value.node.unwrap().meta_perm.addr() == res.unwrap().inner.inner@.ptr.addr()
                 // All children of the new node subtree are frames with the same prop (from the split loop).
@@ -641,7 +643,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).idx == old(self).idx,
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==> !final(owner).value.in_scope,
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
-                final(self).node_matching(final(owner).value, *final(parent_owner), final(self).node),
+                final(self).node_matching(final(owner).value, *final(parent_owner), *final(self).node),
             final(regions).inv(),
             final(parent_owner).inv(),
             final(parent_owner).level == old(parent_owner).level,
