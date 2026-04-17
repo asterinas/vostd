@@ -278,12 +278,6 @@ impl<'a, T> ArcRef<'a, T> {
     pub closed spec fn deref_as_arc_spec(&self) -> &Arc<T> {
         &self.inner@
     }
-
-    /// A workaround that Verus does not support implementing spec for Deref trait yet.
-    pub broadcast axiom fn arcref_deref_spec_eq(self)
-        ensures
-            #[trigger] self.deref_as_arc_spec() == #[trigger] self.deref_spec(),
-    ;
 }
 
 #[verus_verify]
@@ -395,9 +389,6 @@ pub unsafe fn arc_raw_as_ref<'a, T: 'static>(
         ArcRef { inner: ManuallyDrop::new(arc_from_raw(raw.as_ptr(), perm)), _marker: PhantomData }
     }
 }
-
-} // verus!
-verus! {
 
 broadcast use group_nonnull;
 
