@@ -11,6 +11,7 @@ use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::atomic::PermissionU64;
+use vstd::vpanic;
 
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
@@ -795,7 +796,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert(false) by {
                     assert(UserPtConfig::item_into_raw(item).1 == 1);
                 };
-                //panic!("`UFrame` is base page sized but re-mapping out a child PT");
+                vpanic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }
     }
