@@ -201,11 +201,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         if self.length() == 0 {
             self
         } else if self.index == self.length() {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: 0 }
+            Self { list_own: self.list_own, index: 0 }
         } else if self.index == self.length() - 1 {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: self.index + 1 }
+            Self { list_own: self.list_own, index: self.index + 1 }
         } else {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: self.index + 1 }
+            Self { list_own: self.list_own, index: self.index + 1 }
         }
     }
 
@@ -213,11 +213,11 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorOwner<M> {
         if self.length() == 0 {
             self
         } else if self.index == self.length() {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: self.index - 1 }
+            Self { list_own: self.list_own, index: self.index - 1 }
         } else if self.index == 0 {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: self.length() }
+            Self { list_own: self.list_own, index: self.length() }
         } else {
-            Self { list_own: self.list_own, list_perm: self.list_perm, index: self.index - 1 }
+            Self { list_own: self.list_own, index: self.index - 1 }
         }
     }
 }
