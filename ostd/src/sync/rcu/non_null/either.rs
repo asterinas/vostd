@@ -1,8 +1,48 @@
 // SPDX-License-Identifier: MPL-2.0
 use core::{marker::PhantomData, ptr::NonNull};
 
+use vstd::prelude::*;
+use vstd_extra::{prelude::*, sum::Sum};
+
 use super::NonNullPtr;
 use crate::util::Either;
+
+verus! {
+
+pub tracked struct EitherPointsTo<L: RawPtrPerm, R: RawPtrPerm> {
+    pub perm: Sum<L, R>,
+}
+
+pub uninterp spec fn either_points_to_ptr<L: RawPtrPerm, R: RawPtrPerm>(
+    perm: EitherPointsTo<L, R>,
+) -> *mut PhantomData<Either<L::Ptr, R::Ptr>>;
+
+pub uninterp spec fn either_ptr_mut_spec<L: NonNullPtr, R: NonNullPtr>(
+    ptr: Either<L, R>,
+) -> *mut PhantomData<Either<L, R>>;
+
+impl<L: RawPtrPerm, R: RawPtrPerm> RawPtrPerm for EitherPointsTo<L, R> {
+    type Ptr = Either<L::Ptr, R::Ptr>;
+
+    type Target = PhantomData<Self::Ptr>;
+
+    open spec fn ptr(self) -> *mut Self::Target {
+        either_points_to_ptr(self)
+    }
+
+    open spec fn addr(self) -> usize {
+        self.ptr().addr()
+    }
+}
+
+impl<L: RawPtrPerm + Inv, R: RawPtrPerm + Inv> Inv for EitherPointsTo<L, R> {
+    open spec fn inv(self) -> bool {
+        match self.perm {
+            Sum::Left(left) => left.inv(),
+            Sum::Right(right) => right.inv(),
+        }
+    }
+}
 
 // If both `L` and `R` have at least one alignment bit (i.e., their alignments are at least 2), we
 // can use the alignment bit to indicate whether a pointer is `L` or `R`, so it's possible to
@@ -10,31 +50,48 @@ use crate::util::Either;
 unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Target = PhantomData<Self>;
 
-    type Ref<'a>
-        = Either<L::Ref<'a>, R::Ref<'a>>
-    where
-        Self: 'a;
+    type Permission = EitherPointsTo<L::Permission, R::Permission>;
 
+    open spec fn ptr_mut_spec(self) -> *mut Self::Target {
+        either_ptr_mut_spec(self)
+    }
+
+    // type Ref<'a>
+    //     = Either<L::Ref<'a>, R::Ref<'a>>
+    // where
+    //     Self: 'a;
+    #[verifier::external_body]
     const ALIGN_BITS: u32 = min(L::ALIGN_BITS, R::ALIGN_BITS)
         .checked_sub(1)
         .expect("`L` and `R` alignments should be at least 2 to pack `Either` into one pointer");
 
-    fn into_raw(self) -> NonNull<Self::Target> {
+    #[verifier::external_body]
+    fn into_raw(self) -> (ret: (NonNull<Self::Target>, Tracked<Self::Permission>)) {
         match self {
-            Self::Left(left) => left.into_raw().cast(),
-            Self::Right(right) => right
-                .into_raw()
-                .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
-                .cast(),
+            Self::Left(left) => {
+                let (ptr, Tracked(perm)) = left.into_raw();
+                (ptr.cast(), Tracked(EitherPointsTo { perm: Sum::Left(perm) }))
+            },
+            Self::Right(right) => {
+                let (ptr, Tracked(perm)) = right.into_raw();
+                (
+                    ptr.map_addr(|addr| addr | (1 << Self::ALIGN_BITS)).cast(),
+                    Tracked(EitherPointsTo { perm: Sum::Right(perm) }),
+                )
+            },
         }
     }
 
-    unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self {
+    #[verifier::external_body]
+    unsafe fn from_raw(
+        ptr: NonNull<Self::Target>,
+        perm_exec: Tracked<Self::Permission>,
+    ) -> Self {
         // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
         // guarantees that `real_ptr` is a non-null pointer.
-        let (is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
+        let (_is_right, real_ptr) = unsafe { remove_bits(ptr, 1 << Self::ALIGN_BITS) };
 
-        if is_right == 0 {
+        /* if is_right == 0 {
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `L::into_raw`. Other
             // safety requirements are upheld by the caller.
             Either::Left(unsafe { L::from_raw(real_ptr.cast()) })
@@ -42,10 +99,17 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             // SAFETY: `Self::into_raw` guarantees that `real_ptr` comes from `R::into_raw`. Other
             // safety requirements are upheld by the caller.
             Either::Right(unsafe { R::from_raw(real_ptr.cast()) })
+        } */
+
+        match perm_exec.get().perm {
+            Sum::Left(left) => Either::Left(unsafe { L::from_raw(real_ptr.cast(), Tracked(left)) }),
+            Sum::Right(right) => {
+                Either::Right(unsafe { R::from_raw(real_ptr.cast(), Tracked(right)) })
+            },
         }
     }
 
-    unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
+    /* unsafe fn raw_as_ref<'a>(raw: NonNull<Self::Target>) -> Self::Ref<'a> {
         // SAFETY: The caller ensures that the pointer comes from `Self::into_raw`, which
         // guarantees that `real_ptr` is a non-null pointer.
         let (is_right, real_ptr) = unsafe { remove_bits(raw, 1 << Self::ALIGN_BITS) };
@@ -59,16 +123,16 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
             // safety requirements are upheld by the caller.
             Either::Right(unsafe { R::raw_as_ref(real_ptr.cast()) })
         }
-    }
+    } */
 
-    fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
+    /* fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target> {
         match ptr_ref {
             Either::Left(left) => L::ref_as_raw(left).cast(),
             Either::Right(right) => R::ref_as_raw(right)
                 .map_addr(|addr| addr | (1 << Self::ALIGN_BITS))
                 .cast(),
         }
-    }
+    } */
 }
 
 // A `min` implementation for use in constant evaluation.
@@ -84,6 +148,7 @@ const fn min(a: u32, b: u32) -> u32 {
 ///
 /// The caller must ensure that removing the bits from the non-null pointer will result in another
 /// non-null pointer.
+#[verifier::external_body]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
     use core::num::NonZeroUsize;
 
@@ -94,6 +159,8 @@ unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
 
     (removed_bits, result_ptr)
 }
+
+} // verus!
 
 #[cfg(ktest)]
 mod test {
