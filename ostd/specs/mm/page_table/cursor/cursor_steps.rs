@@ -9,7 +9,6 @@ use crate::specs::arch::mm::{NR_ENTRIES, NR_LEVELS, PAGE_SIZE};
 use crate::specs::arch::paging_consts::PagingConsts;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::node::EntryOwner;
-use crate::specs::mm::page_table::node::GuardPerm;
 use crate::specs::mm::page_table::owners::{OwnerSubtree, PageTableOwner, INC_LEVELS};
 use crate::specs::mm::page_table::AbstractVaddr;
 use crate::specs::mm::Guards;
@@ -287,10 +286,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub open spec fn push_level_owner_spec(self, guard_perm: GuardPerm<'rcu, C>) -> Self
+    pub open spec fn push_level_owner_spec(self, guard: PageTableGuard<'rcu, C>) -> Self
     {
         let cont = self.continuations[self.level - 1];
-        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+        let (child, cont) = cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard);
         let new_continuations = self.continuations.insert(self.level - 1, cont);
         let new_continuations = new_continuations.insert(self.level - 2, child);
 
@@ -303,36 +302,36 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn push_level_owner_decreases_steps(self, guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn push_level_owner_decreases_steps(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
             self.level > 0,
         ensures
-            self.push_level_owner_spec(guard_perm).max_steps() < self.max_steps()
+            self.push_level_owner_spec(guard).max_steps() < self.max_steps()
     { admit() }
 
-    pub proof fn push_level_owner_preserves_va(self, guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn push_level_owner_preserves_va(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
         ensures
-            self.push_level_owner_spec(guard_perm).va == self.va,
-            self.push_level_owner_spec(guard_perm).continuations[self.level - 2].idx == self.va.index[self.level - 2],
+            self.push_level_owner_spec(guard).va == self.va,
+            self.push_level_owner_spec(guard).continuations[self.level - 2].idx == self.va.index[self.level - 2],
     {
         assert(self.va.index.contains_key(self.level - 2));
     }
 
-    pub proof fn push_level_owner_preserves_mappings(self, guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn push_level_owner_preserves_mappings(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
             self.cur_entry_owner().is_node(),
         ensures
-            self.push_level_owner_spec(guard_perm)@.mappings == self@.mappings,
+            self.push_level_owner_spec(guard)@.mappings == self@.mappings,
     {
-        let new_owner = self.push_level_owner_spec(guard_perm);
+        let new_owner = self.push_level_owner_spec(guard);
         let old_cont = self.continuations[self.level - 1];
-        let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+        let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard);
 
         assert(old_cont.all_some());
         old_cont.view_mappings_take_child();
@@ -438,7 +437,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(new_owner.view_mappings() =~= self.view_mappings());
     }
 
-    pub proof fn push_level_owner_preserves_inv(self, guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn push_level_owner_preserves_inv(self, guard: PageTableGuard<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
@@ -447,27 +446,24 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.in_locked_range(),
             // The current entry is a node (we're descending into it)
             self.cur_entry_owner().is_node(),
-            // The child node's guard relates to the new guard_perm
-            self.cur_entry_owner().node.unwrap().relate_guard_perm(guard_perm),
-            // Guard distinctness: the new guard_perm points to a different node than all existing continuations
+            // The child node's guard relates to the new guard
+            self.cur_entry_owner().node.unwrap().relate_guard(guard),
+            // Guard distinctness: the new guard points to a different node than all existing continuations
             forall |i: int|
                 #![trigger self.continuations[i]]
                 self.level - 1 <= i < NR_LEVELS ==>
-                    self.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
-                        != guard_perm.value().inner.inner@.ptr.addr(),
+                    self.continuations[i].guard.inner.inner@.ptr.addr()
+                        != guard.inner.inner@.ptr.addr(),
         ensures
-            self.push_level_owner_spec(guard_perm).inv(),
+            self.push_level_owner_spec(guard).inv(),
     {
-        if self.level == self.guard_level {
-            self.in_locked_range_guard_index_eq_prefix();
-        }
-        let new_owner = self.push_level_owner_spec(guard_perm);
+        let new_owner = self.push_level_owner_spec(guard);
         let new_level = (self.level - 1) as u8;
 
         let old_cont = self.continuations[self.level - 1];
         old_cont.inv_children_unroll(old_cont.idx as int);
         let child_node = old_cont.children[old_cont.idx as int].unwrap();
-        let (child, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+        let (child, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard);
 
         old_cont.inv_children_rel_unroll(old_cont.idx as int);
         assert(child.entry_own == child_node.value);
@@ -602,7 +598,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(modified_cont.entry_own.is_node());
         assert(modified_cont.entry_own.inv());
-        assert(modified_cont.entry_own.node.unwrap().relate_guard_perm(modified_cont.guard_perm));
+        assert(modified_cont.entry_own.node.unwrap().relate_guard(modified_cont.guard));
         assert(modified_cont.tree_level == INC_LEVELS - modified_cont.level() - 1);
         assert(modified_cont.tree_level < INC_LEVELS - 1);
         assert(modified_cont.path().len() == modified_cont.tree_level);
@@ -631,8 +627,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[2].level() == 3
             &&& new_owner.continuations[2].entry_own.parent_level == 4
             &&& new_owner.va.index[2] == new_owner.continuations[2].idx
-            &&& new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& new_owner.continuations[2].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[2].path() == new_owner.continuations[3].path().push_tail(new_owner.continuations[3].idx as usize)
             &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_owner.continuations[3].entry_own, new_owner.continuations[3].idx as int,
@@ -641,14 +637,14 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if new_owner.level <= 3 {
                 if self.level == 4 {
                     assert(self.va.index.contains_key(2));
-                    assert(new_owner.continuations[2].guard_perm == guard_perm);
+                    assert(new_owner.continuations[2].guard == guard);
                     assert(new_owner.continuations[3] == modified_cont);
-                    assert(modified_cont.guard_perm == old_cont.guard_perm);
+                    assert(modified_cont.guard == old_cont.guard);
                     // guard distinctness
-                    assert(new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
-                           new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()) by {
-                        assert(self.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr()
-                            != guard_perm.value().inner.inner@.ptr.addr());
+                    assert(new_owner.continuations[2].guard.inner.inner@.ptr.addr() !=
+                           new_owner.continuations[3].guard.inner.inner@.ptr.addr()) by {
+                        assert(self.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
+                            != guard.inner.inner@.ptr.addr());
                     };
                     // path consistency: child.path() == modified_cont.path().push_tail(modified_cont.idx)
                     assert(new_owner.continuations[2].path() == new_owner.continuations[3].path().push_tail(new_owner.continuations[3].idx as usize)) by {
@@ -675,10 +671,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[1].level() == 2
             &&& new_owner.continuations[1].entry_own.parent_level == 3
             &&& new_owner.va.index[1] == new_owner.continuations[1].idx
-            &&& new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[2].guard.inner.inner@.ptr.addr()
+            &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[1].path() == new_owner.continuations[2].path().push_tail(new_owner.continuations[2].idx as usize)
             &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_owner.continuations[2].entry_own, new_owner.continuations[2].idx as int,
@@ -687,19 +683,19 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             if new_owner.level <= 2 {
                 if self.level == 3 {
                     assert(self.va.index.contains_key(1));
-                    assert(new_owner.continuations[1].guard_perm == guard_perm);
+                    assert(new_owner.continuations[1].guard == guard);
                     assert(new_owner.continuations[2] == modified_cont);
-                    assert(modified_cont.guard_perm == old_cont.guard_perm);
+                    assert(modified_cont.guard == old_cont.guard);
 
-                    assert(new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                           new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr()) by {
-                        assert(self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-                            != guard_perm.value().inner.inner@.ptr.addr());
+                    assert(new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                           new_owner.continuations[2].guard.inner.inner@.ptr.addr()) by {
+                        assert(self.continuations[2].guard.inner.inner@.ptr.addr()
+                            != guard.inner.inner@.ptr.addr());
                     };
-                    assert(new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                           new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()) by {
-                        assert(self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
-                            != guard_perm.value().inner.inner@.ptr.addr());
+                    assert(new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                           new_owner.continuations[3].guard.inner.inner@.ptr.addr()) by {
+                        assert(self.continuations[3].guard.inner.inner@.ptr.addr()
+                            != guard.inner.inner@.ptr.addr());
                     };
                     // path: child.path() == modified_cont.path().push_tail(modified_cont.idx)
                     assert(new_owner.continuations[1].path() == new_owner.continuations[2].path().push_tail(new_owner.continuations[2].idx as usize)) by {
@@ -731,12 +727,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[0].level() == 1
             &&& new_owner.continuations[0].entry_own.parent_level == 2
             &&& new_owner.va.index[0] == new_owner.continuations[0].idx
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& new_owner.continuations[0].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[1].guard.inner.inner@.ptr.addr()
+            &&& new_owner.continuations[0].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[2].guard.inner.inner@.ptr.addr()
+            &&& new_owner.continuations[0].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[0].path() == new_owner.continuations[1].path().push_tail(new_owner.continuations[1].idx as usize)
             &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_owner.continuations[1].entry_own, new_owner.continuations[1].idx as int,
@@ -744,17 +740,17 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }) by {
             if new_owner.level == 1 {
                 // self.level == 2, new_level == 1
-                assert(new_owner.continuations[0].guard_perm == guard_perm);
+                assert(new_owner.continuations[0].guard == guard);
                 assert(new_owner.continuations[1] == modified_cont);
-                assert(modified_cont.guard_perm == old_cont.guard_perm);
+                assert(modified_cont.guard == old_cont.guard);
 
                 // Guard distinctness from precondition
-                assert(self.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
-                    != guard_perm.value().inner.inner@.ptr.addr());
-                assert(self.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-                    != guard_perm.value().inner.inner@.ptr.addr());
-                assert(self.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
-                    != guard_perm.value().inner.inner@.ptr.addr());
+                assert(self.continuations[1].guard.inner.inner@.ptr.addr()
+                    != guard.inner.inner@.ptr.addr());
+                assert(self.continuations[2].guard.inner.inner@.ptr.addr()
+                    != guard.inner.inner@.ptr.addr());
+                assert(self.continuations[3].guard.inner.inner@.ptr.addr()
+                    != guard.inner.inner@.ptr.addr());
 
                 // child.level() == 1: from tree_level arithmetic
                 // old_cont = continuations[1], old_cont.level() == 2 (from self.inv() level <= 2)
@@ -793,7 +789,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
     }
 
-    pub proof fn push_level_owner_preserves_invs(self, guard_perm: GuardPerm<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
+    pub proof fn push_level_owner_preserves_invs(self, guard: PageTableGuard<'rcu, C>, regions: MetaRegionOwners, guards: Guards<'rcu, C>)
         requires
             self.inv(),
             self.level > 1,
@@ -805,26 +801,26 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.metaregion_sound(regions),
             // The current entry is a node (we're descending into it)
             self.cur_entry_owner().is_node(),
-            // The child node's guard relates to the new guard_perm
-            self.cur_entry_owner().node.unwrap().relate_guard_perm(guard_perm),
-            // The new guard_perm must be locked in guards
-            guards.lock_held(guard_perm.value().inner.inner@.ptr.addr()),
+            // The child node's guard relates to the new guard
+            self.cur_entry_owner().node.unwrap().relate_guard(guard),
+            // The new guard must be locked in guards
+            guards.lock_held(guard.inner.inner@.ptr.addr()),
         ensures
-            self.push_level_owner_spec(guard_perm).inv(),
-            self.push_level_owner_spec(guard_perm).children_not_locked(guards),
-            self.push_level_owner_spec(guard_perm).nodes_locked(guards),
-            self.push_level_owner_spec(guard_perm).metaregion_sound(regions),
+            self.push_level_owner_spec(guard).inv(),
+            self.push_level_owner_spec(guard).children_not_locked(guards),
+            self.push_level_owner_spec(guard).nodes_locked(guards),
+            self.push_level_owner_spec(guard).metaregion_sound(regions),
             self.metaregion_correct(regions) ==>
-                self.push_level_owner_spec(guard_perm).metaregion_correct(regions),
+                self.push_level_owner_spec(guard).metaregion_correct(regions),
     {
         if self.level == self.guard_level {
             self.in_locked_range_guard_index_eq_prefix();
         }
         reveal(CursorContinuation::inv_children);
-        let new_owner = self.push_level_owner_spec(guard_perm);
+        let new_owner = self.push_level_owner_spec(guard);
         let old_cont = self.continuations[self.level - 1];
         old_cont.inv_children_unroll_all();
-        let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm);
+        let (child_cont, modified_cont) = old_cont.make_cont_spec(self.va.index[self.level - 2] as usize, guard);
 
         let cur_entry = self.cur_entry_owner();
         let cur_entry_addr = cur_entry.node.unwrap().meta_perm.addr();
@@ -834,12 +830,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert forall |i: int|
             #![trigger self.continuations[i]]
             self.level - 1 <= i < NR_LEVELS implies
-                self.continuations[i].guard_perm.value().inner.inner@.ptr.addr()
-                    != guard_perm.value().inner.inner@.ptr.addr() by {
+                self.continuations[i].guard.inner.inner@.ptr.addr()
+                    != guard.inner.inner@.ptr.addr() by {
             let cont_i = self.continuations[i];
 
-            if cont_i.guard_perm.value().inner.inner@.ptr.addr()
-                == guard_perm.value().inner.inner@.ptr.addr()
+            if cont_i.guard.inner.inner@.ptr.addr()
+                == guard.inner.inner@.ptr.addr()
             {
                 let addr = cont_i.entry_own.node.unwrap().meta_perm.addr();
                 assert(addr == cur_entry.node.unwrap().meta_perm.addr());
@@ -866,7 +862,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 assert(false);
             }
         };
-        self.push_level_owner_preserves_inv(guard_perm);
+        self.push_level_owner_preserves_inv(guard);
 
         let excepted_idx = frame_to_index(meta_to_frame(cur_entry_addr));
         assert(regions.slot_owners[excepted_idx].paths_in_pt == set![cur_entry_path]) by {
@@ -994,10 +990,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
 
             if i == self.level - 2 {
                 assert(new_owner.continuations[i] == child_cont);
-                assert(child_cont.guard_perm == guard_perm);
+                assert(child_cont.guard == guard);
             } else if i == self.level - 1 {
                 assert(new_owner.continuations[i] == modified_cont);
-                assert(modified_cont.guard_perm == old_cont.guard_perm);
+                assert(modified_cont.guard == old_cont.guard);
             } else {
                 assert(new_owner.continuations[i] == self.continuations[i]);
             }
@@ -1118,21 +1114,21 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     }
 
     #[verifier::returns(proof)]
-    pub proof fn push_level_owner(tracked &mut self, tracked guard_perm: Tracked<GuardPerm<'rcu, C>>)
+    pub proof fn push_level_owner(tracked &mut self, guard: PageTableGuard<'rcu, C>)
         requires
             old(self).inv(),
             old(self).level > 1,
         ensures
-            *final(self) == old(self).push_level_owner_spec(guard_perm@),
+            *final(self) == old(self).push_level_owner_spec(guard),
     {
         assert(self.va.index.contains_key(self.level - 2));
 
         let ghost self0 = *self;
         let tracked mut cont = self.continuations.tracked_remove(self.level - 1);
         let ghost cont0 = cont;
-        let tracked child = cont.make_cont(self.va.index[self.level - 2] as usize, guard_perm);
+        let tracked child = cont.make_cont(self.va.index[self.level - 2] as usize, guard);
 
-        assert((child, cont) == cont0.make_cont_spec(self.va.index[self.level - 2] as usize, guard_perm@));
+        assert((child, cont) == cont0.make_cont_spec(self.va.index[self.level - 2] as usize, guard));
 
         self.continuations.tracked_insert(self.level - 1, cont);
         self.continuations.tracked_insert(self.level - 2, child);
@@ -1144,11 +1140,11 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         self.level = (self.level - 1) as u8;
     }
 
-    pub open spec fn pop_level_owner_spec(self) -> (Self, GuardPerm<'rcu, C>)
+    pub open spec fn pop_level_owner_spec(self) -> (Self, PageTableGuard<'rcu, C>)
     {
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
-        let (new_cont, guard_perm) = cont.restore_spec(child);
+        let (new_cont, guard) = cont.restore_spec(child);
         let new_continuations = self.continuations.insert(self.level as int, new_cont);
         let new_continuations = new_continuations.remove(self.level - 1);
         let new_level = (self.level + 1) as u8;
@@ -1158,7 +1154,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             level: new_level,
             popped_too_high: popped_too_high,
             ..self
-        }, guard_perm)
+        }, guard)
     }
 
     pub proof fn pop_level_owner_preserves_inv(self)
@@ -1303,8 +1299,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[2].level() == 3
             &&& new_owner.continuations[2].entry_own.parent_level == 4
             &&& new_owner.va.index[2] == new_owner.continuations[2].idx
-            &&& new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& new_owner.continuations[2].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[2].path() == new_owner.continuations[3].path().push_tail(new_owner.continuations[3].idx as usize)
             &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_owner.continuations[3].entry_own, new_owner.continuations[3].idx as int,
@@ -1326,10 +1322,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& new_owner.continuations[1].level() == 2
             &&& new_owner.continuations[1].entry_own.parent_level == 3
             &&& new_owner.va.index[1] == new_owner.continuations[1].idx
-            &&& new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& new_owner.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                new_owner.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[2].guard.inner.inner@.ptr.addr()
+            &&& new_owner.continuations[1].guard.inner.inner@.ptr.addr() !=
+                new_owner.continuations[3].guard.inner.inner@.ptr.addr()
             &&& new_owner.continuations[1].path() == new_owner.continuations[2].path().push_tail(new_owner.continuations[2].idx as usize)
             &&& <EntryOwner<C> as TreeNodeValue<NR_LEVELS>>::rel_children(
                     new_owner.continuations[2].entry_own, new_owner.continuations[2].idx as int,
@@ -1360,7 +1356,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         let new_owner = self.pop_level_owner_spec().0;
         let child = self.continuations[self.level - 1];
         let cont = self.continuations[self.level as int];
-        let (new_cont, _guard_perm) = cont.restore_spec(child);
+        let (new_cont, _guard) = cont.restore_spec(child);
         let child_node = OwnerSubtree {
             value: child.entry_own,
             level: child.tree_level,
@@ -1378,7 +1374,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 new_owner.continuations[i].node_locked(guards) by {
                     if i == self.level as int {
                         assert(new_owner.continuations[i] == new_cont);
-                        assert(new_cont.guard_perm == cont.guard_perm);
+                        assert(new_cont.guard == cont.guard);
                     } else {
                         assert(new_owner.continuations[i] == self.continuations[i]);
                     }
@@ -1514,8 +1510,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[2].level() == 3
             &&& r.continuations[2].entry_own.parent_level == 4
             &&& r.va.index[2] == r.continuations[2].idx
-            &&& r.continuations[2].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& r.continuations[2].guard.inner.inner@.ptr.addr() !=
+                r.continuations[3].guard.inner.inner@.ptr.addr()
             &&& r.continuations[2].path() == r.continuations[3].path().push_tail(r.continuations[3].idx as usize)
         });
 
@@ -1525,10 +1521,10 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[1].level() == 2
             &&& r.continuations[1].entry_own.parent_level == 3
             &&& r.va.index[1] == r.continuations[1].idx
-            &&& r.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& r.continuations[1].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& r.continuations[1].guard.inner.inner@.ptr.addr() !=
+                r.continuations[2].guard.inner.inner@.ptr.addr()
+            &&& r.continuations[1].guard.inner.inner@.ptr.addr() !=
+                r.continuations[3].guard.inner.inner@.ptr.addr()
             &&& r.continuations[1].path() == r.continuations[2].path().push_tail(r.continuations[2].idx as usize)
         });
 
@@ -1538,30 +1534,30 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             &&& r.continuations[0].level() == 1
             &&& r.continuations[0].entry_own.parent_level == 2
             &&& r.va.index[0] == r.continuations[0].idx
-            &&& r.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[1].guard_perm.value().inner.inner@.ptr.addr()
-            &&& r.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[2].guard_perm.value().inner.inner@.ptr.addr()
-            &&& r.continuations[0].guard_perm.value().inner.inner@.ptr.addr() !=
-                r.continuations[3].guard_perm.value().inner.inner@.ptr.addr()
+            &&& r.continuations[0].guard.inner.inner@.ptr.addr() !=
+                r.continuations[1].guard.inner.inner@.ptr.addr()
+            &&& r.continuations[0].guard.inner.inner@.ptr.addr() !=
+                r.continuations[2].guard.inner.inner@.ptr.addr()
+            &&& r.continuations[0].guard.inner.inner@.ptr.addr() !=
+                r.continuations[3].guard.inner.inner@.ptr.addr()
             &&& r.continuations[0].path() == r.continuations[1].path().push_tail(r.continuations[1].idx as usize)
         });
     }
 
     #[verifier::returns(proof)]
-    pub proof fn pop_level_owner(tracked &mut self) -> (tracked guard_perm: GuardPerm<'rcu, C>)
+    pub proof fn pop_level_owner(tracked &mut self) -> (tracked guard: PageTableGuard<'rcu, C>)
         requires
             old(self).inv(),
             old(self).level < NR_LEVELS,
         ensures
             *final(self) == old(self).pop_level_owner_spec().0,
-            guard_perm == old(self).pop_level_owner_spec().1,
+            guard == old(self).pop_level_owner_spec().1,
     {
         let ghost self0 = *self;
         let tracked mut parent = self.continuations.tracked_remove(self.level as int);
         let tracked child = self.continuations.tracked_remove(self.level - 1);
 
-        let tracked guard_perm = parent.restore(child);
+        let tracked guard = parent.restore(child);
 
         self.continuations.tracked_insert(self.level as int, parent);
 
@@ -1573,7 +1569,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.popped_too_high = true;
         }
 
-        guard_perm
+        guard
     }
 
     pub open spec fn move_forward_owner_spec(self) -> Self

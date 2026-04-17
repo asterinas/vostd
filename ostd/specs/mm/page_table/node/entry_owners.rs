@@ -621,6 +621,37 @@ impl<C: PageTableConfig> EntryOwner<C> {
             assert(false); // Contradiction
         }
     }
+
+    /// Two node entries with `metaregion_sound` under the same regions cannot share
+    /// a meta slot paddr if their paths have different lengths.
+    ///
+    /// For nodes, `metaregion_sound` requires `paths_in_pt == set![path]` (singleton).
+    /// Equal slot indices would force equal singleton sets, hence equal paths —
+    /// contradicting the length difference.
+    pub proof fn nodes_different_path_lengths_neq_slot(
+        self,
+        other: Self,
+        regions: MetaRegionOwners,
+    )
+        requires
+            self.is_node(),
+            other.is_node(),
+            self.metaregion_sound(regions),
+            other.metaregion_sound(regions),
+            self.path.len() != other.path.len(),
+        ensures
+            self.meta_slot_paddr_neq(other),
+    {
+        let self_idx = frame_to_index(self.meta_slot_paddr().unwrap());
+        let other_idx = frame_to_index(other.meta_slot_paddr().unwrap());
+        if self_idx == other_idx {
+            assert(regions.slot_owners[self_idx].paths_in_pt == set![self.path]);
+            assert(regions.slot_owners[other_idx].paths_in_pt == set![other.path]);
+            assert(set![self.path].contains(other.path));
+            assert(self.path == other.path);
+            assert(false);
+        }
+    }
 }
 
 impl<C: PageTableConfig> EntryOwner<C> {
@@ -711,7 +742,7 @@ impl<C: PageTableConfig> InvView for EntryOwner<C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
+impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     type Owner = EntryOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {

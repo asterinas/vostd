@@ -203,7 +203,6 @@ impl<'a> VmSpace<'a> {
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
             -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
@@ -217,7 +216,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pt.cursor(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -253,7 +252,6 @@ impl<'a> VmSpace<'a> {
     ///   the result is `Ok` and a [`CursorOwner`] is returned.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<UserPtConfig>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'a, UserPtConfig>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>
             -> cursor_owner: Tracked<Option<CursorOwner<'a, UserPtConfig>>>
@@ -266,7 +264,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pt.cursor_mut(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -751,10 +749,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(cursor_owner).metaregion_correct(*old(regions))
-                && crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
-                    MappedItem { frame: frame, prop: prop }, *old(regions))
-                ==> final(cursor_owner).metaregion_correct(*final(regions)),
             old(self).map_item_ensures(
                 frame,
                 prop,
@@ -839,7 +833,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
         ensures
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(cursor_owner).metaregion_correct(*old(regions)) ==> final(cursor_owner).metaregion_correct(*final(regions)),
             old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.inner.model(*final(cursor_owner)), r),
             final(tlb_model).inv(),
     )]
@@ -875,7 +868,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 end_va % PAGE_SIZE == 0,
                 end_va <= MAX_USERSPACE_VADDR,
                 self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
-                old(cursor_owner).metaregion_correct(*old(regions)) ==> cursor_owner.metaregion_correct(*regions),
                 end_va <= self.pt_cursor.inner.barrier_va.end,
                 tlb_model.inv(),
                 start_va <= cursor_owner@.cur_va,

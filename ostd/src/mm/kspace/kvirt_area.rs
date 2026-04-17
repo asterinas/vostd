@@ -387,8 +387,7 @@ impl KVirtArea {
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(entry_owners): Tracked<&mut Seq<EntryOwner<KernelPtConfig>>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
     )]
     pub fn map_frames<'a, T: AnyUFrameMeta, A: InAtomicMode + 'a>(
         area_size: usize,
@@ -436,7 +435,7 @@ impl KVirtArea {
         let preempt_guard = disable_preempt::<A>();
 
         let (mut cursor, Tracked(cursor_owner)) =
-        (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        (#[verus_spec(with Tracked(owner.pt_owner), Tracked(regions), Tracked(guards))]
             page_table.cursor_mut(preempt_guard, &cursor_range)).unwrap();
 
         let ghost init_frames_len = frames.len();
@@ -561,8 +560,7 @@ impl KVirtArea {
     #[verus_spec(
         with Tracked(owner): Tracked<KVirtAreaOwner>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
-            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'a, KernelPtConfig>>
+            Tracked(guards): Tracked<&mut Guards<'a, KernelPtConfig>>
     )]
     pub unsafe fn map_untracked_frames<A: InAtomicMode + 'a, 'a>(
         area_size: usize,
@@ -617,7 +615,7 @@ impl KVirtArea {
             let ghost pre_cursor_regions: MetaRegionOwners = *regions;
 
             let (mut cursor, Tracked(cursor_owner)) =
-            (#[verus_spec(with Tracked(owner.pt_owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+            (#[verus_spec(with Tracked(owner.pt_owner), Tracked(regions), Tracked(guards))]
                 page_table.cursor_mut(preempt_guard, &va_range)).unwrap();
 
             let pages = collect_largest_pages(va_range.start, pa_range.start, len);
