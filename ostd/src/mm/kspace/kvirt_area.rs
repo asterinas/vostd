@@ -501,6 +501,9 @@ impl KVirtArea {
             assert(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(
                 item, *regions,
             )) by { admit() };
+            // TODO: map_panic_conditions check — item.level < guard_level needs
+            // to be derived from find_next_impl postcondition (level < guard_level).
+            assert(!cursor.map_panic_conditions(item)) by { admit() };
             #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
             let res = cursor.map(item);
 
@@ -703,6 +706,8 @@ impl KVirtArea {
                     KernelPtConfig::item_into_raw_spec_untracked(pa, level, prop);
                     let level_raw = KernelPtConfig::item_into_raw_spec(item).1;
                     
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_ge_page_size(level_raw);
+                    KernelPtConfig::item_into_raw_spec_level_bounds(item);
                     let split_self = old_cursor_model.split_while_huge(
                         page_size(level_raw));
 

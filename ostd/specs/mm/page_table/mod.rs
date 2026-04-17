@@ -644,6 +644,7 @@ impl AbstractVaddr {
         abs_va_down.wrapped_index_nonzero(start_level, level);
     }
 
+    #[verifier::spinoff_prover]
     pub proof fn next_index_preserves_lower_indices(self, start_level: int, lower_level: int)
         requires
             self.inv(),
@@ -959,6 +960,7 @@ impl AbstractVaddr {
             by (compute);
     }
 
+    #[verifier::spinoff_prover]
     pub proof fn index_increment_adds_page_size(self, level: int)
         requires
             self.inv(),

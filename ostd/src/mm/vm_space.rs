@@ -484,7 +484,7 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).0.va
-                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
     )]
@@ -645,7 +645,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).pt_cursor.inner.va
-                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
     {

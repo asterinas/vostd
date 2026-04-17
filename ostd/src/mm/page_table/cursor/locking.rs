@@ -38,6 +38,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
+        va.start < va.end,
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
         (*ret.1).metaregion_correct(*final(regions)),
@@ -100,12 +101,18 @@ pub fn lock_range<'rcu, C: PageTableConfig, A: InAtomicMode>(
     }
     let cur_node_va = va.start.align_down(page_size(guard_level + 1));
 
-    #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard_perm))]
+    #[verus_spec(with Tracked(cont.entry_own), Tracked(&cont.guard_perm), Tracked(guards), Tracked(regions))]
     dfs_acquire_lock(guard, subtree_root, cur_node_va, va.clone());
 
     let mut path = [None, None, None, None];
     path[guard_level as usize - 1] = Some(subtree_root);
 
+    // TODO: The cursor's `level` must be < guard_level for `CursorOwner::inv()`
+    // when `!popped_too_high && in_locked_range`. Currently set to guard_level,
+    // which is inconsistent. The DFS descent should populate `path` at each level
+    // and set cursor level to the leaf (level 1 or the lowest locked level).
+    // This requires `dfs_acquire_lock` to also build continuations + path entries,
+    // or a post-DFS descent step.
     let res = (Cursor::<'rcu, C, A> {
         path,
         rcu_guard: guard,
@@ -195,6 +202,19 @@ pub fn unlock_range<C: PageTableConfig, A: InAtomicMode>(cursor: &mut Cursor<'_,
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].inv()
             &&& final(cursor_own).continuations[(final(cursor_own).level - 1) as int].guard_perm.pptr() == r.unwrap()
         },
+        // The subtree root's entry_own is a valid node with matching guard_perm.
+        {
+            let cont = final(cursor_own).continuations[(final(cursor_own).level - 1) as int];
+            &&& cont.entry_own.is_node()
+            &&& cont.entry_own.inv()
+            &&& cont.entry_own.node.unwrap().relate_guard_perm(cont.guard_perm)
+        },
+        // The subtree root is lock_held in guards.
+        final(guards).lock_held(
+            final(cursor_own).continuations[(final(cursor_own).level - 1) as int]
+                .entry_own.node.unwrap().meta_perm.addr()),
+        // regions invariant preserved
+        final(regions).inv(),
         // Locking only allocates fresh page-table nodes from UNUSED slots;
         // it does not mutate any slot that was already in use.
         forall|idx: usize| #![trigger final(regions).slot_owners[idx].paths_in_pt]
@@ -370,7 +390,36 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
 /// The function will forget all the [`PageTableGuard`] objects in the sub-tree.
 #[verus_spec(
     with Tracked(entry_own): Tracked<EntryOwner<C>>,
-        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>
+        Tracked(guard_perm): Tracked<&vstd::simple_pptr::PointsTo<PageTableGuard<'rcu, C>>>,
+        Tracked(guards): Tracked<&mut Guards<'rcu, C>>,
+        Tracked(regions): Tracked<&mut MetaRegionOwners>
+    requires
+        entry_own.is_node(),
+        entry_own.inv(),
+        guard_perm.is_init(),
+        guard_perm.pptr() == cur_node,
+        entry_own.node.unwrap().relate_guard_perm(*guard_perm),
+        old(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        cur_node_va <= va_range.start,
+        va_range.start < va_range.end,
+        old(regions).inv(),
+    ensures
+        // The root node is still lock_held (not ManuallyDrop'd by this fn).
+        final(guards).lock_held(entry_own.node.unwrap().meta_perm.addr()),
+        // All other locks are preserved: addresses not in this subtree are unchanged.
+        forall |addr: usize|
+            addr != entry_own.node.unwrap().meta_perm.addr()
+            && old(guards).guards.contains_key(addr) ==>
+            #[trigger] final(guards).guards[addr] == old(guards).guards[addr]
+            && final(guards).guards.contains_key(addr),
+        // Addresses not in old guards don't appear in final guards
+        // (acquire + ManuallyDrop is a no-op on the guards map for child addrs).
+        forall |addr: usize|
+            !old(guards).guards.contains_key(addr) ==>
+            !#[trigger] final(guards).guards.contains_key(addr),
+        // regions preserved
+        final(regions).inv(),
+        final(regions).slot_owners =~= old(regions).slot_owners,
 )]
 #[verifier::external_body]
 fn dfs_acquire_lock<'rcu, C: PageTableConfig, A: InAtomicMode>(
@@ -550,19 +599,153 @@ pub fn dfs_mark_stray_and_unlock<'a, C: PageTableConfig, A: InAtomicMode>(
     num_frames*/
 }
 
-#[verifier::external_body]
+/// Spec-level ceiling division: `ceil(x / d)` for non-negative `x` and positive `d`.
+pub open spec fn ceil_div(x: int, d: int) -> int
+    recommends d > 0, x >= 0
+{
+    (x + d - 1) / d
+}
+
+pub open spec fn idx_range_spec(
+    cur_node_level: PagingLevel,
+    cur_node_va: Vaddr,
+    va_start: Vaddr,
+    va_end: Vaddr,
+) -> (usize, usize) {
+    let ps = page_size(cur_node_level) as int;
+    let start_idx = ((va_start - cur_node_va) as int) / ps;
+    let end_idx = ceil_div((va_end - cur_node_va) as int, ps);
+    (start_idx as usize, end_idx as usize)
+}
+
+#[verus_spec(ret =>
+    requires
+        1 <= cur_node_level <= NR_LEVELS,
+        cur_node_va <= va_range.start,
+        va_range.start < va_range.end,
+        va_range.end <= cur_node_va + page_size((cur_node_level + 1) as PagingLevel),
+        cur_node_va % page_size((cur_node_level + 1) as PagingLevel) == 0,
+        va_range.start % page_size(cur_node_level) == 0,
+    ensures
+        ret.start == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).0,
+        ret.end == idx_range_spec(cur_node_level, cur_node_va, va_range.start, va_range.end).1,
+        ret.start < ret.end,
+        ret.end <= NR_ENTRIES,
+)]
 fn dfs_get_idx_range<C: PagingConstsTrait>(
     cur_node_level: PagingLevel,
     cur_node_va: Vaddr,
     va_range: &Range<Vaddr>,
 ) -> Range<usize> {
-    //    debug_assert!(va_range.start >= cur_node_va);
-    //    debug_assert!(va_range.end <= cur_node_va.saturating_add(page_size(cur_node_level + 1)));
-    let start_idx = (va_range.start - cur_node_va) / page_size(cur_node_level);
-    let end_idx = (va_range.end - cur_node_va).div_ceil(page_size(cur_node_level));
+    let ps = page_size(cur_node_level);
+    let diff = va_range.end - cur_node_va;
 
-    //    debug_assert!(start_idx < end_idx);
-    //    debug_assert!(end_idx <= nr_subpage_per_huge::<C>());
+    proof {
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+        use vstd::arithmetic::div_mod::*;
+        lemma_page_size_ge_page_size(cur_node_level);
+        lemma_page_size_spec_values();
+        lemma_nr_entries_times_sub_page_size((cur_node_level + 1) as PagingLevel);
+
+        // diff + ps - 1 fits in usize: both <= page_size(5) = 2^48
+        assert(diff as int + ps as int - 1 < usize::MAX as int);
+    }
+
+    let start_idx = (va_range.start - cur_node_va) / ps;
+    let end_idx = (diff + ps - 1) / ps;
+
+    proof {
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+        use vstd::arithmetic::div_mod::*;
+
+        let ai = ps as int;
+        let xi = diff as int;
+        let si = (va_range.start - cur_node_va) as int;
+
+        // -- start_idx < end_idx --
+        // si < xi (non-empty range), si % ai == 0 (both endpoints aligned).
+        // So si/ai < (xi + ai - 1)/ai.
+        //
+        // Proof: si + ai <= xi + ai - 1 + 1 = xi + ai, but more precisely:
+        //   si < xi ==> si <= xi - 1 (integers)
+        //   ==> si + ai - 1 <= xi - 1 + ai - 1 < xi + ai - 1
+        //   ==> (si + ai - 1)/ai <= (xi + ai - 1)/ai  (since si % ai == 0, si/ai = (si+ai-1)/ai)
+        //
+        // Actually the simplest route: si/ai * ai = si < xi <= end_idx * ai.
+        assert(start_idx < end_idx) by {
+            // si = start_idx * ai (exact division since si % ai == 0)
+            lemma_page_size_divides(cur_node_level, (cur_node_level + 1) as PagingLevel);
+            // Prove si % ai == 0: va_range.start and cur_node_va are both multiples of ps.
+            // cur_node_va % ps == 0: cur_node_va % page_size(level+1) == 0 and ps | page_size(level+1).
+            let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
+            assert(psu % ai == 0);
+            assert(cur_node_va as int % ai == 0) by {
+                // cur_node_va % psu == 0, psu % ai == 0
+                // ==> cur_node_va is a multiple of ai
+                lemma_fundamental_div_mod(cur_node_va as int, psu);
+                lemma_fundamental_div_mod(psu, ai);
+                let k = cur_node_va as int / psu;
+                let m = psu / ai;
+                // lemma gives: cur_node_va == psu * k + (cur_node_va % psu)
+                //              psu == ai * m + (psu % ai)
+                assert(cur_node_va as int == psu * k + cur_node_va as int % psu);
+                assert(psu == ai * m + psu % ai);
+                assert(cur_node_va as int == (m * k) * ai) by(nonlinear_arith)
+                    requires
+                        cur_node_va as int == psu * k + 0,
+                        psu == ai * m + 0,
+                        cur_node_va as int % psu == 0,
+                        psu % ai == 0;
+                lemma_mod_multiples_basic(m * k, ai);
+            };
+            assert(si % ai == 0) by {
+                // va_range.start = si + cur_node_va, both multiples of ai
+                // si % ai + cur_node_va % ai == va_range.start % ai (mod ai)
+                assert(si + cur_node_va as int == va_range.start as int);
+                lemma_mod_adds(si, cur_node_va as int, ai);
+                // gives: si%ai + 0 == 0 + ai * ((si%ai + 0)/ai)
+                // so si%ai == ai * (si%ai / ai)
+                // since 0 <= si%ai < ai, si%ai / ai == 0, so si%ai == 0
+            };
+
+            // start_idx * ai = si (exact division since si % ai == 0)
+            lemma_fundamental_div_mod(si, ai);
+            // si == ai * (si / ai) + (si % ai) == ai * start_idx + 0
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, si / ai);
+
+            // end_idx * ai >= xi: ceil_div(xi, ai) * ai >= xi
+            lemma_fundamental_div_mod(xi + ai - 1, ai);
+            let qi = (xi + ai - 1) / ai;
+            let ri = (xi + ai - 1) % ai;
+            // xi + ai - 1 == ai * qi + ri
+            assert(xi + ai - 1 == ai * qi + ri);
+            vstd::arithmetic::mul::lemma_mul_is_commutative(ai, qi);
+            assert(qi * ai >= xi) by(nonlinear_arith)
+                requires xi + ai - 1 == qi * ai + ri, 0 <= ri < ai, ai > 0;
+
+            assert(start_idx as int * ai < end_idx as int * ai) by(nonlinear_arith)
+                requires
+                    start_idx as int * ai == si,
+                    end_idx as int * ai >= xi,
+                    si < xi;
+            vstd::arithmetic::mul::lemma_mul_strict_inequality_converse(
+                start_idx as int, end_idx as int, ai);
+        };
+
+        // -- end_idx <= NR_ENTRIES --
+        // diff <= page_size(level+1) = NR_ENTRIES * ps
+        // So ceil_div(diff, ps) <= NR_ENTRIES.
+        let psu = page_size((cur_node_level + 1) as PagingLevel) as int;
+        assert(psu == NR_ENTRIES as int * ai);
+        assert(xi <= psu);
+        // (psu + ai - 1) / ai == NR_ENTRIES (since psu = NR_ENTRIES * ai)
+        assert(psu + ai - 1 == NR_ENTRIES as int * ai + (ai - 1)) by(nonlinear_arith)
+            requires psu == NR_ENTRIES as int * ai;
+        lemma_fundamental_div_mod_converse(psu + ai - 1, ai, NR_ENTRIES as int, ai - 1);
+        // So (psu + ai - 1) / ai == NR_ENTRIES
+        // xi + ai - 1 <= psu + ai - 1, so end_idx = (xi+ai-1)/ai <= (psu+ai-1)/ai = NR_ENTRIES
+        lemma_div_is_ordered(xi + ai - 1, psu + ai - 1, ai);
+    }
 
     start_idx..end_idx
 }

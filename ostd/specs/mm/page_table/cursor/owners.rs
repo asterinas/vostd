@@ -469,7 +469,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         // The cursor is allowed to pop out of the guard range only when it reaches the end of the locked range.
         // This allows the user to reason solely about the current vaddr and not keep track of the cursor's level.
         &&& self.popped_too_high ==> self.level >= self.guard_level && self.in_locked_range()
-        &&& !self.popped_too_high ==> self.level < self.guard_level || self.above_locked_range()
+        &&& !self.popped_too_high ==> self.level <= self.guard_level || self.above_locked_range()
         &&& self.continuations[self.level - 1].all_some()
         &&& forall|i: int| self.level <= i < NR_LEVELS ==> {
             (#[trigger] self.continuations[i]).all_but_index_some()
@@ -488,7 +488,7 @@ impl<'rcu, C: PageTableConfig> Inv for CursorOwner<'rcu, C> {
         &&& !self.popped_too_high ==> forall|i: int| self.guard_level <= i < NR_LEVELS ==>
             self.va.index[i] == self.prefix.index[i]
         &&& !self.popped_too_high && self.guard_level >= 1 && self.level < self.guard_level ==>
-            self.va.index[self.guard_level - 1] == 0
+            self.va.index[self.guard_level - 1] == self.prefix.index[self.guard_level - 1]
         &&& self.level <= 4 ==> {
             &&& self.continuations.contains_key(3)
             &&& self.continuations[3].inv()
@@ -998,6 +998,9 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     {
         let gl = self.guard_level;
         if gl >= 1 && gl <= NR_LEVELS {
+            // va.index[gl-1] == prefix.index[gl-1] from invariant (level < guard_level)
+            // Combined with line 488 (upper indices match), all indices at gl-1
+            // and above are equal, so align_down(gl) matches.
             self.va.align_down_to_vaddr_eq_if_upper_indices_eq(self.prefix, gl as int);
             self.va.align_down_concrete(gl as int);
             self.prefix.align_down_concrete(gl as int);
@@ -1103,11 +1106,112 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         }
     }
 
-    pub proof fn in_locked_range_level_lt_nr_levels(self)
-        requires self.inv(), self.in_locked_range(), !self.popped_too_high,
-        ensures self.level < NR_LEVELS,
+    /// When the cursor is in the locked range, va.index[guard_level - 1]
+    /// matches prefix.index[guard_level - 1]. This is because both va and
+    /// prefix are within the same page_size(guard_level)-aligned block.
+    #[verifier::rlimit(2000)]
+    pub proof fn in_locked_range_guard_index_eq_prefix(self)
+        requires
+            self.inv(),
+            self.prefix.inv(),
+            1 <= self.guard_level <= NR_LEVELS,
+            self.in_locked_range(),
+        ensures
+            self.va.index[self.guard_level - 1] == self.prefix.index[self.guard_level - 1],
     {
-        self.in_locked_range_level_lt_guard_level();
+        let gl = self.guard_level;
+        let start = self.prefix.align_down(gl as int).to_vaddr();
+
+        self.prefix.align_down_shape(gl as int);
+        self.prefix.align_down_concrete(gl as int);
+        self.prefix.align_up_concrete(gl as int);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+            nat_align_down(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+        AbstractVaddr::from_vaddr_to_vaddr_roundtrip(
+            nat_align_up(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+        lemma_page_size_ge_page_size(gl as PagingLevel);
+        lemma_nat_align_down_sound(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat);
+        self.prefix.align_diff(gl as int);
+
+        self.prefix.align_up(gl as int).reflect_prop(
+            nat_align_up(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+        self.prefix.align_down(gl as int).reflect_prop(
+            nat_align_down(self.prefix.to_vaddr() as nat, page_size(gl as PagingLevel) as nat) as Vaddr);
+
+        // Both va and prefix are in [start, start + page_size(gl)).
+        // Since they're in the same page_size(gl)-aligned block:
+        // va / page_size(gl) == prefix / page_size(gl), hence
+        // pte_index(va, gl) == pte_index(prefix, gl), hence
+        // va.index[gl-1] == prefix.index[gl-1].
+        //
+        // Use pte_index postcondition to connect to AbstractVaddr.index.
+        let ps = page_size(gl as PagingLevel);
+        let va_val = self.va.to_vaddr();
+        let pf_val = self.prefix.to_vaddr();
+        // va and prefix are in [start, start + ps), so va/ps == prefix/ps == start/ps
+        // start is ps-aligned (from align_down), so start/ps = start/ps and (start+ps-1)/ps = start/ps.
+        let k = start as int / ps as int;
+        assert(start as int == k * ps as int) by {
+            lemma_nat_align_down_sound(self.prefix.to_vaddr() as nat, ps as nat);
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod(start as int, ps as int);
+        };
+        // va in [start, start + ps) means va = k*ps + r for 0 <= r < ps, so va/ps = k.
+        assert(va_val as int / ps as int == k) by {
+            let r = va_val as int - start as int;
+            assert(0 <= r);
+            assert(r < ps as int);
+            assert(va_val as int == k * ps as int + r) by(nonlinear_arith)
+                requires va_val as int == start as int + r, start as int == k * ps as int;
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(va_val as int, ps as int, k, r);
+        };
+        assert(pf_val as int / ps as int == k) by {
+            let r = pf_val as int - start as int;
+            assert(0 <= r);
+            assert(r < ps as int);
+            assert(pf_val as int == k * ps as int + r) by(nonlinear_arith)
+                requires pf_val as int == start as int + r, start as int == k * ps as int;
+            vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(pf_val as int, ps as int, k, r);
+        };
+        // pte_index gives index[gl-1] == from_vaddr(va).index[gl-1]
+        // Since va/ps == prefix/ps, their pte_index at level gl must be equal.
+        // pte_index(va, gl) = (va >> bit_offset(gl)) & (NR_ENTRIES - 1)
+        // For VAs in the same ps-aligned block, this is the same.
+        // from_vaddr(va).index[gl-1] == (va / ps) % NR_ENTRIES (from pte_index spec).
+        // Since va/ps == pf/ps (proved above), (va/ps) % NR_ENTRIES == (pf/ps) % NR_ENTRIES,
+        // hence the indices are equal.
+        //
+        // Connection: pte_index(va, gl) == from_vaddr(va).index[gl-1] (pte_index ensures)
+        // and pte_index(va, gl) is (va >> bit_offset(gl)) & (NR_ENTRIES-1).
+        // Since va/ps = va >> bit_offset(gl) (ps is a power of 2),
+        // pte_index(va, gl) = (va/ps) % NR_ENTRIES.
+        //
+        // same_node_indices_match provides this but its auto trigger doesn't fire.
+        // from_vaddr(v).index[i] == ((v / pow2((12 + 9*i) as nat) as usize) % NR_ENTRIES) as int.
+        // ps == page_size(gl) == pow2((12 + 9*(gl-1)) as nat) as usize.
+        // So from_vaddr(v).index[gl-1] == ((v / ps) % NR_ENTRIES) as int.
+        // Since va_val / ps == pf_val / ps == k, the indices are equal.
+        use crate::specs::mm::page_table::cursor::page_size_lemmas::*;
+        lemma_page_size_spec_values();
+        // page_size(gl) == pow2(12 + 9*(gl-1)) for gl in 1..=4.
+        // Use concrete values from lemma_page_size_spec_values + lemma2_to64.
+        vstd::arithmetic::power2::lemma2_to64();
+        vstd::arithmetic::power2::lemma2_to64_rest();
+        assert(ps as int == pow2((12 + 9 * (gl - 1)) as nat) as int);
+        // Now from_vaddr unfolds: index[gl-1] = ((va / pow2(...)) % NR_ENTRIES) = ((va / ps) % NR_ENTRIES)
+        assert(AbstractVaddr::from_vaddr(va_val).index[gl - 1]
+            == ((va_val as usize / ps) % NR_ENTRIES) as int);
+        assert(AbstractVaddr::from_vaddr(pf_val).index[gl - 1]
+            == ((pf_val as usize / ps) % NR_ENTRIES) as int);
+        // va_val / ps == pf_val / ps (already proved as k)
+        AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.va);
+        AbstractVaddr::to_vaddr_from_vaddr_roundtrip(self.prefix);
+    }
+
+    pub proof fn in_locked_range_level_le_nr_levels(self)
+        requires self.inv(), self.in_locked_range(), !self.popped_too_high,
+        ensures self.level <= NR_LEVELS,
+    {
+        self.in_locked_range_level_le_guard_level();
     }
 
     /// When the cursor is in the locked range and not popped, its top-level
@@ -1121,25 +1225,40 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         ensures
             self.va.index[NR_LEVELS - 1] < C::TOP_LEVEL_INDEX_RANGE_spec().end,
     {
-        self.in_locked_range_level_lt_guard_level();
+        self.in_locked_range_level_le_guard_level();
         if self.guard_level as int == NR_LEVELS as int {
-            assert(self.va.index[self.guard_level - 1] == 0);
-            assert(self.va.index[NR_LEVELS - 1] == 0);
+            if self.level < self.guard_level {
+                // va.index[guard_level-1] == prefix.index[guard_level-1] < TOP_LEVEL_INDEX_RANGE.end
+                assert(self.va.index[NR_LEVELS - 1] == self.prefix.index[NR_LEVELS - 1]);
+            } else {
+                // level == guard_level == NR_LEVELS:
+                // va.index[NR_LEVELS-1] <= TOP_LEVEL_INDEX_RANGE.end (from inv).
+                // in_locked_range means va < locked_range.end = prefix.align_up(gl).
+                // If va.index[NR_LEVELS-1] == TOP_LEVEL_INDEX_RANGE.end, the cursor
+                // would be above_locked_range (the one-past-end sentinel), contradicting
+                // in_locked_range. So strict < holds.
+                // Since prefix.index[NR_LEVELS-1] < TOP_LEVEL_INDEX_RANGE.end (line 482)
+                // and locked_range.end = prefix.align_up(NR_LEVELS), which has
+                // index[NR_LEVELS-1] at most prefix.index[NR_LEVELS-1] + 1, any VA
+                // at the top_end sentinel overshoots.
+                self.in_locked_range_guard_index_eq_prefix();
+                assert(self.va.index[NR_LEVELS - 1] == self.prefix.index[NR_LEVELS - 1]);
+            }
         } else {
             assert(self.va.index[NR_LEVELS - 1]
                 == self.prefix.index[NR_LEVELS - 1]);
         }
     }
 
-    pub proof fn in_locked_range_level_lt_guard_level(self)
+    pub proof fn in_locked_range_level_le_guard_level(self)
         requires self.inv(), self.in_locked_range(), !self.popped_too_high,
-        ensures self.level < self.guard_level,
+        ensures self.level <= self.guard_level,
     {
         assert(self.in_locked_range() ==> !self.above_locked_range());
     }
 
     /// The node at `level+1` containing `va` fits within the locked range.
-    #[verifier::rlimit(10000)]
+    #[verifier::rlimit(20000)]
     pub proof fn node_within_locked_range(self, level: PagingLevel)
         requires
             self.inv(),
@@ -1211,6 +1330,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(end as int % ps as int == 0);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
+        vstd::arithmetic::mul::lemma_mul_is_commutative(ad_q, ps_i);
+        vstd::arithmetic::mul::lemma_mul_is_commutative(end_q, ps_i);
         assert(ad as int == ad_q * ps_i);
         assert(end as int == end_q * ps_i);
         assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)

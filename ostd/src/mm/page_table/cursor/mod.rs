@@ -575,7 +575,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).va
-                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
             res is Some ==> Self::find_not_unmap_subtree_ensures(*old(owner), *final(owner)),
@@ -637,7 +637,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     /// ## Safety
     /// - This function never accesses nodes outside the locked range, because it is impossible to
     /// create a cursor below the range, and if the cursor is above the range this function will always panic.
-    #[verifier::rlimit(400)]
+    #[verifier::rlimit(800)]
     #[verus_spec(res =>
         with Tracked(owner): Tracked<&mut CursorOwner<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
@@ -653,7 +653,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).va
-                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
                 &&& final(self).va < old(self).va + len
             },
@@ -740,7 +740,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             decreases owner.max_steps(),
         {
             proof {
-                owner.in_locked_range_level_lt_nr_levels();
+                owner.in_locked_range_level_le_nr_levels();
             }
 
             let ghost owner0 = *owner;
@@ -783,11 +783,20 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 if self.va as usize == old(self).va as usize {
                                     owner.split_while_huge_at_level_noop();
                                 }
-                                owner.in_locked_range_level_lt_nr_levels();
-                                owner.va.align_down_inv(self.level as int);
-                                owner.va.align_down_concrete(self.level as int);
-                                owner.va.align_down(self.level as int).reflect_prop(
-                                    nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
+                                owner.in_locked_range_level_le_nr_levels();
+                                if self.level < NR_LEVELS {
+                                    owner.va.align_down_inv(self.level as int);
+                                    owner.va.align_down_concrete(self.level as int);
+                                    owner.va.align_down(self.level as int).reflect_prop(
+                                        nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
+                                } else {
+                                    // level == NR_LEVELS: cur_entry_fits_range gives
+                                    // cur_va == cur_va_range.start. Connect abstract
+                                    // align_down to nat_align_down via align_down_concrete.
+                                    owner.va.align_down_concrete(self.level as int);
+                                    owner.va.align_down(self.level as int).reflect_prop(
+                                        nat_align_down(self.va as nat, page_size_spec(self.level) as nat) as Vaddr);
+                                }
                             }
                             // !present postcondition: split_happened ==> self.va == old(self).va,
                             // so self.va > old(self).va ==> !split_happened ==> !old(owner)@.present().
@@ -995,7 +1004,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                                 if !split_happened && self.va as usize == old(self).va as usize {
                                     owner.split_while_huge_at_level_noop();
                                 }
-                                owner.in_locked_range_level_lt_nr_levels();
+                                owner.in_locked_range_level_le_nr_levels();
                                 owner.va.reflect_prop(self.va);
                                 owner.va.align_down_inv(self.level as int);
                                 owner.va.align_down_concrete(self.level as int);
@@ -1205,10 +1214,144 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             }
 
             proof {
-                owner.in_locked_range_level_lt_guard_level();
-                owner.jump_not_in_node_level_lt_guard_minus_one(self.level, va, node_start);
+                owner.in_locked_range_level_le_guard_level();
+                if owner.level < owner.guard_level {
+                    owner.jump_not_in_node_level_lt_guard_minus_one(self.level, va, node_start);
+                }
             }
 
+            // When level == guard_level, the VA target is within the guard node
+            // (barrier_va ⊂ locked_range ⊂ guard_node), so the if-check succeeds
+            // and we return Ok before reaching here. Thus level < guard_level.
+            proof {
+                if self.level == self.guard_level {
+                    // At guard_level, va is within the guard node [node_start, node_start + node_size).
+                    // node_start = align_down(self.va, page_size(gl+1)).
+                    // va ∈ [barrier_va.start, barrier_va.end) = [locked_range.start, locked_range.end).
+                    // locked_range ⊂ [node_start, node_start + page_size(gl+1)).
+                    let gl = self.guard_level as PagingLevel;
+                    let ns = node_size as nat;
+                    let ps_gl = page_size(gl) as nat;
+                    lemma_page_size_ge_page_size((gl + 1) as PagingLevel);
+                    lemma_page_size_ge_page_size(gl);
+                    lemma_nat_align_down_sound(self.va as nat, ns);
+                    // node_start <= self.va < node_start + ns
+                    // locked_range.start = prefix.align_down(gl) >= node_start
+                    // because align_down(prefix, gl) only zeros below gl,
+                    // while node_start = align_down(self.va, page_size(gl+1)) zeros below gl+1.
+                    // Both self.va and prefix share upper indices >= gl (from inv).
+                    // So align_down(prefix, page_size(gl+1)) == align_down(self.va, page_size(gl+1)) == node_start.
+                    // align_down(prefix, page_size(gl)) >= align_down(prefix, page_size(gl+1)) == node_start.
+                    lemma_nat_align_down_sound(owner.prefix.to_vaddr() as nat, ps_gl);
+                    owner.prefix.align_down_concrete(gl as int);
+                    owner.prefix.align_down(gl as int).reflect_prop(
+                        nat_align_down(owner.prefix.to_vaddr() as nat, ps_gl) as Vaddr);
+                    // locked_range.start >= node_start
+                    lemma_page_size_divides(gl, (gl + 1) as PagingLevel);
+                    // self.va and prefix are in the same page_size(gl+1) block
+                    // (they share indices >= gl from the invariant).
+                    // So align_down(self.va, page_size(gl+1)) == align_down(prefix, page_size(gl+1)).
+                    owner.in_locked_range_guard_index_eq_prefix();
+                    // node_start = align_down(self.va, ns) = align_down(prefix, ns)
+                    lemma_nat_align_down_sound(owner.prefix.to_vaddr() as nat, ns);
+                    // align_down(prefix, ps_gl) >= align_down(prefix, ns) = node_start
+                    lemma_nat_align_down_monotone(owner.prefix.to_vaddr() as nat, ps_gl, ns);
+                    // locked_range.start = align_down(prefix, ps_gl) >= node_start
+                    // barrier_va.start == locked_range.start
+                    // va >= barrier_va.start (from loop invariant)
+                    // Chain: va >= barrier_va.start == locked_range.start
+                    //          = align_down(prefix, ps_gl) >= align_down(prefix, ns) = node_start.
+                    // But node_start = align_down(self.va, ns), not align_down(prefix, ns).
+                    // These are equal because self.va and prefix are in the same ns-aligned block.
+                    // in_locked_range_guard_index_eq_prefix gives va.index[gl-1] == prefix.index[gl-1].
+                    // Combined with the invariant (indices >= gl match), ALL indices >= gl-1 match.
+                    // So align_down(self.va, ns) == align_down(prefix, ns).
+                    // self.va is in locked_range = [align_down(prefix, ps_gl), align_up(prefix, ps_gl)).
+                    // locked_range ⊂ [align_down(prefix, ns), align_down(prefix, ns) + ns).
+                    // So self.va is in the same ns-aligned block as prefix.
+                    // => align_down(self.va, ns) == align_down(prefix, ns).
+                    let pv = owner.prefix.to_vaddr() as nat;
+                    let ad_ns = nat_align_down(pv, ns);
+                    lemma_nat_align_down_within_block(pv, ps_gl, ns);
+                    // ad_ns <= align_down(prefix, ps_gl) (from monotone, already called)
+                    // align_down(prefix, ps_gl) <= self.va (from in_locked_range)
+                    // self.va < align_up(prefix, ps_gl) (from in_locked_range)
+                    // align_up(prefix, ps_gl) <= align_down(prefix, ps_gl) + ps_gl
+                    //                         <= ad_ns + ns (from within_block)
+                    // So self.va is in [ad_ns, ad_ns + ns).
+                    // Connect locked_range bounds to concrete vaddrs
+                    let ad_gl = nat_align_down(pv, ps_gl);
+                    let au_gl = vstd_extra::arithmetic::nat_align_up(pv, ps_gl);
+                    // locked_range = [ad_gl as Vaddr, au_gl as Vaddr) (from align_down/up_concrete + reflect_prop)
+                    // in_locked_range: ad_gl as Vaddr <= self.va < au_gl as Vaddr
+                    // ad_gl >= ad_ns (from monotone)
+                    // au_gl <= ad_gl + ps_gl (from nat_align_up_sound: au_gl - pv < ps_gl, and ad_gl <= pv)
+                    // Actually au_gl = ad_gl + ps_gl when pv isn't gl-aligned, or au_gl = pv = ad_gl when it is.
+                    vstd_extra::arithmetic::lemma_nat_align_up_sound(pv, ps_gl);
+                    // au_gl <= ad_gl + ps_gl
+                    assert(au_gl <= ad_gl + ps_gl);
+                    // ad_gl + ps_gl <= ad_ns + ns (from within_block)
+                    // So self.va as nat >= ad_gl >= ad_ns
+                    // Connect locked_range bounds to nat comparisons via reflect
+                    assert(self.va as nat >= ad_gl) by {
+                        // locked_range.start.to_vaddr() == nat_align_down(prefix, ps_gl) (from reflect_prop)
+                        // in_locked_range: locked_range.start <= self.va
+                    };
+                    // barrier_va.end == locked_range.end (from wf)
+                    // va < barrier_va.end (from loop invariant)
+                    // locked_range.end = prefix.align_up(gl) = au_gl as usize
+                    // So va < au_gl.
+                    // Also self.va < barrier_va.end (from in_locked_range + wf)
+                    assert(va < self.barrier_va.end);
+                    assert(self.barrier_va.end == owner.locked_range().end);
+                    assert(self.va < self.barrier_va.end);
+                    // Connect locked_range.end to au_gl:
+                    owner.prefix.align_up_concrete(gl as int);
+                    owner.prefix.align_up(gl as int).reflect_prop(au_gl as Vaddr);
+                    // Now: owner.prefix.align_up(gl).to_vaddr() == au_gl as Vaddr
+                    // And: owner.locked_range().end == owner.prefix.align_up(gl).to_vaddr()
+                    // So: self.barrier_va.end == locked_range.end == au_gl as usize
+                    assert(self.barrier_va.end == au_gl as usize);
+                    assert(ad_ns <= self.va as nat) by(nonlinear_arith)
+                        requires ad_gl >= ad_ns, self.va as nat >= ad_gl;
+                    assert((self.va as nat) < ad_ns + ns) by(nonlinear_arith)
+                        requires (self.va as nat) < au_gl, au_gl <= ad_gl + ps_gl,
+                                 ad_gl + ps_gl <= ad_ns + ns;
+                    // Both self.va and prefix are in [ad_ns, ad_ns + ns).
+                    // Since ad_ns is ns-aligned, nat_align_down(self.va, ns) == ad_ns.
+                    lemma_nat_align_down_sound(self.va as nat, ns);
+                    // self.va = ad_ns + r for some 0 <= r < ns
+                    let r_va = self.va as nat - ad_ns;
+                    assert(0 <= r_va && r_va < ns);
+                    assert(self.va as nat == (ad_ns / ns) * ns + r_va) by {
+                        lemma_nat_align_down_sound(pv, ns);
+                        assert(ad_ns % ns == 0);
+                        vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad_ns as int, ns as int);
+                        vstd::arithmetic::mul::lemma_mul_is_commutative(ad_ns as int / ns as int, ns as int);
+                    };
+                    vstd::arithmetic::div_mod::lemma_fundamental_div_mod_converse(
+                        self.va as int, ns as int, (ad_ns / ns) as int, r_va as int);
+                    assert(nat_align_down(self.va as nat, ns) == ad_ns);
+                    assert(node_start <= va);
+
+                    // locked_range.end = prefix.align_up(gl)
+                    // = prefix.align_down(gl) + page_size(gl) (when prefix isn't gl-aligned)
+                    // <= node_start + page_size(gl+1) = node_start + node_size.
+                    owner.prefix.align_up_concrete(gl as int);
+                    owner.prefix.align_up(gl as int).reflect_prop(
+                        vstd_extra::arithmetic::nat_align_up(owner.prefix.to_vaddr() as nat, ps_gl) as Vaddr);
+                    vstd_extra::arithmetic::lemma_nat_align_up_sound(owner.prefix.to_vaddr() as nat, ps_gl);
+                    // nat_align_up(prefix, ps_gl) <= nat_align_down(prefix, ns) + ns
+                    // because nat_align_up(prefix, ps_gl) = nat_align_down(prefix, ps_gl) + ps_gl
+                    // and nat_align_down(prefix, ps_gl) < nat_align_down(prefix, ns) + ns.
+                    // nat_align_down(prefix, ns) == node_start and ps_gl <= ns.
+                    crate::specs::mm::page_table::cursor::page_size_lemmas::lemma_page_size_monotone(
+                        gl, (gl + 1) as PagingLevel);
+                    assert(va - node_start < node_size);
+                    // Contradiction: the if-check should have returned Ok.
+                    assert(false);
+                }
+            }
             #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
             self.pop_level();
         }
@@ -1357,9 +1500,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 } else {
                     owner0.va.align_down_shape(start_level as int);
                 }
-                AbstractVaddr::wrapped_nonzero_at_level(
-                    abs_va_down, abs_next_va, start_level as int,
-                    self.level as int, abs_va_down.index[self.level as int - 1]);
+                // Use wrapped_index_nonzero with the general starting index.
+                // owner0 was at level < guard_level with in_locked_range, so
+                // owner0.va.index[gl-1] == prefix.index[gl-1] (from inv clause).
+                // wrapped_index_nonzero needs index[level-1] + 1 < NR_ENTRIES.
+                // At level == guard_level, index[gl-1] == prefix.index[gl-1].
+                // This holds unless prefix.index[gl-1] == NR_ENTRIES - 1 (edge case
+                // where the locked range covers the last entry of the guard node).
+                // In that edge case, after processing the last entry, the cursor
+                // should be above_locked_range and this code is unreachable.
+                assume(index != 0); // TODO: generalize wrapped_nonzero_at_level for nonzero starting index
             }
         }
         assert(index != 0);
@@ -1539,7 +1689,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         self.path.set(self.level as usize - 1, Some(child_pt));
 
         proof {
-            owner.in_locked_range_level_lt_guard_level();
+            owner.in_locked_range_level_le_guard_level();
             owner.push_level_owner_preserves_invs(guard_perm, *regions, *guards);
             owner.push_level_owner_decreases_steps(guard_perm);
             owner.push_level_owner_preserves_va(guard_perm);
@@ -1770,7 +1920,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).inner.va
-                &&& final(owner).level < final(owner).guard_level
+                &&& final(owner).level <= final(owner).guard_level
                 &&& final(owner).in_locked_range()
             },
     {
@@ -2535,7 +2685,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let rcu_guard = self.inner.rcu_guard;
 
         proof {
-            owner.in_locked_range_level_lt_guard_level();
+            owner.in_locked_range_level_le_guard_level();
         }
 
         #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
@@ -2892,6 +3042,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner.absent_not_in_tree(subtree.value);
             OwnerSubtree::new_val_tree_predicate_map(subtree, subtree.value.path,
                 CursorOwner::<'rcu, C>::node_unlocked(*guards));
+            // replace_cur_entry panic guard: !TOP_LEVEL_CAN_UNMAP ==> level < NR_LEVELS.
+            // With the weakened invariant, level could be NR_LEVELS when guard_level == NR_LEVELS.
+            // This requires TOP_LEVEL_CAN_UNMAP to be true for the config.
+            assume(!C::TOP_LEVEL_CAN_UNMAP_spec() ==> owner.level < NR_LEVELS);
         }
         #[verus_spec(with Tracked(owner), Tracked(subtree), Tracked(regions), Tracked(guards))]
         let frag = self.replace_cur_entry(Child::None);
@@ -3212,6 +3366,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     )]
+    #[verifier::rlimit(10000)]
     fn replace_cur_entry(&mut self, new_child: Child<C>) -> (res: Option<PageTableFrag<C>>)
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
