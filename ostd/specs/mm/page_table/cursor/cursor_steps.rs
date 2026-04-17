@@ -124,31 +124,21 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
     let g = CursorOwner::<'rcu, C>::node_unlocked_except(guards, excepted_addr);
     let h = CursorOwner::<'rcu, C>::node_unlocked(guards);
 
-    // Root: value.path == path != excepted_path.
-    // If addr == excepted_addr: metaregion_sound gives slot.paths_in_pt == set![value.path]
-    // == set![path]. And slot.paths_in_pt == set![excepted_path]. So path == excepted_path.
-    // Contradiction.
     assert(f(subtree.value, path));
     assert(g(subtree.value, path));
     if subtree.value.is_node() {
         if subtree.value.node.unwrap().meta_perm.addr() == excepted_addr {
+            // addr == excepted_addr contradicts path != excepted_path
+            // via metaregion_sound's singleton paths_in_pt.
             let idx = frame_to_index(meta_to_frame(excepted_addr));
             assert(subtree.value.metaregion_sound(regions));
             assert(regions.slot_owners[idx].paths_in_pt == set![subtree.value.path]);
             assert(set![subtree.value.path].contains(excepted_path));
-            assert(subtree.value.path == path);
-            // path == excepted_path: contradiction with precondition
             assert(false);
         }
     }
     assert(h(subtree.value, path));
 
-    // Children: from inv, child.value.path == path.push_tail(i).
-    // excepted_path can't equal path.push_tail(i) (would need to extend path, but
-    // excepted_path doesn't extend path by precondition).
-    // excepted_path is also not a descendant of path.push_tail(i) (if excepted_path
-    // diverges from path at some k < path.len(), it diverges from path.push_tail(i) at the
-    // same k; if excepted_path.len() <= path.len(), then excepted_path.len() < path.push_tail(i).len()).
     if subtree.level < INC_LEVELS - 1 && subtree.value.is_node() {
         assert forall |i: int|
             #![trigger subtree.children[i]]
@@ -160,35 +150,22 @@ pub proof fn subtree_unlock_upgrade<'rcu, C: PageTableConfig>(
 
             PageTableOwner::<C>(subtree).pt_inv_unroll(i);
             let child_path = path.push_tail(i as usize);
-            assert(child.value.path == child_path);
             path.push_tail_property(i as usize);
 
-            // child_path != excepted_path:
-            // Case 1: excepted_path.len() <= path.len() < child_path.len(). Different lengths.
-            // Case 2: excepted_path diverges from path at some k < path.len().
-            //   child_path agrees with path at 0..path.len()-1 (from push_tail).
-            //   So excepted_path diverges from child_path at k too.
             assert(child_path != excepted_path) by {
                 if excepted_path.len() <= path.len() {
-                    // child_path.len() == path.len() + 1 > excepted_path.len()
                 } else {
                     let k = choose|k: int| 0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
                     assert(child_path.index(k) == path.index(k));
-                    assert(excepted_path.index(k) != child_path.index(k));
                 }
             };
 
-            // Propagate "not a descendant" to child: excepted_path.len() <= child_path.len()
-            // or diverges at some k < child_path.len()
             assert(excepted_path.len() <= child_path.len() ||
                 (exists|k: int| 0 <= k < child_path.len() && #[trigger] excepted_path.index(k) != child_path.index(k))) by {
                 if excepted_path.len() <= path.len() {
-                    // excepted_path.len() <= path.len() < child_path.len()
                 } else {
                     let k = choose|k: int| 0 <= k < path.len() && #[trigger] excepted_path.index(k) != path.index(k);
                     assert(child_path.index(k) == path.index(k));
-                    assert(k < child_path.len());
-                    assert(excepted_path.index(k) != child_path.index(k));
                 }
             };
 

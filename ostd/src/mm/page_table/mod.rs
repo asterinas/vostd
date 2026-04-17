@@ -959,13 +959,7 @@ impl PageTable<KernelPtConfig> {
                         }
                     }
 
-                assert(kernel_owner.0.inv());
-                assert(kernel_owner.0.value.inv());
-                assert(kernel_owner.0.value.is_node());
-                assert(kernel_owner.0.value.node.unwrap().inv());
-                assert(kernel_owner.pt_inv());
                 kernel_owner.pt_inv_unroll(i as int);
-                assert(kernel_owner.0.children[i as int] is Some);
                 let tracked child_opt: &Option<OwnerSubtree<KernelPtConfig>>
                     = kernel_owner.0.children.tracked_borrow(i as int);
                 let tracked child_subtree: &OwnerSubtree<KernelPtConfig>
