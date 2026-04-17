@@ -742,7 +742,7 @@ impl<C: PageTableConfig> InvView for EntryOwner<C> {
     }
 }
 
-impl<'rcu, C: PageTableConfig> OwnerOf for Entry<'rcu, C> {
+impl<'a, 'rcu, C: PageTableConfig> OwnerOf for Entry<'a, 'rcu, C> {
     type Owner = EntryOwner<C>;
 
     open spec fn wf(self, owner: Self::Owner) -> bool {

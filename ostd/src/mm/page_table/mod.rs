@@ -786,8 +786,6 @@ impl PageTable<KernelPtConfig> {
                 = new_pt_owner.tracked_take();
             let tracked mut new_node_owner: NodeOwner<UserPtConfig>
                 = new_pt_owner_val.0.value.node.tracked_take();
-            let tracked mut root_guard_perm: GuardPerm<'static, KernelPtConfig>;
-            let tracked mut new_guard_perm_lock: GuardPerm<'static, UserPtConfig>;
             let tracked mut entry_owner: &EntryOwner<KernelPtConfig>;
         }
 
@@ -801,14 +799,14 @@ impl PageTable<KernelPtConfig> {
         let root_node = {
             #[verus_spec(with Tracked(regions), Tracked(root_perm))]
             let root_ref = self.root.borrow();
-            #[verus_spec(with Tracked(root_owner), Tracked(guards_k) => Tracked(root_guard_perm))]
+            #[verus_spec(with Tracked(root_owner), Tracked(guards_k))]
             root_ref.lock(preempt_guard)
         };
         let ghost regions_after_kroot_borrow: MetaRegionOwners = *regions;
-        let new_node: vstd::simple_pptr::PPtr<PageTableGuard<'static, UserPtConfig>> = {
+        let mut new_node: PageTableGuard<'static, UserPtConfig> = {
             #[verus_spec(with Tracked(regions), Tracked(&new_node_owner.meta_perm))]
             let new_ref = new_root.borrow();
-            #[verus_spec(with Tracked(&new_node_owner), Tracked(guards_u) => Tracked(new_guard_perm_lock))]
+            #[verus_spec(with Tracked(&new_node_owner), Tracked(guards_u))]
             new_ref.lock(preempt_guard)
         };
         proof {
@@ -930,17 +928,12 @@ impl PageTable<KernelPtConfig> {
                 KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().start <= i,
                 // Lock postcondition for the kernel root.
                 *root_owner == kernel_owner.0.value.node.unwrap(),
-                root_owner.relate_guard_perm(root_guard_perm),
-                root_node.addr() == root_guard_perm.addr(),
+                root_owner.relate_guard(root_node),
                 // Tree-wide soundness of the kernel page table.
                 kernel_owner.metaregion_sound(*regions),
-                // New node permission state: Init at loop top (take/put restores it).
-                new_guard_perm_lock.pptr() == new_node,
-                new_guard_perm_lock.is_init(),
-                // The PointsTo's value still satisfies the new node owner's invariants
-                // and addresses.
+                // The new node owner's invariants and guard relation.
                 new_node_owner.inv(),
-                new_node_owner.relate_guard_perm(new_guard_perm_lock),
+                new_node_owner.relate_guard(new_node),
             decreases KernelPtConfig::TOP_LEVEL_INDEX_RANGE_spec().end - i,
         {
             proof {
@@ -979,8 +972,7 @@ impl PageTable<KernelPtConfig> {
                 assert(child_subtree.inv());
                 assert(entry_owner.inv());
                 assert(!entry_owner.in_scope);
-                assert(root_owner.relate_guard_perm(root_guard_perm));
-                assert(root_guard_perm.addr() == root_node.addr());
+                assert(root_owner.relate_guard(root_node));
                 // Derive entry_owner.metaregion_sound(*regions) by extracting it
                 // from kernel_owner.metaregion_sound (loop invariant) at the i-th
                 // child, then unfolding the tree predicate.
@@ -994,10 +986,10 @@ impl PageTable<KernelPtConfig> {
                 assert(entry_owner.metaregion_sound(*regions));
             }
 
-            #[verus_spec(with Tracked(root_owner), Tracked(entry_owner), Tracked(&root_guard_perm))]
-            let root_entry = PageTableGuard::entry(root_node, i);
+            #[verus_spec(with Tracked(root_owner), Tracked(entry_owner))]
+            let root_entry = root_node.entry(i);
             let ghost pre_to_ref_regions: MetaRegionOwners = *regions;
-            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions), Tracked(&root_guard_perm))]
+            #[verus_spec(with Tracked(entry_owner), Tracked(root_owner), Tracked(regions))]
             let child = root_entry.to_ref();
 
             // Derive `child is PageTable` from entry_owner.is_node() (forced by the
@@ -1044,10 +1036,8 @@ impl PageTable<KernelPtConfig> {
             let pt_addr = pt.start_paddr();
             let pte = PageTableEntry::new_pt(pt_addr);
 
-            let mut new_guard = new_node.take(Tracked(&mut new_guard_perm_lock));
             #[verus_spec(with Tracked(&mut new_node_owner))]
-            new_guard.write_pte(i, pte);
-            new_node.put(Tracked(&mut new_guard_perm_lock), new_guard);
+            new_node.write_pte(i, pte);
 
             i = i + 1;
         }
@@ -1223,7 +1213,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// previous cursor is dropped.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<C>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
@@ -1252,7 +1241,7 @@ impl<C: PageTableConfig> PageTable<C> {
         guard: &'rcu G,
         va: &Range<Vaddr>,
     ) -> Result<(CursorMut<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         CursorMut::new(self, guard, va)
     }
 
@@ -1263,7 +1252,6 @@ impl<C: PageTableConfig> PageTable<C> {
     /// block or be overridden by the mapping of another cursor.
     #[verus_spec(r =>
         with Tracked(owner): Tracked<PageTableOwner<C>>,
-            Tracked(guard_perm): Tracked<GuardPerm<'rcu, C>>,
             Tracked(regions): Tracked<&mut MetaRegionOwners>,
             Tracked(guards): Tracked<&mut Guards<'rcu, C>>
         requires
@@ -1273,7 +1261,7 @@ impl<C: PageTableConfig> PageTable<C> {
     )]
     pub fn cursor<'rcu, G: InAtomicMode>(&'rcu self, guard: &'rcu G, va: &Range<Vaddr>)
     -> Result<(Cursor<'rcu, C, G>, Tracked<CursorOwner<'rcu, C>>), PageTableError> {
-        #[verus_spec(with Tracked(owner), Tracked(guard_perm), Tracked(regions), Tracked(guards))]
+        #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
         Cursor::new(self, guard, va)
     }
     
