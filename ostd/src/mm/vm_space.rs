@@ -559,6 +559,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
+#[verus_verify]
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
     /// Queries the mapping at the current virtual address.
@@ -710,8 +711,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 
     /// Get the dedicated TLB flusher for this cursor.
-    pub fn flusher(&self) -> &TlbFlusher<'a> {
-        &self.flusher
+    #[verus_spec(ret =>
+        ensures
+            *ret == old(self).flusher,
+            *final(ret) == final(self).flusher,
+    )]
+    pub fn flusher(&mut self) -> &mut TlbFlusher<'a> {
+        &mut self.flusher
     }
 
     /// Map a frame into the current slot.
