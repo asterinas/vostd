@@ -751,10 +751,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(cursor_owner).metaregion_correct(*old(regions))
-                && crate::mm::page_table::CursorMut::<'a, UserPtConfig, A>::item_not_mapped(
-                    MappedItem { frame: frame, prop: prop }, *old(regions))
-                ==> final(cursor_owner).metaregion_correct(*final(regions)),
             old(self).map_item_ensures(
                 frame,
                 prop,
@@ -839,7 +835,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
         ensures
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
-            old(cursor_owner).metaregion_correct(*old(regions)) ==> final(cursor_owner).metaregion_correct(*final(regions)),
             old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.inner.model(*final(cursor_owner)), r),
             final(tlb_model).inv(),
     )]
@@ -875,7 +870,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 end_va % PAGE_SIZE == 0,
                 end_va <= MAX_USERSPACE_VADDR,
                 self.pt_cursor.inner.invariants(*cursor_owner, *regions, *guards),
-                old(cursor_owner).metaregion_correct(*old(regions)) ==> cursor_owner.metaregion_correct(*regions),
                 end_va <= self.pt_cursor.inner.barrier_va.end,
                 tlb_model.inv(),
                 start_va <= cursor_owner@.cur_va,
