@@ -68,8 +68,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             other.continuations[self.level - 1].idx == self.continuations[self.level - 1].idx,
             other.continuations[self.level - 1].entry_own.parent_level
                 == self.continuations[self.level - 1].entry_own.parent_level,
-            other.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr()
-                == self.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr(),
+            other.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
+                == self.continuations[self.level - 1].guard.inner.inner@.ptr.addr(),
             other.continuations[self.level - 1].path()
                 == self.continuations[self.level - 1].path(),
             other.continuations.dom() =~= self.continuations.dom(),
@@ -208,8 +208,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             self.continuations[self.level - 1].entry_own.parent_level
                 == owner0.continuations[owner0.level - 1].entry_own.parent_level,
             // Guard address preserved (from parent_perms_preserved).
-            self.continuations[self.level - 1].guard_perm.value().inner.inner@.ptr.addr()
-                == owner0.continuations[owner0.level - 1].guard_perm.value().inner.inner@.ptr.addr(),
+            self.continuations[self.level - 1].guard.inner.inner@.ptr.addr()
+                == owner0.continuations[owner0.level - 1].guard.inner.inner@.ptr.addr(),
             self.continuations[self.level - 1].path()
                 == owner0.continuations[owner0.level - 1].path(),
             self.va.index[self.level - 1] == self.continuations[self.level - 1].idx,
