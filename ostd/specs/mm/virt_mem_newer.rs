@@ -119,7 +119,7 @@ impl MemView {
     ///
     /// Equivalent to resolving via [`Self::addr_transl`] and reading from [`Self::memory`].
     pub open spec fn read(self, va: usize) -> raw_ptr::MemContents<u8> {
-        let (pa, off) = self.addr_transl(va).unwrap();
+        let (pa, off) = self.addr_transl(va)->Some_0;
         self.memory[pa].contents[off as int]
     }
 
@@ -127,12 +127,11 @@ impl MemView {
     ///
     /// Returns a new [`MemView`] with one byte updated, preserving all mappings.
     pub open spec fn write(self, va: usize, x: u8) -> Self {
-        let (pa, off) = self.addr_transl(va).unwrap();
+        let (pa, off) = self.addr_transl(va)->Some_0;
         MemView {
             memory: self.memory.insert(pa, FrameContents {
                 contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
-                size: self.memory[pa].size,
-                range: self.memory[pa].range,
+                ..self.memory[pa]
             }),
             ..self
         }
@@ -140,14 +139,14 @@ impl MemView {
 
     /// Whether two virtual addresses denote equal byte contents in this view.
     pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        let (pa1, off1) = self.addr_transl(va1).unwrap();
-        let (pa2, off2) = self.addr_transl(va2).unwrap();
+        let (pa1, off1) = self.addr_transl(va1)->Some_0;
+        let (pa2, off2) = self.addr_transl(va2)->Some_0;
         self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
     }
 
     /// Whether `va` is translated and mapped to frame base `pa`.
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
-        self.addr_transl(va) is Some && self.addr_transl(va).unwrap().0 == pa
+        self.addr_transl(va) is Some && self.addr_transl(va)->Some_0.0 == pa
     }
 
     /// Specification for borrowing a sub-view covering `[vaddr, vaddr + len)`.
@@ -159,7 +158,7 @@ impl MemView {
 
         let valid_pas = Set::new(
             |pa: usize|
-                exists|va: usize|
+                exists |va: usize|
                     vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
         );
 
