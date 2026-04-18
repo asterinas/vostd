@@ -148,14 +148,23 @@ const fn min(a: u32, b: u32) -> u32 {
 ///
 /// The caller must ensure that removing the bits from the non-null pointer will result in another
 /// non-null pointer.
-#[verifier::external_body]
+#[verus_spec(
+    requires
+        (ptr_mut_from_nonnull(ptr)@.addr & bits) < ptr_mut_from_nonnull(ptr)@.addr,
+        (ptr_mut_from_nonnull(ptr)@.addr & !bits) != 0,
+)]
 unsafe fn remove_bits<T>(ptr: NonNull<T>, bits: usize) -> (usize, NonNull<T>) {
-    use core::num::NonZeroUsize;
-
-    let removed_bits = ptr.addr().get() & bits;
-    let result_ptr = ptr.map_addr(|addr|
-        // SAFETY: The safety is upheld by the caller.
-        unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) });
+    // use core::num::NonZeroUsize;
+    // let removed_bits = ptr.addr().get() & bits;
+    let raw = ptr.as_ptr();
+    let Tracked(exposed) = vstd::raw_ptr::expose_provenance(raw);
+    let addr = raw as usize;
+    let removed_bits = addr & bits;
+    // let result_ptr = ptr.map_addr(|addr|
+    //     // SAFETY: The safety is upheld by the caller.
+    //     unsafe { NonZeroUsize::new_unchecked(addr.get() & !bits) });
+    let result_raw = vstd::raw_ptr::with_exposed_provenance(addr & !bits, Tracked(exposed));
+    let result_ptr = unsafe { NonNull::new_unchecked(result_raw) };
 
     (removed_bits, result_ptr)
 }
