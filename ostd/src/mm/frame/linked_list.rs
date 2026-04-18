@@ -10,6 +10,7 @@ use vstd::seq_lib::*;
 use vstd::simple_pptr::*;
 
 use vstd_extra::cast_ptr::*;
+use vstd_extra::drop_tracking::{Drop, TrackDrop};
 use vstd_extra::ownership::*;
 use vstd_extra::ptr_extra::*;
 
@@ -32,7 +33,8 @@ use core::{
 
 use crate::specs::*;
 
-use crate::mm::frame::meta::mapping::{frame_to_index, meta_addr, meta_to_frame};
+use crate::mm::frame::meta::mapping::{frame_to_index, max_meta_slots, meta_addr, meta_to_frame, META_SLOT_SIZE};
+use crate::specs::arch::kspace::FRAME_METADATA_RANGE;
 use crate::mm::frame::meta::{get_slot, has_safe_slot, AnyFrameMeta, MetaSlot};
 
 verus! {
@@ -489,20 +491,18 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
     #[verus_spec(r =>
         with
             Tracked(owner): Tracked<LinkedListOwner<M>>,
-                    -> r_perm: Tracked<CursorOwner<M>>,
         requires
             old(self).wf(owner),
             owner.inv(),
         ensures
-            r.wf(r_perm@),
-            r_perm@.inv(),
-            r_perm@ == CursorOwner::front_owner_spec(owner),
+            r.0.wf(r.1@),
+            r.1@.inv(),
+            r.1@ == CursorOwner::front_owner_spec(owner),
     )]
-    pub fn cursor_front_mut(&mut self) -> CursorMut<'_, M> {
+    pub fn cursor_front_mut(&mut self) -> (CursorMut<'_, M>, Tracked<CursorOwner<M>>) {
         let current = self.front;
 
-        proof_with!(|= Tracked(CursorOwner::front_owner(owner)));
-        CursorMut { list: self, current }
+        (CursorMut { list: self, current }, Tracked(CursorOwner::front_owner(owner)))
     }
 
     /// Gets a cursor at the back that can mutate the linked list links.
@@ -734,11 +734,37 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
             ),
         ensures
             old(owner).length() == 0 ==> res.is_none(),
+            old(self).current.is_some() ==> res.is_some(),
             res.is_some() ==> res.unwrap().0.model(res.unwrap().1@).meta == old(
                 owner,
             ).list_own.list[old(owner).index]@,
             res.is_some() ==> final(self).model(*final(owner)) == old(self).model(*old(owner)).remove(),
             res.is_some() ==> res.unwrap().1@.frame_link_inv(),
+            // Invariant preservation
+            res.is_some() ==> final(owner).inv(),
+            res.is_some() ==> final(self).wf(*final(owner)),
+            res.is_none() ==> *final(owner) =~= *old(owner),
+            final(regions).inv(),
+            // Structural: remove_owner_spec
+            res.is_some() ==> final(owner).index == old(owner).index,
+            res.is_some() ==> final(owner).list_own.list
+                == old(owner).list_own.list.remove(old(owner).index),
+            // Slot effects: from_raw decrements raw_count by 1
+            res.is_some() ==> {
+                let paddr = old(self).current.unwrap().addr();
+                let idx = frame_to_index(meta_to_frame(paddr));
+                &&& final(regions).slot_owners[idx].raw_count
+                    == old(regions).slot_owners[idx].raw_count - 1
+                &&& final(regions).slots =~= old(regions).slots
+            },
+            // Frame for other slots
+            res.is_some() ==> forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+                idx != frame_to_index(meta_to_frame(old(self).current.unwrap().addr()))
+                ==> final(regions).slot_owners[idx] == old(regions).slot_owners[idx],
+            res.is_none() ==> *final(regions) =~= *old(regions),
+            // Properties of the returned frame needed for UniqueFrame::drop
+            res.is_some() ==> res.unwrap().0.wf(res.unwrap().1@),
+            res.is_some() ==> res.unwrap().1@.inv(),
     {
         let ghost owner0 = *owner;
 
@@ -991,34 +1017,413 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
     }
 }
 
-/*impl Drop for LinkedList
-{
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> TrackDrop for LinkedList<M> {
+    type State = (LinkedListOwner<M>, MetaRegionOwners);
 
-    #[verifier::external_body]
-    fn drop(&mut self) {
-        unimplemented!()
-//        let mut cursor = self.cursor_front_mut();
-//        while cursor.take_current().is_some() {}
+    open spec fn constructor_requires(self, s: Self::State) -> bool {
+        true
     }
-}*/
 
-/*
-impl Deref for Link {
-    type Target = FrameMeta;
+    open spec fn constructor_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        s0 =~= s1
+    }
 
+    proof fn constructor_spec(self, tracked s: &mut Self::State) {
+    }
+
+    open spec fn drop_requires(self, s: Self::State) -> bool {
+        &&& self.wf(s.0)
+        &&& s.0.inv()
+        &&& s.1.inv()
+        // Each element's slot is in slot_owners
+        &&& forall|i: int| #![trigger s.0.list[i]]
+            0 <= i < s.0.list.len() ==>
+                s.1.slot_owners.contains_key(frame_to_index(s.0.list[i].paddr))
+        // List element slots are not unused (needed to preserve MetaSlotOwner::inv after raw_count change)
+        &&& forall|i: int| #![trigger s.0.list[i]]
+            0 <= i < s.0.list.len() ==> {
+                let idx = frame_to_index(meta_to_frame(s.0.list[i].paddr));
+                s.1.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+            }
+        // List element slots are not in regions.slots (perms owned by the list)
+        &&& forall|i: int| #![trigger s.0.list[i]]
+            0 <= i < s.0.list.len() ==> {
+                let idx = frame_to_index(meta_to_frame(s.0.list[i].paddr));
+                !s.1.slots.contains_key(idx)
+            }
+        // List element slots have raw_count > 0 (from into_raw when inserted)
+        &&& forall|i: int| #![trigger s.0.list[i]]
+            0 <= i < s.0.list.len() ==> {
+                let idx = frame_to_index(meta_to_frame(s.0.list[i].paddr));
+                s.1.slot_owners[idx].raw_count > 0
+            }
+        // Elements have distinct slot indices
+        &&& forall|i: int, j: int|
+            #![trigger s.0.list[i], s.0.list[j]]
+            0 <= i < j < s.0.list.len() ==>
+                frame_to_index(meta_to_frame(s.0.list[i].paddr))
+                    != frame_to_index(meta_to_frame(s.0.list[j].paddr))
+    }
+
+    open spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool {
+        &&& s1.0.list.len() == 0
+        // Each element's slot has raw_count decremented by 1
+        &&& forall|i: int| #![trigger s0.0.list[i]]
+            0 <= i < s0.0.list.len() ==> {
+                let idx = frame_to_index(meta_to_frame(s0.0.list[i].paddr));
+                s1.1.slot_owners[idx].raw_count
+                    == s0.1.slot_owners[idx].raw_count - 1
+            }
+        // Slots not in the list are unchanged
+        &&& forall|idx: usize| #![trigger s1.1.slot_owners[idx]]
+            (forall|i: int| #![trigger s0.0.list[i]]
+                0 <= i < s0.0.list.len() ==>
+                    idx != frame_to_index(meta_to_frame(s0.0.list[i].paddr)))
+            ==> s1.1.slot_owners[idx] == s0.1.slot_owners[idx]
+        &&& s1.1.slots =~= s0.1.slots
+        &&& s1.1.inv()
+    }
+
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
+        let ghost list = s.0.list;
+        let ghost n = list.len();
+        let ghost old_regions = s.1;
+
+        assert forall|j: int| #![trigger list[j]]
+            0 <= j < n implies
+                s.1.slot_owners.contains_key(
+                    frame_to_index(meta_to_frame(list[j].paddr)))
+        by {
+            assert(s.0.inv_at(j));
+            let paddr = list[j].paddr;
+            assert(frame_to_index(meta_to_frame(paddr))
+                < max_meta_slots()) by {
+                assert(meta_to_frame(paddr) == ((paddr - FRAME_METADATA_RANGE.start)
+                    / META_SLOT_SIZE as int * PAGE_SIZE) as usize);
+                assert(frame_to_index(meta_to_frame(paddr))
+                    == meta_to_frame(paddr) / PAGE_SIZE);
+            };
+        };
+
+        Self::drop_tracked_helper(list, 0, &old_regions, &mut s.1);
+
+        assert forall|i: int| 0 <= i < n implies s.0.perms.contains_key(i)
+        by {
+            assert(s.0.list.len() == n);
+            assert(s.0.inv_at(i));
+        };
+        Self::drain_list(&mut s.0, n as int);
+
+        assert forall|i: usize|
+            #[trigger] s.1.slot_owners.contains_key(i)
+            implies s.1.slot_owners[i].inv()
+        by {
+            if forall|j: int| #![trigger list[j]]
+                0 <= j < n ==> i != frame_to_index(meta_to_frame(list[j].paddr))
+            {
+                assert(s.1.slot_owners[i] == old_regions.slot_owners[i]);
+            }
+        };
+        assert(s.1.inv());
+    }
+
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> LinkedList<M> {
+    proof fn drain_list(
+        tracked owner: &mut LinkedListOwner<M>,
+        n: int,
+    )
+        requires
+            old(owner).list.len() == n,
+            n >= 0,
+            forall|i: int| 0 <= i < n ==> old(owner).perms.contains_key(i),
+        ensures
+            final(owner).list.len() == 0,
+        decreases n,
+    {
+        if n <= 0 {
+            return;
+        }
+        // Remove perm first (perms is a Map, uses contains_key from precondition)
+        let tracked _perm = owner.perms.tracked_remove(n - 1);
+        let tracked _link = owner.list.tracked_remove(n - 1);
+        Self::drain_list(owner, n - 1);
+    }
+
+    proof fn drop_tracked_helper(
+        list: Seq<LinkOwner>,
+        k: int,
+        old_regions: &MetaRegionOwners,
+        tracked regions: &mut MetaRegionOwners,
+    )
+        requires
+            0 <= k <= list.len() as int,
+            old_regions.slots =~= old(regions).slots,
+            old_regions.slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            // Distinct indices
+            forall|i: int, j: int|
+                #![trigger list[i], list[j]]
+                0 <= i < j < list.len() ==>
+                    frame_to_index(meta_to_frame(list[i].paddr))
+                        != frame_to_index(meta_to_frame(list[j].paddr)),
+            // Containment (for the actual index used in tracked operations)
+            forall|j: int| #![trigger list[j]]
+                0 <= j < list.len() ==>
+                    old(regions).slot_owners.contains_key(
+                        frame_to_index(meta_to_frame(list[j].paddr))),
+            // Already processed [0, k): only raw_count changed
+            forall|j: int| #![trigger list[j]]
+                0 <= j < k ==> {
+                    let idx = frame_to_index(meta_to_frame(list[j].paddr));
+                    &&& old(regions).slot_owners[idx].raw_count
+                        == old_regions.slot_owners[idx].raw_count - 1
+                    &&& old(regions).slot_owners[idx].inner_perms
+                        == old_regions.slot_owners[idx].inner_perms
+                    &&& old(regions).slot_owners[idx].self_addr
+                        == old_regions.slot_owners[idx].self_addr
+                    &&& old(regions).slot_owners[idx].usage
+                        == old_regions.slot_owners[idx].usage
+                    &&& old(regions).slot_owners[idx].paths_in_pt
+                        == old_regions.slot_owners[idx].paths_in_pt
+                },
+            // Not yet processed [k, n)
+            forall|j: int| #![trigger list[j]]
+                k <= j < list.len() ==> {
+                    let idx = frame_to_index(meta_to_frame(list[j].paddr));
+                    old(regions).slot_owners[idx]
+                        == old_regions.slot_owners[idx]
+                },
+            // Non-list slots unchanged
+            forall|idx: usize| #![trigger old(regions).slot_owners[idx]]
+                (forall|j: int| #![trigger list[j]]
+                    0 <= j < list.len() ==>
+                        idx != frame_to_index(meta_to_frame(list[j].paddr)))
+                ==> old(regions).slot_owners[idx] == old_regions.slot_owners[idx],
+            old(regions).slots =~= old_regions.slots,
+            // raw_count > 0 for unprocessed elements
+            forall|j: int| #![trigger list[j]]
+                k <= j < list.len() ==>
+                    old_regions.slot_owners[frame_to_index(meta_to_frame(list[j].paddr))].raw_count > 0,
+        ensures
+            // All elements decremented (only raw_count changed)
+            forall|j: int| #![trigger list[j]]
+                0 <= j < list.len() ==> {
+                    let idx = frame_to_index(meta_to_frame(list[j].paddr));
+                    &&& final(regions).slot_owners[idx].raw_count
+                        == old_regions.slot_owners[idx].raw_count - 1
+                    &&& final(regions).slot_owners[idx].inner_perms
+                        == old_regions.slot_owners[idx].inner_perms
+                    &&& final(regions).slot_owners[idx].self_addr
+                        == old_regions.slot_owners[idx].self_addr
+                    &&& final(regions).slot_owners[idx].usage
+                        == old_regions.slot_owners[idx].usage
+                    &&& final(regions).slot_owners[idx].paths_in_pt
+                        == old_regions.slot_owners[idx].paths_in_pt
+                },
+            // Non-list slots unchanged
+            forall|idx: usize| #![trigger final(regions).slot_owners[idx]]
+                (forall|j: int| #![trigger list[j]]
+                    0 <= j < list.len() ==>
+                        idx != frame_to_index(meta_to_frame(list[j].paddr)))
+                ==> final(regions).slot_owners[idx] == old_regions.slot_owners[idx],
+            final(regions).slots =~= old_regions.slots,
+            final(regions).slot_owners.dom() =~= old_regions.slot_owners.dom(),
+        decreases list.len() - k,
+    {
+        if k >= list.len() {
+            return;
+        }
+
+        let ghost idx = frame_to_index(meta_to_frame(list[k].paddr));
+        let ghost _trigger_k = list[k as int]; // trigger containment precondition
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        slot_own.raw_count = (slot_own.raw_count - 1) as usize;
+        regions.slot_owners.tracked_insert(idx, slot_own);
+
+        let ghost _trigger_k = list[k as int];
+        assert(regions.slot_owners[idx].raw_count == slot_own.raw_count);
+        assert(old_regions.slot_owners[idx].raw_count > 0);
+
+        // Non-raw_count fields preserved for all elements [0, k+1)
+        assert forall|j: int| #![trigger list[j]]
+            0 <= j < k + 1 implies ({
+                let jdx = frame_to_index(meta_to_frame(list[j].paddr));
+                &&& regions.slot_owners[jdx].inner_perms == old_regions.slot_owners[jdx].inner_perms
+                &&& regions.slot_owners[jdx].self_addr == old_regions.slot_owners[jdx].self_addr
+                &&& regions.slot_owners[jdx].usage == old_regions.slot_owners[jdx].usage
+                &&& regions.slot_owners[jdx].paths_in_pt == old_regions.slot_owners[jdx].paths_in_pt
+            })
+        by {
+            let jdx = frame_to_index(meta_to_frame(list[j].paddr));
+            if j < k {
+                let ghost _a = list[j as int];
+                let ghost _b = list[k as int];
+                assert(jdx != idx);
+            }
+            // j == k: only raw_count changed on slot_own
+        };
+
+        // All processed elements [0, k+1) have raw_count decremented
+        assert forall|j: int| #![trigger list[j]]
+            0 <= j < k + 1 implies ({
+                let jdx = frame_to_index(meta_to_frame(list[j].paddr));
+                regions.slot_owners[jdx].raw_count
+                    == old_regions.slot_owners[jdx].raw_count - 1
+            })
+        by {
+            let jdx = frame_to_index(meta_to_frame(list[j].paddr));
+            if j < k {
+                let ghost _a = list[j as int];
+                let ghost _b = list[k as int];
+                assert(jdx != idx);
+            }
+        };
+
+        Self::drop_tracked_helper(list, k + 1, old_regions, regions);
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Drop for LinkedList<M> {
+    fn drop(self, Tracked(s): Tracked<Self::State>) -> (res: Tracked<Self::State>)
+    {
+        let tracked (list_own, mut regions) = s;
+        let ghost original_list = list_own.list;
+        let ghost original_regions = regions;
+        let ghost n = original_list.len();
+        let mut this = self;
+
+        #[verus_spec(with Tracked(list_own))]
+        let cursor_pair = this.cursor_front_mut();
+        let (mut cursor, Tracked(mut cursor_own)) = cursor_pair;
+
+        let ghost mut k: int = 0;
+
+        loop
+            invariant_except_break
+                cursor.wf(cursor_own),
+                cursor.current.is_some() <==> k < n,
+            invariant
+                cursor_own.inv(),
+                cursor_own.index == 0,
+                regions.inv(),
+                cursor_own.list_own.list.len() == n - k,
+                0 <= k <= n,
+                // The remaining list is a suffix of the original
+                forall|j: int| #![trigger cursor_own.list_own.list[j]]
+                    0 <= j < n - k ==>
+                        cursor_own.list_own.list[j] == original_list[j + k],
+                // Elements already taken have raw_count decremented
+                forall|j: int| #![trigger original_list[j]]
+                    0 <= j < k ==> {
+                        let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
+                        regions.slot_owners[idx].raw_count
+                            == original_regions.slot_owners[idx].raw_count - 1
+                    },
+                // Slots not in the original list are unchanged
+                forall|idx: usize| #![trigger regions.slot_owners[idx]]
+                    (forall|j: int| #![trigger original_list[j]]
+                        0 <= j < n ==>
+                            idx != frame_to_index(meta_to_frame(original_list[j].paddr)))
+                    ==> regions.slot_owners[idx] == original_regions.slot_owners[idx],
+                regions.slots =~= original_regions.slots,
+                // Elements not yet processed have original raw_count
+                forall|j: int| #![trigger original_list[j]]
+                    k <= j < n ==> {
+                        let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
+                        regions.slot_owners[idx].raw_count
+                            == original_regions.slot_owners[idx].raw_count
+                    },
+                // Each remaining element's slot is in slot_owners
+                forall|j: int| #![trigger original_list[j]]
+                    k <= j < n ==>
+                        regions.slot_owners.contains_key(frame_to_index(original_list[j].paddr)),
+                // Distinct slot indices in original list (from drop_requires)
+                forall|i: int, j: int|
+                    #![trigger original_list[i], original_list[j]]
+                    0 <= i < j < n ==>
+                        frame_to_index(meta_to_frame(original_list[i].paddr))
+                            != frame_to_index(meta_to_frame(original_list[j].paddr)),
+            ensures
+                k == n,
+                cursor_own.list_own.list.len() == 0,
+            decreases n - k,
+        {
+            proof {
+                if cursor.current.is_some() {
+                    assert(cursor_own.length() > 0);
+                    // cursor.current.addr() == list[0].paddr == original_list[k].paddr
+                    // from the slot containment invariant, this key is in slot_owners
+                    let ghost _trigger = original_list[k as int];
+                    assert(cursor.current.unwrap().addr() == original_list[k].paddr);
+                }
+            }
+
+            #[verus_spec(with Tracked(&mut regions), Tracked(&mut cursor_own))]
+            let entry = cursor.take_current();
+
+            if let Some(current) = entry {
+                let ghost cur_addr = current.0.ptr.addr();
+                let ghost cur_idx = frame_to_index(meta_to_frame(cur_addr));
+
+                let (mut frame, frame_own_tracked) = current;
+                let tracked frame_own = frame_own_tracked.get();
+
+                proof {
+                    assert(cur_addr == original_list[k].paddr);
+                    assert(cur_idx == frame_to_index(meta_to_frame(original_list[k].paddr)));
+                }
+
+                // Drop the frame, returning its slot to regions
+                #[verus_spec(with Tracked(frame_own), Tracked(&mut regions))]
+                frame.drop();
+
+                proof {
+                    assert forall|j: int| #![trigger cursor_own.list_own.list[j]]
+                        0 <= j < n - k - 1 implies
+                            cursor_own.list_own.list[j] == original_list[j + k + 1]
+                    by {};
+
+                    assert forall|j: int| #![trigger original_list[j]]
+                        0 <= j < k implies ({
+                            let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
+                            regions.slot_owners[idx].raw_count
+                                == original_regions.slot_owners[idx].raw_count - 1
+                        })
+                    by {
+                        let idx = frame_to_index(meta_to_frame(original_list[j].paddr));
+                        let ghost _a = original_list[j as int];
+                        let ghost _b = original_list[k as int];
+                        assert(j < k);
+                        assert(idx != cur_idx);
+                    };
+
+                    k = k + 1;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Tracked((cursor_own.list_own, regions))
+    }
+}
+
+
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Deref for Link<M> {
+    type Target = M;
 
     fn deref(&self) -> &Self::Target {
         &self.meta
     }
 }
 
-impl DerefMut for Link {
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> DerefMut for Link<M> {
 
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.meta
     }
 }
-*/
 
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
     /// Creates a new linked list metadata.
@@ -1029,9 +1434,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Link<M> {
 
 // SAFETY: If `M::on_drop` reads the page using the provided `VmReader`,
 // the safety is upheld by the one who implements `AnyFrameMeta` for `M`.
-/*unsafe impl<M> AnyFrameMeta for Link<M>
-where
-    M: AnyFrameMeta,
+impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M>
 {
     fn on_drop(&mut self, reader: &mut crate::mm::VmReader<crate::mm::Infallible>) {
         self.meta.on_drop(reader);
@@ -1040,6 +1443,8 @@ where
     fn is_untyped(&self) -> bool {
         self.meta.is_untyped()
     }
+
+    uninterp spec fn vtable_ptr(&self) -> usize;
 }
-*/
+
 } // verus!

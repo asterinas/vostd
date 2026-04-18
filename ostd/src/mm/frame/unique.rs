@@ -451,7 +451,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             final(regions).slot_owners[owner.slot_index].raw_count == 0,
             final(regions).inv(),
     )]
-    fn drop(&mut self) {
+    pub(crate) fn drop(&mut self) {
         let ghost idx = owner.slot_index;
         let ghost inner_storage_id = owner.meta_perm.inner_perms.storage.id();
         let ghost inner_ref_count_id = owner.meta_perm.inner_perms.ref_count.id();

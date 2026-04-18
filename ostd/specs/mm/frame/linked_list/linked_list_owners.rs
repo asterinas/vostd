@@ -37,17 +37,6 @@ pub tracked struct LinkInnerPerms<M: AnyFrameMeta + Repr<MetaSlotSmall>> {
     pub ghost prev_ptr: Option<PPtr<MetaSlot>>,
 }
 
-impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> AnyFrameMeta for Link<M> {
-    fn on_drop(&mut self) {
-    }
-
-    fn is_untyped(&self) -> bool {
-        false
-    }
-
-    uninterp spec fn vtable_ptr(&self) -> usize;
-}
-
 impl<M: AnyFrameMeta + Repr<MetaSlotSmall>> Repr<MetaSlotStorage> for Link<M> {
     type Perm = LinkInnerPerms<M>;
 

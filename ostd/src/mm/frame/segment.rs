@@ -64,7 +64,7 @@ impl<M: AnyFrameMeta + ?Sized> TrackDrop for Segment<M> {
         s0 =~= s1
     }
 
-    proof fn drop_spec(self, tracked s: &mut Self::State) {
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
     }
 }
 

@@ -154,7 +154,7 @@ impl<M: AnyFrameMeta> TrackDrop for Frame<M> {
         &&& s1.slot_owners.dom() =~= s0.slot_owners.dom()
     }
 
-    proof fn drop_spec(self, tracked s: &mut Self::State) {
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
         let index = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         slot_own.raw_count = (slot_own.raw_count - 1) as usize;

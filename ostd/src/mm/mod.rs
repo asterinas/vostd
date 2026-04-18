@@ -23,6 +23,7 @@ pub const MAX_NR_LEVELS: usize = 4;
 pub mod frame;
 //pub mod heap;
 pub mod io;
+pub use io::{Fallible, Infallible, VmIo, VmIoOnce, VmReader, VmWriter};
 pub mod kspace;
 pub(crate) mod page_prop;
 pub mod page_table;
