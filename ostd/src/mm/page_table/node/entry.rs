@@ -810,14 +810,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 forall|j: int| #![auto] 0 <= j < i ==> {
                     new_owner.children[j].unwrap().value.is_frame()
                 },
-                // Sub-page slots (4KB-grained, j > 0): slots.contains_key and rc != UNUSED preserved.
-                // The j = 0 case is handled separately (the huge frame's own slot).
+                // Sub-page slots (4KB-grained, j > 0): slots.contains_key, rc != UNUSED, and rc > 0
+                // are all preserved. The j = 0 case is handled separately (the huge frame's own slot).
                 forall |j: usize| #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.slots.contains_key(sub_idx)
                     &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                 },
                 // j = 0: the huge frame's own slot. These come from the huge
                 // frame's `metaregion_sound` at function entry and are
@@ -826,6 +827,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -920,6 +922,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'rcu, C> {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;

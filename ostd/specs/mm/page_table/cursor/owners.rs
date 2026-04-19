@@ -784,7 +784,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     /// `item_from_raw_spec` always returns a freshly-constructed `Frame<M>` handle whose
     /// `Frame::<M>::clone_requires` unfolds to slot-address equality, initialisation, and a
     /// bounded ref-count — all delivered by `metaregion_sound` for frame entries.
-    pub axiom fn cur_frame_clone_requires(
+    pub proof fn cur_frame_clone_requires(
         self,
         item: C::Item,
         pa: Paddr,
@@ -794,15 +794,23 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     )
         requires
             self.inv(),
+            regions.inv(),
             self.metaregion_sound(regions),
             self.cur_entry_owner().is_frame(),
             pa == self.cur_entry_owner().frame.unwrap().mapped_pa,
             C::item_from_raw_spec(pa, level, prop) == item,
+            crate::mm::frame::meta::has_safe_slot(pa),
+            regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1
+                < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
-            item.clone_requires(
-                regions.slots[frame_to_index(pa)],
-                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count,
-            );
+            item.clone_requires(regions)
+    {
+        // Extract the frame-slot facts from metaregion_sound via path_metaregion_sound.
+        assert(self.path_metaregion_sound(regions));
+        assert(self.cur_entry_owner().metaregion_sound(regions));
+        // Now all preconditions of `C::clone_requires_concrete` are in scope.
+        C::clone_requires_concrete(item, pa, level, prop, regions);
+    }
 
     /// Incrementing the ref count of the current frame preserves `regions.inv()` and
     /// `self.metaregion_sound(new_regions) && self.metaregion_correct(new_regions)`.
@@ -1200,7 +1208,12 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(end as int % ps as int == 0);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(ad as int, ps as int);
         vstd::arithmetic::div_mod::lemma_fundamental_div_mod(end as int, ps as int);
+        // ad == ad_q * ps + ad % ps (from fundamental_div_mod) with ad % ps == 0.
+        assert(ad as int == ad_q * ps_i + (ad as int % ps as int));
+        assert(ad as int % ps as int == 0);
         assert(ad as int == ad_q * ps_i);
+        assert(end as int == end_q * ps_i + (end as int % ps as int));
+        assert(end as int % ps as int == 0);
         assert(end as int == end_q * ps_i);
         assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
             requires ad_q + 1 <= end_q, ps_i >= 0;

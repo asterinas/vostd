@@ -196,19 +196,44 @@ impl<C: PageTableConfig> PageTableFrag<C> {
 impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
     #[verus_spec(
-        with Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>,
-        Tracked(rc_perm): Tracked<&mut PermissionU64>)]
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>,
+            Ghost(pa): Ghost<Paddr>)]
     pub fn clone_item(item: &C::Item) -> (res: C::Item)
         requires
-            item.clone_requires(*slot_perm, *old(rc_perm)),
-            old(rc_perm).is_for(slot_perm.value().ref_count),
-            old(rc_perm).value() < u64::MAX,
+            item.clone_requires(*old(regions)),
+            C::item_into_raw_spec(*item).0 == pa,
         ensures
             res == *item,
-            final(rc_perm).value() == old(rc_perm).value() + 1,
-            final(rc_perm).id() == old(rc_perm).id(),
+            item.clone_ensures(*old(regions), *final(regions), res),
+            final(regions).inv(),
+            final(regions).slots =~= old(regions).slots,
+            final(regions).slot_owners.dom() =~= old(regions).slot_owners.dom(),
+            forall|i: usize| i != frame_to_index(pa) ==>
+                (#[trigger] final(regions).slot_owners[i] == old(regions).slot_owners[i]),
+            final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id()
+                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.id(),
+            final(regions).slot_owners[frame_to_index(pa)].inner_perms.storage
+                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.storage,
+            final(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr
+                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.vtable_ptr,
+            final(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list
+                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.in_list,
+            final(regions).slot_owners[frame_to_index(pa)].paths_in_pt
+                == old(regions).slot_owners[frame_to_index(pa)].paths_in_pt,
+            final(regions).slot_owners[frame_to_index(pa)].self_addr
+                == old(regions).slot_owners[frame_to_index(pa)].self_addr,
+            final(regions).slot_owners[frame_to_index(pa)].raw_count
+                == old(regions).slot_owners[frame_to_index(pa)].raw_count,
+            final(regions).slot_owners[frame_to_index(pa)].usage
+                == old(regions).slot_owners[frame_to_index(pa)].usage,
+            final(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
+                == old(regions).slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() + 1,
     {
-        item.clone(Tracked(slot_perm), Tracked(rc_perm))
+        let res = item.clone(Tracked(regions));
+        proof {
+            C::clone_ensures_concrete(*item, pa, *old(regions), *regions, res);
+        }
+        res
     }
 
     /// Creates a cursor claiming exclusive access over the given range.
@@ -311,6 +336,17 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
         requires
             old(self).invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition: no currently-used frame is at the ref-count
+            // saturation edge. Discharged by callers; after a query that clones a
+            // frame, the just-bumped slot may no longer satisfy this, so callers
+            // must re-establish it before the next call.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < REF_COUNT_MAX,
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
@@ -367,6 +403,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     ==> #[trigger] regions.slots.contains_key(k),
                 forall|k: usize| old(regions).slots.contains_key(k)
                     ==> old(regions).slots[k] == #[trigger] regions.slots[k],
+                // Non-saturation carried through the descent loop. The loop body
+                // only borrows/descends (push_level, to_ref) — no rc increments
+                // happen until the terminal clone breaks the loop.
+                forall |i: usize|
+                    #![trigger regions.slot_owners[i]]
+                    regions.slot_owners.contains_key(i)
+                    && regions.slot_owners[i].inner_perms.ref_count.value()
+                        != REF_COUNT_UNUSED
+                    ==> regions.slot_owners[i].inner_perms.ref_count.value() + 1
+                        < REF_COUNT_MAX,
             decreases self.level,
         {
             let cur_va = self.va;
@@ -452,37 +498,44 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
 
                     assert(pa == owner.cur_entry_owner().frame.unwrap().mapped_pa);
 
-                    let idx = frame_to_index(pa);
                     let ghost old_regions = *regions;
-                    let tracked slot_perm = regions.slots.tracked_borrow(idx);
-                    let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
 
-                    assert(item.clone_requires(*slot_perm, slot_own.inner_perms.ref_count)) by {
-                        owner.cur_frame_clone_requires(item, pa, level, prop, old_regions);
-                    };
+                    proof {
+                        let idx = frame_to_index(pa);
+                        // rc > 0: from metaregion_sound (frame arm) via path_metaregion_sound
+                        // at i = self.level - 1.
+                        assert(owner.path_metaregion_sound(*regions));
+                        assert(owner.cur_entry_owner().metaregion_sound(*regions));
+                        assert(regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED);
+                        // rc + 1 < REF_COUNT_MAX: from the non-saturation loop invariant,
+                        // ultimately from Cursor::query's non-panic precondition.
+                        assert(regions.slot_owners.contains_key(idx));
+                        // has_safe_slot(pa): EntryOwner::inv_base() gives
+                        // mapped_pa % PAGE_SIZE == 0 and mapped_pa < MAX_PADDR.
+                        assert(owner.cur_entry_owner().inv_base());
+                        owner.cur_frame_clone_requires(item, pa, level, prop, *regions);
+                    }
 
-                    #[verus_spec(with Tracked(slot_perm), Tracked(&mut slot_own.inner_perms.ref_count))]
+                    #[verus_spec(with Tracked(regions), Ghost(pa))]
                     let cloned = Self::clone_item(&item);
 
                     proof {
-                        assert(slot_own.inner_perms.ref_count.id() ==
-                            old_regions.slot_owners[idx].inner_perms.ref_count.id());
-                        // Ref count bounds for clone:
-                        //   - 0 < rc: frames in the page table are always in active use,
-                        //     never in UNDER_CONSTRUCTION (rc=0). Currently not tracked in
-                        //     metaregion_sound — would require strengthening the invariant.
-                        //   - rc + 1 < REF_COUNT_MAX: increment doesn't overflow into the
-                        //     reserved REF_COUNT_MAX..=REF_COUNT_UNUSED range. Requires either
-                        //     a global cardinality argument on shared count or runtime check.
-                        // TODO: track these via either a strengthened metaregion_sound
-                        //   invariant or a runtime check at the clone call site.
-                        assume(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value()
-                            && old_regions.slot_owners[idx].inner_perms.ref_count.value() + 1 < REF_COUNT_MAX);
-                        regions.slot_owners.tracked_insert(idx, slot_own);
+                        let idx = frame_to_index(pa);
+                        // rc > 0: from metaregion_sound (frame arm) via path_metaregion_sound at
+                        // i = self.level - 1.
+                        assert(owner.path_metaregion_sound(old_regions));
+                        assert(owner.cur_entry_owner().metaregion_sound(old_regions));
+                        assert(0 < old_regions.slot_owners[idx].inner_perms.ref_count.value());
+                        // rc + 1 < REF_COUNT_MAX: from the non-saturation loop invariant,
+                        // ultimately from query's non-panic precondition. In the real
+                        // kernel this corresponds to an abort path; we verify the
+                        // non-aborting runs and require callers to uphold the bound.
+                        assert(old_regions.slot_owners.contains_key(idx));
+                        assert(old_regions.slot_owners[idx].inner_perms.ref_count.value()
+                            != REF_COUNT_UNUSED);
                         owner.clone_item_preserves_invariants(old_regions, *regions, idx);
                         assert(regions.inv());
                         assert(owner.metaregion_sound(*regions));
-                        // metaregion_correct: conditionally preserved from clone_item_preserves_invariants
                         assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
                     }
 
@@ -1859,6 +1912,15 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         requires
             old(self).inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition (ref-count non-saturation) propagated from
+            // CursorMut::query; see that function's docs.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < REF_COUNT_MAX,
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),

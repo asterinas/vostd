@@ -426,6 +426,15 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition (ref-count non-saturation) propagated from
+            // Cursor::query.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
@@ -591,6 +600,15 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition (ref-count non-saturation) propagated from
+            // Cursor::query.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
             old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
@@ -1402,14 +1420,17 @@ pub struct MappedItem {
 
 #[verus_verify]
 impl RCClone for MappedItem {
-
-    open spec fn clone_requires(self, slot_perm: PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
-        self.frame.clone_requires(slot_perm, rc_perm)
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
+        self.frame.clone_requires(perm)
     }
 
-    fn clone(&self, Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        self.frame.clone_ensures(old_perm, new_perm, res.frame)
+    }
+
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
     {
-        let frame = self.frame.clone(Tracked(slot_perm), Tracked(rc_perm));
+        let frame = self.frame.clone(Tracked(perm));
         Self {
             frame,
             prop: self.prop,
@@ -1472,6 +1493,26 @@ unsafe impl PageTableConfig for UserPtConfig {
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+
+    proof fn clone_ensures_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Self::Item,
+    ) {
+        admit();
+    }
+
+    proof fn clone_requires_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    ) {
+        admit();
+    }
 }
 
 } // verus!

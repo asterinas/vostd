@@ -4,7 +4,7 @@ use crate::mm::page_table::*;
 use crate::mm::{PagingConstsTrait, Vaddr};
 use crate::specs::arch::mm::{NR_LEVELS, PAGE_SIZE};
 use crate::specs::mm::frame::mapping::frame_to_index;
-use crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED;
+use crate::specs::mm::frame::meta_owners::{REF_COUNT_MAX, REF_COUNT_UNUSED};
 use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
 use crate::specs::mm::page_table::cursor::owners::*;
 use crate::specs::mm::page_table::*;
@@ -107,6 +107,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let idx = frame_to_index(pa);
         &&& regions.slots.contains_key(idx)
         &&& regions.slot_owners[idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+        &&& regions.slot_owners[idx].inner_perms.ref_count.value() > 0
         // Allocator invariant for huge frames (level > 1): all 4KB sub-page slots are valid.
         // Established by huge-frame allocator postcondition.
         &&& level > 1 ==> {
@@ -115,6 +116,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                 &&& regions.slots.contains_key(sub_idx)
                 &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
             }
         }
     }

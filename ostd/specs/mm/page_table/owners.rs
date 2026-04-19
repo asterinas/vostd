@@ -1048,6 +1048,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                             || (
                                 r1.slots.contains_key(sub_idx)
                                 && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                             )
                         }
                     },
@@ -1092,6 +1093,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                             || (
                                 r1.slots.contains_key(sub_idx)
                                 && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                             )
                         }
                     },
