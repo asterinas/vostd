@@ -358,7 +358,6 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
             slot_own.inner_perms = owner.meta_perm.inner_perms;
         }
 
-        // Store 0 to ref_count, transitioning from REF_COUNT_UNIQUE to 0.
         #[verus_spec(with Tracked(&perm))]
         let slot = self.slot();
         slot.ref_count.store(Tracked(&mut slot_own.inner_perms.ref_count), 0);
