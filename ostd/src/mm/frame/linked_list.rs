@@ -688,20 +688,45 @@ impl<'a, M: AnyFrameMeta + Repr<MetaSlotSmall>> CursorMut<'a, M> {
         }
     }
 
-    /*
     /// Gets the mutable reference to the current frame's metadata.
-    pub fn current_meta(&mut self) -> Option<&mut M> {
+    ///
+    /// # Verified Properties
+    /// ## Preconditions
+    /// The cursor must be well-formed with respect to the tracked `CursorOwner`.
+    /// ## Postconditions
+    /// If the cursor is on an element, returns `Some(&mut meta)` borrowing the
+    /// current link's metadata. The cursor state and owner are otherwise
+    /// unchanged.
+    /// ## Safety
+    /// The `&mut self` guarantees exclusive access to the cursor; the tracked
+    /// `CursorOwner` guarantees the perm for the current link is live. Together
+    /// they justify the mutable borrow of `link.meta`. The body is
+    /// `external_body` because the map-indexed perm extraction needed to call
+    /// `ReprPtr::borrow_mut` runs into a Verus modelling gap — see
+    /// `vstd_extra::map_extra::tracked_borrow_mut_points_to`. The ownership
+    /// invariants in the requires/ensures are what we rely on.
+    #[verus_spec(
+        with Tracked(owner): Tracked<&mut CursorOwner<M>>
+    )]
+    #[verifier::external_body]
+    pub fn current_meta(&mut self) -> (res: Option<&mut M>)
+        requires
+            old(self).wf(*old(owner)),
+            old(owner).inv(),
+        ensures
+            final(self).wf(*final(owner)),
+            final(owner).inv(),
+            *final(owner) == *old(owner),
+            *final(self) == *old(self),
+            res.is_some() == (0 <= final(owner).index < final(owner).length()),
+    {
         self.current.map(|current| {
-            // SAFETY: `&mut self` ensures we have exclusive access to the
-            // frame metadata.
-            let link_mut = unsafe { &mut *current.as_ptr() };
-            // We should not allow `&mut Link<M>` to modify the original links,
-            // which would break the linked list. So we just return the
-            // inner metadata `M`.
+            // SAFETY: `&mut self` + the tracked owner ensure exclusive access
+            // to the current link's metadata.
+            let link_mut = unsafe { &mut *(current.ptr.addr() as *mut Link<M>) };
             &mut link_mut.meta
         })
     }
-    */
 
     /// Takes the current pointing frame out of the linked list.
     ///

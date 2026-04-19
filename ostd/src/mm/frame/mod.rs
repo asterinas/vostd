@@ -345,6 +345,30 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         slot.frame_paddr()
     }
 
+    /// Compares two frames by their start physical address.
+    ///
+    /// Inherent sibling of `PartialEq::eq` for `Frame<M>`: freed from the
+    /// trait-signature straitjacket, this version can thread the tracked
+    /// `MetaRegionOwners` via `verus_spec` to reach `start_paddr` without
+    /// a perm-free escape hatch.
+    #[verus_spec(
+        with Tracked(regions): Tracked<&MetaRegionOwners>
+    )]
+    #[verifier::external_body]
+    pub fn eq_frame(&self, other: &Self) -> bool {
+        let self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
+        let tracked self_perm = regions.slots.tracked_borrow(self_idx);
+        let tracked other_perm = regions.slots.tracked_borrow(other_idx);
+
+        #[verus_spec(with Tracked(self_perm))]
+        let self_paddr = self.start_paddr();
+        #[verus_spec(with Tracked(other_perm))]
+        let other_paddr = other.start_paddr();
+
+        self_paddr == other_paddr
+    }
+
     /// Gets the map level of this page.
     ///
     /// This is the level of the page table entry that maps the frame,
@@ -768,25 +792,15 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
         let ghost idx = frame_to_index(meta_to_frame(self.ptr.addr()));
         let ghost old_regions = regions;
 
-        // Extract the slot owner to get access to the ref_count permission
         let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
-
-        // Get the PointsTo for reading the slot
         let tracked perm = regions.slots.tracked_remove(idx);
-
-        // perm.pptr() == self.ptr from drop_requires
         let slot = self.ptr.borrow(Tracked(&perm));
 
-        // Atomically decrement the reference count
-        // From regions.inv(): slots[idx].value().wf(slot_owners[idx])
-        // MetaSlot::wf gives: ref_count.id() == inner_perms.ref_count.id()
         proof {
-            // wf establishes the id match; drop_requires gives ref_count > 0
             assert(slot.ref_count.id() == slot_own.inner_perms.ref_count.id());
         }
         let last_ref_cnt = slot.ref_count.fetch_sub(Tracked(&mut slot_own.inner_perms.ref_count), 1);
 
-        // Decrement raw_count (proof-only bookkeeping)
         proof {
             slot_own.raw_count = (slot_own.raw_count - 1) as usize;
         }
@@ -796,8 +810,6 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             // `Arc::drop`: <https://doc.rust-lang.org/std/sync/struct.Arc.html#method.drop>.
             acquire_fence();
 
-            // After fetch_sub(1) with last_ref_cnt == 1: ref_count == 0, raw_count == 0.
-            // storage.is_init() and in_list == 0 from drop_requires.
             proof {
                 assert(slot_own.inner_perms.ref_count.value() == 0u64);
                 assert(slot_own.raw_count == 0);
@@ -814,16 +826,12 @@ impl<M: AnyFrameMeta> Drop for Frame<M> {
             // allocator::get_global_frame_allocator().dealloc(paddr, PAGE_SIZE);
         }
 
-        // Re-insert into regions
         proof {
             regions.slot_owners.tracked_insert(idx, slot_own);
             regions.slots.tracked_insert(idx, perm);
 
-            // drop_ensures: other slot_owners unchanged
             assert forall|i: usize| i != idx implies #[trigger] regions.slot_owners[i] == old_regions.slot_owners[i] by {}
-            // drop_ensures: slots unchanged
             assert(regions.slots =~= old_regions.slots);
-            // drop_ensures: domain unchanged
             assert(regions.slot_owners.dom() =~= old_regions.slot_owners.dom());
         }
 
@@ -855,12 +863,13 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
     }
 }*/
 
-/*impl From<UFrame> for Frame<FrameMeta> {
-    fn from(frame: UFrame) -> Self {
+/*impl<M: AnyFrameMeta> From<UFrame> for Frame<M> {
+    fn from(frame: UFrame) -> Self { 
         // SAFETY: The metadata is coerceable and the struct is transmutable.
         unsafe { core::mem::transmute(frame) }
     }
 }*/
+
 /*impl TryFrom<Frame<FrameMeta>> for UFrame {
     type Error = Frame<FrameMeta>;
 
@@ -877,6 +886,22 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
+
+impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
+    #[verifier::external_body]
+    fn eq(&self, other: &Self) -> bool {
+        Self::eq_frame(self, other)
+    }
+}
+
+impl<M: AnyFrameMeta + ?Sized> vstd::std_specs::cmp::PartialEqSpecImpl for Frame<M> {
+    open spec fn obeys_eq_spec() -> bool { true }
+    open spec fn eq_spec(&self, other: &Self) -> bool {
+        meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())
+    }
+}
+
+impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 
 } // verus!
 

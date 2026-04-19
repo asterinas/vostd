@@ -11,6 +11,7 @@ use vstd_extra::drop_tracking::*;
 use vstd_extra::ownership::*;
 
 use super::meta::{has_safe_slot, AnyFrameMeta, GetFrameError, MetaSlot};
+use super::Frame;
 
 use core::{marker::PhantomData, sync::atomic::Ordering};
 
@@ -429,6 +430,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
         //        unsafe { &*self.ptr }
 
     }
+
 }
 
 impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> {
@@ -485,40 +487,84 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf + ?Sized> UniqueFrame<M> 
     }
 }
 
-/*impl<M: AnyFrameMeta> From<UniqueFrame<Link<M>>> for Frame<M> {
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> UniqueFrame<M> {
+    /// Converts a unique frame into a shared one by setting ref_count = 1.
+    /// Inherent sibling of `From<UniqueFrame<M>> for Frame<M>`: freed from
+    /// the trait-signature straitjacket, this version can thread the tracked
+    /// `MetaRegionOwners` via `verus_spec`.
+    #[verus_spec(
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
     #[verifier::external_body]
-    fn from(unique: UniqueFrame<Link<M>>) -> Self {
-        unimplemented!()/*
-        // The `Release` ordering make sure that previous writes are visible
-        // before the reference count is set to 1. It pairs with
-        // `MetaSlot::get_from_in_use`.
-        unique.slot().ref_count.store(1, Ordering::Release);
-        // SAFETY: The internal representation is now the same.
-        unsafe { core::mem::transmute(unique) }*/
+    pub fn into_shared(unique: Self) -> Frame<M> {
+        let idx = frame_to_index(meta_to_frame(unique.ptr.addr()));
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let tracked mut inner_perms = slot_own.take_inner_perms();
 
+        #[verus_spec(with Tracked(&slot_perm))]
+        let slot = unique.slot();
+        slot.ref_count.store(Tracked(&mut inner_perms.ref_count), 1);
+
+        proof {
+            slot_own.sync_inner(&inner_perms);
+            regions.slot_owners.tracked_insert(idx, slot_own);
+        }
+
+        unsafe { core::mem::transmute(unique) }
     }
-}*/
-/*impl<M: AnyFrameMeta> TryFrom<Frame<M>> for UniqueFrame<Link<M>> {
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> Frame<M> {
+    /// Tries to convert a shared frame into a unique one by CAS'ing ref_count
+    /// from 1 to `REF_COUNT_UNIQUE`. Inherent sibling of
+    /// `TryFrom<Frame<M>> for UniqueFrame<M>`.
+    #[verus_spec(
+        with Tracked(regions): Tracked<&mut MetaRegionOwners>
+    )]
+    #[verifier::external_body]
+    pub fn try_into_unique(frame: Self) -> Result<UniqueFrame<M>, Self> {
+        let idx = frame_to_index(meta_to_frame(frame.ptr.addr()));
+        let tracked mut slot_own = regions.slot_owners.tracked_remove(idx);
+        let tracked slot_perm = regions.slots.tracked_borrow(idx);
+        let tracked mut inner_perms = slot_own.take_inner_perms();
+
+        #[verus_spec(with Tracked(&slot_perm))]
+        let slot = frame.slot();
+        let res = slot.ref_count.compare_exchange(
+            Tracked(&mut inner_perms.ref_count),
+            1,
+            REF_COUNT_UNIQUE,
+        );
+
+        proof {
+            slot_own.sync_inner(&inner_perms);
+            regions.slot_owners.tracked_insert(idx, slot_own);
+        }
+
+        match res {
+            Ok(_) => Ok(unsafe { core::mem::transmute::<Frame<M>, UniqueFrame<M>>(frame) }),
+            Err(_) => Err(frame),
+        }
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> From<UniqueFrame<M>> for Frame<M> {
+    #[verifier::external_body]
+    fn from(unique: UniqueFrame<M>) -> Self {
+        UniqueFrame::into_shared(unique)
+    }
+}
+
+impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TryFrom<Frame<M>> for UniqueFrame<M> {
     type Error = Frame<M>;
 
-    #[verifier::external_body]
     /// Tries to get a unique frame from a shared frame.
     ///
     /// If the reference count is not 1, the frame is returned back.
+    #[verifier::external_body]
     fn try_from(frame: Frame<M>) -> Result<Self, Self::Error> {
-        unimplemented!()/*        match frame.slot().ref_count.compare_exchange(
-            1,
-            REF_COUNT_UNIQUE,
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-        ) {
-            Ok(_) => {
-                // SAFETY: The reference count is now `REF_COUNT_UNIQUE`.
-                Ok(unsafe { core::mem::transmute::<Frame<M>, UniqueFrame<M>>(frame) })
-            }
-            Err(_) => Err(frame),
-        }*/
-
+        Frame::try_into_unique(frame)
     }
-}*/
+}
 } // verus!
