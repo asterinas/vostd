@@ -354,19 +354,25 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
     #[verus_spec(
         with Tracked(regions): Tracked<&MetaRegionOwners>
     )]
-    #[verifier::external_body]
-    pub fn eq_frame(&self, other: &Self) -> bool {
-        let self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
-        let other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
+    pub fn eq(&self, other: &Self) -> (res: bool)
+        requires
+            self.inv(),
+            other.inv(),
+            regions.inv(),
+            regions.slots.contains_key(frame_to_index(meta_to_frame(self.ptr.addr()))),
+            regions.slots.contains_key(frame_to_index(meta_to_frame(other.ptr.addr()))),
+            regions.slots[frame_to_index(meta_to_frame(self.ptr.addr()))].pptr() == self.ptr,
+            regions.slots[frame_to_index(meta_to_frame(other.ptr.addr()))].pptr() == other.ptr,
+        ensures
+            res == (meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())),
+    {
+        let ghost self_idx = frame_to_index(meta_to_frame(self.ptr.addr()));
+        let ghost other_idx = frame_to_index(meta_to_frame(other.ptr.addr()));
         let tracked self_perm = regions.slots.tracked_borrow(self_idx);
         let tracked other_perm = regions.slots.tracked_borrow(other_idx);
 
-        #[verus_spec(with Tracked(self_perm))]
-        let self_paddr = self.start_paddr();
-        #[verus_spec(with Tracked(other_perm))]
-        let other_paddr = other.start_paddr();
-
-        self_paddr == other_paddr
+        (#[verus_spec(with Tracked(self_perm))] self.start_paddr() ==
+        #[verus_spec(with Tracked(other_perm))] other.start_paddr())
     }
 
     /// Gets the map level of this page.
@@ -886,22 +892,6 @@ impl<M: AnyFrameMeta> TryFrom<Frame<dyn AnyFrameMeta>> for Frame<M> {
         }
     }
 }*/
-
-impl<M: AnyFrameMeta + ?Sized> PartialEq for Frame<M> {
-    #[verifier::external_body]
-    fn eq(&self, other: &Self) -> bool {
-        Self::eq_frame(self, other)
-    }
-}
-
-impl<M: AnyFrameMeta + ?Sized> vstd::std_specs::cmp::PartialEqSpecImpl for Frame<M> {
-    open spec fn obeys_eq_spec() -> bool { true }
-    open spec fn eq_spec(&self, other: &Self) -> bool {
-        meta_to_frame(self.ptr.addr()) == meta_to_frame(other.ptr.addr())
-    }
-}
-
-impl<M: AnyFrameMeta + ?Sized> Eq for Frame<M> {}
 
 } // verus!
 
