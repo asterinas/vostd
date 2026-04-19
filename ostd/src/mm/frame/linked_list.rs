@@ -12,7 +12,7 @@ use vstd::simple_pptr::*;
 use vstd_extra::cast_ptr::*;
 use vstd_extra::drop_tracking::{Drop, TrackDrop};
 use vstd_extra::ownership::*;
-use vstd_extra::ptr_extra::*;
+use vstd_extra::trans_macros::*;
 
 use crate::mm::frame::meta::mapping::frame_to_meta;
 use crate::mm::frame::meta::REF_COUNT_UNUSED;

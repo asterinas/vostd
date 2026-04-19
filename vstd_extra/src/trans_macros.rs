@@ -2,7 +2,23 @@ use vstd::prelude::*;
 
 use vstd::simple_pptr::*;
 
-verus! {
+#[macro_export]
+macro_rules! assert {
+    ($cond:expr) => {
+        verus_exec_expr!(
+            if !($cond) {
+                proof { assert(false); }
+            }
+        )
+    };
+    ($cond:expr, $msg:literal) => {
+        verus_exec_expr!(
+            if !($cond) {
+                proof { assert(false); }
+            }
+        )
+    };
+}
 
 #[macro_export]
 macro_rules! borrow_field {
@@ -93,5 +109,4 @@ macro_rules! update_field {
     }
 }
 
-} // verus!
-pub use {borrow_field, update_field};
+pub use crate::{assert, borrow_field, update_field};

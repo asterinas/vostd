@@ -26,7 +26,7 @@ pub mod ownership;
 pub mod resource;
 
 #[macro_use]
-pub mod ptr_extra;
+pub mod trans_macros;
 pub mod map_extra;
 
 pub mod prelude;
