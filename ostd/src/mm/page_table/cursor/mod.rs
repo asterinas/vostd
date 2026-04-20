@@ -2597,13 +2597,7 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             owner1.metaregion_preserved_under_path_insert(
                 regions_before_new_child, *regions, pa_idx_install, new_frame_path);
 
-            let ghost pa_idx_install = frame_to_index(pa);
-            let ghost new_frame_path = new_owner.value.path;
-            let tracked mut pa_slot_install = regions.slot_owners.tracked_remove(pa_idx_install);
-            pa_slot_install.paths_in_pt = pa_slot_install.paths_in_pt.insert(new_frame_path);
-            regions.slot_owners.tracked_insert(pa_idx_install, pa_slot_install);
-
-            assert(regions_before_new_child.slots.contains_key(pa_idx_install)) by {
+            assert(new_owner.value.metaregion_sound(*regions)) by {
                 assert(Self::item_slot_in_regions(item, regions_before_new_child));
                 assert(regions.slot_owners[pa_idx_install].paths_in_pt
                     .contains(new_frame_path));
