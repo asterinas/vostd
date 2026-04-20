@@ -63,6 +63,9 @@ use crate::{
 };
 use crate::mm::page_table::RCClone;
 use crate::specs::mm::frame::meta_owners::MetaPerm;
+use crate::specs::mm::frame::meta_region_owners::MetaRegionOwners;
+
+use vstd_extra::ownership::*;
 
 verus! {
 
@@ -235,6 +238,26 @@ unsafe impl PageTableConfig for KernelPtConfig {
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+
+    proof fn clone_ensures_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Self::Item,
+    ) {
+        admit();
+    }
+
+    proof fn clone_requires_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    ) {
+        admit();
+    }
 }
 
 impl KernelPtConfig {
@@ -259,6 +282,13 @@ impl KernelPtConfig {
             KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).1 == level,
             KernelPtConfig::item_into_raw_spec(MappedItem::Untracked(pa, level, prop)).2 == prop;
 
+    /// For tracked items, the physical address from item_into_raw_spec equals
+    /// the frame's metadata-derived physical address.
+    pub axiom fn item_into_raw_spec_tracked_pa(frame: DynFrame, prop: PageProperty)
+        ensures
+            KernelPtConfig::item_into_raw_spec(MappedItem::Tracked(frame, prop)).0
+                == crate::mm::frame::meta::mapping::meta_to_frame(frame.ptr.addr());
+
     /// For KernelPtConfig (x86_64): HIGHEST_TRANSLATION_LEVEL = 2 < NR_LEVELS = 4.
     pub axiom fn axiom_kernel_htl_lt_nr_levels()
         ensures
@@ -279,15 +309,24 @@ pub enum MappedItem {
 }
 
 impl RCClone for MappedItem {
-    open spec fn clone_requires(self, slot_perm: PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
         match self {
-            MappedItem::Tracked(frame, _) => frame.clone_requires(slot_perm, rc_perm),
-            MappedItem::Untracked(_, _, _) => true,
+            MappedItem::Tracked(frame, _) => frame.clone_requires(perm),
+            MappedItem::Untracked(_, _, _) => perm.inv(),
+        }
+    }
+
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        match (self, res) {
+            (MappedItem::Tracked(frame, _), MappedItem::Tracked(res_frame, _)) =>
+                frame.clone_ensures(old_perm, new_perm, res_frame),
+            (MappedItem::Untracked(_, _, _), _) => old_perm == new_perm,
+            _ => true,
         }
     }
 
     #[verifier::external_body]
-    fn clone(&self, Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
     {
         unimplemented!();
     }

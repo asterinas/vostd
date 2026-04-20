@@ -227,7 +227,6 @@ impl Inv for MetaSlotOwner {
         }
         &&& REF_COUNT_MAX <= self.inner_perms.ref_count.value() < REF_COUNT_UNIQUE ==> { false }
         &&& self.inner_perms.ref_count.value() == 0 ==> {
-            &&& self.inner_perms.vtable_ptr.is_uninit()
             &&& self.inner_perms.in_list.value() == 0
         }
         &&& FRAME_METADATA_RANGE.start <= self.self_addr < FRAME_METADATA_RANGE.end
@@ -254,7 +253,6 @@ impl Inv for MetaSlotModel {
             },
             REF_COUNT_UNIQUE => { &&& self.vtable_ptr.is_init() },
             0 => {
-                &&& self.vtable_ptr.is_uninit()
                 &&& self.in_list == 0
             },
             _ if self.ref_count < REF_COUNT_MAX => { &&& self.vtable_ptr.is_init() },

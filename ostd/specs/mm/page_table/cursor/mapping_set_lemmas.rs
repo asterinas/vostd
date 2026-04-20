@@ -112,24 +112,8 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
             self.as_subtree().inv(),
     {
         self.inv_children_unroll_all();
-        let st = self.as_subtree();
-        assert(st.inv_node());
-        assert forall |i: int| 0 <= i < NR_ENTRIES implies
-            match #[trigger] st.children[i] {
-                Some(child) => {
-                    &&& child.level == st.level + 1
-                    &&& <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(st.value, i, Some(child.value))
-                },
-                None => <EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::rel_children(st.value, i, None),
-            }
-        by {
-            self.inv_children_rel_unroll(i);
-        };
     }
 
-    /// When a continuation has inv + all_some, `PageTableOwner(as_subtree()).pt_inv()` holds.
-    /// The direct edge facts come from `inv_children_rel` (inlined in the continuation's `inv`),
-    /// and the recursive pt_inv on children's subtrees comes from `pt_inv_children`.
     proof fn as_page_table_owner_pt_inv(self)
         requires
             self.inv(),
@@ -140,7 +124,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         self.as_subtree_inv();
         let st = self.as_subtree();
         let depth = (INC_LEVELS - st.level) as nat;
-        assert(depth > 0);
         assert forall |i: int| #![trigger st.children[i]]
             0 <= i < NR_ENTRIES implies
                 PageTableOwner::<C>::pt_edge_at(st, i)
@@ -149,10 +132,6 @@ impl<'rcu, C: PageTableConfig> CursorContinuation<'rcu, C> {
         by {
             self.inv_children_rel_unroll(i);
             self.pt_inv_children_unroll(i);
-            let child_pto = PageTableOwner(st.children[i].unwrap());
-            assert(child_pto.pt_inv());
-            assert(child_pto.0.level == st.level + 1);
-            assert((INC_LEVELS - child_pto.0.level) as nat == (depth - 1) as nat);
         };
     }
 }
@@ -873,8 +852,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single
     /// `view_rec` rooted at the reconstructed root page table, then applies
-    /// `view_rec_disjoint_vaddrs` on that single subtree. No `metaregion_correct`
-    /// needed — it follows from tree structure alone.
+    /// `view_rec_disjoint_vaddrs` on that single subtree.
+    /// Follows from tree structure alone.
     pub proof fn as_page_table_owner_view_non_overlapping(self)
         requires
             self.inv(),

@@ -166,7 +166,7 @@ impl<M: AnyFrameMeta + Repr<MetaSlotStorage> + OwnerOf> TrackDrop for UniqueFram
         &&& s1.inv()
     }
 
-    proof fn drop_spec(self, tracked s: &mut Self::State) {
+    proof fn drop_tracked(self, tracked s: &mut Self::State) {
         let index = frame_to_index(meta_to_frame(self.ptr.addr()));
         let tracked mut slot_own = s.slot_owners.tracked_remove(index);
         slot_own.raw_count = 0;

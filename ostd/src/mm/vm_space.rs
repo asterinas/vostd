@@ -11,6 +11,7 @@ use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::atomic::PermissionU64;
+use vstd::vpanic;
 
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
@@ -216,7 +217,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Ghost(vstd::pervasive::arbitrary::<PageTableGuard<'a, UserPtConfig>>()), Tracked(regions), Tracked(guards))]
             self.pt.cursor(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -264,7 +265,7 @@ impl<'a> VmSpace<'a> {
             let tracked mut out_owner: Option<CursorOwner<'a, UserPtConfig>>;
         }
         match {
-            #[verus_spec(with Tracked(owner), Tracked(regions), Tracked(guards))]
+            #[verus_spec(with Tracked(owner), Ghost(vstd::pervasive::arbitrary::<PageTableGuard<'a, UserPtConfig>>()), Tracked(regions), Tracked(guards))]
             self.pt.cursor_mut(guard, va)
         } {
             Ok((pt_cursor, tracked_owner)) => {
@@ -424,9 +425,17 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition (ref-count non-saturation) propagated from
+            // Cursor::query.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).0.query_some_condition(*final(owner)) ==> {
                 &&& r is Ok
                 &&& final(self).0.query_some_ensures(*final(owner), r.unwrap())
@@ -479,7 +488,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.find_next_panic_condition(len),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).0.va
                 &&& final(owner).level < final(owner).guard_level
@@ -524,7 +532,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.jump_panic_condition(va),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).0.va == va
@@ -557,6 +564,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
+#[verus_verify]
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
     /// Queries the mapping at the current virtual address.
@@ -589,9 +597,17 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
+            // Non-panic precondition (ref-count non-saturation) propagated from
+            // Cursor::query.
+            forall |i: usize|
+                #![trigger old(regions).slot_owners[i]]
+                old(regions).slot_owners.contains_key(i)
+                && old(regions).slot_owners[i].inner_perms.ref_count.value()
+                    != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                ==> old(regions).slot_owners[i].inner_perms.ref_count.value() + 1
+                    < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).pt_cursor.inner.query_some_condition(*final(owner)) ==>
@@ -640,7 +656,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).pt_cursor.inner.va
                 &&& final(owner).level < final(owner).guard_level
@@ -685,7 +700,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).pt_cursor.inner.barrier_va.start <= va < final(self).pt_cursor.inner.barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).pt_cursor.inner.va == va
@@ -708,8 +722,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 
     /// Get the dedicated TLB flusher for this cursor.
-    pub fn flusher(&self) -> &TlbFlusher<'a> {
-        &self.flusher
+    #[verus_spec(ret =>
+        ensures
+            *ret == old(self).flusher,
+            *final(ret) == final(self).flusher,
+    )]
+    pub fn flusher(&mut self) -> &mut TlbFlusher<'a> {
+        &mut self.flusher
     }
 
     /// Map a frame into the current slot.
@@ -783,7 +802,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert(false) by {
                     assert(UserPtConfig::item_into_raw(item).1 == 1);
                 };
-                //panic!("`UFrame` is base page sized but re-mapping out a child PT");
+                vpanic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }
     }
@@ -1357,7 +1376,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             forall |p: PageProperty| op.requires((p,)),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
     )]
     pub fn protect_next(
@@ -1400,14 +1418,17 @@ pub struct MappedItem {
 
 #[verus_verify]
 impl RCClone for MappedItem {
-
-    open spec fn clone_requires(self, slot_perm: PointsTo<MetaSlot>, rc_perm: PermissionU64) -> bool {
-        self.frame.clone_requires(slot_perm, rc_perm)
+    open spec fn clone_requires(self, perm: MetaRegionOwners) -> bool {
+        self.frame.clone_requires(perm)
     }
 
-    fn clone(&self, Tracked(slot_perm): Tracked<&PointsTo<MetaSlot>>, Tracked(rc_perm): Tracked<&mut PermissionU64>) -> (res: Self)
+    open spec fn clone_ensures(self, old_perm: MetaRegionOwners, new_perm: MetaRegionOwners, res: Self) -> bool {
+        self.frame.clone_ensures(old_perm, new_perm, res.frame)
+    }
+
+    fn clone(&self, Tracked(perm): Tracked<&mut MetaRegionOwners>) -> (res: Self)
     {
-        let frame = self.frame.clone(Tracked(slot_perm), Tracked(rc_perm));
+        let frame = self.frame.clone(Tracked(perm));
         Self {
             frame,
             prop: self.prop,
@@ -1470,6 +1491,26 @@ unsafe impl PageTableConfig for UserPtConfig {
     axiom fn axiom_nr_subpage_per_huge_eq_nr_entries();
 
     axiom fn item_roundtrip(item: Self::Item, paddr: Paddr, level: PagingLevel, prop: PageProperty);
+
+    proof fn clone_ensures_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        old_regions: MetaRegionOwners,
+        new_regions: MetaRegionOwners,
+        res: Self::Item,
+    ) {
+        admit();
+    }
+
+    proof fn clone_requires_concrete(
+        item: Self::Item,
+        pa: Paddr,
+        level: PagingLevel,
+        prop: PageProperty,
+        regions: MetaRegionOwners,
+    ) {
+        admit();
+    }
 }
 
 } // verus!

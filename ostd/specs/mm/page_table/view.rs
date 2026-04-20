@@ -17,7 +17,7 @@ verus! {
 /// Its size, `page_size`, is fixed and must be one of 4096, 2097152, 1073741824.
 /// The `va_range` and `pa_range` must of size `page_size` and aligned on a page boundary.
 /// The `property` is a bitfield of flags that describe the properties of the mapping.
-pub tracked struct Mapping {
+pub ghost struct Mapping {
     pub va_range: Range<Vaddr>,
     pub pa_range: Range<Paddr>,
     pub page_size: usize,

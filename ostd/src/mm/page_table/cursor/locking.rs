@@ -32,14 +32,13 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
 
 #[verus_spec(ret =>
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
-        Tracked(root_guard): Tracked<PageTableGuard<'rcu, C>>,
+        Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     requires
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).metaregion_correct(*final(regions)),
         (*ret.1).in_locked_range(),
         ret.0.level < ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,
@@ -250,7 +249,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
                 let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard));
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -293,7 +292,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
                 let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard));
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;
@@ -313,7 +312,7 @@ fn try_traverse_and_lock_subtree_root<'rcu, C: PageTableConfig, A: InAtomicMode>
                     let tracked mut new_guard: PageTableGuard<'rcu, C>;
                 }
                 let tracked mut cont = cursor_own.continuations.tracked_remove(cursor_own.level - 1);
-                let tracked child_cont = cont.make_cont(next_idx, Tracked(new_guard));
+                let tracked child_cont = cont.make_cont(next_idx, new_guard);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 1, cont);
                 cursor_own.continuations.tracked_insert(cursor_own.level - 2, child_cont);
                 cursor_own.level = (cursor_own.level - 1) as PagingLevel;

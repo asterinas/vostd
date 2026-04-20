@@ -277,6 +277,53 @@ pub broadcast proof fn lemma_value_filter_choose<K, V>(m: Map<K, V>, f: spec_fn(
     }
 }
 
+/// Borrows an entry from a tracked `Map` mutably.
+///
+/// Returns `&mut v` where `v = old(m)[key]`. While the returned borrow is
+/// live, `m` is exclusively held; at its end, `m[key]` equals whatever `v`
+/// ended up being, and all other entries are unchanged.
+///
+/// This is the mutable counterpart to `Map::tracked_borrow` and mirrors
+/// `PointsTo::borrow_mut_inner_perms` in structure.
+// TODO: upstream to vstd.
+pub axiom fn tracked_borrow_mut<K, V>(
+    tracked m: &mut Map<K, V>,
+    key: K,
+) -> (tracked v: &mut V)
+    requires
+        old(m).dom().contains(key),
+    ensures
+        *v === old(m).index(key),
+        final(m).dom() === old(m).dom(),
+        forall|k: K| k != key ==> #[trigger] final(m).index(k) === old(m).index(k),
+        final(m).index(key) === *final(v);
+
+/// Same as [`tracked_borrow_mut`] for `PointsTo<R, T>` values, with the
+/// additional open-spec equalities that Verus cannot derive through
+/// `simple_pptr::PointsTo`'s opaque fields.
+pub axiom fn tracked_borrow_mut_points_to<K, R, T: crate::cast_ptr::Repr<R>>(
+    tracked m: &mut Map<K, crate::cast_ptr::PointsTo<R, T>>,
+    key: K,
+) -> (tracked v: &mut crate::cast_ptr::PointsTo<R, T>)
+    requires
+        old(m).dom().contains(key),
+    ensures
+        *v === old(m).index(key),
+        // Open-spec equalities that don't fall out of `*v === old_v` because
+        // the inner `simple_pptr::PointsTo<R>` is external_body.
+        v.pptr() === old(m).index(key).pptr(),
+        v.addr() === old(m).index(key).addr(),
+        v.is_init() == old(m).index(key).is_init(),
+        v.wf(&v.inner_perms) == old(m).index(key).wf(&old(m).index(key).inner_perms),
+        v.inner_perms === old(m).index(key).inner_perms,
+        final(m).dom() === old(m).dom(),
+        forall|k: K| k != key ==> #[trigger] final(m).index(k) === old(m).index(k),
+        final(m).index(key) === *final(v),
+        final(m).index(key).pptr() === final(v).pptr(),
+        final(m).index(key).is_init() == final(v).is_init(),
+        final(m).index(key).wf(&final(v).inner_perms)
+            == final(v).wf(&final(v).inner_perms);
+
 } // verus!
 verus! {
 

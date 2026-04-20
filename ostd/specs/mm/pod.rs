@@ -39,20 +39,27 @@ pub trait Pod: Copy + Sized {
     }
 
     /// As a mutable slice of bytes.
-    ///
-    /// Note that this does not create the permission to mutate the Pod value as
-    /// mutable reference is not yet supported in Verus.
-    ///
-    /// Instead, the caller must uphold a separate permission to mutate the Pod value.
     #[verifier::external_body]
-    fn as_bytes_mut(&mut self) -> (r: (usize, usize))
+    fn as_bytes_mut(&mut self) -> (r: &mut [u8])
         ensures
-            r.1 == core::mem::size_of::<Self>(),
+            r.len() == core::mem::size_of::<Self>(),
     {
-        let ptr = self as *mut Self as usize;
+        let ptr = self as *mut Self as *mut u8;
         let len = core::mem::size_of::<Self>();
 
-        (ptr, len)
+        unsafe { core::slice::from_raw_parts_mut(ptr, len) }
+    }
+
+    /// As an immutable slice of bytes.
+    #[verifier::external_body]
+    fn as_bytes_ref(&self) -> (r: &[u8])
+        ensures
+            r.len() == core::mem::size_of::<Self>(),
+    {
+        let ptr = self as *const Self as *const u8;
+        let len = core::mem::size_of::<Self>();
+
+        unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
 

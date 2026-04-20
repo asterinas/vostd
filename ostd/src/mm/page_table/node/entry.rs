@@ -76,11 +76,6 @@ pub struct Entry<'a, 'rcu, C: PageTableConfig> {
 }
 
 impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
-    pub open spec fn new_spec(pte: C::E, idx: usize, node: &'a mut PageTableGuard<'rcu, C>) -> Self {
-        Self { pte, idx, node }
-    }
-
-    #[verifier::when_used_as_spec(new_spec)]
     pub fn new(pte: C::E, idx: usize, node: &'a mut PageTableGuard<'rcu, C>) -> Self {
         Self { pte, idx, node }
     }
@@ -585,7 +580,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             old(regions).inv(),
             old(owner).inv(),
             old(self).wf(old(owner).value),
-            old(parent_owner).relate_guard(old(self).node),
+            old(parent_owner).relate_guard(*old(self).node),
             old(parent_owner).inv(),
             old(parent_owner).level == old(owner).value.parent_level,
             old(parent_owner).level < NR_LEVELS,
@@ -610,7 +605,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 &&& res is Some
                 &&& final(owner).value.is_node()
                 &&& final(owner).level == old(owner).level
-                &&& final(parent_owner).relate_guard(final(self).node)
+                &&& final(parent_owner).relate_guard(*final(self).node)
                 &&& final(owner).value.node.unwrap().relate_guard(res.unwrap())
                 &&& final(owner).value.node.unwrap().meta_perm.addr() == res.unwrap().inner.inner@.ptr.addr()
                 // All children of the new node subtree are frames with the same prop (from the split loop).
@@ -641,7 +636,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
             final(self).idx == old(self).idx,
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==> !final(owner).value.in_scope,
             old(owner).value.is_frame() && old(parent_owner).level > 1 ==>
-                final(self).node_matching(final(owner).value, *final(parent_owner), final(self).node),
+                final(self).node_matching(final(owner).value, *final(parent_owner), *final(self).node),
             final(regions).inv(),
             final(parent_owner).inv(),
             final(parent_owner).level == old(parent_owner).level,
@@ -743,14 +738,15 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 forall|j: int| #![auto] 0 <= j < i ==> {
                     new_owner.children[j].unwrap().value.is_frame()
                 },
-                // Sub-page slots (4KB-grained, j > 0): slots.contains_key and rc != UNUSED preserved.
-                // The j = 0 case is handled separately (the huge frame's own slot).
+                // Sub-page slots (4KB-grained, j > 0): slots.contains_key, rc != UNUSED, and rc > 0
+                // are all preserved. The j = 0 case is handled separately (the huge frame's own slot).
                 forall |j: usize| #![trigger frame_to_index(
                     (pa + j * PAGE_SIZE) as usize)]
                     0 < j < page_size(level) / PAGE_SIZE ==> {
                     let sub_idx = frame_to_index((pa + j * PAGE_SIZE) as usize);
                     &&& regions.slots.contains_key(sub_idx)
                     &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                    &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                 },
                 // j = 0: the huge frame's own slot. These come from the huge
                 // frame's `metaregion_sound` at function entry and are
@@ -759,6 +755,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                 regions.slots.contains_key(frame_to_index(pa)),
                 regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value()
                     != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED,
+                regions.slot_owners[frame_to_index(pa)].inner_perms.ref_count.value() > 0,
                 new_page.ptr.addr() == new_owner_meta_addr,
         {
             proof {
@@ -827,7 +824,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                     assert(small_pa == (pa + big_j * PAGE_SIZE) as usize);
                 }
 
-                assert(entry.node_matching(new_owner_child.value, new_owner_node, pt_lock_guard)) by {
+                assert(entry.node_matching(new_owner_child.value, new_owner_node, *entry.node)) by {
                     let pte = new_owner_node.children_perm.value()[i as int];
                     assert(pte == C::E::new_absent_spec());
                     crate::specs::arch::PageTableEntry::absent_pte_paddr_ok();
@@ -852,6 +849,7 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
                         let sub_idx = frame_to_index((small_pa + j_prime * PAGE_SIZE) as usize);
                         &&& regions.slots.contains_key(sub_idx)
                         &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() != REF_COUNT_UNUSED
+                        &&& regions.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                     } by {
                         let sub_pages_per_subframe = page_size((level - 1) as PagingLevel) / PAGE_SIZE;
                         let big_j_int: int = i as int * sub_pages_per_subframe as int + j_prime as int;
