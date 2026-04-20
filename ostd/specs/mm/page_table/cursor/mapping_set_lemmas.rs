@@ -852,8 +852,8 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
     ///
     /// Collapses the union-over-continuations `view_mappings` into a single
     /// `view_rec` rooted at the reconstructed root page table, then applies
-    /// `view_rec_disjoint_vaddrs` on that single subtree. No `metaregion_correct`
-    /// needed — it follows from tree structure alone.
+    /// `view_rec_disjoint_vaddrs` on that single subtree.
+    /// Follows from tree structure alone.
     pub proof fn as_page_table_owner_view_non_overlapping(self)
         requires
             self.inv(),

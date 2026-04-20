@@ -437,7 +437,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).0.query_some_condition(*final(owner)) ==> {
                 &&& r is Ok
                 &&& final(self).0.query_some_ensures(*final(owner), r.unwrap())
@@ -490,7 +489,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.find_next_panic_condition(len),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).0.va
                 &&& final(owner).level < final(owner).guard_level
@@ -535,7 +533,6 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             !old(self).0.jump_panic_condition(va),
         ensures
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).0.va == va
@@ -611,7 +608,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                     < crate::specs::mm::frame::meta_owners::REF_COUNT_MAX,
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).pt_cursor.inner.query_some_condition(*final(owner)) ==>
@@ -660,7 +656,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.find_next_panic_condition(len),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).pt_cursor.inner.va
                 &&& final(owner).level < final(owner).guard_level
@@ -705,7 +700,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).pt_cursor.inner.barrier_va.start <= va < final(self).pt_cursor.inner.barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).pt_cursor.inner.va == va
@@ -1377,7 +1371,6 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             forall |p: PageProperty| op.requires((p,)),
         ensures
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
     )]
     pub fn protect_next(

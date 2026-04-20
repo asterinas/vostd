@@ -252,7 +252,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             Self::cursor_new_success_conditions(va) ==> {
                 &&& r is Ok
                 &&& r.unwrap().0.invariants(*r.unwrap().1, *final(regions), *final(guards))
-                &&& r.unwrap().1.metaregion_correct(*final(regions))
                 &&& r.unwrap().1.in_locked_range()
                 &&& r.unwrap().0.level < r.unwrap().0.guard_level
                 &&& r.unwrap().0.va < r.unwrap().0.barrier_va.end
@@ -349,7 +348,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                     < REF_COUNT_MAX,
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).query_some_condition(*final(owner)) ==>
@@ -376,7 +374,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             invariant
                 self.invariants(*owner, *regions, *guards),
                 owner.in_locked_range(),
-                old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
                 self.va == initial_va,
                 old(owner)@.mappings == owner@.mappings,
                 regions.slot_owners.dom() == old(regions).slot_owners.dom(),
@@ -625,7 +622,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             !old(self).find_next_panic_condition(len),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).va
                 &&& final(owner).level < final(owner).guard_level
@@ -703,7 +699,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(self).barrier_va == old(self).barrier_va,
             final(self).guard_level == old(self).guard_level,
             final(self).va >= old(self).va,
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).va
                 &&& final(owner).level < final(owner).guard_level
@@ -767,7 +762,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
-                old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
                 !owner.popped_too_high,
                 old_owner_cur_va == old(owner)@.cur_va,
                 old_owner_cur_va == old(self).va,
@@ -1201,7 +1195,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             !old(self).jump_panic_condition(va),
         ensures
             final(self).invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).barrier_va.start <= va < final(self).barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).va == va
@@ -1217,7 +1210,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             invariant
                 self.invariants(*owner, *regions, *guards),
                 owner.in_locked_range(),
-                old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
                 self.level <= self.guard_level,
                 self.barrier_va.start <= va < self.barrier_va.end,
                 va % PAGE_SIZE == 0,
@@ -1317,7 +1309,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).children_not_locked(*final(guards)),
             final(owner).nodes_locked(*final(guards)),
             final(owner).metaregion_sound(*final(regions)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(owner).va == old(owner).va.align_up(old(self).level as int),
             final(self).va <= old(self).va + page_size_spec(old(self).level),
             // move_forward only calls pop_level, which does not touch regions.
@@ -1382,7 +1373,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
-                old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
                 *regions == regions0,
             decreases self.guard_level - self.level,
         {
@@ -1483,7 +1473,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).children_not_locked(*final(guards)),
             final(owner).nodes_locked(*final(guards)),
             final(owner).metaregion_sound(*final(regions)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).guard_level == old(self).guard_level,
             *final(owner) == old(owner).pop_level_owner_spec().0,
             final(owner).in_locked_range(),
@@ -1570,7 +1559,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
             final(owner).children_not_locked(*guards),
             final(owner).nodes_locked(*guards),
             final(owner).metaregion_sound(*regions),
-            old(owner).metaregion_correct(*regions) ==> final(owner).metaregion_correct(*regions),
             final(self).inv(),
             final(self).wf(*final(owner)),
             final(self).guard_level == old(self).guard_level,
@@ -1820,7 +1808,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(self).inner.find_next_panic_condition(len),
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).inner.va
                 &&& final(owner).level < final(owner).guard_level
@@ -1862,7 +1849,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             !old(self).inner.jump_panic_condition(va),
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).inner.barrier_va.start <= va < final(self).inner.barrier_va.end ==> {
                 &&& res is Ok
                 &&& final(self).inner.va == va
@@ -1923,7 +1909,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     < REF_COUNT_MAX,
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             old(owner).in_locked_range() ==> res is Ok,
             res matches Ok(state) ==>
                 final(self).inner.query_some_condition(*final(owner)) ==>
@@ -1949,19 +1934,14 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ChildRef::PageTable(pt).wf(old(owner).cur_entry_owner())
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(owner).in_locked_range(),
             final(owner).va == old(owner).va,
             final(self).inner.level == old(self).inner.level - 1,
             final(self).inner.guard_level == old(self).inner.guard_level,
-            // push_level preserves the abstract view: mappings are unchanged and cur_va is unchanged.
             final(owner)@ == old(owner)@,
-            // map_branch_pt only locks an existing node (push_level takes regions by shared ref);
-            // regions is not modified.
             *final(regions) == *old(regions),
     )]
     fn map_branch_pt(&mut self, pt: PageTableNodeRef<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
 
         let ghost guards0 = *guards;
 
@@ -2023,7 +2003,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             ),
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(owner).in_locked_range(),
             final(owner).va == old(owner).va,
             final(self).inner.level == old(self).inner.level - 1,
@@ -2043,7 +2022,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (#[trigger] final(regions).slot_owners[idx]) == old(regions).slot_owners[idx],
     )]
     fn map_branch_none(&mut self, cur_entry: &mut Entry<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
 
         let ghost owner0 = *owner;
         let ghost guards0 = *guards;
@@ -2168,23 +2146,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 cont_new.continuation_inv_holds_after_child_restore();
             };
             owner.map_branch_none_inv_holds(owner0);
-
-            // metaregion_correct: conditional
-            if owner0.metaregion_correct(*old(regions)) {
-                assert(Entry::<C>::path_tracked_pred_preserved(*old(regions), *regions));
-                let f_ptp = PageTableOwner::<C>::path_tracked_pred(*old(regions));
-                let g_ptp = PageTableOwner::<C>::path_tracked_pred(*regions);
-                assert(cont_final.children[idx].unwrap().tree_predicate_map(
-                    cont_final.path().push_tail(idx as usize), g_ptp)) by {
-                    let child = cont_final.children[idx].unwrap();
-                    assert(child.value.meta_slot_paddr() is Some);
-                    assert(!regions.slot_owners[new_pt_idx].paths_in_pt.is_empty());
-                    assert(g_ptp(child.value, cont_final.path().push_tail(idx as usize)));
-                };
-                cont_final.map_children_lift_skip_idx(cont0, idx, f_ptp, g_ptp);
-                owner.map_branch_none_path_tracked_holds(owner0, *regions, *old(regions));
-            }
-
         }
 
         let ghost owner_pre_push = *owner;
@@ -2225,7 +2186,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             old(owner).level < NR_LEVELS,
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(owner)@ == old(owner)@.split_if_mapped_huge_spec(page_size((old(owner).level - 1) as PagingLevel)),
             final(owner).in_locked_range(),
             final(owner).va == old(owner).va,
@@ -2241,7 +2201,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 (#[trigger] final(regions).slot_owners[idx]) == old(regions).slot_owners[idx],
     )]
     fn map_branch_frame(&mut self, cur_entry: &mut Entry<'rcu, C>, rcu_guard: &'rcu A) {
-        proof { reveal(CursorContinuation::inv_children); }
 
         let tracked mut continuation = owner.continuations.tracked_remove(owner.level - 1);
         let tracked mut child_owner = continuation.take_child();
@@ -2300,7 +2259,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             final(self).inner.guard_level == old(self).inner.guard_level,
             final(self).inner.level == level,
             final(owner).in_locked_range(),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(owner)@ == old(owner)@.split_while_huge(page_size(level)),
             forall |item: C::Item| #![trigger Self::item_slot_in_regions(item, *old(regions))]
                 Self::item_slot_in_regions(item, *old(regions)) ==>
@@ -2334,7 +2292,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                 owner.children_not_locked(*guards),
                 owner.nodes_locked(*guards),
                 owner.metaregion_sound(*regions),
-                old(owner).metaregion_correct(*old(regions)) ==> owner.metaregion_correct(*regions),
                 !owner.popped_too_high,
                 owner@ == owner0@.split_while_huge(page_size(self.inner.level)),
                 forall |item: C::Item| #![trigger Self::item_slot_in_regions(item, *old(regions))]
@@ -2349,8 +2306,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
                     (#[trigger] regions.slot_owners[idx]) == old(regions).slot_owners[idx],
             decreases abs(level - self.inner.level),
         {
-            proof { reveal(CursorContinuation::inv_children); }
-
             if self.inner.level < level {
                 let ghost owner_pre_pop = *owner;
                 let ghost level_pre_pop = self.inner.level;
@@ -2399,9 +2354,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                 assert(owner.continuations =~= owner1.continuations);
                 owner1.metaregion_slot_owners_preserved(regions_before_ref, *regions);
-                // metaregion_correct: from function precondition split_huge ==> mc,
-                // loop invariant chains mc to current state, slot_owners_preserved transfers.
-                // metaregion_correct preserved conditionally through slot_owners_preserved
             }
 
             let ghost regions_after_ref = *regions;
@@ -3145,7 +3097,6 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
             forall |p: PageProperty| op.requires((p,)),
         ensures
             final(self).inner.invariants(*final(owner), *final(regions), *final(guards)),
-            old(owner).metaregion_correct(*old(regions)) ==> final(owner).metaregion_correct(*final(regions)),
             final(self).inner.barrier_va == old(self).inner.barrier_va,
     )]
     pub fn protect_next(

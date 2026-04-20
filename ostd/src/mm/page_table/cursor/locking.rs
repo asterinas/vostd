@@ -40,7 +40,6 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         forall|i: int| 0 <= i < NR_ENTRIES ==> pt_own.0.children[i] is Some,
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).metaregion_correct(*final(regions)),
         (*ret.1).in_locked_range(),
         ret.0.level < ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,

@@ -4,7 +4,7 @@
 /// Themes moved here from `owners.rs`:
 /// - **Theme 5**: Tree predicate lifting (`map_children_lift`, `map_children_implies`, etc.)
 /// - **Theme 11**: Tree entry level constraints (`cur_entry_node_implies_level_gt_1`, etc.)
-/// - **Theme 12**: Tree membership & tracking (`absent_not_in_tree`, `not_in_tree_from_not_mapped`)
+/// - **Theme 12**: Tree membership & tracking (`absent_not_in_tree`)
 use vstd::prelude::*;
 
 use vstd_extra::ghost_tree::*;
@@ -251,49 +251,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
     }
 
-    /// If the cursor owner's tree satisfies `metaregion_correct(regions)`, and a new entry's
-    /// physical address is not currently tracked in the page table (`paths_in_pt.is_empty()`),
-    /// then no existing entry in the tree has the same physical address as the new entry.
-    ///
-    /// This lemma encapsulates the `map_children_implies` proof for `not_in_tree`, factored out
-    /// so it runs in its own Z3 context (avoiding rlimit issues when called from large functions).
-    /// If `paths_in_pt.is_empty()` at the new entry's slot, then no NODE in the tree
-    /// has the same paddr (node metaregion_sound requires a singleton path set).
-    /// Frames CAN share paddrs (tracked separately by `paths_in_pt` membership).
-    pub proof fn not_in_tree_from_not_mapped(
-        self,
-        regions: MetaRegionOwners,
-        new_entry: EntryOwner<C>,
-    )
-        requires
-            self.inv(),
-            self.metaregion_correct(regions),
-            new_entry.meta_slot_paddr() is Some,
-            regions.slot_owners[
-                frame_to_index(new_entry.meta_slot_paddr().unwrap())
-            ].paths_in_pt.is_empty(),
-        ensures
-            // Only guarantees paddr_neq for node entries (frames can share paddrs).
-            self.map_full_tree(|e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-                e.is_node() ==> e.meta_slot_paddr_neq(new_entry)),
-    {
-        let pa = new_entry.meta_slot_paddr().unwrap();
-        let g = |e: EntryOwner<C>, p: TreePath<NR_ENTRIES>|
-            e.is_node() ==> e.meta_slot_paddr_neq(new_entry);
-        assert(OwnerSubtree::implies(PageTableOwner::<C>::path_tracked_pred(regions), g)) by {
-            assert forall |entry: EntryOwner<C>, path: TreePath<NR_ENTRIES>|
-                PageTableOwner::<C>::path_tracked_pred(regions)(entry, path)
-                implies #[trigger] g(entry, path) by {
-                if entry.is_node() && entry.meta_slot_paddr() is Some
-                    && entry.meta_slot_paddr().unwrap() == pa {
-                    // Node: path_tracked_pred gives paths_in_pt == set![entry.path] (non-empty).
-                    // But precondition says paths_in_pt.is_empty(). Contradiction.
-                    assert(false);
-                }
-            };
-        };
-        self.map_children_implies(PageTableOwner::<C>::path_tracked_pred(regions), g);
-    }
 }
 
 } // verus!

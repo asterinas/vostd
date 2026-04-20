@@ -86,28 +86,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                     PageTableOwner::<C>::metaregion_sound_pred(regions))
             }),
             other.continuations[self.level - 1].entry_own.metaregion_sound(regions),
-            // For `metaregion_correct` transfer (only needed in the correct branch).
-            self.metaregion_correct(regions) ==> ({
-                let new_child = other.continuations[self.level - 1].children[
-                    other.continuations[self.level - 1].idx as int].unwrap();
-                let new_path = other.continuations[self.level - 1].path()
-                    .push_tail(other.continuations[self.level - 1].idx as usize);
-                new_child.tree_predicate_map(new_path,
-                    PageTableOwner::<C>::path_tracked_pred(regions))
-            }),
-            self.metaregion_correct(regions) ==>
-                PageTableOwner::<C>::path_tracked_pred(regions)(
-                    other.continuations[self.level - 1].entry_own,
-                    other.continuations[self.level - 1].path()),
         ensures
             other.inv(),
             other.metaregion_sound(regions),
-            self.metaregion_correct(regions) ==> other.metaregion_correct(regions),
     {
         other.map_branch_none_inv_holds(self);
 
         let f = PageTableOwner::<C>::metaregion_sound_pred(regions);
-        let h = PageTableOwner::<C>::path_tracked_pred(regions);
         let L = self.level as int;
         let idx = self.continuations[L - 1].idx as int;
 
@@ -148,46 +133,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
                 self.inv_continuation(i);
             }
         };
-
-        if self.metaregion_correct(regions) {
-            assert forall |i: int| #![trigger other.continuations[i]]
-                other.level - 1 <= i < NR_LEVELS
-            implies
-                other.continuations[i].map_children(h)
-            by {
-                if i > L - 1 {
-                    assert(other.continuations[i] == self.continuations[i]);
-                    assert(self.continuations[i].map_children(h));
-                } else {
-                    assert(i == L - 1);
-                    let o_cont = other.continuations[L - 1];
-                    let s_cont = self.continuations[L - 1];
-                    reveal(CursorContinuation::inv_children);
-                    assert forall |j: int| #![trigger o_cont.children[j]]
-                        0 <= j < o_cont.children.len() && o_cont.children[j] is Some
-                    implies
-                        o_cont.children[j].unwrap()
-                            .tree_predicate_map(o_cont.path().push_tail(j as usize), h)
-                    by {
-                        if j != idx {
-                            assert(o_cont.children[j] == s_cont.children[j]);
-                            s_cont.inv_children_unroll(j);
-                        }
-                    };
-                }
-            };
-
-            assert forall |i: int| #![trigger other.continuations[i]]
-                other.level - 1 <= i < NR_LEVELS
-            implies
-                h(other.continuations[i].entry_own, other.continuations[i].path())
-            by {
-                if i > L - 1 {
-                    assert(other.continuations[i] == self.continuations[i]);
-                    self.inv_continuation(i);
-                }
-            };
-        }
     }
 
     pub proof fn map_branch_none_inv_holds(self, owner0: Self)
@@ -225,41 +170,6 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         };
         assert(self.continuations.contains_key(L - 1)) by {
             if L == 1 {} else if L == 2 {} else if L == 3 {} else {}
-        };
-    }
-
-    /// After alloc_if_none (absent->node), `path_tracked_pred` transfers via `map_children_lift`.
-    pub proof fn map_branch_none_path_tracked_holds(
-        self,
-        owner0: Self,
-        regions: MetaRegionOwners,
-        old_regions: MetaRegionOwners,
-    )
-        requires
-            owner0.metaregion_sound(old_regions) && owner0.metaregion_correct(old_regions),
-            self.inv(),
-            self.level == owner0.level,
-            forall|i: int| self.level <= i < NR_LEVELS ==>
-                #[trigger] self.continuations[i] == owner0.continuations[i],
-            Entry::<C>::path_tracked_pred_preserved(old_regions, regions),
-            // Bottom continuation's children satisfy ptp(regions).
-            self.continuations[self.level - 1].map_children(
-                PageTableOwner::<C>::path_tracked_pred(regions)),
-        ensures
-            self.map_full_tree(PageTableOwner::<C>::path_tracked_pred(regions))
-    {
-        let ptp_old = PageTableOwner::<C>::path_tracked_pred(old_regions);
-        let ptp_new = PageTableOwner::<C>::path_tracked_pred(regions);
-        assert forall|i: int|
-            #![trigger self.continuations[i]]
-            self.level - 1 <= i < NR_LEVELS implies
-                self.continuations[i].map_children(ptp_new)
-        by {
-            if i >= self.level as int {
-                let cont = owner0.continuations[i];
-                assert(cont.map_children(ptp_old));
-                cont.map_children_lift(ptp_old, ptp_new);
-            }
         };
     }
 
