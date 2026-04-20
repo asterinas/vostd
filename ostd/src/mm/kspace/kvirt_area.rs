@@ -47,14 +47,13 @@ pub open spec fn frame_as_dynframe<T: AnyFrameMeta>(frame: Frame<T>) -> DynFrame
 }
 
 /// Converts `Frame<T>` to `DynFrame`, with a spec postcondition connecting the result
-/// to the spec function `frame_as_dynframe`. The `Into` impl uses `transmute`, which is
-/// `external_body`, so the equality is admitted.
-/// TODO: use the conversions in `frame/mod.rs`
+/// to the spec function `frame_as_dynframe`. The `Into` impl uses `transmute`, so the
+/// function is marked `external_body` — same trust boundary as the underlying conversion.
+#[verifier::external_body]
 fn frame_into_dynframe<T: AnyUFrameMeta>(frame: Frame<T>) -> (res: DynFrame)
     ensures
         res == frame_as_dynframe(frame),
 {
-    proof { admit(); }
     frame.into()
 }
 
@@ -359,7 +358,12 @@ impl KVirtArea {
             assert(vstd::arithmetic::power2::pow2(witness) == PAGE_SIZE);
         }
         let start = addr.align_down(PAGE_SIZE);
-        proof { assume(start + PAGE_SIZE <= usize::MAX); }
+        proof {
+            assert(start <= addr);
+            assert(addr < self.range.end);
+            assert(self.range.end <= KERNEL_END_VADDR);
+            assert(KERNEL_END_VADDR + PAGE_SIZE <= usize::MAX) by (compute_only);
+        }
         let vaddr = start..start + PAGE_SIZE;
         proof_decl! { let tracked mut _kpt_owner: Option<&PageTableOwner<KernelPtConfig>> = None; }
         let page_table = get_kernel_page_table(Tracked(&mut _kpt_owner), Tracked(regions), Tracked(guards));
@@ -662,8 +666,11 @@ impl KVirtArea {
                 }
 
                 let item = MappedItem::Untracked(pa, level, prop);
-                // TODO: derive pa < MAX_PADDR from pa_range bounds.
-                assume(pa < MAX_PADDR);
+                proof {
+                    lemma_page_size_ge_page_size(level);
+                    assert(pa as nat + page_size(level) as nat <= pa_range.end as nat);
+                    assert(pa < MAX_PADDR);
+                }
                 proof_decl! {
                     let tracked mut entry_owner =
                         EntryOwner::<KernelPtConfig>::new_untracked_frame(pa, level, prop);
@@ -690,10 +697,12 @@ impl KVirtArea {
                 // Save ghost copy of regions before map for post-map invariant maintenance.
                 let ghost pre_map_regions: MetaRegionOwners = *regions;
 
+                proof {
+                    KernelPtConfig::axiom_kernel_htl_lt_nr_levels();
+                    assert(!cursor.map_panic_conditions(item));
+                    assert(cursor.item_wf(item, entry_owner));
+                }
                 // SAFETY: The caller of `map_untracked_frames` has ensured the safety of this mapping.
-                // TODO: derive from VA tracking + page size arithmetic.
-                assume(!cursor.map_panic_conditions(item));
-                assume(cursor.item_wf(item, entry_owner));
                 assume(CursorMut::<'a, KernelPtConfig, A>::item_slot_in_regions(item, *regions));
                 #[verus_spec(with Tracked(&mut cursor_owner), Tracked(entry_owner), Tracked(regions), Tracked(guards))]
                 let _ = cursor.map(item);
