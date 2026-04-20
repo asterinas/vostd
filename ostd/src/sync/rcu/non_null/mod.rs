@@ -58,6 +58,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     /// SOUNDNESS: Considering also returning the Dealloc permission to ensure no memory leak.
     fn into_raw(self) -> ((ret,perm): (NonNull<Self::Target>, Tracked<Self::Permission>))
         ensures
+            ptr_mut_from_nonnull(ret)@.addr != 0,
             ptr_mut_from_nonnull(ret) == self.ptr_mut_spec(),
             ptr_mut_from_nonnull(ret) == perm@.ptr(),
             perm@.inv(),
@@ -103,7 +104,7 @@ pub unsafe trait NonNullPtr: Sized + 'static {
     fn ref_as_raw(ptr_ref: Self::Ref<'_>) -> NonNull<Self::Target>;*/
 
     // A uninterpreted spec function that returns the inner raw pointer.
-    spec fn ptr_mut_spec(self) -> *mut Self::Target;
+    spec fn ptr_mut_spec(self) -> *mut Self::Target;     
 }
 
 /// A type that represents `&'a Box<T>`.
@@ -227,7 +228,7 @@ pub fn box_ref_as_raw<T: 'static>(ptr_ref: BoxRef<'_, T>) -> ((ret,perm): (
     Tracked<&BoxPointsTo<T>>,
 ))
     ensures
-        ret == nonnull_from_ptr_mut(ptr_ref.ptr()),
+        ptr_mut_from_nonnull(ret) == ptr_ref.ptr(),
         perm@.ptr().addr() != 0,
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
         perm@.ptr() == ptr_mut_from_nonnull(ret),
@@ -364,7 +365,7 @@ pub fn arc_ref_as_raw<T: 'static>(ptr_ref: ArcRef<'_, T>) -> ((ret,perm): (
     Tracked<ArcPointsTo<T>>,
 ))
     ensures
-        ret == nonnull_from_ptr_mut(ptr_ref.ptr() as *mut T),
+        ptr_mut_from_nonnull(ret) == ptr_ref.ptr() as *mut T,
         perm@.ptr().addr() != 0,
         perm@.ptr().addr() as int % vstd::layout::align_of::<T>() as int == 0,
         perm@.ptr() == ptr_mut_from_nonnull(ret),
