@@ -13,21 +13,16 @@ pub tracked struct EitherPointsTo<L: RawPtrPerm, R: RawPtrPerm> {
     pub perm: Sum<L, R>,
 }
 
-pub uninterp spec fn either_points_to_ptr<L: RawPtrPerm, R: RawPtrPerm>(
-    perm: EitherPointsTo<L, R>,
-) -> *mut PhantomData<Either<L::Ptr, R::Ptr>>;
-
-pub uninterp spec fn either_ptr_mut_spec<L: NonNullPtr, R: NonNullPtr>(
-    ptr: Either<L, R>,
-) -> *mut PhantomData<Either<L, R>>;
-
 impl<L: RawPtrPerm, R: RawPtrPerm> RawPtrPerm for EitherPointsTo<L, R> {
     type Ptr = Either<L::Ptr, R::Ptr>;
 
     type Target = PhantomData<Self::Ptr>;
 
     open spec fn ptr(self) -> *mut Self::Target {
-        either_points_to_ptr(self)
+            match self.perm {
+            Sum::Left(left) => left.ptr() as *mut Self::Target,
+            Sum::Right(right) => right.ptr() as *mut Self::Target,
+        }
     }
 
     open spec fn addr(self) -> usize {
@@ -36,7 +31,7 @@ impl<L: RawPtrPerm, R: RawPtrPerm> RawPtrPerm for EitherPointsTo<L, R> {
 }
 
 impl<L: RawPtrPerm + Inv, R: RawPtrPerm + Inv> Inv for EitherPointsTo<L, R> {
-    open spec fn inv(self) -> bool {
+    closed spec fn inv(self) -> bool {
         match self.perm {
             Sum::Left(left) => left.inv(),
             Sum::Right(right) => right.inv(),
@@ -53,7 +48,10 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
     type Permission = EitherPointsTo<L::Permission, R::Permission>;
 
     open spec fn ptr_mut_spec(self) -> *mut Self::Target {
-        either_ptr_mut_spec(self)
+        match self {
+            Either::Left(left) => left.ptr_mut_spec() as *mut Self::Target,
+            Either::Right(right) => right.ptr_mut_spec() as *mut Self::Target,
+        }
     }
 
     // type Ref<'a>
@@ -136,6 +134,7 @@ unsafe impl<L: NonNullPtr, R: NonNullPtr> NonNullPtr for Either<L, R> {
 }
 
 // A `min` implementation for use in constant evaluation.
+#[vstd::contrib::auto_spec]
 const fn min(a: u32, b: u32) -> u32 {
     if a < b {
         a
