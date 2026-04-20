@@ -317,9 +317,10 @@ impl<M: AnyFrameMeta> Frame<M> {
                 i != frame_to_index(paddr) ==> final(regions).slot_owners[i] == old(regions).slot_owners[i]
     )]
     pub fn from_in_use(paddr: Paddr) -> Result<Self, GetFrameError> {
-        #[verus_spec(with Tracked(regions))]
-        let from_in_use = MetaSlot::get_from_in_use(paddr);
-        Ok(Self { ptr: from_in_use?, _marker: PhantomData })
+        Ok(Self { 
+            ptr: (#[verus_spec(with Tracked(regions))] MetaSlot::get_from_in_use(paddr))?, 
+            _marker: PhantomData 
+        })
     }
 }
 
@@ -428,9 +429,8 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         returns
             perm.value().ref_count,
     {
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let slot = self.slot();
-        slot.ref_count.load(Tracked(&perm.inner_perms.ref_count))
+        let refcnt = (#[verus_spec(with Tracked(&perm.points_to))] self.slot()).ref_count.load(Tracked(&perm.inner_perms.ref_count));
+        refcnt
     }
 
     /// Borrows a reference from the given frame.
@@ -488,11 +488,10 @@ impl<'a, M: AnyFrameMeta> Frame<M> {
         broadcast use crate::mm::frame::meta::mapping::group_page_meta;
 
         // SAFETY: Both the lifetime and the type matches `self`.
-        #[verus_spec(with Tracked(&perm.points_to))]
-        let paddr = self.start_paddr();
-
-        #[verus_spec(with Tracked(regions), Tracked(perm))]
-        FrameRef::borrow_paddr(paddr)
+        unsafe { 
+            #[verus_spec(with Tracked(regions), Tracked(perm))]
+            FrameRef::borrow_paddr(#[verus_spec(with Tracked(&perm.points_to))] self.start_paddr())
+        }
     }
 
     /// Forgets the handle to the frame.

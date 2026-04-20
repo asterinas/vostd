@@ -11,6 +11,7 @@ use vstd::pervasive::{arbitrary, proof_from_false};
 use vstd::prelude::*;
 use vstd::simple_pptr::PointsTo;
 use vstd::atomic::PermissionU64;
+use vstd::vpanic;
 
 use crate::specs::mm::virt_mem_newer::{MemView, VirtPtr};
 
@@ -565,6 +566,7 @@ pub struct CursorMut<'a, A: InAtomicMode> {
     pub flusher: TlbFlusher<'a  /*, DisabledPreemptGuard*/ >,
 }
 
+#[verus_verify]
 impl<'a, A: InAtomicMode> CursorMut<'a, A> {
 
     /// Queries the mapping at the current virtual address.
@@ -722,8 +724,13 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     }
 
     /// Get the dedicated TLB flusher for this cursor.
-    pub fn flusher(&self) -> &TlbFlusher<'a> {
-        &self.flusher
+    #[verus_spec(ret =>
+        ensures
+            *ret == old(self).flusher,
+            *final(ret) == final(self).flusher,
+    )]
+    pub fn flusher(&mut self) -> &mut TlbFlusher<'a> {
+        &mut self.flusher
     }
 
     /// Map a frame into the current slot.
@@ -797,7 +804,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert(false) by {
                     assert(UserPtConfig::item_into_raw(item).1 == 1);
                 };
-                //panic!("`UFrame` is base page sized but re-mapping out a child PT");
+                vpanic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }
     }

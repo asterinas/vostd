@@ -119,7 +119,7 @@ impl MemView {
     ///
     /// Equivalent to resolving via [`Self::addr_transl`] and reading from [`Self::memory`].
     pub open spec fn read(self, va: usize) -> raw_ptr::MemContents<u8> {
-        let (pa, off) = self.addr_transl(va).unwrap();
+        let (pa, off) = self.addr_transl(va)->Some_0;
         self.memory[pa].contents[off as int]
     }
 
@@ -127,12 +127,11 @@ impl MemView {
     ///
     /// Returns a new [`MemView`] with one byte updated, preserving all mappings.
     pub open spec fn write(self, va: usize, x: u8) -> Self {
-        let (pa, off) = self.addr_transl(va).unwrap();
+        let (pa, off) = self.addr_transl(va)->Some_0;
         MemView {
             memory: self.memory.insert(pa, FrameContents {
                 contents: self.memory[pa].contents.update(off as int, raw_ptr::MemContents::Init(x)),
-                size: self.memory[pa].size,
-                range: self.memory[pa].range,
+                ..self.memory[pa]
             }),
             ..self
         }
@@ -140,14 +139,14 @@ impl MemView {
 
     /// Whether two virtual addresses denote equal byte contents in this view.
     pub open spec fn eq_at(self, va1: usize, va2: usize) -> bool {
-        let (pa1, off1) = self.addr_transl(va1).unwrap();
-        let (pa2, off2) = self.addr_transl(va2).unwrap();
+        let (pa1, off1) = self.addr_transl(va1)->Some_0;
+        let (pa2, off2) = self.addr_transl(va2)->Some_0;
         self.memory[pa1].contents[off1 as int] == self.memory[pa2].contents[off2 as int]
     }
 
     /// Whether `va` is translated and mapped to frame base `pa`.
     pub open spec fn is_mapped(self, va: usize, pa: usize) -> bool {
-        self.addr_transl(va) is Some && self.addr_transl(va).unwrap().0 == pa
+        self.addr_transl(va) is Some && self.addr_transl(va)->Some_0.0 == pa
     }
 
     /// Specification for borrowing a sub-view covering `[vaddr, vaddr + len)`.
@@ -159,7 +158,7 @@ impl MemView {
 
         let valid_pas = Set::new(
             |pa: usize|
-                exists|va: usize|
+                exists |va: usize|
                     vaddr <= va < range_end && #[trigger] self.is_mapped(va, pa),
         );
 
@@ -183,7 +182,7 @@ impl MemView {
     /// Specification for splitting this view at `split_end = vaddr + len`.
     ///
     /// Returns `(left, right)` where:
-    /// - `left` covers `[vaddr, split_end)`,
+    /// - `left` covers `[vaddr, split_end)`, i.e. all mappings overlapping that range.
     /// - `right` covers addresses `>= split_end`.
     pub open spec fn split_spec(self, vaddr: usize, len: usize) -> (MemView, MemView) {
         let split_end = vaddr + len;
@@ -208,7 +207,7 @@ impl MemView {
         )
     }
 
-    /// Executable proof wrapper of [`Self::borrow_at_spec`].
+    /// Tracked wrapper of [`Self::borrow_at_spec`].
     ///
     /// # Verified Properties
     ///
@@ -223,7 +222,7 @@ impl MemView {
     }
 
 
-    /// Executable proof wrapper of [`Self::split_spec`].
+    /// Tracked wrapper of [`Self::split_spec`].
     ///
     /// # Verified Properties
     ///
@@ -284,16 +283,13 @@ impl MemView {
                 |m: Mapping| m.va_range.start <= va < m.va_range.end,
             );
 
-            assert(l_mappings.subset_of(o_mappings));
+            assert(l_mappings <= o_mappings);
             assert forall|m: Mapping| #[trigger]
                 o_mappings.contains(m) implies l_mappings.contains(m) by {
-                assert(m.va_range.start < vaddr + len);
-                assert(m.va_range.end > vaddr);
-                assert(m.va_range.start <= va < m.va_range.end);
                 assert(left.mappings.contains(m));
             };
-            assert(o_mappings.subset_of(l_mappings));
-            assert(o_mappings =~= l_mappings);
+            assert(o_mappings <= l_mappings);
+            assert(o_mappings == l_mappings);
         }
 
         assert forall|va: usize| va >= vaddr + len implies original.addr_transl(va)
@@ -308,15 +304,11 @@ impl MemView {
             );
 
             assert forall|m: Mapping| o_mappings.contains(m) implies r_mappings.contains(m) by {
-                assert(m.va_range.end > va);
-                assert(va >= split_end);
-                assert(m.va_range.end > split_end);
-
                 assert(right.mappings.contains(m));
                 assert(r_mappings.contains(m));
             }
 
-            assert(o_mappings =~= r_mappings);
+            assert(o_mappings == r_mappings);
         }
     }
 
@@ -331,7 +323,7 @@ impl MemView {
         }
     }
 
-    /// Executable proof wrapper of [`Self::join_spec`].
+    /// Tracked wrapper of [`Self::join_spec`].
     ///
     /// # Verified Properties
     ///
@@ -374,11 +366,11 @@ impl MemView {
             forall|m: Mapping|
                 #[trigger] this.mappings.contains(m) ==> vaddr <= m.va_range.start < m.va_range.end,
             forall|pa: Paddr|
-                #[trigger] this.memory.contains_key(pa) ==> exists|va: usize|
+                #[trigger] this.memory.contains_key(pa) ==> exists |va: usize|
                     vaddr <= va && #[trigger] this.is_mapped(va, pa),
         ensures
-            this.mappings =~= lhs.join_spec(rhs).mappings,
-            this.memory =~= lhs.join_spec(rhs).memory,
+            this.mappings == lhs.join_spec(rhs).mappings,
+            this.memory == lhs.join_spec(rhs).memory,
     {
     }
 }
@@ -404,19 +396,9 @@ impl Copy for VirtPtr {
 }
 
 impl VirtPtr {
-    /// Pure constructor specification for [`Self::new`].
-    pub open spec fn new_spec(vaddr: Vaddr, len: usize) -> Self {
-        Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
-    }
-
     /// Creates a pointer at `vaddr` with logical range `[vaddr, vaddr + len)`.
-    ///
-    /// # Verified Properties
-    ///
-    /// ## Postconditions
-    /// - `result == Self::new_spec(vaddr, len)`.
+    #[vstd::contrib::auto_spec]
     pub fn new(vaddr: Vaddr, len: usize) -> Self
-        returns Self::new_spec(vaddr, len),
     {
         Self { vaddr, range: Ghost(Range { start: vaddr, end: (vaddr + len) as usize }) }
     }

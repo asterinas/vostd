@@ -1628,7 +1628,7 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
             res == Self::new_spec(owner_subtree, idx, guard_perm);
 }
 
-pub tracked struct CursorView<C: PageTableConfig> {
+pub ghost struct CursorView<C: PageTableConfig> {
     pub cur_va: Vaddr,
     pub mappings: Set<Mapping>,
     pub phantom: PhantomData<C>,
@@ -1679,6 +1679,7 @@ impl<C: PageTableConfig> CursorView<C> {
 /// `KernelPtConfig` it requires canonical high-half sign-extension reasoning
 /// at the arch boundary. Kept as a free axiom to avoid a cyclic trait
 /// dependency between `PageTableConfig` and `CursorOwner`.
+// TODO: make this a parameter of `PageTableConfig` and prove it per-config
 pub axiom fn axiom_view_in_vaddr_range<'rcu, C: PageTableConfig>(
     owner: &CursorOwner<'rcu, C>,
 )
