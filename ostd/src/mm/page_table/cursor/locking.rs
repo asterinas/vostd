@@ -32,7 +32,7 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
 
 #[verus_spec(ret =>
     with Tracked(pt_own): Tracked<PageTableOwner<C>>,
-        Tracked(root_guard): Tracked<PageTableGuard<'rcu, C>>,
+        Ghost(root_guard): Ghost<PageTableGuard<'rcu, C>>,
         Tracked(regions): Tracked<&mut MetaRegionOwners>,
         Tracked(guards): Tracked<&mut Guards<'rcu, C>>
     requires
@@ -40,7 +40,6 @@ pub assume_specification<Idx: Clone>[ Range::<Idx>::clone ](range: &Range<Idx>) 
         va.start < va.end,
     ensures
         ret.0.invariants(*ret.1, *final(regions), *final(guards)),
-        (*ret.1).metaregion_correct(*final(regions)),
         (*ret.1).in_locked_range(),
         ret.0.level <= ret.0.guard_level,
         ret.0.va < ret.0.barrier_va.end,

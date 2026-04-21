@@ -22,11 +22,20 @@ pub trait TrackDrop {
 
     spec fn drop_ensures(self, s0: Self::State, s1: Self::State) -> bool;
 
-    proof fn drop_spec(self, tracked s: &mut Self::State)
+    proof fn drop_tracked(self, tracked s: &mut Self::State)
         requires
             self.drop_requires(*old(s)),
         ensures
             self.drop_ensures(*old(s), *final(s)),
+    ;
+}
+
+pub trait Drop: TrackDrop {
+    fn drop(self, Tracked(s): Tracked<Self::State>) -> (res: Tracked<Self::State>)
+        requires
+            self.drop_requires(s),
+        ensures
+            self.drop_ensures(s, res@),
     ;
 }
 
@@ -46,17 +55,16 @@ impl<T: TrackDrop> ManuallyDrop<T> {
         }
         Self(t)
     }
+}
 
-    pub fn drop(self, Tracked(s): Tracked<&mut T::State>)
+impl<T: Drop> ManuallyDrop<T> {
+    pub fn drop(self, Tracked(s): Tracked<T::State>) -> (res: Tracked<T::State>)
         requires
-            self.0.drop_requires(*old(s)),
+            self.0.drop_requires(s),
         ensures
-            self.0.drop_ensures(*old(s), *final(s)),
+            self.0.drop_ensures(s, res@),
     {
-        proof {
-            self.0.drop_spec(s);
-        }
-        //        drop(self.0);
+        self.0.drop(Tracked(s))
     }
 }
 

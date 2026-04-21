@@ -230,13 +230,11 @@ pub open spec fn allocated_empty_node_owner<C: PageTableConfig>(owner: OwnerSubt
         owner.children[i].unwrap().value.parent_level == owner.value.node.unwrap().level
 }
 
-pub struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
+pub tracked struct PageTableOwner<C: PageTableConfig>(pub OwnerSubtree<C>);
 
 impl<C: PageTableConfig> PageTableOwner<C> {
 
     /// Per-edge constraint between a node-parent and its child at index `i`.
-    /// These are the four facts that used to live in `EntryOwner::rel_children`'s
-    /// node branch plus the `children[i] is Some` requirement.
     pub open spec fn pt_edge_at(parent: OwnerSubtree<C>, i: int) -> bool {
         &&& parent.children[i] is Some
         &&& parent.children[i].unwrap().value.path.len()
@@ -288,13 +286,10 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             Self::pt_edge_at(self.0, i),
             PageTableOwner(self.0.children[i].unwrap()).pt_inv(),
     {
+        // la_inv + is_node() gives tree_level < L-1, so depth > 0 and the
+        // node branch of pt_inv_at_depth fires.
         let depth = (INC_LEVELS - self.0.level) as nat;
         assert(<EntryOwner<C> as TreeNodeValue<INC_LEVELS>>::la_inv(self.0.value, self.0.level));
-        assert(depth > 0);
-        assert(Self::pt_edge_at(self.0, i));
-        let child = self.0.children[i].unwrap();
-        assert(child.level == self.0.level + 1);
-        assert((INC_LEVELS - child.level) as nat == (depth - 1) as nat);
     }
 
     pub proof fn pt_inv_non_node(self, i: int)
@@ -1053,6 +1048,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                             || (
                                 r1.slots.contains_key(sub_idx)
                                 && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                             )
                         }
                     },
@@ -1097,6 +1093,7 @@ impl<C: PageTableConfig> PageTableOwner<C> {
                             || (
                                 r1.slots.contains_key(sub_idx)
                                 && r1.slot_owners[sub_idx].inner_perms.ref_count.value() != crate::specs::mm::frame::meta_owners::REF_COUNT_UNUSED
+                                && r1.slot_owners[sub_idx].inner_perms.ref_count.value() > 0
                             )
                         }
                     },
@@ -1378,17 +1375,8 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         }
     }
 
-/// For entries in a subtree rooted at `path_j` whose `path_j` is not a prefix of
-    /// `old_entry.path`, no entry in the subtree shares a physical address with `old_entry`.
-    ///
-    /// Proof sketch: by `inv_implies_path_correct`, every entry `e` at structural position `p`
-    /// has `e.path == p`.  Since `!is_prefix_of(path_j, old_entry.path)`, no structural position
-    /// in the subtree equals `old_entry.path`.  Combined with `path_tracked_pred`
-    /// uniqueness (via `same_paddr_implies_same_path`), same paddr would force same path — contradiction.
-    /// Entries in a subtree whose path is disjoint from `old_entry`'s path
+/// Entries in a subtree whose structural path is disjoint from `old_entry.path`
     /// have different physical addresses from `old_entry`.
-    /// Uses `metaregion_sound` (which includes `paths_in_pt` for nodes) to derive
-    /// that same-paddr entries would share `paths_in_pt`, contradicting path disjointness.
     pub axiom fn neq_old_from_path_disjoint(
         subtree: OwnerSubtree<C>,
         path_j: TreePath<NR_ENTRIES>,
@@ -1439,7 +1427,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
         if root_path == dest_path {
             assert(subtree.value == entry1);
             assert(subtree.value == entry2);
-            assert(entry1 == entry2);
         } else if subtree.level == INC_LEVELS - 1 || !subtree.value.is_node() {
             proof_from_false()
         } else {
@@ -1459,7 +1446,6 @@ impl<C: PageTableConfig> PageTableOwner<C> {
             let i = dest_path.index(root_path.len() as int);
             assert(0 <= i < NR_ENTRIES);
             PageTableOwner(subtree).pt_inv_unroll(i as int);
-            assert(subtree.children[i as int] is Some);
             assert(Self::is_prefix_of(root_path.push_tail(i), dest_path));
             Self::is_at_eq_rec(subtree.children[i as int].unwrap(), root_path.push_tail(i as usize),
                 dest_path, entry1, entry2);

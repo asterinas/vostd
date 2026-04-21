@@ -23,7 +23,6 @@ impl<'a, 'rcu, C: PageTableConfig> Entry<'a, 'rcu, C> {
     pub open spec fn node_matching(self, owner: EntryOwner<C>, parent_owner: NodeOwner<C>, guard: PageTableGuard<'rcu, C>) -> bool {
         &&& parent_owner.level == owner.parent_level
         &&& parent_owner.inv()
-        &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_perm.addr()
         &&& guard.inner.inner@.ptr.addr() == parent_owner.meta_perm.points_to.addr()
         &&& guard.inner.inner@.wf(parent_owner)
         &&& parent_owner.meta_perm.is_init()

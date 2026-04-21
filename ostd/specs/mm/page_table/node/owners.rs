@@ -156,7 +156,6 @@ impl<C: PageTableConfig> NodeOwner<C> {
 impl<'rcu, C: PageTableConfig> NodeOwner<C> {
 
     pub open spec fn relate_guard(self, guard: PageTableGuard<'rcu, C>) -> bool {
-        &&& guard.inner.inner@.ptr.addr() == self.meta_perm.addr()
         &&& guard.inner.inner@.ptr.addr() == self.meta_perm.points_to.addr()
         &&& guard.inner.inner@.wf(self)
         &&& self.meta_perm.is_init()

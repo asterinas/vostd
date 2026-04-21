@@ -307,32 +307,6 @@ impl<T /*: ?Sized */, G: SpinGuardian> SpinLock<T, G> {
         }.is_ok()
     }
 
-    /// *Note*: This is **NOT** an OSTD API. It is only an example to show the doc generation output with the `#[verus_spec]` macro.
-    /// It will be removed after [our PR](https://github.com/verus-lang/verus/pull/2132) about `#[verus_spec]` doc generation is merged into Verus mainline.
-    #[verus_spec(ret =>
-        with
-            ghost_in1: Tracked<int>,
-            ghost_in2: Tracked<int>,
-            ->
-            ghost_out: Ghost<(int,int)>,
-        requires
-            ghost_in1@ >= 0,
-        ensures
-            ghost_out@.0 == ghost_in1@,
-            ret == 0,
-    )]
-    pub fn spec_with_example(&self) -> u32 {
-        proof_decl!{
-            let ghost mut out: (int,int) = (0,0);
-        }
-        proof!{
-            out.0 = ghost_in1@;
-            out.1 = ghost_in2@;
-        }
-        proof_with!{|= Ghost(out)}
-        0
-    }
-
     #[verus_spec(
         with
             Tracked(perm): Tracked<PointsTo<T>>,

@@ -10,7 +10,7 @@ use vstd_extra::ownership::*;
 
 verus! {
 
-pub struct TlbModel {
+pub ghost struct TlbModel {
     pub pending: Seq<TlbFlushOp>,
     pub mappings: Set<Mapping>
 }
