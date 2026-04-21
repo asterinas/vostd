@@ -745,7 +745,11 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     fn find_next_impl(&mut self, len: usize, find_unmap_subtree: bool, split_huge: bool) -> Option<Vaddr>
     {
+        #[cfg(feature = "allow_panic")]
+        assert_eq!(len % PAGE_SIZE, 0);
         let end = self.va + len;
+        #[cfg(feature = "allow_panic")]
+        assert!(end <= self.barrier_va.end);
         let ghost barrier_va = self.barrier_va;
         assert(barrier_va == old(self).barrier_va);
 
@@ -1221,6 +1225,8 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> Cursor<'rcu, C, A> {
     )]
     pub fn jump(&mut self, va: Vaddr) -> Result<(), PageTableError>
     {
+        #[cfg(feature = "allow_panic")]
+        assert!(va % PAGE_SIZE == 0);
         if !self.barrier_va.contains(&va) {
             return Err(PageTableError::InvalidVaddr(va));
         }
@@ -2421,8 +2427,16 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
         let ghost self0 = *self;
         let ghost owner0 = *owner;
 
+        #[cfg(feature = "allow_panic")]
+        assert!(self.inner.va < self.inner.barrier_va.end);
         let (pa, level, prop) = C::item_into_raw(item);
+        #[cfg(feature = "allow_panic")]
+        assert!(level <= C::HIGHEST_TRANSLATION_LEVEL());
         let size = page_size(level);
+        #[cfg(feature = "allow_panic")]
+        assert_eq!(self.inner.va % size, 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(self.inner.va + size <= self.inner.barrier_va.end);
 
         let ghost target = Mapping {
             va_range: owner@.cur_slot_range(size),
@@ -3405,8 +3419,10 @@ impl<'rcu, C: PageTableConfig, A: InAtomicMode> CursorMut<'rcu, C, A> {
 
                         let _ = ManuallyDrop::new(pt, Tracked(regions));  // leak it to make shared PTs stay `'static`.
                         assert(false);
+                        #[cfg(feature = "allow_panic")]
+                        panic!("Unmapping shared kernel page table nodes");
+                        #[cfg(not(feature = "allow_panic"))]
                         return None;
-                        // panic!("Unmapping shared kernel page table nodes");
                     }
                 }
                 // SAFETY: We must have locked this node.

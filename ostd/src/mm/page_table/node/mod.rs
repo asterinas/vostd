@@ -208,6 +208,7 @@ impl<C: PageTableConfig> PageTableNode<C> {
             mm::page_prop::CachePolicy,
         };
 
+        #[cfg(feature = "allow_panic")]
         assert_eq!(self.level(), C::NR_LEVELS());
 
         let last_activated_paddr = current_page_table_paddr();
@@ -344,7 +345,8 @@ impl<'rcu, C: PageTableConfig> PageTableGuard<'rcu, C> {
             res.node.addr() == guard_perm.addr(),
             res.idx == idx,
     {
-        //        assert!(idx < nr_subpage_per_huge::<C>());
+        #[cfg(feature = "allow_panic")]
+        assert!(idx < nr_subpage_per_huge::<C>());
         // SAFETY: The index is within the bound.
         #[verus_spec(with Tracked(child_owner), Tracked(owner), Tracked(guard_perm))]
         Entry::new_at(guard, idx);

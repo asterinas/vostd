@@ -804,6 +804,7 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
                 assert(false) by {
                     assert(UserPtConfig::item_into_raw(item).1 == 1);
                 };
+                #[cfg(feature = "allow_panic")]
                 vpanic!("`UFrame` is base page sized but re-mapping out a child PT");
             },
         }

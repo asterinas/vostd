@@ -462,10 +462,15 @@ impl KVirtArea {
             forall |i: int, j: int| 0 <= i < j < frames.len() ==>
                 (#[trigger] old(entry_owners)[i]).frame.unwrap().mapped_pa != (#[trigger] old(entry_owners)[j]).frame.unwrap().mapped_pa,
     {
+        #[cfg(feature = "allow_panic")]
+        assert!(area_size % PAGE_SIZE == 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(map_offset % PAGE_SIZE == 0);
+
         proof {
             kvirt_alloc_succeeds(area_size);
         }
-        
+
         let range = KVIRT_AREA_ALLOCATOR.alloc(area_size).unwrap();
 
         proof {
@@ -633,6 +638,17 @@ impl KVirtArea {
             // The physical range must not already be mapped in any page table.
             old(regions).paddr_range_not_mapped(pa_range),
     {
+        #[cfg(feature = "allow_panic")]
+        assert!(pa_range.start % PAGE_SIZE == 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(pa_range.end % PAGE_SIZE == 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(area_size % PAGE_SIZE == 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(map_offset % PAGE_SIZE == 0);
+        #[cfg(feature = "allow_panic")]
+        assert!(map_offset + (pa_range.end - pa_range.start) <= area_size);
+
         proof {
             kvirt_alloc_succeeds(area_size);
         }

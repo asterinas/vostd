@@ -441,9 +441,11 @@ impl<'a> VmWriter<'a, Infallible> {
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.vaddr as *mut T;
+        #[cfg(feature = "allow_panic")]
         assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
 
         let avail = self.end.vaddr - self.cursor.vaddr;
+        #[cfg(feature = "allow_panic")]
         assert!(avail % core::mem::size_of::<T>() == 0);
         let written_num = avail / core::mem::size_of::<T>();
 

@@ -7,14 +7,14 @@ macro_rules! assert {
     ($cond:expr) => {
         verus_exec_expr!(
             if !($cond) {
-                proof { assert(false); }
+                panic!()
             }
         )
     };
     ($cond:expr, $msg:literal) => {
         verus_exec_expr!(
             if !($cond) {
-                proof { assert(false); }
+                panic!()
             }
         )
     };
