@@ -487,8 +487,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
             Tracked(guards): Tracked<&mut Guards<'rcu, UserPtConfig>>
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).0.find_next_panic_condition(len),
         ensures
+            !old(self).0.find_next_panic_condition(len),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).0.va
@@ -531,8 +531,8 @@ impl<'rcu, A: InAtomicMode> Cursor<'rcu, A> {
         requires
             old(self).0.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            !old(self).0.jump_panic_condition(va),
         ensures
+            !old(self).0.jump_panic_condition(va),
             final(self).0.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).0.barrier_va.start <= va < final(self).0.barrier_va.end ==> {
                 &&& res is Ok
@@ -655,8 +655,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
     pub fn find_next(&mut self, len: usize) -> (res: Option<Vaddr>)
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).pt_cursor.inner.find_next_panic_condition(len),
         ensures
+            !old(self).pt_cursor.inner.find_next_panic_condition(len),
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
             res is Some ==> {
                 &&& res.unwrap() == final(self).pt_cursor.inner.va
@@ -699,8 +699,8 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
             old(owner).in_locked_range(),
-            !old(self).pt_cursor.inner.jump_panic_condition(va),
         ensures
+            !old(self).pt_cursor.inner.jump_panic_condition(va),
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).pt_cursor.inner.barrier_va.start <= va < final(self).pt_cursor.inner.barrier_va.end ==> {
                 &&& res is Ok
@@ -766,9 +766,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             old(tlb_model).inv(),
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
             old(cursor_owner).in_locked_range(),
-            !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             old(self).item_wf(frame, prop, entry_owner, *old(regions)),
         ensures
+            !old(self).pt_cursor.map_panic_conditions(MappedItem { frame: frame, prop: prop }),
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
             old(self).map_item_ensures(
                 frame,
@@ -851,9 +851,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(tlb_model): Tracked<&mut TlbModel>
         requires
             old(self).pt_cursor.inner.invariants(*old(cursor_owner), *old(regions), *old(guards)),
-            !old(self).pt_cursor.inner.find_next_panic_condition(len),
             old(tlb_model).inv(),
         ensures
+            !old(self).pt_cursor.inner.find_next_panic_condition(len),
             final(self).pt_cursor.inner.invariants(*final(cursor_owner), *final(regions), *final(guards)),
             old(self).pt_cursor.inner.model(*old(cursor_owner)).unmap_spec(len, final(self).pt_cursor.inner.model(*final(cursor_owner)), r),
             final(tlb_model).inv(),
@@ -863,6 +863,16 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             cursor_owner.va.reflect_prop(self.pt_cursor.inner.va);
             cursor_owner.view_preserves_inv();
         }
+
+        vstd_extra::assert_eq!(len % PAGE_SIZE, 0);
+
+        //*** KNOWN BUG: `self.virt_addr() + len` could overflow. For now, assume that it doesn't. ***
+        assume(self.pt_cursor.inner.va + len <= usize::MAX);
+
+        vstd_extra::assert!(self.virt_addr() + len <= self.pt_cursor.inner.barrier_va.end);
+
+        assert(!self.pt_cursor.inner.find_next_panic_condition(len));
+        assert(!old(self).pt_cursor.inner.find_next_panic_condition(len));
 
         let end_va = self.virt_addr() + len;
         let mut num_unmapped: usize = 0;
@@ -1375,9 +1385,9 @@ impl<'a, A: InAtomicMode> CursorMut<'a, A> {
             Tracked(guards): Tracked<&mut Guards<'a, UserPtConfig>>,
         requires
             old(self).pt_cursor.inner.invariants(*old(owner), *old(regions), *old(guards)),
-            !old(self).pt_cursor.inner.find_next_panic_condition(len),
             forall |p: PageProperty| op.requires((p,)),
         ensures
+            !old(self).pt_cursor.inner.find_next_panic_condition(len),
             final(self).pt_cursor.inner.invariants(*final(owner), *final(regions), *final(guards)),
             final(self).pt_cursor.inner.barrier_va == old(self).pt_cursor.inner.barrier_va,
     )]

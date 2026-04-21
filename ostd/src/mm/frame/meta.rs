@@ -401,9 +401,7 @@ impl MetaSlot {
             last_ref_cnt => {
                 if last_ref_cnt >= REF_COUNT_MAX {
                     // See `Self::inc_ref_count` for the explanation.
-                    #[cfg(feature = "allow_panic")]
-                    crate::panic::abort();
-                    assert(false)
+                    vstd_extra::panic::panic_diverge();
                 }
                 // Using `Acquire` here to pair with `get_from_unused` or
                 // `<Frame<M> as From<UniqueFrame<M>>>::from` (who must be

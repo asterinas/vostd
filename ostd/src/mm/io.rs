@@ -435,18 +435,16 @@ impl<'a> VmWriter<'a, Infallible> {
     // the body is refactored to go through `ArrayPtr::from_addr` with a
     // tracked `PointsToArray` permission.
     #[verifier::external_body]
-    #[verus_spec(
-        requires
+    #[verus_spec(r =>
+        ensures
             !old(self).fill_panic_condition::<T>(),
     )]
     pub fn fill<T: Pod>(&mut self, value: T) -> usize {
         let cursor = self.cursor.vaddr as *mut T;
-        #[cfg(feature = "allow_panic")]
-        assert!((cursor as usize) % core::mem::align_of::<T>() == 0);
+        vstd_extra::assert_eq!((cursor as usize) % core::mem::align_of::<T>(), 0);
 
         let avail = self.end.vaddr - self.cursor.vaddr;
-        #[cfg(feature = "allow_panic")]
-        assert!(avail % core::mem::size_of::<T>() == 0);
+        vstd_extra::assert_eq!(avail % core::mem::size_of::<T>(), 0);
         let written_num = avail / core::mem::size_of::<T>();
 
         for i in 0..written_num {
