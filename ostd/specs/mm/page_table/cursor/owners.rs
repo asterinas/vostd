@@ -1215,9 +1215,13 @@ impl<'rcu, C: PageTableConfig> CursorOwner<'rcu, C> {
         assert(ad as int == ad_q * ps_i + (ad as int % ps as int));
         assert(ad as int % ps as int == 0);
         assert(ad as int == ad_q * ps_i);
-        assert(end as int == end_q * ps_i + (end as int % ps as int));
         assert(end as int % ps as int == 0);
-        assert(end as int == end_q * ps_i);
+        assert(end as int == end_q * ps_i) by (nonlinear_arith)
+            requires
+                end as int == (ps as int) * (end as int / ps as int) + end as int % ps as int,
+                end as int % ps as int == 0,
+                end_q == end as int / ps as int,
+                ps_i == ps as int;
         assert((ad_q + 1) * ps_i <= end_q * ps_i) by (nonlinear_arith)
             requires ad_q + 1 <= end_q, ps_i >= 0;
         assert((ad_q + 1) * ps_i == ad_q * ps_i + ps_i) by (nonlinear_arith);
